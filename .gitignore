@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Environment & Secrets
+.env
+.env.local
+*.key
+credentials.json
+tokens.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project
+logs/
+output/
+temp/
+*.pdf
+*.docx
+!templates/*.docx
+
+# Data
+*.db
+*.sqlite3
