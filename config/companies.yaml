@@ -1,0 +1,22 @@
+# Company slugs to scrape for job postings.
+# Greenhouse slugs: found in https://boards.greenhouse.io/{slug}
+# Lever slugs: found in https://jobs.lever.co/{slug}
+
+greenhouse:
+  # Big tech / well-known
+  - stripe
+  - airbnb
+  - notion
+  - figma
+  - databricks
+  - snowflake
+  - confluent
+  # Add more as needed
+
+lever:
+  # Example companies on Lever
+  - linear
+  - vercel
+  - ramp
+  - retool
+  # Add more as needed
