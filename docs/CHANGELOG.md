@@ -2,7 +2,47 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
-## [Unreleased] — Phase 2: Job Intake + Smart Filtering
+## [0.2.0] — 2026-04-02 — Phase 2: Job Intake + Smart Filtering
+
+### Phase 2.1: Job Intake
+- Unified Job schema (Pydantic): RawJob, JobRequirements, employment type/seniority classifiers
+- Base scraper with httpx client, context manager, retry/timeout support
+- Greenhouse ATS scraper (boards-api.greenhouse.io/v1)
+- Lever ATS scraper (api.lever.co/v0/postings)
+- LLM-assisted JD parser with regex fallback (skills, education, experience, visa, remote)
+- Job storage with deduplication (source + company + source_id)
+- Batch intake orchestrator with YAML company config
+- Generic filter engine: YAML-driven profiles with location/work mode rules, title keywords, employment type, seniority, description regex exclusions, experience cap
+- Batch search CLI: `python -m src.intake.search --profile default`
+- Default filter profile: Vancouver/Toronto all modes, US remote-only, software intern roles, excludes Canadian PR/citizenship
+
+### Phase 2.2: Smart Filtering & Scoring
+- Hard rule matching: work authorization, experience (1-year grace), education level, employment type, spam/ghost job detection
+- ApplicantContext loader from profile YAML
+- Skill overlap scoring with normalization and fuzzy matching (JS→javascript, K8s→kubernetes)
+- TF-based keyword similarity as embedding fallback
+- Cosine similarity utility for future embedding support
+- Composite scorer: weighted skill overlap (must-have 70% / preferred 30%) + keyword similarity + rule bonus + quality multiplier
+- Quality multiplier penalizes sparse JDs and missing apply URLs
+- Ranked output with `print_ranking()` CLI helper
+
+### Post-Review Fixes
+- **P1**: Added `source_id` column to Job model for proper indexed deduplication
+- **P1**: Fixed dedup query to filter by company and use source_id directly
+- **P1**: Added per-job IntegrityError handling in upsert_jobs
+- **P1**: Separated `coop` vs `internship` in employment type classifier
+- **P1**: Replaced hardcoded year with `datetime.now().year` in experience calculation
+- **P1**: Wrapped JD text in XML tags to mitigate prompt injection
+- **P1**: Used Pydantic `model_validate` for LLM output validation
+- **P2**: Extracted shared HTML stripping, applied to Lever descriptions
+- **P2**: Fixed Greenhouse office type check for non-dict entries
+- **P2**: Normalized US work auth comparison to case-insensitive
+- **P2**: Weighted must-have skills higher than preferred in scorer
+- **P2**: Default IGNORECASE for filter regex patterns
+
+### Tests
+- 26 filter tests (work mode inference, title/location/description/experience matching)
+- 34 matching tests (rules, semantic overlap, keyword similarity, scorer ranking)
 
 ---
 

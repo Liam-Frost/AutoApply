@@ -76,10 +76,11 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 2.1 | Job schema, Greenhouse scraper, Lever scraper, JD parsing (LLM-assisted) | Not started |
-| 2.2 | Hard rule filters, semantic matching, composite scorer, low-quality job filtering | Not started |
+| 2.1 | Job schema, Greenhouse scraper, Lever scraper, JD parsing, filters, search CLI | **Complete** |
+| 2.2 | Hard rule filters, semantic matching, composite scorer, low-quality job filtering | **Complete** |
 
 **Verification**: Scrape Greenhouse jobs → score & rank → output top-N list
+**Code Review**: 8 P1 and 7 P2 issues found and fixed. See CHANGELOG.
 
 ### Phase 3: Resume/CL Tailoring + QA (Weeks 5-6)
 
@@ -113,8 +114,8 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 ## Current Session Context
 
-- **Active branch**: `dev` (Phase 1 merged to master)
-- **Current phase**: Phase 2.1 — Job Intake (Greenhouse + Lever scrapers)
-- **Last commit**: Phase 1 merge to master (21/21 tests passing)
+- **Active branch**: `dev` (Phase 2 complete, ready to merge to master)
+- **Current phase**: Phase 2 complete — moving to Phase 3
+- **Last commit**: Phase 2 review fixes (60/60 tests passing)
 - **Blockers**: None
-- **Next step**: Define unified Job schema (Pydantic), implement Greenhouse and Lever ATS scrapers, LLM-assisted JD parsing
+- **Next step**: Phase 3.1 — JD keyword extraction, bullet selection, resume tailoring

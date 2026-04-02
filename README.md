@@ -54,6 +54,14 @@ src/
 └── utils/         # LLM wrapper, rate limiter, logger
 ```
 
+## Current Status
+
+- **Phase 1** (Infrastructure + Applicant Memory + Document Processing) — Complete
+- **Phase 2** (Job Intake + Smart Filtering) — Complete
+- **Phase 3** (Resume/CL Tailoring + QA) — Next
+
+60 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+
 ## Getting Started
 
 > Project is in active development. See [Implementation Plan (EN)](docs/plan_en.md) | [实施计划 (中文)](docs/plan_zh.md)
