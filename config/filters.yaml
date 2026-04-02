@@ -1,0 +1,91 @@
+# Job search filters configuration.
+#
+# Each named filter profile defines criteria that incoming jobs must satisfy.
+# A job passes the profile if it matches ALL specified criteria (AND logic).
+# Within a criterion (e.g. multiple locations), items are OR'd.
+#
+# Location matching:
+#   Each entry has a `name` (substring matched against job location) and an
+#   optional `work_modes` list. If work_modes is omitted, all modes are accepted.
+#   Supported modes: remote, hybrid, onsite
+#
+# Title keywords:
+#   A job title must contain at least one `include` keyword (case-insensitive).
+#   If `exclude` keywords are present, jobs matching any are dropped.
+#
+# Employment types / seniority:
+#   Exact match against the normalized schema enums.
+#
+# Exclusion patterns:
+#   Regex patterns applied to the full description text. If any matches, the job
+#   is excluded. Useful for filtering out citizenship/PR requirements.
+
+profiles:
+  default:
+    description: "Software intern roles in Canada (Van/Tor) + US remote"
+
+    locations:
+      - name: vancouver
+        work_modes: [remote, hybrid, onsite]
+      - name: toronto
+        work_modes: [remote, hybrid, onsite]
+      - name: canada
+        work_modes: [remote]
+      # US: remote only
+      - name: united states
+        work_modes: [remote]
+      - name: us
+        work_modes: [remote]
+      - name: remote
+        work_modes: [remote]
+
+    employment_types:
+      - internship
+      - coop
+
+    seniority:
+      - internship
+
+    title_keywords:
+      include:
+        - intern
+        - co-op
+        - coop
+        - software
+        - frontend
+        - front-end
+        - front end
+        - backend
+        - back-end
+        - back end
+        - fullstack
+        - full-stack
+        - full stack
+        - developer
+        - engineer
+        - ai agent
+        - machine learning
+        - ml engineer
+        - swe
+      exclude:
+        - manager
+        - director
+        - recruiter
+        - designer
+        - sales
+        - marketing
+        - legal
+        - finance
+        - accounting
+        - hr
+        - people ops
+
+    description_exclude_patterns:
+      # Exclude jobs requiring Canadian PR / citizenship
+      - "(?i)canadian\\s+(permanent\\s+residen|citizen)"
+      - "(?i)must\\s+be\\s+a\\s+canadian\\s+citizen"
+      - "(?i)require[sd]?\\s+canadian\\s+(pr|permanent)"
+      - "(?i)eligible\\s+to\\s+work\\s+in\\s+canada\\s+without\\s+sponsorship"
+
+    # Optional: max experience years (to avoid senior roles miscategorized as intern)
+    max_experience_years: 3
