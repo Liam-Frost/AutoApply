@@ -1,0 +1,46 @@
+[project]
+name = "autoapply"
+version = "0.1.0"
+description = "AI-powered automated job application agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Database
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+    "pgvector>=0.3",
+    "alembic>=1.13",
+    # Config & CLI
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "click>=8.1",
+    # Document processing
+    "python-docx>=1.1",
+    "docx2pdf>=0.1.8",
+    "pymupdf>=1.24",  # PDF text extraction (used by resume_importer)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.8",
+]

@@ -1,0 +1,104 @@
+"""Initial tables: jobs, applications, applicant_profile, bullet_pool, qa_bank
+
+Revision ID: 0412f55aac77
+Revises: 
+Create Date: 2026-04-02 01:42:44.156178
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import pgvector.sqlalchemy
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers, used by Alembic.
+revision: str = '0412f55aac77'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # Enable pgvector extension before creating VECTOR columns (P1 fix)
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+    # jobs first — applications has a FK to jobs (P2 fix: creation order)
+    op.create_table('jobs',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('source', sa.String(length=50), nullable=True),
+    sa.Column('company', sa.String(length=200), nullable=False),
+    sa.Column('title', sa.String(length=300), nullable=False),
+    sa.Column('location', sa.String(length=200), nullable=True),
+    sa.Column('employment_type', sa.String(length=50), nullable=True),
+    sa.Column('seniority', sa.String(length=50), nullable=True),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('description_embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=True),
+    sa.Column('requirements', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('visa_sponsorship', sa.Boolean(), nullable=True),
+    sa.Column('ats_type', sa.String(length=50), nullable=True),
+    sa.Column('application_url', sa.Text(), nullable=True),
+    sa.Column('raw_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('discovered_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    # applications references jobs.id via FK (P2 fix: referential integrity)
+    op.create_table('applications',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('job_id', sa.UUID(), nullable=False),
+    sa.Column('status', sa.String(length=30), nullable=False),
+    sa.Column('match_score', sa.Float(), nullable=True),
+    sa.Column('resume_version', sa.Text(), nullable=True),
+    sa.Column('cover_letter_version', sa.Text(), nullable=True),
+    sa.Column('qa_responses', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('screenshot_paths', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('error_log', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('submitted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('outcome', sa.String(length=30), nullable=True),
+    sa.ForeignKeyConstraint(['job_id'], ['jobs.id'], name='fk_applications_job_id'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_applications_job_id'), 'applications', ['job_id'], unique=False)
+    op.create_table('applicant_profile',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('section', sa.String(length=50), nullable=False),
+    sa.Column('content', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('content_embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=True),
+    sa.Column('tags', postgresql.ARRAY(sa.String()), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('bullet_pool',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('category', sa.String(length=50), nullable=True),
+    sa.Column('source_entity', sa.String(length=200), nullable=True),
+    sa.Column('text', sa.Text(), nullable=False),
+    sa.Column('text_embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=True),
+    sa.Column('tags', postgresql.ARRAY(sa.String()), nullable=True),
+    sa.Column('used_count', sa.Integer(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('qa_bank',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('question_pattern', sa.Text(), nullable=True),
+    sa.Column('question_type', sa.String(length=50), nullable=True),
+    sa.Column('canonical_answer', sa.Text(), nullable=True),
+    sa.Column('variants', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('confidence', sa.String(length=20), nullable=False),
+    sa.Column('needs_review', sa.Boolean(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.drop_table('qa_bank')
+    op.drop_table('bullet_pool')
+    op.drop_table('applicant_profile')
+    op.drop_index(op.f('ix_applications_job_id'), table_name='applications')
+    op.drop_table('applications')
+    op.drop_table('jobs')
+    op.execute("DROP EXTENSION IF EXISTS vector")
