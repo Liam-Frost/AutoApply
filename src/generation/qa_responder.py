@@ -257,17 +257,12 @@ def _template_answer(
     identity = profile_data.get("identity", {})
 
     if qtype == "authorization":
-        auth = identity.get("work_authorization", "")
-        if auth:
-            return f"I currently hold a {auth}."
+        # Authorization is jurisdiction-sensitive — always flag for review
+        # rather than auto-generating a potentially incorrect answer
         return None
 
     if qtype == "sponsorship":
-        needs = identity.get("visa_sponsorship_needed", None)
-        if needs is True:
-            return "Yes, I would require visa sponsorship."
-        elif needs is False:
-            return "No, I do not require visa sponsorship."
+        # Sponsorship is high-risk — always flag for review
         return None
 
     if qtype == "experience_years":
@@ -285,23 +280,49 @@ def _template_answer(
 
 
 def _estimate_experience_years(experiences: list[dict]) -> int:
-    """Rough estimate of total experience years from work history."""
+    """Estimate total experience years from work history using month precision.
+
+    Merges overlapping periods to avoid double-counting.
+    """
     from datetime import datetime
 
-    total = 0
+    # Collect (start_month, end_month) intervals
+    intervals: list[tuple[int, int]] = []
+    now_month = datetime.now().year * 12 + datetime.now().month
+
     for exp in experiences:
         if not isinstance(exp, dict):
             continue
         start = exp.get("start_date", "")
         end = exp.get("end_date", "")
-        if start:
-            try:
-                start_year = int(start[:4])
-                end_year = int(end[:4]) if end and end != "Present" else datetime.now().year
-                total += max(0, end_year - start_year)
-            except (ValueError, IndexError):
-                pass
-    return total
+        if not start:
+            continue
+        try:
+            parts = start.split("-")
+            start_m = int(parts[0]) * 12 + int(parts[1]) if len(parts) >= 2 else int(parts[0]) * 12 + 1
+            if end and end != "Present":
+                eparts = end.split("-")
+                end_m = int(eparts[0]) * 12 + int(eparts[1]) if len(eparts) >= 2 else int(eparts[0]) * 12 + 12
+            else:
+                end_m = now_month
+            intervals.append((start_m, end_m))
+        except (ValueError, IndexError):
+            pass
+
+    if not intervals:
+        return 0
+
+    # Merge overlapping intervals
+    intervals.sort()
+    merged: list[tuple[int, int]] = [intervals[0]]
+    for start, end in intervals[1:]:
+        if start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    total_months = sum(end - start for start, end in merged)
+    return max(0, total_months // 12)
 
 
 # ---------------------------------------------------------------------------

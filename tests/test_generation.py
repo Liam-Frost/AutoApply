@@ -312,15 +312,15 @@ class TestGetVariantAnswer:
 
 
 class TestTemplateAnswer:
-    def test_authorization(self):
+    def test_authorization_returns_none(self):
+        """Authorization is jurisdiction-sensitive, should not auto-generate."""
         answer = _template_answer("authorization", _PROFILE, _make_job())
-        assert answer is not None
-        assert "Study Permit" in answer
+        assert answer is None
 
-    def test_sponsorship(self):
+    def test_sponsorship_returns_none(self):
+        """Sponsorship is high-risk, should not auto-generate."""
         answer = _template_answer("sponsorship", _PROFILE, _make_job())
-        assert answer is not None
-        assert "require" in answer.lower() or "need" in answer.lower() or "yes" in answer.lower()
+        assert answer is None
 
     def test_start_date(self):
         answer = _template_answer("start_date", _PROFILE, _make_job())
@@ -340,10 +340,24 @@ class TestEstimateExperienceYears:
         exps = [{"start_date": "2024-01", "end_date": "2025-01"}]
         assert _estimate_experience_years(exps) == 1
 
+    def test_sub_year(self):
+        """4-month internship should round to 0 years."""
+        exps = [{"start_date": "2025-05", "end_date": "2025-08"}]
+        assert _estimate_experience_years(exps) == 0
+
     def test_present(self):
         exps = [{"start_date": "2024-01", "end_date": "Present"}]
         years = _estimate_experience_years(exps)
-        assert years >= 1  # At least 1 year from 2024 to now
+        assert years >= 1
+
+    def test_overlapping_merged(self):
+        """Overlapping jobs should not double-count."""
+        exps = [
+            {"start_date": "2023-01", "end_date": "2024-06"},
+            {"start_date": "2024-01", "end_date": "2025-01"},
+        ]
+        # Merged: 2023-01 to 2025-01 = 24 months = 2 years
+        assert _estimate_experience_years(exps) == 2
 
     def test_empty(self):
         assert _estimate_experience_years([]) == 0
