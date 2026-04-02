@@ -2,6 +2,37 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
+## [0.3.0] — 2026-04-02 — Phase 3: Resume/CL Tailoring + QA
+
+### Phase 3.1: Resume Builder
+- JD tag extraction from requirements and title keywords
+- Bullet selection by tag overlap (ranked, configurable max per entity)
+- Optional LLM-powered light lexical rewrite with keyword injection
+- Fact-drift guard: rejects rewrites that change length >2x or <0.3x
+- Full pipeline: extract → select → rewrite → docx assembly → PDF conversion
+
+### Phase 3.2: Cover Letter Generator
+- Structure-constrained generation: opening → evidence → company tie-in → close
+- LLM generation bounded by system prompt (250-400 words, no fabrication)
+- Template fallback when LLM unavailable
+- Auto-selects best evidence bullets from profile by JD tag overlap
+
+### Phase 3.3: QA Auto-Responder
+- Question classifier for 10 types (authorization, sponsorship, salary, start_date, why_company, why_role, strengths, weaknesses, experience_years, custom)
+- Confidence cascade: QA bank match → template → LLM → flag for review
+- Geography and role-type variant selection from QA bank
+- High-risk types (salary, authorization, sponsorship) always flagged for review
+- LLM-generated answers always flagged for review
+
+### Post-Review Fixes (Codex review)
+- **P1**: Removed auto-generated authorization/sponsorship template answers — jurisdiction-sensitive, must use QA bank with explicit variants or flag for review
+- **P2**: Experience year calculation now uses month-level precision with interval merging to avoid double-counting and calendar-year inflation
+
+### Tests
+- 43 generation tests (JD tag extraction, bullet selection/ranking, evidence selection, cover letter template, question classification, QA bank matching, variant selection, template answers, experience calculation, answer pipeline)
+
+---
+
 ## [0.2.0] — 2026-04-02 — Phase 2: Job Intake + Smart Filtering
 
 ### Phase 2.1: Job Intake

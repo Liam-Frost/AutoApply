@@ -86,11 +86,12 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 3.1 | JD keyword extraction, bullet selection, lexical rewrite, fact-drift check | Not started |
-| 3.2 | Cover letter generation (structure-constrained), company research | Not started |
-| 3.3 | Quick question answering (classify → match → generate → review flag) | Not started |
+| 3.1 | JD keyword extraction, bullet selection, lexical rewrite, fact-drift check | **Complete** |
+| 3.2 | Cover letter generation (structure-constrained), company research | **Complete** |
+| 3.3 | Quick question answering (classify → match → generate → review flag) | **Complete** |
 
 **Verification**: Given JD → auto-select bullets → generate resume + CL + answer questions
+**Code Review**: Codex review — 1 P1 (auth template removed), 1 P2 (experience calc fixed). See CHANGELOG.
 
 ### Phase 4: Browser Automation + Form Filling (Weeks 7-8)
 
@@ -114,8 +115,8 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 ## Current Session Context
 
-- **Active branch**: `dev` (Phase 2 complete, ready to merge to master)
-- **Current phase**: Phase 2 complete — moving to Phase 3
-- **Last commit**: Phase 2 review fixes (60/60 tests passing)
+- **Active branch**: `dev` (Phase 3 complete, ready to merge to master)
+- **Current phase**: Phase 3 complete — moving to Phase 4
+- **Last commit**: Phase 3 Codex review fixes (103/103 tests passing)
 - **Blockers**: None
-- **Next step**: Phase 3.1 — JD keyword extraction, bullet selection, resume tailoring
+- **Next step**: Phase 4.1 — Playwright browser management, application state machine, ATS adapters
