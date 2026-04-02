@@ -65,11 +65,12 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 1.1 | Project init: uv, PostgreSQL+pgvector, Alembic, config loader, LLM CLI wrapper, logging | Not started |
-| 1.2 | Applicant Memory: profile YAML schema, resume importer, bullet pool, story bank, QA bank, embeddings | Not started |
-| 1.3 | Document Processing: Word template engine, block-based resume assembly, PDF conversion, file versioning | Not started |
+| 1.1 | Project init: uv, PostgreSQL+pgvector, Alembic, config loader, LLM CLI wrapper, logging | **Complete** |
+| 1.2 | Applicant Memory: profile YAML schema, resume importer, bullet pool, story bank, QA bank | **Complete** |
+| 1.3 | Document Processing: Word template engine, block-based resume assembly, PDF conversion, file versioning | **Complete** |
 
-**Verification**: Load profile YAML → ingest to DB → generate one tailored Word resume + PDF
+**Verification**: Load profile YAML → ingest to DB → generate one tailored Word resume + PDF — **PASSED**
+**Code Review**: Codex review run, 6 issues found and fixed (2 P1, 4 P2). See CHANGELOG.
 
 ### Phase 2: Job Intake + Smart Filtering (Weeks 3-4)
 
@@ -112,8 +113,8 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 ## Current Session Context
 
-- **Active branch**: `dev`
-- **Current phase**: Phase 1.1 — Project initialization
-- **Last commit**: Initial project setup with architecture plan (master)
+- **Active branch**: `dev` (Phase 1 merged to master)
+- **Current phase**: Phase 2.1 — Job Intake (Greenhouse + Lever scrapers)
+- **Last commit**: Phase 1 merge to master (21/21 tests passing)
 - **Blockers**: None
-- **Next step**: Set up uv project, install dependencies, configure PostgreSQL + pgvector, create Alembic migrations, implement config loader and LLM CLI wrapper
+- **Next step**: Define unified Job schema (Pydantic), implement Greenhouse and Lever ATS scrapers, LLM-assisted JD parsing
