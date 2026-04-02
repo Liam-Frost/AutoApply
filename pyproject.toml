@@ -17,6 +17,7 @@ dependencies = [
     # Document processing
     "python-docx>=1.1",
     "docx2pdf>=0.1.8",
+    "pymupdf>=1.24",  # PDF text extraction (used by resume_importer)
 ]
 
 [project.optional-dependencies]

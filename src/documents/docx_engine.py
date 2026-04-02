@@ -180,8 +180,10 @@ def _rebuild_education_block(doc: Document, education: list[dict]) -> None:
         logger.debug("No {{EDUCATION_BLOCK}} marker found in template")
         return
 
-    # Clear the marker paragraph text
-    doc.paragraphs[idx].runs[0].text = "" if doc.paragraphs[idx].runs else ""
+    # Clear the marker text and any existing sample content below it (P1 fix)
+    if doc.paragraphs[idx].runs:
+        doc.paragraphs[idx].runs[0].text = ""
+    _clear_section_content(doc, idx, ["{{EXPERIENCE_BLOCK}}", "{{PROJECTS_BLOCK}}", "{{SKILLS_BLOCK}}"])
 
     insert_idx = idx
     for edu in education:
@@ -218,6 +220,7 @@ def _rebuild_experience_block(
 
     if doc.paragraphs[idx].runs:
         doc.paragraphs[idx].runs[0].text = ""
+    _clear_section_content(doc, idx, ["{{PROJECTS_BLOCK}}", "{{SKILLS_BLOCK}}"])
 
     insert_idx = idx
     for exp in experiences:
@@ -255,6 +258,7 @@ def _rebuild_projects_block(
 
     if doc.paragraphs[idx].runs:
         doc.paragraphs[idx].runs[0].text = ""
+    _clear_section_content(doc, idx, ["{{SKILLS_BLOCK}}"])
 
     insert_idx = idx
     for proj in projects:
@@ -287,6 +291,7 @@ def _rebuild_skills_block(doc: Document, skills: dict[str, list[str]]) -> None:
 
     if doc.paragraphs[idx].runs:
         doc.paragraphs[idx].runs[0].text = ""
+    _clear_section_content(doc, idx, [])  # last section — clear to end of doc
 
     insert_idx = idx
     label_map = {

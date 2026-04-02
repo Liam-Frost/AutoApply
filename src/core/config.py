@@ -80,8 +80,15 @@ def _resolve_paths(config: dict[str, Any]) -> None:
 
 
 def get_db_url(config: dict[str, Any]) -> str:
-    """Build PostgreSQL connection URL from config."""
+    """Build PostgreSQL connection URL from config.
+
+    Credentials are percent-encoded so special characters (@, :, /, #, etc.)
+    in usernames or passwords do not break URL parsing.
+    """
+    from urllib.parse import quote_plus
+
     db = config["database"]
+    user = quote_plus(str(db["user"]))
     password = db.get("password", "")
-    auth = f"{db['user']}:{password}" if password else db["user"]
+    auth = f"{user}:{quote_plus(str(password))}" if password else user
     return f"postgresql+psycopg://{auth}@{db['host']}:{db['port']}/{db['name']}"

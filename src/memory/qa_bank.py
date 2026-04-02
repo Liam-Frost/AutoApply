@@ -74,39 +74,41 @@ def find_answer(
     """Find the best matching QA entry for a given question.
 
     Matching priority:
-    1. Exact question_type match (if provided)
-    2. Pattern substring match against question text
+    1. Best keyword-overlap pattern match within the question_type pool (if provided)
+    2. Best keyword-overlap pattern match across all entries
+    3. First entry of the matching type (fallback with no question text)
+
+    This avoids returning an arbitrary first-of-type entry when there are
+    multiple QA entries with the same question_type (P2 fix).
     """
     query = session.query(QABank)
+    candidates = query.filter(QABank.question_type == question_type).all() if question_type else query.all()
 
-    if question_type:
-        # Try exact type match first
-        results = query.filter(QABank.question_type == question_type).all()
-        if results:
-            return results[0]
+    if not candidates:
+        return None
 
-    # Fall back to pattern matching
-    all_entries = query.all()
-    question_lower = question.lower()
+    question_lower = question.strip().lower()
+
+    # If no question text given, return first candidate of the type
+    if not question_lower:
+        return candidates[0]
 
     best_match = None
     best_score = 0
+    question_words = set(question_lower.split())
 
-    for entry in all_entries:
+    for entry in candidates:
         pattern = (entry.question_pattern or "").lower()
         if not pattern:
             continue
-
-        # Simple keyword overlap scoring
         pattern_words = set(pattern.split())
-        question_words = set(question_lower.split())
         overlap = len(pattern_words & question_words)
-
         if overlap > best_score:
             best_score = overlap
             best_match = entry
 
-    return best_match
+    # If pattern matching found nothing, fall back to first candidate
+    return best_match if best_match is not None else candidates[0]
 
 
 def get_answer_text(
