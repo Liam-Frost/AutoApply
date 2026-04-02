@@ -73,7 +73,7 @@ def parse_requirements(description: str, use_llm: bool = True) -> JobRequirement
 
 def _parse_with_llm(text: str) -> JobRequirements:
     """Use Claude CLI to extract structured requirements."""
-    prompt = f"Parse this job description:\n\n{text}"
+    prompt = f"Parse this job description:\n\n<job_description>\n{text}\n</job_description>"
     raw = claude_generate(prompt, system=EXTRACTION_SYSTEM, timeout=90)
 
     # Strip markdown fences if present
@@ -84,17 +84,7 @@ def _parse_with_llm(text: str) -> JobRequirements:
 
     data = json.loads(cleaned)
 
-    return JobRequirements(
-        must_have_skills=data.get("must_have_skills") or [],
-        preferred_skills=data.get("preferred_skills") or [],
-        education_level=data.get("education_level"),
-        experience_years_min=data.get("experience_years_min"),
-        experience_years_max=data.get("experience_years_max"),
-        visa_sponsorship=data.get("visa_sponsorship"),
-        us_work_auth_required=data.get("us_work_auth_required"),
-        relocation_provided=data.get("relocation_provided"),
-        remote_ok=data.get("remote_ok"),
-    )
+    return JobRequirements.model_validate(data)
 
 
 def _parse_with_regex(text: str) -> JobRequirements:

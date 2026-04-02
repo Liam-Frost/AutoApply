@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from src.intake.base import BaseScraper, ScraperError
+from src.intake.html_utils import strip_html
 from src.intake.schema import RawJob, classify_employment_type, classify_seniority
 
 logger = logging.getLogger("autoapply.intake.lever")
@@ -111,7 +112,7 @@ def _extract_lever_description(item: dict) -> str | None:
 
     # description field (may contain HTML)
     if item.get("description"):
-        return item["description"].strip()
+        return strip_html(item["description"])
 
     # lists: [{text: "Responsibilities", content: [...]}, ...]
     for section in item.get("lists", []):

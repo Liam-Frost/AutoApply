@@ -11,34 +11,14 @@ Company tokens can be found in the URL of any Greenhouse job board:
 from __future__ import annotations
 
 import logging
-from html.parser import HTMLParser
 
 from src.intake.base import BaseScraper, ScraperError
+from src.intake.html_utils import strip_html
 from src.intake.schema import RawJob, classify_employment_type, classify_seniority
 
 logger = logging.getLogger("autoapply.intake.greenhouse")
 
 BASE_URL = "https://boards-api.greenhouse.io/v1/boards"
-
-
-class _HTMLStripper(HTMLParser):
-    """Strips HTML tags from job descriptions."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self._parts.append(data)
-
-    def get_text(self) -> str:
-        return " ".join(self._parts).strip()
-
-
-def _strip_html(html: str) -> str:
-    stripper = _HTMLStripper()
-    stripper.feed(html)
-    return stripper.get_text()
 
 
 class GreenhouseScraper(BaseScraper):
@@ -89,7 +69,10 @@ class GreenhouseScraper(BaseScraper):
 
         # Location: Greenhouse returns a list of offices
         offices = item.get("offices", [])
-        location = offices[0].get("name", "") if offices else item.get("location", {}).get("name", "")
+        location = (
+            offices[0].get("name", "") if offices and isinstance(offices[0], dict)
+            else item.get("location", {}).get("name", "")
+        )
 
         # Employment type from departments or metadata (Greenhouse doesn't always expose this)
         # Fall back to title-based inference
@@ -100,7 +83,7 @@ class GreenhouseScraper(BaseScraper):
 
         # Description
         description_html = item.get("content", "")
-        description = _strip_html(description_html) if description_html else None
+        description = strip_html(description_html) if description_html else None
 
         # Application URL
         absolute_url = item.get("absolute_url", "")

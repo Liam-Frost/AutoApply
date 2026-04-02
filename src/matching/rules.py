@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from src.intake.schema import RawJob
@@ -117,9 +118,8 @@ def _check_work_authorization(job: RawJob, ctx: ApplicantContext) -> RuleResult:
         )
 
     # If job requires US work auth and applicant doesn't have it
-    if reqs.us_work_auth_required and ctx.work_authorization not in (
-        "US Citizen", "Green Card", "US Permanent Resident",
-    ):
+    _US_AUTH_TERMS = {"us citizen", "green card", "us permanent resident", "permanent resident", "ead"}
+    if reqs.us_work_auth_required and ctx.work_authorization.lower() not in _US_AUTH_TERMS:
         return RuleResult(
             rule_name="work_authorization",
             passed=False,
@@ -229,7 +229,7 @@ def load_applicant_context(profile_data: dict[str, Any]) -> ApplicantContext:
             if start:
                 try:
                     start_year = int(start[:4])
-                    end_year = int(end[:4]) if end and end != "Present" else 2026
+                    end_year = int(end[:4]) if end and end != "Present" else datetime.now().year
                     total_years += max(0, end_year - start_year)
                 except (ValueError, IndexError):
                     pass

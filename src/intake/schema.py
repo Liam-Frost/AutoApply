@@ -63,7 +63,9 @@ class RawJob(BaseModel):
 def classify_employment_type(raw: str) -> EmploymentType:
     """Map free-form employment type strings to the canonical enum."""
     s = raw.lower()
-    if any(w in s for w in ("intern", "internship", "co-op", "coop")):
+    if any(w in s for w in ("co-op", "coop")):
+        return "coop"
+    if any(w in s for w in ("intern", "internship")):
         return "internship"
     if "part" in s:
         return "parttime"

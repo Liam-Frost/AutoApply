@@ -114,11 +114,10 @@ def score_job(job: RawJob, ctx: ScoringContext) -> ScoreBreakdown:
 
     breakdown.rule_bonus = 1.0
 
-    # 2. Skill overlap
-    job_skills = (
-        job.requirements.must_have_skills + job.requirements.preferred_skills
-    )
-    breakdown.skill_overlap = compute_skill_overlap(job_skills, ctx.applicant_skills)
+    # 2. Skill overlap (must-haves weighted 70%, preferred 30%)
+    must_score = compute_skill_overlap(job.requirements.must_have_skills, ctx.applicant_skills)
+    pref_score = compute_skill_overlap(job.requirements.preferred_skills, ctx.applicant_skills)
+    breakdown.skill_overlap = must_score * 0.7 + pref_score * 0.3
 
     # 3. Keyword similarity
     jd_text = job.description or job.title

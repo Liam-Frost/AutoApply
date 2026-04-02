@@ -212,7 +212,7 @@ def _parse_profile(name: str, cfg: dict) -> JobFilter:
     desc_patterns = []
     for pat_str in cfg.get("description_exclude_patterns", []):
         try:
-            desc_patterns.append(re.compile(pat_str))
+            desc_patterns.append(re.compile(pat_str, re.IGNORECASE))
         except re.error as e:
             logger.warning("Invalid regex pattern '%s': %s", pat_str, e)
 

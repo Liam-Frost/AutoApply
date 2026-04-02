@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.core.models import Job
@@ -40,6 +41,7 @@ def upsert_jobs(session: Session, jobs: list[RawJob]) -> tuple[int, int]:
         db_job = Job(
             id=raw.id,
             source=raw.source,
+            source_id=raw.source_id,
             company=raw.company,
             title=raw.title,
             location=raw.location,
@@ -50,13 +52,19 @@ def upsert_jobs(session: Session, jobs: list[RawJob]) -> tuple[int, int]:
             visa_sponsorship=raw.requirements.visa_sponsorship,
             ats_type=raw.ats_type,
             application_url=raw.application_url,
-            raw_data={**raw.raw_data, "_source_id": raw.source_id},
+            raw_data=raw.raw_data,
             discovered_at=raw.discovered_at,
             expires_at=raw.expires_at,
         )
-        session.add(db_job)
-        existing_keys.add(key)
-        inserted += 1
+        try:
+            session.add(db_job)
+            session.flush()
+            existing_keys.add(key)
+            inserted += 1
+        except IntegrityError:
+            session.rollback()
+            logger.debug("Duplicate job skipped on flush: %s", key)
+            skipped += 1
 
     session.commit()
     logger.info("Upserted jobs: %d new, %d skipped", inserted, skipped)
@@ -69,15 +77,14 @@ def _load_existing_keys(session: Session, jobs: list[RawJob]) -> set[str]:
     sources = {j.source for j in jobs}
 
     existing = (
-        session.query(Job.source, Job.company, Job.raw_data)
-        .filter(Job.source.in_(sources))
+        session.query(Job.source, Job.company, Job.source_id)
+        .filter(Job.source.in_(sources), Job.company.in_(companies))
         .all()
     )
 
     keys = set()
     for row in existing:
-        source_id = (row.raw_data or {}).get("_source_id", "")
-        keys.add(f"{row.source}::{row.company.lower()}::{source_id}")
+        keys.add(f"{row.source}::{row.company.lower()}::{row.source_id or ''}")
 
     return keys
 

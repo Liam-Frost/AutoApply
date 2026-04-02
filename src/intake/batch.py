@@ -84,13 +84,15 @@ def run_intake(
                     jobs = scraper.fetch_jobs(slug)
 
                     if parse_jds:
-                        jobs = _enrich_requirements(jobs, use_llm=use_llm)
+                        jobs = enrich_requirements(jobs, use_llm=use_llm)
 
                     # Apply filter if provided
+                    filtered_out = 0
                     if job_filter:
                         before = len(jobs)
                         jobs = job_filter.apply(jobs)
-                        totals["filtered"] += before - len(jobs)
+                        filtered_out = before - len(jobs)
+                        totals["filtered"] += filtered_out
 
                     inserted, skipped = upsert_jobs(session, jobs)
                     totals["inserted"] += inserted
@@ -98,7 +100,7 @@ def run_intake(
 
                     logger.info(
                         "[%s/%s] +%d new, %d skipped, %d filtered out",
-                        ats, slug, inserted, skipped, before - len(jobs) if job_filter else 0,
+                        ats, slug, inserted, skipped, filtered_out,
                     )
 
                 except ScraperError as e:
@@ -111,7 +113,7 @@ def run_intake(
     return totals
 
 
-def _enrich_requirements(jobs: list[RawJob], use_llm: bool) -> list[RawJob]:
+def enrich_requirements(jobs: list[RawJob], use_llm: bool) -> list[RawJob]:
     """Parse JD text to extract structured requirements for each job."""
     for job in jobs:
         if not job.description:

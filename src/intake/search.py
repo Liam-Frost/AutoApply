@@ -22,7 +22,7 @@ import logging
 import sys
 from pathlib import Path
 
-from src.intake.batch import load_company_list, _enrich_requirements
+from src.intake.batch import load_company_list, enrich_requirements
 from src.intake.base import ScraperError
 from src.intake.filters import JobFilter, load_filter_profiles
 from src.intake.greenhouse import GreenhouseScraper
@@ -87,7 +87,7 @@ def search_jobs(
                 try:
                     jobs = scraper.fetch_jobs(slug)
                     if parse_jds:
-                        jobs = _enrich_requirements(jobs, use_llm=use_llm)
+                        jobs = enrich_requirements(jobs, use_llm=use_llm)
                     all_jobs.extend(jobs)
                     logger.info("[%s/%s] fetched %d jobs", ats, slug, len(jobs))
                 except ScraperError as e:
