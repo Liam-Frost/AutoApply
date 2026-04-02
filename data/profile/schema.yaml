@@ -1,0 +1,81 @@
+# AutoApply Applicant Profile Schema
+# This file defines the expected structure for applicant profile data.
+# Fill in your actual data in profile.yaml following this structure.
+
+identity:
+  full_name: ""
+  email: ""
+  phone: ""
+  location: ""           # e.g., "Vancouver, BC, Canada"
+  linkedin_url: ""
+  github_url: ""
+  portfolio_url: ""
+  citizenship: ""        # e.g., "Chinese"
+  work_authorization: "" # e.g., "F-1 OPT", "Canadian PR", "US Citizen"
+  willing_to_relocate: true
+  visa_sponsorship_needed: true
+
+education:
+  - institution: ""
+    degree: ""           # e.g., "Master of Science"
+    field: ""            # e.g., "Computer Science"
+    location: ""
+    start_date: ""       # YYYY-MM
+    end_date: ""         # YYYY-MM or "Present"
+    gpa: ""
+    honors: []
+    relevant_courses:
+      - name: ""
+        grade: ""        # e.g., "A+", "95/100"
+        tags: []         # e.g., ["backend", "distributed", "ml"]
+
+work_experiences:
+  - company: ""
+    title: ""
+    location: ""
+    start_date: ""
+    end_date: ""
+    description: ""      # Brief role description
+    bullets:
+      - text: ""
+        tags: []         # e.g., ["backend", "python", "api", "testing"]
+        impact: ""       # quantified result if available
+
+projects:
+  - name: ""
+    role: ""             # e.g., "Lead Developer", "Solo"
+    description: ""
+    tech_stack: []
+    start_date: ""
+    end_date: ""
+    url: ""              # GitHub/demo link
+    bullets:
+      - text: ""
+        tags: []
+        impact: ""
+
+skills:
+  languages: []          # e.g., ["Python", "Java", "TypeScript"]
+  frameworks: []         # e.g., ["React", "FastAPI", "Spring Boot"]
+  databases: []          # e.g., ["PostgreSQL", "MongoDB", "Redis"]
+  tools: []              # e.g., ["Docker", "Kubernetes", "AWS"]
+  domains: []            # e.g., ["Machine Learning", "Distributed Systems"]
+  soft_skills: []        # e.g., ["Leadership", "Technical Writing"]
+  certifications: []
+
+story_bank:
+  - theme: ""            # e.g., "why_this_direction", "technical_challenge", "conflict_resolution", "leadership", "ownership_impact"
+    context: ""          # Situation + background
+    action: ""           # What you did
+    result: ""           # Outcome / impact
+    applicable_to: []    # e.g., ["backend_roles", "startup", "big_tech"]
+
+qa_bank:
+  - question_type: ""    # authorization | sponsorship | experience_years | salary | start_date | why_company | why_role | strengths | weaknesses | custom
+    question_pattern: "" # e.g., "Are you legally authorized to work in the United States?"
+    canonical_answer: "" # Default answer
+    variants:
+      by_geography: {}   # e.g., {"US": "...", "Canada": "..."}
+      by_role_type: {}   # e.g., {"intern": "...", "fulltime": "..."}
+    confidence: high     # high | medium | low
+    needs_review: false  # If true, always pause for human review
