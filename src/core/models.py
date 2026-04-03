@@ -63,9 +63,15 @@ class Application(Base):
     qa_responses: Mapped[dict | None] = mapped_column(JSONB)
     screenshot_paths: Mapped[dict | None] = mapped_column(JSONB)
     error_log: Mapped[str | None] = mapped_column(Text)
+    state_history: Mapped[list | None] = mapped_column(JSONB)  # list[dict] FSM audit trail
+    fields_filled: Mapped[int | None] = mapped_column(Integer)
+    fields_total: Mapped[int | None] = mapped_column(Integer)
+    files_uploaded: Mapped[list | None] = mapped_column(JSONB)  # list[str] uploaded filenames
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    outcome: Mapped[str | None] = mapped_column(String(30))
+    outcome: Mapped[str | None] = mapped_column(String(30))  # pending/rejected/oa/interview/offer
+    outcome_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ApplicantProfile(Base):

@@ -2,6 +2,44 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
+## [0.5.0] — 2026-04-03 — Phase 5: CLI + Tracking + Full Pipeline
+
+### Phase 5.1: CLI Framework + Init Wizard
+- Click command group with 4 commands: `autoapply init`, `search`, `apply`, `status`
+- `autoapply init` wizard: config validation, DB connection + migration, profile import (YAML / resume parse / template), LLM CLI availability check
+- `autoapply search` wraps intake layer with Click interface, adds --score for profile-based ranking
+- Entry point: `[project.scripts] autoapply = src.cli.main:main`
+- ASCII-safe output for Windows console compatibility
+
+### Phase 5.2: Application Tracking
+- tracker/database.py: Application CRUD, state machine sync to DB, outcome updates, filtered queries, joined queries
+- tracker/analytics.py: Pipeline stats, outcome breakdown (response/positive rate), per-company stats, per-platform stats, daily activity timeline
+- tracker/export.py: CSV export (error_log excluded by default), formatted text status report
+- Application model extended: state_history, fields_filled/total, files_uploaded, updated_at, outcome_updated_at
+
+### Phase 5.3: Apply + Status Commands
+- `autoapply apply --url` / `--job-id` / `--batch`: single or batch application pipeline
+- Batch mode: search -> score -> rate-limited apply with proper result tracking
+- `autoapply apply --dry-run`: generate materials without browser
+- `autoapply status`: analytics dashboard with pipeline/outcome/platform/company stats
+- `autoapply status --export-csv`: export to CSV
+
+### Post-Review Fixes (Codex review: 3 P1, 6 P2, 2 P3)
+- **P1**: Alembic migration failure now correctly returns error
+- **P1**: _execute_application returns ApplicationResult; batch only records submitted apps
+- **P1**: UUID validation before DB job lookup
+- **P2**: Sanitized DB connection errors in CLI output
+- **P2**: tracker uses flush() not commit() for caller-owned transactions
+- **P2**: submitted_at preserved on re-sync (only set when None)
+- **P2**: CSV export excludes error_log by default
+- **P2**: Resume/cover selection by most recent mtime
+
+### Tests
+- 21 CLI/tracker tests (command structure, init wizard, ATS detection, tracker CRUD, analytics, export)
+- Total: 177 tests passing
+
+---
+
 ## [0.4.0] — 2026-04-02 — Phase 4: Browser Automation + Form Filling
 
 ### Phase 4.1: Core Infrastructure

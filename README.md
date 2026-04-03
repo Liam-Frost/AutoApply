@@ -60,9 +60,31 @@ src/
 - **Phase 2** (Job Intake + Smart Filtering) — Complete
 - **Phase 3** (Resume/CL Tailoring + QA) — Complete
 - **Phase 4** (Browser Automation + Form Filling) — Complete
-- **Phase 5** (Tracking & Full Pipeline) — Next
+- **Phase 5** (CLI + Tracking + Full Pipeline) — Complete
 
-156 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+177 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+
+## CLI Usage
+
+```bash
+# First-time setup
+autoapply init
+
+# Search for matching jobs
+autoapply search --profile default --score
+
+# Apply to a single job
+autoapply apply --url https://boards.greenhouse.io/company/jobs/123
+
+# Batch apply to top matches
+autoapply apply --batch --top-n 5
+
+# View tracking dashboard
+autoapply status
+
+# Export applications to CSV
+autoapply status --export-csv report.csv
+```
 
 ## Getting Started
 
