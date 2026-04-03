@@ -14,6 +14,7 @@ from pathlib import Path
 import click
 
 from src.core.config import PROJECT_ROOT
+from src.core.state_machine import AppStatus
 
 logger = logging.getLogger("autoapply.cli.apply")
 
@@ -53,6 +54,12 @@ def apply_cmd(
     if url:
         asyncio.run(_apply_single_url(url, auto_submit, headless, dry_run))
     elif job_id:
+        # Validate UUID format
+        try:
+            uuid.UUID(job_id)
+        except ValueError:
+            click.secho(f"Invalid job ID format: {job_id}", fg="red")
+            raise SystemExit(1)
         asyncio.run(_apply_single_job_id(job_id, auto_submit, headless, dry_run))
     elif batch:
         asyncio.run(_apply_batch(profile, top_n, auto_submit, headless, dry_run))
@@ -93,7 +100,7 @@ async def _apply_single_url(
         return
 
     # Execute application
-    await _execute_application(
+    result = await _execute_application(
         url=url,
         ats_type=ats_type,
         profile_data=profile_data,
@@ -103,6 +110,13 @@ async def _apply_single_url(
         auto_submit=auto_submit,
         headless=headless,
     )
+
+    if result and result.status == AppStatus.SUBMITTED:
+        click.secho("    Application submitted!", fg="green")
+    elif result and result.status == AppStatus.REVIEW_REQUIRED:
+        click.secho("    Paused for review (not auto-submitted).", fg="cyan")
+    elif result and result.status == AppStatus.FAILED:
+        click.secho(f"    Application failed: {result.error}", fg="red")
 
 
 async def _apply_single_job_id(
@@ -176,7 +190,7 @@ async def _apply_batch(
 
     # Apply with rate limiting
     limiter = RateLimiter(RateLimiterConfig(min_delay=5, max_delay=15))
-    results = {"applied": 0, "failed": 0, "skipped": 0}
+    results = {"submitted": 0, "review": 0, "failed": 0, "skipped": 0}
 
     for job, score in top_jobs:
         if not job.application_url:
@@ -203,29 +217,43 @@ async def _apply_batch(
                 ats_type=ats_type,
             )
 
-            if not dry_run:
-                await _execute_application(
-                    url=job.application_url,
-                    ats_type=ats_type,
-                    profile_data=profile_data,
-                    resume_path=resume_path,
-                    cover_letter_path=cl_path,
-                    qa_responses=qa_responses,
-                    auto_submit=auto_submit,
-                    headless=headless,
-                )
+            if dry_run:
+                results["skipped"] += 1
+                click.secho("    Dry run -- skipped", fg="cyan")
+                continue
 
-            await limiter.record_application()
-            results["applied"] += 1
-            click.secho("    Done", fg="green")
+            result = await _execute_application(
+                url=job.application_url,
+                ats_type=ats_type,
+                profile_data=profile_data,
+                resume_path=resume_path,
+                cover_letter_path=cl_path,
+                qa_responses=qa_responses,
+                auto_submit=auto_submit,
+                headless=headless,
+            )
+
+            if result and result.status == AppStatus.SUBMITTED:
+                await limiter.record_application()
+                results["submitted"] += 1
+                click.secho("    Submitted", fg="green")
+            elif result and result.status == AppStatus.REVIEW_REQUIRED:
+                results["review"] += 1
+                click.secho("    Paused for review", fg="cyan")
+            else:
+                results["failed"] += 1
+                click.secho("    Failed", fg="red")
 
         except Exception as e:
             click.secho(f"    Failed: {e}", fg="red")
             results["failed"] += 1
             await limiter.error_cooldown()
 
-    click.echo(f"\nBatch complete: {results['applied']} applied, "
-               f"{results['failed']} failed, {results['skipped']} skipped")
+    click.echo(
+        f"\nBatch complete: {results['submitted']} submitted, "
+        f"{results['review']} review, "
+        f"{results['failed']} failed, {results['skipped']} skipped"
+    )
 
 
 async def _generate_materials(
@@ -236,18 +264,25 @@ async def _generate_materials(
     """Generate resume, cover letter, and QA responses for a job.
 
     Returns (resume_path, cover_letter_path, qa_responses).
-    Currently returns the default resume path without tailoring.
-    Full generation will use the generation layer.
+    Selects the most recently modified resume/cover letter from output dir.
+    Full per-job generation will be added when the generation layer is wired in.
     """
     output_dir = PROJECT_ROOT / "data" / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check for existing resume
-    resume_candidates = list(output_dir.glob("resume_*.pdf")) + list(output_dir.glob("resume_*.docx"))
+    # Select most recent resume and cover letter by modification time
+    resume_candidates = sorted(
+        list(output_dir.glob("resume_*.pdf")) + list(output_dir.glob("resume_*.docx")),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     resume_path = resume_candidates[0] if resume_candidates else None
 
-    # Check for existing cover letter
-    cl_candidates = list(output_dir.glob("cover_*.pdf")) + list(output_dir.glob("cover_*.docx"))
+    cl_candidates = sorted(
+        list(output_dir.glob("cover_*.pdf")) + list(output_dir.glob("cover_*.docx")),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     cl_path = cl_candidates[0] if cl_candidates else None
 
     if resume_path:
@@ -270,12 +305,15 @@ async def _execute_application(
     qa_responses: dict[str, str] | None,
     auto_submit: bool,
     headless: bool,
-) -> None:
-    """Execute the browser-based application workflow."""
+):
+    """Execute the browser-based application workflow.
+
+    Returns the ApplicationResult from the adapter.
+    """
     from src.execution.browser import BrowserManager
     from src.execution.ats.greenhouse import GreenhouseAdapter
     from src.execution.ats.lever import LeverAdapter
-    from src.core.state_machine import ApplicationState, AppStatus
+    from src.core.state_machine import ApplicationState
 
     adapter_map = {
         "greenhouse": GreenhouseAdapter,
@@ -286,7 +324,7 @@ async def _execute_application(
         raise ValueError(f"No adapter for ATS type: {ats_type}")
 
     # Create state machine
-    job_id = str(uuid.uuid4())  # Temporary ID for URL-based applications
+    job_id = str(uuid.uuid4())
     state = ApplicationState(job_id)
     state.transition(AppStatus.QUALIFIED)
     state.transition(AppStatus.MATERIALS_READY)
@@ -306,20 +344,15 @@ async def _execute_application(
             auto_submit=auto_submit,
         )
 
-        if result.status == AppStatus.SUBMITTED:
-            click.secho("    Application submitted!", fg="green")
-        elif result.status == AppStatus.REVIEW_REQUIRED:
-            click.secho("    Paused for review (not auto-submitted).", fg="cyan")
-            click.echo("    Screenshots saved for review.")
-            if not headless:
-                click.echo("    Browser is open -- review and submit manually if satisfied.")
-                click.pause("    Press Enter when done...")
-        elif result.status == AppStatus.FAILED:
-            click.secho(f"    Application failed: {result.error}", fg="red")
-
         # Log screenshots
         for ss in result.screenshots:
             click.echo(f"    Screenshot: {ss}")
+
+        if result.status == AppStatus.REVIEW_REQUIRED and not headless:
+            click.echo("    Browser is open -- review and submit manually if satisfied.")
+            click.pause("    Press Enter when done...")
+
+        return result
 
 
 def _detect_ats_from_url(url: str) -> str | None:

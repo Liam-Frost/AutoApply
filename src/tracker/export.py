@@ -21,6 +21,7 @@ logger = logging.getLogger("autoapply.tracker.export")
 def export_applications_csv(
     session: Session,
     output_path: Path | None = None,
+    include_errors: bool = False,
 ) -> str:
     """Export all applications as CSV.
 
@@ -42,17 +43,19 @@ def export_applications_csv(
     writer = csv.writer(output)
 
     # Header
-    writer.writerow([
+    header = [
         "app_id", "company", "title", "location", "ats_type",
         "status", "match_score", "outcome",
         "fields_filled", "fields_total",
         "resume_version", "cover_letter_version",
         "created_at", "submitted_at", "outcome_updated_at",
-        "error",
-    ])
+    ]
+    if include_errors:
+        header.append("error")
+    writer.writerow(header)
 
     for app, job in rows:
-        writer.writerow([
+        row_data = [
             str(app.id),
             job.company,
             job.title,
@@ -68,8 +71,10 @@ def export_applications_csv(
             str(app.created_at) if app.created_at else "",
             str(app.submitted_at) if app.submitted_at else "",
             str(app.outcome_updated_at) if app.outcome_updated_at else "",
-            app.error_log or "",
-        ])
+        ]
+        if include_errors:
+            row_data.append(app.error_log or "")
+        writer.writerow(row_data)
 
     csv_content = output.getvalue()
 

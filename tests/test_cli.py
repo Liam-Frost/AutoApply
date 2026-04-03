@@ -143,7 +143,7 @@ class TestTrackerDatabase:
         app = create_application(session, job_id, match_score=0.85)
 
         session.add.assert_called_once()
-        session.commit.assert_called_once()
+        session.flush.assert_called_once()
         added_app = session.add.call_args[0][0]
         assert added_app.job_id == job_id
         assert added_app.match_score == 0.85
@@ -154,6 +154,7 @@ class TestTrackerDatabase:
 
         app_id = uuid.uuid4()
         mock_app = MagicMock()
+        mock_app.submitted_at = None
         session = MagicMock()
         session.get.return_value = mock_app
 
@@ -176,7 +177,7 @@ class TestTrackerDatabase:
         assert mock_app.fields_total == 8
         assert mock_app.files_uploaded == ["resume.pdf"]
         assert mock_app.error_log == "timeout error"
-        session.commit.assert_called_once()
+        session.flush.assert_called_once()
 
     def test_sync_state_not_found(self):
         from src.tracker.database import sync_state_to_db
@@ -199,7 +200,7 @@ class TestTrackerDatabase:
 
         assert mock_app.outcome == "interview"
         assert mock_app.outcome_updated_at is not None
-        session.commit.assert_called_once()
+        session.flush.assert_called_once()
 
     def test_update_outcome_invalid(self):
         from src.tracker.database import update_outcome

@@ -36,7 +36,7 @@ def create_application(
         cover_letter_version=cover_letter_version,
     )
     session.add(app)
-    session.commit()
+    session.flush()
     logger.info("Created application %s for job %s", app.id, job_id)
     return app
 
@@ -67,10 +67,10 @@ def sync_state_to_db(
         app.qa_responses = result.get("qa_responses", app.qa_responses)
         app.screenshot_paths = result.get("screenshot_paths", app.screenshot_paths)
 
-    if state.status == AppStatus.SUBMITTED:
+    if state.status == AppStatus.SUBMITTED and app.submitted_at is None:
         app.submitted_at = datetime.now(timezone.utc)
 
-    session.commit()
+    session.flush()
     logger.info("Synced application %s -> %s", app_id, state.status)
     return app
 
@@ -97,7 +97,7 @@ def update_outcome(
 
     app.outcome = outcome
     app.outcome_updated_at = datetime.now(timezone.utc)
-    session.commit()
+    session.flush()
     logger.info("Updated application %s outcome -> %s", app_id, outcome)
     return app
 
@@ -148,6 +148,35 @@ def get_application_with_job(
     if row is None:
         return None
     return row.tuple()
+
+
+def get_applications_with_jobs(
+    session: Session,
+    status: str | None = None,
+    outcome: str | None = None,
+    company: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[tuple[Application, Job]]:
+    """Query applications with jobs in a single joined query.
+
+    Returns list of (Application, Job) tuples, ordered by most recently updated.
+    """
+    stmt = (
+        select(Application, Job)
+        .join(Job, Application.job_id == Job.id)
+        .order_by(Application.updated_at.desc())
+    )
+
+    if status:
+        stmt = stmt.where(Application.status == status)
+    if outcome:
+        stmt = stmt.where(Application.outcome == outcome)
+    if company:
+        stmt = stmt.where(Job.company.ilike(f"%{company}%"))
+
+    stmt = stmt.limit(limit).offset(offset)
+    return [row.tuple() for row in session.execute(stmt).all()]
 
 
 def get_application_counts(session: Session) -> dict[str, int]:

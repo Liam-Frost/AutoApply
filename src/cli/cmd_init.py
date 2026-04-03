@@ -168,8 +168,9 @@ def _setup_database(config: dict | None) -> bool:
             result.fetchone()
         click.secho("    [OK] Database connection successful", fg="green")
     except Exception as e:
-        click.secho(f"    [FAIL] Database connection failed: {e}", fg="red")
+        click.secho("    [FAIL] Database connection failed", fg="red")
         click.echo("      Check your database settings in config/settings.yaml or .env")
+        logger.debug("DB connection error: %s", e)
         return False
 
     # Run migrations
@@ -186,10 +187,12 @@ def _setup_database(config: dict | None) -> bool:
             click.secho("    [OK] Migrations complete", fg="green")
         else:
             stderr = result.stderr.strip()
-            if "already exists" in stderr.lower() or "nothing to do" in stderr.lower():
+            if "already" in stderr.lower():
                 click.secho("    [OK] Database already up to date", fg="green")
             else:
-                click.secho(f"    ! Migration warning: {stderr[:200]}", fg="yellow")
+                click.secho("    [FAIL] Migration failed (run with -v for details)", fg="red")
+                logger.debug("Migration stderr: %s", stderr)
+                return False
     except subprocess.TimeoutExpired:
         click.secho("    [FAIL] Migration timed out", fg="red")
         return False

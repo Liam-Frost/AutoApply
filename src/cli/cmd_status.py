@@ -57,7 +57,7 @@ def status_cmd(
             compute_platform_stats,
         )
         from src.tracker.export import format_status_report
-        from src.tracker.database import get_applications, get_application_counts
+        from src.tracker.database import get_applications_with_jobs
 
         pipeline = compute_pipeline_stats(session)
         outcomes = compute_outcome_stats(session)
@@ -67,8 +67,8 @@ def status_cmd(
         report = format_status_report(pipeline, outcomes, companies, platforms)
         click.echo(report)
 
-        # Recent applications list
-        recent = get_applications(
+        # Recent applications list (single joined query)
+        recent = get_applications_with_jobs(
             session,
             status=app_status,
             outcome=outcome,
@@ -79,20 +79,14 @@ def status_cmd(
         if recent:
             click.echo("  Recent Applications")
             click.echo("  " + "-" * 40)
-            for app in recent:
-                # Get job info
-                from src.tracker.database import get_application_with_job
-
-                pair = get_application_with_job(session, app.id)
-                if pair:
-                    a, job = pair
-                    status_color = _status_color(a.status)
-                    click.secho(f"    {a.status:20s}", fg=status_color, nl=False)
-                    click.echo(f"  {job.company} - {job.title}")
-                    if a.outcome:
-                        click.echo(f"    {'':20s}  outcome: {a.outcome}")
-                    if a.match_score:
-                        click.echo(f"    {'':20s}  score: {a.match_score:.0%}")
+            for app, job in recent:
+                status_color = _status_color(app.status)
+                click.secho(f"    {app.status:20s}", fg=status_color, nl=False)
+                click.echo(f"  {job.company} - {job.title}")
+                if app.outcome:
+                    click.echo(f"    {'':20s}  outcome: {app.outcome}")
+                if app.match_score:
+                    click.echo(f"    {'':20s}  score: {app.match_score:.0%}")
             click.echo()
         else:
             click.echo("  No applications found.")
