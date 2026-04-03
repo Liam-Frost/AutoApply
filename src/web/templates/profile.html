@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if error %}
+<div class="rounded-md bg-red-50 p-4 mb-6">
+    <p class="text-sm text-red-700">{{ error }}</p>
+</div>
+{% endif %}
+
+{% if success %}
+<div class="rounded-md bg-green-50 p-4 mb-6">
+    <p class="text-sm text-green-700">{{ success }}</p>
+</div>
+{% endif %}
+
+{% if profile %}
+<!-- Profile overview -->
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <!-- Identity card -->
+    <div class="lg:col-span-1">
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:px-6">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">
+                    {{ profile.identity.full_name | default("Unknown") }}
+                </h3>
+            </div>
+            <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
+                <dl class="space-y-3 text-sm">
+                    {% if profile.identity.get('email') %}
+                    <div>
+                        <dt class="text-gray-500">Email</dt>
+                        <dd class="text-gray-900">{{ profile.identity.email }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if profile.identity.get('phone') %}
+                    <div>
+                        <dt class="text-gray-500">Phone</dt>
+                        <dd class="text-gray-900">{{ profile.identity.phone }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if profile.identity.get('location') %}
+                    <div>
+                        <dt class="text-gray-500">Location</dt>
+                        <dd class="text-gray-900">{{ profile.identity.location }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if profile.identity.get('linkedin_url') %}
+                    <div>
+                        <dt class="text-gray-500">LinkedIn</dt>
+                        <dd><a href="{{ profile.identity.linkedin_url }}" target="_blank" class="text-indigo-600 hover:text-indigo-500">Profile</a></dd>
+                    </div>
+                    {% endif %}
+                    {% if profile.identity.get('github_url') %}
+                    <div>
+                        <dt class="text-gray-500">GitHub</dt>
+                        <dd><a href="{{ profile.identity.github_url }}" target="_blank" class="text-indigo-600 hover:text-indigo-500">Profile</a></dd>
+                    </div>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        <!-- Skills -->
+        {% if profile.get('skills') %}
+        <div class="bg-white shadow rounded-lg mt-6">
+            <div class="px-4 py-5 sm:px-6">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Skills</h3>
+            </div>
+            <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
+                {% for category, items in profile.skills.items() %}
+                {% if items %}
+                <div class="mb-3">
+                    <h4 class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{{ category }}</h4>
+                    <div class="flex flex-wrap gap-1">
+                        {% for skill in items %}
+                        <span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                            {{ skill }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Experience & Education -->
+    <div class="lg:col-span-2 space-y-6">
+        <!-- Education -->
+        {% if profile.get('education') %}
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:px-6">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Education</h3>
+            </div>
+            <div class="border-t border-gray-200">
+                <ul class="divide-y divide-gray-200">
+                    {% for edu in profile.education %}
+                    <li class="px-4 py-4 sm:px-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-900">
+                                    {{ edu.get('degree', '') }} {{ edu.get('field', '') }}
+                                </p>
+                                <p class="text-sm text-gray-500">{{ edu.get('institution', '') }}</p>
+                            </div>
+                            <div class="text-sm text-gray-500">
+                                {{ edu.get('start_date', '') }} - {{ edu.get('end_date', '') }}
+                            </div>
+                        </div>
+                        {% if edu.get('gpa') %}
+                        <p class="mt-1 text-xs text-gray-500">GPA: {{ edu.gpa }}</p>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Work Experience -->
+        {% if profile.get('work_experiences') %}
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:px-6">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Work Experience</h3>
+            </div>
+            <div class="border-t border-gray-200">
+                <ul class="divide-y divide-gray-200">
+                    {% for exp in profile.work_experiences %}
+                    <li class="px-4 py-4 sm:px-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-900">{{ exp.get('title', '') }}</p>
+                                <p class="text-sm text-gray-500">{{ exp.get('company', '') }}</p>
+                            </div>
+                            <div class="text-sm text-gray-500">
+                                {{ exp.get('start_date', '') }} - {{ exp.get('end_date', '') }}
+                            </div>
+                        </div>
+                        {% if exp.get('bullets') %}
+                        <ul class="mt-2 space-y-1">
+                            {% for bullet in exp.bullets %}
+                            <li class="text-sm text-gray-600">
+                                {{ bullet.text if bullet is mapping else bullet }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Projects -->
+        {% if profile.get('projects') %}
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:px-6">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Projects</h3>
+            </div>
+            <div class="border-t border-gray-200">
+                <ul class="divide-y divide-gray-200">
+                    {% for proj in profile.projects %}
+                    <li class="px-4 py-4 sm:px-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-900">{{ proj.get('name', '') }}</p>
+                                {% if proj.get('tech_stack') %}
+                                <div class="mt-1 flex flex-wrap gap-1">
+                                    {% for tech in proj.tech_stack %}
+                                    <span class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{{ tech }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if proj.get('description') %}
+                        <p class="mt-1 text-sm text-gray-500">{{ proj.description }}</p>
+                        {% endif %}
+                        {% if proj.get('bullets') %}
+                        <ul class="mt-2 space-y-1">
+                            {% for bullet in proj.bullets %}
+                            <li class="text-sm text-gray-600">
+                                {{ bullet.text if bullet is mapping else bullet }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="mt-6 text-sm text-gray-500">
+    Profile loaded from: <code class="bg-gray-100 px-1 rounded">{{ profile_path }}</code>
+</div>
+
+{% else %}
+<!-- No profile -->
+<div class="text-center py-12">
+    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    </svg>
+    <h3 class="mt-2 text-sm font-semibold text-gray-900">No profile configured</h3>
+    <p class="mt-1 text-sm text-gray-500">Upload a resume or run <code class="bg-gray-100 px-1 rounded">autoapply init</code> to set up your profile.</p>
+</div>
+
+<!-- Resume upload -->
+<div class="mt-8 max-w-lg mx-auto">
+    <div class="bg-white shadow rounded-lg">
+        <div class="px-4 py-5 sm:px-6">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Upload Resume</h3>
+            <p class="mt-1 text-sm text-gray-500">Upload a .pdf or .docx resume to auto-generate your profile.</p>
+        </div>
+        <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
+            <form action="/profile/upload-resume" method="post" enctype="multipart/form-data">
+                <div class="flex items-center gap-4">
+                    <input type="file" name="resume" accept=".pdf,.docx" required
+                           class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    <button type="submit"
+                            class="shrink-0 inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                        Parse
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

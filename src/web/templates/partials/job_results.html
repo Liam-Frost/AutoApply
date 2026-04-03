@@ -1,0 +1,71 @@
+{% if error %}
+<div class="rounded-md bg-red-50 p-4 mb-4">
+    <p class="text-sm text-red-700">{{ error }}</p>
+</div>
+{% endif %}
+
+{% if jobs %}
+<div class="bg-white shadow rounded-lg">
+    <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">
+            {{ jobs | length }} jobs found
+        </h3>
+    </div>
+    <div class="border-t border-gray-200">
+        <ul role="list" class="divide-y divide-gray-200">
+            {% for job in jobs %}
+            <li class="px-4 py-4 sm:px-6 hover:bg-gray-50">
+                <div class="flex items-center justify-between">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                            <p class="truncate text-sm font-medium text-indigo-600">
+                                {{ job.title }}
+                            </p>
+                            {% if job.source == "linkedin" %}
+                            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">LinkedIn</span>
+                            {% elif job.ats_type == "greenhouse" %}
+                            <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">Greenhouse</span>
+                            {% elif job.ats_type == "lever" %}
+                            <span class="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">Lever</span>
+                            {% endif %}
+                        </div>
+                        <div class="mt-1 flex items-center gap-4 text-sm text-gray-500">
+                            <span class="font-medium">{{ job.company }}</span>
+                            {% if job.location %}
+                            <span>{{ job.location }}</span>
+                            {% endif %}
+                            {% if job.employment_type and job.employment_type != "unknown" %}
+                            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                                {{ job.employment_type }}
+                            </span>
+                            {% endif %}
+                            {% if job.seniority and job.seniority != "unknown" %}
+                            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                                {{ job.seniority }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="ml-4 flex shrink-0 gap-2">
+                        {% if job.application_url %}
+                        <a href="{{ job.application_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+                            View
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% elif not error %}
+<div class="text-center py-12">
+    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+    <h3 class="mt-2 text-sm font-semibold text-gray-900">No jobs found</h3>
+    <p class="mt-1 text-sm text-gray-500">Use the search form above to find matching jobs.</p>
+</div>
+{% endif %}

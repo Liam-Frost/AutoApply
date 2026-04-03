@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if error %}
+<div class="rounded-md bg-yellow-50 p-4 mb-6">
+    <p class="text-sm text-yellow-700">Database not available: {{ error }}</p>
+    <p class="mt-1 text-sm text-yellow-600">Run <code class="bg-yellow-100 px-1 rounded">autoapply init</code> to set up tracking.</p>
+</div>
+{% endif %}
+
+<!-- Pipeline stats -->
+{% if pipeline %}
+<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6 mb-8">
+    {% for status, count in pipeline.items() %}
+    <div class="bg-white shadow rounded-lg p-4 text-center">
+        <p class="text-2xl font-bold
+            {% if status == 'SUBMITTED' %}text-green-600
+            {% elif status == 'FAILED' %}text-red-600
+            {% elif status == 'REVIEW_REQUIRED' %}text-cyan-600
+            {% else %}text-gray-700{% endif %}">
+            {{ count }}
+        </p>
+        <p class="text-xs text-gray-500 mt-1">{{ status | replace('_', ' ') }}</p>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Outcome stats -->
+{% if outcomes.total > 0 %}
+<div class="bg-white shadow rounded-lg mb-8">
+    <div class="px-4 py-5 sm:px-6">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Outcomes</h3>
+    </div>
+    <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
+        <div class="flex flex-wrap gap-6 text-sm">
+            <div>
+                <span class="text-gray-500">Total:</span>
+                <span class="font-semibold">{{ outcomes.total }}</span>
+            </div>
+            <div>
+                <span class="text-gray-500">Pending:</span>
+                <span class="font-semibold text-yellow-600">{{ outcomes.pending }}</span>
+            </div>
+            {% if outcomes.rates %}
+            <div>
+                <span class="text-gray-500">Response Rate:</span>
+                <span class="font-semibold">{{ "%.0f%%" | format(outcomes.rates.response_rate * 100) if outcomes.rates.get('response_rate') else "N/A" }}</span>
+            </div>
+            <div>
+                <span class="text-gray-500">Positive Rate:</span>
+                <span class="font-semibold text-green-600">{{ "%.0f%%" | format(outcomes.rates.positive_rate * 100) if outcomes.rates.get('positive_rate') else "N/A" }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Filter bar -->
+<div class="bg-white shadow rounded-lg mb-6">
+    <div class="px-4 py-4 sm:px-6">
+        <form method="get" action="/applications" class="flex flex-wrap gap-4 items-end">
+            <div>
+                <label for="status" class="block text-xs font-medium text-gray-500">Status</label>
+                <select id="status" name="status" class="mt-1 block rounded-md border-gray-300 shadow-sm text-sm border px-2 py-1">
+                    <option value="">All</option>
+                    <option value="SUBMITTED" {% if filters.status == 'SUBMITTED' %}selected{% endif %}>Submitted</option>
+                    <option value="FAILED" {% if filters.status == 'FAILED' %}selected{% endif %}>Failed</option>
+                    <option value="REVIEW_REQUIRED" {% if filters.status == 'REVIEW_REQUIRED' %}selected{% endif %}>Review Required</option>
+                </select>
+            </div>
+            <div>
+                <label for="outcome" class="block text-xs font-medium text-gray-500">Outcome</label>
+                <select id="outcome" name="outcome" class="mt-1 block rounded-md border-gray-300 shadow-sm text-sm border px-2 py-1">
+                    <option value="">All</option>
+                    <option value="pending" {% if filters.outcome == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="rejected" {% if filters.outcome == 'rejected' %}selected{% endif %}>Rejected</option>
+                    <option value="oa" {% if filters.outcome == 'oa' %}selected{% endif %}>OA</option>
+                    <option value="interview" {% if filters.outcome == 'interview' %}selected{% endif %}>Interview</option>
+                    <option value="offer" {% if filters.outcome == 'offer' %}selected{% endif %}>Offer</option>
+                </select>
+            </div>
+            <div>
+                <label for="company" class="block text-xs font-medium text-gray-500">Company</label>
+                <input type="text" id="company" name="company" value="{{ filters.company }}"
+                       placeholder="Filter by company"
+                       class="mt-1 block rounded-md border-gray-300 shadow-sm text-sm border px-2 py-1">
+            </div>
+            <button type="submit" class="rounded-md bg-gray-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-gray-500">
+                Filter
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Applications table -->
+{% if applications %}
+<div class="bg-white shadow rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company / Role</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outcome</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% for app, job in applications %}
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4">
+                    <div class="text-sm font-medium text-gray-900">{{ job.company }}</div>
+                    <div class="text-sm text-gray-500">{{ job.title }}</div>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
+                        {% if app.status == 'SUBMITTED' %}bg-green-100 text-green-800
+                        {% elif app.status == 'FAILED' %}bg-red-100 text-red-800
+                        {% elif app.status == 'REVIEW_REQUIRED' %}bg-cyan-100 text-cyan-800
+                        {% elif app.status == 'NEEDS_RETRY' %}bg-yellow-100 text-yellow-800
+                        {% else %}bg-gray-100 text-gray-800{% endif %}">
+                        {{ app.status }}
+                    </span>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                    {% if app.match_score %}{{ "%.0f%%" | format(app.match_score * 100) }}{% else %}-{% endif %}
+                </td>
+                <td class="px-6 py-4">
+                    <div id="outcome-{{ app.id }}">
+                        <form hx-post="/applications/update-outcome" hx-target="#outcome-{{ app.id }}" hx-swap="innerHTML">
+                            <input type="hidden" name="application_id" value="{{ app.id }}">
+                            <select name="outcome" onchange="this.form.requestSubmit()"
+                                    class="text-xs rounded border-gray-300 px-2 py-1
+                                    {% if app.outcome == 'offer' %}text-green-700
+                                    {% elif app.outcome == 'interview' %}text-blue-700
+                                    {% elif app.outcome == 'oa' %}text-purple-700
+                                    {% elif app.outcome == 'rejected' %}text-red-700
+                                    {% else %}text-gray-700{% endif %}">
+                                <option value="pending" {% if app.outcome == 'pending' or not app.outcome %}selected{% endif %}>Pending</option>
+                                <option value="rejected" {% if app.outcome == 'rejected' %}selected{% endif %}>Rejected</option>
+                                <option value="oa" {% if app.outcome == 'oa' %}selected{% endif %}>OA</option>
+                                <option value="interview" {% if app.outcome == 'interview' %}selected{% endif %}>Interview</option>
+                                <option value="offer" {% if app.outcome == 'offer' %}selected{% endif %}>Offer</option>
+                            </select>
+                        </form>
+                    </div>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                    {{ app.created_at.strftime('%Y-%m-%d') if app.created_at else '-' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif not error %}
+<div class="text-center py-12">
+    <h3 class="mt-2 text-sm font-semibold text-gray-900">No applications yet</h3>
+    <p class="mt-1 text-sm text-gray-500">Search for jobs and start applying to see your tracking data here.</p>
+    <a href="/jobs" class="mt-4 inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+        Search Jobs
+    </a>
+</div>
+{% endif %}
+{% endblock %}
