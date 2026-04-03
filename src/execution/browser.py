@@ -36,12 +36,14 @@ class BrowserManager:
         max_delay: float = 8.0,
         screenshot_dir: Path = DEFAULT_SCREENSHOT_DIR,
         viewport: dict[str, int] | None = None,
+        no_sandbox: bool = False,
     ):
         self.headless = headless
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.screenshot_dir = screenshot_dir
         self.viewport = viewport or {"width": 1280, "height": 900}
+        self.no_sandbox = no_sandbox
 
         self._playwright = None
         self._browser: Browser | None = None
@@ -57,12 +59,12 @@ class BrowserManager:
     async def start(self) -> None:
         """Launch browser and create default context."""
         self._playwright = await async_playwright().start()
+        launch_args = ["--disable-blink-features=AutomationControlled"]
+        if self.no_sandbox:
+            launch_args.append("--no-sandbox")
         self._browser = await self._playwright.chromium.launch(
             headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-            ],
+            args=launch_args,
         )
         self._context = await self._browser.new_context(
             viewport=self.viewport,

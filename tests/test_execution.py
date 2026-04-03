@@ -296,26 +296,29 @@ class TestRateLimiterConfig:
 
 
 class TestRateLimiter:
-    def test_can_apply_initially(self):
+    @pytest.mark.asyncio
+    async def test_can_apply_initially(self):
         limiter = RateLimiter(RateLimiterConfig(max_applications_per_hour=3))
-        assert limiter.can_apply()
+        assert await limiter.can_apply()
         assert limiter.remaining_this_hour == 3
         assert limiter.applications_this_hour == 0
 
-    def test_record_application_counts(self):
+    @pytest.mark.asyncio
+    async def test_record_application_counts(self):
         limiter = RateLimiter(RateLimiterConfig(max_applications_per_hour=2))
-        limiter.record_application()
+        await limiter.record_application()
         assert limiter.applications_this_hour == 1
         assert limiter.remaining_this_hour == 1
-        limiter.record_application()
-        assert not limiter.can_apply()
+        await limiter.record_application()
+        assert not await limiter.can_apply()
         assert limiter.remaining_this_hour == 0
 
-    def test_old_timestamps_pruned(self):
+    @pytest.mark.asyncio
+    async def test_old_timestamps_pruned(self):
         limiter = RateLimiter(RateLimiterConfig(max_applications_per_hour=1))
         # Simulate an old application (> 1 hour ago)
         limiter._application_timestamps = [time.monotonic() - 3700]
-        assert limiter.can_apply()
+        assert await limiter.can_apply()
 
     @pytest.mark.asyncio
     async def test_wait_returns_delay(self):
@@ -414,11 +417,24 @@ class TestATSApplyWorkflow:
         adapter = LeverAdapter(browser=mock_browser)
         page = AsyncMock()
         page.wait_for_selector = AsyncMock()
+        page.wait_for_load_state = AsyncMock()
         page.query_selector_all = AsyncMock(return_value=[])
-        page.locator = MagicMock()
-        btn_mock = AsyncMock()
-        btn_mock.click = AsyncMock()
-        page.locator.return_value.first = btn_mock
+
+        # Setup locator mock: submit button click + error indicator check
+        submit_first = AsyncMock()
+        submit_first.click = AsyncMock()
+        error_first = AsyncMock()
+        error_first.is_visible = AsyncMock(return_value=False)  # No error
+
+        def locator_side_effect(selector):
+            mock = MagicMock()
+            if "error" in selector or "alert" in selector:
+                mock.first = error_first
+            else:
+                mock.first = submit_first
+            return mock
+
+        page.locator = MagicMock(side_effect=locator_side_effect)
 
         state = ApplicationState("test-job-002")
         state.transition(AppStatus.QUALIFIED)

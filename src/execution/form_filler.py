@@ -40,16 +40,26 @@ class FieldMapping:
     error: str = ""
 
 
-async def detect_fields(page: Page) -> list[FormField]:
+async def detect_fields(page: Page, form_selector: str | None = None) -> list[FormField]:
     """Detect all fillable form fields on the current page.
 
     Scans for input, select, and textarea elements, extracting labels
     and field metadata.
+
+    Args:
+        page: The page to scan.
+        form_selector: Optional CSS selector to scope detection to a specific
+            form container. If None, scans the entire page.
     """
     fields = []
+    container = page
+    if form_selector:
+        form_el = await page.query_selector(form_selector)
+        if form_el:
+            container = form_el
 
     # Text inputs and textareas
-    inputs = await page.query_selector_all(
+    inputs = await container.query_selector_all(
         "input[type='text'], input[type='email'], input[type='tel'], "
         "input[type='url'], input[type='number'], input:not([type]), textarea"
     )
@@ -69,8 +79,43 @@ async def detect_fields(page: Page) -> list[FormField]:
             required=required,
         ))
 
+    # Checkboxes
+    checkboxes = await container.query_selector_all("input[type='checkbox']")
+    for el in checkboxes:
+        label = await _get_field_label(page, el)
+        selector = await _build_selector(el)
+        fields.append(FormField(
+            selector=selector,
+            label=label,
+            field_type="checkbox",
+        ))
+
+    # Radio buttons (grouped by name)
+    radios = await container.query_selector_all("input[type='radio']")
+    seen_radio_names: set[str] = set()
+    for el in radios:
+        name = await el.get_attribute("name") or ""
+        if name in seen_radio_names:
+            continue
+        seen_radio_names.add(name)
+        label = await _get_field_label(page, el)
+        # Collect option labels for the radio group
+        group_els = await container.query_selector_all(f"input[type='radio'][name='{_css_escape(name)}']") if name else [el]
+        options = []
+        for radio_el in group_els:
+            opt_label = await _get_field_label(page, radio_el)
+            val = await radio_el.get_attribute("value") or ""
+            options.append(opt_label or val)
+        selector = await _build_selector(el)
+        fields.append(FormField(
+            selector=selector,
+            label=label,
+            field_type="radio",
+            options=options,
+        ))
+
     # Select dropdowns
-    selects = await page.query_selector_all("select")
+    selects = await container.query_selector_all("select")
     for el in selects:
         label = await _get_field_label(page, el)
         selector = await _build_selector(el)
@@ -85,7 +130,7 @@ async def detect_fields(page: Page) -> list[FormField]:
         ))
 
     # File inputs
-    file_inputs = await page.query_selector_all("input[type='file']")
+    file_inputs = await container.query_selector_all("input[type='file']")
     for el in file_inputs:
         label = await _get_field_label(page, el)
         selector = await _build_selector(el)
@@ -234,7 +279,7 @@ async def _get_field_label(page: Page, element) -> str:
     # Try associated <label> via id
     el_id = await element.get_attribute("id")
     if el_id:
-        label_el = await page.query_selector(f"label[for='{el_id}']")
+        label_el = await page.query_selector(f"label[for='{_css_escape(el_id)}']")
         if label_el:
             text = await label_el.inner_text()
             if text.strip():
@@ -253,28 +298,53 @@ async def _get_field_label(page: Page, element) -> str:
     return ""
 
 
+def _css_escape(value: str) -> str:
+    """Escape a string for safe use in CSS attribute selectors."""
+    return value.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+
+
 async def _build_selector(element) -> str:
-    """Build a CSS selector for an element."""
-    # Prefer id
+    """Build a unique CSS selector for an element.
+
+    Constructs a fully qualified path from the element up through
+    its ancestors to ensure global uniqueness.
+    """
+    # Prefer id (globally unique)
     el_id = await element.get_attribute("id")
     if el_id:
-        return f"#{el_id}"
+        return f"#{_css_escape(el_id)}"
 
-    # Prefer name
+    # Prefer name + tag (usually unique within a form)
     name = await element.get_attribute("name")
     tag = await element.evaluate("el => el.tagName.toLowerCase()")
     if name:
-        return f"{tag}[name='{name}']"
+        return f"{tag}[name='{_css_escape(name)}']"
 
-    # Fallback: generate via JS
+    # Fallback: build a fully qualified selector path from root
     selector = await element.evaluate("""el => {
-        const tag = el.tagName.toLowerCase();
-        const parent = el.parentElement;
-        if (!parent) return tag;
-        const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
-        if (siblings.length === 1) return tag;
-        const idx = siblings.indexOf(el) + 1;
-        return `${tag}:nth-of-type(${idx})`;
+        const parts = [];
+        let current = el;
+        while (current && current.tagName) {
+            const tag = current.tagName.toLowerCase();
+            if (current.id) {
+                parts.unshift('#' + CSS.escape(current.id));
+                break;
+            }
+            const parent = current.parentElement;
+            if (!parent) {
+                parts.unshift(tag);
+                break;
+            }
+            const siblings = Array.from(parent.children).filter(c => c.tagName === current.tagName);
+            if (siblings.length === 1) {
+                parts.unshift(tag);
+            } else {
+                const idx = siblings.indexOf(current) + 1;
+                parts.unshift(`${tag}:nth-of-type(${idx})`);
+            }
+            current = parent;
+        }
+        return parts.join(' > ');
     }""")
     return selector
 

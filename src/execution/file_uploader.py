@@ -14,6 +14,9 @@ from playwright.async_api import Page
 
 logger = logging.getLogger("autoapply.execution.file_uploader")
 
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf", ".txt"}
+DEFAULT_MATERIALS_DIR = Path("data/output")
+
 
 async def upload_resume(
     page: Page,
@@ -59,7 +62,14 @@ async def _upload_file(
         logger.error("File not found: %s", file_path)
         return False
 
-    file_str = str(file_path.resolve())
+    resolved = file_path.resolve()
+
+    # Validate file extension
+    if resolved.suffix.lower() not in ALLOWED_EXTENSIONS:
+        logger.error("File extension not allowed: %s (allowed: %s)", resolved.suffix, ALLOWED_EXTENSIONS)
+        return False
+
+    file_str = str(resolved)
 
     # Strategy 1: Use provided selector
     if selector:

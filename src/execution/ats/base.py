@@ -86,6 +86,8 @@ class BaseATSAdapter(ABC):
 
             # Step 3: Upload files
             uploaded = await self.upload_files(page, resume_path, cover_letter_path)
+            if resume_path and not any("resume" in f.lower() or resume_path.name in f for f in uploaded):
+                logger.warning("[%s] Resume upload may have failed", state.job_id[:8])
             state.transition(AppStatus.FILES_UPLOADED, files=uploaded)
             result.files_uploaded = uploaded
             result.screenshots.append(
@@ -99,9 +101,14 @@ class BaseATSAdapter(ABC):
 
             # Step 5: Review or submit
             if auto_submit:
-                await self.submit(page)
-                state.transition(AppStatus.SUBMITTED)
-                result.status = AppStatus.SUBMITTED
+                submit_ok = await self.submit(page)
+                if submit_ok:
+                    state.transition(AppStatus.SUBMITTED)
+                    result.status = AppStatus.SUBMITTED
+                else:
+                    state.transition(AppStatus.REVIEW_REQUIRED)
+                    result.status = AppStatus.REVIEW_REQUIRED
+                    logger.warning("[%s] Submit may have failed — flagged for review", state.job_id[:8])
             else:
                 state.transition(AppStatus.REVIEW_REQUIRED)
                 result.status = AppStatus.REVIEW_REQUIRED
@@ -163,11 +170,31 @@ class BaseATSAdapter(ABC):
         """
         return 0
 
-    async def submit(self, page: Page) -> None:
-        """Click the submit button. Override per ATS."""
+    async def submit(self, page: Page) -> bool:
+        """Click the submit button and verify submission.
+
+        Returns True if submission appears successful, False otherwise.
+        Override per ATS for specific confirmation checks.
+        """
         submit_btn = page.locator(
             "button[type='submit'], input[type='submit'], "
             "button:has-text('Submit'), button:has-text('Apply')"
         ).first
         await submit_btn.click()
         logger.info("Submit button clicked")
+
+        # Basic verification: wait for navigation or confirmation element
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass  # Some forms don't trigger navigation
+
+        # Check for common error indicators
+        error_visible = await page.locator(
+            ".error, .alert-danger, [role='alert']:has-text('error')"
+        ).first.is_visible()
+        if error_visible:
+            logger.warning("Error indicator visible after submit")
+            return False
+
+        return True

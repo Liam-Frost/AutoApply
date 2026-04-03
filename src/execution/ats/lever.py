@@ -47,8 +47,11 @@ class LeverAdapter(BaseATSAdapter):
         )
         await self.browser.delay()
 
-        # Detect and map fields
-        fields = await detect_fields(page)
+        # Detect and map fields (scoped to the application form)
+        fields = await detect_fields(
+            page,
+            form_selector=".application-form, form.application, #application-form",
+        )
         mappings = map_fields_to_profile(fields, profile_data, qa_responses)
 
         # Fill them
@@ -133,7 +136,7 @@ class LeverAdapter(BaseATSAdapter):
 
         return answered
 
-    async def submit(self, page: Page) -> None:
+    async def submit(self, page: Page) -> bool:
         """Submit Lever application form."""
         submit_btn = page.locator(
             "button[type='submit']:has-text('Submit'), "
@@ -142,3 +145,17 @@ class LeverAdapter(BaseATSAdapter):
         ).first
         await submit_btn.click()
         logger.info("Lever application submitted")
+
+        # Verify: wait for navigation, check for errors
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+
+        error_visible = await page.locator(
+            ".error, .alert-danger, [role='alert']:has-text('error')"
+        ).first.is_visible()
+        if error_visible:
+            logger.warning("Error indicator visible after Lever submit")
+            return False
+        return True

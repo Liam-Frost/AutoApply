@@ -42,24 +42,26 @@ class RateLimiter:
         self.config = config or RateLimiterConfig()
         self._application_timestamps: list[float] = []
         self._last_action_time: float = 0.0
+        self._lock = asyncio.Lock()
 
     async def wait(self) -> float:
         """Wait a random delay between actions.
 
         Returns the actual delay in seconds.
         """
-        delay = random.uniform(self.config.min_delay, self.config.max_delay)
+        async with self._lock:
+            delay = random.uniform(self.config.min_delay, self.config.max_delay)
 
-        # Ensure minimum gap since last action
-        elapsed = time.monotonic() - self._last_action_time
-        if elapsed < delay:
-            actual_delay = delay - elapsed
-            await asyncio.sleep(actual_delay)
-        else:
-            actual_delay = 0.0
+            # Ensure minimum gap since last action
+            elapsed = time.monotonic() - self._last_action_time
+            if elapsed < delay:
+                actual_delay = delay - elapsed
+                await asyncio.sleep(actual_delay)
+            else:
+                actual_delay = 0.0
 
-        self._last_action_time = time.monotonic()
-        return actual_delay
+            self._last_action_time = time.monotonic()
+            return actual_delay
 
     async def error_cooldown(self) -> None:
         """Wait after an error before retrying."""
@@ -67,30 +69,31 @@ class RateLimiter:
             "Error cooldown: waiting %.0fs", self.config.cooldown_on_error
         )
         await asyncio.sleep(self.config.cooldown_on_error)
-        self._last_action_time = time.monotonic()
+        async with self._lock:
+            self._last_action_time = time.monotonic()
 
-    def can_apply(self) -> bool:
-        """Check if we're within the hourly application cap."""
-        now = time.monotonic()
-        cutoff = now - 3600  # 1 hour window
-        # Prune old timestamps
+    async def can_apply(self) -> bool:
+        """Check if we're within the hourly application cap (concurrency-safe)."""
+        async with self._lock:
+            self._prune_timestamps()
+            return len(self._application_timestamps) < self.config.max_applications_per_hour
+
+    async def record_application(self) -> None:
+        """Record that an application was submitted (concurrency-safe)."""
+        async with self._lock:
+            self._application_timestamps.append(time.monotonic())
+
+    def _prune_timestamps(self) -> None:
+        """Remove timestamps older than 1 hour."""
+        cutoff = time.monotonic() - 3600
         self._application_timestamps = [
             ts for ts in self._application_timestamps if ts > cutoff
         ]
-        return len(self._application_timestamps) < self.config.max_applications_per_hour
-
-    def record_application(self) -> None:
-        """Record that an application was submitted."""
-        self._application_timestamps.append(time.monotonic())
 
     @property
     def applications_this_hour(self) -> int:
         """Number of applications submitted in the last hour."""
-        now = time.monotonic()
-        cutoff = now - 3600
-        self._application_timestamps = [
-            ts for ts in self._application_timestamps if ts > cutoff
-        ]
+        self._prune_timestamps()
         return len(self._application_timestamps)
 
     @property
