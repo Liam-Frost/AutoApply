@@ -105,20 +105,21 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 **Verification**: Greenhouse job → auto-fill form → upload files → screenshot (no submit)
 **Code Review**: Codex review — 3 P1, 7 P2, 2 P3 found and fixed. See CHANGELOG.
 
-### Phase 5: Tracking & Full Pipeline (Weeks 9-10)
+### Phase 5: CLI + Tracking + Full Pipeline (Weeks 9-10)
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 5.1 | Application tracking DB, status updates, timeline | Not started |
-| 5.2 | Analytics: hit rate, platform quality, keyword effectiveness, resume version comparison | Not started |
-| 5.3 | Agent main loop, CLI interface, batch scheduling | Not started |
+| 5.1 | CLI framework (Click command group) + `autoapply init` (DB migration, profile import, config validation) | Not started |
+| 5.2 | Application tracking: status updates, timeline, outcome recording | Not started |
+| 5.3 | Analytics: hit rate, platform quality, keyword effectiveness, resume version comparison | Not started |
+| 5.4 | Agent main loop (`autoapply apply`), `autoapply search`, `autoapply status`, batch scheduling | Not started |
 
-**Verification**: Run full pipeline on 10 jobs → tracking dashboard → analytics report
+**Verification**: `autoapply init` → `autoapply search` → `autoapply apply` on 10 jobs → `autoapply status` report
 
 ## Current Session Context
 
 - **Active branch**: `dev` (Phase 4 complete, ready to merge to master)
-- **Current phase**: Phase 4 complete — moving to Phase 5
-- **Last commit**: Phase 4 Codex review fixes (156/156 tests passing)
+- **Current phase**: Phase 5 in progress
+- **Last commit**: Phase 4 merged to master (156/156 tests passing)
 - **Blockers**: None
-- **Next step**: Phase 5.1 — Application tracking database, status updates, timeline
+- **Next step**: Phase 5.1 — CLI framework + init flow

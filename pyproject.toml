@@ -24,6 +24,9 @@ dependencies = [
     "playwright>=1.49",
 ]
 
+[project.scripts]
+autoapply = "src.cli.main:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
