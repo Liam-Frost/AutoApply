@@ -32,7 +32,7 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 - **LLM**: Claude Code CLI (`claude -p`) + Codex CLI — invoked via subprocess, no API SDK
 - **Document processing**: python-docx, docx2pdf / LibreOffice CLI
 - **DB migrations**: Alembic + SQLAlchemy
-- **Target platforms**: English ATS only (Greenhouse, Lever, Workday)
+- **Target platforms**: Greenhouse + Lever for direct apply, LinkedIn for job discovery / ATS redirect extraction
 
 ## Development Workflow
 
@@ -147,6 +147,6 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 - **Active branch**: `dev`
 - **Active branch**: `dev` (Phase 7 complete, merging to master)
 - **Current phase**: All 7 phases complete
-- **Last commit**: Phase 7.5 Web GUI tests (228/228 tests passing)
+- **Last verification**: CLI packaging fixed, apply/tracking/web wiring repaired (244/244 tests passing)
 - **Blockers**: None
 - **Next step**: End-to-end testing, polish, production hardening

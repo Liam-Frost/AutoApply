@@ -2,6 +2,29 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
+## [Unreleased]
+
+### Packaging + Runtime Fixes
+- Added package build metadata so `uv sync` installs the `autoapply` CLI entrypoint
+- Added missing `itsdangerous` dependency required by FastAPI session middleware
+
+### Apply Pipeline Fixes
+- `autoapply apply` now loads a real job context from DB or ATS APIs instead of reusing the newest files in `data/output`
+- Per-job resume and cover letter generation now runs inside the apply flow
+- QA templates are loaded from `qa_bank` and persisted with tracked applications
+- Application tracking is now created and synced during the apply flow
+- Batch apply now uses the scoring layer correctly
+
+### Web Fixes
+- Dashboard and applications routes now pass template-safe stats structures
+- Fixed HTMX outcome editing to call the real tracker update function
+- Job search page now shows match scores when a profile is available
+- Job search page now exposes an Apply action that triggers the existing pipeline
+
+### Verification
+- `uv run autoapply --help`
+- `uv run pytest -q` → 244 passing
+
 ## [0.7.0] -- 2026-04-03 -- Phase 7: Web GUI
 
 ### Phase 7.1: FastAPI Backend

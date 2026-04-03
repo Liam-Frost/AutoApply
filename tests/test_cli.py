@@ -8,18 +8,18 @@ DB is not available.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from src.core.state_machine import AppStatus, ApplicationState
-
+from src.core.state_machine import ApplicationState, AppStatus
 
 # ──────────────────────────────────────────────
 # CLI Structure Tests
 # ──────────────────────────────────────────────
+
 
 class TestCLIStructure:
     """Test that CLI commands load and have correct help."""
@@ -106,6 +106,7 @@ class TestInitCommand:
 # ATS Detection Tests
 # ──────────────────────────────────────────────
 
+
 class TestATSDetection:
     def test_greenhouse_url(self):
         from src.cli.cmd_apply import _detect_ats_from_url
@@ -127,10 +128,82 @@ class TestATSDetection:
 
         assert _detect_ats_from_url("https://BOARDS.GREENHOUSE.IO/test/jobs/1") == "greenhouse"
 
+    def test_parse_greenhouse_locator(self):
+        from src.cli.cmd_apply import _parse_ats_job_locator
+
+        assert _parse_ats_job_locator(
+            "https://boards.greenhouse.io/stripe/jobs/123456?gh_jid=123456",
+            "greenhouse",
+        ) == ("stripe", "123456")
+
+    def test_parse_lever_locator(self):
+        from src.cli.cmd_apply import _parse_ats_job_locator
+
+        assert _parse_ats_job_locator(
+            "https://jobs.lever.co/vercel/abc123/apply",
+            "lever",
+        ) == ("vercel", "abc123")
+
+
+class TestMaterialGeneration:
+    @pytest.mark.asyncio
+    async def test_generate_materials_uses_job_specific_generators(self):
+        from pathlib import Path
+
+        from src.cli.cmd_apply import _generate_materials
+        from src.intake.schema import RawJob
+
+        job = RawJob(
+            source="greenhouse",
+            source_id="123",
+            company="TestCo",
+            title="SWE Intern",
+            ats_type="greenhouse",
+            application_url="https://boards.greenhouse.io/testco/jobs/123",
+        )
+        profile_data = {
+            "identity": {"full_name": "Test User"},
+            "education": [],
+            "work_experiences": [],
+            "projects": [],
+            "skills": {},
+            "qa_bank": [
+                {
+                    "question_pattern": "Are you legally authorized to work?",
+                    "question_type": "authorization",
+                    "canonical_answer": "Yes",
+                }
+            ],
+        }
+
+        with (
+            patch("src.generation.resume_builder.generate_resume") as mock_resume,
+            patch("src.generation.cover_letter.generate_cover_letter") as mock_cover,
+            patch("src.generation.qa_responder.answer_questions") as mock_answers,
+        ):
+            mock_resume.return_value = {"pdf": Path("data/output/resume_testco_swe_intern.pdf")}
+            mock_cover.return_value = {"txt": Path("data/output/cover_testco_swe_intern.txt")}
+            mock_answers.return_value = [
+                SimpleNamespace(
+                    question="Are you legally authorized to work?",
+                    answer="Yes",
+                )
+            ]
+
+            resume_path, cover_path, qa_responses = await _generate_materials(profile_data, job)
+
+        assert resume_path == Path("data/output/resume_testco_swe_intern.pdf")
+        assert cover_path == Path("data/output/cover_testco_swe_intern.txt")
+        assert qa_responses == {"Are you legally authorized to work?": "Yes"}
+        mock_resume.assert_called_once()
+        mock_cover.assert_called_once()
+        mock_answers.assert_called_once()
+
 
 # ──────────────────────────────────────────────
 # Tracker Database Unit Tests (mocked session)
 # ──────────────────────────────────────────────
+
 
 class TestTrackerDatabase:
     """Test tracker operations with mocked DB session."""
@@ -140,7 +213,7 @@ class TestTrackerDatabase:
 
         session = MagicMock()
         job_id = uuid.uuid4()
-        app = create_application(session, job_id, match_score=0.85)
+        create_application(session, job_id, match_score=0.85)
 
         session.add.assert_called_once()
         session.flush.assert_called_once()
@@ -216,6 +289,7 @@ class TestTrackerDatabase:
 # Analytics Unit Tests
 # ──────────────────────────────────────────────
 
+
 class TestOutcomeStats:
     def test_rates_empty(self):
         from src.tracker.analytics import OutcomeStats
@@ -252,9 +326,10 @@ class TestOutcomeStats:
 # Export Tests
 # ──────────────────────────────────────────────
 
+
 class TestFormatReport:
     def test_format_basic_report(self):
-        from src.tracker.analytics import PipelineStats, OutcomeStats, CompanyStats
+        from src.tracker.analytics import CompanyStats, OutcomeStats, PipelineStats
         from src.tracker.export import format_status_report
 
         pipeline = PipelineStats(
@@ -271,8 +346,13 @@ class TestFormatReport:
             interview=2,
         )
         companies = [
-            CompanyStats(company="Google", applications=5, submitted=3,
-                        avg_match_score=0.8, outcomes={"interview": 1, "rejected": 1}),
+            CompanyStats(
+                company="Google",
+                applications=5,
+                submitted=3,
+                avg_match_score=0.8,
+                outcomes={"interview": 1, "rejected": 1},
+            ),
         ]
         platforms = {"greenhouse": {"SUBMITTED": 6, "FAILED": 2}, "lever": {"SUBMITTED": 4}}
 
@@ -289,11 +369,9 @@ class TestFormatReport:
         assert "Google" in report
 
     def test_format_empty_report(self):
-        from src.tracker.analytics import PipelineStats, OutcomeStats
+        from src.tracker.analytics import OutcomeStats, PipelineStats
         from src.tracker.export import format_status_report
 
-        report = format_status_report(
-            PipelineStats(), OutcomeStats(), [], {}
-        )
+        report = format_status_report(PipelineStats(), OutcomeStats(), [], {})
         assert "Pipeline Overview" in report
         assert "0" in report

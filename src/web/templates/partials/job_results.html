@@ -21,6 +21,11 @@
                             <p class="truncate text-sm font-medium text-indigo-600">
                                 {{ job.title }}
                             </p>
+                            {% if job.raw_data.get('match_score') is not none %}
+                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                {{ "%.0f%%" | format(job.raw_data.get('match_score', 0) * 100) }} match
+                            </span>
+                            {% endif %}
                             {% if job.source == "linkedin" %}
                             <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">LinkedIn</span>
                             {% elif job.ats_type == "greenhouse" %}
@@ -48,6 +53,15 @@
                     </div>
                     <div class="ml-4 flex shrink-0 gap-2">
                         {% if job.application_url %}
+                        <form hx-post="/jobs/apply" hx-target="#apply-status-{{ loop.index0 }}" hx-swap="innerHTML">
+                            <input type="hidden" name="url" value="{{ job.application_url }}">
+                            <button type="submit"
+                               class="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                                Apply
+                            </button>
+                        </form>
+                        {% endif %}
+                        {% if job.application_url %}
                         <a href="{{ job.application_url }}" target="_blank" rel="noopener"
                            class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                             View
@@ -55,6 +69,7 @@
                         {% endif %}
                     </div>
                 </div>
+                <div id="apply-status-{{ loop.index0 }}" class="mt-2 text-sm"></div>
             </li>
             {% endfor %}
         </ul>

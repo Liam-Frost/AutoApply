@@ -45,7 +45,9 @@ class GreenhouseScraper(BaseScraper):
         except ScraperError:
             raise
         except Exception as e:
-            raise ScraperError(f"Failed to parse Greenhouse response for {company_slug}: {e}") from e
+            raise ScraperError(
+                f"Failed to parse Greenhouse response for {company_slug}: {e}"
+            ) from e
 
         raw_jobs_list = data.get("jobs", [])
         if not isinstance(raw_jobs_list, list):
@@ -62,6 +64,27 @@ class GreenhouseScraper(BaseScraper):
         logger.info("Fetched %d jobs from Greenhouse/%s", len(jobs), company_slug)
         return jobs
 
+    def fetch_job(self, company_slug: str, job_id: str) -> RawJob:
+        """Fetch a single Greenhouse job posting."""
+        url = f"{BASE_URL}/{company_slug}/jobs/{job_id}"
+        params = {"content": "true"}
+
+        logger.info("Fetching Greenhouse job %s/%s", company_slug, job_id)
+
+        try:
+            item = self._get(url, params=params).json()
+        except ScraperError:
+            raise
+        except Exception as e:
+            raise ScraperError(
+                f"Failed to parse Greenhouse job {company_slug}/{job_id}: {e}"
+            ) from e
+
+        if not isinstance(item, dict) or not item.get("id"):
+            raise ScraperError(f"Unexpected Greenhouse job response for {company_slug}/{job_id}")
+
+        return self._parse_job(company_slug, item)
+
     def _parse_job(self, company_slug: str, item: dict) -> RawJob:
         """Convert a raw Greenhouse API job dict to RawJob."""
         job_id = str(item["id"])
@@ -70,15 +93,14 @@ class GreenhouseScraper(BaseScraper):
         # Location: Greenhouse returns a list of offices
         offices = item.get("offices", [])
         location = (
-            offices[0].get("name", "") if offices and isinstance(offices[0], dict)
+            offices[0].get("name", "")
+            if offices and isinstance(offices[0], dict)
             else item.get("location", {}).get("name", "")
         )
 
         # Employment type from departments or metadata (Greenhouse doesn't always expose this)
         # Fall back to title-based inference
-        employment_type = classify_employment_type(
-            item.get("employment_type", "") or title
-        )
+        employment_type = classify_employment_type(item.get("employment_type", "") or title)
         seniority = classify_seniority(title)
 
         # Description

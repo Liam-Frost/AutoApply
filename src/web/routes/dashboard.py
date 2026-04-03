@@ -29,28 +29,39 @@ def _load_dashboard_stats() -> dict:
         from src.core.config import load_config
         from src.core.database import get_session_factory
         from src.tracker.analytics import (
-            compute_pipeline_stats,
-            compute_outcome_stats,
             compute_company_stats,
+            compute_outcome_stats,
+            compute_pipeline_stats,
         )
+        from src.tracker.database import get_application_counts
 
         config = load_config()
-        SessionFactory = get_session_factory(config)
+        session_factory = get_session_factory(config)
 
-        with SessionFactory() as session:
-            pipeline = compute_pipeline_stats(session)
-            outcomes = compute_outcome_stats(session)
+        with session_factory() as session:
+            pipeline_summary = compute_pipeline_stats(session)
+            pipeline = get_application_counts(session)
+            outcome_summary = compute_outcome_stats(session)
             companies = compute_company_stats(session)
 
             return {
                 "pipeline": pipeline,
-                "outcomes": outcomes,
+                "summary": pipeline_summary,
+                "outcomes": {
+                    "total": outcome_summary.total_submitted,
+                    "pending": outcome_summary.pending,
+                    "rates": {
+                        "response_rate": outcome_summary.response_rate,
+                        "positive_rate": outcome_summary.positive_rate,
+                    },
+                },
                 "companies": companies,
                 "db_connected": True,
             }
     except Exception:
         return {
             "pipeline": {},
+            "summary": None,
             "outcomes": {"total": 0, "pending": 0, "rates": {}},
             "companies": [],
             "db_connected": False,

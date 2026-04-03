@@ -4,7 +4,7 @@ An AI-powered agent that automates the entire job application process — from j
 
 ## What It Does
 
-- **Job Intake**: Scrape and standardize job postings from Greenhouse, Lever, Workday, and company career pages
+- **Job Intake**: Scrape and standardize job postings from Greenhouse, Lever, and LinkedIn-discovered external ATS links
 - **Smart Filtering**: Three-tier scoring (hard rules + semantic matching + risk filtering) to only target high-fit positions
 - **Applicant Memory**: Structured knowledge base of your education, projects, skills, stories, and Q&A templates
 - **Tailored Materials**: Block-based resume assembly and constrained cover letter generation per position — no full-text LLM hallucination
@@ -37,7 +37,7 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 | Database | PostgreSQL + pgvector |
 | Document Processing | python-docx, docx2pdf / LibreOffice |
 | Package Manager | uv |
-| Target Platforms | Greenhouse, Lever, Workday (English ATS) |
+| Target Platforms | Greenhouse, Lever, LinkedIn discovery |
 
 ## Project Structure
 
@@ -61,8 +61,10 @@ src/
 - **Phase 3** (Resume/CL Tailoring + QA) — Complete
 - **Phase 4** (Browser Automation + Form Filling) — Complete
 - **Phase 5** (CLI + Tracking + Full Pipeline) — Complete
+- **Phase 6** (LinkedIn Integration) — Complete
+- **Phase 7** (Web GUI) — Complete
 
-177 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+244 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
 
 ## CLI Usage
 

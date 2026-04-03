@@ -37,7 +37,9 @@ logger = logging.getLogger("autoapply.cli.search")
 @click.option("--score", is_flag=True, help="Score and rank results against your profile.")
 # LinkedIn-specific options
 @click.option("--keyword", help="LinkedIn search keywords (e.g. 'software engineer intern').")
-@click.option("--location", "search_location", help="LinkedIn location filter (e.g. 'United States').")
+@click.option(
+    "--location", "search_location", help="LinkedIn location filter (e.g. 'United States')."
+)
 @click.option(
     "--time-filter",
     type=click.Choice(["24h", "week", "month"]),
@@ -64,7 +66,7 @@ def search_cmd(
     headless: bool,
 ) -> None:
     """Search for matching jobs from ATS boards and/or LinkedIn."""
-    from src.intake.search import search_jobs, _print_results
+    from src.intake.search import _print_results, search_jobs
 
     all_jobs = []
 
@@ -117,9 +119,7 @@ def search_cmd(
             )
 
             # Show ATS redirect stats
-            ats_redirected = sum(
-                1 for j in linkedin_jobs if j.ats_type in ("greenhouse", "lever")
-            )
+            ats_redirected = sum(1 for j in linkedin_jobs if j.ats_type in ("greenhouse", "lever"))
             click.echo(
                 f"LinkedIn: {len(linkedin_jobs)} jobs found "
                 f"({ats_redirected} with external ATS links)"
@@ -138,8 +138,8 @@ def search_cmd(
 
 def _score_and_print(jobs, config_dir: Path) -> None:
     """Score jobs against the applicant profile and print ranked results."""
+    from src.matching.scorer import build_scoring_context, score_jobs
     from src.memory.profile import load_profile_yaml
-    from src.matching.scorer import score_jobs
 
     profile_path = PROJECT_ROOT / "data" / "profile" / "profile.yaml"
     if not profile_path.exists():
@@ -153,19 +153,26 @@ def _score_and_print(jobs, config_dir: Path) -> None:
         return
 
     profile_data = load_profile_yaml(profile_path)
+    scoring_ctx = build_scoring_context(profile_data)
 
     click.echo(f"\nScoring {len(jobs)} jobs against your profile...")
-    ranked = score_jobs(jobs, profile_data)
+    ranked = score_jobs(jobs, scoring_ctx)
+    job_by_id = {str(job.id): job for job in jobs}
+    ranked_jobs = [
+        (job_by_id[score.job_id], score.final_score)
+        for score in ranked
+        if not score.disqualified and score.job_id in job_by_id
+    ]
 
-    click.echo(f"\n{'='*80}")
+    click.echo(f"\n{'=' * 80}")
     click.secho(
-        f" Top {min(len(ranked), 20)} matches (of {len(ranked)} total)",
+        f" Top {min(len(ranked_jobs), 20)} matches (of {len(ranked_jobs)} qualified)",
         fg="cyan",
         bold=True,
     )
-    click.echo(f"{'='*80}\n")
+    click.echo(f"{'=' * 80}\n")
 
-    for i, (job, match_score) in enumerate(ranked[:20], 1):
+    for i, (job, match_score) in enumerate(ranked_jobs[:20], 1):
         if match_score >= 0.7:
             color = "green"
         elif match_score >= 0.4:
