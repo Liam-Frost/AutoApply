@@ -16,11 +16,11 @@ async def dashboard(request: Request):
     # Try to load stats from DB, fall back to empty state
     stats = _load_dashboard_stats()
 
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "stats": stats,
-        "page_title": "Dashboard",
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={"stats": stats, "page_title": "Dashboard"},
+    )
 
 
 def _load_dashboard_stats() -> dict:

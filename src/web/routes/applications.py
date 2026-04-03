@@ -8,6 +8,11 @@ from fastapi.responses import HTMLResponse
 router = APIRouter(tags=["applications"])
 
 
+def _render(request: Request, name: str, **ctx):
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def applications_list(
     request: Request,
@@ -17,10 +22,9 @@ async def applications_list(
     limit: int = Query(50, description="Max results"),
 ):
     """View applications with optional filters."""
-    templates = request.app.state.templates
-
     applications = []
     pipeline_stats = {}
+    outcome_stats = {"total": 0, "pending": 0, "rates": {}}
     error = None
 
     try:
@@ -45,17 +49,16 @@ async def applications_list(
 
     except Exception as e:
         error = str(e)
-        outcome_stats = {"total": 0, "pending": 0, "rates": {}}
 
-    return templates.TemplateResponse("applications.html", {
-        "request": request,
-        "page_title": "Applications",
-        "applications": applications,
-        "pipeline": pipeline_stats,
-        "outcomes": outcome_stats,
-        "error": error,
-        "filters": {"status": status, "outcome": outcome, "company": company},
-    })
+    return _render(
+        request, "applications.html",
+        page_title="Applications",
+        applications=applications,
+        pipeline=pipeline_stats,
+        outcomes=outcome_stats,
+        error=error,
+        filters={"status": status, "outcome": outcome, "company": company},
+    )
 
 
 @router.post("/update-outcome", response_class=HTMLResponse)
@@ -65,8 +68,6 @@ async def update_outcome(
     outcome: str = Form(...),
 ):
     """Update application outcome (HTMX)."""
-    templates = request.app.state.templates
-
     try:
         import uuid
         from src.core.config import load_config

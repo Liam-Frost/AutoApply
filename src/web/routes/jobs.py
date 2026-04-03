@@ -13,16 +13,15 @@ from src.core.config import PROJECT_ROOT
 router = APIRouter(tags=["jobs"])
 
 
+def _render(request: Request, name: str, **ctx):
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def jobs_list(request: Request):
     """Job search page with search form and results."""
-    templates = request.app.state.templates
-    return templates.TemplateResponse("jobs.html", {
-        "request": request,
-        "page_title": "Job Search",
-        "jobs": [],
-        "search_params": {},
-    })
+    return _render(request, "jobs.html", page_title="Job Search", jobs=[], search_params={})
 
 
 @router.post("/search", response_class=HTMLResponse)
@@ -37,8 +36,6 @@ async def search_jobs(
     company: str = Form(""),
 ):
     """Execute job search and return results (HTMX partial)."""
-    templates = request.app.state.templates
-
     jobs = []
     error = None
 
@@ -73,33 +70,23 @@ async def search_jobs(
     except Exception as e:
         error = str(e)
 
-    # Check if this is an HTMX request (partial update)
-    is_htmx = request.headers.get("HX-Request") == "true"
-
-    context = {
-        "request": request,
-        "jobs": jobs,
-        "error": error,
-        "search_params": {
-            "source": source,
-            "keyword": keyword,
-            "location": location,
-            "profile": profile,
-        },
+    search_params = {
+        "source": source,
+        "keyword": keyword,
+        "location": location,
+        "profile": profile,
     }
 
+    is_htmx = request.headers.get("HX-Request") == "true"
     if is_htmx:
-        return templates.TemplateResponse("partials/job_results.html", context)
+        return _render(request, "partials/job_results.html", jobs=jobs, error=error, search_params=search_params)
 
-    context["page_title"] = "Job Search"
-    return templates.TemplateResponse("jobs.html", context)
+    return _render(request, "jobs.html", page_title="Job Search", jobs=jobs, error=error, search_params=search_params)
 
 
 @router.get("/detail/{job_id}", response_class=HTMLResponse)
 async def job_detail(request: Request, job_id: str):
     """View job detail page."""
-    templates = request.app.state.templates
-
     job = None
     try:
         from src.core.config import load_config
@@ -114,8 +101,4 @@ async def job_detail(request: Request, job_id: str):
     except Exception:
         pass
 
-    return templates.TemplateResponse("job_detail.html", {
-        "request": request,
-        "page_title": "Job Detail",
-        "job": job,
-    })
+    return _render(request, "job_detail.html", page_title="Job Detail", job=job)
