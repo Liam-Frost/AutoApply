@@ -72,3 +72,23 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Decision**: Use `codex review --uncommitted` for automated code review after each sub-phase.
 
 **Rationale**: Provides a second-opinion review pass before committing. Catches issues that the primary developer (Claude Code) might miss. Non-blocking — findings are addressed before commit, not after.
+
+---
+
+## D009 — LinkedIn scraping via Playwright, not API (2026-04-03)
+
+**Decision**: Use Playwright browser automation to scrape LinkedIn job listings, not LinkedIn's official API or third-party scraping services.
+
+**Rationale**: LinkedIn's official Jobs API is restricted (requires partner access). Third-party scraping services add cost and dependency. Playwright approach reuses our existing browser automation stack (Phase 4), supports authenticated sessions via cookie persistence, and can extract ATS redirect URLs (the key value prop: find jobs on LinkedIn, apply via Greenhouse/Lever where our pipeline already works). Trade-off is fragility to LinkedIn DOM changes, mitigated by selector-based extraction with fallbacks.
+
+**Key design**: LinkedIn scraper is a new scraper class under `src/intake/` following the same `BaseScraper` interface pattern. It uses Playwright (async) instead of httpx since LinkedIn requires JavaScript rendering and authentication.
+
+---
+
+## D010 — Web GUI: FastAPI + Jinja2 + HTMX over SPA framework (2026-04-03)
+
+**Decision**: Build the GUI as a server-rendered web app using FastAPI + Jinja2 templates + HTMX for interactivity, styled with TailwindCSS.
+
+**Rationale**: Keeps the entire codebase in Python (no separate JS build toolchain). HTMX provides SPA-like partial updates without a full React/Vue setup. FastAPI integrates naturally with the existing SQLAlchemy models and service layer. TailwindCSS via CDN avoids Node.js dependency. The GUI is a personal tool, not a SaaS product, so the simpler stack wins. The web approach also means it works across platforms (vs. PyQt/Tkinter which have OS-specific issues).
+
+**Alternative considered**: Streamlit (faster prototyping but limited layout control and harder to customize). NiceGUI (good but smaller ecosystem). Full SPA (overkill for a personal dashboard).
