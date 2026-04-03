@@ -1,22 +1,21 @@
-"""Batch search interface — scrape + filter + return/persist matching jobs.
+"""Batch search interface -- scrape + filter + return/persist matching jobs.
 
 This is the main entry point for finding relevant jobs. It combines:
-1. Scraping from configured ATS boards
-2. JD parsing for structured requirements
-3. Filter profiles to narrow results
+1. Scraping from configured ATS boards (Greenhouse, Lever)
+2. LinkedIn job search (Playwright-based, authenticated)
+3. JD parsing for structured requirements
+4. Filter profiles to narrow results
 
 Can be used standalone (dry-run, no DB) or with full persistence.
 
 Usage (programmatic):
-    results = search_jobs(profile="default")  # dry-run, returns list
-    results = search_jobs(profile="default", session=db_session)  # persist
-
-Usage (CLI):
-    python -m src.intake.search --profile default --dry-run
+    results = search_jobs(profile="default")               # ATS boards
+    results = search_linkedin(keywords="swe intern")       # LinkedIn
 """
 
 from __future__ import annotations
 
+import asyncio
 import argparse
 import logging
 import sys
@@ -41,7 +40,7 @@ def search_jobs(
     parse_jds: bool = True,
     use_llm: bool = False,
 ) -> list[RawJob]:
-    """Search for jobs matching a filter profile. Returns matched jobs without persisting.
+    """Search for jobs from ATS boards matching a filter profile.
 
     Args:
         profile: Name of the filter profile from filters.yaml.
@@ -107,6 +106,74 @@ def search_jobs(
 
     logger.info("Matched: %d/%d jobs", len(matched), len(all_jobs))
     return matched
+
+
+async def search_linkedin(
+    keywords: str,
+    location: str = "",
+    time_filter: str = "week",
+    experience_levels: list[str] | None = None,
+    job_types: list[str] | None = None,
+    max_pages: int = 5,
+    enrich_details: bool = True,
+    max_detail_fetches: int = 20,
+    headless: bool = False,
+    filter_profile: str | None = None,
+    config_dir: Path = DEFAULT_CONFIG_DIR,
+) -> list[RawJob]:
+    """Search LinkedIn for jobs and optionally enrich with detail pages.
+
+    Args:
+        keywords: Search keywords (e.g. "software engineer intern").
+        location: Location filter (e.g. "United States").
+        time_filter: Time filter: "24h", "week", "month".
+        experience_levels: Experience levels: "internship", "entry", etc.
+        job_types: Job types: "fulltime", "internship", etc.
+        max_pages: Max result pages to scrape.
+        enrich_details: If True, fetch detail pages for ATS redirect detection.
+        max_detail_fetches: Max number of jobs to enrich with detail pages.
+        headless: Run browser headless (first run requires non-headless for login).
+        filter_profile: Optional filter profile name to apply after scraping.
+        config_dir: Config directory for filter profiles.
+
+    Returns:
+        List of RawJob objects from LinkedIn.
+    """
+    from src.intake.linkedin import LinkedInScraper
+
+    async with LinkedInScraper(headless=headless) as scraper:
+        jobs = await scraper.search_jobs(
+            keywords=keywords,
+            location=location,
+            time_filter=time_filter,
+            experience_levels=experience_levels,
+            job_types=job_types,
+            max_pages=max_pages,
+        )
+
+        if enrich_details and jobs:
+            jobs = await scraper.enrich_jobs_with_details(
+                jobs, max_detail_fetches=max_detail_fetches
+            )
+
+    # Apply filter if requested
+    if filter_profile:
+        profiles = load_filter_profiles(config_dir / "filters.yaml")
+        job_filter = profiles.get(filter_profile)
+        if job_filter:
+            jobs = job_filter.apply(jobs)
+
+    logger.info("LinkedIn search: %d jobs returned", len(jobs))
+    return jobs
+
+
+def search_linkedin_sync(
+    keywords: str,
+    location: str = "",
+    **kwargs,
+) -> list[RawJob]:
+    """Synchronous wrapper for search_linkedin (for CLI use)."""
+    return asyncio.run(search_linkedin(keywords=keywords, location=location, **kwargs))
 
 
 def _print_results(jobs: list[RawJob]) -> None:
