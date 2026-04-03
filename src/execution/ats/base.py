@@ -25,7 +25,7 @@ class ApplicationResult:
     """Result of an application attempt."""
 
     job_id: str
-    status: AppStatus
+    status: AppStatus = AppStatus.DISCOVERED
     screenshots: list[Path] = field(default_factory=list)
     fields_filled: int = 0
     fields_total: int = 0
