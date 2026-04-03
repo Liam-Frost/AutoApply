@@ -109,17 +109,17 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 5.1 | CLI framework (Click command group) + `autoapply init` (DB migration, profile import, config validation) | Not started |
-| 5.2 | Application tracking: status updates, timeline, outcome recording | Not started |
-| 5.3 | Analytics: hit rate, platform quality, keyword effectiveness, resume version comparison | Not started |
-| 5.4 | Agent main loop (`autoapply apply`), `autoapply search`, `autoapply status`, batch scheduling | Not started |
+| 5.1 | CLI framework (Click command group) + `autoapply init` wizard | **Complete** |
+| 5.2 | Application tracking: CRUD, state sync, outcome updates | **Complete** |
+| 5.3 | Analytics + apply/status CLI commands | **Complete** |
 
-**Verification**: `autoapply init` → `autoapply search` → `autoapply apply` on 10 jobs → `autoapply status` report
+**Verification**: `autoapply init` -> `autoapply search` -> `autoapply apply` -> `autoapply status`
+**Code Review**: Codex review -- 3 P1, 6 P2, 2 P3 found and fixed. See CHANGELOG.
 
 ## Current Session Context
 
-- **Active branch**: `dev` (Phase 4 complete, ready to merge to master)
-- **Current phase**: Phase 5 in progress
-- **Last commit**: Phase 4 merged to master (156/156 tests passing)
+- **Active branch**: `dev` (Phase 5 complete, ready to merge to master)
+- **Current phase**: All 5 phases complete
+- **Last commit**: Phase 5 Codex review fixes (177/177 tests passing)
 - **Blockers**: None
-- **Next step**: Phase 5.1 — CLI framework + init flow
+- **Next step**: End-to-end testing, polish, production hardening
