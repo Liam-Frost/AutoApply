@@ -59,9 +59,10 @@ src/
 - **Phase 1** (Infrastructure + Applicant Memory + Document Processing) — Complete
 - **Phase 2** (Job Intake + Smart Filtering) — Complete
 - **Phase 3** (Resume/CL Tailoring + QA) — Complete
-- **Phase 4** (Browser Automation + Form Filling) — Next
+- **Phase 4** (Browser Automation + Form Filling) — Complete
+- **Phase 5** (Tracking & Full Pipeline) — Next
 
-103 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+156 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
 
 ## Getting Started
 

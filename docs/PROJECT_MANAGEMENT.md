@@ -97,11 +97,13 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 4.1 | Playwright browser management, application state machine, ATS adapters | Not started |
-| 4.2 | Form field detection, file upload, screenshot/DOM capture, error recovery | Not started |
-| 4.3 | Anti-detection: random intervals, rate control, cooldown | Not started |
+| 4.1 | Application state machine + Playwright browser manager | **Complete** |
+| 4.2 | Form field detection, mapping, filling + file upload | **Complete** |
+| 4.3 | ATS adapters (Greenhouse, Lever) with scoped detection | **Complete** |
+| 4.4 | Rate limiter with concurrency safety | **Complete** |
 
 **Verification**: Greenhouse job → auto-fill form → upload files → screenshot (no submit)
+**Code Review**: Codex review — 3 P1, 7 P2, 2 P3 found and fixed. See CHANGELOG.
 
 ### Phase 5: Tracking & Full Pipeline (Weeks 9-10)
 
@@ -115,8 +117,8 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 ## Current Session Context
 
-- **Active branch**: `dev` (Phase 3 complete, ready to merge to master)
-- **Current phase**: Phase 3 complete — moving to Phase 4
-- **Last commit**: Phase 3 Codex review fixes (103/103 tests passing)
+- **Active branch**: `dev` (Phase 4 complete, ready to merge to master)
+- **Current phase**: Phase 4 complete — moving to Phase 5
+- **Last commit**: Phase 4 Codex review fixes (156/156 tests passing)
 - **Blockers**: None
-- **Next step**: Phase 4.1 — Playwright browser management, application state machine, ATS adapters
+- **Next step**: Phase 5.1 — Application tracking database, status updates, timeline

@@ -20,6 +20,8 @@ dependencies = [
     "pymupdf>=1.24",  # PDF text extraction (used by resume_importer)
     "httpx>=0.28.1",
     "pydantic>=2.12.5",
+    # Browser automation
+    "playwright>=1.49",
 ]
 
 [project.optional-dependencies]

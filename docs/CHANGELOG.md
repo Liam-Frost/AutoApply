@@ -2,6 +2,46 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
+## [0.4.0] — 2026-04-02 — Phase 4: Browser Automation + Form Filling
+
+### Phase 4.1: Core Infrastructure
+- Application state machine (FSM) with 11 states, validated transitions, audit trail
+- Playwright browser manager: async context manager, anti-detection (configurable sandbox), random delays, screenshot capture
+
+### Phase 4.2: Form Detection & Filing
+- Form field detector: text, email, tel, select, checkbox, radio (grouped by name), textarea, file inputs
+- Scoped detection: form_selector parameter constrains scanning to ATS form container
+- Profile-to-field mapper: label keyword matching for identity, education, links, with QA fallback
+- Multi-strategy file uploader: direct selector → auto-detect by label → file chooser dialog
+- File extension allowlist validation (pdf, docx, doc, rtf, txt)
+
+### Phase 4.3: ATS Adapters
+- Abstract BaseATSAdapter with full apply() workflow: open → fill → upload → answer → review/submit
+- GreenhouseAdapter: #application_form scoped, resume/cover selectors, custom questions, #submit_app
+- LeverAdapter: .application-form scoped, .resume-upload, custom questions, submit with postings-btn
+- Submit verification: wait for networkidle + check for error indicators before advancing FSM
+
+### Phase 4.4: Rate Limiting & Anti-Detection
+- RateLimiter: random action delays, error cooldowns, hourly application caps
+- Concurrency-safe (asyncio.Lock) for all state mutations
+- Configurable via settings.yaml (min_delay, max_delay, cooldown_on_error, max_applications_per_hour)
+
+### Post-Review Fixes (Codex review: 3 P1, 7 P2, 2 P3)
+- **P1**: Fully qualified CSS selector paths to prevent wrong-field targeting
+- **P1**: File upload extension allowlist to prevent arbitrary file exfiltration
+- **P1**: Submit verification — check for error indicators before marking as SUBMITTED
+- **P2**: Added checkbox and radio button detection to form scanner
+- **P2**: Scoped form detection to ATS form container (Greenhouse & Lever)
+- **P2**: CSS attribute escaping in label lookup and selector generation
+- **P2**: asyncio.Lock for rate limiter concurrency safety
+- **P2**: Removed --no-sandbox default from browser launch args
+
+### Tests
+- 43 execution tests (state machine transitions, form mapping, rate limiter, ATS adapter workflows)
+- Total: 156 tests passing
+
+---
+
 ## [0.3.0] — 2026-04-02 — Phase 3: Resume/CL Tailoring + QA
 
 ### Phase 3.1: Resume Builder
