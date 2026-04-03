@@ -44,11 +44,13 @@ from src.cli.cmd_init import init_cmd  # noqa: E402
 from src.cli.cmd_search import search_cmd  # noqa: E402
 from src.cli.cmd_apply import apply_cmd  # noqa: E402
 from src.cli.cmd_status import status_cmd  # noqa: E402
+from src.cli.cmd_web import web_cmd  # noqa: E402
 
 cli.add_command(init_cmd, "init")
 cli.add_command(search_cmd, "search")
 cli.add_command(apply_cmd, "apply")
 cli.add_command(status_cmd, "status")
+cli.add_command(web_cmd, "web")
 
 
 def main() -> None:

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Search form -->
+<div class="bg-white shadow rounded-lg mb-8">
+    <div class="px-4 py-5 sm:px-6">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Search Jobs</h3>
+    </div>
+    <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
+        <form hx-post="/jobs/search" hx-target="#job-results" hx-indicator="#search-spinner">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                    <label for="source" class="block text-sm font-medium text-gray-700">Source</label>
+                    <select id="source" name="source" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                        <option value="ats" {% if search_params.get('source') == 'ats' %}selected{% endif %}>ATS Boards (Greenhouse/Lever)</option>
+                        <option value="linkedin" {% if search_params.get('source') == 'linkedin' %}selected{% endif %}>LinkedIn</option>
+                        <option value="all" {% if search_params.get('source') == 'all' %}selected{% endif %}>All Sources</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="keyword" class="block text-sm font-medium text-gray-700">Keywords</label>
+                    <input type="text" id="keyword" name="keyword" value="{{ search_params.get('keyword', '') }}"
+                           placeholder="software engineer intern"
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                </div>
+
+                <div>
+                    <label for="location" class="block text-sm font-medium text-gray-700">Location</label>
+                    <input type="text" id="location" name="location" value="{{ search_params.get('location', '') }}"
+                           placeholder="United States"
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                </div>
+
+                <div>
+                    <label for="profile" class="block text-sm font-medium text-gray-700">Filter Profile</label>
+                    <input type="text" id="profile" name="profile" value="{{ search_params.get('profile', 'default') }}"
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                </div>
+
+                <div>
+                    <label for="time_filter" class="block text-sm font-medium text-gray-700">Time Posted</label>
+                    <select id="time_filter" name="time_filter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                        <option value="24h">Past 24 hours</option>
+                        <option value="week" selected>Past week</option>
+                        <option value="month">Past month</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="ats" class="block text-sm font-medium text-gray-700">ATS Filter</label>
+                    <select id="ats" name="ats" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                        <option value="">All ATS</option>
+                        <option value="greenhouse">Greenhouse</option>
+                        <option value="lever">Lever</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mt-4 flex items-center gap-4">
+                <button type="submit"
+                        class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                    Search
+                </button>
+                <span id="search-spinner" class="htmx-indicator text-gray-500 text-sm">
+                    Searching...
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results -->
+<div id="job-results">
+    {% include "partials/job_results.html" %}
+</div>
+{% endblock %}
