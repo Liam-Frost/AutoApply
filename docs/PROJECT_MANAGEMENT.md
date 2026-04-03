@@ -122,11 +122,11 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 6.1 | LinkedIn authenticated session manager (Playwright, cookie persistence, login detection) | Not started |
-| 6.2 | LinkedIn job search scraper (search URL builder, pagination, result extraction) | Not started |
-| 6.3 | Job detail extraction + ATS redirect detection (LinkedIn -> Greenhouse/Lever URL mapping) | Not started |
-| 6.4 | Integration with existing pipeline (CLI `autoapply search --source linkedin`, filters, storage) | Not started |
-| 6.5 | Tests + code review | Not started |
+| 6.1 | LinkedIn authenticated session manager (Playwright, cookie persistence, login detection) | **Complete** |
+| 6.2 | LinkedIn job search scraper (search URL builder, pagination, result extraction) | **Complete** |
+| 6.3 | Job detail extraction + ATS redirect detection (LinkedIn -> Greenhouse/Lever URL mapping) | **Complete** |
+| 6.4 | Integration with existing pipeline (CLI `autoapply search --source linkedin`, filters, storage) | **Complete** |
+| 6.5 | Tests + code review | **Complete** |
 
 **Verification**: `autoapply search --source linkedin --keyword "software engineer intern"` -> extract jobs -> detect ATS links -> feed into existing apply pipeline
 
@@ -145,7 +145,8 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 ## Current Session Context
 
 - **Active branch**: `dev`
-- **Current phase**: Phase 6 in progress
-- **Last commit**: Phase 5 complete (177/177 tests passing)
+- **Active branch**: `dev` (Phase 6 complete, merging to master)
+- **Current phase**: Phase 6 complete, starting Phase 7
+- **Last commit**: Phase 6.5 LinkedIn tests (207/207 tests passing)
 - **Blockers**: None
-- **Next step**: Phase 6.1 -- LinkedIn authenticated session manager
+- **Next step**: Phase 7.1 -- FastAPI backend + project structure
