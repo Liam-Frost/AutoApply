@@ -134,19 +134,19 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 7.1 | FastAPI backend + static assets + project structure (Jinja2 + HTMX + TailwindCSS) | Not started |
-| 7.2 | Dashboard page: pipeline overview, stats cards, recent applications table | Not started |
-| 7.3 | Job search page: search form, results table with scoring, save/apply actions | Not started |
-| 7.4 | Application pipeline page + profile management page | Not started |
-| 7.5 | Tests + code review | Not started |
+| 7.1 | FastAPI backend + static assets + project structure (Jinja2 + HTMX + TailwindCSS) | **Complete** |
+| 7.2 | Dashboard page: pipeline overview, stats cards, recent applications table | **Complete** |
+| 7.3 | Job search page: search form, results table with scoring, save/apply actions | **Complete** |
+| 7.4 | Application pipeline page + profile management page | **Complete** |
+| 7.5 | Tests + code review | **Complete** |
 
 **Verification**: `autoapply web` -> browser opens dashboard -> search jobs -> trigger apply -> view status
 
 ## Current Session Context
 
 - **Active branch**: `dev`
-- **Active branch**: `dev` (Phase 6 complete, merging to master)
-- **Current phase**: Phase 6 complete, starting Phase 7
-- **Last commit**: Phase 6.5 LinkedIn tests (207/207 tests passing)
+- **Active branch**: `dev` (Phase 7 complete, merging to master)
+- **Current phase**: All 7 phases complete
+- **Last commit**: Phase 7.5 Web GUI tests (228/228 tests passing)
 - **Blockers**: None
-- **Next step**: Phase 7.1 -- FastAPI backend + project structure
+- **Next step**: End-to-end testing, polish, production hardening

@@ -2,6 +2,40 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
+## [0.7.0] -- 2026-04-03 -- Phase 7: Web GUI
+
+### Phase 7.1: FastAPI Backend
+- FastAPI app factory with Jinja2 templates, static files, session middleware
+- 4 route modules: dashboard, jobs, applications, profile
+- `autoapply web` CLI command with --host, --port, --reload, --no-open options
+- Dependencies: fastapi, uvicorn, jinja2, python-multipart
+
+### Phase 7.2: Dashboard Page
+- Pipeline stats cards (total, pending, submitted, response rate)
+- Pipeline breakdown with colored status badges
+- Quick action buttons (search jobs, view applications, manage profile)
+- DB connection warning when database is unavailable
+
+### Phase 7.3: Job Search Page
+- Search form with source selector (ATS/LinkedIn/All), keywords, location
+- ATS and time posted filter controls
+- HTMX-powered live search (partial page updates without full reload)
+- Results list with ATS type badges, company, location, employment type
+- "View" links to external application URLs
+
+### Phase 7.4: Applications + Profile Pages
+- Applications: pipeline stats grid, outcome breakdown, filterable table
+  with inline HTMX-powered outcome editing (pending/rejected/oa/interview/offer)
+- Profile: identity card, skills cloud, education/experience/projects sections
+- Resume upload form for automatic profile generation via Claude CLI
+
+### Phase 7.5: Tests
+- 21 new test cases: app factory, all 4 pages, navigation, CLI integration
+- Fixed Jinja2 template caching issue with TemplateResponse API
+- Total test count: 228 (177 existing + 30 LinkedIn + 21 Web)
+
+---
+
 ## [0.6.0] -- 2026-04-03 -- Phase 6: LinkedIn Integration
 
 ### Phase 6.1: LinkedIn Session Manager
