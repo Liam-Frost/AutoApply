@@ -2,7 +2,35 @@
 
 All notable changes to AutoApply are documented here, organized by Phase.
 
-## [0.5.0] — 2026-04-03 — Phase 5: CLI + Tracking + Full Pipeline
+## [0.6.0] -- 2026-04-03 -- Phase 6: LinkedIn Integration
+
+### Phase 6.1: LinkedIn Session Manager
+- LinkedInSession: Playwright persistent context with cookie reuse for authenticated sessions
+- Auto-detects login state; opens browser for manual login on first run
+- Cookie persistence in `data/.linkedin_session/` avoids repeated logins
+
+### Phase 6.2-6.3: LinkedIn Job Scraper + ATS Redirect Detection
+- LinkedInScraper: search URL builder with all LinkedIn filter parameters (time, experience level, job type)
+- Pagination through search results, job card extraction from DOM
+- Job detail page enrichment: full description extraction
+- ATS redirect detection: clicks "Apply" button to discover external Greenhouse/Lever URLs
+- URL cleaning to remove tracking parameters
+- Updated ATSType schema to include "linkedin"
+
+### Phase 6.4: Pipeline Integration
+- search_linkedin() async function + search_linkedin_sync() wrapper
+- CLI: `autoapply search --source linkedin --keyword "swe intern" --location "US"`
+- New CLI options: --source (ats/linkedin/all), --keyword, --location, --time-filter, --max-pages, --no-enrich, --headless
+- Combined ATS + LinkedIn results in "all" mode
+- LinkedIn URL detection in apply command with helpful redirect message
+
+### Phase 6.5: Tests
+- 30 new test cases covering URL utilities, search URL builder, schema integration, CLI integration, mocked Playwright parsing, filter constants
+- Total test count: 207 (177 existing + 30 new)
+
+---
+
+## [0.5.0] -- 2026-04-03 -- Phase 5: CLI + Tracking + Full Pipeline
 
 ### Phase 5.1: CLI Framework + Init Wizard
 - Click command group with 4 commands: `autoapply init`, `search`, `apply`, `status`

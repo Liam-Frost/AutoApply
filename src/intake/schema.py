@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 EmploymentType = Literal["internship", "fulltime", "parttime", "contract", "coop", "unknown"]
 SeniorityLevel = Literal["internship", "entry", "mid", "senior", "staff", "unknown"]
-ATSType = Literal["greenhouse", "lever", "workday", "company_site", "unknown"]
+ATSType = Literal["greenhouse", "lever", "linkedin", "workday", "company_site", "unknown"]
 
 
 class JobRequirements(BaseModel):

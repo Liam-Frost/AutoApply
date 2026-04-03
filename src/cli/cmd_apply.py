@@ -362,6 +362,14 @@ def _detect_ats_from_url(url: str) -> str | None:
         return "greenhouse"
     elif "lever.co" in url_lower:
         return "lever"
+    elif "linkedin.com" in url_lower:
+        # LinkedIn jobs should be redirected to external ATS first
+        click.secho(
+            "This is a LinkedIn URL. Use `autoapply search --source linkedin` "
+            "to find the external ATS link first.",
+            fg="yellow",
+        )
+        return None
     return None
 
 

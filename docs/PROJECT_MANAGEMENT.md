@@ -10,13 +10,15 @@ AutoApply is a 7-layer modular job application automation system:
 
 | Layer | Module | Purpose |
 |-------|--------|---------|
-| 1 | `src/intake/` | Scrape & standardize job postings from ATS (Greenhouse, Lever, Workday) |
+| 1 | `src/intake/` | Scrape & standardize job postings from ATS (Greenhouse, Lever) and LinkedIn |
 | 2 | `src/matching/` | Rule-based + semantic + risk filtering to score jobs |
 | 3 | `src/memory/` | Structured applicant profile, bullet pool, story bank, QA bank |
 | 4 | `src/generation/` | Block-based resume assembly, constrained CL generation, QA answering |
 | 5 | `src/execution/` | Playwright browser automation, form filling, ATS adapters |
 | 6 | `src/documents/` | Word/PDF creation, template system, file versioning |
 | 7 | `src/tracker/` | Application tracking, analytics, reporting |
+
+| 8 | `src/web/` | FastAPI web GUI: dashboard, job search, application pipeline, profile management |
 
 Orchestration lives in `src/core/` (agent, state machine, config).
 Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
@@ -116,10 +118,35 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 **Verification**: `autoapply init` -> `autoapply search` -> `autoapply apply` -> `autoapply status`
 **Code Review**: Codex review -- 3 P1, 6 P2, 2 P3 found and fixed. See CHANGELOG.
 
+### Phase 6: LinkedIn Integration (Weeks 11-12)
+
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| 6.1 | LinkedIn authenticated session manager (Playwright, cookie persistence, login detection) | **Complete** |
+| 6.2 | LinkedIn job search scraper (search URL builder, pagination, result extraction) | **Complete** |
+| 6.3 | Job detail extraction + ATS redirect detection (LinkedIn -> Greenhouse/Lever URL mapping) | **Complete** |
+| 6.4 | Integration with existing pipeline (CLI `autoapply search --source linkedin`, filters, storage) | **Complete** |
+| 6.5 | Tests + code review | **Complete** |
+
+**Verification**: `autoapply search --source linkedin --keyword "software engineer intern"` -> extract jobs -> detect ATS links -> feed into existing apply pipeline
+
+### Phase 7: Web GUI (Weeks 13-15)
+
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| 7.1 | FastAPI backend + static assets + project structure (Jinja2 + HTMX + TailwindCSS) | Not started |
+| 7.2 | Dashboard page: pipeline overview, stats cards, recent applications table | Not started |
+| 7.3 | Job search page: search form, results table with scoring, save/apply actions | Not started |
+| 7.4 | Application pipeline page + profile management page | Not started |
+| 7.5 | Tests + code review | Not started |
+
+**Verification**: `autoapply web` -> browser opens dashboard -> search jobs -> trigger apply -> view status
+
 ## Current Session Context
 
-- **Active branch**: `dev` (Phase 5 complete, ready to merge to master)
-- **Current phase**: All 5 phases complete
-- **Last commit**: Phase 5 Codex review fixes (177/177 tests passing)
+- **Active branch**: `dev`
+- **Active branch**: `dev` (Phase 6 complete, merging to master)
+- **Current phase**: Phase 6 complete, starting Phase 7
+- **Last commit**: Phase 6.5 LinkedIn tests (207/207 tests passing)
 - **Blockers**: None
-- **Next step**: End-to-end testing, polish, production hardening
+- **Next step**: Phase 7.1 -- FastAPI backend + project structure
