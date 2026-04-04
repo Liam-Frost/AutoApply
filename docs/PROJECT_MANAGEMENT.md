@@ -18,7 +18,8 @@ AutoApply is a 7-layer modular job application automation system:
 | 6 | `src/documents/` | Word/PDF creation, template system, file versioning |
 | 7 | `src/tracker/` | Application tracking, analytics, reporting |
 
-| 8 | `src/web/` + `frontend/` | FastAPI JSON API + Vue SPA: dashboard, job search, tracking, profile, settings |
+| 8 | `src/application/` | Shared use-case layer consumed by CLI and Web |
+| 9 | `src/web/` + `frontend/` | FastAPI JSON API + Vue SPA: dashboard, job search, tracking, profile, settings |
 
 Orchestration lives in `src/core/` (agent, state machine, config).
 Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
@@ -36,6 +37,7 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 - **Document processing**: python-docx, docx2pdf / LibreOffice CLI
 - **DB migrations**: Alembic + SQLAlchemy
 - **Target platforms**: Greenhouse + Lever for direct apply, LinkedIn for job discovery / ATS redirect extraction
+- **Agent interface**: CLI with `--json` support for core commands
 
 ## Development Workflow
 
@@ -51,6 +53,9 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 3. Address review findings
 4. Commit with descriptive message → push to `dev`
 5. After full Phase completion: final code review → merge `dev` into `master` → update docs
+
+CLI role: agent-facing automation surface.
+GUI role: human-facing operator console.
 
 ### Key Files
 

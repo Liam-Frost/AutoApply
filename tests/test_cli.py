@@ -7,14 +7,14 @@ DB is not available.
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from sqlalchemy.exc import ProgrammingError
 
 from src.core.state_machine import ApplicationState, AppStatus
 
@@ -61,6 +61,7 @@ class TestCLIStructure:
         assert "--profile" in result.output
         assert "--ats" in result.output
         assert "--score" in result.output
+        assert "--json" in result.output
 
     def test_apply_help(self, runner):
         from src.cli.main import cli
@@ -71,6 +72,7 @@ class TestCLIStructure:
         assert "--batch" in result.output
         assert "--auto-submit" in result.output
         assert "--dry-run" in result.output
+        assert "--json" in result.output
 
     def test_status_help(self, runner):
         from src.cli.main import cli
@@ -80,6 +82,7 @@ class TestCLIStructure:
         assert "--export-csv" in result.output
         assert "--company" in result.output
         assert "--outcome" in result.output
+        assert "--json" in result.output
 
     def test_apply_requires_target(self, runner):
         from src.cli.main import cli
@@ -87,6 +90,91 @@ class TestCLIStructure:
         result = runner.invoke(cli, ["apply"])
         assert result.exit_code != 0
         assert "Specify --url" in result.output
+
+    def test_search_json_output(self, runner):
+        from src.cli.main import cli
+
+        payload = {
+            "search_params": {"source": "ats"},
+            "jobs": [{"company": "TestCo", "title": "SWE Intern"}],
+            "errors": [],
+            "error": None,
+            "counts": {"ats": 1, "linkedin": 0, "linkedin_external_ats": 0, "total": 1},
+            "scored": False,
+        }
+
+        with patch("src.cli.cmd_search.search_jobs_usecase", new=AsyncMock(return_value=payload)):
+            result = runner.invoke(cli, ["search", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["command"] == "search"
+        assert data["jobs"][0]["company"] == "TestCo"
+
+    def test_apply_json_output(self, runner):
+        from src.cli.main import cli
+
+        payload = {
+            "mode": "url",
+            "input": {"url": "https://boards.greenhouse.io/test/jobs/123"},
+            "ok": True,
+            "status": "REVIEW_REQUIRED",
+            "job": {"company": "TestCo", "title": "SWE Intern"},
+            "tracking_id": None,
+            "result": {"status": "REVIEW_REQUIRED", "error": None},
+            "artifacts": {"resume_path": None, "cover_letter_path": None, "qa_responses": None},
+            "error": None,
+            "error_code": None,
+            "dry_run": False,
+        }
+
+        with patch("src.cli.cmd_apply.apply_to_url_usecase", new=AsyncMock(return_value=payload)):
+            result = runner.invoke(
+                cli,
+                ["apply", "--url", "https://boards.greenhouse.io/test/jobs/123", "--json"],
+            )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["command"] == "apply"
+        assert data["status"] == "REVIEW_REQUIRED"
+
+    def test_status_json_output(self, runner):
+        from src.cli.main import cli
+
+        payload = {
+            "ok": True,
+            "filters": {"company": None, "status": None, "outcome": None, "limit": 20},
+            "pipeline_counts": {"SUBMITTED": 1},
+            "pipeline_summary": {
+                "total_discovered": 1,
+                "total_applied": 1,
+                "total_failed": 0,
+                "total_review": 0,
+                "avg_match_score": 0.5,
+                "avg_fields_filled_pct": 0.75,
+            },
+            "outcomes": {
+                "total": 1,
+                "pending": 1,
+                "rejected": 0,
+                "oa": 0,
+                "interview": 0,
+                "offer": 0,
+                "rates": {"response_rate": 0.0, "positive_rate": 0.0},
+            },
+            "companies": [],
+            "platforms": {},
+            "recent_applications": [],
+        }
+
+        with patch("src.cli.cmd_status.load_status_data_usecase", return_value=payload):
+            result = runner.invoke(cli, ["status", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["command"] == "status"
+        assert data["pipeline_summary"]["total_applied"] == 1
 
 
 class TestInitCommand:
@@ -224,20 +312,14 @@ class TestStatusCommand:
     def test_status_reports_schema_mismatch_cleanly(self, runner):
         from src.cli.main import cli
 
-        session = MagicMock()
-        session_cm = MagicMock()
-        session_cm.__enter__.return_value = session
-        session_cm.__exit__.return_value = None
-
         with (
-            patch("src.core.config.load_config", return_value={}),
             patch(
-                "src.core.database.get_session_factory",
-                return_value=MagicMock(return_value=session_cm),
-            ),
-            patch(
-                "src.tracker.analytics.compute_pipeline_stats",
-                side_effect=ProgrammingError("SELECT ...", {}, Exception("missing column")),
+                "src.cli.cmd_status.load_status_data_usecase",
+                return_value={
+                    "ok": False,
+                    "error": "missing column",
+                    "error_code": "schema_out_of_date",
+                },
             ),
         ):
             result = runner.invoke(cli, ["status"])
@@ -245,6 +327,115 @@ class TestStatusCommand:
         assert result.exit_code == 1
         assert "Database schema is out of date" in result.output
         assert "uv run alembic upgrade head" in result.output
+
+
+class TestApplicationUseCases:
+    @pytest.mark.asyncio
+    async def test_search_jobs_uses_profile_for_linkedin_source(self):
+        from src.application.jobs import search_jobs
+
+        with patch(
+            "src.intake.search.search_linkedin", new=AsyncMock(return_value=[])
+        ) as mock_search:
+            result = await search_jobs(source="linkedin", profile="intern_only", keyword="intern")
+
+        assert result["errors"] == []
+        assert mock_search.call_args.kwargs["filter_profile"] == "intern_only"
+
+    def test_load_applications_data_uses_filtered_records_for_summaries(self):
+        from src.application.tracking import load_applications_data
+
+        app = SimpleNamespace(
+            id=uuid.uuid4(),
+            job_id=uuid.uuid4(),
+            status="SUBMITTED",
+            match_score=0.75,
+            outcome=None,
+            created_at=None,
+            updated_at=None,
+            submitted_at=None,
+            fields_filled=8,
+            fields_total=10,
+        )
+        job = SimpleNamespace(
+            id=uuid.uuid4(),
+            company="TestCo",
+            title="SWE Intern",
+            location="Remote",
+            application_url="https://example.com/apply",
+            ats_type="greenhouse",
+        )
+        session = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+
+        with (
+            patch("src.application.tracking.load_config", return_value={}),
+            patch(
+                "src.core.database.get_session_factory",
+                return_value=MagicMock(return_value=session_cm),
+            ),
+            patch(
+                "src.tracker.database.get_applications_with_jobs", return_value=[(app, job)]
+            ) as mock_query,
+        ):
+            result = load_applications_data(outcome="pending", limit=20)
+
+        assert result["pipeline"]["SUBMITTED"] == 1
+        assert result["outcomes"]["total"] == 1
+        assert result["outcomes"]["pending"] == 1
+        assert result["applications"][0]["outcome"] == "pending"
+        assert mock_query.call_args.kwargs["outcome"] == "pending"
+        assert mock_query.call_args.kwargs["limit"] is None
+
+    def test_load_status_data_uses_filtered_records_for_aggregates(self):
+        from src.application.tracking import load_status_data
+
+        app = SimpleNamespace(
+            id=uuid.uuid4(),
+            job_id=uuid.uuid4(),
+            status="REVIEW_REQUIRED",
+            match_score=0.5,
+            outcome=None,
+            created_at=None,
+            updated_at=None,
+            submitted_at=None,
+            fields_filled=4,
+            fields_total=5,
+        )
+        job = SimpleNamespace(
+            id=uuid.uuid4(),
+            company="FilteredCo",
+            title="Backend Intern",
+            location="Remote",
+            application_url="https://example.com/apply",
+            ats_type="lever",
+        )
+        session = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+
+        with (
+            patch("src.application.tracking.load_config", return_value={}),
+            patch(
+                "src.core.database.get_session_factory",
+                return_value=MagicMock(return_value=session_cm),
+            ),
+            patch(
+                "src.tracker.database.get_applications_with_jobs", return_value=[(app, job)]
+            ) as mock_query,
+        ):
+            result = load_status_data(company="FilteredCo", limit=20)
+
+        assert result["ok"] is True
+        assert result["pipeline_summary"]["total_discovered"] == 1
+        assert result["pipeline_summary"]["total_review"] == 1
+        assert result["companies"][0]["company"] == "FilteredCo"
+        assert result["platforms"]["lever"]["REVIEW_REQUIRED"] == 1
+        assert mock_query.call_args.kwargs["company"] == "FilteredCo"
+        assert mock_query.call_args.kwargs["limit"] is None
 
     def test_setup_profile_retries_resume_input_after_failure(self):
         from src.cli.cmd_init import _setup_profile
@@ -482,6 +673,19 @@ class TestTrackerDatabase:
 
         with pytest.raises(ValueError, match="Invalid outcome"):
             update_outcome(session, uuid.uuid4(), "magic")
+
+    def test_get_applications_with_jobs_treats_pending_as_null(self):
+        from src.tracker.database import get_applications_with_jobs
+
+        session = MagicMock()
+        execute_result = MagicMock()
+        execute_result.all.return_value = []
+        session.execute.return_value = execute_result
+
+        get_applications_with_jobs(session, outcome="pending", limit=None)
+
+        stmt = session.execute.call_args[0][0]
+        assert "IS NULL" in str(stmt)
 
 
 # ──────────────────────────────────────────────

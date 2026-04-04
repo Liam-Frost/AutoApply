@@ -232,20 +232,27 @@ class TestLinkedInCLI:
         assert result.exit_code == 1
         assert "--keyword" in result.output
 
-    @patch("src.intake.search.search_linkedin_sync")
+    @patch("src.cli.cmd_search.search_jobs_usecase", new_callable=AsyncMock)
     def test_linkedin_search_calls_scraper(self, mock_search, runner):
-        from src.intake.schema import RawJob
-
-        mock_search.return_value = [
-            RawJob(
-                source="linkedin",
-                source_id="111",
-                company="TestCo",
-                title="SWE Intern",
-                location="Remote",
-                ats_type="linkedin",
-            )
-        ]
+        mock_search.return_value = {
+            "search_params": {"keyword": "software engineer intern"},
+            "jobs": [
+                {
+                    "source": "linkedin",
+                    "source_id": "111",
+                    "company": "TestCo",
+                    "title": "SWE Intern",
+                    "location": "Remote",
+                    "ats_type": "linkedin",
+                    "employment_type": "unknown",
+                    "application_url": None,
+                }
+            ],
+            "errors": [],
+            "error": None,
+            "counts": {"ats": 0, "linkedin": 1, "linkedin_external_ats": 0, "total": 1},
+            "scored": False,
+        }
 
         from src.cli.main import cli
 
@@ -265,26 +272,37 @@ class TestLinkedInCLI:
         assert "LinkedIn: 1 jobs found" in result.output
         mock_search.assert_called_once()
 
-    @patch("src.intake.search.search_linkedin_sync")
+    @patch("src.cli.cmd_search.search_jobs_usecase", new_callable=AsyncMock)
     def test_linkedin_search_shows_ats_redirect_count(self, mock_search, runner):
-        from src.intake.schema import RawJob
-
-        mock_search.return_value = [
-            RawJob(
-                source="linkedin",
-                source_id="111",
-                company="Stripe",
-                title="SWE Intern",
-                ats_type="greenhouse",
-            ),
-            RawJob(
-                source="linkedin",
-                source_id="222",
-                company="TestCo",
-                title="PM Intern",
-                ats_type="linkedin",
-            ),
-        ]
+        mock_search.return_value = {
+            "search_params": {"keyword": "intern"},
+            "jobs": [
+                {
+                    "source": "linkedin",
+                    "source_id": "111",
+                    "company": "Stripe",
+                    "title": "SWE Intern",
+                    "location": None,
+                    "ats_type": "greenhouse",
+                    "employment_type": "unknown",
+                    "application_url": None,
+                },
+                {
+                    "source": "linkedin",
+                    "source_id": "222",
+                    "company": "TestCo",
+                    "title": "PM Intern",
+                    "location": None,
+                    "ats_type": "linkedin",
+                    "employment_type": "unknown",
+                    "application_url": None,
+                },
+            ],
+            "errors": [],
+            "error": None,
+            "counts": {"ats": 0, "linkedin": 2, "linkedin_external_ats": 1, "total": 2},
+            "scored": False,
+        }
 
         from src.cli.main import cli
 

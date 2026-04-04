@@ -112,7 +112,7 @@ def get_applications(
     status: str | None = None,
     outcome: str | None = None,
     company: str | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
     offset: int = 0,
 ) -> list[Application]:
     """Query applications with optional filters.
@@ -124,11 +124,15 @@ def get_applications(
     if status:
         stmt = stmt.where(Application.status == status)
     if outcome:
-        stmt = stmt.where(Application.outcome == outcome)
+        if outcome == "pending":
+            stmt = stmt.where(Application.outcome.is_(None))
+        else:
+            stmt = stmt.where(Application.outcome == outcome)
     if company:
         stmt = stmt.join(Job, Application.job_id == Job.id).where(Job.company.ilike(f"%{company}%"))
 
-    stmt = stmt.limit(limit).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
     return list(session.execute(stmt).scalars().all())
 
 
@@ -153,7 +157,7 @@ def get_applications_with_jobs(
     status: str | None = None,
     outcome: str | None = None,
     company: str | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
     offset: int = 0,
 ) -> list[tuple[Application, Job]]:
     """Query applications with jobs in a single joined query.
@@ -169,11 +173,15 @@ def get_applications_with_jobs(
     if status:
         stmt = stmt.where(Application.status == status)
     if outcome:
-        stmt = stmt.where(Application.outcome == outcome)
+        if outcome == "pending":
+            stmt = stmt.where(Application.outcome.is_(None))
+        else:
+            stmt = stmt.where(Application.outcome == outcome)
     if company:
         stmt = stmt.where(Job.company.ilike(f"%{company}%"))
 
-    stmt = stmt.limit(limit).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
     return [row.tuple() for row in session.execute(stmt).all()]
 
 
