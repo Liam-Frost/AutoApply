@@ -1,16 +1,15 @@
-"""``autoapply search`` -- find matching jobs.
-
-Wraps the existing intake/search module with the Click CLI interface.
-Supports both ATS board scraping and LinkedIn search.
-"""
+"""``autoapply search`` -- find matching jobs."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 import click
 
+from src.application.jobs import search_jobs as search_jobs_usecase
+from src.cli.output import emit_json
 from src.core.config import PROJECT_ROOT
 
 logger = logging.getLogger("autoapply.cli.search")
@@ -35,7 +34,6 @@ logger = logging.getLogger("autoapply.cli.search")
 @click.option("--ats", type=click.Choice(["greenhouse", "lever"]), help="Only scrape this ATS.")
 @click.option("--company", help="Only scrape this company slug.")
 @click.option("--score", is_flag=True, help="Score and rank results against your profile.")
-# LinkedIn-specific options
 @click.option("--keyword", help="LinkedIn search keywords (e.g. 'software engineer intern').")
 @click.option(
     "--location", "search_location", help="LinkedIn location filter (e.g. 'United States')."
@@ -49,6 +47,7 @@ logger = logging.getLogger("autoapply.cli.search")
 @click.option("--max-pages", default=5, help="Max LinkedIn result pages to scrape.")
 @click.option("--no-enrich", is_flag=True, help="Skip LinkedIn detail page enrichment.")
 @click.option("--headless/--no-headless", default=False, help="Run LinkedIn browser headless.")
+@click.option("--json", "as_json", is_flag=True, help="Output structured JSON for agents.")
 def search_cmd(
     profile: str,
     config_dir: Path,
@@ -64,111 +63,81 @@ def search_cmd(
     max_pages: int,
     no_enrich: bool,
     headless: bool,
+    as_json: bool,
 ) -> None:
     """Search for matching jobs from ATS boards and/or LinkedIn."""
-    from src.intake.search import _print_results, search_jobs
+    result = asyncio.run(
+        search_jobs_usecase(
+            profile=profile,
+            config_dir=config_dir,
+            no_parse=no_parse,
+            use_llm=use_llm,
+            source=source,
+            ats=ats,
+            company=company,
+            score=score,
+            keyword=keyword,
+            search_location=search_location,
+            time_filter=time_filter,
+            max_pages=max_pages,
+            no_enrich=no_enrich,
+            headless=headless,
+            require_keyword_for_linkedin=True,
+            warn_on_missing_profile=score,
+        )
+    )
 
-    all_jobs = []
+    if as_json:
+        emit_json({"command": "search", **result})
+    else:
+        _render_search_result(
+            result, source=source, use_llm=use_llm, no_parse=no_parse, score=score
+        )
 
-    # ATS board search
+    if source == "linkedin" and not keyword:
+        raise SystemExit(1)
+
+
+def _render_search_result(
+    result: dict,
+    *,
+    source: str,
+    use_llm: bool,
+    no_parse: bool,
+    score: bool,
+) -> None:
+    counts = result["counts"]
+
     if source in ("ats", "all"):
         if use_llm and not no_parse:
             click.echo(
                 "ATS boards: LLM-assisted JD parsing is enabled. "
                 "This search may take longer while local LLM CLIs process descriptions."
             )
+        click.echo(f"ATS boards: {counts['ats']} jobs found")
 
-        companies = None
-        if ats and company:
-            companies = {ats: [company]}
-        elif company:
-            companies = {"greenhouse": [company], "lever": [company]}
-        elif ats:
-            from src.intake.batch import load_company_list
-
-            all_companies = load_company_list(config_dir / "companies.yaml")
-            companies = {ats: all_companies.get(ats, [])}
-
-        ats_jobs = search_jobs(
-            profile=profile,
-            config_dir=config_dir,
-            companies=companies,
-            parse_jds=not no_parse,
-            use_llm=use_llm,
+    if source in ("linkedin", "all") and result["search_params"]["keyword"]:
+        click.echo(
+            f"LinkedIn: {counts['linkedin']} jobs found "
+            f"({counts['linkedin_external_ats']} with external ATS links)"
         )
-        click.echo(f"ATS boards: {len(ats_jobs)} jobs found")
-        all_jobs.extend(ats_jobs)
 
-    # LinkedIn search
-    if source in ("linkedin", "all"):
-        if not keyword:
-            click.secho(
-                "LinkedIn search requires --keyword. "
-                "Example: autoapply search --source linkedin --keyword 'swe intern'",
-                fg="red",
-            )
-            if source == "linkedin":
-                raise SystemExit(1)
-        else:
-            from src.intake.search import search_linkedin_sync
+    for error in result["errors"]:
+        click.secho(error, fg="yellow")
 
-            click.echo(f"Searching LinkedIn for '{keyword}'...")
-            linkedin_jobs = search_linkedin_sync(
-                keywords=keyword,
-                location=search_location or "",
-                time_filter=time_filter,
-                max_pages=max_pages,
-                enrich_details=not no_enrich,
-                headless=headless,
-                filter_profile=profile if source == "all" else None,
-                config_dir=config_dir,
-            )
-
-            # Show ATS redirect stats
-            ats_redirected = sum(1 for j in linkedin_jobs if j.ats_type in ("greenhouse", "lever"))
-            click.echo(
-                f"LinkedIn: {len(linkedin_jobs)} jobs found "
-                f"({ats_redirected} with external ATS links)"
-            )
-            all_jobs.extend(linkedin_jobs)
-
-    if not all_jobs:
+    jobs = result["jobs"]
+    if not jobs:
         click.secho("No jobs found.", fg="yellow")
         return
 
     if score:
-        _score_and_print(all_jobs, config_dir)
+        _print_ranked_results(jobs)
     else:
-        _print_results(all_jobs)
-
-
-def _score_and_print(jobs, config_dir: Path) -> None:
-    """Score jobs against the applicant profile and print ranked results."""
-    from src.matching.scorer import build_scoring_context, score_jobs
-    from src.memory.profile import load_profile_yaml
-
-    profile_path = PROJECT_ROOT / "data" / "profile" / "profile.yaml"
-    if not profile_path.exists():
-        click.secho(
-            "No profile found -- run `autoapply init` first to enable scoring.",
-            fg="yellow",
-        )
-        from src.intake.search import _print_results
-
         _print_results(jobs)
-        return
 
-    profile_data = load_profile_yaml(profile_path)
-    scoring_ctx = build_scoring_context(profile_data)
 
-    click.echo(f"\nScoring {len(jobs)} jobs against your profile...")
-    ranked = score_jobs(jobs, scoring_ctx)
-    job_by_id = {str(job.id): job for job in jobs}
-    ranked_jobs = [
-        (job_by_id[score.job_id], score.final_score)
-        for score in ranked
-        if not score.disqualified and score.job_id in job_by_id
-    ]
+def _print_ranked_results(jobs: list[dict]) -> None:
+    ranked_jobs = [job for job in jobs if not job.get("disqualified")]
 
     click.echo(f"\n{'=' * 80}")
     click.secho(
@@ -178,7 +147,8 @@ def _score_and_print(jobs, config_dir: Path) -> None:
     )
     click.echo(f"{'=' * 80}\n")
 
-    for i, (job, match_score) in enumerate(ranked_jobs[:20], 1):
+    for index, job in enumerate(ranked_jobs[:20], 1):
+        match_score = job.get("match_score") or 0.0
         if match_score >= 0.7:
             color = "green"
         elif match_score >= 0.4:
@@ -186,17 +156,36 @@ def _score_and_print(jobs, config_dir: Path) -> None:
         else:
             color = "red"
 
-        source_tag = f" [{job.source}]" if job.source == "linkedin" else ""
-        click.secho(f"  [{i:3d}] {match_score:.0%}  ", fg=color, nl=False)
-        click.echo(f"{job.company} - {job.title}{source_tag}")
+        source_tag = f" [{job['source']}]" if job["source"] == "linkedin" else ""
+        click.secho(f"  [{index:3d}] {match_score:.0%}  ", fg=color, nl=False)
+        click.echo(f"{job['company']} - {job['title']}{source_tag}")
 
         parts = []
-        if job.location:
-            parts.append(job.location)
-        if job.employment_type != "unknown":
-            parts.append(job.employment_type)
+        if job.get("location"):
+            parts.append(job["location"])
+        if job.get("employment_type") and job["employment_type"] != "unknown":
+            parts.append(job["employment_type"])
         if parts:
             click.echo(f"        {' | '.join(parts)}")
-        if job.application_url:
-            click.echo(f"        {job.application_url}")
+        if job.get("application_url"):
+            click.echo(f"        {job['application_url']}")
+        click.echo()
+
+
+def _print_results(jobs: list[dict]) -> None:
+    click.echo(f"\n{'=' * 80}")
+    click.echo(f" Found {len(jobs)} matching jobs")
+    click.echo(f"{'=' * 80}\n")
+
+    for index, job in enumerate(jobs, 1):
+        click.echo(f"  [{index:3d}] {job['company']} - {job['title']}")
+        parts = []
+        if job.get("location"):
+            parts.append(job["location"])
+        if job.get("employment_type") and job["employment_type"] != "unknown":
+            parts.append(job["employment_type"])
+        if parts:
+            click.echo(f"        {' | '.join(parts)}")
+        if job.get("application_url"):
+            click.echo(f"        {job['application_url']}")
         click.echo()

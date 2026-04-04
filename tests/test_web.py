@@ -81,7 +81,7 @@ class TestDashboardApi:
             "db_connected": True,
         }
 
-        with patch("src.web.routes.api._load_dashboard_data", return_value=payload):
+        with patch("src.web.routes.api.load_dashboard_data", return_value=payload):
             response = client.get("/api/dashboard")
 
         assert response.status_code == 200
@@ -162,32 +162,13 @@ class TestJobsApi:
         assert payload["jobs"][0]["title"] == "Backend Engineer"
         assert "LinkedIn:" in payload["error"]
 
-    @patch("src.cli.cmd_apply._run_application_for_job")
-    @patch("src.cli.cmd_apply._load_job_for_application")
-    @patch("src.cli.cmd_apply._load_profile")
-    @patch("src.cli.cmd_apply._detect_ats_from_url")
-    def test_jobs_apply_post(
-        self,
-        mock_detect_ats,
-        mock_load_profile,
-        mock_load_job,
-        mock_run_apply,
-        client,
-    ):
-        from src.core.state_machine import AppStatus
-        from src.intake.schema import RawJob
-
-        mock_detect_ats.return_value = "greenhouse"
-        mock_load_profile.return_value = {"identity": {"full_name": "Test User"}}
-        mock_load_job.return_value = RawJob(
-            source="greenhouse",
-            source_id="123",
-            company="TestCo",
-            title="SWE Intern",
-            ats_type="greenhouse",
-            application_url="https://boards.greenhouse.io/testco/jobs/123",
-        )
-        mock_run_apply.return_value = MagicMock(status=AppStatus.REVIEW_REQUIRED, error="")
+    @patch("src.web.routes.api.apply_to_url")
+    def test_jobs_apply_post(self, mock_apply_to_url, client):
+        mock_apply_to_url.return_value = {
+            "ok": True,
+            "status": "REVIEW_REQUIRED",
+            "job": {"company": "TestCo", "title": "SWE Intern"},
+        }
 
         response = client.post(
             "/api/jobs/apply",
@@ -218,32 +199,38 @@ class TestApplicationsApi:
             application_url="https://example.com/apply",
             ats_type="greenhouse",
         )
-        session = MagicMock()
-        session_cm = MagicMock()
-        session_cm.__enter__.return_value = session
-        session_cm.__exit__.return_value = None
-
-        with (
-            patch("src.web.routes.api.load_config", return_value={}),
-            patch(
-                "src.core.database.get_session_factory",
-                return_value=MagicMock(return_value=session_cm),
-            ),
-            patch("src.tracker.database.get_applications_with_jobs", return_value=[(app, job)]),
-            patch("src.tracker.database.get_application_counts", return_value={"SUBMITTED": 1}),
-            patch(
-                "src.tracker.analytics.compute_outcome_stats",
-                return_value=MagicMock(
-                    total_submitted=1,
-                    pending=1,
-                    rejected=0,
-                    oa=0,
-                    interview=0,
-                    offer=0,
-                    response_rate=0.0,
-                    positive_rate=0.0,
-                ),
-            ),
+        with patch(
+            "src.web.routes.api.load_applications_data",
+            return_value={
+                "applications": [
+                    {
+                        "id": str(app.id),
+                        "job_id": str(app.job_id),
+                        "status": app.status,
+                        "match_score": app.match_score,
+                        "outcome": app.outcome,
+                        "created_at": app.created_at.isoformat(),
+                        "updated_at": app.updated_at.isoformat(),
+                        "submitted_at": app.submitted_at.isoformat(),
+                        "job": {
+                            "id": str(job.id),
+                            "company": job.company,
+                            "title": job.title,
+                            "location": job.location,
+                            "application_url": job.application_url,
+                            "ats_type": job.ats_type,
+                        },
+                    }
+                ],
+                "pipeline": {"SUBMITTED": 1},
+                "outcomes": {
+                    "total": 1,
+                    "pending": 1,
+                    "rates": {"response_rate": 0.0, "positive_rate": 0.0},
+                },
+                "error": None,
+                "filters": {"status": "SUBMITTED", "outcome": "", "company": "", "limit": 50},
+            },
         ):
             response = client.get("/api/applications?status=SUBMITTED")
 
@@ -253,23 +240,16 @@ class TestApplicationsApi:
         assert payload["pipeline"]["SUBMITTED"] == 1
 
     def test_update_outcome_route(self, client):
-        updated = MagicMock(
-            id="00000000-0000-0000-0000-000000000001",
-            outcome="offer",
-            outcome_updated_at=datetime.now(UTC),
-        )
-        session = MagicMock()
-        session_cm = MagicMock()
-        session_cm.__enter__.return_value = session
-        session_cm.__exit__.return_value = None
-
-        with (
-            patch("src.web.routes.api.load_config", return_value={}),
-            patch(
-                "src.core.database.get_session_factory",
-                return_value=MagicMock(return_value=session_cm),
-            ),
-            patch("src.tracker.database.update_outcome", return_value=updated),
+        with patch(
+            "src.web.routes.api.update_application_outcome",
+            return_value={
+                "ok": True,
+                "status": "updated",
+                "message": "Updated to offer",
+                "application_id": "00000000-0000-0000-0000-000000000001",
+                "outcome": "offer",
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
         ):
             response = client.patch(
                 "/api/applications/00000000-0000-0000-0000-000000000001/outcome",
@@ -282,11 +262,14 @@ class TestApplicationsApi:
 
 class TestProfileApi:
     def test_profile_endpoint_returns_empty_state(self, client):
-        mock_path = MagicMock()
-        mock_path.exists.return_value = False
-        mock_path.__str__.return_value = "data/profile/profile.yaml"
-
-        with patch("src.web.routes.api.PROFILE_FILE", mock_path):
+        with patch(
+            "src.web.routes.api.load_profile_data",
+            return_value={
+                "profile": None,
+                "profile_path": "data/profile/profile.yaml",
+                "has_profile": False,
+            },
+        ):
             response = client.get("/api/profile")
 
         assert response.status_code == 200
@@ -304,20 +287,17 @@ class TestProfileApi:
 
 class TestSettingsApi:
     def test_settings_page_loads(self, client):
-        with (
-            patch("src.web.routes.api.load_config", return_value={}),
-            patch(
-                "src.web.routes.api.get_llm_settings",
-                return_value={
+        with patch(
+            "src.web.routes.api.load_llm_settings_data",
+            return_value={
+                "llm": {
                     "primary_provider": "claude-cli",
                     "fallback_provider": "codex-cli",
                     "allow_fallback": True,
                 },
-            ),
-            patch(
-                "src.web.routes.api.detect_available_providers",
-                return_value={"claude-cli": True, "codex-cli": True},
-            ),
+                "available_providers": {"claude-cli": True, "codex-cli": True},
+                "config_path": "config/settings.yaml",
+            },
         ):
             response = client.get("/api/settings/llm")
 
@@ -325,21 +305,20 @@ class TestSettingsApi:
         assert response.json()["llm"]["primary_provider"] == "claude-cli"
 
     def test_settings_update_llm(self, client):
-        with (
-            patch("src.web.routes.api.update_llm_settings"),
-            patch("src.web.routes.api.load_config", return_value={}),
-            patch(
-                "src.web.routes.api.get_llm_settings",
-                return_value={
+        with patch(
+            "src.web.routes.api.update_llm_settings_data",
+            return_value={
+                "ok": True,
+                "status": "updated",
+                "message": "LLM settings updated successfully.",
+                "llm": {
                     "primary_provider": "codex-cli",
                     "fallback_provider": "claude-cli",
                     "allow_fallback": True,
                 },
-            ),
-            patch(
-                "src.web.routes.api.detect_available_providers",
-                return_value={"claude-cli": True, "codex-cli": True},
-            ),
+                "available_providers": {"claude-cli": True, "codex-cli": True},
+                "config_path": "config/settings.yaml",
+            },
         ):
             response = client.put(
                 "/api/settings/llm",
