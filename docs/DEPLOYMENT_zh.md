@@ -290,7 +290,165 @@ uv run autoapply status --company Stripe --status SUBMITTED --outcome interview
 uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
 ```
 
-## 14. 运行注意事项
+## 14. Linux 生产环境部署
+
+这一节给出一个适合当前项目实际结构的生产部署方式，重点是：
+
+- Linux 服务器
+- `systemd` 常驻托管
+- Nginx 反向代理
+- Web 服务只监听内网地址
+
+建议约定：
+
+- 运行用户：`autoapply`
+- 项目目录：`/opt/autoapply`
+- Web 监听：`127.0.0.1:8000`
+- 外部访问：Nginx 提供 `80/443`
+
+### 14.1 安装系统依赖
+
+Ubuntu / Debian 示例：
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv postgresql libpq-dev libreoffice nginx curl
+```
+
+如果还没安装 `uv`：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 14.2 创建专用运行用户
+
+```bash
+sudo useradd --system --create-home --home-dir /opt/autoapply --shell /bin/bash autoapply
+```
+
+### 14.3 部署代码
+
+```bash
+sudo -u autoapply git clone https://github.com/Liam-Frost/AutoApply.git /opt/autoapply
+cd /opt/autoapply
+sudo -u autoapply /opt/autoapply/.local/bin/uv sync
+sudo -u autoapply /opt/autoapply/.local/bin/uv run playwright install chromium
+```
+
+如果你机器上的 `uv` 不在 `/opt/autoapply/.local/bin/uv`，请替换成实际路径。
+
+### 14.4 配置环境变量与数据库
+
+```bash
+cd /opt/autoapply
+sudo -u autoapply cp config/.env.example .env
+sudo -u autoapply editor .env
+sudo -u autoapply /opt/autoapply/.local/bin/uv run alembic upgrade head
+```
+
+至少需要正确填写 `.env` 中的数据库配置。
+
+### 14.5 先手工跑通一次 Web
+
+```bash
+sudo -u autoapply /opt/autoapply/.local/bin/uv run autoapply web --host 127.0.0.1 --port 8000 --no-open
+```
+
+先确认服务器本机上 `http://127.0.0.1:8000` 能访问，再继续配置 `systemd` 和 Nginx。
+
+## 15. systemd 服务配置
+
+创建 `/etc/systemd/system/autoapply-web.service`：
+
+```ini
+[Unit]
+Description=AutoApply Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=autoapply
+Group=autoapply
+WorkingDirectory=/opt/autoapply
+Environment=HOME=/opt/autoapply
+ExecStart=/opt/autoapply/.local/bin/uv run autoapply web --host 127.0.0.1 --port 8000 --no-open
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+如果 `uv` 在别的位置，请修改 `ExecStart`。
+
+启用并启动：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable autoapply-web
+sudo systemctl start autoapply-web
+sudo systemctl status autoapply-web
+```
+
+查看日志：
+
+```bash
+sudo journalctl -u autoapply-web -f
+```
+
+## 16. Nginx 反向代理
+
+创建 `/etc/nginx/sites-available/autoapply`：
+
+```nginx
+server {
+    listen 80;
+    server_name autoapply.example.com;
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+启用站点：
+
+```bash
+sudo ln -s /etc/nginx/sites-available/autoapply /etc/nginx/sites-enabled/autoapply
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 16.1 启用 HTTPS
+
+如果是公网访问，建议加上 TLS：
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d autoapply.example.com
+```
+
+## 17. 生产环境注意事项
+
+- Web 服务建议只绑定 `127.0.0.1`，对外访问交给 Nginx
+- 数据库密码只放在 `.env` 或系统环境变量里
+- 服务进程使用独立的非 root 用户运行
+- `logs/`、`data/output/`、`data/.linkedin_session/` 需要对运行用户可写
+- 如果服务器上要跑 LinkedIn 搜索，第一次登录通常仍需要人工完成
+- 基于 Playwright 的自动投递更适合受控内部环境，不建议直接做成开放式公网多租户服务
+
+## 18. 运行注意事项
 
 - 当前直接投递主要支持 Greenhouse 和 Lever
 - LinkedIn 主要用于搜索和发现外部 ATS 链接
@@ -298,7 +456,7 @@ uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
 - LLM CLI 不可用时，系统会尽量降级，但解析和生成质量会下降
 - 默认流程是人工复核后再提交，`--auto-submit` 是可选行为
 
-## 15. 常见问题
+## 19. 常见问题
 
 ### `autoapply` 命令找不到
 
@@ -358,7 +516,7 @@ uv run autoapply apply --url <ats-url> --no-headless
 - 第一次建议使用 `--no-headless`
 - 手动完成登录后，会复用 `data/.linkedin_session`
 
-## 16. 部署完成后的检查清单
+## 20. 部署完成后的检查清单
 
 ```bash
 uv run ruff check .

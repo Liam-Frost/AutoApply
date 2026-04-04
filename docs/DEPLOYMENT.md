@@ -291,7 +291,160 @@ Example dashboard command on a server:
 uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
 ```
 
-## 14. Operational Notes
+## 14. Production Deployment On Linux
+
+This section describes a practical production-style deployment for the current web dashboard.
+
+Suggested layout:
+
+- app user: `autoapply`
+- app path: `/opt/autoapply`
+- service bind: `127.0.0.1:8000`
+- public access: Nginx reverse proxy on `80/443`
+
+### 14.1 Install system packages
+
+Example for Ubuntu/Debian:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv postgresql libpq-dev libreoffice nginx curl
+```
+
+Install `uv` if it is not already installed:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 14.2 Create a dedicated service user
+
+```bash
+sudo useradd --system --create-home --home-dir /opt/autoapply --shell /bin/bash autoapply
+```
+
+### 14.3 Deploy the code
+
+```bash
+sudo -u autoapply git clone https://github.com/Liam-Frost/AutoApply.git /opt/autoapply
+cd /opt/autoapply
+sudo -u autoapply /opt/autoapply/.local/bin/uv sync
+sudo -u autoapply /opt/autoapply/.local/bin/uv run playwright install chromium
+```
+
+If `/opt/autoapply/.local/bin/uv` is different on your server, replace it with the actual `uv` path.
+
+### 14.4 Configure environment and database
+
+```bash
+cd /opt/autoapply
+sudo -u autoapply cp config/.env.example .env
+sudo -u autoapply editor .env
+sudo -u autoapply /opt/autoapply/.local/bin/uv run alembic upgrade head
+```
+
+At minimum, set the database fields in `.env`.
+
+### 14.5 Run the web app manually once
+
+```bash
+sudo -u autoapply /opt/autoapply/.local/bin/uv run autoapply web --host 127.0.0.1 --port 8000 --no-open
+```
+
+Confirm that `http://127.0.0.1:8000` responds locally before adding `systemd` or Nginx.
+
+## 15. systemd Service
+
+Create `/etc/systemd/system/autoapply-web.service`:
+
+```ini
+[Unit]
+Description=AutoApply Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=autoapply
+Group=autoapply
+WorkingDirectory=/opt/autoapply
+Environment=HOME=/opt/autoapply
+ExecStart=/opt/autoapply/.local/bin/uv run autoapply web --host 127.0.0.1 --port 8000 --no-open
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+If `uv` is installed somewhere else, replace the `ExecStart` path.
+
+Enable and start it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable autoapply-web
+sudo systemctl start autoapply-web
+sudo systemctl status autoapply-web
+```
+
+View logs:
+
+```bash
+sudo journalctl -u autoapply-web -f
+```
+
+## 16. Nginx Reverse Proxy
+
+Create `/etc/nginx/sites-available/autoapply`:
+
+```nginx
+server {
+    listen 80;
+    server_name autoapply.example.com;
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+Enable the site:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/autoapply /etc/nginx/sites-enabled/autoapply
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 16.1 Enable HTTPS
+
+If the server is public, add TLS with Certbot:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d autoapply.example.com
+```
+
+## 17. Production Notes
+
+- bind the app to `127.0.0.1` and expose it through Nginx
+- keep PostgreSQL credentials only in `.env` or environment variables
+- run the service under a dedicated non-root user
+- keep `logs/`, `data/output/`, and `data/.linkedin_session/` writable by the service user
+- if you use LinkedIn search on a server, the first login may still require an interactive browser session
+- Playwright-based apply jobs are better suited to trusted internal use than a public multi-user SaaS deployment
+
+## 18. Operational Notes
 
 - `apply` automation is currently for Greenhouse and Lever
 - LinkedIn is primarily for search and ATS link discovery
@@ -299,7 +452,7 @@ uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
 - LLM-dependent features degrade gracefully when the CLI is unavailable, but some parsing/generation quality will drop
 - the default workflow is human-in-the-loop; auto-submit is optional
 
-## 15. Troubleshooting
+## 19. Troubleshooting
 
 ### `autoapply` command not found
 
@@ -360,7 +513,7 @@ Install one of:
 - complete login manually on the first run
 - reuse the saved session under `data/.linkedin_session`
 
-## 16. Validation Checklist
+## 20. Validation Checklist
 
 Use this after deployment:
 
