@@ -17,6 +17,43 @@ class TestLLMSettings:
         assert settings["timeout"] == 30
 
 
+class TestDirectCLIInvocation:
+    def test_claude_uses_system_prompt_flag(self):
+        from src.utils.llm import claude_generate
+
+        completed = type("Completed", (), {"returncode": 0, "stdout": "OK", "stderr": ""})()
+
+        with (
+            patch("src.utils.llm._resolve_executable", return_value=r"C:\tools\claude.exe"),
+            patch("src.utils.llm.subprocess.run", return_value=completed) as mock_run,
+        ):
+            result = claude_generate("hello", system="be terse")
+
+        assert result == "OK"
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == r"C:\tools\claude.exe"
+        assert "--system-prompt" in cmd
+        assert "--system" not in cmd
+
+    def test_codex_uses_resolved_executable_path(self):
+        from src.utils.llm import codex_generate
+
+        completed = type("Completed", (), {"returncode": 0, "stdout": "OK", "stderr": ""})()
+
+        with (
+            patch(
+                "src.utils.llm._resolve_executable",
+                return_value=r"C:\Users\me\AppData\Roaming\npm\codex.cmd",
+            ),
+            patch("src.utils.llm.subprocess.run", return_value=completed) as mock_run,
+        ):
+            result = codex_generate("hello")
+
+        assert result == "OK"
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == r"C:\Users\me\AppData\Roaming\npm\codex.cmd"
+
+
 class TestLLMFallback:
     def test_falls_back_from_codex_to_claude(self):
         with (

@@ -100,26 +100,26 @@ def init_cmd(
             if not click.confirm("    Continue without database?", default=False):
                 raise SystemExit(1)
 
-    # Step 3: Applicant Profile
+    # Step 3: LLM CLI
     checks_total += 1
-    click.secho("  [3/4] Setting up applicant profile...", fg="yellow")
+    _configure_llm_settings(config, llm_primary, llm_fallback, disable_llm_fallback)
+    if skip_llm:
+        click.secho("  [3/4] LLM check -- skipped", fg="yellow")
+        checks_passed += 1
+    else:
+        click.secho("  [3/4] Checking LLM CLI availability...", fg="yellow")
+        llm_ok = _check_llm(config)
+        if llm_ok:
+            checks_passed += 1
+
+    # Step 4: Applicant Profile
+    checks_total += 1
+    click.secho("  [4/4] Setting up applicant profile...", fg="yellow")
     profile_ok = _setup_profile(
         profile_path=profile, resume_path=resume, config=config, skip_db=skip_db
     )
     if profile_ok:
         checks_passed += 1
-
-    # Step 4: LLM CLI
-    checks_total += 1
-    if skip_llm:
-        click.secho("  [4/4] LLM check -- skipped", fg="yellow")
-        checks_passed += 1
-    else:
-        click.secho("  [4/4] Checking LLM CLI availability...", fg="yellow")
-        _configure_llm_settings(config, llm_primary, llm_fallback, disable_llm_fallback)
-        llm_ok = _check_llm(config)
-        if llm_ok:
-            checks_passed += 1
 
     # Summary
     click.echo()
@@ -323,7 +323,18 @@ def _import_from_resume(path: Path, config: dict | None, skip_db: bool) -> bool:
         click.secho(f"    [FAIL] File not found: {path}", fg="red")
         return False
 
-    click.echo(f"    Parsing {path.name} with Claude CLI...")
+    from src.utils.llm import get_llm_settings
+
+    llm_settings = get_llm_settings(config) if config is not None else None
+    primary = llm_settings["primary_provider"] if llm_settings else "configured LLM CLI"
+    fallback = llm_settings["fallback_provider"] if llm_settings else None
+
+    click.echo(f"    Parsing {path.name} into a structured profile...")
+    click.echo(
+        f"      Invoking local LLM CLI (primary: {primary}"
+        f"{f', fallback: {fallback}' if fallback else ''})."
+    )
+    click.echo("      This can take 10-60 seconds depending on the model and resume length.")
     try:
         from src.memory.resume_importer import import_resume
 
@@ -421,8 +432,8 @@ def _resume_path_prompt() -> str:
 def _resume_path_example() -> str:
     """Return an example resume path for the current platform."""
     if _is_windows():
-        return r"C:\Documents\CV\Liam_Liu_Resume.docx"
-    return "/home/liam/Documents/CV/liam_liu_resume.docx"
+        return r"C:\Users\Example\Documents\sample_resume.docx"
+    return "/home/example/documents/sample_resume.docx"
 
 
 def _normalize_input_path(path_str: str) -> Path:

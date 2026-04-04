@@ -27,8 +27,8 @@ class LLMError(Exception):
 def detect_available_providers() -> dict[str, bool]:
     """Detect which supported LLM CLIs are available in PATH."""
     return {
-        "claude-cli": shutil.which("claude") is not None,
-        "codex-cli": shutil.which("codex") is not None,
+        "claude-cli": _resolve_executable("claude") is not None,
+        "codex-cli": _resolve_executable("codex") is not None,
     }
 
 
@@ -117,9 +117,15 @@ def claude_generate(
     output_format: str = "text",
 ) -> str:
     """Call Claude Code CLI directly for text generation."""
-    cmd = ["claude", "-p", prompt, "--output-format", output_format]
+    executable = _resolve_executable("claude")
+    if executable is None:
+        raise LLMError(
+            "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+        )
+
+    cmd = [executable, "-p", prompt, "--output-format", output_format]
     if system:
-        cmd.extend(["--system", system])
+        cmd.extend(["--system-prompt", system])
 
     logger.debug("Claude CLI call: prompt=%d chars, system=%d chars", len(prompt), len(system))
 
@@ -133,10 +139,10 @@ def claude_generate(
         )
     except subprocess.TimeoutExpired:
         raise LLMError(f"Claude CLI timed out after {timeout}s")
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         raise LLMError(
             "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
-        )
+        ) from exc
 
     if result.returncode != 0:
         raise LLMError(f"Claude CLI error (code {result.returncode}): {result.stderr.strip()}")
@@ -160,13 +166,17 @@ def codex_generate(
     output_format: str = "text",
 ) -> str:
     """Call Codex CLI directly for text generation."""
+    executable = _resolve_executable("codex")
+    if executable is None:
+        raise LLMError("Codex CLI not found. Install with: npm install -g @openai/codex")
+
     full_prompt = prompt
     if system:
         full_prompt = f"System instructions:\n{system}\n\nUser request:\n{prompt}"
     if output_format == "json":
         full_prompt = f"{full_prompt}\n\nReturn only valid JSON with no markdown fences."
 
-    cmd = ["codex", "exec", "--full-auto", full_prompt]
+    cmd = [executable, "exec", "--full-auto", full_prompt]
 
     logger.debug("Codex CLI call: prompt=%d chars, system=%d chars", len(prompt), len(system))
 
@@ -180,8 +190,8 @@ def codex_generate(
         )
     except subprocess.TimeoutExpired:
         raise LLMError(f"Codex CLI timed out after {timeout}s")
-    except FileNotFoundError:
-        raise LLMError("Codex CLI not found. Install with: npm install -g @openai/codex")
+    except FileNotFoundError as exc:
+        raise LLMError("Codex CLI not found. Install with: npm install -g @openai/codex") from exc
 
     if result.returncode != 0:
         raise LLMError(f"Codex CLI error (code {result.returncode}): {result.stderr.strip()}")
@@ -213,6 +223,16 @@ def _normalize_provider(provider: str, *, role: str) -> str:
         supported = ", ".join(SUPPORTED_PROVIDERS)
         raise ValueError(f"Invalid {role} LLM provider '{provider}'. Expected one of: {supported}")
     return provider
+
+
+def _resolve_executable(command: str) -> str | None:
+    """Resolve a CLI executable path for direct subprocess use.
+
+    On Windows, passing bare commands like ``codex`` to ``subprocess.run`` may fail
+    even when ``shutil.which`` can see a ``.cmd`` shim. Using the resolved path avoids
+    that CreateProcess lookup issue.
+    """
+    return shutil.which(command) or shutil.which(f"{command}.cmd") or shutil.which(f"{command}.exe")
 
 
 def _parse_json_response(raw: str) -> Any:

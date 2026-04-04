@@ -72,6 +72,12 @@ def search_cmd(
 
     # ATS board search
     if source in ("ats", "all"):
+        if use_llm and not no_parse:
+            click.echo(
+                "ATS boards: LLM-assisted JD parsing is enabled. "
+                "This search may take longer while local LLM CLIs process descriptions."
+            )
+
         companies = None
         if ats and company:
             companies = {ats: [company]}

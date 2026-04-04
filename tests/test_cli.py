@@ -107,8 +107,8 @@ class TestInitCommand:
     def test_normalize_input_path_strips_quotes(self):
         from src.cli.cmd_init import _normalize_input_path
 
-        path = _normalize_input_path('"C:\\Documents\\CV\\Liam_Liu_Resume.docx"')
-        assert path == Path(r"C:\Documents\CV\Liam_Liu_Resume.docx")
+        path = _normalize_input_path('"C:\\Users\\Example\\Documents\\sample_resume.docx"')
+        assert path == Path(r"C:\Users\Example\Documents\sample_resume.docx")
 
     def test_resume_prompt_uses_windows_example(self):
         from src.cli.cmd_init import _resume_path_prompt
@@ -116,7 +116,7 @@ class TestInitCommand:
         with patch("src.cli.cmd_init._is_windows", return_value=True):
             prompt = _resume_path_prompt()
 
-        assert prompt == r"    Resume file path (C:\Documents\CV\Liam_Liu_Resume.docx)"
+        assert prompt == r"    Resume file path (C:\Users\Example\Documents\sample_resume.docx)"
 
     def test_setup_profile_normalizes_quoted_resume_input(self):
         from src.cli.cmd_init import _setup_profile
@@ -128,12 +128,56 @@ class TestInitCommand:
             patch("src.cli.cmd_init._is_windows", return_value=True),
         ):
             mock_profile_file.exists.return_value = False
-            mock_prompt.side_effect = [1, '"C:\\Documents\\CV\\Liam_Liu_Resume.docx"']
+            mock_prompt.side_effect = [1, '"C:\\Users\\Example\\Documents\\sample_resume.docx"']
 
             result = _setup_profile(None, None, None, True)
 
         assert result is True
-        assert mock_import.call_args[0][0] == Path(r"C:\Documents\CV\Liam_Liu_Resume.docx")
+        assert mock_import.call_args[0][0] == Path(r"C:\Users\Example\Documents\sample_resume.docx")
+
+    def test_init_checks_llm_before_profile(self, runner):
+        from src.cli.main import cli
+
+        with (
+            patch("src.cli.cmd_init._check_config", return_value=(True, {"llm": {}})),
+            patch("src.cli.cmd_init._setup_database", return_value=True),
+            patch("src.cli.cmd_init._check_llm", return_value=True),
+            patch("src.cli.cmd_init._setup_profile", return_value=True),
+        ):
+            result = runner.invoke(cli, ["init"])
+
+        assert result.exit_code == 0
+        llm_index = result.output.index("[3/4] Checking LLM CLI availability")
+        profile_index = result.output.index("[4/4] Setting up applicant profile")
+        assert llm_index < profile_index
+
+    def test_import_from_resume_shows_llm_progress(self, tmp_path, capsys):
+        from src.cli.cmd_init import _import_from_resume
+
+        resume_path = tmp_path / "sample_resume.docx"
+        resume_path.write_text("placeholder", encoding="utf-8")
+
+        with (
+            patch(
+                "src.utils.llm.get_llm_settings",
+                return_value={
+                    "primary_provider": "claude-cli",
+                    "fallback_provider": "codex-cli",
+                    "allow_fallback": True,
+                    "timeout": 120,
+                },
+            ),
+            patch(
+                "src.memory.resume_importer.import_resume",
+                return_value={"identity": {"full_name": "Test User", "email": "test@example.com"}},
+            ),
+            patch("src.cli.cmd_init.PROFILE_FILE", tmp_path / "profile.yaml"),
+        ):
+            assert _import_from_resume(resume_path, {"llm": {}}, True) is True
+
+        out = capsys.readouterr().out
+        assert "Invoking local LLM CLI" in out
+        assert "This can take 10-60 seconds" in out
 
     def test_setup_profile_retries_resume_input_after_failure(self):
         from src.cli.cmd_init import _setup_profile
