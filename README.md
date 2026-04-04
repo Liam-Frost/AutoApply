@@ -40,16 +40,19 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 | Component | Technology |
 |---|---|
 | Language | Python 3.12+ |
+| Frontend | Vue 3 + Vue Router + Vite |
+| Web Backend | FastAPI JSON API |
 | Browser Automation | Playwright |
 | LLM | Claude Code CLI + Codex CLI (via subprocess) |
 | Database | PostgreSQL + pgvector |
 | Document Processing | python-docx, docx2pdf / LibreOffice |
-| Package Manager | uv |
+| Package Manager | uv + npm |
 | Target Platforms | Greenhouse, Lever, LinkedIn discovery |
 
 ## Project Structure
 
 ```
+frontend/            # Vue frontend source and build config
 src/
 ├── core/          # Agent orchestration & state machine
 ├── intake/        # Job scraping & schema
@@ -59,7 +62,8 @@ src/
 ├── execution/     # Playwright browser, form filler, ATS adapters
 ├── documents/     # Word/PDF engine & templates
 ├── tracker/       # Database, analytics, export
-└── utils/         # LLM wrapper, rate limiter, logger
+├── utils/         # LLM wrapper, rate limiter, logger
+└── web/           # FastAPI API + built SPA assets
 ```
 
 ## Current Status
@@ -72,7 +76,7 @@ src/
 - **Phase 6** (LinkedIn Integration) — Complete
 - **Phase 7** (Web GUI) — Complete
 
-244 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+255 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
 
 ## CLI Usage
 
@@ -106,6 +110,7 @@ autoapply status --export-csv report.csv
 - PostgreSQL 16+ with pgvector extension
 - At least one local LLM CLI: Claude Code CLI or Codex CLI
 - uv package manager
+- Node.js and npm only if you plan to rebuild the frontend assets locally
 
 ### Setup
 
@@ -116,6 +121,12 @@ cd AutoApply
 
 # Install dependencies
 uv sync
+
+# Install frontend dependencies
+cd frontend
+npm install
+npm run build
+cd ..
 
 # Install Playwright browser
 uv run playwright install chromium
@@ -134,6 +145,8 @@ alembic upgrade head
 # First-time setup with explicit LLM priority
 uv run autoapply init --llm-primary claude-cli --llm-fallback codex-cli
 ```
+
+The committed repo includes built frontend assets under `src/web/static/spa`, so rebuilding the Vue app is mainly needed when you change files under `frontend/`.
 
 ## Design Principles
 

@@ -18,7 +18,7 @@ AutoApply is a 7-layer modular job application automation system:
 | 6 | `src/documents/` | Word/PDF creation, template system, file versioning |
 | 7 | `src/tracker/` | Application tracking, analytics, reporting |
 
-| 8 | `src/web/` | FastAPI web GUI: dashboard, job search, application pipeline, profile management |
+| 8 | `src/web/` + `frontend/` | FastAPI JSON API + Vue SPA: dashboard, job search, tracking, profile, settings |
 
 Orchestration lives in `src/core/` (agent, state machine, config).
 Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
@@ -26,7 +26,10 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 ## Tech Stack
 
 - **Language**: Python 3.12+
+- **Frontend**: Vue 3 + Vue Router + Vite
+- **Web backend**: FastAPI JSON API
 - **Package manager**: uv
+- **Frontend package manager**: npm
 - **Database**: PostgreSQL 16+ with pgvector
 - **Browser automation**: Playwright
 - **LLM**: Claude Code CLI (`claude -p`) + Codex CLI — invoked via subprocess, no API SDK
@@ -44,7 +47,7 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 ### Commit & Review Cadence
 
 1. Write code for a sub-phase (e.g., Phase 1.1, 1.2, 1.3)
-2. Run `codex review --uncommitted` for AI code review
+2. Run a Codex CLI review for the current sub-phase
 3. Address review findings
 4. Commit with descriptive message → push to `dev`
 5. After full Phase completion: final code review → merge `dev` into `master` → update docs
@@ -134,19 +137,18 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 
 | Sub-phase | Scope | Status |
 |-----------|-------|--------|
-| 7.1 | FastAPI backend + static assets + project structure (Jinja2 + HTMX + TailwindCSS) | **Complete** |
-| 7.2 | Dashboard page: pipeline overview, stats cards, recent applications table | **Complete** |
-| 7.3 | Job search page: search form, results table with scoring, save/apply actions | **Complete** |
-| 7.4 | Application pipeline page + profile management page | **Complete** |
-| 7.5 | Tests + code review | **Complete** |
+| 7.1 | Separate Vue frontend workspace + Vite build + FastAPI SPA shell | **Complete** |
+| 7.2 | Minimal dashboard, jobs, applications, profile, and settings pages | **Complete** |
+| 7.3 | JSON API routes for search, tracking, profile, and settings | **Complete** |
+| 7.4 | Remove legacy Jinja2/HTMX layer and simplify repository structure | **Complete** |
+| 7.5 | Tests + Codex review | **Complete** |
 
 **Verification**: `autoapply web` -> browser opens dashboard -> search jobs -> trigger apply -> view status
 
 ## Current Session Context
 
 - **Active branch**: `dev`
-- **Active branch**: `dev` (Phase 7 complete, merging to master)
-- **Current phase**: All 7 phases complete
-- **Last verification**: CLI packaging fixed, apply/tracking/web wiring repaired (244/244 tests passing)
+- **Current phase**: Phase 7 complete with Vue frontend refactor
+- **Last verification**: Vue SPA build passes, web tests pass, legacy server-rendered layer removed
 - **Blockers**: None
-- **Next step**: End-to-end testing, polish, production hardening
+- **Next step**: Push `dev`, merge to `master`, then continue with production hardening as needed

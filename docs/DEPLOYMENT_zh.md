@@ -1,6 +1,6 @@
 # AutoApply 部署与使用教程
 
-这份文档基于当前仓库的真实实现编写，覆盖本地部署、初始化、CLI 使用、Web 面板和常见问题。
+这份文档基于当前仓库的真实实现编写，覆盖本地部署、初始化、CLI 使用、Vue Web 界面和常见问题。
 
 ## 1. 当前可部署能力
 
@@ -11,7 +11,7 @@
 - 按岗位生成定制简历与 Cover Letter
 - 从 `qa_bank` 加载问答模板
 - Greenhouse / Lever 表单自动填写
-- 申请记录追踪、统计分析、CSV 导出、Web 面板
+- 申请记录追踪、统计分析、CSV 导出、Vue Web 界面
 
 当前“直接投递”已实现的平台：
 
@@ -32,6 +32,7 @@
   - LibreOffice
 - 至少一个本地 LLM CLI：Claude Code CLI 或 Codex CLI
 - 如果你希望启用自动 fallback，建议两个都安装
+- 只有在你需要本地重建前端资源时，才需要 Node.js 和 npm
 
 ## 3. 克隆与安装
 
@@ -40,6 +41,18 @@ git clone https://github.com/Liam-Frost/AutoApply.git
 cd AutoApply
 uv sync
 uv run playwright install chromium
+```
+
+## 3.2 前端构建
+
+仓库已经提交了 `src/web/static/spa` 下的构建产物。
+只有在你修改 `frontend/` 里的源码时，才需要重新构建：
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
 ## 3.1 安装并认证 LLM CLI
@@ -361,7 +374,7 @@ uv run autoapply status --company Stripe --status SUBMITTED --outcome interview
 - 安装 Python、PostgreSQL、LibreOffice、Chromium
 - 在同一台服务器上安装并认证 Claude Code CLI 和/或 Codex CLI
 - PostgreSQL 可本地部署，也可用托管数据库
-- Web 面板建议放在反向代理后面
+- Web 界面建议放在反向代理后面
 - CLI 可人工执行，也可配合调度器
 
 服务器启动示例：
@@ -372,7 +385,7 @@ uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
 
 ## 14. Linux 生产环境部署
 
-这一节给出一个适合当前项目实际结构的生产部署方式，重点是：
+这一节给出一个适合当前项目实际结构的生产部署方式，重点是当前的 Vue Web 界面：
 
 - Linux 服务器
 - `systemd` 常驻托管
@@ -414,6 +427,14 @@ sudo -u autoapply git clone https://github.com/Liam-Frost/AutoApply.git /opt/aut
 cd /opt/autoapply
 sudo -u autoapply /opt/autoapply/.local/bin/uv sync
 sudo -u autoapply /opt/autoapply/.local/bin/uv run playwright install chromium
+```
+
+如果你在服务器上改动了 `frontend/` 源码，启动前先重建前端：
+
+```bash
+cd /opt/autoapply/frontend
+sudo -u autoapply npm install
+sudo -u autoapply npm run build
 ```
 
 如果你机器上的 `uv` 不在 `/opt/autoapply/.local/bin/uv`，请替换成实际路径。

@@ -1,7 +1,7 @@
 # AutoApply Deployment And Usage Guide
 
 This guide documents the real, working setup flow for the current project.
-It covers local deployment, first-time initialization, CLI usage, and the web dashboard.
+It covers local deployment, first-time initialization, CLI usage, and the Vue-based web GUI.
 
 ## 1. What You Are Deploying
 
@@ -12,7 +12,7 @@ AutoApply currently supports:
 - Tailored resume and cover letter generation per job
 - QA template loading from `qa_bank`
 - Browser automation for Greenhouse and Lever applications
-- Application tracking, analytics, CSV export, and web dashboard
+- Application tracking, analytics, CSV export, and the Vue web GUI
 
 Direct apply support is currently implemented for:
 
@@ -33,6 +33,7 @@ Install these before starting:
   - LibreOffice
 - At least one local LLM CLI: Claude Code CLI or Codex CLI
 - Ideally install both if you want automatic provider fallback
+- Node.js and npm only if you plan to rebuild the frontend assets locally
 
 ## 3. Clone And Install
 
@@ -41,6 +42,18 @@ git clone https://github.com/Liam-Frost/AutoApply.git
 cd AutoApply
 uv sync
 uv run playwright install chromium
+```
+
+## 3.2 Frontend Build
+
+The repository already includes built frontend assets under `src/web/static/spa`.
+You only need this step when you modify files under `frontend/`.
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
 ## 3.1 Install And Authenticate LLM CLIs
@@ -362,10 +375,10 @@ uv run autoapply status --company Stripe --status SUBMITTED --outcome interview
 - install Python, PostgreSQL, LibreOffice, and Chromium
 - install and authenticate Claude Code CLI and/or Codex CLI on the same server
 - run PostgreSQL locally or use a managed database
-- launch the dashboard behind a reverse proxy
+- launch the web GUI behind a reverse proxy
 - run the CLI manually or from a scheduler
 
-Example dashboard command on a server:
+Example web GUI command on a server:
 
 ```bash
 uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
@@ -373,7 +386,7 @@ uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
 
 ## 14. Production Deployment On Linux
 
-This section describes a practical production-style deployment for the current web dashboard.
+This section describes a practical production-style deployment for the current Vue web GUI.
 
 Suggested layout:
 
@@ -410,6 +423,14 @@ sudo -u autoapply git clone https://github.com/Liam-Frost/AutoApply.git /opt/aut
 cd /opt/autoapply
 sudo -u autoapply /opt/autoapply/.local/bin/uv sync
 sudo -u autoapply /opt/autoapply/.local/bin/uv run playwright install chromium
+```
+
+If you change the Vue frontend on the server, rebuild it before starting the app:
+
+```bash
+cd /opt/autoapply/frontend
+sudo -u autoapply npm install
+sudo -u autoapply npm run build
 ```
 
 If `/opt/autoapply/.local/bin/uv` is different on your server, replace it with the actual `uv` path.

@@ -85,10 +85,10 @@ This log captures key decisions, their rationale, and alternatives considered. E
 
 ---
 
-## D010 — Web GUI: FastAPI + Jinja2 + HTMX over SPA framework (2026-04-03)
+## D010 — Web GUI: FastAPI JSON API + Vue SPA (2026-04-04)
 
-**Decision**: Build the GUI as a server-rendered web app using FastAPI + Jinja2 templates + HTMX for interactivity, styled with TailwindCSS.
+**Decision**: Replace the server-rendered Jinja2/HTMX dashboard with a Vue SPA served by the existing FastAPI app.
 
-**Rationale**: Keeps the entire codebase in Python (no separate JS build toolchain). HTMX provides SPA-like partial updates without a full React/Vue setup. FastAPI integrates naturally with the existing SQLAlchemy models and service layer. TailwindCSS via CDN avoids Node.js dependency. The GUI is a personal tool, not a SaaS product, so the simpler stack wins. The web approach also means it works across platforms (vs. PyQt/Tkinter which have OS-specific issues).
+**Rationale**: The GUI needed a cleaner and more controllable interaction model than the template-heavy dashboard could provide. Splitting the frontend into `frontend/` keeps the UI independent, makes the visual system easier to simplify, and preserves the existing Python backend as a thin JSON API over the current services.
 
-**Alternative considered**: Streamlit (faster prototyping but limited layout control and harder to customize). NiceGUI (good but smaller ecosystem). Full SPA (overkill for a personal dashboard).
+**Alternative considered**: Keep the Jinja2/HTMX stack and simplify templates in place. That would have avoided adding a Node build step, but it would keep the frontend tightly coupled to server templates and make larger layout simplifications slower to iterate.
