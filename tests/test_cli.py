@@ -8,6 +8,7 @@ DB is not available.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -102,6 +103,91 @@ class TestInitCommand:
         assert "[1/4]" in result.output
         assert "[2/4]" in result.output
         assert "skipped" in result.output
+
+    def test_normalize_input_path_strips_quotes(self):
+        from src.cli.cmd_init import _normalize_input_path
+
+        path = _normalize_input_path('"C:\\Documents\\CV\\Liam_Liu_Resume.docx"')
+        assert path == Path(r"C:\Documents\CV\Liam_Liu_Resume.docx")
+
+    def test_resume_prompt_uses_windows_example(self):
+        from src.cli.cmd_init import _resume_path_prompt
+
+        with patch("src.cli.cmd_init._is_windows", return_value=True):
+            prompt = _resume_path_prompt()
+
+        assert prompt == r"    Resume file path (C:\Documents\CV\Liam_Liu_Resume.docx)"
+
+    def test_setup_profile_normalizes_quoted_resume_input(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume", return_value=True) as mock_import,
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, '"C:\\Documents\\CV\\Liam_Liu_Resume.docx"']
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is True
+        assert mock_import.call_args[0][0] == Path(r"C:\Documents\CV\Liam_Liu_Resume.docx")
+
+    def test_setup_profile_retries_resume_input_after_failure(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume") as mock_import,
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, r"C:\bad.docx", 1, r"C:\good.docx"]
+            mock_import.side_effect = [False, True]
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is True
+        assert mock_import.call_count == 2
+        assert mock_import.call_args_list[0][0][0] == Path(r"C:\bad.docx")
+        assert mock_import.call_args_list[1][0][0] == Path(r"C:\good.docx")
+
+    def test_setup_profile_can_skip_after_resume_failure(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume", return_value=False),
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, r"C:\bad.docx", 3]
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is False
+
+    def test_setup_profile_can_switch_to_template_after_resume_failure(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume", return_value=False),
+            patch("src.cli.cmd_init._create_template_profile", return_value=True) as mock_template,
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, r"C:\bad.docx", 2]
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is True
+        mock_template.assert_called_once()
 
 
 # ──────────────────────────────────────────────

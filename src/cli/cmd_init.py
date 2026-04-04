@@ -11,6 +11,7 @@ Steps:
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -270,15 +271,11 @@ def _setup_profile(
     choice = click.prompt("    Choice", type=click.IntRange(1, 3), default=3)
 
     if choice == 1:
-        path_str = click.prompt("    Resume file path", type=str)
-        return _import_from_resume(Path(path_str), config, skip_db)
+        return _prompt_resume_import_with_retry(config, skip_db)
     elif choice == 2:
         return _create_template_profile()
     else:
-        click.secho(
-            "    ! Profile setup skipped -- run `autoapply init --profile <path>` later",
-            fg="yellow",
-        )
+        _echo_profile_setup_skipped()
         return False
 
 
@@ -367,6 +364,93 @@ def _import_from_resume(path: Path, config: dict | None, skip_db: bool) -> bool:
         click.secho(f"    [FAIL] Resume parsing failed: {e}", fg="red")
         click.echo("      Hint: Ensure Claude CLI is installed and authenticated")
         return False
+
+
+def _prompt_resume_import_with_retry(config: dict | None, skip_db: bool) -> bool:
+    """Prompt for a resume path and allow retry/template/skip on failure."""
+    _echo_resume_path_help()
+
+    while True:
+        path_str = click.prompt(_resume_path_prompt(), type=str)
+        path = _normalize_input_path(path_str)
+        if _import_from_resume(path, config, skip_db):
+            return True
+
+        click.echo("      Choose next step:")
+        click.echo("        [1] Retry resume path")
+        click.echo("        [2] Use template instead")
+        click.echo("        [3] Skip for now")
+
+        next_step = click.prompt("      Next step", type=click.IntRange(1, 3), default=1)
+        if next_step == 1:
+            continue
+        if next_step == 2:
+            return _create_template_profile()
+
+        _echo_profile_setup_skipped()
+        return False
+
+
+def _echo_resume_path_help() -> None:
+    """Explain how to paste paths for the current platform."""
+    if _is_windows():
+        click.echo(
+            "      Windows PowerShell/CMD: paste the path directly; "
+            "surrounding quotes are optional."
+        )
+    else:
+        click.echo(
+            "      Linux/macOS: absolute or relative paths are supported; "
+            "surrounding quotes are optional."
+        )
+
+
+def _echo_profile_setup_skipped() -> None:
+    """Print the standard skip message for profile setup."""
+    click.secho(
+        "    ! Profile setup skipped -- run `autoapply init --profile <path>` later",
+        fg="yellow",
+    )
+
+
+def _resume_path_prompt() -> str:
+    """Build a platform-appropriate resume path prompt."""
+    return f"    Resume file path ({_resume_path_example()})"
+
+
+def _resume_path_example() -> str:
+    """Return an example resume path for the current platform."""
+    if _is_windows():
+        return r"C:\Documents\CV\Liam_Liu_Resume.docx"
+    return "/home/liam/Documents/CV/liam_liu_resume.docx"
+
+
+def _normalize_input_path(path_str: str) -> Path:
+    """Normalize an interactively entered path string.
+
+    Users often paste quoted paths in prompts, especially on Windows.
+    This strips matching outer quotes and expands env/user shortcuts.
+    """
+    cleaned = path_str.strip()
+    quote_pairs = {
+        '"': '"',
+        "'": "'",
+        "“": "”",
+        "‘": "’",
+    }
+
+    for open_quote, close_quote in quote_pairs.items():
+        if cleaned.startswith(open_quote) and cleaned.endswith(close_quote):
+            cleaned = cleaned[len(open_quote) : len(cleaned) - len(close_quote)].strip()
+            break
+
+    expanded = os.path.expandvars(os.path.expanduser(cleaned))
+    return Path(expanded)
+
+
+def _is_windows() -> bool:
+    """Return whether the current runtime is Windows."""
+    return sys.platform.startswith("win")
 
 
 def _create_template_profile() -> bool:
