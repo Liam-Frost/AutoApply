@@ -11,6 +11,7 @@ Steps:
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import click
 
-from src.core.config import PROJECT_ROOT, get_db_url, load_config
+from src.core.config import PROJECT_ROOT, get_db_url, load_config, update_llm_settings
 
 logger = logging.getLogger("autoapply.cli.init")
 
@@ -40,11 +41,29 @@ PROFILE_FILE = PROFILE_DIR / "profile.yaml"
 )
 @click.option("--skip-db", is_flag=True, help="Skip database setup.")
 @click.option("--skip-llm", is_flag=True, help="Skip LLM availability check.")
+@click.option(
+    "--llm-primary",
+    type=click.Choice(["claude-cli", "codex-cli"]),
+    help="Preferred LLM CLI to use first.",
+)
+@click.option(
+    "--llm-fallback",
+    type=click.Choice(["claude-cli", "codex-cli"]),
+    help="Fallback LLM CLI to try if the primary one fails.",
+)
+@click.option(
+    "--disable-llm-fallback",
+    is_flag=True,
+    help="Disable automatic fallback to the secondary LLM CLI.",
+)
 def init_cmd(
     profile: Path | None,
     resume: Path | None,
     skip_db: bool,
     skip_llm: bool,
+    llm_primary: str | None,
+    llm_fallback: str | None,
+    disable_llm_fallback: bool,
 ) -> None:
     """Initialize AutoApply: database, profile, and configuration."""
     click.echo()
@@ -57,15 +76,9 @@ def init_cmd(
 
     # Step 1: Configuration
     checks_total += 1
-    click.secho("  [1/4] Checking configuration...", fg="yellow")
-    config_ok, config = _check_config()
+    config_ok, config = _run_config_step()
     if config_ok:
-        click.secho("    [OK] settings.yaml loaded", fg="green")
         checks_passed += 1
-    else:
-        click.secho("    [FAIL] Configuration error (see above)", fg="red")
-        if not click.confirm("    Continue anyway?", default=False):
-            raise SystemExit(1)
 
     # Step 2: Database
     checks_total += 1
@@ -73,33 +86,29 @@ def init_cmd(
         click.secho("  [2/4] Database -- skipped", fg="yellow")
         checks_passed += 1
     else:
-        click.secho("  [2/4] Setting up database...", fg="yellow")
-        db_ok = _setup_database(config)
+        db_ok = _run_database_step(config)
         if db_ok:
             checks_passed += 1
-        else:
-            if not click.confirm("    Continue without database?", default=False):
-                raise SystemExit(1)
 
-    # Step 3: Applicant Profile
+    # Step 3: LLM CLI
     checks_total += 1
-    click.secho("  [3/4] Setting up applicant profile...", fg="yellow")
+    _configure_llm_settings(config, llm_primary, llm_fallback, disable_llm_fallback)
+    if skip_llm:
+        click.secho("  [3/4] LLM check -- skipped", fg="yellow")
+        checks_passed += 1
+    else:
+        llm_ok = _run_llm_step(config)
+        if llm_ok:
+            checks_passed += 1
+
+    # Step 4: Applicant Profile
+    checks_total += 1
+    click.secho("  [4/4] Setting up applicant profile...", fg="yellow")
     profile_ok = _setup_profile(
         profile_path=profile, resume_path=resume, config=config, skip_db=skip_db
     )
     if profile_ok:
         checks_passed += 1
-
-    # Step 4: LLM CLI
-    checks_total += 1
-    if skip_llm:
-        click.secho("  [4/4] LLM check -- skipped", fg="yellow")
-        checks_passed += 1
-    else:
-        click.secho("  [4/4] Checking LLM CLI availability...", fg="yellow")
-        llm_ok = _check_llm()
-        if llm_ok:
-            checks_passed += 1
 
     # Summary
     click.echo()
@@ -149,6 +158,33 @@ def _check_config() -> tuple[bool, dict | None]:
     except Exception as e:
         click.secho(f"    [FAIL] Failed to load config: {e}", fg="red")
         return False, None
+
+
+def _run_config_step() -> tuple[bool, dict | None]:
+    """Run config validation with retry / continue / abort handling."""
+    while True:
+        click.secho("  [1/4] Checking configuration...", fg="yellow")
+        config_ok, config = _check_config()
+        if config_ok:
+            click.secho("    [OK] settings.yaml loaded", fg="green")
+            return True, config
+
+        click.secho("    [FAIL] Configuration error (see above)", fg="red")
+        action = _prompt_failure_action(
+            header="    Configuration check failed. Choose next step:",
+            options={
+                1: "Retry configuration check",
+                2: "Continue anyway",
+                3: "Abort setup",
+            },
+            default=1,
+            prompt_label="    Next step",
+        )
+        if action == 1:
+            continue
+        if action == 2:
+            return False, config
+        raise SystemExit(1)
 
 
 def _setup_database(config: dict | None) -> bool:
@@ -211,6 +247,30 @@ def _setup_database(config: dict | None) -> bool:
     return True
 
 
+def _run_database_step(config: dict | None) -> bool:
+    """Run database setup with retry / continue / abort handling."""
+    while True:
+        click.secho("  [2/4] Setting up database...", fg="yellow")
+        if _setup_database(config):
+            return True
+
+        action = _prompt_failure_action(
+            header="    Database setup failed. Choose next step:",
+            options={
+                1: "Retry database setup",
+                2: "Continue without database",
+                3: "Abort setup",
+            },
+            default=1,
+            prompt_label="    Next step",
+        )
+        if action == 1:
+            continue
+        if action == 2:
+            return False
+        raise SystemExit(1)
+
+
 def _setup_profile(
     profile_path: Path | None,
     resume_path: Path | None,
@@ -251,15 +311,11 @@ def _setup_profile(
     choice = click.prompt("    Choice", type=click.IntRange(1, 3), default=3)
 
     if choice == 1:
-        path_str = click.prompt("    Resume file path", type=str)
-        return _import_from_resume(Path(path_str), config, skip_db)
+        return _prompt_resume_import_with_retry(config, skip_db)
     elif choice == 2:
         return _create_template_profile()
     else:
-        click.secho(
-            "    ! Profile setup skipped -- run `autoapply init --profile <path>` later",
-            fg="yellow",
-        )
+        _echo_profile_setup_skipped()
         return False
 
 
@@ -307,7 +363,18 @@ def _import_from_resume(path: Path, config: dict | None, skip_db: bool) -> bool:
         click.secho(f"    [FAIL] File not found: {path}", fg="red")
         return False
 
-    click.echo(f"    Parsing {path.name} with Claude CLI...")
+    from src.utils.llm import get_llm_settings
+
+    llm_settings = get_llm_settings(config) if config is not None else None
+    primary = llm_settings["primary_provider"] if llm_settings else "configured LLM CLI"
+    fallback = llm_settings["fallback_provider"] if llm_settings else None
+
+    click.echo(f"    Parsing {path.name} into a structured profile...")
+    click.echo(
+        f"      Invoking local LLM CLI (primary: {primary}"
+        f"{f', fallback: {fallback}' if fallback else ''})."
+    )
+    click.echo("      This can take 10-60 seconds depending on the model and resume length.")
     try:
         from src.memory.resume_importer import import_resume
 
@@ -350,6 +417,93 @@ def _import_from_resume(path: Path, config: dict | None, skip_db: bool) -> bool:
         return False
 
 
+def _prompt_resume_import_with_retry(config: dict | None, skip_db: bool) -> bool:
+    """Prompt for a resume path and allow retry/template/skip on failure."""
+    _echo_resume_path_help()
+
+    while True:
+        path_str = click.prompt(_resume_path_prompt(), type=str)
+        path = _normalize_input_path(path_str)
+        if _import_from_resume(path, config, skip_db):
+            return True
+
+        click.echo("      Choose next step:")
+        click.echo("        [1] Retry resume path")
+        click.echo("        [2] Use template instead")
+        click.echo("        [3] Skip for now")
+
+        next_step = click.prompt("      Next step", type=click.IntRange(1, 3), default=1)
+        if next_step == 1:
+            continue
+        if next_step == 2:
+            return _create_template_profile()
+
+        _echo_profile_setup_skipped()
+        return False
+
+
+def _echo_resume_path_help() -> None:
+    """Explain how to paste paths for the current platform."""
+    if _is_windows():
+        click.echo(
+            "      Windows PowerShell/CMD: paste the path directly; "
+            "surrounding quotes are optional."
+        )
+    else:
+        click.echo(
+            "      Linux/macOS: absolute or relative paths are supported; "
+            "surrounding quotes are optional."
+        )
+
+
+def _echo_profile_setup_skipped() -> None:
+    """Print the standard skip message for profile setup."""
+    click.secho(
+        "    ! Profile setup skipped -- run `autoapply init --profile <path>` later",
+        fg="yellow",
+    )
+
+
+def _resume_path_prompt() -> str:
+    """Build a platform-appropriate resume path prompt."""
+    return f"    Resume file path ({_resume_path_example()})"
+
+
+def _resume_path_example() -> str:
+    """Return an example resume path for the current platform."""
+    if _is_windows():
+        return r"C:\Users\Example\Documents\sample_resume.docx"
+    return "/home/example/documents/sample_resume.docx"
+
+
+def _normalize_input_path(path_str: str) -> Path:
+    """Normalize an interactively entered path string.
+
+    Users often paste quoted paths in prompts, especially on Windows.
+    This strips matching outer quotes and expands env/user shortcuts.
+    """
+    cleaned = path_str.strip()
+    quote_pairs = {
+        '"': '"',
+        "'": "'",
+        "“": "”",
+        "‘": "’",
+    }
+
+    for open_quote, close_quote in quote_pairs.items():
+        if cleaned.startswith(open_quote) and cleaned.endswith(close_quote):
+            cleaned = cleaned[len(open_quote) : len(cleaned) - len(close_quote)].strip()
+            break
+
+    expanded = os.path.expandvars(os.path.expanduser(cleaned))
+    return Path(expanded)
+
+
+def _is_windows() -> bool:
+    """Return whether the current runtime is Windows."""
+    return sys.platform.startswith("win")
+
+
 def _create_template_profile() -> bool:
     """Copy the schema file as a template for the user to fill in."""
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -363,23 +517,64 @@ def _create_template_profile() -> bool:
         return False
 
 
-def _check_llm() -> bool:
+def _configure_llm_settings(
+    config: dict | None,
+    primary: str | None,
+    fallback: str | None,
+    disable_fallback: bool,
+) -> None:
+    """Persist explicit LLM provider choices from the setup command."""
+    if config is None or (primary is None and fallback is None and not disable_fallback):
+        return
+
+    llm_cfg = config.setdefault("llm", {})
+    primary_provider = (
+        primary or llm_cfg.get("primary_provider") or llm_cfg.get("provider") or "claude-cli"
+    )
+    fallback_provider = fallback if fallback is not None else llm_cfg.get("fallback_provider")
+    if fallback_provider == primary_provider or disable_fallback:
+        fallback_provider = None
+
+    allow_fallback = not disable_fallback and fallback_provider is not None
+    update_llm_settings(primary_provider, fallback_provider, allow_fallback)
+
+    llm_cfg["provider"] = primary_provider
+    llm_cfg["primary_provider"] = primary_provider
+    llm_cfg["fallback_provider"] = fallback_provider
+    llm_cfg["allow_fallback"] = allow_fallback
+
+    click.secho(
+        "    [OK] LLM config saved: "
+        f"primary={primary_provider}, fallback={fallback_provider or 'disabled'}",
+        fg="green",
+    )
+
+
+def _check_llm(config: dict | None = None) -> bool:
     """Check if Claude CLI and/or Codex CLI are available."""
-    found_any = False
+    from src.utils.llm import detect_available_providers, get_llm_settings
+
+    available = detect_available_providers()
+    settings = get_llm_settings(config) if config is not None else None
+    found_any = any(available.values())
+
+    if settings is not None:
+        click.echo(
+            "    Config: "
+            f"primary={settings['primary_provider']}, "
+            f"fallback={settings['fallback_provider'] or 'disabled'}, "
+            f"auto-fallback={'on' if settings['allow_fallback'] else 'off'}"
+        )
 
     # Check Claude CLI
-    claude_path = shutil.which("claude")
-    if claude_path:
+    if available["claude-cli"]:
         click.secho("    [OK] Claude CLI found", fg="green")
-        found_any = True
     else:
         click.secho("    ! Claude CLI not found", fg="yellow")
 
     # Check Codex CLI
-    codex_path = shutil.which("codex")
-    if codex_path:
+    if available["codex-cli"]:
         click.secho("    [OK] Codex CLI found", fg="green")
-        found_any = True
     else:
         click.secho("    ! Codex CLI not found", fg="yellow")
 
@@ -392,3 +587,43 @@ def _check_llm() -> bool:
         return False
 
     return True
+
+
+def _run_llm_step(config: dict | None) -> bool:
+    """Run LLM CLI validation with retry / continue / abort handling."""
+    while True:
+        click.secho("  [3/4] Checking LLM CLI availability...", fg="yellow")
+        if _check_llm(config):
+            return True
+
+        action = _prompt_failure_action(
+            header="    LLM check failed. Choose next step:",
+            options={
+                1: "Retry LLM check",
+                2: "Continue without LLM",
+                3: "Abort setup",
+            },
+            default=1,
+            prompt_label="    Next step",
+        )
+        if action == 1:
+            continue
+        if action == 2:
+            return False
+        raise SystemExit(1)
+
+
+def _prompt_failure_action(
+    *,
+    header: str,
+    options: dict[int, str],
+    default: int,
+    prompt_label: str,
+) -> int:
+    """Prompt the user for a failure recovery action."""
+    click.echo(header)
+    for key, label in options.items():
+        click.echo(f"      [{key}] {label}")
+    return click.prompt(
+        prompt_label, type=click.IntRange(min(options), max(options)), default=default
+    )

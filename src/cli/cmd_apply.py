@@ -275,13 +275,23 @@ async def _generate_materials(
     from src.generation.cover_letter import generate_cover_letter
     from src.generation.qa_responder import answer_questions
     from src.generation.resume_builder import generate_resume
+    from src.utils.llm import get_llm_settings
 
     output_dir = PROJECT_ROOT / "data" / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    click.echo("    Building tailored resume...")
     resume_files = generate_resume(job=job, profile_data=profile_data, output_dir=output_dir)
     resume_path = resume_files.get("pdf") or resume_files.get("docx")
 
+    llm_settings = get_llm_settings()
+    primary = llm_settings["primary_provider"]
+    fallback = llm_settings["fallback_provider"]
+    click.echo(
+        f"    Generating cover letter via local LLM CLI (primary: {primary}"
+        f"{f', fallback: {fallback}' if fallback else ''})..."
+    )
+    click.echo("    This may take a moment.")
     cover_files = generate_cover_letter(job=job, profile_data=profile_data, output_dir=output_dir)
     cl_path = cover_files.get("txt")
 

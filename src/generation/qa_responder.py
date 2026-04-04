@@ -381,7 +381,7 @@ def _llm_answer(
     profile_data: dict[str, Any],
 ) -> str:
     """Generate an answer using LLM."""
-    from src.utils.llm import claude_generate
+    from src.utils.llm import generate_text
 
     identity = profile_data.get("identity", {})
     skills = profile_data.get("skills", {})
@@ -405,5 +405,5 @@ Education: {identity.get("education", "Not specified")}
 
 Answer the question directly and concisely."""
 
-    result = claude_generate(prompt, system=_QA_SYSTEM, timeout=60)
+    result = generate_text(prompt, system=_QA_SYSTEM, timeout=60)
     return result.strip()

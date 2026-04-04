@@ -42,11 +42,12 @@ def create_app() -> FastAPI:
     app.state.templates = templates
 
     # Register route modules
-    from src.web.routes import applications, dashboard, jobs, profile
+    from src.web.routes import applications, dashboard, jobs, profile, settings
 
     app.include_router(dashboard.router)
     app.include_router(jobs.router, prefix="/jobs")
     app.include_router(applications.router, prefix="/applications")
     app.include_router(profile.router, prefix="/profile")
+    app.include_router(settings.router, prefix="/settings")
 
     return app

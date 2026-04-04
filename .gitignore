@@ -35,10 +35,15 @@ temp/
 *.pdf
 *.docx
 !templates/*.docx
+*.csv
 
 # Data
 *.db
 *.sqlite3
+data/profile/profile.yaml
+data/output/*
+!data/output/.gitkeep
+data/.linkedin_session/
 
 # Alembic (may contain DB credentials)
 alembic.ini

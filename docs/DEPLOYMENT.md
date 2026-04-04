@@ -31,7 +31,8 @@ Install these before starting:
 - At least one document-to-PDF path:
   - Microsoft Word + `docx2pdf`, or
   - LibreOffice
-- Claude Code CLI and/or Codex CLI if you want LLM-backed parsing/generation
+- At least one local LLM CLI: Claude Code CLI or Codex CLI
+- Ideally install both if you want automatic provider fallback
 
 ## 3. Clone And Install
 
@@ -41,6 +42,24 @@ cd AutoApply
 uv sync
 uv run playwright install chromium
 ```
+
+## 3.1 Install And Authenticate LLM CLIs
+
+AutoApply does not use an SDK for generation. It shells out to local CLIs.
+You must install at least one of these on the same machine that runs AutoApply:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+npm install -g @openai/codex
+```
+
+Then complete each CLI's own local sign-in/auth flow before relying on LLM-backed parsing or generation.
+
+Recommended setup:
+
+- install both CLIs
+- choose one primary provider
+- configure the other as fallback
 
 After `uv sync`, the project exposes the CLI entrypoint. You can use either:
 
@@ -91,6 +110,7 @@ Notes:
 - `config/settings.yaml` provides defaults
 - `.env` overrides those defaults
 - environment variables override both
+- LLM provider priority is stored in `config/settings.yaml`
 
 ## 6. Run Migrations
 
@@ -106,6 +126,18 @@ You can also let `autoapply init` validate the database and run migrations for y
 
 ```bash
 uv run autoapply init
+```
+
+### Option A1: setup with explicit LLM priority
+
+```bash
+uv run autoapply init --llm-primary claude-cli --llm-fallback codex-cli
+```
+
+or:
+
+```bash
+uv run autoapply init --llm-primary codex-cli --llm-fallback claude-cli
 ```
 
 ### Option B: import an existing structured profile
@@ -134,6 +166,50 @@ What `init` does:
 - runs Alembic migrations
 - imports or creates `data/profile/profile.yaml`
 - checks LLM CLI availability
+- stores preferred primary/fallback LLM settings when you pass `--llm-primary` / `--llm-fallback`
+
+### 7.1 LLM provider priority
+
+Current config lives in `config/settings.yaml`:
+
+```yaml
+llm:
+  provider: claude-cli
+  primary_provider: claude-cli
+  fallback_provider: codex-cli
+  allow_fallback: true
+```
+
+Meaning:
+
+- `primary_provider`: CLI tried first
+- `fallback_provider`: CLI tried second
+- `allow_fallback`: whether AutoApply should fail over automatically
+
+## 7.2 LLM fallback behavior
+
+There are two levels of fallback:
+
+### CLI-level fallback
+
+- if `primary_provider` fails, times out, or is missing
+- and `allow_fallback` is enabled
+- AutoApply tries `fallback_provider`
+
+This works in both directions:
+
+- Codex -> Claude Code CLI
+- Claude Code CLI -> Codex
+
+### Feature-level fallback
+
+Even after both CLIs fail, several features still degrade gracefully:
+
+- JD parsing -> regex heuristics fallback
+- cover letter generation -> deterministic template fallback
+- resume bullet rewrite -> keep original bullet
+- QA generation -> template answers or manual review fallback
+- unsupported / risky answers -> explicit human review
 
 ## 8. Profile And Config Files
 
@@ -249,6 +325,9 @@ Pages:
 - `/jobs` job search and apply actions
 - `/applications` tracking and outcome updates
 - `/profile` profile inspection and resume import
+- `/settings` LLM provider priority and fallback settings
+
+Use `/settings` after deployment if you want to change the primary or fallback provider without editing YAML by hand.
 
 ## 12. Tracking And Export
 
@@ -281,6 +360,7 @@ uv run autoapply status --company Stripe --status SUBMITTED --outcome interview
 ### Single Linux server or VM
 
 - install Python, PostgreSQL, LibreOffice, and Chromium
+- install and authenticate Claude Code CLI and/or Codex CLI on the same server
 - run PostgreSQL locally or use a managed database
 - launch the dashboard behind a reverse proxy
 - run the CLI manually or from a scheduler
@@ -441,6 +521,7 @@ sudo certbot --nginx -d autoapply.example.com
 - keep PostgreSQL credentials only in `.env` or environment variables
 - run the service under a dedicated non-root user
 - keep `logs/`, `data/output/`, and `data/.linkedin_session/` writable by the service user
+- keep the configured LLM CLI binaries installed and authenticated for the same service user
 - if you use LinkedIn search on a server, the first login may still require an interactive browser session
 - Playwright-based apply jobs are better suited to trusted internal use than a public multi-user SaaS deployment
 

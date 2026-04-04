@@ -30,7 +30,8 @@
 - 至少一种 PDF 转换方案：
   - Microsoft Word + `docx2pdf`
   - LibreOffice
-- Claude Code CLI 和/或 Codex CLI（如果你要启用基于 LLM 的解析与生成）
+- 至少一个本地 LLM CLI：Claude Code CLI 或 Codex CLI
+- 如果你希望启用自动 fallback，建议两个都安装
 
 ## 3. 克隆与安装
 
@@ -40,6 +41,24 @@ cd AutoApply
 uv sync
 uv run playwright install chromium
 ```
+
+## 3.1 安装并认证 LLM CLI
+
+AutoApply 当前不直接走 SDK，而是调用本地 CLI。
+所以运行 AutoApply 的机器上，至少要安装一个：
+
+```bash
+npm install -g @anthropic-ai/claude-code
+npm install -g @openai/codex
+```
+
+安装之后，还需要分别完成各自 CLI 的本地登录/认证流程，然后再依赖 LLM 解析或生成能力。
+
+推荐做法：
+
+- 两个 CLI 都安装
+- 选一个作为 primary provider
+- 另一个作为 fallback provider
 
 安装完成后，CLI 一般可直接使用：
 
@@ -90,6 +109,7 @@ AUTOAPPLY_LOG_LEVEL=INFO
 - `config/settings.yaml` 提供默认值
 - `.env` 会覆盖默认值
 - 系统环境变量优先级最高
+- LLM provider 的优先级配置保存在 `config/settings.yaml`
 
 ## 6. 执行数据库迁移
 
@@ -105,6 +125,18 @@ uv run alembic upgrade head
 
 ```bash
 uv run autoapply init
+```
+
+### 方式 A1：初始化时显式指定 LLM 优先级
+
+```bash
+uv run autoapply init --llm-primary claude-cli --llm-fallback codex-cli
+```
+
+或者：
+
+```bash
+uv run autoapply init --llm-primary codex-cli --llm-fallback claude-cli
 ```
 
 ### 方式 B：导入已有的结构化 profile
@@ -133,6 +165,50 @@ uv run autoapply init --skip-llm
 - 执行 Alembic 迁移
 - 导入或创建 `data/profile/profile.yaml`
 - 检查 LLM CLI 是否可用
+- 当你传入 `--llm-primary` / `--llm-fallback` 时，把主备 LLM 设置写入配置文件
+
+### 7.1 LLM provider 优先级
+
+当前配置在 `config/settings.yaml` 中：
+
+```yaml
+llm:
+  provider: claude-cli
+  primary_provider: claude-cli
+  fallback_provider: codex-cli
+  allow_fallback: true
+```
+
+含义：
+
+- `primary_provider`：优先调用的 CLI
+- `fallback_provider`：主 CLI 失败后尝试的 CLI
+- `allow_fallback`：是否允许自动切换到备用 CLI
+
+## 7.2 LLM fallback 机制
+
+这里有两层 fallback：
+
+### CLI 层 fallback
+
+- 如果 `primary_provider` 调用失败、超时或未安装
+- 且 `allow_fallback` 已开启
+- AutoApply 会自动尝试 `fallback_provider`
+
+这个逻辑是双向的：
+
+- Codex -> Claude Code CLI
+- Claude Code CLI -> Codex
+
+### 功能层 fallback
+
+即使两个 CLI 都失败，系统里也有若干降级路径：
+
+- JD 解析 -> 正则规则 fallback
+- Cover Letter 生成 -> 模板 fallback
+- 简历 bullet rewrite -> 保留原 bullet
+- QA 生成 -> 模板答案或人工复核 fallback
+- 高风险问题 -> 强制人工复核
 
 ## 8. 需要维护的核心文件
 
@@ -248,6 +324,9 @@ http://127.0.0.1:8000
 - `/jobs` 搜索岗位并触发 apply
 - `/applications` 查看申请记录并更新 outcome
 - `/profile` 查看 profile 和上传简历
+- `/settings` 修改 LLM 主备优先级和 fallback 配置
+
+部署后如果要改 LLM 优先级，除了手动编辑 YAML，也可以直接打开 `/settings`。
 
 ## 12. Tracking 与导出
 
@@ -280,6 +359,7 @@ uv run autoapply status --company Stripe --status SUBMITTED --outcome interview
 ### 单台 Linux 服务器 / 虚拟机
 
 - 安装 Python、PostgreSQL、LibreOffice、Chromium
+- 在同一台服务器上安装并认证 Claude Code CLI 和/或 Codex CLI
 - PostgreSQL 可本地部署，也可用托管数据库
 - Web 面板建议放在反向代理后面
 - CLI 可人工执行，也可配合调度器
@@ -445,6 +525,7 @@ sudo certbot --nginx -d autoapply.example.com
 - 数据库密码只放在 `.env` 或系统环境变量里
 - 服务进程使用独立的非 root 用户运行
 - `logs/`、`data/output/`、`data/.linkedin_session/` 需要对运行用户可写
+- 被配置为 primary / fallback 的 LLM CLI 也必须对同一个运行用户可用且已认证
 - 如果服务器上要跑 LinkedIn 搜索，第一次登录通常仍需要人工完成
 - 基于 Playwright 的自动投递更适合受控内部环境，不建议直接做成开放式公网多租户服务
 

@@ -43,6 +43,7 @@ class TestAppFactory:
         assert "/jobs/search" in paths
         assert "/applications/" in paths
         assert "/profile/" in paths
+        assert "/settings/" in paths
 
     def test_static_mount(self):
         from src.web.app import create_app
@@ -86,7 +87,18 @@ class TestDashboard:
         assert "Manage Profile" in response.text
 
     def test_dashboard_shows_db_warning_when_disconnected(self, client):
-        response = client.get("/")
+        with patch(
+            "src.web.routes.dashboard._load_dashboard_stats",
+            return_value={
+                "pipeline": {},
+                "summary": None,
+                "outcomes": {"total": 0, "pending": 0, "rates": {}},
+                "companies": [],
+                "db_connected": False,
+            },
+        ):
+            response = client.get("/")
+
         assert "Database not connected" in response.text or "autoapply init" in response.text
 
 
@@ -272,6 +284,62 @@ class TestProfilePage:
             assert "Upload Resume" in response.text or "No profile" in response.text
 
 
+class TestSettingsPage:
+    """Test settings management page."""
+
+    @pytest.fixture
+    def client(self):
+        from src.web.app import create_app
+
+        app = create_app()
+        return TestClient(app)
+
+    def test_settings_page_loads(self, client):
+        response = client.get("/settings/")
+        assert response.status_code == 200
+        assert "Settings" in response.text
+        assert "Primary Provider" in response.text
+
+    def test_settings_update_llm(self, client):
+        with (
+            patch(
+                "src.web.routes.settings.load_config",
+                return_value={
+                    "llm": {
+                        "primary_provider": "claude-cli",
+                        "fallback_provider": "codex-cli",
+                        "allow_fallback": True,
+                    }
+                },
+            ),
+            patch(
+                "src.web.routes.settings.update_llm_settings",
+                return_value={
+                    "llm": {
+                        "primary_provider": "codex-cli",
+                        "fallback_provider": "claude-cli",
+                        "allow_fallback": True,
+                    }
+                },
+            ),
+            patch(
+                "src.web.routes.settings.detect_available_providers",
+                return_value={"claude-cli": True, "codex-cli": True},
+            ),
+        ):
+            response = client.post(
+                "/settings/llm",
+                data={
+                    "primary_provider": "codex-cli",
+                    "fallback_provider": "claude-cli",
+                    "allow_fallback": "on",
+                },
+            )
+
+        assert response.status_code == 200
+        assert "LLM settings updated successfully" in response.text
+
+
 # ──────────────────────────────────────────────
 # Navigation Tests
 # ──────────────────────────────────────────────
@@ -293,6 +361,7 @@ class TestNavigation:
         assert 'href="/jobs"' in response.text
         assert 'href="/applications"' in response.text
         assert 'href="/profile"' in response.text
+        assert 'href="/settings"' in response.text
 
     def test_nav_links_on_jobs(self, client):
         response = client.get("/jobs/")
@@ -320,6 +389,7 @@ class TestWebCLI:
         assert "--port" in result.output
         assert "--no-open" in result.output
         assert "--reload" in result.output
+        assert "--show-logs" in result.output
 
     def test_main_help_includes_web(self):
         from click.testing import CliRunner

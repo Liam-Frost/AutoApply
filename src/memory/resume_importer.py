@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from src.utils.llm import claude_generate
+from src.utils.llm import generate_text
 
 logger = logging.getLogger("autoapply.memory.resume_importer")
 
@@ -139,7 +139,7 @@ def import_resume(resume_path: Path, output_path: Path | None = None) -> dict:
 
     # Use Claude CLI to parse into structured YAML
     prompt = f"Parse this resume into structured YAML:\n\n{raw_text}"
-    response = claude_generate(prompt, system=EXTRACTION_SYSTEM_PROMPT, timeout=180)
+    response = generate_text(prompt, system=EXTRACTION_SYSTEM_PROMPT, timeout=180)
 
     # Clean response — remove markdown fences if present
     cleaned = response.strip()

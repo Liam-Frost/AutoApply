@@ -347,11 +347,13 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_error_cooldown(self):
+        from unittest.mock import AsyncMock, patch
+
         limiter = RateLimiter(RateLimiterConfig(cooldown_on_error=0.01))
-        t0 = time.monotonic()
-        await limiter.error_cooldown()
-        elapsed = time.monotonic() - t0
-        assert elapsed >= 0.01
+        with patch("src.utils.rate_limiter.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await limiter.error_cooldown()
+
+        mock_sleep.assert_awaited_once_with(0.01)
 
 
 # ──────────────────────────────────────────────

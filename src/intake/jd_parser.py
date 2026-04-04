@@ -11,7 +11,7 @@ import logging
 import re
 
 from src.intake.schema import JobRequirements
-from src.utils.llm import LLMError, claude_generate
+from src.utils.llm import LLMError, generate_json
 
 logger = logging.getLogger("autoapply.intake.jd_parser")
 
@@ -76,15 +76,9 @@ def parse_requirements(description: str, use_llm: bool = True) -> JobRequirement
 def _parse_with_llm(text: str) -> JobRequirements:
     """Use Claude CLI to extract structured requirements."""
     prompt = f"Parse this job description:\n\n<job_description>\n{text}\n</job_description>"
-    raw = claude_generate(prompt, system=EXTRACTION_SYSTEM, timeout=90)
-
-    # Strip markdown fences if present
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = [line for line in cleaned.split("\n") if not line.strip().startswith("```")]
-        cleaned = "\n".join(lines)
-
-    data = json.loads(cleaned)
+    data = generate_json(prompt, system=EXTRACTION_SYSTEM, timeout=90)
+    if isinstance(data, str):
+        data = json.loads(data)
 
     return JobRequirements.model_validate(data)
 

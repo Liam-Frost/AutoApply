@@ -293,7 +293,7 @@ Rules:
 
 def _rewrite_single_bullet(bullet: str, keywords: str) -> str:
     """Rewrite a single bullet using LLM."""
-    from src.utils.llm import claude_generate
+    from src.utils.llm import generate_text
 
     prompt = (
         f"Target keywords: {keywords}\n\n"
@@ -301,5 +301,5 @@ def _rewrite_single_bullet(bullet: str, keywords: str) -> str:
         f"Rewrite the bullet to naturally incorporate relevant keywords. "
         f"Output only the rewritten bullet."
     )
-    result = claude_generate(prompt, system=_REWRITE_SYSTEM, timeout=60)
+    result = generate_text(prompt, system=_REWRITE_SYSTEM, timeout=60)
     return result.strip().strip("•-– ").strip()

@@ -8,11 +8,13 @@ DB is not available.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from sqlalchemy.exc import ProgrammingError
 
 from src.core.state_machine import ApplicationState, AppStatus
 
@@ -48,6 +50,8 @@ class TestCLIStructure:
         assert "--resume" in result.output
         assert "--skip-db" in result.output
         assert "--skip-llm" in result.output
+        assert "--llm-primary" in result.output
+        assert "--llm-fallback" in result.output
 
     def test_search_help(self, runner):
         from src.cli.main import cli
@@ -100,6 +104,201 @@ class TestInitCommand:
         assert "[1/4]" in result.output
         assert "[2/4]" in result.output
         assert "skipped" in result.output
+
+    def test_config_step_can_retry_then_succeed(self):
+        from src.cli.cmd_init import _run_config_step
+
+        with (
+            patch("src.cli.cmd_init._check_config") as mock_check,
+            patch("src.cli.cmd_init.click.prompt", side_effect=[1]),
+        ):
+            mock_check.side_effect = [(False, None), (True, {"database": {}, "logging": {}})]
+            ok, config = _run_config_step()
+
+        assert ok is True
+        assert config == {"database": {}, "logging": {}}
+        assert mock_check.call_count == 2
+
+    def test_database_step_can_continue_without_db(self):
+        from src.cli.cmd_init import _run_database_step
+
+        with (
+            patch("src.cli.cmd_init._setup_database", return_value=False),
+            patch("src.cli.cmd_init.click.prompt", side_effect=[2]),
+        ):
+            ok = _run_database_step({})
+
+        assert ok is False
+
+    def test_llm_step_can_abort(self):
+        from src.cli.cmd_init import _run_llm_step
+
+        with (
+            patch("src.cli.cmd_init._check_llm", return_value=False),
+            patch("src.cli.cmd_init.click.prompt", side_effect=[3]),
+        ):
+            with pytest.raises(SystemExit):
+                _run_llm_step({})
+
+    def test_normalize_input_path_strips_quotes(self):
+        from src.cli.cmd_init import _normalize_input_path
+
+        path = _normalize_input_path('"C:\\Users\\Example\\Documents\\sample_resume.docx"')
+        assert path == Path(r"C:\Users\Example\Documents\sample_resume.docx")
+
+    def test_resume_prompt_uses_windows_example(self):
+        from src.cli.cmd_init import _resume_path_prompt
+
+        with patch("src.cli.cmd_init._is_windows", return_value=True):
+            prompt = _resume_path_prompt()
+
+        assert prompt == r"    Resume file path (C:\Users\Example\Documents\sample_resume.docx)"
+
+    def test_setup_profile_normalizes_quoted_resume_input(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume", return_value=True) as mock_import,
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, '"C:\\Users\\Example\\Documents\\sample_resume.docx"']
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is True
+        assert mock_import.call_args[0][0] == Path(r"C:\Users\Example\Documents\sample_resume.docx")
+
+    def test_init_checks_llm_before_profile(self, runner):
+        from src.cli.main import cli
+
+        with (
+            patch("src.cli.cmd_init._check_config", return_value=(True, {"llm": {}})),
+            patch("src.cli.cmd_init._setup_database", return_value=True),
+            patch("src.cli.cmd_init._check_llm", return_value=True),
+            patch("src.cli.cmd_init._setup_profile", return_value=True),
+        ):
+            result = runner.invoke(cli, ["init"])
+
+        assert result.exit_code == 0
+        llm_index = result.output.index("[3/4] Checking LLM CLI availability")
+        profile_index = result.output.index("[4/4] Setting up applicant profile")
+        assert llm_index < profile_index
+
+    def test_import_from_resume_shows_llm_progress(self, tmp_path, capsys):
+        from src.cli.cmd_init import _import_from_resume
+
+        resume_path = tmp_path / "sample_resume.docx"
+        resume_path.write_text("placeholder", encoding="utf-8")
+
+        with (
+            patch(
+                "src.utils.llm.get_llm_settings",
+                return_value={
+                    "primary_provider": "claude-cli",
+                    "fallback_provider": "codex-cli",
+                    "allow_fallback": True,
+                    "timeout": 120,
+                },
+            ),
+            patch(
+                "src.memory.resume_importer.import_resume",
+                return_value={"identity": {"full_name": "Test User", "email": "test@example.com"}},
+            ),
+            patch("src.cli.cmd_init.PROFILE_FILE", tmp_path / "profile.yaml"),
+        ):
+            assert _import_from_resume(resume_path, {"llm": {}}, True) is True
+
+        out = capsys.readouterr().out
+        assert "Invoking local LLM CLI" in out
+        assert "This can take 10-60 seconds" in out
+
+
+class TestStatusCommand:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_status_reports_schema_mismatch_cleanly(self, runner):
+        from src.cli.main import cli
+
+        session = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+
+        with (
+            patch("src.core.config.load_config", return_value={}),
+            patch(
+                "src.core.database.get_session_factory",
+                return_value=MagicMock(return_value=session_cm),
+            ),
+            patch(
+                "src.tracker.analytics.compute_pipeline_stats",
+                side_effect=ProgrammingError("SELECT ...", {}, Exception("missing column")),
+            ),
+        ):
+            result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 1
+        assert "Database schema is out of date" in result.output
+        assert "uv run alembic upgrade head" in result.output
+
+    def test_setup_profile_retries_resume_input_after_failure(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume") as mock_import,
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, r"C:\bad.docx", 1, r"C:\good.docx"]
+            mock_import.side_effect = [False, True]
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is True
+        assert mock_import.call_count == 2
+        assert mock_import.call_args_list[0][0][0] == Path(r"C:\bad.docx")
+        assert mock_import.call_args_list[1][0][0] == Path(r"C:\good.docx")
+
+    def test_setup_profile_can_skip_after_resume_failure(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume", return_value=False),
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, r"C:\bad.docx", 3]
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is False
+
+    def test_setup_profile_can_switch_to_template_after_resume_failure(self):
+        from src.cli.cmd_init import _setup_profile
+
+        with (
+            patch("src.cli.cmd_init.PROFILE_FILE") as mock_profile_file,
+            patch("src.cli.cmd_init.click.prompt") as mock_prompt,
+            patch("src.cli.cmd_init._import_from_resume", return_value=False),
+            patch("src.cli.cmd_init._create_template_profile", return_value=True) as mock_template,
+            patch("src.cli.cmd_init._is_windows", return_value=True),
+        ):
+            mock_profile_file.exists.return_value = False
+            mock_prompt.side_effect = [1, r"C:\bad.docx", 2]
+
+            result = _setup_profile(None, None, None, True)
+
+        assert result is True
+        mock_template.assert_called_once()
 
 
 # ──────────────────────────────────────────────
