@@ -1,1 +1,1 @@
-"""AutoApply Web GUI -- FastAPI + Jinja2 + HTMX dashboard."""
+"""AutoApply Web GUI -- FastAPI API with a Vue frontend."""
