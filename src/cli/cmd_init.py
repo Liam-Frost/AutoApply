@@ -76,15 +76,9 @@ def init_cmd(
 
     # Step 1: Configuration
     checks_total += 1
-    click.secho("  [1/4] Checking configuration...", fg="yellow")
-    config_ok, config = _check_config()
+    config_ok, config = _run_config_step()
     if config_ok:
-        click.secho("    [OK] settings.yaml loaded", fg="green")
         checks_passed += 1
-    else:
-        click.secho("    [FAIL] Configuration error (see above)", fg="red")
-        if not click.confirm("    Continue anyway?", default=False):
-            raise SystemExit(1)
 
     # Step 2: Database
     checks_total += 1
@@ -92,13 +86,9 @@ def init_cmd(
         click.secho("  [2/4] Database -- skipped", fg="yellow")
         checks_passed += 1
     else:
-        click.secho("  [2/4] Setting up database...", fg="yellow")
-        db_ok = _setup_database(config)
+        db_ok = _run_database_step(config)
         if db_ok:
             checks_passed += 1
-        else:
-            if not click.confirm("    Continue without database?", default=False):
-                raise SystemExit(1)
 
     # Step 3: LLM CLI
     checks_total += 1
@@ -107,8 +97,7 @@ def init_cmd(
         click.secho("  [3/4] LLM check -- skipped", fg="yellow")
         checks_passed += 1
     else:
-        click.secho("  [3/4] Checking LLM CLI availability...", fg="yellow")
-        llm_ok = _check_llm(config)
+        llm_ok = _run_llm_step(config)
         if llm_ok:
             checks_passed += 1
 
@@ -171,6 +160,33 @@ def _check_config() -> tuple[bool, dict | None]:
         return False, None
 
 
+def _run_config_step() -> tuple[bool, dict | None]:
+    """Run config validation with retry / continue / abort handling."""
+    while True:
+        click.secho("  [1/4] Checking configuration...", fg="yellow")
+        config_ok, config = _check_config()
+        if config_ok:
+            click.secho("    [OK] settings.yaml loaded", fg="green")
+            return True, config
+
+        click.secho("    [FAIL] Configuration error (see above)", fg="red")
+        action = _prompt_failure_action(
+            header="    Configuration check failed. Choose next step:",
+            options={
+                1: "Retry configuration check",
+                2: "Continue anyway",
+                3: "Abort setup",
+            },
+            default=1,
+            prompt_label="    Next step",
+        )
+        if action == 1:
+            continue
+        if action == 2:
+            return False, config
+        raise SystemExit(1)
+
+
 def _setup_database(config: dict | None) -> bool:
     """Test DB connection and run migrations."""
     if not config:
@@ -229,6 +245,30 @@ def _setup_database(config: dict | None) -> bool:
         click.secho(f"    ! pgvector setup: {e}", fg="yellow")
 
     return True
+
+
+def _run_database_step(config: dict | None) -> bool:
+    """Run database setup with retry / continue / abort handling."""
+    while True:
+        click.secho("  [2/4] Setting up database...", fg="yellow")
+        if _setup_database(config):
+            return True
+
+        action = _prompt_failure_action(
+            header="    Database setup failed. Choose next step:",
+            options={
+                1: "Retry database setup",
+                2: "Continue without database",
+                3: "Abort setup",
+            },
+            default=1,
+            prompt_label="    Next step",
+        )
+        if action == 1:
+            continue
+        if action == 2:
+            return False
+        raise SystemExit(1)
 
 
 def _setup_profile(
@@ -547,3 +587,43 @@ def _check_llm(config: dict | None = None) -> bool:
         return False
 
     return True
+
+
+def _run_llm_step(config: dict | None) -> bool:
+    """Run LLM CLI validation with retry / continue / abort handling."""
+    while True:
+        click.secho("  [3/4] Checking LLM CLI availability...", fg="yellow")
+        if _check_llm(config):
+            return True
+
+        action = _prompt_failure_action(
+            header="    LLM check failed. Choose next step:",
+            options={
+                1: "Retry LLM check",
+                2: "Continue without LLM",
+                3: "Abort setup",
+            },
+            default=1,
+            prompt_label="    Next step",
+        )
+        if action == 1:
+            continue
+        if action == 2:
+            return False
+        raise SystemExit(1)
+
+
+def _prompt_failure_action(
+    *,
+    header: str,
+    options: dict[int, str],
+    default: int,
+    prompt_label: str,
+) -> int:
+    """Prompt the user for a failure recovery action."""
+    click.echo(header)
+    for key, label in options.items():
+        click.echo(f"      [{key}] {label}")
+    return click.prompt(
+        prompt_label, type=click.IntRange(min(options), max(options)), default=default
+    )

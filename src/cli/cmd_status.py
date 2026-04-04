@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 
 import click
+from sqlalchemy.exc import ProgrammingError
 
 logger = logging.getLogger("autoapply.cli.status")
 
@@ -57,10 +58,18 @@ def status_cmd(
         from src.tracker.database import get_applications_with_jobs
         from src.tracker.export import format_status_report
 
-        pipeline = compute_pipeline_stats(session)
-        outcomes = compute_outcome_stats(session)
-        companies = compute_company_stats(session)
-        platforms = compute_platform_stats(session)
+        try:
+            pipeline = compute_pipeline_stats(session)
+            outcomes = compute_outcome_stats(session)
+            companies = compute_company_stats(session)
+            platforms = compute_platform_stats(session)
+        except ProgrammingError as exc:
+            click.secho("Database schema is out of date for the current code.", fg="red")
+            click.echo(
+                "Run `uv run alembic upgrade head` or `uv run autoapply init` and try again."
+            )
+            logger.debug("Status analytics failed due to schema mismatch: %s", exc)
+            raise SystemExit(1) from exc
 
         report = format_status_report(pipeline, outcomes, companies, platforms)
         click.echo(report)

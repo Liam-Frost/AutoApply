@@ -87,7 +87,18 @@ class TestDashboard:
         assert "Manage Profile" in response.text
 
     def test_dashboard_shows_db_warning_when_disconnected(self, client):
-        response = client.get("/")
+        with patch(
+            "src.web.routes.dashboard._load_dashboard_stats",
+            return_value={
+                "pipeline": {},
+                "summary": None,
+                "outcomes": {"total": 0, "pending": 0, "rates": {}},
+                "companies": [],
+                "db_connected": False,
+            },
+        ):
+            response = client.get("/")
+
         assert "Database not connected" in response.text or "autoapply init" in response.text
 
 
@@ -378,6 +389,7 @@ class TestWebCLI:
         assert "--port" in result.output
         assert "--no-open" in result.output
         assert "--reload" in result.output
+        assert "--show-logs" in result.output
 
     def test_main_help_includes_web(self):
         from click.testing import CliRunner

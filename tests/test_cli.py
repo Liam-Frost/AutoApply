@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from sqlalchemy.exc import ProgrammingError
 
 from src.core.state_machine import ApplicationState, AppStatus
 
@@ -104,6 +105,41 @@ class TestInitCommand:
         assert "[2/4]" in result.output
         assert "skipped" in result.output
 
+    def test_config_step_can_retry_then_succeed(self):
+        from src.cli.cmd_init import _run_config_step
+
+        with (
+            patch("src.cli.cmd_init._check_config") as mock_check,
+            patch("src.cli.cmd_init.click.prompt", side_effect=[1]),
+        ):
+            mock_check.side_effect = [(False, None), (True, {"database": {}, "logging": {}})]
+            ok, config = _run_config_step()
+
+        assert ok is True
+        assert config == {"database": {}, "logging": {}}
+        assert mock_check.call_count == 2
+
+    def test_database_step_can_continue_without_db(self):
+        from src.cli.cmd_init import _run_database_step
+
+        with (
+            patch("src.cli.cmd_init._setup_database", return_value=False),
+            patch("src.cli.cmd_init.click.prompt", side_effect=[2]),
+        ):
+            ok = _run_database_step({})
+
+        assert ok is False
+
+    def test_llm_step_can_abort(self):
+        from src.cli.cmd_init import _run_llm_step
+
+        with (
+            patch("src.cli.cmd_init._check_llm", return_value=False),
+            patch("src.cli.cmd_init.click.prompt", side_effect=[3]),
+        ):
+            with pytest.raises(SystemExit):
+                _run_llm_step({})
+
     def test_normalize_input_path_strips_quotes(self):
         from src.cli.cmd_init import _normalize_input_path
 
@@ -178,6 +214,37 @@ class TestInitCommand:
         out = capsys.readouterr().out
         assert "Invoking local LLM CLI" in out
         assert "This can take 10-60 seconds" in out
+
+
+class TestStatusCommand:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_status_reports_schema_mismatch_cleanly(self, runner):
+        from src.cli.main import cli
+
+        session = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+
+        with (
+            patch("src.core.config.load_config", return_value={}),
+            patch(
+                "src.core.database.get_session_factory",
+                return_value=MagicMock(return_value=session_cm),
+            ),
+            patch(
+                "src.tracker.analytics.compute_pipeline_stats",
+                side_effect=ProgrammingError("SELECT ...", {}, Exception("missing column")),
+            ),
+        ):
+            result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 1
+        assert "Database schema is out of date" in result.output
+        assert "uv run alembic upgrade head" in result.output
 
     def test_setup_profile_retries_resume_input_after_failure(self):
         from src.cli.cmd_init import _setup_profile
