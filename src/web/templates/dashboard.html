@@ -3,7 +3,7 @@
 {% block content %}
 <!-- Stats cards -->
 <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-    {% set total = stats.outcomes.total | default(0) %}
+    {% set total = stats.summary.total_discovered if stats.summary else 0 %}
     {% set pending = stats.outcomes.pending | default(0) %}
     {% set pipeline = stats.pipeline | default({}) %}
 

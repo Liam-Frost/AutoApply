@@ -8,7 +8,6 @@ checkbox, textarea.
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -72,23 +71,27 @@ async def detect_fields(page: Page, form_selector: str | None = None) -> list[Fo
         required = await el.get_attribute("required") is not None
         selector = await _build_selector(el)
 
-        fields.append(FormField(
-            selector=selector,
-            label=label,
-            field_type=field_type,
-            required=required,
-        ))
+        fields.append(
+            FormField(
+                selector=selector,
+                label=label,
+                field_type=field_type,
+                required=required,
+            )
+        )
 
     # Checkboxes
     checkboxes = await container.query_selector_all("input[type='checkbox']")
     for el in checkboxes:
         label = await _get_field_label(page, el)
         selector = await _build_selector(el)
-        fields.append(FormField(
-            selector=selector,
-            label=label,
-            field_type="checkbox",
-        ))
+        fields.append(
+            FormField(
+                selector=selector,
+                label=label,
+                field_type="checkbox",
+            )
+        )
 
     # Radio buttons (grouped by name)
     radios = await container.query_selector_all("input[type='radio']")
@@ -100,45 +103,53 @@ async def detect_fields(page: Page, form_selector: str | None = None) -> list[Fo
         seen_radio_names.add(name)
         label = await _get_field_label(page, el)
         # Collect option labels for the radio group
-        group_els = await container.query_selector_all(f"input[type='radio'][name='{_css_escape(name)}']") if name else [el]
+        group_els = (
+            await container.query_selector_all(f"input[type='radio'][name='{_css_escape(name)}']")
+            if name
+            else [el]
+        )
         options = []
         for radio_el in group_els:
             opt_label = await _get_field_label(page, radio_el)
             val = await radio_el.get_attribute("value") or ""
             options.append(opt_label or val)
         selector = await _build_selector(el)
-        fields.append(FormField(
-            selector=selector,
-            label=label,
-            field_type="radio",
-            options=options,
-        ))
+        fields.append(
+            FormField(
+                selector=selector,
+                label=label,
+                field_type="radio",
+                options=options,
+            )
+        )
 
     # Select dropdowns
     selects = await container.query_selector_all("select")
     for el in selects:
         label = await _get_field_label(page, el)
         selector = await _build_selector(el)
-        options = await el.evaluate(
-            "el => Array.from(el.options).map(o => o.text.trim())"
+        options = await el.evaluate("el => Array.from(el.options).map(o => o.text.trim())")
+        fields.append(
+            FormField(
+                selector=selector,
+                label=label,
+                field_type="select",
+                options=options,
+            )
         )
-        fields.append(FormField(
-            selector=selector,
-            label=label,
-            field_type="select",
-            options=options,
-        ))
 
     # File inputs
     file_inputs = await container.query_selector_all("input[type='file']")
     for el in file_inputs:
         label = await _get_field_label(page, el)
         selector = await _build_selector(el)
-        fields.append(FormField(
-            selector=selector,
-            label=label,
-            field_type="file",
-        ))
+        fields.append(
+            FormField(
+                selector=selector,
+                label=label,
+                field_type="file",
+            )
+        )
 
     logger.info("Detected %d form fields", len(fields))
     return fields
@@ -221,8 +232,16 @@ def map_fields_to_profile(
 
     # Label → value mapping rules (case-insensitive label substring match)
     label_rules: list[tuple[list[str], str]] = [
-        (["first name", "given name"], identity.get("full_name", "").split()[0] if identity.get("full_name") else ""),
-        (["last name", "family name", "surname"], " ".join(identity.get("full_name", "").split()[1:]) if identity.get("full_name") else ""),
+        (
+            ["first name", "given name"],
+            identity.get("full_name", "").split()[0] if identity.get("full_name") else "",
+        ),
+        (
+            ["last name", "family name", "surname"],
+            " ".join(identity.get("full_name", "").split()[1:])
+            if identity.get("full_name")
+            else "",
+        ),
         (["full name", "your name"], identity.get("full_name", "")),
         (["email"], identity.get("email", "")),
         (["phone", "mobile", "telephone"], identity.get("phone", "")),
@@ -258,11 +277,13 @@ def map_fields_to_profile(
                     break
 
         data_key = _infer_data_key(label_lower)
-        mappings.append(FieldMapping(
-            form_field=form_field,
-            data_key=data_key,
-            value=matched_value,
-        ))
+        mappings.append(
+            FieldMapping(
+                form_field=form_field,
+                data_key=data_key,
+                value=matched_value,
+            )
+        )
 
     mapped_count = sum(1 for m in mappings if m.value)
     logger.info("Mapped %d/%d fields to profile data", mapped_count, len(mappings))

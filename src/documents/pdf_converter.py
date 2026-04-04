@@ -35,6 +35,7 @@ def convert_to_pdf(docx_path: Path, output_path: Path | None = None) -> Path:
     # Try docx2pdf first (uses Word COM on Windows, LibreOffice on Linux/Mac)
     try:
         from docx2pdf import convert
+
         convert(str(docx_path), str(output_path))
         logger.info("Converted %s → %s (docx2pdf)", docx_path.name, output_path.name)
         return output_path
@@ -76,8 +77,10 @@ def _convert_via_libreoffice(libreoffice: str, docx_path: Path, output_path: Pat
     cmd = [
         libreoffice,
         "--headless",
-        "--convert-to", "pdf",
-        "--outdir", str(output_path.parent),
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(output_path.parent),
         str(docx_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)

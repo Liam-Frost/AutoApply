@@ -15,7 +15,8 @@ from src.utils.llm import LLMError, claude_generate
 
 logger = logging.getLogger("autoapply.intake.jd_parser")
 
-EXTRACTION_SYSTEM = """You are a job description parser. Extract structured data from the job posting.
+EXTRACTION_SYSTEM = """You are a job description parser.
+Extract structured data from the job posting.
 Return ONLY a JSON object with exactly these keys (use null for missing info):
 
 {
@@ -33,7 +34,8 @@ Return ONLY a JSON object with exactly these keys (use null for missing info):
 Rules:
 - must_have_skills: only clearly required technologies/skills (e.g. "Python", "AWS", "SQL")
 - preferred_skills: nice-to-have or bonus skills
-- us_work_auth_required: true only if posting says "must be authorized to work in the US" or "no sponsorship"
+- us_work_auth_required: true only if posting says
+  "must be authorized to work in the US" or "no sponsorship"
 - visa_sponsorship: true if posting explicitly offers sponsorship, false if it says no sponsorship
 - Return raw JSON only, no markdown fences"""
 
@@ -79,7 +81,7 @@ def _parse_with_llm(text: str) -> JobRequirements:
     # Strip markdown fences if present
     cleaned = raw.strip()
     if cleaned.startswith("```"):
-        lines = [l for l in cleaned.split("\n") if not l.strip().startswith("```")]
+        lines = [line for line in cleaned.split("\n") if not line.strip().startswith("```")]
         cleaned = "\n".join(lines)
 
     data = json.loads(cleaned)

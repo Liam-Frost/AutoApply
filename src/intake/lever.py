@@ -49,7 +49,9 @@ class LeverScraper(BaseScraper):
             raise ScraperError(f"Failed to parse Lever response for {company_slug}: {e}") from e
 
         if not isinstance(raw_list, list):
-            raise ScraperError(f"Unexpected Lever response shape for {company_slug}: {type(raw_list)}")
+            raise ScraperError(
+                f"Unexpected Lever response shape for {company_slug}: {type(raw_list)}"
+            )
 
         jobs = []
         for item in raw_list:
@@ -62,10 +64,29 @@ class LeverScraper(BaseScraper):
         logger.info("Fetched %d jobs from Lever/%s", len(jobs), company_slug)
         return jobs
 
+    def fetch_job(self, company_slug: str, job_id: str) -> RawJob:
+        """Fetch a single Lever job posting."""
+        url = f"{BASE_URL}/{company_slug}/{job_id}"
+        params = {"mode": "json"}
+
+        logger.info("Fetching Lever job %s/%s", company_slug, job_id)
+
+        try:
+            item = self._get(url, params=params).json()
+        except ScraperError:
+            raise
+        except Exception as e:
+            raise ScraperError(f"Failed to parse Lever job {company_slug}/{job_id}: {e}") from e
+
+        if not isinstance(item, dict) or not item.get("id"):
+            raise ScraperError(f"Unexpected Lever job response for {company_slug}/{job_id}")
+
+        return self._parse_job(company_slug, item)
+
     def _parse_job(self, company_slug: str, item: dict) -> RawJob:
         """Convert a raw Lever API posting to RawJob."""
         source_id = item.get("id", "")
-        text = item.get("text", "").strip()       # Lever's field for title
+        text = item.get("text", "").strip()  # Lever's field for title
         title = text or item.get("title", "").strip()
 
         # Location
@@ -123,7 +144,16 @@ def _extract_lever_description(item: dict) -> str | None:
             if isinstance(line, str):
                 # Strip basic HTML tags
                 clean = line.replace("<li>", "• ").replace("</li>", "")
-                for tag in ("<p>", "</p>", "<br>", "<br/>", "<strong>", "</strong>", "<em>", "</em>"):
+                for tag in (
+                    "<p>",
+                    "</p>",
+                    "<br>",
+                    "<br/>",
+                    "<strong>",
+                    "</strong>",
+                    "<em>",
+                    "</em>",
+                ):
                     clean = clean.replace(tag, "")
                 description_parts.append(clean.strip())
 

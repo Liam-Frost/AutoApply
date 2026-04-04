@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request, UploadFile, File
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
 from src.core.config import PROJECT_ROOT
@@ -33,7 +33,8 @@ async def profile_view(request: Request):
             pass
 
     return _render(
-        request, "profile.html",
+        request,
+        "profile.html",
         page_title="Profile",
         profile=profile_data,
         profile_path=str(PROFILE_FILE),
@@ -46,7 +47,8 @@ async def upload_resume(request: Request, resume: UploadFile = File(...)):
     suffix = Path(resume.filename).suffix.lower()
     if suffix not in (".pdf", ".docx"):
         return _render(
-            request, "profile.html",
+            request,
+            "profile.html",
             page_title="Profile",
             profile=None,
             profile_path=str(PROFILE_FILE),
@@ -66,7 +68,8 @@ async def upload_resume(request: Request, resume: UploadFile = File(...)):
         profile_data = import_resume(tmp_path, output_path=PROFILE_FILE)
 
         return _render(
-            request, "profile.html",
+            request,
+            "profile.html",
             page_title="Profile",
             profile=profile_data,
             profile_path=str(PROFILE_FILE),
@@ -75,7 +78,8 @@ async def upload_resume(request: Request, resume: UploadFile = File(...)):
 
     except Exception as e:
         return _render(
-            request, "profile.html",
+            request,
+            "profile.html",
             page_title="Profile",
             profile=None,
             profile_path=str(PROFILE_FILE),

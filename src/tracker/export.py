@@ -44,11 +44,21 @@ def export_applications_csv(
 
     # Header
     header = [
-        "app_id", "company", "title", "location", "ats_type",
-        "status", "match_score", "outcome",
-        "fields_filled", "fields_total",
-        "resume_version", "cover_letter_version",
-        "created_at", "submitted_at", "outcome_updated_at",
+        "app_id",
+        "company",
+        "title",
+        "location",
+        "ats_type",
+        "status",
+        "match_score",
+        "outcome",
+        "fields_filled",
+        "fields_total",
+        "resume_version",
+        "cover_letter_version",
+        "created_at",
+        "submitted_at",
+        "outcome_updated_at",
     ]
     if include_errors:
         header.append("error")

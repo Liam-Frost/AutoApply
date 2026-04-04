@@ -1,32 +1,29 @@
 """Tests for src.generation — resume builder, cover letter, QA responder."""
 
-import pytest
-
-from src.intake.schema import JobRequirements, RawJob
-from src.generation.resume_builder import (
-    extract_jd_tags,
-    select_bullets_for_jd,
-    _rank_and_select,
-)
 from src.generation.cover_letter import (
-    _select_evidence,
-    _generate_template,
     _format_education_brief,
+    _generate_template,
+    _select_evidence,
 )
 from src.generation.qa_responder import (
-    QAResponse,
-    answer_questions,
-    classify_question,
+    _estimate_experience_years,
     _find_qa_match,
     _get_variant_answer,
     _template_answer,
-    _estimate_experience_years,
+    answer_questions,
+    classify_question,
 )
-
+from src.generation.resume_builder import (
+    _rank_and_select,
+    extract_jd_tags,
+    select_bullets_for_jd,
+)
+from src.intake.schema import JobRequirements, RawJob
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_job(**overrides) -> RawJob:
     defaults = {
@@ -37,7 +34,9 @@ def _make_job(**overrides) -> RawJob:
         "location": "Vancouver, BC",
         "employment_type": "internship",
         "seniority": "internship",
-        "description": "We need a backend intern with Python, FastAPI, PostgreSQL, and Docker experience.",
+        "description": (
+            "We need a backend intern with Python, FastAPI, PostgreSQL, and Docker experience."
+        ),
         "ats_type": "greenhouse",
         "application_url": "https://example.com/apply",
     }
@@ -70,9 +69,15 @@ _PROFILE = {
             "start_date": "2025-05",
             "end_date": "2025-08",
             "bullets": [
-                {"text": "Built REST APIs with Python and FastAPI", "tags": ["python", "api", "backend", "fastapi"]},
+                {
+                    "text": "Built REST APIs with Python and FastAPI",
+                    "tags": ["python", "api", "backend", "fastapi"],
+                },
                 {"text": "Wrote unit tests achieving 90% coverage", "tags": ["testing", "python"]},
-                {"text": "Designed data pipeline with Apache Kafka", "tags": ["kafka", "data", "backend"]},
+                {
+                    "text": "Designed data pipeline with Apache Kafka",
+                    "tags": ["kafka", "data", "backend"],
+                },
             ],
         },
     ],
@@ -82,7 +87,10 @@ _PROFILE = {
             "description": "CI/CD platform",
             "tech_stack": ["Python", "Docker", "AWS"],
             "bullets": [
-                {"text": "Containerized microservices with Docker and Kubernetes", "tags": ["docker", "kubernetes", "devops"]},
+                {
+                    "text": "Containerized microservices with Docker and Kubernetes",
+                    "tags": ["docker", "kubernetes", "devops"],
+                },
                 {"text": "Built React frontend dashboard", "tags": ["react", "frontend"]},
             ],
         },
@@ -99,6 +107,7 @@ _PROFILE = {
 # ===========================================================================
 # Resume builder tests
 # ===========================================================================
+
 
 class TestExtractJDTags:
     def test_from_requirements(self):
@@ -175,6 +184,7 @@ class TestRankAndSelect:
 # Cover letter tests
 # ===========================================================================
 
+
 class TestSelectEvidence:
     def test_selects_relevant_bullets(self):
         job = _make_job()
@@ -222,6 +232,7 @@ class TestFormatEducation:
 # ===========================================================================
 # QA responder tests
 # ===========================================================================
+
 
 class TestClassifyQuestion:
     def test_authorization(self):

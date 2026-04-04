@@ -11,7 +11,7 @@ import asyncio
 import logging
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger("autoapply.utils.rate_limiter")
 
@@ -65,9 +65,7 @@ class RateLimiter:
 
     async def error_cooldown(self) -> None:
         """Wait after an error before retrying."""
-        logger.info(
-            "Error cooldown: waiting %.0fs", self.config.cooldown_on_error
-        )
+        logger.info("Error cooldown: waiting %.0fs", self.config.cooldown_on_error)
         await asyncio.sleep(self.config.cooldown_on_error)
         async with self._lock:
             self._last_action_time = time.monotonic()
@@ -86,9 +84,7 @@ class RateLimiter:
     def _prune_timestamps(self) -> None:
         """Remove timestamps older than 1 hour."""
         cutoff = time.monotonic() - 3600
-        self._application_timestamps = [
-            ts for ts in self._application_timestamps if ts > cutoff
-        ]
+        self._application_timestamps = [ts for ts in self._application_timestamps if ts > cutoff]
 
     @property
     def applications_this_hour(self) -> int:

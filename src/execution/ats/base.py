@@ -86,7 +86,9 @@ class BaseATSAdapter(ABC):
 
             # Step 3: Upload files
             uploaded = await self.upload_files(page, resume_path, cover_letter_path)
-            if resume_path and not any("resume" in f.lower() or resume_path.name in f for f in uploaded):
+            if resume_path and not any(
+                "resume" in f.lower() or resume_path.name in f for f in uploaded
+            ):
                 logger.warning("[%s] Resume upload may have failed", state.job_id[:8])
             state.transition(AppStatus.FILES_UPLOADED, files=uploaded)
             result.files_uploaded = uploaded
@@ -108,7 +110,9 @@ class BaseATSAdapter(ABC):
                 else:
                     state.transition(AppStatus.REVIEW_REQUIRED)
                     result.status = AppStatus.REVIEW_REQUIRED
-                    logger.warning("[%s] Submit may have failed — flagged for review", state.job_id[:8])
+                    logger.warning(
+                        "[%s] Submit may have failed — flagged for review", state.job_id[:8]
+                    )
             else:
                 state.transition(AppStatus.REVIEW_REQUIRED)
                 result.status = AppStatus.REVIEW_REQUIRED

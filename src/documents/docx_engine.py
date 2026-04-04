@@ -8,16 +8,12 @@ the applicant's bullet pool selection.
 
 from __future__ import annotations
 
-import copy
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
 from docx.oxml import OxmlElement
 
 logger = logging.getLogger("autoapply.documents.docx_engine")
@@ -153,7 +149,9 @@ def _clear_section_content(doc: Document, start_idx: int, next_markers: list[str
     return i
 
 
-def _add_paragraph_after(doc: Document, ref_idx: int, text: str, style: str = "Normal", bold: bool = False) -> None:
+def _add_paragraph_after(
+    doc: Document, ref_idx: int, text: str, style: str = "Normal", bold: bool = False
+) -> None:
     """Insert a new paragraph after the paragraph at ref_idx."""
     ref_para = doc.paragraphs[ref_idx]
     new_para = OxmlElement("w:p")
@@ -173,6 +171,7 @@ def _add_paragraph_after(doc: Document, ref_idx: int, text: str, style: str = "N
 # Section rebuilders — these operate on known template markers
 # ---------------------------------------------------------------------------
 
+
 def _rebuild_education_block(doc: Document, education: list[dict]) -> None:
     """Replace {{EDUCATION_BLOCK}} section with formatted education entries."""
     idx = _find_section_paragraph(doc, "{{EDUCATION_BLOCK}}")
@@ -183,7 +182,9 @@ def _rebuild_education_block(doc: Document, education: list[dict]) -> None:
     # Clear the marker text and any existing sample content below it (P1 fix)
     if doc.paragraphs[idx].runs:
         doc.paragraphs[idx].runs[0].text = ""
-    _clear_section_content(doc, idx, ["{{EXPERIENCE_BLOCK}}", "{{PROJECTS_BLOCK}}", "{{SKILLS_BLOCK}}"])
+    _clear_section_content(
+        doc, idx, ["{{EXPERIENCE_BLOCK}}", "{{PROJECTS_BLOCK}}", "{{SKILLS_BLOCK}}"]
+    )
 
     insert_idx = idx
     for edu in education:
@@ -311,6 +312,7 @@ def _rebuild_skills_block(doc: Document, skills: dict[str, list[str]]) -> None:
 # ---------------------------------------------------------------------------
 # Minimal template creator (used when no template .docx exists yet)
 # ---------------------------------------------------------------------------
+
 
 def create_default_template(output_path: Path) -> Path:
     """Create a basic resume template .docx with all expected markers."""

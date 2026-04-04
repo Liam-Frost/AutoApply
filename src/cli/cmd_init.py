@@ -18,7 +18,7 @@ from pathlib import Path
 
 import click
 
-from src.core.config import PROJECT_ROOT, load_config, get_db_url
+from src.core.config import PROJECT_ROOT, get_db_url, load_config
 
 logger = logging.getLogger("autoapply.cli.init")
 
@@ -266,7 +266,7 @@ def _setup_profile(
 def _import_profile_yaml(path: Path, config: dict | None, skip_db: bool) -> bool:
     """Import and optionally ingest a profile YAML."""
     try:
-        from src.memory.profile import load_profile_yaml, ingest_profile
+        from src.memory.profile import ingest_profile, load_profile_yaml
 
         data = load_profile_yaml(path)
 
@@ -281,8 +281,8 @@ def _import_profile_yaml(path: Path, config: dict | None, skip_db: bool) -> bool
             try:
                 from src.core.database import get_session_factory
 
-                SessionFactory = get_session_factory(config)
-                with SessionFactory() as session:
+                session_factory = get_session_factory(config)
+                with session_factory() as session:
                     records = ingest_profile(session, data)
                     click.secho(
                         f"    [OK] Profile ingested to DB ({len(records)} sections)",
@@ -332,11 +332,11 @@ def _import_from_resume(path: Path, config: dict | None, skip_db: bool) -> bool:
         # Ingest to DB
         if not skip_db and config:
             try:
-                from src.memory.profile import ingest_profile
                 from src.core.database import get_session_factory
+                from src.memory.profile import ingest_profile
 
-                SessionFactory = get_session_factory(config)
-                with SessionFactory() as session:
+                session_factory = get_session_factory(config)
+                with session_factory() as session:
                     ingest_profile(session, data)
                     click.secho("    [OK] Profile ingested to DB", fg="green")
             except Exception as e:
@@ -356,9 +356,7 @@ def _create_template_profile() -> bool:
     if SCHEMA_FILE.exists():
         shutil.copy2(SCHEMA_FILE, PROFILE_FILE)
         click.secho(f"    [OK] Template created: {PROFILE_FILE}", fg="green")
-        click.echo(
-            "      Edit this file with your information, then run `autoapply init` again."
-        )
+        click.echo("      Edit this file with your information, then run `autoapply init` again.")
         return True
     else:
         click.secho("    [FAIL] Schema template not found", fg="red")

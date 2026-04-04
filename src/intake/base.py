@@ -40,7 +40,7 @@ class BaseScraper(ABC):
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "BaseScraper":
+    def __enter__(self) -> BaseScraper:
         return self
 
     def __exit__(self, *_) -> None:

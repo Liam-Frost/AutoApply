@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import yaml
 from sqlalchemy.orm import Session
 
 from src.core.models import ApplicantProfile
@@ -60,10 +59,7 @@ def get_stories_for_context(session: Session, applicable_to: str) -> list[dict]:
         return []
 
     stories = record.content.get("stories", [])
-    return [
-        s for s in stories
-        if applicable_to in s.get("applicable_to", [])
-    ]
+    return [s for s in stories if applicable_to in s.get("applicable_to", [])]
 
 
 def _extract_story_tags(stories: list[dict]) -> list[str]:

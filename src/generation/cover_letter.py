@@ -45,7 +45,6 @@ def generate_cover_letter(
         Dict with keys: text (str), txt (Path to .txt file).
     """
     identity = profile_data.get("identity", {})
-    applicant_name = identity.get("full_name", "Applicant")
 
     # Select evidence points if not provided
     if evidence_bullets is None:
@@ -92,9 +91,11 @@ cover letter following this EXACT structure:
 Rules:
 - Total length: 250-400 words
 - Tone: confident but not arrogant, specific but not verbose
-- Do NOT use clichés like "I am writing to express my interest" or "I believe I would be a great fit"
+- Do NOT use clichés like "I am writing to express my interest"
+  or "I believe I would be a great fit"
 - Do NOT fabricate experiences, skills, or achievements not in the provided profile
-- Do NOT include a greeting line (Dear Hiring Manager) or sign-off (Sincerely) — those are added separately
+- Do NOT include a greeting line (Dear Hiring Manager)
+  or sign-off (Sincerely) — those are added separately
 - Output ONLY the body text of the cover letter"""
 
 
@@ -121,15 +122,15 @@ def _generate_with_llm(
 <job>
 Company: {job.company}
 Role: {job.title}
-Location: {job.location or 'Not specified'}
+Location: {job.location or "Not specified"}
 
 Job Description:
-{(job.description or '')[:3000]}
+{(job.description or "")[:3000]}
 </job>
 
 <applicant>
-Name: {identity.get('full_name', '')}
-Education: {_format_education_brief(profile_data.get('education', []))}
+Name: {identity.get("full_name", "")}
+Education: {_format_education_brief(profile_data.get("education", []))}
 
 Key evidence points from my experience:
 {evidence_text}
@@ -150,8 +151,6 @@ def _generate_template(
     evidence_bullets: list[str],
 ) -> str:
     """Generate a template-based cover letter (no LLM)."""
-    name = identity.get("full_name", "Applicant")
-
     opening = (
         f"I am excited about the {job.title} position at {job.company}. "
         f"The opportunity to contribute to your team aligns well with my background "
@@ -162,9 +161,10 @@ def _generate_template(
     for i, bullet in enumerate(evidence_bullets[:3]):
         evidence_parts.append(bullet)
 
-    evidence_text = "\n\n".join(evidence_parts) if evidence_parts else (
-        "My technical background and project experience have prepared me well "
-        "for this role."
+    evidence_text = (
+        "\n\n".join(evidence_parts)
+        if evidence_parts
+        else ("My technical background and project experience have prepared me well for this role.")
     )
 
     close = (

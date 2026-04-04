@@ -30,13 +30,13 @@ async def applications_list(
     try:
         from src.core.config import load_config
         from src.core.database import get_session_factory
-        from src.tracker.database import get_applications_with_jobs
-        from src.tracker.analytics import compute_pipeline_stats, compute_outcome_stats
+        from src.tracker.analytics import compute_outcome_stats
+        from src.tracker.database import get_application_counts, get_applications_with_jobs
 
         config = load_config()
-        SessionFactory = get_session_factory(config)
+        session_factory = get_session_factory(config)
 
-        with SessionFactory() as session:
+        with session_factory() as session:
             applications = get_applications_with_jobs(
                 session,
                 status=status or None,
@@ -44,14 +44,23 @@ async def applications_list(
                 company=company or None,
                 limit=limit,
             )
-            pipeline_stats = compute_pipeline_stats(session)
-            outcome_stats = compute_outcome_stats(session)
+            pipeline_stats = get_application_counts(session)
+            summary = compute_outcome_stats(session)
+            outcome_stats = {
+                "total": summary.total_submitted,
+                "pending": summary.pending,
+                "rates": {
+                    "response_rate": summary.response_rate,
+                    "positive_rate": summary.positive_rate,
+                },
+            }
 
     except Exception as e:
         error = str(e)
 
     return _render(
-        request, "applications.html",
+        request,
+        "applications.html",
         page_title="Applications",
         applications=applications,
         pipeline=pipeline_stats,
@@ -70,26 +79,22 @@ async def update_outcome(
     """Update application outcome (HTMX)."""
     try:
         import uuid
+
         from src.core.config import load_config
         from src.core.database import get_session_factory
-        from src.tracker.database import update_application_outcome
+        from src.tracker.database import update_outcome
 
         config = load_config()
-        SessionFactory = get_session_factory(config)
+        session_factory = get_session_factory(config)
 
-        with SessionFactory() as session:
-            success = update_application_outcome(
-                session, uuid.UUID(application_id), outcome
-            )
+        with session_factory() as session:
+            app = update_outcome(session, uuid.UUID(application_id), outcome)
+            session.commit()
 
-        if success:
-            return HTMLResponse(
-                f'<span class="text-green-600">Updated to {outcome}</span>'
-            )
+        if app:
+            return HTMLResponse(f'<span class="text-green-600">Updated to {outcome}</span>')
         else:
-            return HTMLResponse(
-                '<span class="text-red-600">Application not found</span>'
-            )
+            return HTMLResponse('<span class="text-red-600">Application not found</span>')
 
     except Exception as e:
         return HTMLResponse(f'<span class="text-red-600">Error: {e}</span>')

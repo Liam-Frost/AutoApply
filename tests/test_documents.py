@@ -1,13 +1,14 @@
 """Tests for the document processing layer."""
 
-import pytest
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
-from src.documents.docx_engine import create_default_template, build_resume, substitute_placeholders
-from src.documents.file_manager import make_filename, get_output_paths
-from src.documents.templates import register_template, get_template_path, discover_templates
+import pytest
 from docx import Document
+
+from src.documents.docx_engine import build_resume, create_default_template, substitute_placeholders
+from src.documents.file_manager import get_output_paths, make_filename
+from src.documents.templates import discover_templates, get_template_path, register_template
 
 TMP_DIR = Path("data/output/_test")
 
@@ -42,7 +43,10 @@ SAMPLE_EXPERIENCES = [
         "start_date": "2025-05",
         "end_date": "2025-08",
         "bullets": [
-            {"text": "Built payment retry logic handling 1M+ transactions/day", "tags": ["backend"]},
+            {
+                "text": "Built payment retry logic handling 1M+ transactions/day",
+                "tags": ["backend"],
+            },
         ],
     }
 ]
@@ -53,7 +57,10 @@ SAMPLE_PROJECTS = [
         "role": "Lead Developer",
         "tech_stack": ["Python", "Playwright"],
         "bullets": [
-            {"text": "Developed an AI agent for automated job applications", "tags": ["python", "ai"]},
+            {
+                "text": "Developed an AI agent for automated job applications",
+                "tags": ["python", "ai"],
+            },
         ],
     }
 ]
@@ -70,6 +77,7 @@ SAMPLE_SKILLS = {
 def cleanup():
     yield
     import shutil
+
     if TMP_DIR.exists():
         shutil.rmtree(TMP_DIR)
 
@@ -122,24 +130,24 @@ class TestDocxEngine:
 
 class TestFileManager:
     def test_make_filename_resume(self):
-        date = datetime(2026, 4, 2, tzinfo=timezone.utc)
+        date = datetime(2026, 4, 2, tzinfo=UTC)
         name = make_filename("resume", "Stripe", "Backend Engineer", date)
         assert name == "resume_stripe_backend_engineer_2026-04-02.docx"
 
     def test_make_filename_cover(self):
-        date = datetime(2026, 4, 2, tzinfo=timezone.utc)
+        date = datetime(2026, 4, 2, tzinfo=UTC)
         name = make_filename("cover", "Google LLC", "SWE Intern", date, ext="pdf")
         assert name == "cover_google_llc_swe_intern_2026-04-02.pdf"
 
     def test_make_filename_special_chars(self):
-        date = datetime(2026, 4, 2, tzinfo=timezone.utc)
+        date = datetime(2026, 4, 2, tzinfo=UTC)
         name = make_filename("resume", "A/B & Co.", "C++ Dev", date)
         # Should not contain special chars
         assert "/" not in name
         assert "&" not in name
 
     def test_get_output_paths(self):
-        date = datetime(2026, 4, 2, tzinfo=timezone.utc)
+        date = datetime(2026, 4, 2, tzinfo=UTC)
         paths = get_output_paths(TMP_DIR, "Stripe", "Backend Intern", date)
         assert "resume_docx" in paths
         assert "resume_pdf" in paths

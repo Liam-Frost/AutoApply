@@ -153,7 +153,9 @@ def score_jobs(
     qualified = sum(1 for r in results if not r.disqualified)
     logger.info(
         "Scored %d jobs: %d qualified, %d disqualified",
-        len(results), qualified, len(results) - qualified,
+        len(results),
+        qualified,
+        len(results) - qualified,
     )
 
     return results
@@ -163,14 +165,12 @@ def print_ranking(scores: list[ScoreBreakdown], top_n: int = 20) -> None:
     """Pretty-print the top-N scored jobs to stdout."""
     qualified = [s for s in scores if not s.disqualified]
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f" Top {min(top_n, len(qualified))} of {len(qualified)} qualified jobs")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     for i, s in enumerate(qualified[:top_n], 1):
-        print(
-            f"  [{i:3d}] {s.final_score:.3f}  {s.company} — {s.title}"
-        )
+        print(f"  [{i:3d}] {s.final_score:.3f}  {s.company} — {s.title}")
         print(
             f"        skill={s.skill_overlap:.2f}  text={s.keyword_similarity:.2f}  "
             f"quality={s.quality_multiplier:.2f}"

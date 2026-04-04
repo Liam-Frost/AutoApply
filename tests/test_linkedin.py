@@ -7,15 +7,15 @@ Browser-dependent tests use mocks to avoid needing a real LinkedIn session.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-
 # ──────────────────────────────────────────────
 # URL Utility Tests
 # ──────────────────────────────────────────────
+
 
 class TestLinkedInURLUtils:
     """Test LinkedIn URL parsing and ATS detection utilities."""
@@ -89,6 +89,7 @@ class TestLinkedInURLUtils:
 # Search URL Builder Tests
 # ──────────────────────────────────────────────
 
+
 class TestSearchURLBuilder:
     """Test LinkedIn search URL construction."""
 
@@ -153,6 +154,7 @@ class TestSearchURLBuilder:
 # Schema Integration Tests
 # ──────────────────────────────────────────────
 
+
 class TestLinkedInSchemaIntegration:
     """Test that LinkedIn jobs conform to the existing RawJob schema."""
 
@@ -204,6 +206,7 @@ class TestLinkedInSchemaIntegration:
 # CLI Integration Tests
 # ──────────────────────────────────────────────
 
+
 class TestLinkedInCLI:
     """Test CLI integration for LinkedIn search."""
 
@@ -246,11 +249,18 @@ class TestLinkedInCLI:
 
         from src.cli.main import cli
 
-        result = runner.invoke(cli, [
-            "search", "--source", "linkedin",
-            "--keyword", "software engineer intern",
-            "--location", "United States",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "search",
+                "--source",
+                "linkedin",
+                "--keyword",
+                "software engineer intern",
+                "--location",
+                "United States",
+            ],
+        )
         assert result.exit_code == 0
         assert "LinkedIn: 1 jobs found" in result.output
         mock_search.assert_called_once()
@@ -278,10 +288,16 @@ class TestLinkedInCLI:
 
         from src.cli.main import cli
 
-        result = runner.invoke(cli, [
-            "search", "--source", "linkedin",
-            "--keyword", "intern",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "search",
+                "--source",
+                "linkedin",
+                "--keyword",
+                "intern",
+            ],
+        )
         assert result.exit_code == 0
         assert "1 with external ATS links" in result.output
 
@@ -289,6 +305,7 @@ class TestLinkedInCLI:
 # ──────────────────────────────────────────────
 # Async Scraper Tests (with mocked Playwright)
 # ──────────────────────────────────────────────
+
 
 class TestLinkedInScraperMocked:
     """Test scraper logic with mocked Playwright."""
@@ -359,6 +376,7 @@ class TestLinkedInScraperMocked:
 # ──────────────────────────────────────────────
 # Filter Mapping Tests
 # ──────────────────────────────────────────────
+
 
 class TestLinkedInFilterMaps:
     """Test that LinkedIn filter constants are correctly defined."""

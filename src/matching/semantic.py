@@ -84,8 +84,7 @@ def compute_keyword_similarity(
     # Simple IDF proxy: terms appearing in fewer than 20% of tokens
     total_job = len(job_tokens)
     important_terms = {
-        term for term, count in job_freq.items()
-        if count / total_job < 0.05 and len(term) > 2
+        term for term, count in job_freq.items() if count / total_job < 0.05 and len(term) > 2
     }
 
     # Compute weighted overlap

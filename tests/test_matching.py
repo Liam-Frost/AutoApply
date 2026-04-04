@@ -1,34 +1,29 @@
 """Tests for src.matching — rules, semantic, and scorer."""
 
-import pytest
-
 from src.intake.schema import JobRequirements, RawJob
 from src.matching.rules import (
     ApplicantContext,
-    RuleVerdict,
     check_rules,
     load_applicant_context,
 )
+from src.matching.scorer import (
+    _compute_quality_multiplier,
+    build_scoring_context,
+    score_job,
+    score_jobs,
+)
 from src.matching.semantic import (
+    _normalize,
     build_applicant_text,
     collect_applicant_skills,
     compute_keyword_similarity,
     compute_skill_overlap,
-    _normalize,
 )
-from src.matching.scorer import (
-    ScoreBreakdown,
-    ScoringContext,
-    build_scoring_context,
-    score_job,
-    score_jobs,
-    _compute_quality_multiplier,
-)
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_job(**overrides) -> RawJob:
     defaults = {
@@ -40,8 +35,8 @@ def _make_job(**overrides) -> RawJob:
         "employment_type": "internship",
         "seniority": "internship",
         "description": "Looking for an intern with Python, React, and PostgreSQL experience. "
-                       "Must be familiar with REST APIs and testing frameworks. "
-                       "This is a 4-month internship in our Vancouver office.",
+        "Must be familiar with REST APIs and testing frameworks. "
+        "This is a 4-month internship in our Vancouver office.",
         "ats_type": "greenhouse",
         "application_url": "https://example.com/apply",
     }
@@ -84,7 +79,10 @@ _SAMPLE_PROFILE = {
             "start_date": "2025-05",
             "end_date": "2025-08",
             "bullets": [
-                {"text": "Built REST APIs with Python and FastAPI", "tags": ["python", "api", "backend"]},
+                {
+                    "text": "Built REST APIs with Python and FastAPI",
+                    "tags": ["python", "api", "backend"],
+                },
                 {"text": "Wrote unit tests with pytest", "tags": ["testing", "python"]},
             ],
         },
@@ -95,7 +93,10 @@ _SAMPLE_PROFILE = {
             "description": "Personal portfolio built with React and Next.js",
             "tech_stack": ["React", "Next.js", "TypeScript"],
             "bullets": [
-                {"text": "Implemented responsive UI with Tailwind CSS", "tags": ["frontend", "react"]},
+                {
+                    "text": "Implemented responsive UI with Tailwind CSS",
+                    "tags": ["frontend", "react"],
+                },
             ],
         },
     ],
@@ -111,6 +112,7 @@ _SAMPLE_PROFILE = {
 # ===========================================================================
 # Rules tests
 # ===========================================================================
+
 
 class TestRulesWorkAuth:
     def test_no_sponsorship_fails(self):
@@ -226,16 +228,19 @@ class TestLoadApplicantContext:
 # Semantic tests
 # ===========================================================================
 
+
 class TestSkillOverlap:
     def test_full_overlap(self):
         score = compute_skill_overlap(
-            ["Python", "React"], ["Python", "React", "Java"],
+            ["Python", "React"],
+            ["Python", "React", "Java"],
         )
         assert score == 1.0
 
     def test_partial_overlap(self):
         score = compute_skill_overlap(
-            ["Python", "React", "Go"], ["Python", "React"],
+            ["Python", "React", "Go"],
+            ["Python", "React"],
         )
         assert 0.5 < score < 1.0
 
@@ -302,6 +307,7 @@ class TestCollectSkills:
 # ===========================================================================
 # Scorer tests
 # ===========================================================================
+
 
 class TestQualityMultiplier:
     def test_good_job(self):

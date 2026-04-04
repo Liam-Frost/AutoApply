@@ -7,33 +7,39 @@ they require a running browser.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.state_machine import AppStatus, ApplicationState, InvalidTransition
+from src.core.state_machine import ApplicationState, AppStatus, InvalidTransitionError
 from src.execution.form_filler import (
-    FieldMapping,
     FormField,
     map_fields_to_profile,
 )
 from src.utils.rate_limiter import RateLimiter, RateLimiterConfig
 
-
 # ──────────────────────────────────────────────
 # State Machine Tests
 # ──────────────────────────────────────────────
+
 
 class TestAppStatus:
     """AppStatus enum tests."""
 
     def test_all_statuses_defined(self):
         expected = {
-            "DISCOVERED", "QUALIFIED", "MATERIALS_READY", "FORM_OPENED",
-            "FIELDS_MAPPED", "FILES_UPLOADED", "QUESTIONS_ANSWERED",
-            "REVIEW_REQUIRED", "SUBMITTED", "FAILED", "NEEDS_RETRY",
+            "DISCOVERED",
+            "QUALIFIED",
+            "MATERIALS_READY",
+            "FORM_OPENED",
+            "FIELDS_MAPPED",
+            "FILES_UPLOADED",
+            "QUESTIONS_ANSWERED",
+            "REVIEW_REQUIRED",
+            "SUBMITTED",
+            "FAILED",
+            "NEEDS_RETRY",
         }
         assert {s.value for s in AppStatus} == expected
 
@@ -76,9 +82,14 @@ class TestApplicationState:
     def test_auto_submit_path(self):
         """QUESTIONS_ANSWERED can go directly to SUBMITTED."""
         state = ApplicationState("job-002")
-        for s in [AppStatus.QUALIFIED, AppStatus.MATERIALS_READY,
-                   AppStatus.FORM_OPENED, AppStatus.FIELDS_MAPPED,
-                   AppStatus.FILES_UPLOADED, AppStatus.QUESTIONS_ANSWERED]:
+        for s in [
+            AppStatus.QUALIFIED,
+            AppStatus.MATERIALS_READY,
+            AppStatus.FORM_OPENED,
+            AppStatus.FIELDS_MAPPED,
+            AppStatus.FILES_UPLOADED,
+            AppStatus.QUESTIONS_ANSWERED,
+        ]:
             state.transition(s)
         state.transition(AppStatus.SUBMITTED)
         assert state.status == AppStatus.SUBMITTED
@@ -86,14 +97,14 @@ class TestApplicationState:
     def test_invalid_skip_transition(self):
         """Cannot skip states."""
         state = ApplicationState("job-003")
-        with pytest.raises(InvalidTransition):
+        with pytest.raises(InvalidTransitionError):
             state.transition(AppStatus.FORM_OPENED)
 
     def test_invalid_backward_transition(self):
         """Cannot go backward."""
         state = ApplicationState("job-004")
         state.transition(AppStatus.QUALIFIED)
-        with pytest.raises(InvalidTransition):
+        with pytest.raises(InvalidTransitionError):
             state.transition(AppStatus.DISCOVERED)
 
     def test_terminal_state_no_transition(self):
@@ -101,15 +112,21 @@ class TestApplicationState:
         state = ApplicationState("job-005")
         state.fail("test error")
         assert state.is_terminal
-        with pytest.raises(InvalidTransition):
+        with pytest.raises(InvalidTransitionError):
             state.transition(AppStatus.QUALIFIED)
 
     def test_fail_from_any_active_state(self):
         """FAILED is reachable from any non-terminal state."""
-        for start in [AppStatus.DISCOVERED, AppStatus.QUALIFIED,
-                      AppStatus.MATERIALS_READY, AppStatus.FORM_OPENED,
-                      AppStatus.FIELDS_MAPPED, AppStatus.FILES_UPLOADED,
-                      AppStatus.QUESTIONS_ANSWERED, AppStatus.REVIEW_REQUIRED]:
+        for start in [
+            AppStatus.DISCOVERED,
+            AppStatus.QUALIFIED,
+            AppStatus.MATERIALS_READY,
+            AppStatus.FORM_OPENED,
+            AppStatus.FIELDS_MAPPED,
+            AppStatus.FILES_UPLOADED,
+            AppStatus.QUESTIONS_ANSWERED,
+            AppStatus.REVIEW_REQUIRED,
+        ]:
             state = ApplicationState("job-fail")
             state.status = start  # Force state for testing
             state.fail("some error")
@@ -160,6 +177,7 @@ class TestApplicationState:
 # ──────────────────────────────────────────────
 # Form Filler Mapping Tests
 # ──────────────────────────────────────────────
+
 
 class TestMapFieldsToProfile:
     """Tests for field-to-profile mapping logic."""
@@ -281,6 +299,7 @@ class TestMapFieldsToProfile:
 # Rate Limiter Tests
 # ──────────────────────────────────────────────
 
+
 class TestRateLimiterConfig:
     def test_defaults(self):
         cfg = RateLimiterConfig()
@@ -339,11 +358,13 @@ class TestRateLimiter:
 # ATS Adapter Structure Tests
 # ──────────────────────────────────────────────
 
+
 class TestBaseATSAdapter:
     """Test adapter interface and result dataclass."""
 
     def test_application_result_defaults(self):
         from src.execution.ats.base import ApplicationResult
+
         result = ApplicationResult(job_id="j1", status=AppStatus.REVIEW_REQUIRED)
         assert result.fields_filled == 0
         assert result.files_uploaded == []
@@ -351,16 +372,19 @@ class TestBaseATSAdapter:
 
     def test_adapter_is_abstract(self):
         from src.execution.ats.base import BaseATSAdapter
+
         with pytest.raises(TypeError):
             BaseATSAdapter(browser=MagicMock())
 
     def test_greenhouse_adapter_ats_name(self):
         from src.execution.ats.greenhouse import GreenhouseAdapter
+
         adapter = GreenhouseAdapter(browser=MagicMock())
         assert adapter.ats_name == "greenhouse"
 
     def test_lever_adapter_ats_name(self):
         from src.execution.ats.lever import LeverAdapter
+
         adapter = LeverAdapter(browser=MagicMock())
         assert adapter.ats_name == "lever"
 
@@ -393,12 +417,27 @@ class TestATSApplyWorkflow:
         state.transition(AppStatus.QUALIFIED)
         state.transition(AppStatus.MATERIALS_READY)
 
-        with patch("src.execution.ats.greenhouse.detect_fields", new_callable=AsyncMock, return_value=[]), \
-             patch("src.execution.ats.greenhouse.map_fields_to_profile", return_value=[]), \
-             patch("src.execution.ats.greenhouse.fill_fields", new_callable=AsyncMock, return_value=[]), \
-             patch("src.execution.ats.greenhouse.upload_resume", new_callable=AsyncMock, return_value=True), \
-             patch("src.execution.ats.greenhouse.upload_cover_letter", new_callable=AsyncMock, return_value=True):
-
+        with (
+            patch(
+                "src.execution.ats.greenhouse.detect_fields",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("src.execution.ats.greenhouse.map_fields_to_profile", return_value=[]),
+            patch(
+                "src.execution.ats.greenhouse.fill_fields", new_callable=AsyncMock, return_value=[]
+            ),
+            patch(
+                "src.execution.ats.greenhouse.upload_resume",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "src.execution.ats.greenhouse.upload_cover_letter",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
             result = await adapter.apply(
                 page=page,
                 application_url="https://boards.greenhouse.io/test/jobs/123",
@@ -440,12 +479,19 @@ class TestATSApplyWorkflow:
         state.transition(AppStatus.QUALIFIED)
         state.transition(AppStatus.MATERIALS_READY)
 
-        with patch("src.execution.ats.lever.detect_fields", new_callable=AsyncMock, return_value=[]), \
-             patch("src.execution.ats.lever.map_fields_to_profile", return_value=[]), \
-             patch("src.execution.ats.lever.fill_fields", new_callable=AsyncMock, return_value=[]), \
-             patch("src.execution.ats.lever.upload_resume", new_callable=AsyncMock, return_value=False), \
-             patch("src.execution.ats.lever.upload_cover_letter", new_callable=AsyncMock, return_value=False):
-
+        with (
+            patch("src.execution.ats.lever.detect_fields", new_callable=AsyncMock, return_value=[]),
+            patch("src.execution.ats.lever.map_fields_to_profile", return_value=[]),
+            patch("src.execution.ats.lever.fill_fields", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "src.execution.ats.lever.upload_resume", new_callable=AsyncMock, return_value=False
+            ),
+            patch(
+                "src.execution.ats.lever.upload_cover_letter",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
             result = await adapter.apply(
                 page=page,
                 application_url="https://jobs.lever.co/test/123/apply",
@@ -485,6 +531,7 @@ class TestATSApplyWorkflow:
 # Package init tests
 # ──────────────────────────────────────────────
 
+
 class TestPackageExports:
     def test_ats_package_exports(self):
         from src.execution.ats import (
@@ -493,6 +540,7 @@ class TestPackageExports:
             GreenhouseAdapter,
             LeverAdapter,
         )
+
         assert ApplicationResult is not None
         assert BaseATSAdapter is not None
         assert GreenhouseAdapter is not None

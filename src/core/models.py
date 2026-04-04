@@ -6,7 +6,7 @@ Covers: jobs, applications, applicant_profile, bullet_pool, qa_bank.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
@@ -17,7 +17,7 @@ from src.core.database import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_uuid() -> uuid.UUID:
@@ -68,7 +68,9 @@ class Application(Base):
     fields_total: Mapped[int | None] = mapped_column(Integer)
     files_uploaded: Mapped[list | None] = mapped_column(JSONB)  # list[str] uploaded filenames
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(30))  # pending/rejected/oa/interview/offer
     outcome_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

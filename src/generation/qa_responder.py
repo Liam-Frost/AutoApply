@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from src.intake.schema import RawJob
@@ -34,9 +34,9 @@ class QAResponse:
     question: str
     question_type: str
     answer: str
-    confidence: str = "high"          # high / medium / low
+    confidence: str = "high"  # high / medium / low
     needs_review: bool = False
-    source: str = "qa_bank"           # qa_bank / template / llm
+    source: str = "qa_bank"  # qa_bank / template / llm
 
 
 def answer_questions(
@@ -68,7 +68,8 @@ def answer_questions(
     review_count = sum(1 for r in responses if r.needs_review)
     logger.info(
         "Answered %d questions (%d need review)",
-        len(responses), review_count,
+        len(responses),
+        review_count,
     )
     return responses
 
@@ -140,33 +141,60 @@ def _answer_single(
 # ---------------------------------------------------------------------------
 
 _CLASSIFICATION_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("authorization", re.compile(
-        r"(?i)(authorized|authorization|eligible|legally).*(work|employ)",
-    )),
-    ("sponsorship", re.compile(
-        r"(?i)(sponsor|visa|work\s*permit|immigration)",
-    )),
-    ("experience_years", re.compile(
-        r"(?i)(how\s+many\s+years|years?\s+of\s+experience|experience\s+level)",
-    )),
-    ("salary", re.compile(
-        r"(?i)(salary|compensation|pay|wage|expected\s+rate|desired\s+pay)",
-    )),
-    ("start_date", re.compile(
-        r"(?i)(start\s*date|when.*start|available.*start|earliest.*start|availability)",
-    )),
-    ("why_company", re.compile(
-        r"(?i)(why.*(?:this|our)\s+company|why.*(?:join|work\s+(?:at|for|with)))",
-    )),
-    ("why_role", re.compile(
-        r"(?i)(why.*(?:this|the)\s+(?:role|position)|interest.*(?:role|position))",
-    )),
-    ("strengths", re.compile(
-        r"(?i)(strength|what.*good\s+at|superpower|best\s+qualit)",
-    )),
-    ("weaknesses", re.compile(
-        r"(?i)(weakness|area.*improve|challenge.*face|biggest\s+(?:weakness|challenge))",
-    )),
+    (
+        "authorization",
+        re.compile(
+            r"(?i)(authorized|authorization|eligible|legally).*(work|employ)",
+        ),
+    ),
+    (
+        "sponsorship",
+        re.compile(
+            r"(?i)(sponsor|visa|work\s*permit|immigration)",
+        ),
+    ),
+    (
+        "experience_years",
+        re.compile(
+            r"(?i)(how\s+many\s+years|years?\s+of\s+experience|experience\s+level)",
+        ),
+    ),
+    (
+        "salary",
+        re.compile(
+            r"(?i)(salary|compensation|pay|wage|expected\s+rate|desired\s+pay)",
+        ),
+    ),
+    (
+        "start_date",
+        re.compile(
+            r"(?i)(start\s*date|when.*start|available.*start|earliest.*start|availability)",
+        ),
+    ),
+    (
+        "why_company",
+        re.compile(
+            r"(?i)(why.*(?:this|our)\s+company|why.*(?:join|work\s+(?:at|for|with)))",
+        ),
+    ),
+    (
+        "why_role",
+        re.compile(
+            r"(?i)(why.*(?:this|the)\s+(?:role|position)|interest.*(?:role|position))",
+        ),
+    ),
+    (
+        "strengths",
+        re.compile(
+            r"(?i)(strength|what.*good\s+at|superpower|best\s+qualit)",
+        ),
+    ),
+    (
+        "weaknesses",
+        re.compile(
+            r"(?i)(weakness|area.*improve|challenge.*face|biggest\s+(?:weakness|challenge))",
+        ),
+    ),
 ]
 
 
@@ -181,6 +209,7 @@ def classify_question(question: str) -> str:
 # ---------------------------------------------------------------------------
 # QA bank matching
 # ---------------------------------------------------------------------------
+
 
 def _find_qa_match(
     question: str,
@@ -248,14 +277,13 @@ def _get_variant_answer(entry: dict, job: RawJob) -> str:
 # Template-based answers
 # ---------------------------------------------------------------------------
 
+
 def _template_answer(
     qtype: str,
     profile_data: dict[str, Any],
     job: RawJob,
 ) -> str | None:
     """Generate an answer from a template for known question types."""
-    identity = profile_data.get("identity", {})
-
     if qtype == "authorization":
         # Authorization is jurisdiction-sensitive — always flag for review
         # rather than auto-generating a potentially incorrect answer
@@ -270,7 +298,8 @@ def _template_answer(
         exps = profile_data.get("work_experiences", [])
         total = _estimate_experience_years(exps)
         if total >= 0:
-            return f"I have approximately {total} year{'s' if total != 1 else ''} of relevant experience."
+            years = f"{total} year{'s' if total != 1 else ''}"
+            return f"I have approximately {years} of relevant experience."
         return None
 
     if qtype == "start_date":
@@ -299,10 +328,16 @@ def _estimate_experience_years(experiences: list[dict]) -> int:
             continue
         try:
             parts = start.split("-")
-            start_m = int(parts[0]) * 12 + int(parts[1]) if len(parts) >= 2 else int(parts[0]) * 12 + 1
+            start_m = (
+                int(parts[0]) * 12 + int(parts[1]) if len(parts) >= 2 else int(parts[0]) * 12 + 1
+            )
             if end and end != "Present":
                 eparts = end.split("-")
-                end_m = int(eparts[0]) * 12 + int(eparts[1]) if len(eparts) >= 2 else int(eparts[0]) * 12 + 12
+                end_m = (
+                    int(eparts[0]) * 12 + int(eparts[1])
+                    if len(eparts) >= 2
+                    else int(eparts[0]) * 12 + 12
+                )
             else:
                 end_m = now_month
             intervals.append((start_m, end_m))
@@ -363,9 +398,9 @@ def _llm_answer(
 <context>
 Company: {job.company}
 Role: {job.title}
-Applicant: {identity.get('full_name', '')}
-Skills: {', '.join(skill_list[:20])}
-Education: {identity.get('education', 'Not specified')}
+Applicant: {identity.get("full_name", "")}
+Skills: {", ".join(skill_list[:20])}
+Education: {identity.get("education", "Not specified")}
 </context>
 
 Answer the question directly and concisely."""

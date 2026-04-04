@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -84,18 +84,14 @@ def compute_pipeline_stats(session: Session) -> PipelineStats:
 
     # Average match score
     row = session.execute(
-        select(func.avg(Application.match_score)).where(
-            Application.match_score.isnot(None)
-        )
+        select(func.avg(Application.match_score)).where(Application.match_score.isnot(None))
     ).scalar()
     stats.avg_match_score = float(row) if row else 0.0
 
     # Average fill rate
     row = session.execute(
         select(
-            func.avg(
-                Application.fields_filled * 1.0 / func.nullif(Application.fields_total, 0)
-            )
+            func.avg(Application.fields_filled * 1.0 / func.nullif(Application.fields_total, 0))
         ).where(Application.fields_total.isnot(None), Application.fields_total > 0)
     ).scalar()
     stats.avg_fields_filled_pct = float(row) if row else 0.0
@@ -107,9 +103,11 @@ def compute_outcome_stats(session: Session) -> OutcomeStats:
     """Compute outcome breakdown for submitted applications."""
     stats = OutcomeStats()
 
-    submitted = session.execute(
-        select(Application).where(Application.status == AppStatus.SUBMITTED)
-    ).scalars().all()
+    submitted = (
+        session.execute(select(Application).where(Application.status == AppStatus.SUBMITTED))
+        .scalars()
+        .all()
+    )
 
     stats.total_submitted = len(submitted)
     for app in submitted:
@@ -144,11 +142,15 @@ def compute_company_stats(session: Session, limit: int = 20) -> list[CompanyStat
         cs = CompanyStats(company=company_name, applications=app_count)
 
         # Get details for this company
-        apps = session.execute(
-            select(Application)
-            .join(Job, Application.job_id == Job.id)
-            .where(Job.company == company_name)
-        ).scalars().all()
+        apps = (
+            session.execute(
+                select(Application)
+                .join(Job, Application.job_id == Job.id)
+                .where(Job.company == company_name)
+            )
+            .scalars()
+            .all()
+        )
 
         scores = [a.match_score for a in apps if a.match_score is not None]
         cs.avg_match_score = sum(scores) / len(scores) if scores else 0.0
@@ -187,7 +189,7 @@ def compute_daily_activity(
 
     Returns list of (date_str, created_count, submitted_count).
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
 
     # Created per day
     created_stmt = (
@@ -213,10 +215,7 @@ def compute_daily_activity(
 
     # Merge into daily series
     all_dates = sorted(set(list(created_rows.keys()) + list(submitted_rows.keys())))
-    return [
-        (d, created_rows.get(d, 0), submitted_rows.get(d, 0))
-        for d in all_dates
-    ]
+    return [(d, created_rows.get(d, 0), submitted_rows.get(d, 0)) for d in all_dates]
 
 
 def _count_by_column(session: Session, column) -> dict[str, int]:

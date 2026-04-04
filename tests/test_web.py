@@ -6,15 +6,15 @@ and basic endpoint functionality using FastAPI's TestClient.
 
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-
 # ──────────────────────────────────────────────
 # App Factory Tests
 # ──────────────────────────────────────────────
+
 
 class TestAppFactory:
     """Test FastAPI application creation and configuration."""
@@ -56,12 +56,14 @@ class TestAppFactory:
 # Dashboard Tests
 # ──────────────────────────────────────────────
 
+
 class TestDashboard:
     """Test dashboard page rendering."""
 
     @pytest.fixture
     def client(self):
         from src.web.app import create_app
+
         app = create_app()
         return TestClient(app)
 
@@ -92,12 +94,14 @@ class TestDashboard:
 # Jobs Page Tests
 # ──────────────────────────────────────────────
 
+
 class TestJobsPage:
     """Test job search page."""
 
     @pytest.fixture
     def client(self):
         from src.web.app import create_app
+
         app = create_app()
         return TestClient(app)
 
@@ -131,24 +135,63 @@ class TestJobsPage:
             ),
         ]
 
-        response = client.post("/jobs/search", data={
-            "source": "ats",
-            "keyword": "",
-            "location": "",
-            "profile": "default",
-            "time_filter": "week",
-            "ats": "",
-            "company": "",
-        })
+        response = client.post(
+            "/jobs/search",
+            data={
+                "source": "ats",
+                "keyword": "",
+                "location": "",
+                "profile": "default",
+                "time_filter": "week",
+                "ats": "",
+                "company": "",
+            },
+        )
         assert response.status_code == 200
         assert "1 jobs found" in response.text
         assert "TestCo" in response.text
         assert "SWE Intern" in response.text
 
+    @patch("src.cli.cmd_apply._run_application_for_job")
+    @patch("src.cli.cmd_apply._load_job_for_application")
+    @patch("src.cli.cmd_apply._load_profile")
+    @patch("src.cli.cmd_apply._detect_ats_from_url")
+    def test_jobs_apply_post(
+        self,
+        mock_detect_ats,
+        mock_load_profile,
+        mock_load_job,
+        mock_run_apply,
+        client,
+    ):
+        from src.core.state_machine import AppStatus
+        from src.intake.schema import RawJob
+
+        mock_detect_ats.return_value = "greenhouse"
+        mock_load_profile.return_value = {"identity": {"full_name": "Test User"}}
+        mock_load_job.return_value = RawJob(
+            source="greenhouse",
+            source_id="123",
+            company="TestCo",
+            title="SWE Intern",
+            ats_type="greenhouse",
+            application_url="https://boards.greenhouse.io/testco/jobs/123",
+        )
+        mock_run_apply.return_value = MagicMock(status=AppStatus.REVIEW_REQUIRED, error="")
+
+        response = client.post(
+            "/jobs/apply",
+            data={"url": "https://boards.greenhouse.io/testco/jobs/123"},
+        )
+
+        assert response.status_code == 200
+        assert "Filled to review stage" in response.text
+
 
 # ──────────────────────────────────────────────
 # Applications Page Tests
 # ──────────────────────────────────────────────
+
 
 class TestApplicationsPage:
     """Test applications tracking page."""
@@ -156,6 +199,7 @@ class TestApplicationsPage:
     @pytest.fixture
     def client(self):
         from src.web.app import create_app
+
         app = create_app()
         return TestClient(app)
 
@@ -167,16 +211,43 @@ class TestApplicationsPage:
     def test_applications_shows_empty_state(self, client):
         response = client.get("/applications/")
         # Either shows DB warning or empty state
-        assert "No applications" in response.text or "Database" in response.text or "autoapply init" in response.text
+        assert (
+            "No applications" in response.text
+            or "Database" in response.text
+            or "autoapply init" in response.text
+        )
 
     def test_applications_filter_params(self, client):
         response = client.get("/applications/?status=SUBMITTED&outcome=pending")
         assert response.status_code == 200
 
+    def test_update_outcome_route(self, client):
+        session = MagicMock()
+        session_cm = MagicMock()
+        session_cm.__enter__.return_value = session
+        session_cm.__exit__.return_value = None
+
+        with (
+            patch("src.core.config.load_config", return_value={}),
+            patch(
+                "src.core.database.get_session_factory",
+                return_value=MagicMock(return_value=session_cm),
+            ),
+            patch("src.tracker.database.update_outcome", return_value=MagicMock()),
+        ):
+            response = client.post(
+                "/applications/update-outcome",
+                data={"application_id": "00000000-0000-0000-0000-000000000001", "outcome": "offer"},
+            )
+
+        assert response.status_code == 200
+        assert "Updated to offer" in response.text
+
 
 # ──────────────────────────────────────────────
 # Profile Page Tests
 # ──────────────────────────────────────────────
+
 
 class TestProfilePage:
     """Test profile management page."""
@@ -184,6 +255,7 @@ class TestProfilePage:
     @pytest.fixture
     def client(self):
         from src.web.app import create_app
+
         app = create_app()
         return TestClient(app)
 
@@ -204,12 +276,14 @@ class TestProfilePage:
 # Navigation Tests
 # ──────────────────────────────────────────────
 
+
 class TestNavigation:
     """Test navigation links across pages."""
 
     @pytest.fixture
     def client(self):
         from src.web.app import create_app
+
         app = create_app()
         return TestClient(app)
 
@@ -230,11 +304,13 @@ class TestNavigation:
 # CLI Web Command Tests
 # ──────────────────────────────────────────────
 
+
 class TestWebCLI:
     """Test the web CLI command."""
 
     def test_web_help(self):
         from click.testing import CliRunner
+
         from src.cli.main import cli
 
         runner = CliRunner()
@@ -247,6 +323,7 @@ class TestWebCLI:
 
     def test_main_help_includes_web(self):
         from click.testing import CliRunner
+
         from src.cli.main import cli
 
         runner = CliRunner()

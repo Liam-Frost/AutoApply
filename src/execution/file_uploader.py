@@ -66,7 +66,9 @@ async def _upload_file(
 
     # Validate file extension
     if resolved.suffix.lower() not in ALLOWED_EXTENSIONS:
-        logger.error("File extension not allowed: %s (allowed: %s)", resolved.suffix, ALLOWED_EXTENSIONS)
+        logger.error(
+            "File extension not allowed: %s (allowed: %s)", resolved.suffix, ALLOWED_EXTENSIONS
+        )
         return False
 
     file_str = str(resolved)
