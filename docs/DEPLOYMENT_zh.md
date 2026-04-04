@@ -1,0 +1,376 @@
+# AutoApply 部署与使用教程
+
+这份文档基于当前仓库的真实实现编写，覆盖本地部署、初始化、CLI 使用、Web 面板和常见问题。
+
+## 1. 当前可部署能力
+
+当前项目已经支持：
+
+- Greenhouse / Lever ATS 抓取
+- LinkedIn 搜索与外部 ATS 链接发现
+- 按岗位生成定制简历与 Cover Letter
+- 从 `qa_bank` 加载问答模板
+- Greenhouse / Lever 表单自动填写
+- 申请记录追踪、统计分析、CSV 导出、Web 面板
+
+当前“直接投递”已实现的平台：
+
+- Greenhouse
+- Lever
+
+## 2. 部署前准备
+
+需要先安装：
+
+- Python `3.12+`
+- `uv`
+- PostgreSQL `16+`
+- PostgreSQL `pgvector` 扩展
+- Playwright 使用的 Chromium
+- 至少一种 PDF 转换方案：
+  - Microsoft Word + `docx2pdf`
+  - LibreOffice
+- Claude Code CLI 和/或 Codex CLI（如果你要启用基于 LLM 的解析与生成）
+
+## 3. 克隆与安装
+
+```bash
+git clone https://github.com/Liam-Frost/AutoApply.git
+cd AutoApply
+uv sync
+uv run playwright install chromium
+```
+
+安装完成后，CLI 一般可直接使用：
+
+```bash
+autoapply --help
+```
+
+如果当前 shell 没有把虚拟环境脚本目录加入 PATH，建议直接用：
+
+```bash
+uv run autoapply --help
+```
+
+## 4. 数据库准备
+
+先创建 PostgreSQL 用户和数据库。
+
+示例 SQL：
+
+```sql
+CREATE USER autoapply WITH PASSWORD 'change-me';
+CREATE DATABASE autoapply OWNER autoapply;
+\c autoapply
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+## 5. 环境变量配置
+
+复制示例配置：
+
+```bash
+cp config/.env.example .env
+```
+
+编辑 `.env`，至少填写数据库连接：
+
+```env
+AUTOAPPLY_DB_HOST=localhost
+AUTOAPPLY_DB_PORT=5432
+AUTOAPPLY_DB_NAME=autoapply
+AUTOAPPLY_DB_USER=autoapply
+AUTOAPPLY_DB_PASSWORD=change-me
+AUTOAPPLY_LOG_LEVEL=INFO
+```
+
+说明：
+
+- `config/settings.yaml` 提供默认值
+- `.env` 会覆盖默认值
+- 系统环境变量优先级最高
+
+## 6. 执行数据库迁移
+
+```bash
+uv run alembic upgrade head
+```
+
+也可以直接交给 `autoapply init` 去验证数据库并执行迁移。
+
+## 7. 首次初始化
+
+### 方式 A：交互式初始化
+
+```bash
+uv run autoapply init
+```
+
+### 方式 B：导入已有的结构化 profile
+
+```bash
+uv run autoapply init --profile data/profile/profile.yaml
+```
+
+### 方式 C：从现有简历生成 profile
+
+```bash
+uv run autoapply init --resume "/path/to/resume.pdf"
+```
+
+常用参数：
+
+```bash
+uv run autoapply init --skip-db
+uv run autoapply init --skip-llm
+```
+
+`init` 当前会执行：
+
+- 检查 `config/settings.yaml` 和 `.env`
+- 测试数据库连接
+- 执行 Alembic 迁移
+- 导入或创建 `data/profile/profile.yaml`
+- 检查 LLM CLI 是否可用
+
+## 8. 需要维护的核心文件
+
+通常需要编辑这些文件：
+
+- `data/profile/profile.yaml`
+- `config/settings.yaml`
+- `config/filters.yaml`
+- `config/companies.yaml`
+
+建议：
+
+- 在 `profile.yaml` 中填写身份信息、教育、经历、项目、技能、`story_bank`、`qa_bank`
+- 在 `companies.yaml` 中维护要抓取的 ATS 公司 slug
+- 在 `filters.yaml` 中维护筛选条件
+
+## 9. 搜索岗位
+
+### 搜索 ATS 岗位
+
+```bash
+uv run autoapply search --profile default --score
+```
+
+### 只查某个 ATS 或某家公司
+
+```bash
+uv run autoapply search --ats greenhouse --company stripe --score
+```
+
+### 搜索 LinkedIn
+
+```bash
+uv run autoapply search \
+  --source linkedin \
+  --keyword "software engineer intern" \
+  --location "United States" \
+  --time-filter week \
+  --max-pages 3
+```
+
+### 合并搜索
+
+```bash
+uv run autoapply search --source all --keyword "backend intern" --score
+```
+
+说明：
+
+- 第一次使用 LinkedIn 时，通常需要人工登录一次
+- LinkedIn 搜索结果会尽量提取外部 ATS 链接
+- 打分功能依赖可用的 `data/profile/profile.yaml`
+
+## 10. 投递岗位
+
+### 按 ATS URL 投递单个岗位
+
+```bash
+uv run autoapply apply --url https://boards.greenhouse.io/company/jobs/123
+```
+
+### 仅生成材料，不打开浏览器
+
+```bash
+uv run autoapply apply --url https://jobs.lever.co/company/abc123/apply --dry-run
+```
+
+### 按数据库中的岗位 ID 投递
+
+```bash
+uv run autoapply apply --job-id <uuid>
+```
+
+### 批量投递高分岗位
+
+```bash
+uv run autoapply apply --batch --top-n 5 --profile default
+```
+
+### 自动提交而不是停在人工复核
+
+```bash
+uv run autoapply apply --url <ats-url> --auto-submit
+```
+
+当前 `apply` 流程已经会：
+
+- 根据 URL 检测 ATS 类型
+- 尽量从数据库或 ATS API 获取真实岗位信息
+- 为当前岗位生成专属简历和 Cover Letter
+- 从 `qa_bank` 生成问答映射
+- 创建 Application tracking 记录
+- 用 Playwright 填表
+- 把截图和状态同步回 tracking
+
+## 11. Web 控制台
+
+启动 Web 面板：
+
+```bash
+uv run autoapply web --host 127.0.0.1 --port 8000
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8000
+```
+
+主要页面：
+
+- `/` 仪表盘
+- `/jobs` 搜索岗位并触发 apply
+- `/applications` 查看申请记录并更新 outcome
+- `/profile` 查看 profile 和上传简历
+
+## 12. Tracking 与导出
+
+查看命令行统计：
+
+```bash
+uv run autoapply status
+```
+
+导出 CSV：
+
+```bash
+uv run autoapply status --export-csv report.csv
+```
+
+筛选近期申请：
+
+```bash
+uv run autoapply status --company Stripe --status SUBMITTED --outcome interview
+```
+
+## 13. 推荐部署方式
+
+### 个人开发机 / 本地工作站
+
+- 使用 `uv run autoapply web --reload`
+- PostgreSQL 本地部署
+- Playwright 与 LibreOffice 安装在同一台机器上
+
+### 单台 Linux 服务器 / 虚拟机
+
+- 安装 Python、PostgreSQL、LibreOffice、Chromium
+- PostgreSQL 可本地部署，也可用托管数据库
+- Web 面板建议放在反向代理后面
+- CLI 可人工执行，也可配合调度器
+
+服务器启动示例：
+
+```bash
+uv run autoapply web --host 0.0.0.0 --port 8000 --no-open
+```
+
+## 14. 运行注意事项
+
+- 当前直接投递主要支持 Greenhouse 和 Lever
+- LinkedIn 主要用于搜索和发现外部 ATS 链接
+- PDF 转换依赖 Word/docx2pdf 或 LibreOffice
+- LLM CLI 不可用时，系统会尽量降级，但解析和生成质量会下降
+- 默认流程是人工复核后再提交，`--auto-submit` 是可选行为
+
+## 15. 常见问题
+
+### `autoapply` 命令找不到
+
+先尝试：
+
+```bash
+uv run autoapply --help
+```
+
+必要时重新执行：
+
+```bash
+uv sync
+```
+
+### 数据库连接失败
+
+检查：
+
+- PostgreSQL 是否已经启动
+- `.env` 中数据库配置是否正确
+- 数据库和用户是否已创建
+- `pgvector` 是否可创建
+
+### Web 启动失败
+
+执行：
+
+```bash
+uv sync
+uv run autoapply web
+```
+
+### 浏览器自动化失败
+
+先安装 Playwright 浏览器：
+
+```bash
+uv run playwright install chromium
+```
+
+然后尝试非 headless：
+
+```bash
+uv run autoapply apply --url <ats-url> --no-headless
+```
+
+### 没有生成 PDF
+
+需要安装下面任一方案：
+
+- Microsoft Word + `docx2pdf`
+- LibreOffice
+
+### LinkedIn 登录问题
+
+- 第一次建议使用 `--no-headless`
+- 手动完成登录后，会复用 `data/.linkedin_session`
+
+## 16. 部署完成后的检查清单
+
+```bash
+uv run ruff check .
+uv run pytest -q
+uv run autoapply --help
+uv run autoapply status
+uv run autoapply web --no-open
+```
+
+当前预期基线：
+
+- 测试通过
+- CLI 正常加载
+- Web 面板可启动
+- 初始化后 tracking 可正常工作

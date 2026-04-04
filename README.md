@@ -2,6 +2,14 @@
 
 An AI-powered agent that automates the entire job application process — from job discovery to submission tracking.
 
+## Docs
+
+- [Deployment Guide (EN)](docs/DEPLOYMENT.md)
+- [部署与使用教程（中文）](docs/DEPLOYMENT_zh.md)
+- [Implementation Plan (EN)](docs/plan_en.md)
+- [实施计划（中文）](docs/plan_zh.md)
+- [Changelog](docs/CHANGELOG.md)
+
 ## What It Does
 
 - **Job Intake**: Scrape and standardize job postings from Greenhouse, Lever, and LinkedIn-discovered external ATS links
@@ -90,7 +98,7 @@ autoapply status --export-csv report.csv
 
 ## Getting Started
 
-> Project is in active development. See [Implementation Plan (EN)](docs/plan_en.md) | [实施计划 (中文)](docs/plan_zh.md)
+> Start here: [Deployment Guide (EN)](docs/DEPLOYMENT.md) | [部署与使用教程（中文）](docs/DEPLOYMENT_zh.md)
 
 ### Prerequisites
 

@@ -89,23 +89,29 @@ class TestJobFilterEmploymentType:
 
 class TestJobFilterLocation:
     def test_vancouver_onsite(self):
-        f = JobFilter(locations=[
-            LocationRule(name="vancouver", work_modes=["remote", "hybrid", "onsite"]),
-        ])
+        f = JobFilter(
+            locations=[
+                LocationRule(name="vancouver", work_modes=["remote", "hybrid", "onsite"]),
+            ]
+        )
         job = _make_job(location="Vancouver, BC")
         assert f._passes(job)
 
     def test_us_remote_only_rejects_onsite(self):
-        f = JobFilter(locations=[
-            LocationRule(name="united states", work_modes=["remote"]),
-        ])
+        f = JobFilter(
+            locations=[
+                LocationRule(name="united states", work_modes=["remote"]),
+            ]
+        )
         job = _make_job(location="United States - New York")
         assert not f._passes(job)  # inferred onsite
 
     def test_us_remote_passes(self):
-        f = JobFilter(locations=[
-            LocationRule(name="united states", work_modes=["remote"]),
-        ])
+        f = JobFilter(
+            locations=[
+                LocationRule(name="united states", work_modes=["remote"]),
+            ]
+        )
         job = _make_job(location="United States - Remote")
         assert f._passes(job)
 
@@ -114,18 +120,22 @@ class TestJobFilterLocation:
         assert f._passes(_make_job(location="Anywhere"))
 
     def test_toronto_hybrid(self):
-        f = JobFilter(locations=[
-            LocationRule(name="toronto", work_modes=["hybrid"]),
-        ])
+        f = JobFilter(
+            locations=[
+                LocationRule(name="toronto", work_modes=["hybrid"]),
+            ]
+        )
         job = _make_job(location="Toronto, ON - Hybrid")
         assert f._passes(job)
 
 
 class TestJobFilterDescription:
     def test_exclude_canadian_pr(self):
-        f = JobFilter(description_exclude_patterns=[
-            re.compile(r"(?i)canadian\s+permanent\s+residen"),
-        ])
+        f = JobFilter(
+            description_exclude_patterns=[
+                re.compile(r"(?i)canadian\s+permanent\s+residen"),
+            ]
+        )
         job = _make_job(description="Must be a Canadian permanent resident.")
         assert not f._passes(job)
 

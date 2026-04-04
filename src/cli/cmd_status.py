@@ -10,8 +10,6 @@ from pathlib import Path
 
 import click
 
-from src.core.config import PROJECT_ROOT
-
 logger = logging.getLogger("autoapply.cli.status")
 
 
@@ -34,18 +32,18 @@ def status_cmd(
 
     try:
         config = load_config()
-        SessionFactory = get_session_factory(config)
+        session_factory = get_session_factory(config)
     except Exception as e:
         click.secho(f"Database connection failed: {e}", fg="red")
         click.echo("Run `autoapply init` first to set up the database.")
         raise SystemExit(1)
 
-    with SessionFactory() as session:
+    with session_factory() as session:
         # CSV export
         if export_csv:
             from src.tracker.export import export_applications_csv
 
-            csv_content = export_applications_csv(session, output_path=export_csv)
+            export_applications_csv(session, output_path=export_csv)
             click.secho(f"Exported to {export_csv}", fg="green")
             return
 
@@ -56,8 +54,8 @@ def status_cmd(
             compute_pipeline_stats,
             compute_platform_stats,
         )
-        from src.tracker.export import format_status_report
         from src.tracker.database import get_applications_with_jobs
+        from src.tracker.export import format_status_report
 
         pipeline = compute_pipeline_stats(session)
         outcomes = compute_outcome_stats(session)

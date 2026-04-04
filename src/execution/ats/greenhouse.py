@@ -78,7 +78,8 @@ class GreenhouseAdapter(BaseATSAdapter):
 
         if resume_path:
             success = await upload_resume(
-                page, resume_path,
+                page,
+                resume_path,
                 selector="input[type='file'][id*='resume'], input[type='file'][name*='resume']",
             )
             if success:
@@ -86,7 +87,8 @@ class GreenhouseAdapter(BaseATSAdapter):
 
         if cover_letter_path:
             success = await upload_cover_letter(
-                page, cover_letter_path,
+                page,
+                cover_letter_path,
                 selector="input[type='file'][id*='cover'], input[type='file'][name*='cover']",
             )
             if success:

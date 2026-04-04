@@ -5,12 +5,11 @@ All ATS scrapers normalize their output to this schema before storage.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
-
+from pydantic import BaseModel, Field, field_validator
 
 EmploymentType = Literal["internship", "fulltime", "parttime", "contract", "coop", "unknown"]
 SeniorityLevel = Literal["internship", "entry", "mid", "senior", "staff", "unknown"]
@@ -22,11 +21,11 @@ class JobRequirements(BaseModel):
 
     must_have_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
-    education_level: str | None = None          # e.g. "Bachelor's", "Master's"
+    education_level: str | None = None  # e.g. "Bachelor's", "Master's"
     experience_years_min: int | None = None
     experience_years_max: int | None = None
     visa_sponsorship: bool | None = None
-    us_work_auth_required: bool | None = None   # True = requires US citizen/GC
+    us_work_auth_required: bool | None = None  # True = requires US citizen/GC
     relocation_provided: bool | None = None
     remote_ok: bool | None = None
 
@@ -36,7 +35,7 @@ class RawJob(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     source: ATSType
-    source_id: str                              # ATS-native job ID
+    source_id: str  # ATS-native job ID
     company: str
     title: str
     location: str | None = None
@@ -47,7 +46,7 @@ class RawJob(BaseModel):
     application_url: str | None = None
     ats_type: ATSType = "unknown"
     raw_data: dict = Field(default_factory=dict)
-    discovered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    discovered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None
 
     @field_validator("company", "title", mode="before")

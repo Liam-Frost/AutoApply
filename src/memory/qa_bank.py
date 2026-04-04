@@ -82,7 +82,9 @@ def find_answer(
     multiple QA entries with the same question_type (P2 fix).
     """
     query = session.query(QABank)
-    candidates = query.filter(QABank.question_type == question_type).all() if question_type else query.all()
+    candidates = (
+        query.filter(QABank.question_type == question_type).all() if question_type else query.all()
+    )
 
     if not candidates:
         return None

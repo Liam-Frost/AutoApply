@@ -15,7 +15,8 @@ from src.utils.llm import claude_generate
 
 logger = logging.getLogger("autoapply.memory.resume_importer")
 
-EXTRACTION_SYSTEM_PROMPT = """You are a resume parser. Extract structured data from the resume text provided.
+EXTRACTION_SYSTEM_PROMPT = """You are a resume parser.
+Extract structured data from the resume text provided.
 Return ONLY valid YAML (no markdown fences, no explanations) matching this exact schema:
 
 identity:
@@ -67,7 +68,8 @@ skills:
 
 Rules:
 - Preserve original bullet text exactly — do not rephrase or embellish
-- Tags should be lowercase single words or short phrases (e.g., "python", "distributed_systems", "api_design")
+- Tags should be lowercase single words or short phrases
+  (e.g., "python", "distributed_systems", "api_design")
 - Dates in YYYY-MM format. Use "Present" for current positions
 - If information is not in the resume, omit that field entirely
 - For skills, categorize into the groups shown. If unsure of category, put in "tools"
@@ -107,7 +109,9 @@ def extract_text_from_pdf(path: Path) -> str:
             text_parts.append(page.get_text())
         return "\n".join(text_parts)
     except ImportError:
-        raise ImportError("PyMuPDF (fitz) is required for PDF parsing. Install with: uv add pymupdf")
+        raise ImportError(
+            "PyMuPDF (fitz) is required for PDF parsing. Install with: uv add pymupdf"
+        )
 
 
 def import_resume(resume_path: Path, output_path: Path | None = None) -> dict:
@@ -142,7 +146,7 @@ def import_resume(resume_path: Path, output_path: Path | None = None) -> dict:
     if cleaned.startswith("```"):
         lines = cleaned.split("\n")
         # Remove first and last fence lines
-        lines = [l for l in lines if not l.strip().startswith("```")]
+        lines = [line for line in lines if not line.strip().startswith("```")]
         cleaned = "\n".join(lines)
 
     # Parse YAML
@@ -160,7 +164,9 @@ def import_resume(resume_path: Path, output_path: Path | None = None) -> dict:
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            yaml.dump(profile_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            yaml.dump(
+                profile_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False
+            )
         logger.info("Saved structured profile to %s", output_path)
 
     return profile_data

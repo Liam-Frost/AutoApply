@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.core.models import Application, Job
-from src.core.state_machine import AppStatus, ApplicationState
+from src.core.state_machine import ApplicationState, AppStatus
 
 logger = logging.getLogger("autoapply.tracker.database")
 
@@ -68,7 +68,7 @@ def sync_state_to_db(
         app.screenshot_paths = result.get("screenshot_paths", app.screenshot_paths)
 
     if state.status == AppStatus.SUBMITTED and app.submitted_at is None:
-        app.submitted_at = datetime.now(timezone.utc)
+        app.submitted_at = datetime.now(UTC)
 
     session.flush()
     logger.info("Synced application %s -> %s", app_id, state.status)
@@ -96,7 +96,7 @@ def update_outcome(
         raise ValueError(f"Application {app_id} not found")
 
     app.outcome = outcome
-    app.outcome_updated_at = datetime.now(timezone.utc)
+    app.outcome_updated_at = datetime.now(UTC)
     session.flush()
     logger.info("Updated application %s outcome -> %s", app_id, outcome)
     return app
@@ -126,9 +126,7 @@ def get_applications(
     if outcome:
         stmt = stmt.where(Application.outcome == outcome)
     if company:
-        stmt = stmt.join(Job, Application.job_id == Job.id).where(
-            Job.company.ilike(f"%{company}%")
-        )
+        stmt = stmt.join(Job, Application.job_id == Job.id).where(Job.company.ilike(f"%{company}%"))
 
     stmt = stmt.limit(limit).offset(offset)
     return list(session.execute(stmt).scalars().all())
@@ -181,10 +179,7 @@ def get_applications_with_jobs(
 
 def get_application_counts(session: Session) -> dict[str, int]:
     """Get counts of applications by status."""
-    stmt = (
-        select(Application.status, func.count())
-        .group_by(Application.status)
-    )
+    stmt = select(Application.status, func.count()).group_by(Application.status)
     rows = session.execute(stmt).all()
     return {status: count for status, count in rows}
 

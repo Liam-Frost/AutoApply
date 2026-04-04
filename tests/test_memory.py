@@ -5,9 +5,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.core.config import get_db_url, load_config
-from src.core.database import Base
 from src.core.models import ApplicantProfile, BulletPool, QABank
-from src.memory.bullet_pool import get_all_bullets, ingest_bullets_from_profile, query_bullets_by_tags
+from src.memory.bullet_pool import (
+    get_all_bullets,
+    ingest_bullets_from_profile,
+    query_bullets_by_tags,
+)
 from src.memory.profile import get_full_profile, get_profile_section, ingest_profile
 from src.memory.qa_bank import find_answer, get_answer_text, ingest_qa_from_profile
 from src.memory.story_bank import get_stories, ingest_stories

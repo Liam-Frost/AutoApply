@@ -23,7 +23,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from src.intake.base import ScraperError
-from src.intake.filters import JobFilter, load_filter_profiles
+from src.intake.filters import JobFilter
 from src.intake.greenhouse import GreenhouseScraper
 from src.intake.jd_parser import parse_requirements
 from src.intake.lever import LeverScraper
@@ -100,7 +100,11 @@ def run_intake(
 
                     logger.info(
                         "[%s/%s] +%d new, %d skipped, %d filtered out",
-                        ats, slug, inserted, skipped, filtered_out,
+                        ats,
+                        slug,
+                        inserted,
+                        skipped,
+                        filtered_out,
                     )
 
                 except ScraperError as e:

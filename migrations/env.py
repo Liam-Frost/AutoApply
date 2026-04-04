@@ -17,7 +17,7 @@ from src.core.config import get_db_url, load_config
 from src.core.database import Base
 
 # Import all models so Base.metadata is populated
-from src.core.models import Application, ApplicantProfile, BulletPool, Job, QABank  # noqa: F401
+from src.core.models import ApplicantProfile, Application, BulletPool, Job, QABank  # noqa: F401
 
 config = context.config
 

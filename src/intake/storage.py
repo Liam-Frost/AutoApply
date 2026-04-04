@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -103,7 +103,5 @@ def get_recent_jobs(
 
 def mark_expired(session: Session, job_id: str) -> None:
     """Mark a job as expired (no longer accepting applications)."""
-    session.query(Job).filter(Job.id == job_id).update(
-        {"expires_at": datetime.now(timezone.utc)}
-    )
+    session.query(Job).filter(Job.id == job_id).update({"expires_at": datetime.now(UTC)})
     session.commit()

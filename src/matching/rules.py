@@ -31,13 +31,13 @@ class ApplicantContext:
     Loaded from the profile YAML / DB, not the full profile.
     """
 
-    location: str = ""                      # e.g. "Vancouver, BC, Canada"
-    citizenship: str = ""                   # e.g. "Chinese"
-    work_authorization: str = ""            # e.g. "Study Permit", "US Citizen"
+    location: str = ""  # e.g. "Vancouver, BC, Canada"
+    citizenship: str = ""  # e.g. "Chinese"
+    work_authorization: str = ""  # e.g. "Study Permit", "US Citizen"
     visa_sponsorship_needed: bool = True
     willing_to_relocate: bool = True
-    years_of_experience: int = 0            # total relevant years
-    education_level: str = ""               # highest: "PhD", "Master's", "Bachelor's"
+    years_of_experience: int = 0  # total relevant years
+    education_level: str = ""  # highest: "PhD", "Master's", "Bachelor's"
     preferred_employment_types: list[str] = field(
         default_factory=lambda: ["internship", "coop"],
     )
@@ -99,7 +99,9 @@ def check_rules(job: RawJob, ctx: ApplicantContext) -> RuleVerdict:
     if not verdict.passed:
         logger.debug(
             "Job '%s' at %s failed rules: %s",
-            job.title, job.company, fail_reasons,
+            job.title,
+            job.company,
+            fail_reasons,
         )
 
     return verdict
@@ -118,8 +120,14 @@ def _check_work_authorization(job: RawJob, ctx: ApplicantContext) -> RuleResult:
         )
 
     # If job requires US work auth and applicant doesn't have it
-    _US_AUTH_TERMS = {"us citizen", "green card", "us permanent resident", "permanent resident", "ead"}
-    if reqs.us_work_auth_required and ctx.work_authorization.lower() not in _US_AUTH_TERMS:
+    us_auth_terms = {
+        "us citizen",
+        "green card",
+        "us permanent resident",
+        "permanent resident",
+        "ead",
+    }
+    if reqs.us_work_auth_required and ctx.work_authorization.lower() not in us_auth_terms:
         return RuleResult(
             rule_name="work_authorization",
             passed=False,
@@ -177,7 +185,9 @@ def _check_employment_type(job: RawJob, ctx: ApplicantContext) -> RuleResult:
         return RuleResult(
             rule_name="employment_type",
             passed=False,
-            reason=f"Job is {job.employment_type}; applicant prefers {ctx.preferred_employment_types}",
+            reason=(
+                f"Job is {job.employment_type}; applicant prefers {ctx.preferred_employment_types}"
+            ),
         )
 
     return RuleResult(rule_name="employment_type", passed=True, reason="OK")

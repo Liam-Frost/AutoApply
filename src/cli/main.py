@@ -12,11 +12,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import click
-
-from src.core.config import PROJECT_ROOT
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -40,9 +37,9 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 
 
 # Import and register sub-commands
+from src.cli.cmd_apply import apply_cmd  # noqa: E402
 from src.cli.cmd_init import init_cmd  # noqa: E402
 from src.cli.cmd_search import search_cmd  # noqa: E402
-from src.cli.cmd_apply import apply_cmd  # noqa: E402
 from src.cli.cmd_status import status_cmd  # noqa: E402
 from src.cli.cmd_web import web_cmd  # noqa: E402
 

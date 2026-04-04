@@ -14,18 +14,19 @@ Key flow:
 
 Usage:
     async with LinkedInScraper() as scraper:
-        jobs = await scraper.search_jobs(keywords="software engineer intern", location="United States")
+        jobs = await scraper.search_jobs(
+            keywords="software engineer intern",
+            location="United States",
+        )
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
-import time
 from pathlib import Path
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import urlencode
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -74,10 +75,16 @@ JOB_TYPE_MAP = {
 SELECTORS = {
     "job_card": "div.job-card-container, li.jobs-search-results__list-item",
     "job_title": "a.job-card-list__title, a.job-card-container__link",
-    "job_company": "span.job-card-container__primary-description, span.job-card-container__company-name",
-    "job_location": "li.job-card-container__metadata-item, span.job-card-container__metadata-wrapper",
+    "job_company": (
+        "span.job-card-container__primary-description, span.job-card-container__company-name"
+    ),
+    "job_location": (
+        "li.job-card-container__metadata-item, span.job-card-container__metadata-wrapper"
+    ),
     "job_link": "a.job-card-list__title, a.job-card-container__link",
-    "pagination_next": "button[aria-label='View next page'], li.artdeco-pagination__indicator--number button",
+    "pagination_next": (
+        "button[aria-label='View next page'], li.artdeco-pagination__indicator--number button"
+    ),
     "login_form": "form.login__form, #username",
     "feed_indicator": "div.feed-identity-module, nav.global-nav",
     "job_detail_panel": "div.jobs-search__job-details, div.job-details",
@@ -315,7 +322,9 @@ class LinkedInScraper:
 
                 logger.info(
                     "Page %d: extracted %d jobs (%d new)",
-                    page_num + 1, len(jobs), new_jobs,
+                    page_num + 1,
+                    len(jobs),
+                    new_jobs,
                 )
 
                 # Stop if no new results (end of listings)
@@ -361,7 +370,9 @@ class LinkedInScraper:
                 job.ats_type = _detect_ats_type(ats_url)
                 logger.info(
                     "Detected external ATS for %s: %s -> %s",
-                    job.title, job.raw_data["linkedin_url"], ats_url,
+                    job.title,
+                    job.raw_data["linkedin_url"],
+                    ats_url,
                 )
 
         except Exception as e:
@@ -381,7 +392,10 @@ class LinkedInScraper:
         for i, job in enumerate(jobs[:max_detail_fetches]):
             logger.info(
                 "Enriching job %d/%d: %s at %s",
-                i + 1, min(len(jobs), max_detail_fetches), job.title, job.company,
+                i + 1,
+                min(len(jobs), max_detail_fetches),
+                job.title,
+                job.company,
             )
             enriched_job = await self.get_job_detail(page, job)
             enriched.append(enriched_job)
@@ -561,6 +575,7 @@ class LinkedInScraper:
     async def _random_delay(self) -> None:
         """Random delay to mimic human browsing behavior."""
         import random
+
         delay = random.uniform(self.min_delay, self.max_delay)
         await asyncio.sleep(delay)
 

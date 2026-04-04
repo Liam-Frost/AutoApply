@@ -77,7 +77,8 @@ class LeverAdapter(BaseATSAdapter):
         if resume_path:
             # Lever resume upload: often a file input within a drop zone
             success = await upload_resume(
-                page, resume_path,
+                page,
+                resume_path,
                 selector=".resume-upload input[type='file'], input[type='file'][name*='resume']",
             )
             if success:
@@ -85,7 +86,8 @@ class LeverAdapter(BaseATSAdapter):
 
         if cover_letter_path:
             success = await upload_cover_letter(
-                page, cover_letter_path,
+                page,
+                cover_letter_path,
             )
             if success:
                 uploaded.append(cover_letter_path.name)

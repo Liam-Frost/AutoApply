@@ -54,7 +54,10 @@ class JobFilter:
             if self._passes(job):
                 matched.append(job)
         logger.info(
-            "Filter '%s': %d/%d jobs passed", self.name, len(matched), len(jobs),
+            "Filter '%s': %d/%d jobs passed",
+            self.name,
+            len(matched),
+            len(jobs),
         )
         return matched
 
@@ -203,10 +206,12 @@ def _parse_profile(name: str, cfg: dict) -> JobFilter:
         if isinstance(loc, str):
             locations.append(LocationRule(name=loc))
         elif isinstance(loc, dict):
-            locations.append(LocationRule(
-                name=loc["name"],
-                work_modes=loc.get("work_modes", ["remote", "hybrid", "onsite"]),
-            ))
+            locations.append(
+                LocationRule(
+                    name=loc["name"],
+                    work_modes=loc.get("work_modes", ["remote", "hybrid", "onsite"]),
+                )
+            )
 
     title_cfg = cfg.get("title_keywords", {})
     desc_patterns = []

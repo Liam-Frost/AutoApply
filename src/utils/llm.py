@@ -53,7 +53,9 @@ def claude_generate(
     except subprocess.TimeoutExpired:
         raise LLMError(f"Claude CLI timed out after {timeout}s")
     except FileNotFoundError:
-        raise LLMError("Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code")
+        raise LLMError(
+            "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+        )
 
     if result.returncode != 0:
         raise LLMError(f"Claude CLI error (code {result.returncode}): {result.stderr.strip()}")

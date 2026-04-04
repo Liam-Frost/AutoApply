@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -32,7 +32,7 @@ def make_filename(
     Example: resume_stripe_backend_engineer_2026-04-02.docx
     """
     if date is None:
-        date = datetime.now(timezone.utc)
+        date = datetime.now(UTC)
 
     def slugify(s: str) -> str:
         s = s.lower().strip()
@@ -54,7 +54,7 @@ def get_output_paths(
     Returns dict with keys: resume_docx, resume_pdf, cover_docx, cover_pdf
     """
     if date is None:
-        date = datetime.now(timezone.utc)
+        date = datetime.now(UTC)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

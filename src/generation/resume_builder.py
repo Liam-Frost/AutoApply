@@ -64,7 +64,8 @@ def generate_resume(
     # Select bullets if not provided
     if selected_bullets is None:
         selected_bullets = select_bullets_for_jd(
-            jd_tags, profile_data,
+            jd_tags,
+            profile_data,
         )
 
     # Optional light rewrite
@@ -103,7 +104,9 @@ def generate_resume(
 
     logger.info(
         "Generated resume for %s at %s: %s",
-        job.title, job.company, list(result.keys()),
+        job.title,
+        job.company,
+        list(result.keys()),
     )
     return result
 
@@ -123,13 +126,46 @@ def extract_jd_tags(job: RawJob) -> list[str]:
     # From title — extract meaningful words
     title_words = job.title.lower().split()
     tech_keywords = {
-        "python", "java", "javascript", "typescript", "go", "rust", "c++",
-        "react", "vue", "angular", "node", "django", "flask", "fastapi",
-        "spring", "kubernetes", "docker", "aws", "gcp", "azure",
-        "sql", "postgresql", "mongodb", "redis", "graphql",
-        "ml", "ai", "machine learning", "deep learning", "nlp",
-        "backend", "frontend", "fullstack", "devops", "sre",
-        "data", "analytics", "infrastructure", "platform", "security",
+        "python",
+        "java",
+        "javascript",
+        "typescript",
+        "go",
+        "rust",
+        "c++",
+        "react",
+        "vue",
+        "angular",
+        "node",
+        "django",
+        "flask",
+        "fastapi",
+        "spring",
+        "kubernetes",
+        "docker",
+        "aws",
+        "gcp",
+        "azure",
+        "sql",
+        "postgresql",
+        "mongodb",
+        "redis",
+        "graphql",
+        "ml",
+        "ai",
+        "machine learning",
+        "deep learning",
+        "nlp",
+        "backend",
+        "frontend",
+        "fullstack",
+        "devops",
+        "sre",
+        "data",
+        "analytics",
+        "infrastructure",
+        "platform",
+        "security",
     }
     for word in title_words:
         if word in tech_keywords:
@@ -219,7 +255,7 @@ def rewrite_bullets(
     - Inject relevant keywords where natural
     - Preserve quantified results exactly
     """
-    from src.utils.llm import LLMError, claude_generate
+    from src.utils.llm import LLMError
 
     keywords_str = ", ".join(jd_tags[:15])
 

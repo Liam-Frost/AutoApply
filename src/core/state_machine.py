@@ -14,7 +14,7 @@ States:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -57,7 +57,7 @@ _ERROR_TARGETS = {AppStatus.FAILED, AppStatus.NEEDS_RETRY}
 _TERMINAL = {AppStatus.SUBMITTED, AppStatus.FAILED}
 
 
-class InvalidTransition(Exception):
+class InvalidTransitionError(Exception):
     """Raised when attempting an invalid state transition."""
 
 
@@ -86,12 +86,11 @@ class ApplicationState:
             **meta: Arbitrary metadata to attach (e.g., error message, screenshot path).
 
         Raises:
-            InvalidTransition: If the transition is not allowed.
+            InvalidTransitionError: If the transition is not allowed.
         """
         if not self.can_transition(target):
-            raise InvalidTransition(
-                f"Cannot transition from {self.status} to {target} "
-                f"(job_id={self.job_id})"
+            raise InvalidTransitionError(
+                f"Cannot transition from {self.status} to {target} (job_id={self.job_id})"
             )
 
         old = self.status
@@ -101,7 +100,9 @@ class ApplicationState:
 
         logger.info(
             "[%s] %s → %s%s",
-            self.job_id[:8], old, target,
+            self.job_id[:8],
+            old,
+            target,
             f" ({meta})" if meta else "",
         )
 
@@ -140,13 +141,15 @@ class ApplicationState:
         to_status: AppStatus,
         meta: dict | None = None,
     ) -> None:
-        self.history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event": event_type,
-            "from": str(from_status) if from_status else None,
-            "to": str(to_status),
-            "meta": meta or {},
-        })
+        self.history.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "event": event_type,
+                "from": str(from_status) if from_status else None,
+                "to": str(to_status),
+                "meta": meta or {},
+            }
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize state for DB persistence."""

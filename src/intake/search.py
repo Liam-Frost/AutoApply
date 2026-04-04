@@ -15,15 +15,14 @@ Usage (programmatic):
 
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import logging
-import sys
 from pathlib import Path
 
-from src.intake.batch import load_company_list, enrich_requirements
 from src.intake.base import ScraperError
-from src.intake.filters import JobFilter, load_filter_profiles
+from src.intake.batch import enrich_requirements, load_company_list
+from src.intake.filters import load_filter_profiles
 from src.intake.greenhouse import GreenhouseScraper
 from src.intake.lever import LeverScraper
 from src.intake.schema import RawJob
@@ -182,9 +181,9 @@ def _print_results(jobs: list[RawJob]) -> None:
         print("No matching jobs found.")
         return
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f" Found {len(jobs)} matching jobs")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     for i, job in enumerate(jobs, 1):
         print(f"  [{i:3d}] {job.company} — {job.title}")
