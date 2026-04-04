@@ -1,21 +1,112 @@
 """LLM CLI wrapper.
 
-Invokes Claude Code CLI and Codex CLI via subprocess for text generation.
-No API SDK dependency — CLI handles its own authentication.
+Invokes Claude Code CLI and Codex CLI via subprocess.
+The high-level helpers honor configured provider priority and can fall back
+between CLIs when one fails or is unavailable.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 from typing import Any
 
+from src.core.config import load_config
+
 logger = logging.getLogger("autoapply.llm")
+
+SUPPORTED_PROVIDERS = ("claude-cli", "codex-cli")
 
 
 class LLMError(Exception):
     """Raised when an LLM CLI call fails."""
+
+
+def detect_available_providers() -> dict[str, bool]:
+    """Detect which supported LLM CLIs are available in PATH."""
+    return {
+        "claude-cli": shutil.which("claude") is not None,
+        "codex-cli": shutil.which("codex") is not None,
+    }
+
+
+def get_llm_settings(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return normalized LLM settings with backward-compatible defaults."""
+    if config is None:
+        config = load_config()
+
+    llm = config.get("llm", {})
+    primary = llm.get("primary_provider") or llm.get("provider") or "claude-cli"
+    fallback = llm.get("fallback_provider")
+    allow_fallback = bool(llm.get("allow_fallback", fallback is not None))
+    timeout = int(llm.get("timeout", 120))
+
+    primary = _normalize_provider(primary, role="primary")
+    if fallback in ("", "none"):
+        fallback = None
+    if fallback is not None:
+        fallback = _normalize_provider(fallback, role="fallback")
+    if fallback == primary:
+        fallback = None
+
+    return {
+        "primary_provider": primary,
+        "fallback_provider": fallback,
+        "allow_fallback": allow_fallback,
+        "timeout": timeout,
+    }
+
+
+def generate_text(
+    prompt: str,
+    *,
+    system: str = "",
+    timeout: int | None = None,
+    output_format: str = "text",
+    config: dict[str, Any] | None = None,
+) -> str:
+    """Generate text using the configured provider order with optional fallback."""
+    settings = get_llm_settings(config)
+    timeout = timeout or settings["timeout"]
+    providers = [settings["primary_provider"]]
+    if settings["allow_fallback"] and settings["fallback_provider"]:
+        providers.append(settings["fallback_provider"])
+
+    errors: list[str] = []
+    for provider in providers:
+        try:
+            return _call_provider(
+                provider,
+                prompt,
+                system=system,
+                timeout=timeout,
+                output_format=output_format,
+            )
+        except LLMError as exc:
+            logger.warning("LLM provider %s failed: %s", provider, exc)
+            errors.append(f"{provider}: {exc}")
+
+    raise LLMError("All configured LLM providers failed. " + " | ".join(errors))
+
+
+def generate_json(
+    prompt: str,
+    *,
+    system: str = "",
+    timeout: int | None = None,
+    config: dict[str, Any] | None = None,
+) -> Any:
+    """Generate JSON-like output using the configured provider order."""
+    raw = generate_text(
+        prompt,
+        system=system,
+        timeout=timeout,
+        output_format="json",
+        config=config,
+    )
+    return _parse_json_response(raw)
 
 
 def claude_generate(
@@ -25,17 +116,7 @@ def claude_generate(
     timeout: int = 120,
     output_format: str = "text",
 ) -> str:
-    """Call Claude Code CLI for text generation.
-
-    Args:
-        prompt: The user prompt to send.
-        system: Optional system prompt.
-        timeout: Max seconds to wait for response.
-        output_format: "text" or "json".
-
-    Returns:
-        The generated text response.
-    """
+    """Call Claude Code CLI directly for text generation."""
     cmd = ["claude", "-p", prompt, "--output-format", output_format]
     if system:
         cmd.extend(["--system", system])
@@ -66,41 +147,28 @@ def claude_generate(
 
 
 def claude_generate_json(prompt: str, *, system: str = "", timeout: int = 120) -> Any:
-    """Call Claude CLI and parse the response as JSON."""
+    """Call Claude CLI directly and parse the response as JSON."""
     raw = claude_generate(prompt, system=system, timeout=timeout, output_format="json")
-    try:
-        parsed = json.loads(raw)
-        # claude --output-format json wraps in {"result": "..."}
-        if isinstance(parsed, dict) and "result" in parsed:
-            inner = parsed["result"]
-            # Try to parse inner as JSON too (for structured output)
-            try:
-                return json.loads(inner)
-            except (json.JSONDecodeError, TypeError):
-                return inner
-        return parsed
-    except json.JSONDecodeError:
-        # Fall back to raw text if not valid JSON
-        return raw
+    return _parse_json_response(raw)
 
 
 def codex_generate(
     prompt: str,
     *,
+    system: str = "",
     timeout: int = 120,
+    output_format: str = "text",
 ) -> str:
-    """Call Codex CLI for text generation.
+    """Call Codex CLI directly for text generation."""
+    full_prompt = prompt
+    if system:
+        full_prompt = f"System instructions:\n{system}\n\nUser request:\n{prompt}"
+    if output_format == "json":
+        full_prompt = f"{full_prompt}\n\nReturn only valid JSON with no markdown fences."
 
-    Args:
-        prompt: The prompt to send.
-        timeout: Max seconds to wait.
+    cmd = ["codex", "exec", "--full-auto", full_prompt]
 
-    Returns:
-        The generated text response.
-    """
-    cmd = ["codex", "exec", "--full-auto", prompt]
-
-    logger.debug("Codex CLI call: prompt=%d chars", len(prompt))
+    logger.debug("Codex CLI call: prompt=%d chars, system=%d chars", len(prompt), len(system))
 
     try:
         result = subprocess.run(
@@ -121,3 +189,49 @@ def codex_generate(
     response = result.stdout.strip()
     logger.debug("Codex CLI response: %d chars", len(response))
     return response
+
+
+def _call_provider(
+    provider: str,
+    prompt: str,
+    *,
+    system: str,
+    timeout: int,
+    output_format: str,
+) -> str:
+    """Dispatch to the selected provider."""
+    if provider == "claude-cli":
+        return claude_generate(prompt, system=system, timeout=timeout, output_format=output_format)
+    if provider == "codex-cli":
+        return codex_generate(prompt, system=system, timeout=timeout, output_format=output_format)
+    raise LLMError(f"Unsupported LLM provider: {provider}")
+
+
+def _normalize_provider(provider: str, *, role: str) -> str:
+    """Validate a provider string."""
+    if provider not in SUPPORTED_PROVIDERS:
+        supported = ", ".join(SUPPORTED_PROVIDERS)
+        raise ValueError(f"Invalid {role} LLM provider '{provider}'. Expected one of: {supported}")
+    return provider
+
+
+def _parse_json_response(raw: str) -> Any:
+    """Parse JSON output and tolerate fenced responses."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = [line for line in cleaned.split("\n") if not line.strip().startswith("```")]
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return raw
+
+    if isinstance(parsed, dict) and "result" in parsed:
+        inner = parsed["result"]
+        if isinstance(inner, str):
+            try:
+                return json.loads(inner)
+            except (json.JSONDecodeError, TypeError):
+                return inner
+    return parsed

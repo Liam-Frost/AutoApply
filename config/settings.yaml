@@ -8,7 +8,10 @@ database:
   password: ""  # Override via .env (AUTOAPPLY_DB_PASSWORD)
 
 llm:
-  provider: claude-cli  # claude-cli | codex-cli
+  provider: claude-cli  # legacy alias for primary_provider
+  primary_provider: claude-cli  # claude-cli | codex-cli
+  fallback_provider: codex-cli  # claude-cli | codex-cli | null
+  allow_fallback: true
   timeout: 120  # seconds per CLI call
   max_retries: 2
 

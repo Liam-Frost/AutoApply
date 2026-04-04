@@ -45,6 +45,41 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
     return config
 
 
+def load_raw_config(config_path: Path | None = None) -> dict[str, Any]:
+    """Load config YAML without env overrides or path resolution."""
+    if config_path is None:
+        config_path = PROJECT_ROOT / "config" / "settings.yaml"
+
+    with open(config_path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def save_config(config: dict[str, Any], config_path: Path | None = None) -> None:
+    """Persist config YAML to disk."""
+    if config_path is None:
+        config_path = PROJECT_ROOT / "config" / "settings.yaml"
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=False)
+
+
+def update_llm_settings(
+    primary_provider: str,
+    fallback_provider: str | None,
+    allow_fallback: bool,
+    config_path: Path | None = None,
+) -> dict[str, Any]:
+    """Update the persisted LLM provider settings in config/settings.yaml."""
+    config = load_raw_config(config_path)
+    llm = config.setdefault("llm", {})
+    llm["provider"] = primary_provider
+    llm["primary_provider"] = primary_provider
+    llm["fallback_provider"] = fallback_provider
+    llm["allow_fallback"] = allow_fallback
+    save_config(config, config_path)
+    return config
+
+
 def _apply_env_overrides(config: dict[str, Any]) -> None:
     """Override config values from environment variables."""
     env_map = {

@@ -18,7 +18,7 @@ from typing import Any
 
 from src.documents.file_manager import get_output_paths
 from src.intake.schema import RawJob
-from src.utils.llm import LLMError, claude_generate
+from src.utils.llm import LLMError, generate_text
 
 logger = logging.getLogger("autoapply.generation.cover_letter")
 
@@ -141,7 +141,7 @@ Skills:
 
 Generate the cover letter body following the structure in the system prompt."""
 
-    raw = claude_generate(prompt, system=_CL_SYSTEM, timeout=90)
+    raw = generate_text(prompt, system=_CL_SYSTEM, timeout=90)
     return raw.strip()
 
 

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import click
 
-from src.core.config import PROJECT_ROOT, get_db_url, load_config
+from src.core.config import PROJECT_ROOT, get_db_url, load_config, update_llm_settings
 
 logger = logging.getLogger("autoapply.cli.init")
 
@@ -40,11 +40,29 @@ PROFILE_FILE = PROFILE_DIR / "profile.yaml"
 )
 @click.option("--skip-db", is_flag=True, help="Skip database setup.")
 @click.option("--skip-llm", is_flag=True, help="Skip LLM availability check.")
+@click.option(
+    "--llm-primary",
+    type=click.Choice(["claude-cli", "codex-cli"]),
+    help="Preferred LLM CLI to use first.",
+)
+@click.option(
+    "--llm-fallback",
+    type=click.Choice(["claude-cli", "codex-cli"]),
+    help="Fallback LLM CLI to try if the primary one fails.",
+)
+@click.option(
+    "--disable-llm-fallback",
+    is_flag=True,
+    help="Disable automatic fallback to the secondary LLM CLI.",
+)
 def init_cmd(
     profile: Path | None,
     resume: Path | None,
     skip_db: bool,
     skip_llm: bool,
+    llm_primary: str | None,
+    llm_fallback: str | None,
+    disable_llm_fallback: bool,
 ) -> None:
     """Initialize AutoApply: database, profile, and configuration."""
     click.echo()
@@ -97,7 +115,8 @@ def init_cmd(
         checks_passed += 1
     else:
         click.secho("  [4/4] Checking LLM CLI availability...", fg="yellow")
-        llm_ok = _check_llm()
+        _configure_llm_settings(config, llm_primary, llm_fallback, disable_llm_fallback)
+        llm_ok = _check_llm(config)
         if llm_ok:
             checks_passed += 1
 
@@ -363,23 +382,64 @@ def _create_template_profile() -> bool:
         return False
 
 
-def _check_llm() -> bool:
+def _configure_llm_settings(
+    config: dict | None,
+    primary: str | None,
+    fallback: str | None,
+    disable_fallback: bool,
+) -> None:
+    """Persist explicit LLM provider choices from the setup command."""
+    if config is None or (primary is None and fallback is None and not disable_fallback):
+        return
+
+    llm_cfg = config.setdefault("llm", {})
+    primary_provider = (
+        primary or llm_cfg.get("primary_provider") or llm_cfg.get("provider") or "claude-cli"
+    )
+    fallback_provider = fallback if fallback is not None else llm_cfg.get("fallback_provider")
+    if fallback_provider == primary_provider or disable_fallback:
+        fallback_provider = None
+
+    allow_fallback = not disable_fallback and fallback_provider is not None
+    update_llm_settings(primary_provider, fallback_provider, allow_fallback)
+
+    llm_cfg["provider"] = primary_provider
+    llm_cfg["primary_provider"] = primary_provider
+    llm_cfg["fallback_provider"] = fallback_provider
+    llm_cfg["allow_fallback"] = allow_fallback
+
+    click.secho(
+        "    [OK] LLM config saved: "
+        f"primary={primary_provider}, fallback={fallback_provider or 'disabled'}",
+        fg="green",
+    )
+
+
+def _check_llm(config: dict | None = None) -> bool:
     """Check if Claude CLI and/or Codex CLI are available."""
-    found_any = False
+    from src.utils.llm import detect_available_providers, get_llm_settings
+
+    available = detect_available_providers()
+    settings = get_llm_settings(config) if config is not None else None
+    found_any = any(available.values())
+
+    if settings is not None:
+        click.echo(
+            "    Config: "
+            f"primary={settings['primary_provider']}, "
+            f"fallback={settings['fallback_provider'] or 'disabled'}, "
+            f"auto-fallback={'on' if settings['allow_fallback'] else 'off'}"
+        )
 
     # Check Claude CLI
-    claude_path = shutil.which("claude")
-    if claude_path:
+    if available["claude-cli"]:
         click.secho("    [OK] Claude CLI found", fg="green")
-        found_any = True
     else:
         click.secho("    ! Claude CLI not found", fg="yellow")
 
     # Check Codex CLI
-    codex_path = shutil.which("codex")
-    if codex_path:
+    if available["codex-cli"]:
         click.secho("    [OK] Codex CLI found", fg="green")
-        found_any = True
     else:
         click.secho("    ! Codex CLI not found", fg="yellow")
 

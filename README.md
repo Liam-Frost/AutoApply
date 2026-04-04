@@ -104,7 +104,7 @@ autoapply status --export-csv report.csv
 
 - Python 3.12+
 - PostgreSQL 16+ with pgvector extension
-- Claude Code CLI and/or Codex CLI
+- At least one local LLM CLI: Claude Code CLI or Codex CLI
 - uv package manager
 
 ### Setup
@@ -117,12 +117,22 @@ cd AutoApply
 # Install dependencies
 uv sync
 
+# Install Playwright browser
+uv run playwright install chromium
+
+# Install at least one LLM CLI locally
+# npm install -g @anthropic-ai/claude-code
+# npm install -g @openai/codex
+
 # Configure
 cp config/.env.example .env
 # Edit .env with your settings
 
 # Setup database
 alembic upgrade head
+
+# First-time setup with explicit LLM priority
+uv run autoapply init --llm-primary claude-cli --llm-fallback codex-cli
 ```
 
 ## Design Principles

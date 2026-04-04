@@ -48,6 +48,8 @@ class TestCLIStructure:
         assert "--resume" in result.output
         assert "--skip-db" in result.output
         assert "--skip-llm" in result.output
+        assert "--llm-primary" in result.output
+        assert "--llm-fallback" in result.output
 
     def test_search_help(self, runner):
         from src.cli.main import cli

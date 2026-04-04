@@ -48,6 +48,10 @@
                             <span class="nav-icon">PF</span>
                             <span>Profile</span>
                         </a>
+                        <a href="/settings" class="nav-link shrink-0 {% if current_title == 'Settings' %}nav-link-active{% endif %}">
+                            <span class="nav-icon">ST</span>
+                            <span>Settings</span>
+                        </a>
                     </div>
 
                     <nav class="hidden space-y-2 lg:block">
@@ -77,6 +81,13 @@
                             <span>
                                 <span class="block text-sm font-semibold">Profile</span>
                                 <span class="block text-xs text-slate-400">Memory, resume import, and skills</span>
+                            </span>
+                        </a>
+                        <a href="/settings" class="nav-link {% if current_title == 'Settings' %}nav-link-active{% endif %}">
+                            <span class="nav-icon">ST</span>
+                            <span>
+                                <span class="block text-sm font-semibold">Settings</span>
+                                <span class="block text-xs text-slate-400">LLM priority, fallback, and runtime config</span>
                             </span>
                         </a>
                     </nav>
