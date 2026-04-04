@@ -54,6 +54,7 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 ```
 frontend/            # Vue frontend source and build config
 src/
+├── application/   # Shared use cases for CLI and Web
 ├── core/          # Agent orchestration & state machine
 ├── intake/        # Job scraping & schema
 ├── matching/      # Filtering & scoring
@@ -76,7 +77,7 @@ src/
 - **Phase 6** (LinkedIn Integration) — Complete
 - **Phase 7** (Web GUI) — Complete
 
-255 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+262 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
 
 ## CLI Usage
 
@@ -87,8 +88,14 @@ autoapply init
 # Search for matching jobs
 autoapply search --profile default --score
 
+# Search with machine-readable output
+autoapply search --profile default --score --json
+
 # Apply to a single job
 autoapply apply --url https://boards.greenhouse.io/company/jobs/123
+
+# Apply with machine-readable output
+autoapply apply --url https://boards.greenhouse.io/company/jobs/123 --json
 
 # Batch apply to top matches
 autoapply apply --batch --top-n 5
@@ -98,7 +105,12 @@ autoapply status
 
 # Export applications to CSV
 autoapply status --export-csv report.csv
+
+# Inspect tracking data as JSON
+autoapply status --json
 ```
+
+CLI is the agent-facing control plane and now supports structured `--json` output for the core `search`, `apply`, and `status` commands. The Web GUI remains the human-facing control plane.
 
 ## Getting Started
 
