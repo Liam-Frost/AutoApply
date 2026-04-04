@@ -1,81 +1,115 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% set identity = profile.identity if profile and profile.get('identity') else {} %}
+{% set skills = profile.skills if profile and profile.get('skills') else {} %}
+{% set education = profile.education if profile and profile.get('education') else [] %}
+{% set experiences = profile.work_experiences if profile and profile.get('work_experiences') else [] %}
+{% set projects = profile.projects if profile and profile.get('projects') else [] %}
+
+<section class="hero-card">
+    <div class="hero-grid relative z-10">
+        <div>
+            <div class="hero-chip">Profile</div>
+            <h1 class="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">Profile Memory</h1>
+            <p class="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+                This is the structured memory the agent uses for scoring, material generation, and question answering.
+            </p>
+            {% if profile %}
+            <div class="mt-6 flex flex-wrap gap-3">
+                <span class="metric-chip">{{ education | length }} education entries</span>
+                <span class="metric-chip">{{ experiences | length }} experience entries</span>
+                <span class="metric-chip">{{ projects | length }} projects</span>
+            </div>
+            {% else %}
+            <div class="mt-6 flex flex-wrap gap-3">
+                <span class="status-chip status-chip-warn">No profile configured</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="app-card app-card-muted h-full">
+            <div class="section-title">Why this page matters</div>
+            <div class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
+                <p>Search ranking, resume tailoring, and QA generation all depend on the quality of this structured profile.</p>
+                <p>If the agent seems off-target, this is usually the first place to improve.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
 {% if error %}
-<div class="rounded-md bg-red-50 p-4 mb-6">
-    <p class="text-sm text-red-700">{{ error }}</p>
-</div>
+<section class="app-banner banner-danger rounded-[1.5rem] p-5">
+    <p class="text-sm leading-6 text-rose-50">{{ error }}</p>
+</section>
 {% endif %}
 
 {% if success %}
-<div class="rounded-md bg-green-50 p-4 mb-6">
-    <p class="text-sm text-green-700">{{ success }}</p>
-</div>
+<section class="app-banner banner-success rounded-[1.5rem] p-5">
+    <p class="text-sm leading-6 text-emerald-50">{{ success }}</p>
+</section>
 {% endif %}
 
 {% if profile %}
-<!-- Profile overview -->
-<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-    <!-- Identity card -->
-    <div class="lg:col-span-1">
-        <div class="bg-white shadow rounded-lg">
-            <div class="px-4 py-5 sm:px-6">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">
-                    {{ profile.identity.full_name | default("Unknown") }}
-                </h3>
+<section class="grid grid-cols-1 gap-4 xl:grid-cols-[0.85fr,1.15fr]">
+    <div class="space-y-4">
+        <div class="app-card">
+            <div class="section-heading">
+                <div>
+                    <div class="section-title">Identity</div>
+                    <div class="section-copy">Primary profile metadata used throughout the agent.</div>
+                </div>
             </div>
-            <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
-                <dl class="space-y-3 text-sm">
-                    {% if profile.identity.get('email') %}
+            <div class="rounded-3xl border border-slate-700/70 bg-slate-950/35 p-5">
+                <div class="text-2xl font-semibold text-white">{{ identity.full_name | default("Unknown") }}</div>
+                {% if identity.get('location') %}
+                <div class="mt-2 text-sm text-slate-400">{{ identity.location }}</div>
+                {% endif %}
+                <div class="mt-5 space-y-4 text-sm">
+                    {% if identity.get('email') %}
                     <div>
-                        <dt class="text-gray-500">Email</dt>
-                        <dd class="text-gray-900">{{ profile.identity.email }}</dd>
+                        <div class="app-label">Email</div>
+                        <div class="text-slate-100">{{ identity.email }}</div>
                     </div>
                     {% endif %}
-                    {% if profile.identity.get('phone') %}
+                    {% if identity.get('phone') %}
                     <div>
-                        <dt class="text-gray-500">Phone</dt>
-                        <dd class="text-gray-900">{{ profile.identity.phone }}</dd>
+                        <div class="app-label">Phone</div>
+                        <div class="text-slate-100">{{ identity.phone }}</div>
                     </div>
                     {% endif %}
-                    {% if profile.identity.get('location') %}
+                    {% if identity.get('linkedin_url') %}
                     <div>
-                        <dt class="text-gray-500">Location</dt>
-                        <dd class="text-gray-900">{{ profile.identity.location }}</dd>
+                        <div class="app-label">LinkedIn</div>
+                        <a href="{{ identity.linkedin_url }}" target="_blank" class="text-sky-200 hover:text-sky-100">Open profile</a>
                     </div>
                     {% endif %}
-                    {% if profile.identity.get('linkedin_url') %}
+                    {% if identity.get('github_url') %}
                     <div>
-                        <dt class="text-gray-500">LinkedIn</dt>
-                        <dd><a href="{{ profile.identity.linkedin_url }}" target="_blank" class="text-indigo-600 hover:text-indigo-500">Profile</a></dd>
+                        <div class="app-label">GitHub</div>
+                        <a href="{{ identity.github_url }}" target="_blank" class="text-sky-200 hover:text-sky-100">Open profile</a>
                     </div>
                     {% endif %}
-                    {% if profile.identity.get('github_url') %}
-                    <div>
-                        <dt class="text-gray-500">GitHub</dt>
-                        <dd><a href="{{ profile.identity.github_url }}" target="_blank" class="text-indigo-600 hover:text-indigo-500">Profile</a></dd>
-                    </div>
-                    {% endif %}
-                </dl>
+                </div>
             </div>
         </div>
 
-        <!-- Skills -->
-        {% if profile.get('skills') %}
-        <div class="bg-white shadow rounded-lg mt-6">
-            <div class="px-4 py-5 sm:px-6">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Skills</h3>
+        {% if skills %}
+        <div class="app-card app-card-muted">
+            <div class="section-heading">
+                <div>
+                    <div class="section-title">Skills</div>
+                    <div class="section-copy">Categories the scoring and generation layers can directly consume.</div>
+                </div>
             </div>
-            <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
-                {% for category, items in profile.skills.items() %}
+            <div class="space-y-4">
+                {% for category, items in skills.items() %}
                 {% if items %}
-                <div class="mb-3">
-                    <h4 class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{{ category }}</h4>
-                    <div class="flex flex-wrap gap-1">
+                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                    <div class="app-label">{{ category }}</div>
+                    <div class="mt-3 flex flex-wrap gap-2">
                         {% for skill in items %}
-                        <span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-                            {{ skill }}
-                        </span>
+                        <span class="pill bg-indigo-400/10 text-indigo-100">{{ skill }}</span>
                         {% endfor %}
                     </div>
                 </div>
@@ -86,151 +120,153 @@
         {% endif %}
     </div>
 
-    <!-- Experience & Education -->
-    <div class="lg:col-span-2 space-y-6">
-        <!-- Education -->
-        {% if profile.get('education') %}
-        <div class="bg-white shadow rounded-lg">
-            <div class="px-4 py-5 sm:px-6">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Education</h3>
+    <div class="space-y-4">
+        {% if education %}
+        <div class="app-card">
+            <div class="section-heading">
+                <div>
+                    <div class="section-title">Education</div>
+                    <div class="section-copy">Academic context available to ranking and document generation.</div>
+                </div>
             </div>
-            <div class="border-t border-gray-200">
-                <ul class="divide-y divide-gray-200">
-                    {% for edu in profile.education %}
-                    <li class="px-4 py-4 sm:px-6">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium text-gray-900">
-                                    {{ edu.get('degree', '') }} {{ edu.get('field', '') }}
-                                </p>
-                                <p class="text-sm text-gray-500">{{ edu.get('institution', '') }}</p>
-                            </div>
-                            <div class="text-sm text-gray-500">
-                                {{ edu.get('start_date', '') }} - {{ edu.get('end_date', '') }}
-                            </div>
+            <div class="surface-list">
+                {% for edu in education %}
+                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <div class="text-sm font-semibold text-white">{{ edu.get('degree', '') }} {{ edu.get('field', '') }}</div>
+                            <div class="mt-1 text-sm text-slate-400">{{ edu.get('institution', '') }}</div>
                         </div>
-                        {% if edu.get('gpa') %}
-                        <p class="mt-1 text-xs text-gray-500">GPA: {{ edu.gpa }}</p>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
+                        <div class="pill bg-white/5 text-slate-300">{{ edu.get('start_date', '') }} - {{ edu.get('end_date', '') }}</div>
+                    </div>
+                    {% if edu.get('gpa') %}
+                    <div class="mt-3 text-sm text-slate-400">GPA: {{ edu.gpa }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endif %}
 
-        <!-- Work Experience -->
-        {% if profile.get('work_experiences') %}
-        <div class="bg-white shadow rounded-lg">
-            <div class="px-4 py-5 sm:px-6">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Work Experience</h3>
+        {% if experiences %}
+        <div class="app-card">
+            <div class="section-heading">
+                <div>
+                    <div class="section-title">Work Experience</div>
+                    <div class="section-copy">Execution evidence the agent can use when tailoring bullets and answering forms.</div>
+                </div>
             </div>
-            <div class="border-t border-gray-200">
-                <ul class="divide-y divide-gray-200">
-                    {% for exp in profile.work_experiences %}
-                    <li class="px-4 py-4 sm:px-6">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium text-gray-900">{{ exp.get('title', '') }}</p>
-                                <p class="text-sm text-gray-500">{{ exp.get('company', '') }}</p>
-                            </div>
-                            <div class="text-sm text-gray-500">
-                                {{ exp.get('start_date', '') }} - {{ exp.get('end_date', '') }}
-                            </div>
+            <div class="surface-list">
+                {% for exp in experiences %}
+                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <div class="text-sm font-semibold text-white">{{ exp.get('title', '') }}</div>
+                            <div class="mt-1 text-sm text-slate-400">{{ exp.get('company', '') }}</div>
                         </div>
-                        {% if exp.get('bullets') %}
-                        <ul class="mt-2 space-y-1">
-                            {% for bullet in exp.bullets %}
-                            <li class="text-sm text-gray-600">
-                                {{ bullet.text if bullet is mapping else bullet }}
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
+                        <div class="pill bg-white/5 text-slate-300">{{ exp.get('start_date', '') }} - {{ exp.get('end_date', '') }}</div>
+                    </div>
+                    {% if exp.get('bullets') %}
+                    <ul class="mt-4 space-y-2 text-sm leading-6 text-slate-300">
+                        {% for bullet in exp.bullets %}
+                        <li class="rounded-xl bg-white/5 px-3 py-2">{{ bullet.text if bullet is mapping else bullet }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endif %}
 
-        <!-- Projects -->
-        {% if profile.get('projects') %}
-        <div class="bg-white shadow rounded-lg">
-            <div class="px-4 py-5 sm:px-6">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Projects</h3>
+        {% if projects %}
+        <div class="app-card app-card-muted">
+            <div class="section-heading">
+                <div>
+                    <div class="section-title">Projects</div>
+                    <div class="section-copy">Project evidence the generator can use when role fit is stronger there than in work history.</div>
+                </div>
             </div>
-            <div class="border-t border-gray-200">
-                <ul class="divide-y divide-gray-200">
-                    {% for proj in profile.projects %}
-                    <li class="px-4 py-4 sm:px-6">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium text-gray-900">{{ proj.get('name', '') }}</p>
-                                {% if proj.get('tech_stack') %}
-                                <div class="mt-1 flex flex-wrap gap-1">
-                                    {% for tech in proj.tech_stack %}
-                                    <span class="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{{ tech }}</span>
-                                    {% endfor %}
-                                </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                        {% if proj.get('description') %}
-                        <p class="mt-1 text-sm text-gray-500">{{ proj.description }}</p>
-                        {% endif %}
-                        {% if proj.get('bullets') %}
-                        <ul class="mt-2 space-y-1">
-                            {% for bullet in proj.bullets %}
-                            <li class="text-sm text-gray-600">
-                                {{ bullet.text if bullet is mapping else bullet }}
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
+            <div class="surface-list">
+                {% for proj in projects %}
+                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                    <div class="text-sm font-semibold text-white">{{ proj.get('name', '') }}</div>
+                    {% if proj.get('tech_stack') %}
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        {% for tech in proj.tech_stack %}
+                        <span class="pill bg-white/5 text-slate-300">{{ tech }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if proj.get('description') %}
+                    <p class="mt-3 text-sm leading-6 text-slate-400">{{ proj.description }}</p>
+                    {% endif %}
+                    {% if proj.get('bullets') %}
+                    <ul class="mt-4 space-y-2 text-sm leading-6 text-slate-300">
+                        {% for bullet in proj.bullets %}
+                        <li class="rounded-xl bg-white/5 px-3 py-2">{{ bullet.text if bullet is mapping else bullet }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+                {% endfor %}
             </div>
         </div>
         {% endif %}
     </div>
-</div>
+</section>
 
-<div class="mt-6 text-sm text-gray-500">
-    Profile loaded from: <code class="bg-gray-100 px-1 rounded">{{ profile_path }}</code>
-</div>
+<section class="app-card app-card-muted">
+    <div class="section-heading">
+        <div>
+            <div class="section-title">Profile Source</div>
+            <div class="section-copy">The active YAML file currently loaded by the Web GUI and CLI.</div>
+        </div>
+    </div>
+    <code class="block overflow-x-auto rounded-2xl border border-slate-700/70 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">{{ profile_path }}</code>
+</section>
 
 {% else %}
-<!-- No profile -->
-<div class="text-center py-12">
-    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-    </svg>
-    <h3 class="mt-2 text-sm font-semibold text-gray-900">No profile configured</h3>
-    <p class="mt-1 text-sm text-gray-500">Upload a resume or run <code class="bg-gray-100 px-1 rounded">autoapply init</code> to set up your profile.</p>
-</div>
+<section class="app-empty">
+    <div class="empty-state-graphic mx-auto">PF</div>
+    <h3 class="mt-4 text-lg font-semibold text-white">No profile configured</h3>
+    <p class="mt-2 text-sm leading-6 text-slate-400">Upload a resume or run <code class="rounded bg-white/10 px-2 py-1 text-slate-100">autoapply init</code> to set up your profile.</p>
+</section>
 
-<!-- Resume upload -->
-<div class="mt-8 max-w-lg mx-auto">
-    <div class="bg-white shadow rounded-lg">
-        <div class="px-4 py-5 sm:px-6">
-            <h3 class="text-lg font-medium leading-6 text-gray-900">Upload Resume</h3>
-            <p class="mt-1 text-sm text-gray-500">Upload a .pdf or .docx resume to auto-generate your profile.</p>
+<section class="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+    <div class="app-card">
+        <div class="section-heading">
+            <div>
+                <div class="section-title">Upload Resume</div>
+                <div class="section-copy">Upload a .pdf or .docx resume and let the importer build a structured profile.</div>
+            </div>
         </div>
-        <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
-            <form action="/profile/upload-resume" method="post" enctype="multipart/form-data">
-                <div class="flex items-center gap-4">
-                    <input type="file" name="resume" accept=".pdf,.docx" required
-                           class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
-                    <button type="submit"
-                            class="shrink-0 inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-                        Parse
-                    </button>
-                </div>
-            </form>
+        <form action="/profile/upload-resume" method="post" enctype="multipart/form-data" class="space-y-4">
+            <div>
+                <label for="resume" class="app-label">Resume File</label>
+                <input
+                    id="resume"
+                    type="file"
+                    name="resume"
+                    accept=".pdf,.docx"
+                    required
+                    class="block w-full rounded-2xl border border-dashed border-slate-600 bg-slate-950/35 px-4 py-4 text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-indigo-400/15 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-indigo-100 hover:file:bg-indigo-400/25"
+                >
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="submit" class="app-button">Parse</button>
+                <span class="text-sm text-slate-500">Resume parsing depends on the configured LLM CLI.</span>
+            </div>
+        </form>
+    </div>
+
+    <div class="app-card app-card-muted">
+        <div class="section-title">Before you upload</div>
+        <div class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
+            <p>Keep bullet points explicit and metric-driven so the importer can preserve useful evidence.</p>
+            <p>After parsing, review `data/profile/profile.yaml` manually before relying on it for real applications.</p>
         </div>
     </div>
-</div>
+</section>
 {% endif %}
 {% endblock %}

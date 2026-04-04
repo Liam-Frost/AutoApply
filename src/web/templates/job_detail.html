@@ -2,47 +2,52 @@
 
 {% block content %}
 {% if job %}
-<div class="bg-white shadow rounded-lg">
-    <div class="px-4 py-5 sm:px-6">
-        <h2 class="text-xl font-bold text-gray-900">{{ job.title }}</h2>
-        <p class="mt-1 text-sm text-gray-500">{{ job.company }} {% if job.location %} - {{ job.location }}{% endif %}</p>
-        <div class="mt-2 flex flex-wrap gap-2">
+<section class="hero-card">
+    <div class="relative z-10">
+        <div class="hero-chip">Job Detail</div>
+        <h1 class="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">{{ job.title }}</h1>
+        <p class="mt-4 text-base leading-7 text-slate-300 sm:text-lg">
+            {{ job.company }}{% if job.location %} · {{ job.location }}{% endif %}
+        </p>
+        <div class="mt-6 flex flex-wrap gap-2">
             {% if job.ats_type %}
-            <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">{{ job.ats_type }}</span>
+            <span class="pill bg-white/5 text-slate-200">{{ job.ats_type }}</span>
             {% endif %}
             {% if job.employment_type and job.employment_type != 'unknown' %}
-            <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">{{ job.employment_type }}</span>
+            <span class="pill bg-sky-400/10 text-sky-200">{{ job.employment_type }}</span>
             {% endif %}
             {% if job.seniority and job.seniority != 'unknown' %}
-            <span class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800">{{ job.seniority }}</span>
+            <span class="pill bg-violet-400/10 text-violet-200">{{ job.seniority }}</span>
             {% endif %}
         </div>
+        <div class="mt-8 flex flex-wrap gap-3">
+            {% if job.application_url %}
+            <a href="{{ job.application_url }}" target="_blank" rel="noopener" class="app-button">Apply</a>
+            {% endif %}
+            <a href="/jobs" class="app-button-ghost">Back to Search</a>
+        </div>
     </div>
-    {% if job.description %}
-    <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
-        <h3 class="text-sm font-medium text-gray-500 mb-3">Description</h3>
-        <div class="prose prose-sm max-w-none text-gray-700 whitespace-pre-line">{{ job.description }}</div>
+</section>
+
+{% if job.description %}
+<section class="app-card">
+    <div class="section-heading">
+        <div>
+            <div class="section-title">Description</div>
+            <div class="section-copy">Source description currently stored for this tracked job record.</div>
+        </div>
     </div>
-    {% endif %}
-    <div class="border-t border-gray-200 px-4 py-4 sm:px-6 flex gap-4">
-        {% if job.application_url %}
-        <a href="{{ job.application_url }}" target="_blank" rel="noopener"
-           class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-            Apply
-        </a>
-        {% endif %}
-        <a href="/jobs" class="inline-flex items-center rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-            Back to Search
-        </a>
+    <div class="rounded-3xl border border-slate-700/70 bg-slate-950/35 px-5 py-5 text-sm leading-7 text-slate-300 whitespace-pre-line">
+        {{ job.description }}
     </div>
-</div>
+</section>
+{% endif %}
 {% else %}
-<div class="text-center py-12">
-    <h3 class="text-sm font-semibold text-gray-900">Job not found</h3>
-    <p class="mt-1 text-sm text-gray-500">This job may have been removed or the ID is invalid.</p>
-    <a href="/jobs" class="mt-4 inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-        Back to Search
-    </a>
-</div>
+<section class="app-empty">
+    <div class="empty-state-graphic mx-auto">JD</div>
+    <h3 class="mt-4 text-lg font-semibold text-white">Job not found</h3>
+    <p class="mt-2 text-sm leading-6 text-slate-400">This job may have been removed or the ID is invalid.</p>
+    <a href="/jobs" class="app-button mt-6">Back to Search</a>
+</section>
 {% endif %}
 {% endblock %}

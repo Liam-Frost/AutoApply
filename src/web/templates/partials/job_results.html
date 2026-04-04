@@ -1,86 +1,88 @@
 {% if error %}
-<div class="rounded-md bg-red-50 p-4 mb-4">
-    <p class="text-sm text-red-700">{{ error }}</p>
+<div class="app-banner banner-danger rounded-[1.5rem] p-5 mb-4">
+    <p class="text-sm leading-6 text-rose-50">{{ error }}</p>
 </div>
 {% endif %}
 
 {% if jobs %}
-<div class="bg-white shadow rounded-lg">
-    <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
-        <h3 class="text-lg font-medium leading-6 text-gray-900">
-            {{ jobs | length }} jobs found
-        </h3>
+<div class="app-card">
+    <div class="section-heading">
+        <div>
+            <div class="section-title">{{ jobs | length }} jobs found</div>
+            <div class="section-copy">Search results ranked for action. Use the score as a triage tool, not as an absolute decision maker.</div>
+        </div>
+        <div class="metric-chip">Live results</div>
     </div>
-    <div class="border-t border-gray-200">
-        <ul role="list" class="divide-y divide-gray-200">
-            {% for job in jobs %}
-            <li class="px-4 py-4 sm:px-6 hover:bg-gray-50">
-                <div class="flex items-center justify-between">
-                    <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2">
-                            <p class="truncate text-sm font-medium text-indigo-600">
-                                {{ job.title }}
-                            </p>
-                            {% if job.raw_data.get('match_score') is not none %}
-                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                                {{ "%.0f%%" | format(job.raw_data.get('match_score', 0) * 100) }} match
-                            </span>
-                            {% endif %}
-                            {% if job.source == "linkedin" %}
-                            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">LinkedIn</span>
-                            {% elif job.ats_type == "greenhouse" %}
-                            <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">Greenhouse</span>
-                            {% elif job.ats_type == "lever" %}
-                            <span class="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">Lever</span>
-                            {% endif %}
-                        </div>
-                        <div class="mt-1 flex items-center gap-4 text-sm text-gray-500">
-                            <span class="font-medium">{{ job.company }}</span>
-                            {% if job.location %}
-                            <span>{{ job.location }}</span>
-                            {% endif %}
-                            {% if job.employment_type and job.employment_type != "unknown" %}
-                            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                                {{ job.employment_type }}
-                            </span>
-                            {% endif %}
-                            {% if job.seniority and job.seniority != "unknown" %}
-                            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                                {{ job.seniority }}
-                            </span>
-                            {% endif %}
-                        </div>
-                    </div>
-                    <div class="ml-4 flex shrink-0 gap-2">
-                        {% if job.application_url %}
-                        <form hx-post="/jobs/apply" hx-target="#apply-status-{{ loop.index0 }}" hx-swap="innerHTML">
-                            <input type="hidden" name="url" value="{{ job.application_url }}">
-                            <button type="submit"
-                               class="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-                                Apply
-                            </button>
-                        </form>
+
+    <div class="surface-list">
+        {% for job in jobs %}
+        <article class="job-card">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h3 class="text-lg font-semibold text-white">{{ job.title }}</h3>
+                        {% if job.raw_data.get('match_score') is not none %}
+                        <span class="pill bg-amber-400/10 text-amber-200">
+                            {{ "%.0f%%" | format(job.raw_data.get('match_score', 0) * 100) }} match
+                        </span>
                         {% endif %}
-                        {% if job.application_url %}
-                        <a href="{{ job.application_url }}" target="_blank" rel="noopener"
-                           class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                            View
-                        </a>
+                        {% if job.source == "linkedin" %}
+                        <span class="pill bg-sky-400/10 text-sky-200">LinkedIn</span>
+                        {% elif job.ats_type == "greenhouse" %}
+                        <span class="pill bg-emerald-400/10 text-emerald-200">Greenhouse</span>
+                        {% elif job.ats_type == "lever" %}
+                        <span class="pill bg-violet-400/10 text-violet-200">Lever</span>
+                        {% endif %}
+                        {% if job.raw_data.get('disqualified') %}
+                        <span class="pill bg-rose-400/10 text-rose-200">Needs review</span>
                         {% endif %}
                     </div>
+
+                    <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-300">
+                        <span class="font-semibold text-slate-100">{{ job.company }}</span>
+                        {% if job.location %}
+                        <span class="pill bg-white/5 text-slate-300">{{ job.location }}</span>
+                        {% endif %}
+                        {% if job.employment_type and job.employment_type != "unknown" %}
+                        <span class="pill bg-white/5 text-slate-300">{{ job.employment_type }}</span>
+                        {% endif %}
+                        {% if job.seniority and job.seniority != "unknown" %}
+                        <span class="pill bg-white/5 text-slate-300">{{ job.seniority }}</span>
+                        {% endif %}
+                    </div>
+
+                    {% if job.description %}
+                    <p class="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
+                        {{ job.description[:260] }}{% if job.description|length > 260 %}...{% endif %}
+                    </p>
+                    {% else %}
+                    <p class="mt-4 max-w-3xl text-sm leading-6 text-slate-500">
+                        No expanded description is available for this result yet.
+                    </p>
+                    {% endif %}
                 </div>
-                <div id="apply-status-{{ loop.index0 }}" class="mt-2 text-sm"></div>
-            </li>
-            {% endfor %}
-        </ul>
+
+                <div class="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+                    {% if job.application_url %}
+                    <form hx-post="/jobs/apply" hx-target="#apply-status-{{ loop.index0 }}" hx-swap="innerHTML">
+                        <input type="hidden" name="url" value="{{ job.application_url }}">
+                        <button type="submit" class="app-button">Apply</button>
+                    </form>
+                    {% endif %}
+                    {% if job.application_url %}
+                    <a href="{{ job.application_url }}" target="_blank" rel="noopener" class="app-button-ghost">View</a>
+                    {% endif %}
+                </div>
+            </div>
+            <div id="apply-status-{{ loop.index0 }}" class="mt-3 text-sm text-slate-300"></div>
+        </article>
+        {% endfor %}
     </div>
 </div>
 {% elif not error %}
-<div class="text-center py-12">
-    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-    </svg>
-    <h3 class="mt-2 text-sm font-semibold text-gray-900">No jobs found</h3>
-    <p class="mt-1 text-sm text-gray-500">Use the search form above to find matching jobs.</p>
+<div class="app-empty">
+    <div class="empty-state-graphic mx-auto">JS</div>
+    <h3 class="mt-4 text-lg font-semibold text-white">No jobs found</h3>
+    <p class="mt-2 text-sm leading-6 text-slate-400">Use the search form above to pull fresh roles from ATS boards or LinkedIn.</p>
 </div>
 {% endif %}

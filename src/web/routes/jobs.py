@@ -91,6 +91,8 @@ async def search_jobs(
         "location": location,
         "profile": profile,
         "time_filter": time_filter,
+        "ats": ats,
+        "company": company,
     }
 
     is_htmx = request.headers.get("HX-Request") == "true"

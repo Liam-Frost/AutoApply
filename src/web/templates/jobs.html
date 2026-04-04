@@ -1,17 +1,47 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Search form -->
-<div class="bg-white shadow rounded-lg mb-8">
-    <div class="px-4 py-5 sm:px-6">
-        <h3 class="text-lg font-medium leading-6 text-gray-900">Search Jobs</h3>
+<section class="hero-card">
+    <div class="hero-grid relative z-10">
+        <div>
+            <div class="hero-chip">Job Search</div>
+            <h1 class="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">Search Jobs</h1>
+            <p class="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+                Pull roles from ATS boards or LinkedIn, score them against your profile, and move straight
+                into the application workflow from the same queue.
+            </p>
+            <div class="mt-6 flex flex-wrap gap-3">
+                <span class="metric-chip">Greenhouse + Lever + LinkedIn</span>
+                <span class="metric-chip">Score-aware search queue</span>
+                <span class="metric-chip">HTMX live results</span>
+            </div>
+        </div>
+
+        <div class="app-card app-card-muted h-full">
+            <div class="section-title">Search Strategy</div>
+            <div class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
+                <p>Use ATS-only searches for higher application reliability.</p>
+                <p>Use LinkedIn to discover fresh roles and external ATS redirects.</p>
+                <p>Keep your profile updated so match scoring and material generation stay aligned.</p>
+            </div>
+        </div>
     </div>
-    <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
-        <form hx-post="/jobs/search" hx-target="#job-results" hx-indicator="#search-spinner">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+</section>
+
+<section class="grid grid-cols-1 gap-4 xl:grid-cols-[1.6fr,0.9fr]">
+    <div class="app-card">
+        <div class="section-heading">
+            <div>
+                <div class="section-title">Search Controls</div>
+                <div class="section-copy">Search ATS boards, LinkedIn, or both. Results will stream into the panel below.</div>
+            </div>
+        </div>
+
+        <form hx-post="/jobs/search" hx-target="#job-results" hx-indicator="#search-spinner" class="space-y-5">
+            <div class="app-form-grid app-form-grid-cols-3">
                 <div>
-                    <label for="source" class="block text-sm font-medium text-gray-700">Source</label>
-                    <select id="source" name="source" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                    <label for="source" class="app-label">Source</label>
+                    <select id="source" name="source" class="app-select">
                         <option value="ats" {% if search_params.get('source') == 'ats' %}selected{% endif %}>ATS Boards (Greenhouse/Lever)</option>
                         <option value="linkedin" {% if search_params.get('source') == 'linkedin' %}selected{% endif %}>LinkedIn</option>
                         <option value="all" {% if search_params.get('source') == 'all' %}selected{% endif %}>All Sources</option>
@@ -19,59 +49,103 @@
                 </div>
 
                 <div>
-                    <label for="keyword" class="block text-sm font-medium text-gray-700">Keywords</label>
-                    <input type="text" id="keyword" name="keyword" value="{{ search_params.get('keyword', '') }}"
-                           placeholder="software engineer intern"
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                    <label for="keyword" class="app-label">Keywords</label>
+                    <input
+                        type="text"
+                        id="keyword"
+                        name="keyword"
+                        value="{{ search_params.get('keyword', '') }}"
+                        placeholder="software engineer intern"
+                        class="app-input"
+                    >
                 </div>
 
                 <div>
-                    <label for="location" class="block text-sm font-medium text-gray-700">Location</label>
-                    <input type="text" id="location" name="location" value="{{ search_params.get('location', '') }}"
-                           placeholder="United States"
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
-                </div>
-
-                <div>
-                    <label for="profile" class="block text-sm font-medium text-gray-700">Filter Profile</label>
-                    <input type="text" id="profile" name="profile" value="{{ search_params.get('profile', 'default') }}"
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
-                </div>
-
-                <div>
-                    <label for="time_filter" class="block text-sm font-medium text-gray-700">Time Posted</label>
-                    <select id="time_filter" name="time_filter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
-                        <option value="24h">Past 24 hours</option>
-                        <option value="week" selected>Past week</option>
-                        <option value="month">Past month</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label for="ats" class="block text-sm font-medium text-gray-700">ATS Filter</label>
-                    <select id="ats" name="ats" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
-                        <option value="">All ATS</option>
-                        <option value="greenhouse">Greenhouse</option>
-                        <option value="lever">Lever</option>
-                    </select>
+                    <label for="location" class="app-label">Location</label>
+                    <input
+                        type="text"
+                        id="location"
+                        name="location"
+                        value="{{ search_params.get('location', '') }}"
+                        placeholder="United States"
+                        class="app-input"
+                    >
                 </div>
             </div>
 
-            <div class="mt-4 flex items-center gap-4">
-                <button type="submit"
-                        class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-                    Search
-                </button>
-                <span id="search-spinner" class="htmx-indicator text-gray-500 text-sm">
-                    Searching...
-                </span>
+            <div class="app-form-grid app-form-grid-cols-4">
+                <div>
+                    <label for="profile" class="app-label">Filter Profile</label>
+                    <input
+                        type="text"
+                        id="profile"
+                        name="profile"
+                        value="{{ search_params.get('profile', 'default') }}"
+                        class="app-input"
+                    >
+                </div>
+
+                <div>
+                    <label for="time_filter" class="app-label">Time Posted</label>
+                    <select id="time_filter" name="time_filter" class="app-select">
+                        <option value="24h" {% if search_params.get('time_filter') == '24h' %}selected{% endif %}>Past 24 hours</option>
+                        <option value="week" {% if search_params.get('time_filter', 'week') == 'week' %}selected{% endif %}>Past week</option>
+                        <option value="month" {% if search_params.get('time_filter') == 'month' %}selected{% endif %}>Past month</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="ats" class="app-label">ATS Filter</label>
+                    <select id="ats" name="ats" class="app-select">
+                        <option value="">All ATS</option>
+                        <option value="greenhouse" {% if search_params.get('ats') == 'greenhouse' %}selected{% endif %}>Greenhouse</option>
+                        <option value="lever" {% if search_params.get('ats') == 'lever' %}selected{% endif %}>Lever</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="company" class="app-label">Company Slug</label>
+                    <input
+                        type="text"
+                        id="company"
+                        name="company"
+                        value="{{ search_params.get('company', '') }}"
+                        placeholder="stripe"
+                        class="app-input"
+                    >
+                </div>
+            </div>
+
+            <div class="subtle-divider"></div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="submit" class="app-button">Search</button>
+                <span id="search-spinner" class="htmx-indicator metric-chip">Searching...</span>
+                <span class="text-sm text-slate-500">LinkedIn and external ATS results may take longer because browser automation is involved.</span>
             </div>
         </form>
     </div>
-</div>
 
-<!-- Results -->
-<div id="job-results">
+    <div class="app-card app-card-muted">
+        <div class="section-title">High-Signal Operator Tips</div>
+        <div class="mt-5 space-y-4 text-sm leading-6 text-slate-300">
+            <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                <div class="font-semibold text-slate-100">For speed</div>
+                <p class="mt-2">Start with ATS Boards when you want the cleanest application URLs and the most reliable apply flow.</p>
+            </div>
+            <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                <div class="font-semibold text-slate-100">For discovery</div>
+                <p class="mt-2">Use LinkedIn when you want breadth, then prioritize rows with explicit Greenhouse or Lever redirects.</p>
+            </div>
+            <div class="rounded-2xl border border-slate-700/70 bg-slate-950/35 p-4">
+                <div class="font-semibold text-slate-100">For quality</div>
+                <p class="mt-2">Treat low match scores as a prompt to refine your profile or targeting before spending browser time.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="job-results">
     {% include "partials/job_results.html" %}
-</div>
+</section>
 {% endblock %}
