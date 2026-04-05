@@ -13,7 +13,7 @@ from src.application.tracking import (
 from src.application.tracking import (
     load_status_data as load_status_data_usecase,
 )
-from src.cli.output import emit_json
+from src.cli.output import build_json_payload, emit_json
 
 logger = logging.getLogger("autoapply.cli.status")
 
@@ -37,7 +37,7 @@ def status_cmd(
     if export_csv:
         result = export_applications_csv_data(output_path=export_csv)
         if as_json:
-            emit_json({"command": "status", "mode": "export_csv", **result})
+            emit_json(build_json_payload(command="status", data={"mode": "export_csv", **result}))
         elif result["ok"]:
             click.secho(f"Exported to {export_csv}", fg="green")
         else:
@@ -56,7 +56,7 @@ def status_cmd(
     )
 
     if as_json:
-        emit_json({"command": "status", "mode": "report", **result})
+        emit_json(build_json_payload(command="status", data={"mode": "report", **result}))
     elif result["ok"]:
         _render_status_report(result)
     elif result["error_code"] == "schema_out_of_date":

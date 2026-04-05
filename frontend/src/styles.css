@@ -211,6 +211,14 @@ textarea {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.field-span-2 {
+  grid-column: span 2;
+}
+
+.field-span-full {
+  grid-column: 1 / -1;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -236,8 +244,57 @@ textarea {
   color: var(--text);
 }
 
+.inline-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.inline-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toggle-pill {
+  position: relative;
+}
+
+.toggle-pill input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-pill span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.toggle-pill input:checked + span {
+  border-color: rgba(144, 181, 255, 0.32);
+  background: rgba(144, 181, 255, 0.14);
+  color: var(--text);
+}
+
 .file-input {
   padding: 12px 14px;
+}
+
+.textarea {
+  min-height: 112px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
 .input:focus,
@@ -502,6 +559,15 @@ textarea {
   .metric-grid,
   .form-grid-4,
   .content-grid-wide {
+    grid-template-columns: 1fr;
+  }
+
+  .field-span-2,
+  .field-span-full {
+    grid-column: auto;
+  }
+
+  .inline-grid-2 {
     grid-template-columns: 1fr;
   }
 

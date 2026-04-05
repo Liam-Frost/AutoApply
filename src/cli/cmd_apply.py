@@ -17,7 +17,7 @@ from src.application.jobs import (
 from src.application.jobs import (
     apply_to_url as apply_to_url_usecase,
 )
-from src.cli.output import emit_json
+from src.cli.output import build_json_payload, emit_json
 from src.core.state_machine import AppStatus
 
 logger = logging.getLogger("autoapply.cli.apply")
@@ -55,13 +55,12 @@ def apply_cmd(
     """Run the application pipeline on one or more jobs."""
     if not url and not job_id and not batch:
         payload = {
-            "command": "apply",
             "ok": False,
             "error": "Specify --url, --job-id, or --batch. See --help for details.",
             "error_code": "missing_target",
         }
         if as_json:
-            emit_json(payload)
+            emit_json(build_json_payload(command="apply", data=payload))
         else:
             click.echo(payload["error"])
         raise SystemExit(1)
@@ -108,7 +107,6 @@ def apply_cmd(
 
     if not selected_jobs:
         payload = {
-            "command": "apply",
             "mode": "batch",
             "ok": False,
             **preview,
@@ -124,7 +122,7 @@ def apply_cmd(
             },
         }
         if as_json:
-            emit_json(payload)
+            emit_json(build_json_payload(command="apply", data=payload))
         else:
             _render_batch_preview(preview)
         if preview["errors"] and any("Profile" in item for item in preview["errors"]):
@@ -150,9 +148,8 @@ def apply_cmd(
 
 
 def _emit_apply_result(result: dict, *, as_json: bool) -> None:
-    payload = {"command": "apply", **result}
     if as_json:
-        emit_json(payload)
+        emit_json(build_json_payload(command="apply", data=result))
         return
 
     if result["mode"] == "batch":

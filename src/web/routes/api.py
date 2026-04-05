@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.application.jobs import apply_to_url
 from src.application.jobs import search_jobs as search_jobs_usecase
@@ -23,9 +23,18 @@ class JobSearchPayload(BaseModel):
     keyword: str = ""
     location: str = ""
     profile: str = "default"
-    time_filter: str = "week"
+    time_filter: str = "all"
     ats: str = ""
     company: str = ""
+    experience_levels: list[str] = Field(default_factory=list)
+    employment_types: list[str] = Field(default_factory=list)
+    location_types: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
+    pay_operator: str = ""
+    pay_amount: int | None = None
+    experience_operator: str = ""
+    experience_years: int | None = None
+    education_levels: list[str] = Field(default_factory=list)
 
 
 class JobApplyPayload(BaseModel):
@@ -57,6 +66,15 @@ async def search_jobs(payload: JobSearchPayload) -> dict:
         keyword=payload.keyword or None,
         search_location=payload.location or None,
         time_filter=payload.time_filter,
+        experience_levels=payload.experience_levels,
+        employment_types=payload.employment_types,
+        location_types=payload.location_types,
+        locations=payload.locations,
+        pay_operator=payload.pay_operator or None,
+        pay_amount=payload.pay_amount,
+        experience_operator=payload.experience_operator or None,
+        experience_years=payload.experience_years,
+        education_levels=payload.education_levels,
         headless=True,
         score=True,
     )

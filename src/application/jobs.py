@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -13,6 +14,23 @@ from src.core.state_machine import ApplicationState, AppStatus
 logger = logging.getLogger("autoapply.application.jobs")
 
 PROFILE_FILE = PROJECT_ROOT / "data" / "profile" / "profile.yaml"
+SEARCH_METADATA_KEY = "_search_filters"
+
+PAY_RANGE_RE = re.compile(
+    r"(?:\$|usd\s*)(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?\s*"
+    r"(?:-|to)\s*(?:\$|usd\s*)?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?",
+    re.IGNORECASE,
+)
+PAY_FLOOR_RE = re.compile(
+    r"(?:from|starting at|minimum|at least)\s+(?:\$|usd\s*)"
+    r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?",
+    re.IGNORECASE,
+)
+PAY_CAP_RE = re.compile(
+    r"(?:up to|maximum|at most)\s+(?:\$|usd\s*)"
+    r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?",
+    re.IGNORECASE,
+)
 
 
 async def search_jobs(
@@ -28,6 +46,15 @@ async def search_jobs(
     keyword: str | None = None,
     search_location: str | None = None,
     time_filter: str = "week",
+    experience_levels: list[str] | None = None,
+    employment_types: list[str] | None = None,
+    location_types: list[str] | None = None,
+    locations: list[str] | None = None,
+    pay_operator: str | None = None,
+    pay_amount: int | None = None,
+    experience_operator: str | None = None,
+    experience_years: int | None = None,
+    education_levels: list[str] | None = None,
     max_pages: int = 5,
     no_enrich: bool = False,
     headless: bool = False,
@@ -37,6 +64,11 @@ async def search_jobs(
     jobs = []
     errors: list[str] = []
     counts = {"ats": 0, "linkedin": 0, "linkedin_external_ats": 0, "total": 0}
+    experience_levels = _normalize_list(experience_levels)
+    employment_types = _normalize_list(employment_types)
+    location_types = _normalize_list(location_types)
+    locations = _normalize_list(locations)
+    education_levels = _normalize_list(education_levels)
 
     if source in ("ats", "all"):
         try:
@@ -65,8 +97,19 @@ async def search_jobs(
                 linkedin_jobs = await search_linkedin(
                     keywords=keyword,
                     location=search_location or "",
-                    time_filter=time_filter,
-                    max_pages=max_pages,
+                    time_filter=_normalize_time_filter(time_filter),
+                    experience_levels=_map_linkedin_experience_levels(experience_levels),
+                    job_types=_map_linkedin_job_types(employment_types),
+                    max_pages=_linkedin_max_pages(
+                        max_pages,
+                        experience_levels=experience_levels,
+                        employment_types=employment_types,
+                        location_types=location_types,
+                        locations=locations,
+                        pay_operator=pay_operator,
+                        experience_operator=experience_operator,
+                        education_levels=education_levels,
+                    ),
                     enrich_details=not no_enrich,
                     headless=headless,
                     filter_profile=profile,
@@ -79,6 +122,21 @@ async def search_jobs(
                 jobs.extend(linkedin_jobs)
             except Exception as exc:
                 errors.append(f"LinkedIn: {exc}")
+
+    raw_total = len(jobs)
+    jobs = _apply_search_filters(
+        jobs,
+        experience_levels=experience_levels,
+        employment_types=employment_types,
+        location_types=location_types,
+        locations=locations,
+        pay_operator=pay_operator,
+        pay_amount=pay_amount,
+        experience_operator=experience_operator,
+        experience_years=experience_years,
+        education_levels=education_levels,
+        use_llm=use_llm,
+    )
 
     scored = False
     if score and jobs:
@@ -100,6 +158,15 @@ async def search_jobs(
             "keyword": keyword or "",
             "location": search_location or "",
             "time_filter": time_filter,
+            "experience_levels": experience_levels,
+            "employment_types": employment_types,
+            "location_types": location_types,
+            "locations": locations,
+            "pay_operator": pay_operator,
+            "pay_amount": pay_amount,
+            "experience_operator": experience_operator,
+            "experience_years": experience_years,
+            "education_levels": education_levels,
             "max_pages": max_pages,
             "no_enrich": no_enrich,
             "headless": headless,
@@ -107,7 +174,12 @@ async def search_jobs(
         "jobs": [serialize_job(job) for job in jobs],
         "errors": errors,
         "error": "; ".join(errors) or None,
-        "counts": counts,
+        "counts": {
+            **counts,
+            "raw_total": raw_total,
+            "filtered_total": len(jobs),
+            "total": len(jobs),
+        },
         "scored": scored,
     }
 
@@ -414,6 +486,7 @@ async def apply_batch_jobs(
 
 def serialize_job(job, match_score: float | None = None) -> dict:
     score = job.raw_data.get("match_score") if match_score is None else match_score
+    metadata = _job_search_metadata(job)
     return {
         "id": str(job.id),
         "source": job.source,
@@ -428,6 +501,14 @@ def serialize_job(job, match_score: float | None = None) -> dict:
         "ats_type": job.ats_type,
         "match_score": score,
         "disqualified": bool(job.raw_data.get("disqualified")),
+        "experience_level": metadata.get("experience_level"),
+        "employment_category": metadata.get("employment_category"),
+        "location_type": metadata.get("location_type"),
+        "education_level": metadata.get("education_level"),
+        "experience_years_min": metadata.get("experience_years_min"),
+        "experience_years_max": metadata.get("experience_years_max"),
+        "pay_min": metadata.get("pay_min"),
+        "pay_max": metadata.get("pay_max"),
         "raw_data": job.raw_data,
         "discovered_at": _isoformat(job.discovered_at),
     }
@@ -461,6 +542,361 @@ def _build_companies_filter(
         all_companies = load_company_list(config_dir / "companies.yaml")
         return {ats: all_companies.get(ats, [])}
     return None
+
+
+def _apply_search_filters(
+    jobs,
+    *,
+    experience_levels: list[str],
+    employment_types: list[str],
+    location_types: list[str],
+    locations: list[str],
+    pay_operator: str | None,
+    pay_amount: int | None,
+    experience_operator: str | None,
+    experience_years: int | None,
+    education_levels: list[str],
+    use_llm: bool,
+):
+    if not any(
+        [
+            experience_levels,
+            employment_types,
+            location_types,
+            locations,
+            pay_operator and pay_amount is not None,
+            experience_operator and experience_years is not None,
+            education_levels,
+        ]
+    ):
+        return jobs
+
+    _prepare_jobs_for_search_filters(jobs, use_llm=use_llm)
+    filtered = []
+
+    for job in jobs:
+        metadata = _job_search_metadata(job)
+        if experience_levels and metadata.get("experience_level") not in experience_levels:
+            continue
+        if employment_types and metadata.get("employment_category") not in employment_types:
+            continue
+        if location_types and metadata.get("location_type") not in location_types:
+            continue
+        if locations and not _matches_locations(job.location, locations):
+            continue
+        if education_levels and metadata.get("education_level") not in education_levels:
+            continue
+        if (
+            pay_operator
+            and pay_amount is not None
+            and not _matches_numeric_filter(
+                metadata.get("pay_min"), metadata.get("pay_max"), pay_operator, pay_amount
+            )
+        ):
+            continue
+        if (
+            experience_operator
+            and experience_years is not None
+            and not _matches_numeric_filter(
+                metadata.get("experience_years_min"),
+                metadata.get("experience_years_max"),
+                experience_operator,
+                experience_years,
+            )
+        ):
+            continue
+        filtered.append(job)
+
+    return filtered
+
+
+def _prepare_jobs_for_search_filters(jobs, *, use_llm: bool) -> None:
+    from src.intake.jd_parser import parse_requirements
+
+    for job in jobs:
+        if _requirements_empty(job.requirements) and job.description:
+            try:
+                job.requirements = parse_requirements(job.description, use_llm=use_llm)
+            except Exception:
+                logger.debug(
+                    "JD parsing skipped for search filters on %s", job.title, exc_info=True
+                )
+
+        _set_job_search_metadata(
+            job,
+            {
+                "experience_level": _classify_experience_level(job.title),
+                "employment_category": _classify_employment_category(job),
+                "location_type": _classify_location_type(job),
+                "education_level": _normalize_education_level(
+                    job.requirements.education_level, job.description
+                ),
+                "experience_years_min": job.requirements.experience_years_min,
+                "experience_years_max": job.requirements.experience_years_max,
+                **_extract_pay_range(job),
+            },
+        )
+
+
+def _requirements_empty(requirements) -> bool:
+    return not any(
+        [
+            requirements.education_level,
+            requirements.experience_years_min,
+            requirements.experience_years_max,
+            requirements.remote_ok is not None,
+            requirements.must_have_skills,
+            requirements.preferred_skills,
+        ]
+    )
+
+
+def _classify_experience_level(title: str) -> str:
+    text = title.lower()
+    if any(
+        token in text
+        for token in ("executive", "chief ", "vp ", "vice president", "cxo", "ceo", "cto", "cfo")
+    ):
+        return "executive"
+    if any(token in text for token in ("director", "head of")):
+        return "director"
+    if any(token in text for token in ("manager", "management")):
+        return "manager"
+    if any(token in text for token in ("senior", "sr.", " sr ", "lead", "staff", "principal")):
+        return "senior"
+    if any(
+        token in text
+        for token in (
+            "entry",
+            "junior",
+            "jr.",
+            " jr ",
+            "associate",
+            "new grad",
+            "intern",
+            "co-op",
+            "coop",
+            "student",
+        )
+    ):
+        return "entry"
+    return "unknown"
+
+
+def _classify_employment_category(job) -> str:
+    text = " ".join(
+        filter(
+            None,
+            [
+                job.title,
+                job.employment_type,
+                job.description or "",
+                str(job.raw_data.get("employment_type", "")),
+                str(job.raw_data.get("workplaceType", "")),
+                str(job.raw_data.get("categories", {}).get("commitment", "")),
+            ],
+        )
+    ).lower()
+
+    if any(token in text for token in ("volunteer",)):
+        return "volunteer"
+    if any(token in text for token in ("freelance", "freelancer")):
+        return "freelance"
+    if any(token in text for token in ("seasonal",)):
+        return "seasonal"
+    if any(token in text for token in ("casual",)):
+        return "casual"
+    if any(token in text for token in ("temporary", "temp ", "temp-", "fixed term", "fixed-term")):
+        return "temporary"
+    if any(token in text for token in ("permanent",)):
+        return "permanent"
+    if any(token in text for token in ("co-op", "coop")):
+        return "coop"
+    if any(token in text for token in ("internship", "intern ")) or text.startswith("intern"):
+        return "internship"
+    if any(token in text for token in ("part-time", "part time", "parttime")):
+        return "part_time"
+    if any(token in text for token in ("contract", "contractor")):
+        return "contract"
+    if any(token in text for token in ("full-time", "full time", "fulltime")):
+        return "full_time"
+    return "unknown"
+
+
+def _classify_location_type(job) -> str:
+    description = (job.description or "").lower()
+    location = (job.location or "").lower()
+    combined = f"{location} {description}"
+
+    if "hybrid" in combined:
+        return "hybrid"
+    if job.requirements.remote_ok is True or any(
+        token in combined for token in ("remote", "work from home", "wfh", "anywhere")
+    ):
+        return "remote"
+    if any(
+        token in combined
+        for token in ("in-person", "in person", "onsite", "on-site", "in-office", "in office")
+    ):
+        return "in_person"
+    if location:
+        return "in_person"
+    return "unknown"
+
+
+def _normalize_education_level(level: str | None, description: str | None = None) -> str:
+    text = f"{level or ''} {description or ''}".lower()
+    if any(token in text for token in ("juris doctor", " j.d", " jd")):
+        return "jd"
+    if any(token in text for token in ("doctor of medicine", " md", "m.d")):
+        return "md"
+    if "phd" in text or "doctorate" in text:
+        return "phd"
+    if "mba" in text:
+        return "mba"
+    if "master" in text or "m.s" in text or "ms " in text or "m.a" in text:
+        return "master"
+    if "bachelor" in text or "b.s" in text or "b.a" in text:
+        return "bachelor"
+    if "associate" in text:
+        return "associate"
+    if "high school" in text or "secondary school" in text:
+        return "high_school"
+    return "unknown"
+
+
+def _extract_pay_range(job) -> dict:
+    text = " ".join(filter(None, [job.description, str(job.raw_data)]))
+    match = PAY_RANGE_RE.search(text)
+    if match:
+        return {
+            "pay_min": _parse_money(match.group(1), match.group(2)),
+            "pay_max": _parse_money(match.group(3), match.group(4)),
+        }
+
+    floor_match = PAY_FLOOR_RE.search(text)
+    cap_match = PAY_CAP_RE.search(text)
+    return {
+        "pay_min": _parse_money(floor_match.group(1), floor_match.group(2))
+        if floor_match
+        else None,
+        "pay_max": _parse_money(cap_match.group(1), cap_match.group(2)) if cap_match else None,
+    }
+
+
+def _parse_money(value: str, suffix: str | None) -> int | None:
+    try:
+        numeric = float(value.replace(",", ""))
+    except ValueError:
+        return None
+
+    suffix_normalized = (suffix or "").lower()
+    if suffix_normalized == "k":
+        numeric *= 1000
+    elif suffix_normalized == "m":
+        numeric *= 1_000_000
+
+    return int(numeric)
+
+
+def _matches_locations(location: str | None, candidates: list[str]) -> bool:
+    normalized_location = (location or "").lower()
+    if not normalized_location:
+        return False
+    return any(candidate in normalized_location for candidate in candidates)
+
+
+def _matches_numeric_filter(
+    min_value: int | None,
+    max_value: int | None,
+    operator: str,
+    target: int,
+) -> bool:
+    if min_value is None and max_value is None:
+        return False
+
+    lower = min_value if min_value is not None else max_value
+    upper = max_value if max_value is not None else min_value
+
+    if operator == "gt":
+        return upper is not None and upper > target
+    if operator == "gte":
+        return upper is not None and upper >= target
+    if operator == "lt":
+        return lower is not None and lower < target
+    if operator == "lte":
+        return lower is not None and lower <= target
+    return True
+
+
+def _normalize_list(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    return [value.strip().lower() for value in values if isinstance(value, str) and value.strip()]
+
+
+def _normalize_time_filter(value: str) -> str:
+    return value if value in {"24h", "week", "month"} else ""
+
+
+def _map_linkedin_experience_levels(values: list[str]) -> list[str] | None:
+    mapping = {
+        "entry": "entry",
+        "senior": "mid_senior",
+        "director": "director",
+        "executive": "executive",
+    }
+    mapped = [mapping[value] for value in values if value in mapping]
+    return mapped or None
+
+
+def _map_linkedin_job_types(values: list[str]) -> list[str] | None:
+    mapping = {
+        "part_time": "parttime",
+        "contract": "contract",
+        "internship": "internship",
+        "coop": "internship",
+        "full_time": "fulltime",
+        "temporary": "temporary",
+    }
+    mapped = [mapping[value] for value in values if value in mapping]
+    return mapped or None
+
+
+def _linkedin_max_pages(
+    max_pages: int,
+    *,
+    experience_levels: list[str],
+    employment_types: list[str],
+    location_types: list[str],
+    locations: list[str],
+    pay_operator: str | None,
+    experience_operator: str | None,
+    education_levels: list[str],
+) -> int:
+    local_only_filters = any(
+        [
+            any(value in {"manager"} for value in experience_levels),
+            any(
+                value in {"permanent", "casual", "seasonal", "freelance", "volunteer"}
+                for value in employment_types
+            ),
+            location_types,
+            locations,
+            pay_operator,
+            experience_operator,
+            education_levels,
+        ]
+    )
+    return max(max_pages, 10) if local_only_filters else max_pages
+
+
+def _job_search_metadata(job) -> dict:
+    return job.raw_data.get(SEARCH_METADATA_KEY, {})
+
+
+def _set_job_search_metadata(job, metadata: dict) -> None:
+    job.raw_data[SEARCH_METADATA_KEY] = metadata
 
 
 def _score_jobs(jobs, *, warn_on_missing_profile: bool) -> tuple[bool, list[str]]:
