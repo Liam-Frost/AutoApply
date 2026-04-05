@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from src.application.jobs import apply_to_url
 from src.application.jobs import search_jobs as search_jobs_usecase
-from src.application.profile import import_resume_file, load_profile_data
+from src.application.profile import (
+    activate_profile_data,
+    create_empty_profile,
+    delete_profile_data,
+    import_resume_file,
+    load_profile_data,
+    save_profile_data,
+)
 from src.application.settings import load_llm_settings_data, update_llm_settings_data
 from src.application.tracking import (
     load_applications_data,
@@ -49,6 +56,17 @@ class LLMSettingsPayload(BaseModel):
     primary_provider: str
     fallback_provider: str | None = None
     allow_fallback: bool = False
+
+
+class ProfileSavePayload(BaseModel):
+    profile_id: str
+    profile: dict
+    set_active: bool = False
+
+
+class ProfileCreatePayload(BaseModel):
+    profile_id: str
+    set_active: bool = True
 
 
 @router.get("/dashboard")
@@ -133,16 +151,69 @@ async def update_outcome(application_id: str, payload: OutcomePayload) -> dict:
 
 
 @router.get("/profile")
-async def profile_data() -> dict:
-    return load_profile_data()
+async def profile_data(profile_id: str = Query("", description="Optional profile id")) -> dict:
+    return load_profile_data(profile_id or None)
+
+
+@router.post("/profile")
+async def create_profile(payload: ProfileCreatePayload) -> dict:
+    result = create_empty_profile(profile_id=payload.profile_id, set_active=payload.set_active)
+    if not result["ok"]:
+        status_code = 409 if result["error_code"] == "profile_exists" else 400
+        raise HTTPException(status_code=status_code, detail=result["error"])
+    return result
+
+
+@router.put("/profile/{profile_id}")
+async def save_profile(profile_id: str, payload: ProfileSavePayload) -> dict:
+    if profile_id != payload.profile_id:
+        raise HTTPException(status_code=400, detail="Profile id mismatch")
+    return save_profile_data(
+        profile_id=payload.profile_id,
+        profile_data=payload.profile,
+        set_active=payload.set_active,
+    )
+
+
+@router.delete("/profile/{profile_id}")
+async def delete_profile(profile_id: str) -> dict:
+    result = delete_profile_data(profile_id=profile_id)
+    if not result["ok"]:
+        status_code = 404 if result["error_code"] == "profile_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=result["error"])
+    return result
+
+
+@router.post("/profile/{profile_id}/activate")
+async def activate_profile(profile_id: str) -> dict:
+    result = activate_profile_data(profile_id=profile_id)
+    if not result["ok"]:
+        status_code = 404 if result["error_code"] == "profile_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=result["error"])
+    return result
 
 
 @router.post("/profile/upload-resume")
-async def upload_resume(resume: UploadFile = File(...)) -> dict:
+async def upload_resume(
+    resume: UploadFile = File(...),
+    profile_id: str = Form(""),
+    overwrite: bool = Form(False),
+    set_active: bool = Form(True),
+) -> dict:
     content = await resume.read()
-    result = import_resume_file(filename=resume.filename or "", content=content)
+    result = import_resume_file(
+        filename=resume.filename or "",
+        content=content,
+        profile_id=profile_id or None,
+        overwrite=overwrite,
+        set_active=set_active,
+    )
     if not result["ok"]:
-        status_code = 400 if result["error_code"] == "unsupported_file_type" else 500
+        status_code = 400
+        if result["error_code"] == "profile_exists":
+            status_code = 409
+        elif result["error_code"] not in {"unsupported_file_type", "profile_exists"}:
+            status_code = 500
         raise HTTPException(status_code=status_code, detail=result["error"])
     return result
 

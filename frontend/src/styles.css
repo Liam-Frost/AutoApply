@@ -179,6 +179,46 @@ textarea {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
 }
 
+.jobs-shell {
+  gap: 18px;
+}
+
+.jobs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 16px;
+}
+
+.jobs-panel {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface-muted);
+}
+
+.jobs-panel-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.jobs-filter-stack {
+  gap: 16px;
+}
+
+.jobs-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.jobs-results-head {
+  align-items: center;
+}
+
+.compact-head {
+  margin-bottom: 16px;
+}
+
 .panel-stack,
 .list-stack,
 .category-list {
@@ -367,6 +407,11 @@ textarea {
   color: var(--text);
 }
 
+.chip.subtle {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+}
+
 .chip.success,
 .inline-feedback.submitted,
 .inline-feedback.review {
@@ -495,6 +540,27 @@ textarea {
   gap: 14px;
 }
 
+.profile-admin-grid {
+  grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.4fr);
+}
+
+.profile-row-button {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-row-button strong {
+  color: var(--text);
+}
+
+.code-textarea {
+  min-height: 180px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .profile-name {
   font-size: 1.3rem;
   font-weight: 650;
@@ -530,8 +596,14 @@ textarea {
 @media (max-width: 1100px) {
   .metric-grid,
   .form-grid-4,
-  .content-grid-wide {
+  .content-grid-wide,
+  .profile-admin-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jobs-grid,
+  .jobs-panel-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -546,6 +618,11 @@ textarea {
     padding-bottom: 96px;
   }
 
+  .jobs-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .dock {
     top: auto;
     bottom: 16px;
@@ -558,13 +635,18 @@ textarea {
 @media (max-width: 700px) {
   .metric-grid,
   .form-grid-4,
-  .content-grid-wide {
+  .content-grid-wide,
+  .profile-admin-grid {
     grid-template-columns: 1fr;
   }
 
   .field-span-2,
   .field-span-full {
     grid-column: auto;
+  }
+
+  .jobs-panel {
+    padding: 16px;
   }
 
   .inline-grid-2 {

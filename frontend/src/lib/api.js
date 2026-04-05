@@ -58,9 +58,38 @@ export const api = {
   profile() {
     return request("/api/profile")
   },
-  uploadResume(file) {
+  createProfile(profileId, setActive = true) {
+    return request("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile_id: profileId, set_active: setActive }),
+    })
+  },
+  saveProfile(profileId, profile, setActive = false) {
+    return request(`/api/profile/${profileId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile_id: profileId, profile, set_active: setActive }),
+    })
+  },
+  deleteProfile(profileId) {
+    return request(`/api/profile/${profileId}`, {
+      method: "DELETE",
+    })
+  },
+  activateProfile(profileId) {
+    return request(`/api/profile/${profileId}/activate`, {
+      method: "POST",
+    })
+  },
+  uploadResume(file, options = {}) {
     const form = new FormData()
     form.append("resume", file)
+    if (options.profileId) {
+      form.append("profile_id", options.profileId)
+    }
+    form.append("overwrite", String(Boolean(options.overwrite)))
+    form.append("set_active", String(options.setActive !== false))
     return request("/api/profile/upload-resume", {
       method: "POST",
       body: form,

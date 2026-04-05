@@ -266,8 +266,11 @@ class TestProfileApi:
             "src.web.routes.api.load_profile_data",
             return_value={
                 "profile": None,
-                "profile_path": "data/profile/profile.yaml",
+                "profile_path": "data/profile/profiles/default.yaml",
                 "has_profile": False,
+                "profiles": [],
+                "active_profile_id": None,
+                "selected_profile_id": None,
             },
         ):
             response = client.get("/api/profile")
@@ -283,6 +286,107 @@ class TestProfileApi:
 
         assert response.status_code == 400
         assert "Only .pdf and .docx files are supported." in response.json()["detail"]
+
+    def test_create_profile(self, client):
+        with patch(
+            "src.web.routes.api.create_empty_profile",
+            return_value={
+                "ok": True,
+                "status": "created",
+                "message": "Profile 'new-profile' created.",
+                "profile": {
+                    "identity": {},
+                    "education": [],
+                    "work_experiences": [],
+                    "projects": [],
+                    "skills": {},
+                },
+                "profile_path": "data/profile/profiles/new-profile.yaml",
+                "has_profile": True,
+                "profiles": [{"id": "new-profile", "is_active": True}],
+                "active_profile_id": "new-profile",
+                "selected_profile_id": "new-profile",
+            },
+        ):
+            response = client.post(
+                "/api/profile", json={"profile_id": "new-profile", "set_active": True}
+            )
+
+        assert response.status_code == 200
+        assert response.json()["active_profile_id"] == "new-profile"
+
+    def test_save_profile(self, client):
+        with patch(
+            "src.web.routes.api.save_profile_data",
+            return_value={
+                "ok": True,
+                "status": "saved",
+                "message": "Profile 'default' saved.",
+                "profile": {
+                    "identity": {"full_name": "Test User"},
+                    "education": [],
+                    "work_experiences": [],
+                    "projects": [],
+                    "skills": {},
+                },
+                "profile_path": "data/profile/profiles/default.yaml",
+                "has_profile": True,
+                "profiles": [{"id": "default", "is_active": True}],
+                "active_profile_id": "default",
+                "selected_profile_id": "default",
+            },
+        ):
+            response = client.put(
+                "/api/profile/default",
+                json={
+                    "profile_id": "default",
+                    "profile": {"identity": {"full_name": "Test User"}},
+                    "set_active": True,
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["profile"]["identity"]["full_name"] == "Test User"
+
+    def test_activate_profile(self, client):
+        with patch(
+            "src.web.routes.api.activate_profile_data",
+            return_value={
+                "ok": True,
+                "status": "activated",
+                "message": "Profile 'default' activated.",
+                "profile": {"identity": {}},
+                "profile_path": "data/profile/profiles/default.yaml",
+                "has_profile": True,
+                "profiles": [{"id": "default", "is_active": True}],
+                "active_profile_id": "default",
+                "selected_profile_id": "default",
+            },
+        ):
+            response = client.post("/api/profile/default/activate")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "activated"
+
+    def test_delete_profile(self, client):
+        with patch(
+            "src.web.routes.api.delete_profile_data",
+            return_value={
+                "ok": True,
+                "status": "deleted",
+                "message": "Profile 'default' deleted.",
+                "profile": None,
+                "profile_path": "",
+                "has_profile": False,
+                "profiles": [],
+                "active_profile_id": None,
+                "selected_profile_id": None,
+            },
+        ):
+            response = client.delete("/api/profile/default")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "deleted"
 
 
 class TestSettingsApi:
