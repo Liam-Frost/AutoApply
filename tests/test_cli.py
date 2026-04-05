@@ -108,8 +108,12 @@ class TestCLIStructure:
 
         assert result.exit_code == 0
         data = json.loads(result.output)
+        assert data["protocol_version"] == "1.0"
+        assert data["type"] == "autoapply.cli.result"
         assert data["command"] == "search"
-        assert data["jobs"][0]["company"] == "TestCo"
+        assert data["ok"] is True
+        assert data["error"] is None
+        assert data["data"]["jobs"][0]["company"] == "TestCo"
 
     def test_apply_json_output(self, runner):
         from src.cli.main import cli
@@ -136,8 +140,10 @@ class TestCLIStructure:
 
         assert result.exit_code == 0
         data = json.loads(result.output)
+        assert data["protocol_version"] == "1.0"
         assert data["command"] == "apply"
-        assert data["status"] == "REVIEW_REQUIRED"
+        assert data["ok"] is True
+        assert data["data"]["status"] == "REVIEW_REQUIRED"
 
     def test_status_json_output(self, runner):
         from src.cli.main import cli
@@ -173,8 +179,22 @@ class TestCLIStructure:
 
         assert result.exit_code == 0
         data = json.loads(result.output)
+        assert data["protocol_version"] == "1.0"
         assert data["command"] == "status"
-        assert data["pipeline_summary"]["total_applied"] == 1
+        assert data["ok"] is True
+        assert data["data"]["pipeline_summary"]["total_applied"] == 1
+
+    def test_apply_json_error_envelope(self, runner):
+        from src.cli.main import cli
+
+        result = runner.invoke(cli, ["apply", "--json"])
+
+        assert result.exit_code == 1
+        data = json.loads(result.output)
+        assert data["protocol_version"] == "1.0"
+        assert data["command"] == "apply"
+        assert data["ok"] is False
+        assert data["error"]["code"] == "missing_target"
 
 
 class TestInitCommand:
@@ -436,6 +456,59 @@ class TestApplicationUseCases:
         assert result["platforms"]["lever"]["REVIEW_REQUIRED"] == 1
         assert mock_query.call_args.kwargs["company"] == "FilteredCo"
         assert mock_query.call_args.kwargs["limit"] is None
+
+    @pytest.mark.asyncio
+    async def test_search_jobs_applies_extended_filters(self):
+        from src.application.jobs import search_jobs
+        from src.intake.schema import JobRequirements, RawJob
+
+        matching_job = RawJob(
+            source="greenhouse",
+            source_id="1",
+            company="RemoteCo",
+            title="Software Engineer Intern",
+            location="New York, United States",
+            employment_type="internship",
+            description="Remote role with compensation of $120,000 to $140,000.",
+            requirements=JobRequirements(education_level="Bachelor's", experience_years_min=1),
+            ats_type="greenhouse",
+        )
+        filtered_out_job = RawJob(
+            source="lever",
+            source_id="2",
+            company="ExecCo",
+            title="Director of Engineering",
+            location="Toronto, Canada",
+            employment_type="fulltime",
+            description="On-site role with compensation of $200,000 to $250,000.",
+            requirements=JobRequirements(education_level="Master's", experience_years_min=8),
+            ats_type="lever",
+        )
+        matching_job.requirements.remote_ok = True
+        filtered_out_job.requirements.remote_ok = False
+
+        with patch(
+            "src.intake.search.search_jobs",
+            return_value=[matching_job, filtered_out_job],
+        ):
+            result = await search_jobs(
+                source="ats",
+                experience_levels=["entry"],
+                employment_types=["internship"],
+                location_types=["remote"],
+                locations=["new york", "united states"],
+                pay_operator="gte",
+                pay_amount=130000,
+                experience_operator="lte",
+                experience_years=2,
+                education_levels=["bachelor"],
+            )
+
+        assert len(result["jobs"]) == 1
+        assert result["jobs"][0]["company"] == "RemoteCo"
+        assert result["jobs"][0]["location_type"] == "remote"
+        assert result["jobs"][0]["pay_min"] == 120000
+        assert result["jobs"][0]["pay_max"] == 140000
 
     def test_setup_profile_retries_resume_input_after_failure(self):
         from src.cli.cmd_init import _setup_profile

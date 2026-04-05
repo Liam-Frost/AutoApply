@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from src.application.jobs import search_jobs as search_jobs_usecase
-from src.cli.output import emit_json
+from src.cli.output import build_json_payload, emit_json
 from src.core.config import PROJECT_ROOT
 
 logger = logging.getLogger("autoapply.cli.search")
@@ -88,7 +88,9 @@ def search_cmd(
     )
 
     if as_json:
-        emit_json({"command": "search", **result})
+        emit_json(
+            build_json_payload(command="search", data={"ok": not bool(result["errors"]), **result})
+        )
     else:
         _render_search_result(
             result, source=source, use_llm=use_llm, no_parse=no_parse, score=score
