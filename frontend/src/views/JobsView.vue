@@ -1,5 +1,5 @@
 <script setup>
-import { reactive } from "vue"
+import { computed, reactive } from "vue"
 
 import { api } from "../lib/api"
 import { formatPercent, truncateText } from "../lib/format"
@@ -72,15 +72,67 @@ const form = reactive({
 
 const state = reactive({
   searching: false,
+  searched: false,
   error: "",
   jobs: [],
+  counts: emptyCounts(),
   applyState: {},
+})
+
+const sourceUsesLinkedIn = computed(() => form.source === "linkedin" || form.source === "all")
+const sourceUsesAts = computed(() => form.source === "ats" || form.source === "all")
+
+const activeFilterLabels = computed(() => {
+  const labels = []
+
+  if (form.time_filter !== "all") {
+    labels.push(`Posted: ${timeFilterLabel(form.time_filter)}`)
+  }
+  if (form.locations_input.trim()) {
+    labels.push(...parseCandidates(form.locations_input).map((value) => `Location: ${value}`))
+  }
+  labels.push(...labelValues(form.experience_levels, experienceLevelOptions))
+  labels.push(...labelValues(form.employment_types, employmentTypeOptions))
+  labels.push(...labelValues(form.location_types, locationTypeOptions))
+  labels.push(...labelValues(form.education_levels, educationOptions))
+
+  if (form.pay_operator && form.pay_amount) {
+    labels.push(`Pay ${operatorLabel(form.pay_operator)} ${formatMoney(Number(form.pay_amount))}`)
+  }
+  if (form.experience_operator && form.experience_years) {
+    labels.push(`Exp ${operatorLabel(form.experience_operator)} ${form.experience_years}y`)
+  }
+
+  return labels
+})
+
+const resultSummary = computed(() => {
+  if (!state.searched) {
+    return ""
+  }
+
+  const { filtered_total, raw_total, ats, linkedin, linkedin_external_ats } = state.counts
+  const parts = [`${filtered_total} shown`, `${raw_total} fetched`]
+
+  if (ats) {
+    parts.push(`${ats} ATS`)
+  }
+  if (linkedin) {
+    parts.push(`${linkedin} LinkedIn`)
+  }
+  if (linkedin_external_ats) {
+    parts.push(`${linkedin_external_ats} external ATS`)
+  }
+
+  return parts.join(" / ")
 })
 
 async function search() {
   state.searching = true
+  state.searched = true
   state.error = ""
   state.jobs = []
+  state.counts = emptyCounts()
 
   try {
     const response = await api.searchJobs({
@@ -90,9 +142,11 @@ async function search() {
       experience_years: parseOptionalNumber(form.experience_years),
     })
     state.jobs = response.jobs
+    state.counts = response.counts || emptyCounts()
     state.error = response.error || ""
   } catch (error) {
     state.jobs = []
+    state.counts = emptyCounts()
     state.error = error.message
   } finally {
     state.searching = false
@@ -180,134 +234,214 @@ function prettyLabel(value) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ")
 }
+
+function labelValues(values, options) {
+  return options.filter((option) => values.includes(option.value)).map((option) => option.label)
+}
+
+function operatorLabel(value) {
+  return numericOperators.find((option) => option.value === value)?.label || value
+}
+
+function timeFilterLabel(value) {
+  return (
+    {
+      all: "All dates",
+      month: "Past month",
+      week: "Past week",
+      "24h": "Past 24 hours",
+    }[value] || value
+  )
+}
+
+function resetForm() {
+  form.source = "ats"
+  form.keyword = ""
+  form.location = ""
+  form.profile = "default"
+  form.time_filter = "all"
+  form.ats = ""
+  form.company = ""
+  form.locations_input = ""
+  form.experience_levels = []
+  form.employment_types = []
+  form.location_types = []
+  form.education_levels = []
+  form.pay_operator = ""
+  form.pay_amount = ""
+  form.experience_operator = ""
+  form.experience_years = ""
+}
+
+function emptyCounts() {
+  return {
+    ats: 0,
+    linkedin: 0,
+    linkedin_external_ats: 0,
+    raw_total: 0,
+    filtered_total: 0,
+    total: 0,
+  }
+}
 </script>
 
 <template>
   <div class="page-stack">
-    <section class="surface">
-      <form class="form-grid form-grid-4" @submit.prevent="search">
-        <label class="field">
-          <span>Source</span>
-          <select v-model="form.source" class="select">
-            <option value="ats">ATS</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="all">All</option>
-          </select>
-        </label>
+    <section class="surface jobs-shell">
+      <form class="page-stack" @submit.prevent="search">
+        <div class="jobs-grid">
+          <section class="jobs-panel">
+            <div class="section-head compact-head">
+              <h2>Search</h2>
+            </div>
 
-        <label class="field">
-          <span>Keyword</span>
-          <input v-model="form.keyword" class="input" type="text" placeholder="software engineer" />
-        </label>
+            <div class="form-grid jobs-panel-grid">
+              <label class="field">
+                <span>Source</span>
+                <select v-model="form.source" class="select">
+                  <option value="ats">ATS</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
 
-        <label class="field">
-          <span>Search location</span>
-          <input v-model="form.location" class="input" type="text" placeholder="City, State, Country" />
-        </label>
+              <label class="field">
+                <span>Profile</span>
+                <input v-model="form.profile" class="input" type="text" />
+              </label>
 
-        <label class="field">
-          <span>Profile</span>
-          <input v-model="form.profile" class="input" type="text" />
-        </label>
+              <template v-if="sourceUsesLinkedIn">
+                <label class="field">
+                  <span>Keyword</span>
+                  <input v-model="form.keyword" class="input" type="text" placeholder="software engineer" />
+                </label>
 
-        <label class="field">
-          <span>Date posted</span>
-          <select v-model="form.time_filter" class="select">
-            <option value="all">All dates</option>
-            <option value="month">Past month</option>
-            <option value="week">Past week</option>
-            <option value="24h">Past 24 hours</option>
-          </select>
-        </label>
+                <label class="field">
+                  <span>Search location</span>
+                  <input v-model="form.location" class="input" type="text" placeholder="City, State, Country" />
+                </label>
 
-        <label class="field">
-          <span>ATS</span>
-          <select v-model="form.ats" class="select">
-            <option value="">All</option>
-            <option value="greenhouse">Greenhouse</option>
-            <option value="lever">Lever</option>
-          </select>
-        </label>
+                <label class="field field-span-full">
+                  <span>Date posted</span>
+                  <select v-model="form.time_filter" class="select">
+                    <option value="all">All dates</option>
+                    <option value="month">Past month</option>
+                    <option value="week">Past week</option>
+                    <option value="24h">Past 24 hours</option>
+                  </select>
+                </label>
+              </template>
 
-        <label class="field">
-          <span>Company slug</span>
-          <input v-model="form.company" class="input" type="text" placeholder="stripe" />
-        </label>
+              <template v-if="sourceUsesAts">
+                <label class="field">
+                  <span>ATS</span>
+                  <select v-model="form.ats" class="select">
+                    <option value="">All</option>
+                    <option value="greenhouse">Greenhouse</option>
+                    <option value="lever">Lever</option>
+                  </select>
+                </label>
 
-        <label class="field">
-          <span>Candidate locations</span>
-          <textarea
-            v-model="form.locations_input"
-            class="input textarea"
-            rows="3"
-            placeholder="San Francisco, CA, United States&#10;Toronto, ON, Canada"
-          ></textarea>
-        </label>
+                <label class="field">
+                  <span>Company slug</span>
+                  <input v-model="form.company" class="input" type="text" placeholder="stripe" />
+                </label>
+              </template>
+            </div>
+          </section>
 
-        <div class="field field-span-2">
-          <span>Pay</span>
-          <div class="inline-grid inline-grid-2">
-            <select v-model="form.pay_operator" class="select">
-              <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-            <input v-model="form.pay_amount" class="input" type="number" min="0" placeholder="120000" />
-          </div>
+          <section class="jobs-panel">
+            <div class="section-head compact-head">
+              <h2>Filters</h2>
+              <span class="muted">{{ activeFilterLabels.length }}</span>
+            </div>
+
+            <div class="page-stack jobs-filter-stack">
+              <label class="field">
+                <span>Candidate locations</span>
+                <textarea
+                  v-model="form.locations_input"
+                  class="input textarea"
+                  rows="3"
+                  placeholder="One per line&#10;San Francisco, CA, United States&#10;Toronto, ON, Canada"
+                ></textarea>
+              </label>
+
+              <div class="inline-grid inline-grid-2">
+                <div class="field">
+                  <span>Pay</span>
+                  <div class="inline-grid inline-grid-2">
+                    <select v-model="form.pay_operator" class="select">
+                      <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                    <input v-model="form.pay_amount" class="input" type="number" min="0" placeholder="120000" />
+                  </div>
+                </div>
+
+                <div class="field">
+                  <span>Experience years</span>
+                  <div class="inline-grid inline-grid-2">
+                    <select v-model="form.experience_operator" class="select">
+                      <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                    <input v-model="form.experience_years" class="input" type="number" min="0" placeholder="3" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="field">
+                <span>Experience level</span>
+                <div class="toggle-grid">
+                  <label v-for="option in experienceLevelOptions" :key="option.value" class="toggle-pill">
+                    <input v-model="form.experience_levels" type="checkbox" :value="option.value" />
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="field">
+                <span>Employment type</span>
+                <div class="toggle-grid">
+                  <label v-for="option in employmentTypeOptions" :key="option.value" class="toggle-pill">
+                    <input v-model="form.employment_types" type="checkbox" :value="option.value" />
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="field">
+                <span>Location type</span>
+                <div class="toggle-grid">
+                  <label v-for="option in locationTypeOptions" :key="option.value" class="toggle-pill">
+                    <input v-model="form.location_types" type="checkbox" :value="option.value" />
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="field">
+                <span>Education</span>
+                <div class="toggle-grid">
+                  <label v-for="option in educationOptions" :key="option.value" class="toggle-pill">
+                    <input v-model="form.education_levels" type="checkbox" :value="option.value" />
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
 
-        <div class="field field-span-2">
-          <span>Experience years</span>
-          <div class="inline-grid inline-grid-2">
-            <select v-model="form.experience_operator" class="select">
-              <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-            <input v-model="form.experience_years" class="input" type="number" min="0" placeholder="3" />
+        <div class="jobs-toolbar">
+          <div class="chip-row" v-if="activeFilterLabels.length">
+            <span v-for="label in activeFilterLabels" :key="label" class="chip subtle">{{ label }}</span>
           </div>
-        </div>
-
-        <div class="field field-span-full">
-          <span>Experience level</span>
-          <div class="toggle-grid">
-            <label v-for="option in experienceLevelOptions" :key="option.value" class="toggle-pill">
-              <input v-model="form.experience_levels" type="checkbox" :value="option.value" />
-              <span>{{ option.label }}</span>
-            </label>
+          <div class="actions-row">
+            <button class="button ghost" type="button" @click="resetForm">Reset</button>
+            <button class="button" type="submit" :disabled="state.searching">
+              {{ state.searching ? "Searching" : "Search" }}
+            </button>
           </div>
-        </div>
-
-        <div class="field field-span-full">
-          <span>Employment type</span>
-          <div class="toggle-grid">
-            <label v-for="option in employmentTypeOptions" :key="option.value" class="toggle-pill">
-              <input v-model="form.employment_types" type="checkbox" :value="option.value" />
-              <span>{{ option.label }}</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="field field-span-full">
-          <span>Location type</span>
-          <div class="toggle-grid">
-            <label v-for="option in locationTypeOptions" :key="option.value" class="toggle-pill">
-              <input v-model="form.location_types" type="checkbox" :value="option.value" />
-              <span>{{ option.label }}</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="field field-span-full">
-          <span>Education</span>
-          <div class="toggle-grid">
-            <label v-for="option in educationOptions" :key="option.value" class="toggle-pill">
-              <input v-model="form.education_levels" type="checkbox" :value="option.value" />
-              <span>{{ option.label }}</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="actions-row align-end field-span-full">
-          <button class="button" type="submit" :disabled="state.searching">
-            {{ state.searching ? "Searching" : "Search" }}
-          </button>
         </div>
       </form>
     </section>
@@ -315,9 +449,17 @@ function prettyLabel(value) {
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
 
     <section class="surface">
-      <div class="section-head">
-        <h2>Results</h2>
-        <span class="muted">{{ state.jobs.length }}</span>
+      <div class="section-head jobs-results-head">
+        <div>
+          <h2>Results</h2>
+          <div v-if="resultSummary" class="muted-inline">{{ resultSummary }}</div>
+        </div>
+
+        <div class="chip-row" v-if="state.searched">
+          <span class="chip subtle">{{ state.jobs.length }}</span>
+          <span v-if="state.counts.ats" class="chip subtle">{{ state.counts.ats }} ATS</span>
+          <span v-if="state.counts.linkedin" class="chip subtle">{{ state.counts.linkedin }} LinkedIn</span>
+        </div>
       </div>
 
       <div v-if="state.searching" class="empty-state">Searching</div>

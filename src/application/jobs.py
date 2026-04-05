@@ -8,12 +8,12 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
+from src.application.profile import get_active_profile_path
 from src.core.config import PROJECT_ROOT
 from src.core.state_machine import ApplicationState, AppStatus
 
 logger = logging.getLogger("autoapply.application.jobs")
 
-PROFILE_FILE = PROJECT_ROOT / "data" / "profile" / "profile.yaml"
 SEARCH_METADATA_KEY = "_search_filters"
 
 PAY_RANGE_RE = re.compile(
@@ -900,7 +900,8 @@ def _set_job_search_metadata(job, metadata: dict) -> None:
 
 
 def _score_jobs(jobs, *, warn_on_missing_profile: bool) -> tuple[bool, list[str]]:
-    if not PROFILE_FILE.exists():
+    profile_path = get_active_profile_path()
+    if profile_path is None or not profile_path.exists():
         if warn_on_missing_profile:
             return False, ["No profile found -- run `autoapply init` first to enable scoring."]
         return False, []
@@ -909,7 +910,7 @@ def _score_jobs(jobs, *, warn_on_missing_profile: bool) -> tuple[bool, list[str]
     from src.matching.scorer import score_jobs as score_ranked_jobs
     from src.memory.profile import load_profile_yaml
 
-    profile_data = load_profile_yaml(PROFILE_FILE)
+    profile_data = load_profile_yaml(profile_path)
     scoring_ctx = build_scoring_context(profile_data)
     ranked = score_ranked_jobs(jobs, scoring_ctx)
     score_by_id = {score.job_id: score for score in ranked}
@@ -1181,12 +1182,13 @@ def _detect_ats_from_url(url: str) -> str | None:
 
 
 def _load_profile() -> dict | None:
-    if not PROFILE_FILE.exists():
+    profile_path = get_active_profile_path()
+    if profile_path is None or not profile_path.exists():
         return None
 
     from src.memory.profile import load_profile_yaml
 
-    return load_profile_yaml(PROFILE_FILE)
+    return load_profile_yaml(profile_path)
 
 
 def _load_job_for_application(url: str, ats_type: str):
