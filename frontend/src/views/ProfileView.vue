@@ -86,8 +86,18 @@ async function load(profileId = "") {
 }
 
 function syncEditorFromProfile(profile) {
+  syncEditorState(profile, false)
+}
+
+function syncEditorState(profile, preserveUi) {
+  const sectionState = preserveUi ? { ...state.sections } : collapsedSections()
+  const editorState = preserveUi ? captureEditorUiState(state.editor) : null
+
   state.editor = toEditorProfile(profile)
-  state.sections = collapsedSections()
+  state.sections = sectionState
+  if (editorState) {
+    applyEditorUiState(state.editor, editorState)
+  }
   state.loadedFingerprint = profileFingerprint(state.editor)
   if (!isEditingView.value) {
     state.uploadProfileId = currentProfileId.value || ""
@@ -181,7 +191,7 @@ async function activateProfile(profileId) {
     state.data = await api.activateProfile(profileId)
     state.message = state.data.message || "Selected"
     if (isEditingView.value && currentRouteProfileId.value === profileId) {
-      syncEditorFromProfile(state.data.profile)
+      syncEditorState(state.data.profile, true)
     }
   } catch (error) {
     state.error = error.message
@@ -261,7 +271,7 @@ async function saveProfile() {
   try {
     state.data = await api.saveProfile(currentProfileId.value, serializeEditorProfile(state.editor), false)
     state.message = state.data.message || "Saved"
-    syncEditorFromProfile(state.data.profile)
+    syncEditorState(state.data.profile, true)
   } catch (error) {
     state.error = error.message
   } finally {
@@ -298,7 +308,9 @@ function toggleSection(section) {
 }
 
 function addEducation() {
-  state.editor.education.push(emptyEducation())
+  const item = emptyEducation()
+  item.expanded = true
+  state.editor.education.push(item)
   state.sections.education = true
 }
 
@@ -315,7 +327,9 @@ function removeCourse(educationIndex, courseIndex) {
 }
 
 function addExperience() {
-  state.editor.work_experiences.push(emptyExperience())
+  const item = emptyExperience()
+  item.expanded = true
+  state.editor.work_experiences.push(item)
   state.sections.experience = true
 }
 
@@ -324,7 +338,9 @@ function removeExperience(index) {
 }
 
 function addExperienceBullet(experienceIndex) {
-  state.editor.work_experiences[experienceIndex].bullets.push(emptyBullet())
+  const bullet = emptyBullet()
+  bullet.expanded = true
+  state.editor.work_experiences[experienceIndex].bullets.push(bullet)
 }
 
 function removeExperienceBullet(experienceIndex, bulletIndex) {
@@ -332,7 +348,9 @@ function removeExperienceBullet(experienceIndex, bulletIndex) {
 }
 
 function addProject() {
-  state.editor.projects.push(emptyProject())
+  const item = emptyProject()
+  item.expanded = true
+  state.editor.projects.push(item)
   state.sections.projects = true
 }
 
@@ -341,7 +359,9 @@ function removeProject(index) {
 }
 
 function addProjectBullet(projectIndex) {
-  state.editor.projects[projectIndex].bullets.push(emptyBullet())
+  const bullet = emptyBullet()
+  bullet.expanded = true
+  state.editor.projects[projectIndex].bullets.push(bullet)
 }
 
 function removeProjectBullet(projectIndex, bulletIndex) {
@@ -360,10 +380,14 @@ function addSkillCategory() {
     return
   }
 
-  state.editor.skills.push({ id: makeId("skill"), key, values: [] })
+  state.editor.skills.push({ id: makeId("skill"), key, values: [], expanded: true })
   state.newSkillCategory = ""
   state.error = ""
   state.sections.skills = true
+}
+
+function toggleItem(item) {
+  item.expanded = !item.expanded
 }
 
 function removeSkillCategory(index) {
@@ -388,6 +412,7 @@ function toEditorProfile(profile) {
       id: makeId("skill"),
       key,
       values: normalizeStringArray(normalized.skills[key]),
+      expanded: false,
     })),
   }
 }
@@ -536,6 +561,7 @@ function emptyStructuredProfile() {
 function emptyEducation() {
   return {
     id: makeId("education"),
+    expanded: false,
     institution: "",
     degree: "",
     field: "",
@@ -558,6 +584,7 @@ function emptyCourse() {
 function emptyExperience() {
   return {
     id: makeId("experience"),
+    expanded: false,
     company: "",
     title: "",
     location: "",
@@ -570,6 +597,7 @@ function emptyExperience() {
 function emptyProject() {
   return {
     id: makeId("project"),
+    expanded: false,
     name: "",
     role: "",
     description: "",
@@ -582,6 +610,7 @@ function emptyProject() {
 function emptyBullet() {
   return {
     id: makeId("bullet"),
+    expanded: false,
     text: "",
     tags: [],
   }
@@ -590,6 +619,7 @@ function emptyBullet() {
 function toEducationEditor(item) {
   return {
     id: makeId("education"),
+    expanded: false,
     institution: item.institution || "",
     degree: item.degree || "",
     field: item.field || "",
@@ -610,6 +640,7 @@ function toEducationEditor(item) {
 function toExperienceEditor(item) {
   return {
     id: makeId("experience"),
+    expanded: false,
     company: item.company || "",
     title: item.title || "",
     location: item.location || "",
@@ -618,6 +649,7 @@ function toExperienceEditor(item) {
     bullets: Array.isArray(item.bullets)
       ? item.bullets.map((bullet) => ({
           id: makeId("bullet"),
+          expanded: false,
           text: typeof bullet === "string" ? bullet : bullet?.text || "",
           tags: typeof bullet === "object" ? normalizeStringArray(bullet?.tags) : [],
         }))
@@ -628,6 +660,7 @@ function toExperienceEditor(item) {
 function toProjectEditor(item) {
   return {
     id: makeId("project"),
+    expanded: false,
     name: item.name || "",
     role: item.role || "",
     description: item.description || "",
@@ -636,6 +669,7 @@ function toProjectEditor(item) {
     bullets: Array.isArray(item.bullets)
       ? item.bullets.map((bullet) => ({
           id: makeId("bullet"),
+          expanded: false,
           text: typeof bullet === "string" ? bullet : bullet?.text || "",
           tags: typeof bullet === "object" ? normalizeStringArray(bullet?.tags) : [],
         }))
@@ -734,6 +768,76 @@ function sectionLabel(section) {
     return `${state.editor.skills.filter((entry) => entry.values.length).length} categories`
   }
   return ""
+}
+
+function educationEntryLabel(item, index) {
+  return item.institution || [item.degree, item.field].filter(Boolean).join(" ") || `Education ${index + 1}`
+}
+
+function experienceEntryLabel(item, index) {
+  return item.company || item.title || `Experience ${index + 1}`
+}
+
+function projectEntryLabel(item, index) {
+  return item.name || item.role || `Project ${index + 1}`
+}
+
+function bulletLabel(bullet, index) {
+  return bullet.text?.trim() ? bullet.text.trim().slice(0, 72) : `Bullet ${index + 1}`
+}
+
+function skillEntryLabel(entry) {
+  return prettifyCategory(entry.key)
+}
+
+function summaryLine(parts) {
+  return parts.filter(Boolean).join(" / ") || "No details yet"
+}
+
+function prettifyCategory(value) {
+  return slugifyCategory(value)
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function captureEditorUiState(editor) {
+  return {
+    education: editor.education.map((item) => ({ expanded: Boolean(item.expanded) })),
+    work_experiences: editor.work_experiences.map((item) => ({
+      expanded: Boolean(item.expanded),
+      bullets: item.bullets.map((bullet) => ({ expanded: Boolean(bullet.expanded) })),
+    })),
+    projects: editor.projects.map((item) => ({
+      expanded: Boolean(item.expanded),
+      bullets: item.bullets.map((bullet) => ({ expanded: Boolean(bullet.expanded) })),
+    })),
+    skills: editor.skills.map((entry) => ({ expanded: Boolean(entry.expanded) })),
+  }
+}
+
+function applyEditorUiState(editor, snapshot) {
+  editor.education.forEach((item, index) => {
+    item.expanded = snapshot.education?.[index]?.expanded ?? item.expanded
+  })
+
+  editor.work_experiences.forEach((item, index) => {
+    item.expanded = snapshot.work_experiences?.[index]?.expanded ?? item.expanded
+    item.bullets.forEach((bullet, bulletIndex) => {
+      bullet.expanded = snapshot.work_experiences?.[index]?.bullets?.[bulletIndex]?.expanded ?? bullet.expanded
+    })
+  })
+
+  editor.projects.forEach((item, index) => {
+    item.expanded = snapshot.projects?.[index]?.expanded ?? item.expanded
+    item.bullets.forEach((bullet, bulletIndex) => {
+      bullet.expanded = snapshot.projects?.[index]?.bullets?.[bulletIndex]?.expanded ?? bullet.expanded
+    })
+  })
+
+  editor.skills.forEach((entry, index) => {
+    entry.expanded = snapshot.skills?.[index]?.expanded ?? entry.expanded
+  })
 }
 
 function formatUpdatedAt(value) {
@@ -920,11 +1024,18 @@ function makeId(prefix) {
               <div v-if="state.editor.education.length" class="editor-stack">
                 <article v-for="(item, index) in state.editor.education" :key="item.id" class="editor-card">
                   <div class="editor-card-head">
-                    <strong>Education {{ index + 1 }}</strong>
+                    <button class="editor-item-head" type="button" @click="toggleItem(item)">
+                      <div>
+                        <strong>{{ educationEntryLabel(item, index) }}</strong>
+                        <div class="muted-inline">{{ summaryLine([item.degree, item.field, item.start_date || item.end_date ? `${item.start_date || '?'} - ${item.end_date || 'Present'}` : '']) }}</div>
+                      </div>
+                      <span class="chip subtle">{{ item.expanded ? 'Hide' : 'Open' }}</span>
+                    </button>
                     <button class="button ghost compact" type="button" @click="removeEducation(index)">Remove</button>
                   </div>
 
-                  <div class="editor-grid editor-grid-2">
+                  <div v-if="item.expanded" class="editor-item-body">
+                    <div class="editor-grid editor-grid-2">
                     <label class="field"><span>Institution</span><input v-model="item.institution" class="input" type="text" /></label>
                     <label class="field"><span>Degree</span><input v-model="item.degree" class="input" type="text" /></label>
                     <label class="field"><span>Field</span><input v-model="item.field" class="input" type="text" /></label>
@@ -932,22 +1043,23 @@ function makeId(prefix) {
                     <label class="field"><span>Start</span><input v-model="item.start_date" class="input" type="text" placeholder="YYYY-MM" /></label>
                     <label class="field"><span>End</span><input v-model="item.end_date" class="input" type="text" placeholder="YYYY-MM or Present" /></label>
                     <label class="field"><span>GPA</span><input v-model="item.gpa" class="input" type="text" /></label>
-                  </div>
-
-                  <div class="editor-subsection">
-                    <div class="section-head compact-head">
-                      <h2>Relevant Courses</h2>
-                      <button class="button ghost compact" type="button" @click="addCourse(index)">Add</button>
                     </div>
 
-                    <div v-if="item.relevant_courses.length" class="editor-stack">
-                      <div v-for="(course, courseIndex) in item.relevant_courses" :key="course.id" class="editor-mini-card">
-                        <div class="editor-grid editor-grid-2">
-                          <label class="field"><span>Course</span><input v-model="course.name" class="input" type="text" /></label>
-                          <label class="field"><span>Tags</span><TagInput v-model="course.tags" placeholder="python, systems" /></label>
-                        </div>
-                        <div class="actions-row">
-                          <button class="button ghost compact" type="button" @click="removeCourse(index, courseIndex)">Remove course</button>
+                    <div class="editor-subsection">
+                      <div class="section-head compact-head">
+                        <h2>Relevant Courses</h2>
+                        <button class="button ghost compact" type="button" @click="addCourse(index)">Add</button>
+                      </div>
+
+                      <div v-if="item.relevant_courses.length" class="editor-stack">
+                        <div v-for="(course, courseIndex) in item.relevant_courses" :key="course.id" class="editor-mini-card">
+                          <div class="editor-grid editor-grid-2">
+                            <label class="field"><span>Course</span><input v-model="course.name" class="input" type="text" /></label>
+                            <label class="field"><span>Tags</span><TagInput v-model="course.tags" placeholder="python, systems" /></label>
+                          </div>
+                          <div class="actions-row">
+                            <button class="button ghost compact" type="button" @click="removeCourse(index, courseIndex)">Remove course</button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -976,30 +1088,48 @@ function makeId(prefix) {
               <div v-if="state.editor.work_experiences.length" class="editor-stack">
                 <article v-for="(item, index) in state.editor.work_experiences" :key="item.id" class="editor-card">
                   <div class="editor-card-head">
-                    <strong>Experience {{ index + 1 }}</strong>
+                    <button class="editor-item-head" type="button" @click="toggleItem(item)">
+                      <div>
+                        <strong>{{ experienceEntryLabel(item, index) }}</strong>
+                        <div class="muted-inline">{{ summaryLine([item.title, item.location, item.start_date || item.end_date ? `${item.start_date || '?'} - ${item.end_date || 'Present'}` : '']) }}</div>
+                      </div>
+                      <span class="chip subtle">{{ item.expanded ? 'Hide' : 'Open' }}</span>
+                    </button>
                     <button class="button ghost compact" type="button" @click="removeExperience(index)">Remove</button>
                   </div>
 
-                  <div class="editor-grid editor-grid-2">
+                  <div v-if="item.expanded" class="editor-item-body">
+                    <div class="editor-grid editor-grid-2">
                     <label class="field"><span>Company</span><input v-model="item.company" class="input" type="text" /></label>
                     <label class="field"><span>Title</span><input v-model="item.title" class="input" type="text" /></label>
                     <label class="field"><span>Location</span><input v-model="item.location" class="input" type="text" /></label>
                     <label class="field"><span>Start</span><input v-model="item.start_date" class="input" type="text" placeholder="YYYY-MM" /></label>
                     <label class="field"><span>End</span><input v-model="item.end_date" class="input" type="text" placeholder="YYYY-MM or Present" /></label>
-                  </div>
-
-                  <div class="editor-subsection">
-                    <div class="section-head compact-head">
-                      <h2>Bullets</h2>
-                      <button class="button ghost compact" type="button" @click="addExperienceBullet(index)">Add</button>
                     </div>
 
-                    <div v-if="item.bullets.length" class="editor-stack">
-                      <div v-for="(bullet, bulletIndex) in item.bullets" :key="bullet.id" class="editor-mini-card">
-                        <label class="field"><span>Bullet</span><textarea v-model="bullet.text" class="input textarea editor-textarea" rows="3"></textarea></label>
-                        <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="python, distributed_systems" /></label>
-                        <div class="actions-row">
-                          <button class="button ghost compact" type="button" @click="removeExperienceBullet(index, bulletIndex)">Remove bullet</button>
+                    <div class="editor-subsection">
+                      <div class="section-head compact-head">
+                        <h2>Bullets</h2>
+                        <button class="button ghost compact" type="button" @click="addExperienceBullet(index)">Add</button>
+                      </div>
+
+                      <div v-if="item.bullets.length" class="editor-stack">
+                        <div v-for="(bullet, bulletIndex) in item.bullets" :key="bullet.id" class="editor-mini-card">
+                          <div class="editor-card-head">
+                            <button class="editor-item-head" type="button" @click="toggleItem(bullet)">
+                              <div>
+                                <strong>Bullet {{ bulletIndex + 1 }}</strong>
+                                <div class="muted-inline">{{ bulletLabel(bullet, bulletIndex) }}</div>
+                              </div>
+                              <span class="chip subtle">{{ bullet.expanded ? 'Hide' : 'Open' }}</span>
+                            </button>
+                            <button class="button ghost compact" type="button" @click="removeExperienceBullet(index, bulletIndex)">Remove bullet</button>
+                          </div>
+
+                          <div v-if="bullet.expanded" class="editor-item-body">
+                            <label class="field"><span>Bullet</span><textarea v-model="bullet.text" class="input textarea editor-textarea" rows="3"></textarea></label>
+                            <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="python, distributed_systems" /></label>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1028,30 +1158,48 @@ function makeId(prefix) {
               <div v-if="state.editor.projects.length" class="editor-stack">
                 <article v-for="(item, index) in state.editor.projects" :key="item.id" class="editor-card">
                   <div class="editor-card-head">
-                    <strong>Project {{ index + 1 }}</strong>
+                    <button class="editor-item-head" type="button" @click="toggleItem(item)">
+                      <div>
+                        <strong>{{ projectEntryLabel(item, index) }}</strong>
+                        <div class="muted-inline">{{ summaryLine([item.role, item.tech_stack.length ? `${item.tech_stack.length} tech tags` : '', item.links.length ? `${item.links.length} links` : '']) }}</div>
+                      </div>
+                      <span class="chip subtle">{{ item.expanded ? 'Hide' : 'Open' }}</span>
+                    </button>
                     <button class="button ghost compact" type="button" @click="removeProject(index)">Remove</button>
                   </div>
 
-                  <div class="editor-grid editor-grid-2">
+                  <div v-if="item.expanded" class="editor-item-body">
+                    <div class="editor-grid editor-grid-2">
                     <label class="field"><span>Name</span><input v-model="item.name" class="input" type="text" /></label>
                     <label class="field"><span>Role</span><input v-model="item.role" class="input" type="text" /></label>
                     <label class="field field-span-full"><span>Description</span><textarea v-model="item.description" class="input textarea editor-textarea" rows="3"></textarea></label>
                     <label class="field field-span-full"><span>Tech stack</span><TagInput v-model="item.tech_stack" placeholder="vue, fastapi, postgres" /></label>
                     <label class="field field-span-full"><span>Links</span><TagInput v-model="item.links" placeholder="https://github.com/user/repo" /></label>
-                  </div>
-
-                  <div class="editor-subsection">
-                    <div class="section-head compact-head">
-                      <h2>Bullets</h2>
-                      <button class="button ghost compact" type="button" @click="addProjectBullet(index)">Add</button>
                     </div>
 
-                    <div v-if="item.bullets.length" class="editor-stack">
-                      <div v-for="(bullet, bulletIndex) in item.bullets" :key="bullet.id" class="editor-mini-card">
-                        <label class="field"><span>Bullet</span><textarea v-model="bullet.text" class="input textarea editor-textarea" rows="3"></textarea></label>
-                        <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="frontend, analytics" /></label>
-                        <div class="actions-row">
-                          <button class="button ghost compact" type="button" @click="removeProjectBullet(index, bulletIndex)">Remove bullet</button>
+                    <div class="editor-subsection">
+                      <div class="section-head compact-head">
+                        <h2>Bullets</h2>
+                        <button class="button ghost compact" type="button" @click="addProjectBullet(index)">Add</button>
+                      </div>
+
+                      <div v-if="item.bullets.length" class="editor-stack">
+                        <div v-for="(bullet, bulletIndex) in item.bullets" :key="bullet.id" class="editor-mini-card">
+                          <div class="editor-card-head">
+                            <button class="editor-item-head" type="button" @click="toggleItem(bullet)">
+                              <div>
+                                <strong>Bullet {{ bulletIndex + 1 }}</strong>
+                                <div class="muted-inline">{{ bulletLabel(bullet, bulletIndex) }}</div>
+                              </div>
+                              <span class="chip subtle">{{ bullet.expanded ? 'Hide' : 'Open' }}</span>
+                            </button>
+                            <button class="button ghost compact" type="button" @click="removeProjectBullet(index, bulletIndex)">Remove bullet</button>
+                          </div>
+
+                          <div v-if="bullet.expanded" class="editor-item-body">
+                            <label class="field"><span>Bullet</span><textarea v-model="bullet.text" class="input textarea editor-textarea" rows="3"></textarea></label>
+                            <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="frontend, analytics" /></label>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1082,12 +1230,22 @@ function makeId(prefix) {
 
               <div class="editor-stack">
                 <div v-for="(entry, index) in state.editor.skills" :key="entry.id" class="editor-mini-card">
-                  <div class="editor-grid editor-grid-2 editor-grid-skill">
-                    <label class="field"><span>Category</span><input v-model="entry.key" class="input" type="text" /></label>
-                    <label class="field"><span>Values</span><TagInput v-model="entry.values" placeholder="python, sql, react" /></label>
+                  <div class="editor-card-head">
+                    <button class="editor-item-head" type="button" @click="toggleItem(entry)">
+                      <div>
+                        <strong>{{ skillEntryLabel(entry) }}</strong>
+                        <div class="muted-inline">{{ entry.values.length }} tags</div>
+                      </div>
+                      <span class="chip subtle">{{ entry.expanded ? 'Hide' : 'Open' }}</span>
+                    </button>
+                    <button v-if="!defaultSkillCategories.includes(slugifyCategory(entry.key))" class="button ghost compact" type="button" @click="removeSkillCategory(index)">Remove category</button>
                   </div>
-                  <div class="actions-row" v-if="!defaultSkillCategories.includes(slugifyCategory(entry.key))">
-                    <button class="button ghost compact" type="button" @click="removeSkillCategory(index)">Remove category</button>
+
+                  <div v-if="entry.expanded" class="editor-item-body">
+                    <div class="editor-grid editor-grid-2 editor-grid-skill">
+                      <label class="field"><span>Category</span><input v-model="entry.key" class="input" type="text" /></label>
+                      <label class="field"><span>Values</span><TagInput v-model="entry.values" placeholder="python, sql, react" /></label>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -210,6 +210,10 @@ textarea {
   gap: 16px;
 }
 
+.jobs-accordion {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .jobs-toolbar {
   display: flex;
   align-items: flex-end;
@@ -673,7 +677,7 @@ textarea {
 
 .editor-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
@@ -681,6 +685,30 @@ textarea {
 .editor-card-head strong {
   font-size: 14px;
   color: var(--text);
+}
+
+.editor-item-head {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-item-head .muted-inline {
+  max-width: 56ch;
+}
+
+.editor-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .editor-grid {
