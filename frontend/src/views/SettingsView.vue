@@ -2,7 +2,18 @@
 import { onMounted, reactive } from "vue"
 
 import AppIcon from "../components/AppIcon.vue"
+import AppSelect from "../components/AppSelect.vue"
 import { api } from "../lib/api"
+
+const providerOptions = [
+  { value: "claude-cli", label: "Claude Code CLI" },
+  { value: "codex-cli", label: "Codex CLI" },
+]
+
+const fallbackOptions = [
+  { value: "", label: "Disabled" },
+  ...providerOptions,
+]
 
 const state = reactive({
   loading: true,
@@ -85,19 +96,12 @@ onMounted(load)
         <form class="form-grid" @submit.prevent="save">
           <label class="field">
             <span>Primary</span>
-            <select v-model="state.form.primary_provider" class="select">
-              <option value="claude-cli">Claude Code CLI</option>
-              <option value="codex-cli">Codex CLI</option>
-            </select>
+            <AppSelect v-model="state.form.primary_provider" :options="providerOptions" aria-label="Primary provider" />
           </label>
 
           <label class="field">
             <span>Fallback</span>
-            <select v-model="state.form.fallback_provider" class="select">
-              <option value="">Disabled</option>
-              <option value="claude-cli">Claude Code CLI</option>
-              <option value="codex-cli">Codex CLI</option>
-            </select>
+            <AppSelect v-model="state.form.fallback_provider" :options="fallbackOptions" aria-label="Fallback provider" />
           </label>
 
           <label class="checkbox-row">

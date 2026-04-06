@@ -2,9 +2,29 @@
 import { computed, reactive, watch } from "vue"
 
 import AppIcon from "../components/AppIcon.vue"
+import AppSelect from "../components/AppSelect.vue"
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 import { formatPercent, truncateText } from "../lib/format"
+
+const sourceOptions = [
+  { value: "ats", label: "ATS" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "all", label: "All" },
+]
+
+const postedDateOptions = [
+  { value: "all", label: "All Dates" },
+  { value: "month", label: "Past Month" },
+  { value: "week", label: "Past Week" },
+  { value: "24h", label: "Past 24 Hours" },
+]
+
+const atsOptions = [
+  { value: "", label: "All" },
+  { value: "greenhouse", label: "Greenhouse" },
+  { value: "lever", label: "Lever" },
+]
 
 const experienceLevelOptions = [
   { value: "entry", label: "Entry-level" },
@@ -347,11 +367,7 @@ function emptyCounts() {
                 <div class="form-grid jobs-panel-grid jobs-panel-grid-wide">
                   <label class="field">
                     <span>Source</span>
-                    <select v-model="form.source" class="select">
-                      <option value="ats">ATS</option>
-                      <option value="linkedin">LinkedIn</option>
-                      <option value="all">All</option>
-                    </select>
+                    <AppSelect v-model="form.source" :options="sourceOptions" aria-label="Source" />
                   </label>
 
                   <label class="field">
@@ -372,23 +388,14 @@ function emptyCounts() {
 
                     <label class="field field-span-full">
                       <span>Date Posted</span>
-                      <select v-model="form.time_filter" class="select">
-                        <option value="all">All Dates</option>
-                        <option value="month">Past Month</option>
-                        <option value="week">Past Week</option>
-                        <option value="24h">Past 24 Hours</option>
-                      </select>
+                      <AppSelect v-model="form.time_filter" :options="postedDateOptions" aria-label="Date Posted" />
                     </label>
                   </template>
 
                   <template v-if="sourceUsesAts">
                     <label class="field">
                       <span>ATS</span>
-                      <select v-model="form.ats" class="select">
-                        <option value="">All</option>
-                        <option value="greenhouse">Greenhouse</option>
-                        <option value="lever">Lever</option>
-                      </select>
+                      <AppSelect v-model="form.ats" :options="atsOptions" aria-label="ATS" />
                     </label>
 
                     <label class="field">
@@ -420,9 +427,7 @@ function emptyCounts() {
                     <div class="field">
                       <span>Pay</span>
                       <div class="inline-grid inline-grid-2">
-                        <select v-model="form.pay_operator" class="select">
-                          <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
+                        <AppSelect v-model="form.pay_operator" :options="numericOperators" aria-label="Pay Operator" />
                         <input v-model="form.pay_amount" class="input" type="number" min="0" placeholder="120000" />
                       </div>
                     </div>
@@ -430,9 +435,7 @@ function emptyCounts() {
                     <div class="field">
                       <span>Experience Years</span>
                       <div class="inline-grid inline-grid-2">
-                        <select v-model="form.experience_operator" class="select">
-                          <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
+                        <AppSelect v-model="form.experience_operator" :options="numericOperators" aria-label="Experience Operator" />
                         <input v-model="form.experience_years" class="input" type="number" min="0" placeholder="3" />
                       </div>
                     </div>
