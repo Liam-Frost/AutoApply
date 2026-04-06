@@ -379,6 +379,87 @@ textarea {
   color: var(--text);
 }
 
+.app-select {
+  position: relative;
+  width: 100%;
+}
+
+.app-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-strong);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.app-select.is-compact .app-select-trigger {
+  min-height: 40px;
+  border-radius: 12px;
+}
+
+.app-select.is-open .app-select-trigger,
+.app-select-trigger:focus-visible {
+  outline: none;
+  border-color: rgba(144, 181, 255, 0.42);
+  box-shadow: 0 0 0 4px rgba(144, 181, 255, 0.1);
+}
+
+.app-select.is-disabled .app-select-trigger {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.app-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-select-trigger.is-placeholder {
+  color: var(--text-muted);
+}
+
+.app-select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
+.app-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-select-option:hover,
+.app-select-option.is-selected {
+  background: rgba(144, 181, 255, 0.14);
+}
+
 .select {
   appearance: none;
   padding-right: 42px;

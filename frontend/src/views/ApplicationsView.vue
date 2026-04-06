@@ -2,8 +2,27 @@
 import { onMounted, reactive } from "vue"
 
 import AppIcon from "../components/AppIcon.vue"
+import AppSelect from "../components/AppSelect.vue"
 import { api } from "../lib/api"
 import { formatDate, formatPercent } from "../lib/format"
+
+const statusOptions = [
+  { value: "", label: "All" },
+  { value: "SUBMITTED", label: "Submitted" },
+  { value: "FAILED", label: "Failed" },
+  { value: "REVIEW_REQUIRED", label: "Review Required" },
+]
+
+const outcomeOptions = [
+  { value: "", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "rejected", label: "Rejected" },
+  { value: "oa", label: "OA" },
+  { value: "interview", label: "Interview" },
+  { value: "offer", label: "Offer" },
+]
+
+const outcomeEditOptions = outcomeOptions.filter((option) => option.value !== "")
 
 const filters = reactive({
   status: "",
@@ -68,24 +87,12 @@ onMounted(load)
       <form class="form-grid form-grid-4" @submit.prevent="load">
         <label class="field">
           <span>Status</span>
-          <select v-model="filters.status" class="select">
-            <option value="">All</option>
-            <option value="SUBMITTED">Submitted</option>
-            <option value="FAILED">Failed</option>
-            <option value="REVIEW_REQUIRED">Review Required</option>
-          </select>
+          <AppSelect v-model="filters.status" :options="statusOptions" aria-label="Status filter" />
         </label>
 
         <label class="field">
           <span>Outcome</span>
-          <select v-model="filters.outcome" class="select">
-            <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="rejected">Rejected</option>
-            <option value="oa">OA</option>
-            <option value="interview">Interview</option>
-            <option value="offer">Offer</option>
-          </select>
+          <AppSelect v-model="filters.outcome" :options="outcomeOptions" aria-label="Outcome filter" />
         </label>
 
         <label class="field">
@@ -164,18 +171,14 @@ onMounted(load)
                 <td>{{ prettify(application.status) }}</td>
                 <td>{{ application.match_score === null ? "-" : formatPercent(application.match_score, "0%") }}</td>
                 <td>
-                  <select
-                    class="select compact"
-                    :value="application.outcome"
+                  <AppSelect
+                    :model-value="application.outcome"
+                    :options="outcomeEditOptions"
+                    compact
                     :disabled="state.updatingId === application.id"
-                    @change="updateOutcome(application, $event.target.value)"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="oa">OA</option>
-                    <option value="interview">Interview</option>
-                    <option value="offer">Offer</option>
-                  </select>
+                    aria-label="Update outcome"
+                    @update:model-value="updateOutcome(application, $event)"
+                  />
                 </td>
                 <td>{{ formatDate(application.created_at) }}</td>
               </tr>

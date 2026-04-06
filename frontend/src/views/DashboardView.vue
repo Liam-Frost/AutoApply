@@ -5,6 +5,9 @@ import AppIcon from "../components/AppIcon.vue"
 import { api } from "../lib/api"
 import { formatPercent } from "../lib/format"
 
+const MAX_CONNECTION_ATTEMPTS = 3
+const CONNECTION_RETRY_DELAY_MS = 350
+
 const state = reactive({
   loading: true,
   error: "",
@@ -45,14 +48,42 @@ async function load() {
   state.loading = true
   state.error = ""
 
+  let latestResponse = null
+  let latestException = null
+
+  for (let attempt = 1; attempt <= MAX_CONNECTION_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await api.dashboard()
+      latestResponse = response
+      latestException = null
+      if (response.db_connected) {
+        break
+      }
+    } catch (error) {
+      latestResponse = null
+      latestException = error
+    }
+
+    if (attempt < MAX_CONNECTION_ATTEMPTS) {
+      await delay(CONNECTION_RETRY_DELAY_MS)
+    }
+  }
+
   try {
-    state.data = await api.dashboard()
-    state.error = state.data.error || ""
-  } catch (error) {
-    state.error = error.message
+    if (latestResponse) {
+      state.data = latestResponse
+    }
+
+    if (!latestResponse && latestException) {
+      state.error = latestException.message
+    }
   } finally {
     state.loading = false
   }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 function prettify(status) {
@@ -72,7 +103,7 @@ onMounted(load)
     </section>
 
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-    <div v-else-if="!state.data.db_connected" class="banner is-warning">Database not connected</div>
+    <div v-else-if="!state.loading && !state.data.db_connected" class="banner is-warning">Database Not Connected</div>
 
     <section class="content-grid content-grid-wide">
       <article class="surface">
