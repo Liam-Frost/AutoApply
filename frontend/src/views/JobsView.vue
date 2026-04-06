@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive } from "vue"
 
+import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 import { formatPercent, truncateText } from "../lib/format"
 
@@ -59,7 +60,7 @@ const form = reactive({
   time_filter: "all",
   ats: "",
   company: "",
-  locations_input: "",
+  locations: [],
   experience_levels: [],
   employment_types: [],
   location_types: [],
@@ -88,8 +89,8 @@ const activeFilterLabels = computed(() => {
   if (form.time_filter !== "all") {
     labels.push(`Posted: ${timeFilterLabel(form.time_filter)}`)
   }
-  if (form.locations_input.trim()) {
-    labels.push(...parseCandidates(form.locations_input).map((value) => `Location: ${value}`))
+  if (form.locations.length) {
+    labels.push(...form.locations.map((value) => `Location: ${value}`))
   }
   labels.push(...labelValues(form.experience_levels, experienceLevelOptions))
   labels.push(...labelValues(form.employment_types, employmentTypeOptions))
@@ -137,7 +138,7 @@ async function search() {
   try {
     const response = await api.searchJobs({
       ...form,
-      locations: parseCandidates(form.locations_input),
+      locations: [...form.locations],
       pay_amount: parseOptionalNumber(form.pay_amount),
       experience_years: parseOptionalNumber(form.experience_years),
     })
@@ -162,13 +163,6 @@ async function applyToJob(job) {
   } catch (error) {
     state.applyState[job.id] = { loading: false, message: error.message, status: "error" }
   }
-}
-
-function parseCandidates(value) {
-  return value
-    .split(/\r?\n|;/)
-    .map((item) => item.trim())
-    .filter(Boolean)
 }
 
 function parseOptionalNumber(value) {
@@ -262,7 +256,7 @@ function resetForm() {
   form.time_filter = "all"
   form.ats = ""
   form.company = ""
-  form.locations_input = ""
+  form.locations = []
   form.experience_levels = []
   form.employment_types = []
   form.location_types = []
@@ -289,13 +283,17 @@ function emptyCounts() {
   <div class="page-stack">
     <section class="surface jobs-shell">
       <form class="page-stack" @submit.prevent="search">
-        <div class="jobs-grid">
-          <section class="jobs-panel">
-            <div class="section-head compact-head">
+        <section class="jobs-panel jobs-panel-full">
+          <div class="section-head compact-head">
+            <div>
               <h2>Search</h2>
+              <div class="muted-inline">Source, query, and filters in one place</div>
             </div>
+            <span class="muted">{{ activeFilterLabels.length }}</span>
+          </div>
 
-            <div class="form-grid jobs-panel-grid">
+          <div class="page-stack jobs-panel-stack">
+            <div class="form-grid jobs-panel-grid jobs-panel-grid-wide">
               <label class="field">
                 <span>Source</span>
                 <select v-model="form.source" class="select">
@@ -348,23 +346,11 @@ function emptyCounts() {
                 </label>
               </template>
             </div>
-          </section>
-
-          <section class="jobs-panel">
-            <div class="section-head compact-head">
-              <h2>Filters</h2>
-              <span class="muted">{{ activeFilterLabels.length }}</span>
-            </div>
 
             <div class="page-stack jobs-filter-stack">
               <label class="field">
                 <span>Candidate locations</span>
-                <textarea
-                  v-model="form.locations_input"
-                  class="input textarea"
-                  rows="3"
-                  placeholder="One per line&#10;San Francisco, CA, United States&#10;Toronto, ON, Canada"
-                ></textarea>
+                <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
               </label>
 
               <div class="inline-grid inline-grid-2">
@@ -429,8 +415,8 @@ function emptyCounts() {
                 </div>
               </div>
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
 
         <div class="jobs-toolbar">
           <div class="chip-row" v-if="activeFilterLabels.length">
