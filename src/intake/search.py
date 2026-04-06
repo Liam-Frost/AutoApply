@@ -18,22 +18,43 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import re
 from pathlib import Path
 
+from src.core.config import load_config
 from src.intake.base import ScraperError
 from src.intake.batch import enrich_requirements, load_company_list
 from src.intake.filters import load_filter_profiles
 from src.intake.greenhouse import GreenhouseScraper
 from src.intake.lever import LeverScraper
 from src.intake.schema import RawJob
+from src.intake.search_cache import (
+    build_linkedin_search_cache_key,
+    load_cached_linkedin_search,
+    save_cached_linkedin_search,
+)
 
 logger = logging.getLogger("autoapply.intake.search")
 
 DEFAULT_CONFIG_DIR = Path("config")
+KEYWORD_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "for",
+    "in",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "with",
+}
+SHORT_KEYWORD_EXCEPTIONS = {"ai", "ml", "qa", "ui", "ux", "c#", "c++"}
 
 
 def search_jobs(
-    profile: str = "default",
+    profile: str | None = "default",
     config_dir: Path = DEFAULT_CONFIG_DIR,
     companies: dict[str, list[str]] | None = None,
     parse_jds: bool = True,
@@ -59,11 +80,12 @@ def search_jobs(
         return []
 
     # Load filter
-    profiles = load_filter_profiles(config_dir / "filters.yaml")
-    job_filter = profiles.get(profile)
-    if not job_filter:
-        logger.warning("Filter profile '%s' not found, returning unfiltered", profile)
-        job_filter = None
+    job_filter = None
+    if profile:
+        profiles = load_filter_profiles(config_dir / "filters.yaml")
+        job_filter = profiles.get(profile)
+        if not job_filter:
+            logger.warning("Filter profile '%s' not found, returning unfiltered", profile)
 
     # Scrape
     scraper_map = {
@@ -108,22 +130,23 @@ def search_jobs(
 
 
 async def search_linkedin(
-    keywords: str,
+    keywords: str | list[str],
     location: str = "",
     time_filter: str = "week",
     experience_levels: list[str] | None = None,
     job_types: list[str] | None = None,
     max_pages: int = 5,
     enrich_details: bool = True,
-    max_detail_fetches: int = 20,
+    max_detail_fetches: int = 8,
     headless: bool = False,
     filter_profile: str | None = None,
     config_dir: Path = DEFAULT_CONFIG_DIR,
+    allow_public_fallback: bool = False,
 ) -> list[RawJob]:
     """Search LinkedIn for jobs and optionally enrich with detail pages.
 
     Args:
-        keywords: Search keywords (e.g. "software engineer intern").
+        keywords: Search keyword string or keyword list.
         location: Location filter (e.g. "United States").
         time_filter: Time filter: "24h", "week", "month".
         experience_levels: Experience levels: "internship", "entry", etc.
@@ -134,26 +157,58 @@ async def search_linkedin(
         headless: Run browser headless (first run requires non-headless for login).
         filter_profile: Optional filter profile name to apply after scraping.
         config_dir: Config directory for filter profiles.
+        allow_public_fallback: When True, use LinkedIn's public guest search page if
+            no authenticated session is available.
 
     Returns:
         List of RawJob objects from LinkedIn.
     """
     from src.intake.linkedin import LinkedInScraper
 
-    async with LinkedInScraper(headless=headless) as scraper:
-        jobs = await scraper.search_jobs(
-            keywords=keywords,
-            location=location,
-            time_filter=time_filter,
-            experience_levels=experience_levels,
-            job_types=job_types,
-            max_pages=max_pages,
-        )
+    keyword_terms = _keyword_terms(keywords)
+    linkedin_query = _linkedin_keyword_query(keyword_terms)
+    cache_settings = _search_cache_settings()
+    cache_key = build_linkedin_search_cache_key(
+        keywords=keyword_terms,
+        location=location,
+        time_filter=time_filter,
+        experience_levels=experience_levels,
+        job_types=job_types,
+        max_pages=max_pages,
+        enrich_details=enrich_details,
+        max_detail_fetches=max_detail_fetches,
+        allow_public_fallback=allow_public_fallback,
+    )
 
-        if enrich_details and jobs:
-            jobs = await scraper.enrich_jobs_with_details(
-                jobs, max_detail_fetches=max_detail_fetches
+    jobs = None
+    if cache_settings["enabled"]:
+        jobs = load_cached_linkedin_search(cache_key, ttl_hours=cache_settings["ttl_hours"])
+        if jobs is not None:
+            logger.info("LinkedIn search cache hit: %d jobs", len(jobs))
+
+    if jobs is None:
+        async with LinkedInScraper(headless=headless) as scraper:
+            jobs = await scraper.search_jobs(
+                keywords=linkedin_query,
+                location=location,
+                time_filter=time_filter,
+                experience_levels=experience_levels,
+                job_types=job_types,
+                max_pages=max_pages,
+                allow_public_fallback=allow_public_fallback,
             )
+
+            jobs = _apply_keyword_precision_filter(jobs, keyword_terms)
+
+            if enrich_details and jobs and scraper.last_search_mode == "authenticated":
+                jobs = await scraper.enrich_jobs_with_details(
+                    jobs, max_detail_fetches=max_detail_fetches
+                )
+            elif enrich_details and jobs:
+                logger.info("Skipping LinkedIn detail enrichment for public guest search results")
+
+        if cache_settings["enabled"]:
+            save_cached_linkedin_search(cache_key, jobs)
 
     # Apply filter if requested
     if filter_profile:
@@ -164,6 +219,56 @@ async def search_linkedin(
 
     logger.info("LinkedIn search: %d jobs returned", len(jobs))
     return jobs
+
+
+def _apply_keyword_precision_filter(jobs: list[RawJob], keywords: str | list[str]) -> list[RawJob]:
+    keyword_terms = _keyword_terms(keywords)
+    if not keyword_terms:
+        return jobs
+
+    matched = [job for job in jobs if _job_matches_keywords(job, keyword_terms)]
+    logger.info("LinkedIn keyword precision filter: %d/%d jobs kept", len(matched), len(jobs))
+    return matched
+
+
+def _job_matches_keywords(job: RawJob, keywords: list[str]) -> bool:
+    job_title = (job.title or "").lower()
+    job_description = (job.description or "").lower()
+    return any(keyword in job_title or keyword in job_description for keyword in keywords)
+
+
+def _keyword_terms(keywords: str | list[str]) -> list[str]:
+    if isinstance(keywords, str):
+        candidates = re.split(r"[\r\n,;]+", keywords)
+    else:
+        candidates = keywords
+
+    terms = []
+    for candidate in candidates:
+        value = " ".join(str(candidate).strip().lower().split())
+        if not value or value in KEYWORD_STOPWORDS:
+            continue
+        if len(value) < 3 and value not in SHORT_KEYWORD_EXCEPTIONS:
+            continue
+        terms.append(value)
+    return terms
+
+
+def _linkedin_keyword_query(keywords: list[str]) -> str:
+    if not keywords:
+        return ""
+    if len(keywords) == 1:
+        return keywords[0]
+    return " OR ".join(keywords)
+
+
+def _search_cache_settings() -> dict:
+    config = load_config()
+    cache_cfg = config.get("search_cache", {})
+    return {
+        "enabled": bool(cache_cfg.get("enabled", True)),
+        "ttl_hours": int(cache_cfg.get("ttl_hours", 24)),
+    }
 
 
 def search_linkedin_sync(

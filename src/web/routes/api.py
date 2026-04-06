@@ -6,6 +6,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from src.application.jobs import apply_to_url
+from src.application.jobs import clear_linkedin_session as clear_linkedin_session_usecase
+from src.application.jobs import connect_linkedin_session as connect_linkedin_session_usecase
+from src.application.jobs import get_linkedin_session_status as get_linkedin_session_status_usecase
+from src.application.jobs import resolve_manual_apply_url as resolve_manual_apply_url_usecase
 from src.application.jobs import search_jobs as search_jobs_usecase
 from src.application.profile import (
     activate_profile_data,
@@ -16,7 +20,16 @@ from src.application.profile import (
     rename_profile_data,
     save_profile_data,
 )
-from src.application.settings import load_llm_settings_data, update_llm_settings_data
+from src.application.search_profiles import (
+    delete_search_profile_data,
+    load_search_profiles_data,
+    save_search_profile_data,
+)
+from src.application.settings import (
+    clear_search_cache_data,
+    load_llm_settings_data,
+    update_llm_settings_data,
+)
 from src.application.tracking import (
     load_applications_data,
     load_dashboard_data,
@@ -29,8 +42,9 @@ router = APIRouter(prefix="/api", tags=["api"])
 class JobSearchPayload(BaseModel):
     source: str = "ats"
     keyword: str = ""
+    keywords: list[str] = Field(default_factory=list)
     location: str = ""
-    profile: str = "default"
+    profile: str = ""
     time_filter: str = "all"
     ats: str = ""
     company: str = ""
@@ -49,6 +63,23 @@ class JobApplyPayload(BaseModel):
     url: str
 
 
+class SearchProfilePayload(BaseModel):
+    source: str = "ats"
+    keywords: list[str] = Field(default_factory=list)
+    time_filter: str = "all"
+    ats: str = ""
+    company: str = ""
+    locations: list[str] = Field(default_factory=list)
+    experience_levels: list[str] = Field(default_factory=list)
+    employment_types: list[str] = Field(default_factory=list)
+    location_types: list[str] = Field(default_factory=list)
+    education_levels: list[str] = Field(default_factory=list)
+    pay_operator: str = ""
+    pay_amount: int | None = None
+    experience_operator: str = ""
+    experience_years: int | None = None
+
+
 class OutcomePayload(BaseModel):
     outcome: str
 
@@ -57,6 +88,8 @@ class LLMSettingsPayload(BaseModel):
     primary_provider: str
     fallback_provider: str | None = None
     allow_fallback: bool = False
+    cache_enabled: bool = True
+    cache_ttl_hours: int = 24
 
 
 class ProfileSavePayload(BaseModel):
@@ -82,11 +115,12 @@ async def dashboard_data() -> dict:
 @router.post("/jobs/search")
 async def search_jobs(payload: JobSearchPayload) -> dict:
     return await search_jobs_usecase(
-        profile=payload.profile,
+        profile=payload.profile or None,
         source=payload.source,
         ats=payload.ats or None,
         company=payload.company or None,
         keyword=payload.keyword or None,
+        keywords=payload.keywords,
         search_location=payload.location or None,
         time_filter=payload.time_filter,
         experience_levels=payload.experience_levels,
@@ -100,7 +134,52 @@ async def search_jobs(payload: JobSearchPayload) -> dict:
         education_levels=payload.education_levels,
         headless=True,
         score=True,
+        allow_public_linkedin_fallback=False,
     )
+
+
+@router.get("/jobs/linkedin/session")
+async def linkedin_session_status() -> dict:
+    return await get_linkedin_session_status_usecase()
+
+
+@router.post("/jobs/linkedin/session/connect")
+async def connect_linkedin_session() -> dict:
+    return await connect_linkedin_session_usecase()
+
+
+@router.delete("/jobs/linkedin/session")
+async def clear_linkedin_session() -> dict:
+    return clear_linkedin_session_usecase()
+
+
+@router.post("/jobs/manual-apply-target")
+async def manual_apply_target(payload: JobApplyPayload) -> dict:
+    result = await resolve_manual_apply_url_usecase(payload.url)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/jobs/filter-profiles")
+async def filter_profiles() -> dict:
+    return load_search_profiles_data()
+
+
+@router.put("/jobs/filter-profiles/{profile_id}")
+async def save_filter_profile(profile_id: str, payload: SearchProfilePayload) -> dict:
+    result = save_search_profile_data(profile_id=profile_id, profile=payload.model_dump())
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/jobs/filter-profiles/{profile_id}")
+async def delete_filter_profile(profile_id: str) -> dict:
+    result = delete_search_profile_data(profile_id)
+    if not result["ok"]:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 
 @router.post("/jobs/apply")
@@ -246,7 +325,17 @@ async def update_settings(payload: LLMSettingsPayload) -> dict:
         primary_provider=payload.primary_provider,
         fallback_provider=payload.fallback_provider,
         allow_fallback=payload.allow_fallback,
+        cache_enabled=payload.cache_enabled,
+        cache_ttl_hours=payload.cache_ttl_hours,
     )
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@router.delete("/settings/search-cache")
+async def clear_search_cache() -> dict:
+    result = clear_search_cache_data()
     if not result["ok"]:
         raise HTTPException(status_code=500, detail=result["error"])
     return result

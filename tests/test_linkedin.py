@@ -31,6 +31,14 @@ class TestLinkedInURLUtils:
         url = "https://www.linkedin.com/jobs/view/9876543210?refId=abc"
         assert _extract_job_id_from_url(url) == "9876543210"
 
+    def test_extract_job_id_from_public_slug_url(self):
+        from src.intake.linkedin import _extract_job_id_from_url
+
+        url = (
+            "https://www.linkedin.com/jobs/view/software-engineer-at-example-4370317193?position=1"
+        )
+        assert _extract_job_id_from_url(url) == "4370317193"
+
     def test_extract_job_id_from_current_job_param(self):
         from src.intake.linkedin import _extract_job_id_from_url
 
@@ -83,6 +91,19 @@ class TestLinkedInURLUtils:
 
         url = "https://boards.greenhouse.io/stripe/jobs/123"
         assert _clean_tracking_url(url) == url
+
+    def test_unwrap_linkedin_safety_redirect(self):
+        from src.intake.linkedin import _normalize_url
+
+        wrapped = (
+            "https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fjobs.ashbyhq.com%2FExample"
+            "%2Fabc%2Fapplication%3Futm_source%3Dlinkedin&urlhash=test"
+        )
+
+        assert (
+            _normalize_url(wrapped)
+            == "https://jobs.ashbyhq.com/Example/abc/application?utm_source=linkedin"
+        )
 
 
 # ──────────────────────────────────────────────
@@ -200,6 +221,93 @@ class TestLinkedInSchemaIntegration:
         assert job.ats_type == "greenhouse"
         assert "greenhouse.io" in job.application_url
         assert "linkedin.com" in job.raw_data["linkedin_url"]
+
+
+class TestLinkedInGuestSearchParsing:
+    def test_extract_public_job_cards(self):
+        from src.intake.linkedin import _extract_public_job_cards
+
+        html = """
+        <ul class="jobs-search__results-list">
+          <li>
+            <div
+              class="base-card base-search-card job-search-card"
+              data-entity-urn="urn:li:jobPosting:4370317193"
+            >
+              <a
+                class="base-card__full-link"
+                href="https://www.linkedin.com/jobs/view/software-engineer-at-example-4370317193?position=1&amp;pageNum=0"
+              >
+                <span class="sr-only">Software Engineer</span>
+              </a>
+              <div class="base-search-card__info">
+                <h3 class="base-search-card__title">Software Engineer</h3>
+                <h4 class="base-search-card__subtitle">
+                  <a class="hidden-nested-link" href="https://www.linkedin.com/company/example"
+                    >Example Corp</a
+                  >
+                </h4>
+                <div class="base-search-card__metadata">
+                  <span class="job-search-card__location">Remote</span>
+                </div>
+              </div>
+            </div>
+          </li>
+        </ul>
+        """
+
+        jobs = _extract_public_job_cards(html)
+
+        assert len(jobs) == 1
+        assert jobs[0].source == "linkedin"
+        assert jobs[0].source_id == "4370317193"
+        assert jobs[0].company == "Example Corp"
+        assert jobs[0].title == "Software Engineer"
+        assert jobs[0].location == "Remote"
+        assert jobs[0].raw_data["search_mode"] == "public_guest"
+
+    def test_normalize_linkedin_title_text_removes_duplicate_verification_suffix(self):
+        from src.intake.linkedin import _normalize_linkedin_title_text
+
+        value = (
+            "Security Engineer (Bangkok Based, Relocation Support) "
+            "Security Engineer (Bangkok Based, Relocation Support) with verification"
+        )
+
+        assert (
+            _normalize_linkedin_title_text(value)
+            == "Security Engineer (Bangkok Based, Relocation Support)"
+        )
+
+
+class TestLinkedInKeywordPrecision:
+    def test_keyword_precision_filter_removes_unrelated_jobs(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import _apply_keyword_precision_filter
+
+        jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Software Engineer",
+                location="Vancouver, BC",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="2",
+                company="TD",
+                title="Customer Experience Associate - Mandarin language skills an asset",
+                location="Vancouver, BC",
+                ats_type="linkedin",
+            ),
+        ]
+
+        matched = _apply_keyword_precision_filter(jobs, "Software")
+
+        assert len(matched) == 1
+        assert matched[0].title == "Software Engineer"
 
 
 # ──────────────────────────────────────────────
@@ -351,12 +459,12 @@ class TestLinkedInScraperMocked:
         location_el.inner_text = AsyncMock(return_value="Mountain View, CA")
 
         def mock_query_selector(selector):
-            if "title" in selector or "link" in selector:
-                return title_el
-            elif "company" in selector:
+            if "company" in selector or "subtitle" in selector:
                 return company_el
-            elif "location" in selector or "metadata" in selector:
+            elif "location" in selector or "metadata" in selector or "caption" in selector:
                 return location_el
+            elif "title" in selector or "link" in selector:
+                return title_el
             return None
 
         card.query_selector = AsyncMock(side_effect=mock_query_selector)

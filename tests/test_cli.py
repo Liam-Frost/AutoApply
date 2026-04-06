@@ -350,6 +350,30 @@ class TestStatusCommand:
 
 
 class TestApplicationUseCases:
+    def test_resolve_linkedin_keywords_prefers_keyword_tags(self):
+        from src.application.jobs import _resolve_linkedin_keywords
+
+        resolved = _resolve_linkedin_keywords("software engineer", ["software", "backend"])
+
+        assert resolved == ["software", "backend"]
+
+    def test_linkedin_max_pages_does_not_expand_when_search_location_is_used(self):
+        from src.application.jobs import _linkedin_max_pages
+
+        max_pages = _linkedin_max_pages(
+            5,
+            search_location="Vancouver",
+            experience_levels=[],
+            employment_types=[],
+            location_types=[],
+            locations=["vancouver"],
+            pay_operator=None,
+            experience_operator=None,
+            education_levels=[],
+        )
+
+        assert max_pages == 5
+
     @pytest.mark.asyncio
     async def test_search_jobs_uses_profile_for_linkedin_source(self):
         from src.application.jobs import search_jobs
@@ -361,6 +385,66 @@ class TestApplicationUseCases:
 
         assert result["errors"] == []
         assert mock_search.call_args.kwargs["filter_profile"] == "intern_only"
+
+    @pytest.mark.asyncio
+    async def test_search_jobs_sets_auth_error_code_for_linkedin(self):
+        from src.application.jobs import search_jobs
+        from src.intake.linkedin import LinkedInAuthRequiredError
+
+        with patch(
+            "src.intake.search.search_linkedin",
+            new=AsyncMock(side_effect=LinkedInAuthRequiredError("login required")),
+        ):
+            result = await search_jobs(source="linkedin", keyword="intern")
+
+        assert result["error_code"] == "linkedin_auth_required"
+        assert "login required" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_apply_to_url_resolves_linkedin_to_external_ats(self):
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch(
+                "src.application.jobs.resolve_manual_apply_url",
+                new=AsyncMock(
+                    return_value={
+                        "ok": True,
+                        "url": "https://boards.greenhouse.io/example/jobs/123",
+                        "source_url": "https://www.linkedin.com/jobs/view/123",
+                        "ats_url": "https://boards.greenhouse.io/example/jobs/123",
+                    }
+                ),
+            ),
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+            patch("src.application.jobs._load_profile", return_value={"identity": {}}),
+            patch(
+                "src.application.jobs._run_application_for_job",
+                new=AsyncMock(return_value={"ok": True, "status": "REVIEW_REQUIRED"}),
+            ) as mock_run,
+        ):
+            mock_load_job.return_value = SimpleNamespace(
+                id=uuid.uuid4(),
+                source="linkedin",
+                source_id="123",
+                company="Example",
+                title="Software Engineer",
+                location="Remote",
+                employment_type="unknown",
+                seniority="unknown",
+                description=None,
+                application_url="https://boards.greenhouse.io/example/jobs/123",
+                ats_type="greenhouse",
+                raw_data={},
+                discovered_at=None,
+            )
+            await apply_to_url(url="https://www.linkedin.com/jobs/view/123")
+
+        mock_load_job.assert_called_once_with(
+            "https://boards.greenhouse.io/example/jobs/123",
+            "greenhouse",
+        )
+        assert mock_run.await_count == 1
 
     def test_load_applications_data_uses_filtered_records_for_summaries(self):
         from src.application.tracking import load_applications_data

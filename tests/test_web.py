@@ -34,9 +34,14 @@ class TestAppFactory:
         assert "/assets" in paths
         assert "/api/dashboard" in paths
         assert "/api/jobs/search" in paths
+        assert "/api/jobs/linkedin/session" in paths
+        assert "/api/jobs/linkedin/session/connect" in paths
+        assert "/api/jobs/manual-apply-target" in paths
+        assert "/api/jobs/filter-profiles" in paths
         assert "/api/applications" in paths
         assert "/api/profile" in paths
         assert "/api/settings/llm" in paths
+        assert "/api/settings/search-cache" in paths
 
 
 class TestSpaShell:
@@ -90,6 +95,36 @@ class TestDashboardApi:
 
 
 class TestJobsApi:
+    @patch("src.web.routes.api.search_jobs_usecase")
+    def test_jobs_search_uses_no_filter_profile_by_default(self, mock_usecase, client):
+        mock_usecase.return_value = {
+            "search_params": {"keyword": "", "keywords": ["backend"], "profile": None},
+            "jobs": [],
+            "errors": [],
+            "error": None,
+            "error_code": None,
+            "counts": {"ats": 0, "linkedin": 0, "linkedin_external_ats": 0, "total": 0},
+            "scored": False,
+        }
+
+        response = client.post(
+            "/api/jobs/search",
+            json={
+                "source": "linkedin",
+                "keyword": "",
+                "keywords": ["backend"],
+                "location": "",
+                "profile": "",
+                "time_filter": "week",
+                "ats": "",
+                "company": "",
+            },
+        )
+
+        assert response.status_code == 200
+        assert mock_usecase.call_args.kwargs["profile"] is None
+        assert mock_usecase.call_args.kwargs["keywords"] == ["backend"]
+
     @patch("src.intake.search.search_jobs")
     def test_jobs_search_post_ats(self, mock_search, client):
         from src.intake.schema import RawJob
@@ -161,6 +196,145 @@ class TestJobsApi:
         payload = response.json()
         assert payload["jobs"][0]["title"] == "Backend Engineer"
         assert "LinkedIn:" in payload["error"]
+
+    @patch("src.intake.search.search_linkedin")
+    def test_jobs_search_linkedin_auth_required_returns_error_code(self, mock_linkedin, client):
+        from src.intake.linkedin import LinkedInAuthRequiredError
+
+        mock_linkedin.side_effect = LinkedInAuthRequiredError("login required")
+
+        response = client.post(
+            "/api/jobs/search",
+            json={
+                "source": "linkedin",
+                "keyword": "backend",
+                "location": "",
+                "profile": "default",
+                "time_filter": "week",
+                "ats": "",
+                "company": "",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["error_code"] == "linkedin_auth_required"
+        assert "login required" in payload["error"]
+
+    @patch("src.web.routes.api.get_linkedin_session_status_usecase")
+    def test_linkedin_session_status_route(self, mock_status, client):
+        mock_status.return_value = {
+            "ok": True,
+            "authenticated": False,
+            "has_session_data": True,
+            "message": "LinkedIn session is not authenticated.",
+            "error": None,
+            "error_code": None,
+        }
+
+        response = client.get("/api/jobs/linkedin/session")
+
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is False
+
+    @patch("src.web.routes.api.connect_linkedin_session_usecase")
+    def test_linkedin_session_connect_route(self, mock_connect, client):
+        mock_connect.return_value = {
+            "ok": True,
+            "authenticated": True,
+            "has_session_data": True,
+            "message": "LinkedIn session connected.",
+            "error": None,
+            "error_code": None,
+        }
+
+        response = client.post("/api/jobs/linkedin/session/connect")
+
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is True
+
+    @patch("src.web.routes.api.clear_linkedin_session_usecase")
+    def test_linkedin_session_clear_route(self, mock_clear, client):
+        mock_clear.return_value = {
+            "ok": True,
+            "authenticated": False,
+            "has_session_data": False,
+            "message": "LinkedIn session cleared.",
+            "error": None,
+            "error_code": None,
+        }
+
+        response = client.delete("/api/jobs/linkedin/session")
+
+        assert response.status_code == 200
+        assert response.json()["has_session_data"] is False
+
+    @patch("src.web.routes.api.resolve_manual_apply_url_usecase")
+    def test_manual_apply_target_route(self, mock_manual_apply, client):
+        mock_manual_apply.return_value = {
+            "ok": True,
+            "url": "https://company.example/apply/123",
+            "source_url": "https://www.linkedin.com/jobs/view/123",
+            "ats_url": None,
+            "error": None,
+            "error_code": None,
+        }
+
+        response = client.post(
+            "/api/jobs/manual-apply-target",
+            json={"url": "https://www.linkedin.com/jobs/view/123"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["url"] == "https://company.example/apply/123"
+
+    @patch("src.web.routes.api.load_search_profiles_data")
+    def test_filter_profiles_route(self, mock_profiles, client):
+        mock_profiles.return_value = {
+            "ok": True,
+            "profiles": [{"id": "vancouver-software", "keywords": ["software"]}],
+            "config_path": "config/search_profiles.yaml",
+            "error": None,
+            "error_code": None,
+        }
+
+        response = client.get("/api/jobs/filter-profiles")
+
+        assert response.status_code == 200
+        assert response.json()["profiles"][0]["id"] == "vancouver-software"
+
+    @patch("src.web.routes.api.save_search_profile_data")
+    def test_save_filter_profile_route(self, mock_save, client):
+        mock_save.return_value = {
+            "ok": True,
+            "profiles": [{"id": "software", "keywords": ["software"]}],
+            "message": "Saved filter profile 'software'.",
+        }
+
+        response = client.put(
+            "/api/jobs/filter-profiles/software",
+            json={
+                "source": "linkedin",
+                "keywords": ["software"],
+                "locations": ["Vancouver"],
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["profiles"][0]["id"] == "software"
+
+    @patch("src.web.routes.api.delete_search_profile_data")
+    def test_delete_filter_profile_route(self, mock_delete, client):
+        mock_delete.return_value = {
+            "ok": True,
+            "profiles": [],
+            "message": "Deleted filter profile 'software'.",
+        }
+
+        response = client.delete("/api/jobs/filter-profiles/software")
+
+        assert response.status_code == 200
+        assert response.json()["profiles"] == []
 
     @patch("src.web.routes.api.apply_to_url")
     def test_jobs_apply_post(self, mock_apply_to_url, client):
@@ -423,6 +597,7 @@ class TestSettingsApi:
                     "fallback_provider": "codex-cli",
                     "allow_fallback": True,
                 },
+                "search_cache": {"enabled": True, "ttl_hours": 24},
                 "available_providers": {"claude-cli": True, "codex-cli": True},
                 "config_path": "config/settings.yaml",
             },
@@ -444,6 +619,7 @@ class TestSettingsApi:
                     "fallback_provider": "claude-cli",
                     "allow_fallback": True,
                 },
+                "search_cache": {"enabled": False, "ttl_hours": 12},
                 "available_providers": {"claude-cli": True, "codex-cli": True},
                 "config_path": "config/settings.yaml",
             },
@@ -454,11 +630,34 @@ class TestSettingsApi:
                     "primary_provider": "codex-cli",
                     "fallback_provider": "claude-cli",
                     "allow_fallback": True,
+                    "cache_enabled": False,
+                    "cache_ttl_hours": 12,
                 },
             )
 
         assert response.status_code == 200
         assert response.json()["message"] == "LLM settings updated successfully."
+
+    def test_settings_clear_search_cache(self, client):
+        with patch(
+            "src.web.routes.api.clear_search_cache_data",
+            return_value={
+                "ok": True,
+                "message": "Cleared 3 cached LinkedIn search entries.",
+                "llm": {
+                    "primary_provider": "claude-cli",
+                    "fallback_provider": "codex-cli",
+                    "allow_fallback": True,
+                },
+                "search_cache": {"enabled": True, "ttl_hours": 24},
+                "available_providers": {"claude-cli": True, "codex-cli": True},
+                "config_path": "config/settings.yaml",
+            },
+        ):
+            response = client.delete("/api/settings/search-cache")
+
+        assert response.status_code == 200
+        assert "Cleared 3" in response.json()["message"]
 
 
 class TestWebCLI:

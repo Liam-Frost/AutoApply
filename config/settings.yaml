@@ -30,3 +30,7 @@ rate_limit:
   max_delay: 8
   cooldown_on_error: 60  # seconds to wait after an error
   max_applications_per_hour: 15
+
+search_cache:
+  enabled: true
+  ttl_hours: 24

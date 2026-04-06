@@ -1,5 +1,6 @@
 <script setup>
-import { computed, reactive, watch } from "vue"
+import { computed, onMounted, reactive, watch } from "vue"
+import { RouterLink } from "vue-router"
 
 import AppIcon from "../components/AppIcon.vue"
 import AppSelect from "../components/AppSelect.vue"
@@ -75,9 +76,8 @@ const numericOperators = [
 
 const form = reactive({
   source: "ats",
-  keyword: "",
-  location: "",
-  profile: "default",
+  keywords: [],
+  profile: "",
   time_filter: "all",
   ats: "",
   company: "",
@@ -96,9 +96,20 @@ const state = reactive({
   searching: false,
   searched: false,
   error: "",
+  message: "",
   jobs: [],
   counts: emptyCounts(),
   applyState: {},
+  filterProfilesLoading: false,
+  filterProfiles: [],
+  selectedFilterProfileId: "",
+  linkedinSession: {
+    checked: false,
+    loading: false,
+    authenticated: false,
+    ok: true,
+    message: "",
+  },
   sections: {
     basic: true,
     advanced: false,
@@ -107,18 +118,23 @@ const state = reactive({
 
 const sourceUsesLinkedIn = computed(() => form.source === "linkedin" || form.source === "all")
 const sourceUsesAts = computed(() => form.source === "ats" || form.source === "all")
+const filterProfileOptions = computed(() => [
+  { value: "", label: "Select saved profile" },
+  ...state.filterProfiles.map((profile) => ({ value: profile.id, label: profile.id })),
+])
+const linkedinSearchLocation = computed(() => {
+  const primaryLocation = form.locations.find((value) => value.trim()) || ""
+  return primaryLocation.trim()
+})
 
 const activeFilterLabels = computed(() => {
   const labels = []
 
-  if (form.profile.trim() && form.profile.trim() !== "default") {
+  if (form.profile.trim()) {
     labels.push(`Profile: ${form.profile.trim()}`)
   }
-  if (sourceUsesLinkedIn.value && form.keyword.trim()) {
-    labels.push(`Keyword: ${form.keyword.trim()}`)
-  }
-  if (sourceUsesLinkedIn.value && form.location.trim()) {
-    labels.push(`Search: ${form.location.trim()}`)
+  if (sourceUsesLinkedIn.value && form.keywords.length) {
+    labels.push(...form.keywords.map((keyword) => `Keyword: ${keyword}`))
   }
   if (sourceUsesAts.value && form.ats) {
     labels.push(`ATS: ${prettyLabel(form.ats)}`)
@@ -152,8 +168,7 @@ watch(
   () => form.source,
   (source) => {
     if (source === "ats") {
-      form.keyword = ""
-      form.location = ""
+      form.keywords = []
       form.time_filter = "all"
     }
 
@@ -161,8 +176,32 @@ watch(
       form.ats = ""
       form.company = ""
     }
+
+    if ((source === "linkedin" || source === "all") && !state.linkedinSession.checked) {
+      void loadLinkedInSessionStatus()
+    }
   },
 )
+
+watch(
+  () => state.selectedFilterProfileId,
+  (profileId) => {
+    if (!profileId) {
+      return
+    }
+    const profile = state.filterProfiles.find((item) => item.id === profileId)
+    if (profile) {
+      applyFilterProfile(profile)
+    }
+  },
+)
+
+onMounted(() => {
+  if (sourceUsesLinkedIn.value) {
+    void loadLinkedInSessionStatus()
+  }
+  void loadFilterProfiles()
+})
 
 const resultSummary = computed(() => {
   if (!state.searched) {
@@ -185,16 +224,31 @@ const resultSummary = computed(() => {
   return parts.join(" / ")
 })
 
+const emptyStateMessage = computed(() => {
+  if (!state.searched) {
+    return "No jobs"
+  }
+  if (state.counts.raw_total > 0 && state.jobs.length === 0) {
+    return "Jobs were fetched, but none matched your current filters."
+  }
+  return "No jobs"
+})
+
 async function search() {
   state.searching = true
   state.searched = true
   state.error = ""
+  state.message = ""
   state.jobs = []
   state.counts = emptyCounts()
 
   try {
     const response = await api.searchJobs({
       ...form,
+      keyword: "",
+      keywords: [...form.keywords],
+      profile: "",
+      location: linkedinSearchLocation.value,
       locations: [...form.locations],
       pay_amount: parseOptionalNumber(form.pay_amount),
       experience_years: parseOptionalNumber(form.experience_years),
@@ -202,6 +256,20 @@ async function search() {
     state.jobs = response.jobs
     state.counts = response.counts || emptyCounts()
     state.error = response.error || ""
+
+    if (sourceUsesLinkedIn.value && response.error_code === "linkedin_auth_required") {
+      state.linkedinSession.checked = true
+      state.linkedinSession.authenticated = false
+      state.linkedinSession.ok = false
+      state.linkedinSession.message = response.error || "LinkedIn login required."
+    } else if (sourceUsesLinkedIn.value && response.counts?.linkedin) {
+      state.linkedinSession.checked = true
+      state.linkedinSession.authenticated = true
+      state.linkedinSession.ok = true
+      if (!state.linkedinSession.message) {
+        state.linkedinSession.message = "LinkedIn session is ready for authenticated searches."
+      }
+    }
   } catch (error) {
     state.jobs = []
     state.counts = emptyCounts()
@@ -209,6 +277,127 @@ async function search() {
   } finally {
     state.searching = false
   }
+}
+
+async function loadLinkedInSessionStatus(force = false) {
+  if (!force && state.linkedinSession.checked) {
+    return
+  }
+  if (state.linkedinSession.loading) {
+    return
+  }
+
+  state.linkedinSession.loading = true
+  try {
+    const response = await api.linkedinSession()
+    syncLinkedInSession(response)
+  } catch (error) {
+    state.linkedinSession.checked = true
+    state.linkedinSession.authenticated = false
+    state.linkedinSession.ok = false
+    state.linkedinSession.message = error.message
+  } finally {
+    state.linkedinSession.loading = false
+  }
+}
+
+async function loadFilterProfiles() {
+  state.filterProfilesLoading = true
+  try {
+    const response = await api.filterProfiles()
+    state.filterProfiles = response.profiles || []
+  } catch (error) {
+    state.error = error.message
+  } finally {
+    state.filterProfilesLoading = false
+  }
+}
+
+async function saveCurrentFilterProfile() {
+  const profileId = form.profile.trim()
+  if (!profileId) {
+    state.error = "Enter a filter profile name before saving."
+    state.message = ""
+    return
+  }
+
+  state.error = ""
+  try {
+    const response = await api.saveFilterProfile(profileId, currentFilterProfilePayload())
+    state.filterProfiles = response.profiles || []
+    state.selectedFilterProfileId = profileId
+    state.message = response.message || `Saved filter profile '${profileId}'.`
+  } catch (error) {
+    state.error = error.message
+    state.message = ""
+  }
+}
+
+async function deleteCurrentFilterProfile() {
+  const profileId = form.profile.trim()
+  if (!profileId) {
+    state.error = "Enter a filter profile name before deleting."
+    state.message = ""
+    return
+  }
+
+  state.error = ""
+  try {
+    const response = await api.deleteFilterProfile(profileId)
+    state.filterProfiles = response.profiles || []
+    state.selectedFilterProfileId = ""
+    form.profile = ""
+    state.message = response.message || `Deleted filter profile '${profileId}'.`
+  } catch (error) {
+    state.error = error.message
+    state.message = ""
+  }
+}
+
+function currentFilterProfilePayload() {
+  return {
+    source: form.source,
+    keywords: [...form.keywords],
+    time_filter: form.time_filter,
+    ats: form.ats,
+    company: form.company,
+    locations: [...form.locations],
+    experience_levels: [...form.experience_levels],
+    employment_types: [...form.employment_types],
+    location_types: [...form.location_types],
+    education_levels: [...form.education_levels],
+    pay_operator: form.pay_operator,
+    pay_amount: parseOptionalNumber(form.pay_amount),
+    experience_operator: form.experience_operator,
+    experience_years: parseOptionalNumber(form.experience_years),
+  }
+}
+
+function applyFilterProfile(profile) {
+  form.profile = profile.id
+  form.source = profile.source || "ats"
+  form.keywords = [...(profile.keywords || [])]
+  form.time_filter = profile.time_filter || "all"
+  form.ats = profile.ats || ""
+  form.company = profile.company || ""
+  form.locations = [...(profile.locations || [])]
+  form.experience_levels = [...(profile.experience_levels || [])]
+  form.employment_types = [...(profile.employment_types || [])]
+  form.location_types = [...(profile.location_types || [])]
+  form.education_levels = [...(profile.education_levels || [])]
+  form.pay_operator = profile.pay_operator || ""
+  form.pay_amount = profile.pay_amount ?? ""
+  form.experience_operator = profile.experience_operator || ""
+  form.experience_years = profile.experience_years ?? ""
+  state.message = `Loaded filter profile '${profile.id}'.`
+  state.error = ""
+}
+
+function syncLinkedInSession(response) {
+  state.linkedinSession.checked = true
+  state.linkedinSession.authenticated = Boolean(response.authenticated)
+  state.linkedinSession.ok = response.ok !== false
+  state.linkedinSession.message = response.message || ""
 }
 
 async function applyToJob(job) {
@@ -233,6 +422,68 @@ function parseOptionalNumber(value) {
 
 function score(job) {
   return job.match_score ?? job.raw_data?.match_score ?? null
+}
+
+function isLinkedInUrl(url) {
+  return Boolean(url) && url.toLowerCase().includes("linkedin.com")
+}
+
+function detailUrl(job) {
+  return job.raw_data?.detail_url || job.raw_data?.linkedin_url || job.raw_data?.linkedin_href || job.application_url || ""
+}
+
+function manualApplyUrl(job) {
+  return job.raw_data?.manual_apply_url || job.application_url || detailUrl(job)
+}
+
+function sourceLabel(job) {
+  return prettyLabel(job.ats_type && job.ats_type !== "unknown" ? job.ats_type : job.source)
+}
+
+async function manualApply(job) {
+  const fallbackUrl = detailUrl(job) || manualApplyUrl(job)
+  const targetWindow = window.open("", "_blank")
+
+  try {
+    const initialUrl = manualApplyUrl(job)
+    if (initialUrl && !isLinkedInUrl(initialUrl)) {
+      if (targetWindow) {
+        targetWindow.location.replace(initialUrl)
+      } else {
+        window.open(initialUrl, "_blank", "noopener")
+      }
+      return
+    }
+
+    const response = await api.manualApplyTarget(fallbackUrl)
+    const finalUrl = response.url || fallbackUrl
+    if (targetWindow) {
+      targetWindow.location.replace(finalUrl)
+    } else if (finalUrl) {
+      window.open(finalUrl, "_blank", "noopener")
+    }
+  } catch (error) {
+    if (targetWindow) {
+      targetWindow.location.replace(fallbackUrl || "about:blank")
+    } else if (fallbackUrl) {
+      window.open(fallbackUrl, "_blank", "noopener")
+    }
+    state.applyState[job.id] = { loading: false, message: error.message, status: "review" }
+  }
+}
+
+function chipLabel(value) {
+  return prettyLabel(value)
+}
+
+function metadataChips(job) {
+  return [
+    chipLabel(job.employment_category),
+    chipLabel(job.experience_level),
+    chipLabel(job.education_level),
+    payLabel(job),
+    experienceLabel(job),
+  ].filter(Boolean)
 }
 
 function payLabel(job) {
@@ -307,9 +558,8 @@ function timeFilterLabel(value) {
 
 function resetForm() {
   form.source = "ats"
-  form.keyword = ""
-  form.location = ""
-  form.profile = "default"
+  form.keywords = []
+  form.profile = ""
   form.time_filter = "all"
   form.ats = ""
   form.company = ""
@@ -342,6 +592,7 @@ function emptyCounts() {
 
 <template>
   <div class="page-stack">
+    <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
     <section class="surface jobs-shell">
       <form class="page-stack" @submit.prevent="search">
         <section class="jobs-panel jobs-panel-full">
@@ -351,6 +602,36 @@ function emptyCounts() {
               <div class="muted-inline">Basic And Advanced Search Controls</div>
             </div>
             <span class="muted">{{ activeFilterLabels.length }}</span>
+          </div>
+
+          <div class="jobs-profile-strip">
+            <div class="jobs-profile-fields">
+              <label class="field">
+                <span>Filter Profile</span>
+                <input v-model="form.profile" class="input" type="text" placeholder="Saved filter profile name" />
+              </label>
+
+              <label class="field">
+                <span>Saved Profiles</span>
+                <AppSelect v-model="state.selectedFilterProfileId" :options="filterProfileOptions" placeholder="Select saved profile" aria-label="Saved filter profiles" />
+              </label>
+            </div>
+
+            <div class="jobs-profile-actions">
+              <button class="icon-button" type="button" :disabled="state.filterProfilesLoading" aria-label="Refresh Profiles" title="Refresh Profiles" @click="loadFilterProfiles">
+                <AppIcon name="refresh" />
+              </button>
+              <button class="icon-button primary" type="button" aria-label="Save Profile" title="Save Profile" @click="saveCurrentFilterProfile">
+                <AppIcon name="save" />
+              </button>
+              <button class="icon-button danger" type="button" aria-label="Delete Profile" title="Delete Profile" @click="deleteCurrentFilterProfile">
+                <AppIcon name="trash" />
+              </button>
+            </div>
+          </div>
+
+          <div class="muted-inline jobs-profile-note">
+            Saved filter profiles include both Basic and Advanced filters.
           </div>
 
           <div class="page-stack jobs-panel-stack">
@@ -370,20 +651,11 @@ function emptyCounts() {
                     <AppSelect v-model="form.source" :options="sourceOptions" aria-label="Source" />
                   </label>
 
-                  <label class="field">
-                    <span>Profile</span>
-                    <input v-model="form.profile" class="input" type="text" />
-                  </label>
-
                   <template v-if="sourceUsesLinkedIn">
-                    <label class="field">
-                      <span>Keyword</span>
-                      <input v-model="form.keyword" class="input" type="text" placeholder="Software Engineer" />
-                    </label>
-
-                    <label class="field">
-                      <span>Search Location</span>
-                      <input v-model="form.location" class="input" type="text" placeholder="City, State, Country" />
+                    <label class="field field-span-full">
+                      <span>Keywords</span>
+                      <TagInput v-model="form.keywords" placeholder="Add a keyword or phrase" />
+                      <div class="muted-inline">Any keyword tag found in the title or description will keep the result.</div>
                     </label>
 
                     <label class="field field-span-full">
@@ -407,6 +679,9 @@ function emptyCounts() {
                   <label class="field field-span-full">
                     <span>Candidate Locations</span>
                     <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
+                    <div v-if="sourceUsesLinkedIn && linkedinSearchLocation" class="muted-inline">
+                      LinkedIn search uses the first candidate location: {{ linkedinSearchLocation }}
+                    </div>
                   </label>
                 </div>
               </div>
@@ -502,73 +777,90 @@ function emptyCounts() {
       </form>
     </section>
 
+    <div v-if="sourceUsesLinkedIn && state.linkedinSession.checked && !state.linkedinSession.authenticated" class="banner is-warning">
+      LinkedIn session is not connected for web search.
+      <RouterLink class="jobs-settings-link" to="/settings">Go to Settings</RouterLink>
+      to connect or clear the saved session.
+    </div>
+
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
 
-    <section class="surface">
+    <section class="surface jobs-results-shell">
       <div class="section-head jobs-results-head">
-        <div>
+        <div class="jobs-results-copy">
           <h2>Results</h2>
           <div v-if="resultSummary" class="muted-inline">{{ resultSummary }}</div>
         </div>
 
-        <div class="chip-row" v-if="state.searched">
-          <span class="chip subtle">{{ state.jobs.length }}</span>
-          <span v-if="state.counts.ats" class="chip subtle">{{ state.counts.ats }} ATS</span>
+        <div class="chip-row jobs-results-metrics" v-if="state.searched">
+          <span class="chip subtle">{{ state.jobs.length }} shown</span>
+          <span v-if="state.counts.raw_total" class="chip subtle">{{ state.counts.raw_total }} fetched</span>
           <span v-if="state.counts.linkedin" class="chip subtle">{{ state.counts.linkedin }} LinkedIn</span>
+          <span v-if="state.counts.ats" class="chip subtle">{{ state.counts.ats }} ATS</span>
         </div>
       </div>
 
       <div v-if="state.searching" class="empty-state">Searching</div>
       <div v-else-if="state.jobs.length" class="job-list">
         <article v-for="job in state.jobs" :key="job.id" class="job-card">
-          <div class="job-head">
-            <div>
-              <h3>{{ job.title }}</h3>
-              <div class="muted-inline">{{ job.company }}<span v-if="job.location"> - {{ job.location }}</span></div>
+          <div class="job-card-main">
+            <div class="job-card-header">
+              <div class="job-card-copy">
+                <div class="chip-row job-card-topline">
+                  <span v-if="score(job) !== null" class="chip job-chip-strong">{{ formatPercent(score(job), "0%") }}</span>
+                  <span class="chip">{{ sourceLabel(job) }}</span>
+                  <span v-if="chipLabel(job.location_type)" class="chip">{{ chipLabel(job.location_type) }}</span>
+                  <span v-if="job.raw_data?.search_mode === 'public_guest'" class="chip subtle">Guest</span>
+                  <span v-if="job.raw_data?.disqualified" class="chip danger">Review</span>
+                </div>
+
+                <h3>{{ job.title }}</h3>
+                <div class="job-card-company">{{ job.company }}<span v-if="job.location"> · {{ job.location }}</span></div>
+              </div>
+
             </div>
 
-            <div class="chip-row">
-              <span v-if="score(job) !== null" class="chip">{{ formatPercent(score(job), "0%") }}</span>
-              <span v-if="job.ats_type && job.ats_type !== 'unknown'" class="chip">{{ job.ats_type }}</span>
-              <span v-if="job.raw_data?.disqualified" class="chip danger">Review</span>
+            <div v-if="metadataChips(job).length" class="job-card-box">
+              <div class="chip-row job-card-tags">
+                <span v-for="chip in metadataChips(job)" :key="chip" class="chip subtle">{{ chip }}</span>
+              </div>
             </div>
-          </div>
 
-          <div class="chip-row">
-            <span v-if="job.employment_category" class="chip">{{ prettyLabel(job.employment_category) }}</span>
-            <span v-if="job.experience_level" class="chip">{{ prettyLabel(job.experience_level) }}</span>
-            <span v-if="job.location_type" class="chip">{{ prettyLabel(job.location_type) }}</span>
-            <span v-if="job.education_level && job.education_level !== 'unknown'" class="chip">{{ prettyLabel(job.education_level) }}</span>
-            <span v-if="payLabel(job)" class="chip">{{ payLabel(job) }}</span>
-            <span v-if="experienceLabel(job)" class="chip">{{ experienceLabel(job) }}</span>
-          </div>
+            <div v-if="job.description" class="job-card-box">
+              <p class="job-card-description">{{ truncateText(job.description) }}</p>
+            </div>
 
-          <p v-if="job.description" class="muted-text">{{ truncateText(job.description) }}</p>
+            <div class="job-card-actions-row">
+              <div class="job-card-actions">
+                <a
+                  class="button ghost compact"
+                  :href="detailUrl(job)"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Details
+                </a>
+                <button class="button ghost compact" type="button" @click="manualApply(job)">
+                  ManualApply
+                </button>
+                <button
+                  class="button compact"
+                  type="button"
+                  @click="applyToJob(job)"
+                  :disabled="state.applyState[job.id]?.loading || !job.application_url"
+                >
+                  {{ state.applyState[job.id]?.loading ? "Applying..." : "AutoApply" }}
+                </button>
+              </div>
+            </div>
 
-          <div class="actions-row">
-            <button
-              v-if="job.application_url"
-              class="icon-button primary"
-              type="button"
-              @click="applyToJob(job)"
-              :disabled="state.applyState[job.id]?.loading"
-              aria-label="Apply To Job"
-              title="Apply To Job"
-            >
-              <AppIcon name="apply" />
-            </button>
-
-            <a v-if="job.application_url" class="icon-button" :href="job.application_url" target="_blank" rel="noopener" aria-label="Open Job Link" title="Open Job Link">
-              <AppIcon name="external" />
-            </a>
-          </div>
-
-          <div v-if="state.applyState[job.id]?.message" class="inline-feedback" :class="state.applyState[job.id]?.status">
-            {{ state.applyState[job.id].message }}
+            <div v-if="state.applyState[job.id]?.message" class="inline-feedback" :class="state.applyState[job.id]?.status">
+              {{ state.applyState[job.id].message }}
+            </div>
           </div>
         </article>
       </div>
-      <div v-else class="empty-state">No jobs</div>
+      <div v-else class="empty-state">{{ emptyStateMessage }}</div>
     </section>
   </div>
 </template>

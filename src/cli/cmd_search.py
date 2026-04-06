@@ -84,6 +84,7 @@ def search_cmd(
             headless=headless,
             require_keyword_for_linkedin=True,
             warn_on_missing_profile=score,
+            allow_public_linkedin_fallback=True,
         )
     )
 

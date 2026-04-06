@@ -35,7 +35,7 @@ PAY_CAP_RE = re.compile(
 
 async def search_jobs(
     *,
-    profile: str = "default",
+    profile: str | None = "default",
     config_dir: Path = PROJECT_ROOT / "config",
     no_parse: bool = False,
     use_llm: bool = False,
@@ -44,6 +44,7 @@ async def search_jobs(
     company: str | None = None,
     score: bool = False,
     keyword: str | None = None,
+    keywords: list[str] | None = None,
     search_location: str | None = None,
     time_filter: str = "week",
     experience_levels: list[str] | None = None,
@@ -60,15 +61,19 @@ async def search_jobs(
     headless: bool = False,
     require_keyword_for_linkedin: bool = False,
     warn_on_missing_profile: bool = False,
+    allow_public_linkedin_fallback: bool = False,
 ) -> dict:
     jobs = []
     errors: list[str] = []
+    error_code: str | None = None
     counts = {"ats": 0, "linkedin": 0, "linkedin_external_ats": 0, "total": 0}
     experience_levels = _normalize_list(experience_levels)
     employment_types = _normalize_list(employment_types)
     location_types = _normalize_list(location_types)
     locations = _normalize_list(locations)
     education_levels = _normalize_list(education_levels)
+    keywords = _normalize_string_list(keywords)
+    linkedin_keywords = _resolve_linkedin_keywords(keyword, keywords)
 
     if source in ("ats", "all"):
         try:
@@ -87,21 +92,23 @@ async def search_jobs(
             errors.append(f"ATS: {exc}")
 
     if source in ("linkedin", "all"):
-        if not keyword:
+        if not linkedin_keywords:
             if require_keyword_for_linkedin:
                 errors.append("LinkedIn search requires --keyword.")
         else:
             try:
+                from src.intake.linkedin import LinkedInAuthRequiredError
                 from src.intake.search import search_linkedin
 
                 linkedin_jobs = await search_linkedin(
-                    keywords=keyword,
+                    keywords=linkedin_keywords,
                     location=search_location or "",
                     time_filter=_normalize_time_filter(time_filter),
                     experience_levels=_map_linkedin_experience_levels(experience_levels),
                     job_types=_map_linkedin_job_types(employment_types),
                     max_pages=_linkedin_max_pages(
                         max_pages,
+                        search_location=search_location or "",
                         experience_levels=experience_levels,
                         employment_types=employment_types,
                         location_types=location_types,
@@ -114,12 +121,17 @@ async def search_jobs(
                     headless=headless,
                     filter_profile=profile,
                     config_dir=config_dir,
+                    allow_public_fallback=allow_public_linkedin_fallback,
                 )
                 counts["linkedin"] = len(linkedin_jobs)
                 counts["linkedin_external_ats"] = sum(
                     1 for job in linkedin_jobs if job.ats_type in ("greenhouse", "lever")
                 )
                 jobs.extend(linkedin_jobs)
+            except LinkedInAuthRequiredError as exc:
+                if error_code is None:
+                    error_code = "linkedin_auth_required"
+                errors.append(f"LinkedIn: {exc}")
             except Exception as exc:
                 errors.append(f"LinkedIn: {exc}")
 
@@ -156,6 +168,7 @@ async def search_jobs(
             "company": company,
             "score": score,
             "keyword": keyword or "",
+            "keywords": linkedin_keywords,
             "location": search_location or "",
             "time_filter": time_filter,
             "experience_levels": experience_levels,
@@ -174,6 +187,7 @@ async def search_jobs(
         "jobs": [serialize_job(job) for job in jobs],
         "errors": errors,
         "error": "; ".join(errors) or None,
+        "error_code": error_code,
         "counts": {
             **counts,
             "raw_total": raw_total,
@@ -182,6 +196,86 @@ async def search_jobs(
         },
         "scored": scored,
     }
+
+
+async def get_linkedin_session_status() -> dict:
+    try:
+        from src.intake.linkedin import (
+            get_linkedin_session_status as get_linkedin_session_status_intake,
+        )
+
+        return await get_linkedin_session_status_intake()
+    except Exception as exc:
+        logger.exception("Failed to inspect LinkedIn session")
+        return {
+            "ok": False,
+            "authenticated": False,
+            "has_session_data": False,
+            "message": f"Failed to inspect LinkedIn session: {exc}",
+            "error": str(exc),
+            "error_code": "linkedin_session_status_failed",
+        }
+
+
+async def connect_linkedin_session() -> dict:
+    try:
+        from src.intake.linkedin import connect_linkedin_session as connect_linkedin_session_intake
+
+        return await connect_linkedin_session_intake()
+    except Exception as exc:
+        logger.exception("Failed to connect LinkedIn session")
+        return {
+            "ok": False,
+            "authenticated": False,
+            "has_session_data": False,
+            "message": f"Failed to connect LinkedIn session: {exc}",
+            "error": str(exc),
+            "error_code": "linkedin_session_connect_failed",
+        }
+
+
+async def resolve_manual_apply_url(url: str) -> dict:
+    if not _is_linkedin_url(url):
+        return {
+            "ok": True,
+            "url": url,
+            "source_url": url,
+            "ats_url": url if _detect_ats_from_url(url) else None,
+            "error": None,
+            "error_code": None,
+        }
+
+    try:
+        from src.intake.linkedin import resolve_linkedin_apply_target
+
+        return await resolve_linkedin_apply_target(url)
+    except Exception as exc:
+        logger.exception("Failed to resolve manual apply URL")
+        return {
+            "ok": False,
+            "url": url,
+            "source_url": url,
+            "ats_url": None,
+            "error": str(exc),
+            "error_code": "manual_apply_resolution_failed",
+        }
+
+
+def clear_linkedin_session() -> dict:
+    try:
+        from src.intake.linkedin import clear_linkedin_session as clear_linkedin_session_intake
+
+        return clear_linkedin_session_intake()
+    except Exception as exc:
+        logger.exception("Failed to clear LinkedIn session")
+        return {
+            "ok": False,
+            "authenticated": False,
+            "has_session_data": True,
+            "message": f"Failed to clear LinkedIn session: {exc}",
+            "error": str(exc),
+            "error_code": "linkedin_session_clear_failed",
+        }
 
 
 def preview_batch_jobs(*, profile: str = "default", top_n: int = 5) -> dict:
@@ -209,7 +303,14 @@ async def apply_to_url(
         "input": {"url": url},
     }
 
-    ats_type = _detect_ats_from_url(url)
+    resolved_url = url
+    if _is_linkedin_url(url):
+        resolved = await resolve_manual_apply_url(url)
+        if resolved.get("ats_url"):
+            resolved_url = resolved["ats_url"]
+            payload["resolved_url"] = resolved_url
+
+    ats_type = _detect_ats_from_url(resolved_url)
     if not ats_type:
         return {
             **payload,
@@ -219,13 +320,13 @@ async def apply_to_url(
             "tracking_id": None,
             "result": None,
             "artifacts": _empty_artifacts(),
-            "error": _unsupported_ats_message(url),
+            "error": _unsupported_ats_message(resolved_url),
             "error_code": "unsupported_ats",
             "dry_run": dry_run,
         }
 
     try:
-        job = _load_job_for_application(url, ats_type)
+        job = _load_job_for_application(resolved_url, ats_type)
     except Exception as exc:
         return {
             **payload,
@@ -835,6 +936,20 @@ def _normalize_list(values: list[str] | None) -> list[str]:
     return [value.strip().lower() for value in values if isinstance(value, str) and value.strip()]
 
 
+def _normalize_string_list(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    return [value.strip() for value in values if isinstance(value, str) and value.strip()]
+
+
+def _resolve_linkedin_keywords(keyword: str | None, keywords: list[str]) -> list[str]:
+    if keywords:
+        return keywords
+    if keyword and keyword.strip():
+        return [keyword.strip()]
+    return []
+
+
 def _normalize_time_filter(value: str) -> str:
     return value if value in {"24h", "week", "month"} else ""
 
@@ -866,6 +981,7 @@ def _map_linkedin_job_types(values: list[str]) -> list[str] | None:
 def _linkedin_max_pages(
     max_pages: int,
     *,
+    search_location: str,
     experience_levels: list[str],
     employment_types: list[str],
     location_types: list[str],
@@ -882,7 +998,7 @@ def _linkedin_max_pages(
                 for value in employment_types
             ),
             location_types,
-            locations,
+            locations and not search_location,
             pay_operator,
             experience_operator,
             education_levels,
@@ -1179,6 +1295,10 @@ def _detect_ats_from_url(url: str) -> str | None:
     if "lever.co" in url_lower:
         return "lever"
     return None
+
+
+def _is_linkedin_url(url: str) -> bool:
+    return "linkedin.com" in (url or "").lower()
 
 
 def _load_profile() -> dict | None:

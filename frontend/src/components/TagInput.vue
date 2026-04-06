@@ -135,9 +135,10 @@ function splitTags(value) {
   gap: 8px;
   min-height: 30px;
   padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(144, 181, 255, 0.24);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(135deg, rgba(144, 181, 255, 0.12), rgba(105, 214, 192, 0.1));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
   font-size: 12px;
   color: var(--text);
 }

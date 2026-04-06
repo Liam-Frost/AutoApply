@@ -38,6 +38,41 @@ export const api = {
       body: JSON.stringify(payload),
     })
   },
+  filterProfiles() {
+    return request("/api/jobs/filter-profiles")
+  },
+  saveFilterProfile(profileId, payload) {
+    return request(`/api/jobs/filter-profiles/${encodeURIComponent(profileId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteFilterProfile(profileId) {
+    return request(`/api/jobs/filter-profiles/${encodeURIComponent(profileId)}`, {
+      method: "DELETE",
+    })
+  },
+  linkedinSession() {
+    return request("/api/jobs/linkedin/session")
+  },
+  connectLinkedIn() {
+    return request("/api/jobs/linkedin/session/connect", {
+      method: "POST",
+    })
+  },
+  clearLinkedInSession() {
+    return request("/api/jobs/linkedin/session", {
+      method: "DELETE",
+    })
+  },
+  manualApplyTarget(url) {
+    return request("/api/jobs/manual-apply-target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    })
+  },
   applyJob(url) {
     return request("/api/jobs/apply", {
       method: "POST",
@@ -111,6 +146,11 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    })
+  },
+  clearSearchCache() {
+    return request("/api/settings/search-cache", {
+      method: "DELETE",
     })
   },
 }
