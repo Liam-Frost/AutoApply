@@ -15,6 +15,7 @@ let localId = 0
 
 const state = reactive({
   loading: true,
+  ready: false,
   saving: false,
   uploading: false,
   deleting: false,
@@ -82,6 +83,7 @@ async function load(profileId = "") {
     state.error = error.message
   } finally {
     state.loading = false
+    state.ready = true
   }
 }
 
@@ -843,16 +845,16 @@ function makeId(prefix) {
 
 <template>
   <div class="page-stack">
-    <div v-if="state.loading" class="empty-state">Loading</div>
+    <div v-if="state.loading && !state.ready" class="empty-state">Loading</div>
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
     <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
 
     <template v-if="!state.loading && !isEditingView">
-      <section class="surface profile-library-shell">
+      <section class="surface profile-library-shell" :class="{ 'is-loading': state.loading }">
         <div class="section-head">
           <div>
             <h2>Profiles</h2>
-            <div class="muted-inline">{{ profiles.length }} available</div>
+                <div class="muted-inline">{{ profiles.length }} Available</div>
           </div>
           <button class="icon-button" type="button" aria-label="Add profile" title="Add profile" @click="openCreateMenu()">
             <AppIcon name="plus" />
@@ -862,22 +864,22 @@ function makeId(prefix) {
         <div v-if="state.createMenuOpen" class="profile-create-panel">
           <div class="section-head compact-head">
             <h2>Create</h2>
-            <button class="icon-button" type="button" aria-label="Close create menu" title="Close create menu" @click="closeCreateMenu"><AppIcon name="close" /></button>
+            <button class="icon-button" type="button" aria-label="Close Create Menu" title="Close Create Menu" @click="closeCreateMenu"><AppIcon name="close" /></button>
           </div>
 
-          <div class="chip-row">
-            <button class="button ghost compact" type="button" @click="openCreateMenu('template')">Blank template</button>
-            <button class="button ghost compact" type="button" @click="openCreateMenu('import')">Import from file</button>
+          <div class="chip-row mode-toggle-row">
+            <button class="button ghost compact" :class="{ 'is-active': state.createMode === 'template' }" type="button" @click="openCreateMenu('template')">Blank Template</button>
+            <button class="button ghost compact" :class="{ 'is-active': state.createMode === 'import' }" type="button" @click="openCreateMenu('import')">Import From File</button>
           </div>
 
           <div v-if="state.createMode === 'template'" class="form-grid profile-create-grid">
             <label class="field">
-              <span>Profile id</span>
-              <input v-model="state.createProfileId" class="input" type="text" placeholder="new-profile" />
+              <span>Profile ID</span>
+              <input v-model="state.createProfileId" class="input" type="text" placeholder="New Profile Name" />
             </label>
 
             <div class="actions-row align-end">
-              <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Create profile" title="Create profile" @click="createProfile">
+              <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Create Profile" title="Create Profile" @click="createProfile">
                 <AppIcon name="plus" />
               </button>
             </div>
@@ -885,22 +887,22 @@ function makeId(prefix) {
 
           <div v-if="state.createMode === 'import'" class="form-grid profile-create-grid">
             <label class="field">
-              <span>Target profile id</span>
-              <input v-model="state.uploadProfileId" class="input" type="text" placeholder="Leave blank to derive from filename" />
+              <span>Target Profile ID</span>
+              <input v-model="state.uploadProfileId" class="input" type="text" placeholder="Optional Profile Name" />
             </label>
 
             <label class="field">
-              <span>Resume file</span>
+              <span>Resume File</span>
               <input ref="fileInput" class="input file-input" type="file" accept=".pdf,.docx" />
             </label>
 
             <label class="checkbox-row">
               <input v-model="state.overwriteUpload" type="checkbox" />
-              <span>Overwrite if profile already exists</span>
+              <span>Overwrite If Profile Already Exists</span>
             </label>
 
             <div class="actions-row align-end">
-              <button class="icon-button primary" type="button" :disabled="state.uploading" aria-label="Import profile" title="Import profile" @click="uploadProfileFromFile">
+              <button class="icon-button primary" type="button" :disabled="state.uploading" aria-label="Import Profile" title="Import Profile" @click="uploadProfileFromFile">
                 <AppIcon name="upload" />
               </button>
             </div>
@@ -928,43 +930,43 @@ function makeId(prefix) {
               </label>
 
               <div class="actions-row">
-                <button class="icon-button primary" type="button" :disabled="state.renaming" aria-label="Save rename" title="Save rename" @click="renameProfile(profile.id)"><AppIcon name="save" /></button>
-                <button class="icon-button" type="button" aria-label="Cancel rename" title="Cancel rename" @click="cancelRename"><AppIcon name="close" /></button>
+                <button class="icon-button primary" type="button" :disabled="state.renaming" aria-label="Save Rename" title="Save Rename" @click="renameProfile(profile.id)"><AppIcon name="save" /></button>
+                <button class="icon-button" type="button" aria-label="Cancel Rename" title="Cancel Rename" @click="cancelRename"><AppIcon name="close" /></button>
               </div>
             </div>
 
             <div v-else class="actions-row">
-              <button class="icon-button" type="button" aria-label="Edit profile" title="Edit profile" @click="openProfileEditor(profile.id)"><AppIcon name="edit" /></button>
-              <button class="icon-button" :class="{ 'is-active': profile.is_active }" type="button" aria-label="Select profile" title="Select profile" @click="activateProfile(profile.id)"><AppIcon name="check" /></button>
-              <button class="icon-button" type="button" aria-label="Rename profile" title="Rename profile" @click="startRename(profile)"><AppIcon name="rename" /></button>
-              <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete profile" title="Delete profile" @click="deleteProfile(profile.id)"><AppIcon name="trash" /></button>
+              <button class="icon-button" type="button" aria-label="Edit Profile" title="Edit Profile" @click="openProfileEditor(profile.id)"><AppIcon name="edit" /></button>
+              <button class="icon-button" :class="{ 'is-active': profile.is_active }" type="button" aria-label="Select Profile" title="Select Profile" @click="activateProfile(profile.id)"><AppIcon name="check" /></button>
+              <button class="icon-button" type="button" aria-label="Rename Profile" title="Rename Profile" @click="startRename(profile)"><AppIcon name="rename" /></button>
+              <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(profile.id)"><AppIcon name="trash" /></button>
             </div>
           </article>
         </div>
-        <div v-else class="empty-state">No profiles yet</div>
+        <div v-else class="empty-state">No Profiles Yet</div>
       </section>
     </template>
 
     <template v-else-if="!state.loading && isEditingView">
-      <section v-if="!state.data.has_profile" class="surface surface-narrow">
+      <section v-if="!state.data.has_profile" class="surface surface-narrow" :class="{ 'is-loading': state.loading }">
         <div class="section-head">
           <h2>Profile Not Found</h2>
-          <button class="icon-button" type="button" aria-label="Back to profiles" title="Back to profiles" @click="goToLibrary"><AppIcon name="back" /></button>
+          <button class="icon-button" type="button" aria-label="Back To Profiles" title="Back To Profiles" @click="goToLibrary"><AppIcon name="back" /></button>
         </div>
-        <div class="empty-state">The selected profile does not exist.</div>
+        <div class="empty-state">The Selected Profile Does Not Exist.</div>
       </section>
 
-      <section v-else class="surface profile-editor-shell">
+      <section v-else class="surface profile-editor-shell" :class="{ 'is-loading': state.loading }">
         <div class="section-head">
           <div>
             <h2>{{ currentProfileId }}</h2>
             <div class="muted-inline">{{ state.data.profile_path }}</div>
           </div>
           <div class="actions-row">
-            <button class="icon-button" type="button" aria-label="Back to profiles" title="Back to profiles" @click="goToLibrary"><AppIcon name="back" /></button>
-            <button class="icon-button" :class="{ 'is-active': state.data.active_profile_id === currentProfileId }" type="button" aria-label="Select profile" title="Select profile" @click="activateProfile(currentProfileId)"><AppIcon name="check" /></button>
-            <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete profile" title="Delete profile" @click="deleteProfile(currentProfileId)"><AppIcon name="trash" /></button>
-            <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Save profile" title="Save profile" @click="saveProfile"><AppIcon name="save" /></button>
+            <button class="icon-button" type="button" aria-label="Back To Profiles" title="Back To Profiles" @click="goToLibrary"><AppIcon name="back" /></button>
+            <button class="icon-button" :class="{ 'is-active': state.data.active_profile_id === currentProfileId }" type="button" aria-label="Select Profile" title="Select Profile" @click="activateProfile(currentProfileId)"><AppIcon name="check" /></button>
+            <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(currentProfileId)"><AppIcon name="trash" /></button>
+            <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Save Profile" title="Save Profile" @click="saveProfile"><AppIcon name="save" /></button>
           </div>
         </div>
 
@@ -1026,7 +1028,7 @@ function makeId(prefix) {
                     <label class="field"><span>Field</span><input v-model="item.field" class="input" type="text" /></label>
                     <label class="field"><span>Location</span><input v-model="item.location" class="input" type="text" /></label>
                     <label class="field"><span>Start</span><input v-model="item.start_date" class="input" type="text" placeholder="YYYY-MM" /></label>
-                    <label class="field"><span>End</span><input v-model="item.end_date" class="input" type="text" placeholder="YYYY-MM or Present" /></label>
+                    <label class="field"><span>End</span><input v-model="item.end_date" class="input" type="text" placeholder="YYYY-MM Or Present" /></label>
                     <label class="field"><span>GPA</span><input v-model="item.gpa" class="input" type="text" /></label>
                     </div>
 
@@ -1040,7 +1042,7 @@ function makeId(prefix) {
                         <div v-for="(course, courseIndex) in item.relevant_courses" :key="course.id" class="editor-mini-card">
                           <div class="editor-grid editor-grid-2">
                             <label class="field"><span>Course</span><input v-model="course.name" class="input" type="text" /></label>
-                            <label class="field"><span>Tags</span><TagInput v-model="course.tags" placeholder="python, systems" /></label>
+                            <label class="field"><span>Tags</span><TagInput v-model="course.tags" placeholder="Python, Systems" /></label>
                           </div>
                           <div class="actions-row">
                             <button class="icon-button danger" type="button" aria-label="Delete course" title="Delete course" @click="removeCourse(index, courseIndex)"><AppIcon name="trash" /></button>
@@ -1051,7 +1053,7 @@ function makeId(prefix) {
                   </div>
                 </article>
               </div>
-              <div v-else class="empty-state">No education entries</div>
+              <div v-else class="empty-state">No Education Entries</div>
             </div>
           </section>
 
@@ -1089,7 +1091,7 @@ function makeId(prefix) {
                     <label class="field"><span>Title</span><input v-model="item.title" class="input" type="text" /></label>
                     <label class="field"><span>Location</span><input v-model="item.location" class="input" type="text" /></label>
                     <label class="field"><span>Start</span><input v-model="item.start_date" class="input" type="text" placeholder="YYYY-MM" /></label>
-                    <label class="field"><span>End</span><input v-model="item.end_date" class="input" type="text" placeholder="YYYY-MM or Present" /></label>
+                    <label class="field"><span>End</span><input v-model="item.end_date" class="input" type="text" placeholder="YYYY-MM Or Present" /></label>
                     </div>
 
                     <div class="editor-subsection">
@@ -1113,7 +1115,7 @@ function makeId(prefix) {
 
                           <div v-if="bullet.expanded" class="editor-item-body">
                             <label class="field"><span>Bullet</span><textarea v-model="bullet.text" class="input textarea editor-textarea" rows="3"></textarea></label>
-                            <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="python, distributed_systems" /></label>
+                            <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="Python, Distributed Systems" /></label>
                           </div>
                         </div>
                       </div>
@@ -1121,7 +1123,7 @@ function makeId(prefix) {
                   </div>
                 </article>
               </div>
-              <div v-else class="empty-state">No work experiences</div>
+              <div v-else class="empty-state">No Work Experiences</div>
             </div>
           </section>
 
@@ -1158,7 +1160,7 @@ function makeId(prefix) {
                     <label class="field"><span>Name</span><input v-model="item.name" class="input" type="text" /></label>
                     <label class="field"><span>Role</span><input v-model="item.role" class="input" type="text" /></label>
                     <label class="field field-span-full"><span>Description</span><textarea v-model="item.description" class="input textarea editor-textarea" rows="3"></textarea></label>
-                    <label class="field field-span-full"><span>Tech stack</span><TagInput v-model="item.tech_stack" placeholder="vue, fastapi, postgres" /></label>
+                    <label class="field field-span-full"><span>Tech Stack</span><TagInput v-model="item.tech_stack" placeholder="Vue, FastAPI, Postgres" /></label>
                     <label class="field field-span-full"><span>Links</span><TagInput v-model="item.links" placeholder="https://github.com/user/repo" /></label>
                     </div>
 
@@ -1183,7 +1185,7 @@ function makeId(prefix) {
 
                           <div v-if="bullet.expanded" class="editor-item-body">
                             <label class="field"><span>Bullet</span><textarea v-model="bullet.text" class="input textarea editor-textarea" rows="3"></textarea></label>
-                            <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="frontend, analytics" /></label>
+                            <label class="field"><span>Tags</span><TagInput v-model="bullet.tags" placeholder="Frontend, Analytics" /></label>
                           </div>
                         </div>
                       </div>
@@ -1191,7 +1193,7 @@ function makeId(prefix) {
                   </div>
                 </article>
               </div>
-              <div v-else class="empty-state">No projects</div>
+              <div v-else class="empty-state">No Projects</div>
             </div>
           </section>
 
@@ -1224,8 +1226,8 @@ function makeId(prefix) {
                   </div>
 
                   <div v-if="entry.expanded" class="editor-item-body">
-                    <label class="field"><span>Category</span><input v-model="entry.key" class="input" type="text" placeholder="custom_category" /></label>
-                    <label class="field"><span>Values</span><TagInput v-model="entry.values" placeholder="python, sql, react" /></label>
+                    <label class="field"><span>Category</span><input v-model="entry.key" class="input" type="text" placeholder="Custom Category" /></label>
+                    <label class="field"><span>Values</span><TagInput v-model="entry.values" placeholder="Python, SQL, React" /></label>
                   </div>
                 </div>
               </div>

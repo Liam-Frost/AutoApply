@@ -328,7 +328,7 @@ function emptyCounts() {
           <div class="section-head compact-head">
             <div>
               <h2>Filters</h2>
-              <div class="muted-inline">Basic and advanced search controls</div>
+              <div class="muted-inline">Basic And Advanced Search Controls</div>
             </div>
             <span class="muted">{{ activeFilterLabels.length }}</span>
           </div>
@@ -338,7 +338,7 @@ function emptyCounts() {
               <button class="accordion-head" type="button" @click="toggleSection('basic')">
                 <div>
                   <strong>Basic</strong>
-                  <div class="muted-inline">Source, query, and candidate locations</div>
+                  <div class="muted-inline">Source, Query, And Candidate Locations</div>
                 </div>
                 <span class="accordion-icon"><AppIcon :name="state.sections.basic ? 'chevron-down' : 'chevron-right'" /></span>
               </button>
@@ -362,21 +362,21 @@ function emptyCounts() {
                   <template v-if="sourceUsesLinkedIn">
                     <label class="field">
                       <span>Keyword</span>
-                      <input v-model="form.keyword" class="input" type="text" placeholder="software engineer" />
+                      <input v-model="form.keyword" class="input" type="text" placeholder="Software Engineer" />
                     </label>
 
                     <label class="field">
-                      <span>Search location</span>
+                      <span>Search Location</span>
                       <input v-model="form.location" class="input" type="text" placeholder="City, State, Country" />
                     </label>
 
                     <label class="field field-span-full">
-                      <span>Date posted</span>
+                      <span>Date Posted</span>
                       <select v-model="form.time_filter" class="select">
-                        <option value="all">All dates</option>
-                        <option value="month">Past month</option>
-                        <option value="week">Past week</option>
-                        <option value="24h">Past 24 hours</option>
+                        <option value="all">All Dates</option>
+                        <option value="month">Past Month</option>
+                        <option value="week">Past Week</option>
+                        <option value="24h">Past 24 Hours</option>
                       </select>
                     </label>
                   </template>
@@ -392,13 +392,13 @@ function emptyCounts() {
                     </label>
 
                     <label class="field">
-                      <span>Company slug</span>
-                      <input v-model="form.company" class="input" type="text" placeholder="stripe" />
+                      <span>Company Slug</span>
+                      <input v-model="form.company" class="input" type="text" placeholder="Stripe" />
                     </label>
                   </template>
 
                   <label class="field field-span-full">
-                    <span>Candidate locations</span>
+                    <span>Candidate Locations</span>
                     <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
                   </label>
                 </div>
@@ -409,7 +409,7 @@ function emptyCounts() {
               <button class="accordion-head" type="button" @click="toggleSection('advanced')">
                 <div>
                   <strong>Advanced</strong>
-                  <div class="muted-inline">Pay, experience, employment, location, and education</div>
+                  <div class="muted-inline">Pay, Experience, Employment, Location, And Education</div>
                 </div>
                 <span class="accordion-icon"><AppIcon :name="state.sections.advanced ? 'chevron-down' : 'chevron-right'" /></span>
               </button>
@@ -428,7 +428,7 @@ function emptyCounts() {
                     </div>
 
                     <div class="field">
-                      <span>Experience years</span>
+                      <span>Experience Years</span>
                       <div class="inline-grid inline-grid-2">
                         <select v-model="form.experience_operator" class="select">
                           <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -439,7 +439,7 @@ function emptyCounts() {
                   </div>
 
                   <div class="field">
-                    <span>Experience level</span>
+                    <span>Experience Level</span>
                     <div class="toggle-grid">
                       <label v-for="option in experienceLevelOptions" :key="option.value" class="toggle-pill">
                         <input v-model="form.experience_levels" type="checkbox" :value="option.value" />
@@ -449,7 +449,7 @@ function emptyCounts() {
                   </div>
 
                   <div class="field">
-                    <span>Employment type</span>
+                    <span>Employment Type</span>
                     <div class="toggle-grid">
                       <label v-for="option in employmentTypeOptions" :key="option.value" class="toggle-pill">
                         <input v-model="form.employment_types" type="checkbox" :value="option.value" />
@@ -459,7 +459,7 @@ function emptyCounts() {
                   </div>
 
                   <div class="field">
-                    <span>Location type</span>
+                    <span>Location Type</span>
                     <div class="toggle-grid">
                       <label v-for="option in locationTypeOptions" :key="option.value" class="toggle-pill">
                         <input v-model="form.location_types" type="checkbox" :value="option.value" />
@@ -488,10 +488,10 @@ function emptyCounts() {
             <span v-for="label in activeFilterLabels" :key="label" class="chip subtle">{{ label }}</span>
           </div>
           <div class="actions-row">
-            <button class="icon-button" type="button" aria-label="Reset filters" title="Reset filters" @click="resetForm">
+            <button class="icon-button" type="button" aria-label="Reset Filters" title="Reset Filters" @click="resetForm">
               <AppIcon name="refresh" />
             </button>
-            <button class="icon-button primary" type="submit" :disabled="state.searching" aria-label="Search jobs" title="Search jobs">
+            <button class="icon-button primary" type="submit" :disabled="state.searching" aria-label="Search Jobs" title="Search Jobs">
               <AppIcon name="search" />
             </button>
           </div>
@@ -549,13 +549,13 @@ function emptyCounts() {
               type="button"
               @click="applyToJob(job)"
               :disabled="state.applyState[job.id]?.loading"
-              aria-label="Apply to job"
-              title="Apply to job"
+              aria-label="Apply To Job"
+              title="Apply To Job"
             >
               <AppIcon name="apply" />
             </button>
 
-            <a v-if="job.application_url" class="icon-button" :href="job.application_url" target="_blank" rel="noopener" aria-label="Open job link" title="Open job link">
+            <a v-if="job.application_url" class="icon-button" :href="job.application_url" target="_blank" rel="noopener" aria-label="Open Job Link" title="Open Job Link">
               <AppIcon name="external" />
             </a>
           </div>

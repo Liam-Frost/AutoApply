@@ -7,7 +7,12 @@
     <script>
       ;(() => {
         const key = "autoapply.theme"
-        const stored = localStorage.getItem(key)
+        let stored = null
+        try {
+          stored = localStorage.getItem(key)
+        } catch {
+          stored = null
+        }
         const preference = ["system", "light", "dark"].includes(stored) ? stored : "system"
         const resolved =
           preference === "system"
