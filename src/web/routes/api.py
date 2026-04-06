@@ -13,6 +13,7 @@ from src.application.profile import (
     delete_profile_data,
     import_resume_file,
     load_profile_data,
+    rename_profile_data,
     save_profile_data,
 )
 from src.application.settings import load_llm_settings_data, update_llm_settings_data
@@ -67,6 +68,10 @@ class ProfileSavePayload(BaseModel):
 class ProfileCreatePayload(BaseModel):
     profile_id: str
     set_active: bool = True
+
+
+class ProfileRenamePayload(BaseModel):
+    new_profile_id: str
 
 
 @router.get("/dashboard")
@@ -181,6 +186,18 @@ async def delete_profile(profile_id: str) -> dict:
     if not result["ok"]:
         status_code = 404 if result["error_code"] == "profile_not_found" else 400
         raise HTTPException(status_code=status_code, detail=result["error"])
+    return result
+
+
+@router.patch("/profile/{profile_id}/rename")
+async def rename_profile(profile_id: str, payload: ProfileRenamePayload) -> dict:
+    result = rename_profile_data(profile_id=profile_id, new_profile_id=payload.new_profile_id)
+    if not result["ok"]:
+        if result["error_code"] == "profile_not_found":
+            raise HTTPException(status_code=404, detail=result["error"])
+        if result["error_code"] == "profile_exists":
+            raise HTTPException(status_code=409, detail=result["error"])
+        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 

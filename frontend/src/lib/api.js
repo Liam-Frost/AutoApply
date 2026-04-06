@@ -78,6 +78,13 @@ export const api = {
       method: "DELETE",
     })
   },
+  renameProfile(profileId, newProfileId) {
+    return request(`/api/profile/${profileId}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_profile_id: newProfileId }),
+    })
+  },
   activateProfile(profileId) {
     return request(`/api/profile/${profileId}/activate`, {
       method: "POST",

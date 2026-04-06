@@ -388,6 +388,30 @@ class TestProfileApi:
         assert response.status_code == 200
         assert response.json()["status"] == "deleted"
 
+    def test_rename_profile(self, client):
+        with patch(
+            "src.web.routes.api.rename_profile_data",
+            return_value={
+                "ok": True,
+                "status": "renamed",
+                "message": "Profile 'default' renamed to 'new-default'.",
+                "profile": {"identity": {}},
+                "profile_path": "data/profile/profiles/new-default.yaml",
+                "has_profile": True,
+                "profiles": [{"id": "new-default", "is_active": True}],
+                "active_profile_id": "new-default",
+                "selected_profile_id": "new-default",
+            },
+        ):
+            response = client.patch(
+                "/api/profile/default/rename",
+                json={"new_profile_id": "new-default"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "renamed"
+        assert response.json()["selected_profile_id"] == "new-default"
+
 
 class TestSettingsApi:
     def test_settings_page_loads(self, client):

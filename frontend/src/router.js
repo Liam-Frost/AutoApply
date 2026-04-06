@@ -11,6 +11,7 @@ const routes = [
   { path: "/jobs", component: JobsView, meta: { label: "Jobs" } },
   { path: "/applications", component: ApplicationsView, meta: { label: "Applications" } },
   { path: "/profile", component: ProfileView, meta: { label: "Profile" } },
+  { path: "/profile/:profileId", component: ProfileView, meta: { label: "Profile" } },
   { path: "/settings", component: SettingsView, meta: { label: "Settings" } },
 ]
 

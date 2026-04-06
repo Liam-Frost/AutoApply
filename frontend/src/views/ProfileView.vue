@@ -1,9 +1,12 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, reactive, ref, watch } from "vue"
+import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router"
 
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 
+const route = useRoute()
+const router = useRouter()
 const fileInput = ref(null)
 
 const defaultSkillCategories = ["languages", "frameworks", "databases", "tools", "domains"]
@@ -14,11 +17,16 @@ const state = reactive({
   saving: false,
   uploading: false,
   deleting: false,
+  renaming: false,
   error: "",
   message: "",
+  createMenuOpen: false,
+  createMode: "",
   createProfileId: "",
   uploadProfileId: "",
   overwriteUpload: false,
+  renameTargetId: "",
+  renameValue: "",
   newSkillCategory: "",
   data: {
     has_profile: false,
@@ -30,13 +38,35 @@ const state = reactive({
   },
   editor: emptyEditorProfile(),
   loadedFingerprint: "",
+  sections: collapsedSections(),
 })
 
+const currentRouteProfileId = computed(() => {
+  const value = route.params.profileId
+  return typeof value === "string" ? value : ""
+})
+const isEditingView = computed(() => Boolean(currentRouteProfileId.value))
 const currentProfileId = computed(
-  () => state.data.selected_profile_id || state.data.active_profile_id || "",
+  () => state.data.selected_profile_id || state.data.active_profile_id || currentRouteProfileId.value || "",
 )
 const profiles = computed(() => state.data.profiles || [])
 const isDirty = computed(() => profileFingerprint(state.editor) !== state.loadedFingerprint)
+
+watch(
+  () => route.params.profileId,
+  async (profileId) => {
+    await load(typeof profileId === "string" ? profileId : "")
+  },
+  { immediate: true },
+)
+
+onBeforeRouteLeave(() => {
+  if (!isEditingView.value || !isDirty.value) {
+    return true
+  }
+
+  return confirmDiscardChanges("Leaving the editor")
+})
 
 async function load(profileId = "") {
   state.loading = true
@@ -45,6 +75,9 @@ async function load(profileId = "") {
   try {
     state.data = await api.profile(profileId)
     syncEditorFromProfile(state.data.profile)
+    if (profileId && !state.data.has_profile) {
+      state.error = `Profile '${profileId}' not found.`
+    }
   } catch (error) {
     state.error = error.message
   } finally {
@@ -54,8 +87,32 @@ async function load(profileId = "") {
 
 function syncEditorFromProfile(profile) {
   state.editor = toEditorProfile(profile)
-  state.uploadProfileId = currentProfileId.value || ""
+  state.sections = collapsedSections()
   state.loadedFingerprint = profileFingerprint(state.editor)
+  if (!isEditingView.value) {
+    state.uploadProfileId = currentProfileId.value || ""
+  }
+}
+
+function openCreateMenu(mode = "") {
+  if (!state.createMenuOpen) {
+    state.createMenuOpen = true
+    state.createMode = mode || "template"
+    return
+  }
+
+  state.createMode = mode || state.createMode || "template"
+}
+
+function closeCreateMenu() {
+  state.createMenuOpen = false
+  state.createMode = ""
+  state.createProfileId = ""
+  state.uploadProfileId = currentProfileId.value || ""
+  state.overwriteUpload = false
+  if (fileInput.value) {
+    fileInput.value.value = ""
+  }
 }
 
 async function createProfile() {
@@ -64,7 +121,7 @@ async function createProfile() {
     return
   }
 
-  if (!confirmDiscardChanges("Create a new profile")) {
+  if (isEditingView.value && !confirmDiscardChanges("Create a new profile")) {
     return
   }
 
@@ -74,9 +131,9 @@ async function createProfile() {
 
   try {
     state.data = await api.createProfile(state.createProfileId.trim(), true)
-    state.createProfileId = ""
     state.message = state.data.message || "Created"
-    syncEditorFromProfile(state.data.profile)
+    closeCreateMenu()
+    await router.push(`/profile/${state.data.selected_profile_id}`)
   } catch (error) {
     state.error = error.message
   } finally {
@@ -84,23 +141,48 @@ async function createProfile() {
   }
 }
 
+async function uploadProfileFromFile() {
+  const file = fileInput.value?.files?.[0]
+  if (!file) {
+    state.error = "Select a file first."
+    return
+  }
+
+  if (isEditingView.value && !confirmDiscardChanges("Uploading a resume")) {
+    return
+  }
+
+  state.uploading = true
+  state.error = ""
+  state.message = ""
+
+  try {
+    state.data = await api.uploadResume(file, {
+      profileId: state.uploadProfileId.trim() || undefined,
+      overwrite: state.overwriteUpload,
+      setActive: true,
+    })
+    state.message = state.data.message || "Imported"
+    closeCreateMenu()
+    await router.push(`/profile/${state.data.selected_profile_id}`)
+  } catch (error) {
+    state.error = error.message
+  } finally {
+    state.uploading = false
+  }
+}
+
 async function activateProfile(profileId) {
-  if (profileId === currentProfileId.value) {
-    return
-  }
-
-  if (!confirmDiscardChanges("Switch profiles")) {
-    return
-  }
-
   state.saving = true
   state.error = ""
   state.message = ""
 
   try {
     state.data = await api.activateProfile(profileId)
-    state.message = state.data.message || "Activated"
-    syncEditorFromProfile(state.data.profile)
+    state.message = state.data.message || "Selected"
+    if (isEditingView.value && currentRouteProfileId.value === profileId) {
+      syncEditorFromProfile(state.data.profile)
+    }
   } catch (error) {
     state.error = error.message
   } finally {
@@ -108,9 +190,67 @@ async function activateProfile(profileId) {
   }
 }
 
+async function openProfileEditor(profileId) {
+  if (currentRouteProfileId.value === profileId) {
+    return
+  }
+
+  if (isEditingView.value && !confirmDiscardChanges("Open another profile")) {
+    return
+  }
+
+  await router.push(`/profile/${profileId}`)
+}
+
+async function goToLibrary() {
+  if (isEditingView.value && !confirmDiscardChanges("Back to profiles")) {
+    return
+  }
+
+  await router.push("/profile")
+}
+
+function startRename(profile) {
+  state.renameTargetId = profile.id
+  state.renameValue = profile.id
+  state.error = ""
+}
+
+function cancelRename() {
+  state.renameTargetId = ""
+  state.renameValue = ""
+}
+
+async function renameProfile(profileId) {
+  if (!state.renameValue.trim()) {
+    state.error = "New profile id is required."
+    return
+  }
+
+  state.renaming = true
+  state.error = ""
+  state.message = ""
+
+  try {
+    state.data = await api.renameProfile(profileId, state.renameValue.trim())
+    const renamedId = state.data.selected_profile_id
+    state.message = state.data.message || "Renamed"
+    cancelRename()
+
+    if (currentRouteProfileId.value === profileId) {
+      await router.replace(`/profile/${renamedId}`)
+      return
+    }
+  } catch (error) {
+    state.error = error.message
+  } finally {
+    state.renaming = false
+  }
+}
+
 async function saveProfile() {
   if (!currentProfileId.value) {
-    state.error = "Create or select a profile first."
+    state.error = "Select a profile first."
     return
   }
 
@@ -119,11 +259,7 @@ async function saveProfile() {
   state.message = ""
 
   try {
-    state.data = await api.saveProfile(
-      currentProfileId.value,
-      serializeEditorProfile(state.editor),
-      true,
-    )
+    state.data = await api.saveProfile(currentProfileId.value, serializeEditorProfile(state.editor), false)
     state.message = state.data.message || "Saved"
     syncEditorFromProfile(state.data.profile)
   } catch (error) {
@@ -145,6 +281,10 @@ async function deleteProfile(profileId) {
   try {
     state.data = await api.deleteProfile(profileId)
     state.message = state.data.message || "Deleted"
+    if (currentRouteProfileId.value === profileId) {
+      await router.push("/profile")
+      return
+    }
     syncEditorFromProfile(state.data.profile)
   } catch (error) {
     state.error = error.message
@@ -153,39 +293,13 @@ async function deleteProfile(profileId) {
   }
 }
 
-async function upload() {
-  const file = fileInput.value?.files?.[0]
-  if (!file) {
-    return
-  }
-
-  if (!confirmDiscardChanges("Uploading a resume")) {
-    return
-  }
-
-  state.uploading = true
-  state.error = ""
-  state.message = ""
-
-  try {
-    state.data = await api.uploadResume(file, {
-      profileId: state.uploadProfileId.trim() || currentProfileId.value,
-      overwrite: state.overwriteUpload,
-      setActive: true,
-    })
-    state.message = state.data.message || "Parsed"
-    state.overwriteUpload = false
-    fileInput.value.value = ""
-    syncEditorFromProfile(state.data.profile)
-  } catch (error) {
-    state.error = error.message
-  } finally {
-    state.uploading = false
-  }
+function toggleSection(section) {
+  state.sections[section] = !state.sections[section]
 }
 
 function addEducation() {
   state.editor.education.push(emptyEducation())
+  state.sections.education = true
 }
 
 function removeEducation(index) {
@@ -202,6 +316,7 @@ function removeCourse(educationIndex, courseIndex) {
 
 function addExperience() {
   state.editor.work_experiences.push(emptyExperience())
+  state.sections.experience = true
 }
 
 function removeExperience(index) {
@@ -218,6 +333,7 @@ function removeExperienceBullet(experienceIndex, bulletIndex) {
 
 function addProject() {
   state.editor.projects.push(emptyProject())
+  state.sections.projects = true
 }
 
 function removeProject(index) {
@@ -247,6 +363,7 @@ function addSkillCategory() {
   state.editor.skills.push({ id: makeId("skill"), key, values: [] })
   state.newSkillCategory = ""
   state.error = ""
+  state.sections.skills = true
 }
 
 function removeSkillCategory(index) {
@@ -351,6 +468,7 @@ function serializeProject(item) {
     role: item.role,
     description: item.description,
     tech_stack: normalizeStringArray(item.tech_stack),
+    links: normalizeStringArray(item.links),
     bullets: item.bullets
       .map((bullet) =>
         compactObject({
@@ -456,6 +574,7 @@ function emptyProject() {
     role: "",
     description: "",
     tech_stack: [],
+    links: [],
     bullets: [],
   }
 }
@@ -500,8 +619,7 @@ function toExperienceEditor(item) {
       ? item.bullets.map((bullet) => ({
           id: makeId("bullet"),
           text: typeof bullet === "string" ? bullet : bullet?.text || "",
-          tags:
-            typeof bullet === "object" ? normalizeStringArray(bullet?.tags) : [],
+          tags: typeof bullet === "object" ? normalizeStringArray(bullet?.tags) : [],
         }))
       : [],
   }
@@ -514,12 +632,12 @@ function toProjectEditor(item) {
     role: item.role || "",
     description: item.description || "",
     tech_stack: normalizeStringArray(item.tech_stack),
+    links: normalizeStringArray(item.links),
     bullets: Array.isArray(item.bullets)
       ? item.bullets.map((bullet) => ({
           id: makeId("bullet"),
           text: typeof bullet === "string" ? bullet : bullet?.text || "",
-          tags:
-            typeof bullet === "object" ? normalizeStringArray(bullet?.tags) : [],
+          tags: typeof bullet === "object" ? normalizeStringArray(bullet?.tags) : [],
         }))
       : [],
   }
@@ -577,13 +695,6 @@ function slugifyCategory(value) {
     .replace(/^_+|_+$/g, "")
 }
 
-function prettifyKey(value) {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ")
-}
-
 function profileFingerprint(editor) {
   return JSON.stringify(buildProfilePayload(editor, false))
 }
@@ -596,12 +707,43 @@ function confirmDiscardChanges(action) {
   return window.confirm(`${action} will discard unsaved changes. Continue?`)
 }
 
+function collapsedSections() {
+  return {
+    identity: false,
+    education: false,
+    experience: false,
+    projects: false,
+    skills: false,
+  }
+}
+
+function sectionLabel(section) {
+  if (section === "identity") {
+    return state.editor.identity.full_name || state.editor.identity.email || "No identity details"
+  }
+  if (section === "education") {
+    return `${state.editor.education.length} entries`
+  }
+  if (section === "experience") {
+    return `${state.editor.work_experiences.length} entries`
+  }
+  if (section === "projects") {
+    return `${state.editor.projects.length} entries`
+  }
+  if (section === "skills") {
+    return `${state.editor.skills.filter((entry) => entry.values.length).length} categories`
+  }
+  return ""
+}
+
+function formatUpdatedAt(value) {
+  return value ? new Date(value).toLocaleDateString("en-CA", { timeZone: "UTC" }) : ""
+}
+
 function makeId(prefix) {
   localId += 1
   return `${prefix}-${localId}`
 }
-
-onMounted(() => load())
 </script>
 
 <template>
@@ -610,137 +752,168 @@ onMounted(() => load())
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
     <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
 
-    <template v-if="!state.loading">
-      <section class="content-grid content-grid-wide profile-admin-grid">
-        <article class="surface">
-          <div class="section-head">
+    <template v-if="!state.loading && !isEditingView">
+      <section class="surface profile-library-shell">
+        <div class="section-head">
+          <div>
             <h2>Profiles</h2>
-            <span class="muted">{{ profiles.length }}</span>
+            <div class="muted-inline">{{ profiles.length }} available</div>
+          </div>
+          <button class="button compact" type="button" @click="openCreateMenu()">Add</button>
+        </div>
+
+        <div v-if="state.createMenuOpen" class="profile-create-panel">
+          <div class="section-head compact-head">
+            <h2>Create</h2>
+            <button class="button ghost compact" type="button" @click="closeCreateMenu">Close</button>
           </div>
 
-          <div class="page-stack">
-            <div class="list-stack">
-              <button
-                v-for="profile in profiles"
-                :key="profile.id"
-                class="list-row profile-row-button"
-                type="button"
-                @click="activateProfile(profile.id)"
-              >
-                <div>
-                  <strong>{{ profile.name }}</strong>
-                  <div class="muted-inline">{{ profile.path }}</div>
-                </div>
-                <span class="chip" :class="{ success: profile.is_active }">
-                  {{ profile.is_active ? "Active" : "Open" }}
-                </span>
+          <div class="chip-row">
+            <button class="button ghost compact" type="button" @click="openCreateMenu('template')">Blank template</button>
+            <button class="button ghost compact" type="button" @click="openCreateMenu('import')">Import from file</button>
+          </div>
+
+          <div v-if="state.createMode === 'template'" class="form-grid profile-create-grid">
+            <label class="field">
+              <span>Profile id</span>
+              <input v-model="state.createProfileId" class="input" type="text" placeholder="new-profile" />
+            </label>
+
+            <div class="actions-row align-end">
+              <button class="button" type="button" :disabled="state.saving" @click="createProfile">
+                {{ state.saving ? 'Working' : 'Create and edit' }}
               </button>
             </div>
+          </div>
 
-            <div class="form-grid">
+          <div v-if="state.createMode === 'import'" class="form-grid profile-create-grid">
+            <label class="field">
+              <span>Target profile id</span>
+              <input v-model="state.uploadProfileId" class="input" type="text" placeholder="Leave blank to derive from filename" />
+            </label>
+
+            <label class="field">
+              <span>Resume file</span>
+              <input ref="fileInput" class="input file-input" type="file" accept=".pdf,.docx" />
+            </label>
+
+            <label class="checkbox-row">
+              <input v-model="state.overwriteUpload" type="checkbox" />
+              <span>Overwrite if profile already exists</span>
+            </label>
+
+            <div class="actions-row align-end">
+              <button class="button" type="button" :disabled="state.uploading" @click="uploadProfileFromFile">
+                {{ state.uploading ? 'Importing' : 'Import and open' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="profiles.length" class="profile-library-grid">
+          <article v-for="profile in profiles" :key="profile.id" class="profile-library-card">
+            <div class="profile-library-head">
+              <div>
+                <strong>{{ profile.name }}</strong>
+                <div class="muted-inline">{{ profile.path }}</div>
+              </div>
+              <span class="chip" :class="{ success: profile.is_active }">
+                {{ profile.is_active ? 'Selected' : 'Stored' }}
+              </span>
+            </div>
+
+            <div class="muted-inline">Updated {{ formatUpdatedAt(profile.updated_at) }}</div>
+
+            <div v-if="state.renameTargetId === profile.id" class="form-grid">
               <label class="field">
-                <span>New profile id</span>
-                <input v-model="state.createProfileId" class="input" type="text" placeholder="new-profile" />
+                <span>New id</span>
+                <input v-model="state.renameValue" class="input" type="text" />
               </label>
 
               <div class="actions-row">
-                <button class="button" type="button" :disabled="state.saving" @click="createProfile">
-                  {{ state.saving ? "Working" : "Create" }}
+                <button class="button compact" type="button" :disabled="state.renaming" @click="renameProfile(profile.id)">
+                  {{ state.renaming ? 'Renaming' : 'Save rename' }}
                 </button>
+                <button class="button ghost compact" type="button" @click="cancelRename">Cancel</button>
               </div>
             </div>
 
-            <div class="form-grid">
-              <label class="field">
-                <span>Upload resume target</span>
-                <input
-                  v-model="state.uploadProfileId"
-                  class="input"
-                  type="text"
-                  :placeholder="currentProfileId || 'default or new-profile'"
-                />
-              </label>
-
-              <label class="field">
-                <span>Resume file</span>
-                <input ref="fileInput" class="input file-input" type="file" accept=".pdf,.docx" />
-              </label>
-
-              <label class="checkbox-row">
-                <input v-model="state.overwriteUpload" type="checkbox" />
-                <span>Overwrite if profile already exists</span>
-              </label>
-
-              <div class="actions-row">
-                <button class="button" type="button" :disabled="state.uploading" @click="upload">
-                  {{ state.uploading ? "Parsing" : "Upload" }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article class="surface">
-          <div class="section-head">
-            <h2>Editor</h2>
-            <div class="actions-row">
-              <span v-if="currentProfileId" class="chip success">{{ currentProfileId }}</span>
-              <button
-                v-if="currentProfileId"
-                class="button ghost compact"
-                type="button"
-                :disabled="state.deleting"
-                @click="deleteProfile(currentProfileId)"
-              >
-                Delete
+            <div v-else class="actions-row">
+              <button class="button compact" type="button" @click="openProfileEditor(profile.id)">Edit</button>
+              <button class="button ghost compact" type="button" @click="activateProfile(profile.id)">
+                {{ profile.is_active ? 'Selected' : 'Select' }}
               </button>
-              <button class="button compact" type="button" :disabled="state.saving" @click="saveProfile">
-                {{ state.saving ? "Saving" : "Save" }}
-              </button>
+              <button class="button ghost compact" type="button" @click="startRename(profile)">Rename</button>
+              <button class="button ghost compact" type="button" :disabled="state.deleting" @click="deleteProfile(profile.id)">Delete</button>
             </div>
+          </article>
+        </div>
+        <div v-else class="empty-state">No profiles yet</div>
+      </section>
+    </template>
+
+    <template v-else-if="!state.loading && isEditingView">
+      <section v-if="!state.data.has_profile" class="surface surface-narrow">
+        <div class="section-head">
+          <h2>Profile Not Found</h2>
+          <button class="button ghost compact" type="button" @click="goToLibrary">Back</button>
+        </div>
+        <div class="empty-state">The selected profile does not exist.</div>
+      </section>
+
+      <section v-else class="surface profile-editor-shell">
+        <div class="section-head">
+          <div>
+            <h2>{{ currentProfileId }}</h2>
+            <div class="muted-inline">{{ state.data.profile_path }}</div>
           </div>
+          <div class="actions-row">
+            <button class="button ghost compact" type="button" @click="goToLibrary">Back</button>
+            <button class="button ghost compact" type="button" @click="activateProfile(currentProfileId)">
+              {{ state.data.active_profile_id === currentProfileId ? 'Selected' : 'Select' }}
+            </button>
+            <button class="button ghost compact" type="button" :disabled="state.deleting" @click="deleteProfile(currentProfileId)">Delete</button>
+            <button class="button compact" type="button" :disabled="state.saving" @click="saveProfile">
+              {{ state.saving ? 'Saving' : 'Save' }}
+            </button>
+          </div>
+        </div>
 
-          <div class="page-stack">
-            <section class="editor-section">
-              <div class="section-head compact-head">
-                <h2>Identity</h2>
+        <div class="page-stack">
+          <section class="editor-section accordion-section">
+            <button class="accordion-head" type="button" @click="toggleSection('identity')">
+              <div>
+                <strong>Identity</strong>
+                <div class="muted-inline">{{ sectionLabel('identity') }}</div>
               </div>
+              <span class="chip subtle">{{ state.sections.identity ? 'Hide' : 'Open' }}</span>
+            </button>
 
+            <div v-if="state.sections.identity" class="accordion-body">
               <div class="form-grid form-grid-4">
-                <label class="field">
-                  <span>Name</span>
-                  <input v-model="state.editor.identity.full_name" class="input" type="text" />
-                </label>
-                <label class="field">
-                  <span>Email</span>
-                  <input v-model="state.editor.identity.email" class="input" type="email" />
-                </label>
-                <label class="field">
-                  <span>Phone</span>
-                  <input v-model="state.editor.identity.phone" class="input" type="text" />
-                </label>
-                <label class="field">
-                  <span>Location</span>
-                  <input v-model="state.editor.identity.location" class="input" type="text" />
-                </label>
-                <label class="field field-span-2">
-                  <span>LinkedIn</span>
-                  <input v-model="state.editor.identity.linkedin_url" class="input" type="url" />
-                </label>
-                <label class="field field-span-2">
-                  <span>GitHub</span>
-                  <input v-model="state.editor.identity.github_url" class="input" type="url" />
-                </label>
-                <label class="field field-span-full">
-                  <span>Portfolio</span>
-                  <input v-model="state.editor.identity.portfolio_url" class="input" type="url" />
-                </label>
+                <label class="field"><span>Name</span><input v-model="state.editor.identity.full_name" class="input" type="text" /></label>
+                <label class="field"><span>Email</span><input v-model="state.editor.identity.email" class="input" type="email" /></label>
+                <label class="field"><span>Phone</span><input v-model="state.editor.identity.phone" class="input" type="text" /></label>
+                <label class="field"><span>Location</span><input v-model="state.editor.identity.location" class="input" type="text" /></label>
+                <label class="field field-span-2"><span>LinkedIn</span><input v-model="state.editor.identity.linkedin_url" class="input" type="url" /></label>
+                <label class="field field-span-2"><span>GitHub</span><input v-model="state.editor.identity.github_url" class="input" type="url" /></label>
+                <label class="field field-span-full"><span>Portfolio</span><input v-model="state.editor.identity.portfolio_url" class="input" type="url" /></label>
               </div>
-            </section>
+            </div>
+          </section>
 
-            <section class="editor-section">
+          <section class="editor-section accordion-section">
+            <button class="accordion-head" type="button" @click="toggleSection('education')">
+              <div>
+                <strong>Education</strong>
+                <div class="muted-inline">{{ sectionLabel('education') }}</div>
+              </div>
+              <span class="chip subtle">{{ state.sections.education ? 'Hide' : 'Open' }}</span>
+            </button>
+
+            <div v-if="state.sections.education" class="accordion-body">
               <div class="section-head compact-head">
-                <h2>Education</h2>
+                <h2>Education Entries</h2>
                 <button class="button ghost compact" type="button" @click="addEducation">Add</button>
               </div>
 
@@ -782,11 +955,21 @@ onMounted(() => load())
                 </article>
               </div>
               <div v-else class="empty-state">No education entries</div>
-            </section>
+            </div>
+          </section>
 
-            <section class="editor-section">
+          <section class="editor-section accordion-section">
+            <button class="accordion-head" type="button" @click="toggleSection('experience')">
+              <div>
+                <strong>Experience</strong>
+                <div class="muted-inline">{{ sectionLabel('experience') }}</div>
+              </div>
+              <span class="chip subtle">{{ state.sections.experience ? 'Hide' : 'Open' }}</span>
+            </button>
+
+            <div v-if="state.sections.experience" class="accordion-body">
               <div class="section-head compact-head">
-                <h2>Experience</h2>
+                <h2>Work Experiences</h2>
                 <button class="button ghost compact" type="button" @click="addExperience">Add</button>
               </div>
 
@@ -824,9 +1007,19 @@ onMounted(() => load())
                 </article>
               </div>
               <div v-else class="empty-state">No work experiences</div>
-            </section>
+            </div>
+          </section>
 
-            <section class="editor-section">
+          <section class="editor-section accordion-section">
+            <button class="accordion-head" type="button" @click="toggleSection('projects')">
+              <div>
+                <strong>Projects</strong>
+                <div class="muted-inline">{{ sectionLabel('projects') }}</div>
+              </div>
+              <span class="chip subtle">{{ state.sections.projects ? 'Hide' : 'Open' }}</span>
+            </button>
+
+            <div v-if="state.sections.projects" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Projects</h2>
                 <button class="button ghost compact" type="button" @click="addProject">Add</button>
@@ -844,6 +1037,7 @@ onMounted(() => load())
                     <label class="field"><span>Role</span><input v-model="item.role" class="input" type="text" /></label>
                     <label class="field field-span-full"><span>Description</span><textarea v-model="item.description" class="input textarea editor-textarea" rows="3"></textarea></label>
                     <label class="field field-span-full"><span>Tech stack</span><TagInput v-model="item.tech_stack" placeholder="vue, fastapi, postgres" /></label>
+                    <label class="field field-span-full"><span>Links</span><TagInput v-model="item.links" placeholder="https://github.com/user/repo" /></label>
                   </div>
 
                   <div class="editor-subsection">
@@ -865,11 +1059,21 @@ onMounted(() => load())
                 </article>
               </div>
               <div v-else class="empty-state">No projects</div>
-            </section>
+            </div>
+          </section>
 
-            <section class="editor-section">
+          <section class="editor-section accordion-section">
+            <button class="accordion-head" type="button" @click="toggleSection('skills')">
+              <div>
+                <strong>Skills</strong>
+                <div class="muted-inline">{{ sectionLabel('skills') }}</div>
+              </div>
+              <span class="chip subtle">{{ state.sections.skills ? 'Hide' : 'Open' }}</span>
+            </button>
+
+            <div v-if="state.sections.skills" class="accordion-body">
               <div class="section-head compact-head">
-                <h2>Skills</h2>
+                <h2>Skill Categories</h2>
                 <div class="actions-row">
                   <input v-model="state.newSkillCategory" class="input compact-input" type="text" placeholder="custom_category" />
                   <button class="button ghost compact" type="button" @click="addSkillCategory">Add</button>
@@ -887,9 +1091,9 @@ onMounted(() => load())
                   </div>
                 </div>
               </div>
-            </section>
-          </div>
-        </article>
+            </div>
+          </section>
+        </div>
       </section>
     </template>
   </div>
