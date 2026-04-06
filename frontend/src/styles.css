@@ -389,6 +389,47 @@ textarea {
   border-radius: 12px;
 }
 
+.app-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-button,
+.accordion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.icon-button:hover,
+.accordion-head:hover .accordion-icon,
+.editor-item-head:hover .accordion-icon {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.icon-button.danger:hover,
+.icon-button.danger:focus-visible {
+  background: rgba(255, 143, 143, 0.08);
+  color: var(--danger);
+}
+
+.icon-button:focus-visible,
+.accordion-head:focus-visible,
+.editor-item-head:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(144, 181, 255, 0.12);
+}
+
 .actions-row {
   display: flex;
   flex-wrap: wrap;
@@ -620,6 +661,10 @@ textarea {
   font-size: 14px;
 }
 
+.accordion-head .accordion-icon {
+  flex: 0 0 auto;
+}
+
 .accordion-body {
   display: flex;
   flex-direction: column;
@@ -705,6 +750,10 @@ textarea {
   max-width: 56ch;
 }
 
+.editor-item-head .accordion-icon {
+  flex: 0 0 auto;
+}
+
 .editor-item-body {
   display: flex;
   flex-direction: column;
@@ -720,17 +769,8 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.editor-grid-skill {
-  align-items: end;
-}
-
 .editor-textarea {
   min-height: 96px;
-}
-
-.compact-input {
-  min-height: 38px;
-  width: min(220px, 100%);
 }
 
 .profile-name {

@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from "vue"
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router"
 
+import AppIcon from "../components/AppIcon.vue"
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 
@@ -27,7 +28,6 @@ const state = reactive({
   overwriteUpload: false,
   renameTargetId: "",
   renameValue: "",
-  newSkillCategory: "",
   data: {
     has_profile: false,
     profile: null,
@@ -369,19 +369,7 @@ function removeProjectBullet(projectIndex, bulletIndex) {
 }
 
 function addSkillCategory() {
-  const key = slugifyCategory(state.newSkillCategory)
-  if (!key) {
-    state.error = "Skill category name is required."
-    return
-  }
-
-  if (state.editor.skills.some((entry) => slugifyCategory(entry.key) === key)) {
-    state.error = `Skill category '${key}' already exists.`
-    return
-  }
-
-  state.editor.skills.push({ id: makeId("skill"), key, values: [], expanded: true })
-  state.newSkillCategory = ""
+  state.editor.skills.push({ id: makeId("skill"), key: "", values: [], expanded: true })
   state.error = ""
   state.sections.skills = true
 }
@@ -433,6 +421,9 @@ function buildProfilePayload(editor, validateSkillKeys) {
   if (validateSkillKeys) {
     const seen = new Set()
     for (const [key] of skillEntries) {
+      if (!key) {
+        throw new Error("Skill category is required")
+      }
       if (seen.has(key)) {
         throw new Error(`Duplicate skill category: ${key}`)
       }
@@ -863,7 +854,9 @@ function makeId(prefix) {
             <h2>Profiles</h2>
             <div class="muted-inline">{{ profiles.length }} available</div>
           </div>
-          <button class="button compact" type="button" @click="openCreateMenu()">Add</button>
+          <button class="icon-button" type="button" aria-label="Add profile" title="Add profile" @click="openCreateMenu()">
+            <AppIcon name="plus" />
+          </button>
         </div>
 
         <div v-if="state.createMenuOpen" class="profile-create-panel">
@@ -948,7 +941,7 @@ function makeId(prefix) {
                 {{ profile.is_active ? 'Selected' : 'Select' }}
               </button>
               <button class="button ghost compact" type="button" @click="startRename(profile)">Rename</button>
-              <button class="button ghost compact" type="button" :disabled="state.deleting" @click="deleteProfile(profile.id)">Delete</button>
+              <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete profile" title="Delete profile" @click="deleteProfile(profile.id)"><AppIcon name="trash" /></button>
             </div>
           </article>
         </div>
@@ -976,7 +969,7 @@ function makeId(prefix) {
             <button class="button ghost compact" type="button" @click="activateProfile(currentProfileId)">
               {{ state.data.active_profile_id === currentProfileId ? 'Selected' : 'Select' }}
             </button>
-            <button class="button ghost compact" type="button" :disabled="state.deleting" @click="deleteProfile(currentProfileId)">Delete</button>
+            <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete profile" title="Delete profile" @click="deleteProfile(currentProfileId)"><AppIcon name="trash" /></button>
             <button class="button compact" type="button" :disabled="state.saving" @click="saveProfile">
               {{ state.saving ? 'Saving' : 'Save' }}
             </button>
@@ -990,7 +983,7 @@ function makeId(prefix) {
                 <strong>Identity</strong>
                 <div class="muted-inline">{{ sectionLabel('identity') }}</div>
               </div>
-              <span class="chip subtle">{{ state.sections.identity ? 'Hide' : 'Open' }}</span>
+              <span class="accordion-icon"><AppIcon :name="state.sections.identity ? 'chevron-down' : 'chevron-right'" /></span>
             </button>
 
             <div v-if="state.sections.identity" class="accordion-body">
@@ -1012,13 +1005,13 @@ function makeId(prefix) {
                 <strong>Education</strong>
                 <div class="muted-inline">{{ sectionLabel('education') }}</div>
               </div>
-              <span class="chip subtle">{{ state.sections.education ? 'Hide' : 'Open' }}</span>
+              <span class="accordion-icon"><AppIcon :name="state.sections.education ? 'chevron-down' : 'chevron-right'" /></span>
             </button>
 
             <div v-if="state.sections.education" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Education Entries</h2>
-                <button class="button ghost compact" type="button" @click="addEducation">Add</button>
+                <button class="icon-button" type="button" aria-label="Add education" title="Add education" @click="addEducation"><AppIcon name="plus" /></button>
               </div>
 
               <div v-if="state.editor.education.length" class="editor-stack">
@@ -1029,9 +1022,9 @@ function makeId(prefix) {
                         <strong>{{ educationEntryLabel(item, index) }}</strong>
                         <div class="muted-inline">{{ summaryLine([item.degree, item.field, item.start_date || item.end_date ? `${item.start_date || '?'} - ${item.end_date || 'Present'}` : '']) }}</div>
                       </div>
-                      <span class="chip subtle">{{ item.expanded ? 'Hide' : 'Open' }}</span>
+                      <span class="accordion-icon"><AppIcon :name="item.expanded ? 'chevron-down' : 'chevron-right'" /></span>
                     </button>
-                    <button class="button ghost compact" type="button" @click="removeEducation(index)">Remove</button>
+                    <button class="icon-button danger" type="button" aria-label="Delete education" title="Delete education" @click="removeEducation(index)"><AppIcon name="trash" /></button>
                   </div>
 
                   <div v-if="item.expanded" class="editor-item-body">
@@ -1048,7 +1041,7 @@ function makeId(prefix) {
                     <div class="editor-subsection">
                       <div class="section-head compact-head">
                         <h2>Relevant Courses</h2>
-                        <button class="button ghost compact" type="button" @click="addCourse(index)">Add</button>
+                        <button class="icon-button" type="button" aria-label="Add course" title="Add course" @click="addCourse(index)"><AppIcon name="plus" /></button>
                       </div>
 
                       <div v-if="item.relevant_courses.length" class="editor-stack">
@@ -1058,7 +1051,7 @@ function makeId(prefix) {
                             <label class="field"><span>Tags</span><TagInput v-model="course.tags" placeholder="python, systems" /></label>
                           </div>
                           <div class="actions-row">
-                            <button class="button ghost compact" type="button" @click="removeCourse(index, courseIndex)">Remove course</button>
+                            <button class="icon-button danger" type="button" aria-label="Delete course" title="Delete course" @click="removeCourse(index, courseIndex)"><AppIcon name="trash" /></button>
                           </div>
                         </div>
                       </div>
@@ -1076,13 +1069,13 @@ function makeId(prefix) {
                 <strong>Experience</strong>
                 <div class="muted-inline">{{ sectionLabel('experience') }}</div>
               </div>
-              <span class="chip subtle">{{ state.sections.experience ? 'Hide' : 'Open' }}</span>
+              <span class="accordion-icon"><AppIcon :name="state.sections.experience ? 'chevron-down' : 'chevron-right'" /></span>
             </button>
 
             <div v-if="state.sections.experience" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Work Experiences</h2>
-                <button class="button ghost compact" type="button" @click="addExperience">Add</button>
+                <button class="icon-button" type="button" aria-label="Add experience" title="Add experience" @click="addExperience"><AppIcon name="plus" /></button>
               </div>
 
               <div v-if="state.editor.work_experiences.length" class="editor-stack">
@@ -1093,9 +1086,9 @@ function makeId(prefix) {
                         <strong>{{ experienceEntryLabel(item, index) }}</strong>
                         <div class="muted-inline">{{ summaryLine([item.title, item.location, item.start_date || item.end_date ? `${item.start_date || '?'} - ${item.end_date || 'Present'}` : '']) }}</div>
                       </div>
-                      <span class="chip subtle">{{ item.expanded ? 'Hide' : 'Open' }}</span>
+                      <span class="accordion-icon"><AppIcon :name="item.expanded ? 'chevron-down' : 'chevron-right'" /></span>
                     </button>
-                    <button class="button ghost compact" type="button" @click="removeExperience(index)">Remove</button>
+                    <button class="icon-button danger" type="button" aria-label="Delete experience" title="Delete experience" @click="removeExperience(index)"><AppIcon name="trash" /></button>
                   </div>
 
                   <div v-if="item.expanded" class="editor-item-body">
@@ -1110,7 +1103,7 @@ function makeId(prefix) {
                     <div class="editor-subsection">
                       <div class="section-head compact-head">
                         <h2>Bullets</h2>
-                        <button class="button ghost compact" type="button" @click="addExperienceBullet(index)">Add</button>
+                        <button class="icon-button" type="button" aria-label="Add bullet" title="Add bullet" @click="addExperienceBullet(index)"><AppIcon name="plus" /></button>
                       </div>
 
                       <div v-if="item.bullets.length" class="editor-stack">
@@ -1121,9 +1114,9 @@ function makeId(prefix) {
                                 <strong>Bullet {{ bulletIndex + 1 }}</strong>
                                 <div class="muted-inline">{{ bulletLabel(bullet, bulletIndex) }}</div>
                               </div>
-                              <span class="chip subtle">{{ bullet.expanded ? 'Hide' : 'Open' }}</span>
+                              <span class="accordion-icon"><AppIcon :name="bullet.expanded ? 'chevron-down' : 'chevron-right'" /></span>
                             </button>
-                            <button class="button ghost compact" type="button" @click="removeExperienceBullet(index, bulletIndex)">Remove bullet</button>
+                            <button class="icon-button danger" type="button" aria-label="Delete bullet" title="Delete bullet" @click="removeExperienceBullet(index, bulletIndex)"><AppIcon name="trash" /></button>
                           </div>
 
                           <div v-if="bullet.expanded" class="editor-item-body">
@@ -1146,13 +1139,13 @@ function makeId(prefix) {
                 <strong>Projects</strong>
                 <div class="muted-inline">{{ sectionLabel('projects') }}</div>
               </div>
-              <span class="chip subtle">{{ state.sections.projects ? 'Hide' : 'Open' }}</span>
+              <span class="accordion-icon"><AppIcon :name="state.sections.projects ? 'chevron-down' : 'chevron-right'" /></span>
             </button>
 
             <div v-if="state.sections.projects" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Projects</h2>
-                <button class="button ghost compact" type="button" @click="addProject">Add</button>
+                <button class="icon-button" type="button" aria-label="Add project" title="Add project" @click="addProject"><AppIcon name="plus" /></button>
               </div>
 
               <div v-if="state.editor.projects.length" class="editor-stack">
@@ -1163,9 +1156,9 @@ function makeId(prefix) {
                         <strong>{{ projectEntryLabel(item, index) }}</strong>
                         <div class="muted-inline">{{ summaryLine([item.role, item.tech_stack.length ? `${item.tech_stack.length} tech tags` : '', item.links.length ? `${item.links.length} links` : '']) }}</div>
                       </div>
-                      <span class="chip subtle">{{ item.expanded ? 'Hide' : 'Open' }}</span>
+                      <span class="accordion-icon"><AppIcon :name="item.expanded ? 'chevron-down' : 'chevron-right'" /></span>
                     </button>
-                    <button class="button ghost compact" type="button" @click="removeProject(index)">Remove</button>
+                    <button class="icon-button danger" type="button" aria-label="Delete project" title="Delete project" @click="removeProject(index)"><AppIcon name="trash" /></button>
                   </div>
 
                   <div v-if="item.expanded" class="editor-item-body">
@@ -1180,7 +1173,7 @@ function makeId(prefix) {
                     <div class="editor-subsection">
                       <div class="section-head compact-head">
                         <h2>Bullets</h2>
-                        <button class="button ghost compact" type="button" @click="addProjectBullet(index)">Add</button>
+                        <button class="icon-button" type="button" aria-label="Add bullet" title="Add bullet" @click="addProjectBullet(index)"><AppIcon name="plus" /></button>
                       </div>
 
                       <div v-if="item.bullets.length" class="editor-stack">
@@ -1191,9 +1184,9 @@ function makeId(prefix) {
                                 <strong>Bullet {{ bulletIndex + 1 }}</strong>
                                 <div class="muted-inline">{{ bulletLabel(bullet, bulletIndex) }}</div>
                               </div>
-                              <span class="chip subtle">{{ bullet.expanded ? 'Hide' : 'Open' }}</span>
+                              <span class="accordion-icon"><AppIcon :name="bullet.expanded ? 'chevron-down' : 'chevron-right'" /></span>
                             </button>
-                            <button class="button ghost compact" type="button" @click="removeProjectBullet(index, bulletIndex)">Remove bullet</button>
+                            <button class="icon-button danger" type="button" aria-label="Delete bullet" title="Delete bullet" @click="removeProjectBullet(index, bulletIndex)"><AppIcon name="trash" /></button>
                           </div>
 
                           <div v-if="bullet.expanded" class="editor-item-body">
@@ -1216,36 +1209,31 @@ function makeId(prefix) {
                 <strong>Skills</strong>
                 <div class="muted-inline">{{ sectionLabel('skills') }}</div>
               </div>
-              <span class="chip subtle">{{ state.sections.skills ? 'Hide' : 'Open' }}</span>
+              <span class="accordion-icon"><AppIcon :name="state.sections.skills ? 'chevron-down' : 'chevron-right'" /></span>
             </button>
 
             <div v-if="state.sections.skills" class="accordion-body">
-              <div class="section-head compact-head">
-                <h2>Skill Categories</h2>
-                <div class="actions-row">
-                  <input v-model="state.newSkillCategory" class="input compact-input" type="text" placeholder="custom_category" />
-                  <button class="button ghost compact" type="button" @click="addSkillCategory">Add</button>
+                <div class="section-head compact-head">
+                  <h2>Skill Categories</h2>
+                  <button class="icon-button" type="button" aria-label="Add skill category" title="Add skill category" @click="addSkillCategory"><AppIcon name="plus" /></button>
                 </div>
-              </div>
 
-              <div class="editor-stack">
-                <div v-for="(entry, index) in state.editor.skills" :key="entry.id" class="editor-mini-card">
+                <div class="editor-stack">
+                  <div v-for="(entry, index) in state.editor.skills" :key="entry.id" class="editor-mini-card">
                   <div class="editor-card-head">
                     <button class="editor-item-head" type="button" @click="toggleItem(entry)">
                       <div>
                         <strong>{{ skillEntryLabel(entry) }}</strong>
                         <div class="muted-inline">{{ entry.values.length }} tags</div>
                       </div>
-                      <span class="chip subtle">{{ entry.expanded ? 'Hide' : 'Open' }}</span>
+                      <span class="accordion-icon"><AppIcon :name="entry.expanded ? 'chevron-down' : 'chevron-right'" /></span>
                     </button>
-                    <button v-if="!defaultSkillCategories.includes(slugifyCategory(entry.key))" class="button ghost compact" type="button" @click="removeSkillCategory(index)">Remove category</button>
+                    <button v-if="!defaultSkillCategories.includes(slugifyCategory(entry.key))" class="icon-button danger" type="button" aria-label="Delete category" title="Delete category" @click="removeSkillCategory(index)"><AppIcon name="trash" /></button>
                   </div>
 
                   <div v-if="entry.expanded" class="editor-item-body">
-                    <div class="editor-grid editor-grid-2 editor-grid-skill">
-                      <label class="field"><span>Category</span><input v-model="entry.key" class="input" type="text" /></label>
-                      <label class="field"><span>Values</span><TagInput v-model="entry.values" placeholder="python, sql, react" /></label>
-                    </div>
+                    <label class="field"><span>Category</span><input v-model="entry.key" class="input" type="text" placeholder="custom_category" /></label>
+                    <label class="field"><span>Values</span><TagInput v-model="entry.values" placeholder="python, sql, react" /></label>
                   </div>
                 </div>
               </div>
