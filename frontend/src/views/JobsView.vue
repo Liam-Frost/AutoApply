@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from "vue"
+import { computed, reactive, watch } from "vue"
 
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
@@ -78,6 +78,10 @@ const state = reactive({
   jobs: [],
   counts: emptyCounts(),
   applyState: {},
+  sections: {
+    basic: true,
+    advanced: false,
+  },
 })
 
 const sourceUsesLinkedIn = computed(() => form.source === "linkedin" || form.source === "all")
@@ -85,6 +89,22 @@ const sourceUsesAts = computed(() => form.source === "ats" || form.source === "a
 
 const activeFilterLabels = computed(() => {
   const labels = []
+
+  if (form.profile.trim() && form.profile.trim() !== "default") {
+    labels.push(`Profile: ${form.profile.trim()}`)
+  }
+  if (sourceUsesLinkedIn.value && form.keyword.trim()) {
+    labels.push(`Keyword: ${form.keyword.trim()}`)
+  }
+  if (sourceUsesLinkedIn.value && form.location.trim()) {
+    labels.push(`Search: ${form.location.trim()}`)
+  }
+  if (sourceUsesAts.value && form.ats) {
+    labels.push(`ATS: ${prettyLabel(form.ats)}`)
+  }
+  if (sourceUsesAts.value && form.company.trim()) {
+    labels.push(`Company: ${form.company.trim()}`)
+  }
 
   if (form.time_filter !== "all") {
     labels.push(`Posted: ${timeFilterLabel(form.time_filter)}`)
@@ -106,6 +126,22 @@ const activeFilterLabels = computed(() => {
 
   return labels
 })
+
+watch(
+  () => form.source,
+  (source) => {
+    if (source === "ats") {
+      form.keyword = ""
+      form.location = ""
+      form.time_filter = "all"
+    }
+
+    if (source === "linkedin") {
+      form.ats = ""
+      form.company = ""
+    }
+  },
+)
 
 const resultSummary = computed(() => {
   if (!state.searched) {
@@ -267,6 +303,10 @@ function resetForm() {
   form.experience_years = ""
 }
 
+function toggleSection(section) {
+  state.sections[section] = !state.sections[section]
+}
+
 function emptyCounts() {
   return {
     ats: 0,
@@ -286,135 +326,159 @@ function emptyCounts() {
         <section class="jobs-panel jobs-panel-full">
           <div class="section-head compact-head">
             <div>
-              <h2>Search</h2>
-              <div class="muted-inline">Source, query, and filters in one place</div>
+              <h2>Filters</h2>
+              <div class="muted-inline">Basic and advanced search controls</div>
             </div>
             <span class="muted">{{ activeFilterLabels.length }}</span>
           </div>
 
           <div class="page-stack jobs-panel-stack">
-            <div class="form-grid jobs-panel-grid jobs-panel-grid-wide">
-              <label class="field">
-                <span>Source</span>
-                <select v-model="form.source" class="select">
-                  <option value="ats">ATS</option>
-                  <option value="linkedin">LinkedIn</option>
-                  <option value="all">All</option>
-                </select>
-              </label>
+            <section class="accordion-section jobs-accordion">
+              <button class="accordion-head" type="button" @click="toggleSection('basic')">
+                <div>
+                  <strong>Basic</strong>
+                  <div class="muted-inline">Source, query, and candidate locations</div>
+                </div>
+                <span class="chip subtle">{{ state.sections.basic ? 'Hide' : 'Open' }}</span>
+              </button>
 
-              <label class="field">
-                <span>Profile</span>
-                <input v-model="form.profile" class="input" type="text" />
-              </label>
-
-              <template v-if="sourceUsesLinkedIn">
-                <label class="field">
-                  <span>Keyword</span>
-                  <input v-model="form.keyword" class="input" type="text" placeholder="software engineer" />
-                </label>
-
-                <label class="field">
-                  <span>Search location</span>
-                  <input v-model="form.location" class="input" type="text" placeholder="City, State, Country" />
-                </label>
-
-                <label class="field field-span-full">
-                  <span>Date posted</span>
-                  <select v-model="form.time_filter" class="select">
-                    <option value="all">All dates</option>
-                    <option value="month">Past month</option>
-                    <option value="week">Past week</option>
-                    <option value="24h">Past 24 hours</option>
-                  </select>
-                </label>
-              </template>
-
-              <template v-if="sourceUsesAts">
-                <label class="field">
-                  <span>ATS</span>
-                  <select v-model="form.ats" class="select">
-                    <option value="">All</option>
-                    <option value="greenhouse">Greenhouse</option>
-                    <option value="lever">Lever</option>
-                  </select>
-                </label>
-
-                <label class="field">
-                  <span>Company slug</span>
-                  <input v-model="form.company" class="input" type="text" placeholder="stripe" />
-                </label>
-              </template>
-            </div>
-
-            <div class="page-stack jobs-filter-stack">
-              <label class="field">
-                <span>Candidate locations</span>
-                <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
-              </label>
-
-              <div class="inline-grid inline-grid-2">
-                <div class="field">
-                  <span>Pay</span>
-                  <div class="inline-grid inline-grid-2">
-                    <select v-model="form.pay_operator" class="select">
-                      <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
+              <div v-if="state.sections.basic" class="accordion-body">
+                <div class="form-grid jobs-panel-grid jobs-panel-grid-wide">
+                  <label class="field">
+                    <span>Source</span>
+                    <select v-model="form.source" class="select">
+                      <option value="ats">ATS</option>
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="all">All</option>
                     </select>
-                    <input v-model="form.pay_amount" class="input" type="number" min="0" placeholder="120000" />
+                  </label>
+
+                  <label class="field">
+                    <span>Profile</span>
+                    <input v-model="form.profile" class="input" type="text" />
+                  </label>
+
+                  <template v-if="sourceUsesLinkedIn">
+                    <label class="field">
+                      <span>Keyword</span>
+                      <input v-model="form.keyword" class="input" type="text" placeholder="software engineer" />
+                    </label>
+
+                    <label class="field">
+                      <span>Search location</span>
+                      <input v-model="form.location" class="input" type="text" placeholder="City, State, Country" />
+                    </label>
+
+                    <label class="field field-span-full">
+                      <span>Date posted</span>
+                      <select v-model="form.time_filter" class="select">
+                        <option value="all">All dates</option>
+                        <option value="month">Past month</option>
+                        <option value="week">Past week</option>
+                        <option value="24h">Past 24 hours</option>
+                      </select>
+                    </label>
+                  </template>
+
+                  <template v-if="sourceUsesAts">
+                    <label class="field">
+                      <span>ATS</span>
+                      <select v-model="form.ats" class="select">
+                        <option value="">All</option>
+                        <option value="greenhouse">Greenhouse</option>
+                        <option value="lever">Lever</option>
+                      </select>
+                    </label>
+
+                    <label class="field">
+                      <span>Company slug</span>
+                      <input v-model="form.company" class="input" type="text" placeholder="stripe" />
+                    </label>
+                  </template>
+
+                  <label class="field field-span-full">
+                    <span>Candidate locations</span>
+                    <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="accordion-section jobs-accordion">
+              <button class="accordion-head" type="button" @click="toggleSection('advanced')">
+                <div>
+                  <strong>Advanced</strong>
+                  <div class="muted-inline">Pay, experience, employment, location, and education</div>
+                </div>
+                <span class="chip subtle">{{ state.sections.advanced ? 'Hide' : 'Open' }}</span>
+              </button>
+
+              <div v-if="state.sections.advanced" class="accordion-body">
+                <div class="page-stack jobs-filter-stack">
+                  <div class="inline-grid inline-grid-2">
+                    <div class="field">
+                      <span>Pay</span>
+                      <div class="inline-grid inline-grid-2">
+                        <select v-model="form.pay_operator" class="select">
+                          <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                        <input v-model="form.pay_amount" class="input" type="number" min="0" placeholder="120000" />
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <span>Experience years</span>
+                      <div class="inline-grid inline-grid-2">
+                        <select v-model="form.experience_operator" class="select">
+                          <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                        <input v-model="form.experience_years" class="input" type="number" min="0" placeholder="3" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <span>Experience level</span>
+                    <div class="toggle-grid">
+                      <label v-for="option in experienceLevelOptions" :key="option.value" class="toggle-pill">
+                        <input v-model="form.experience_levels" type="checkbox" :value="option.value" />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <span>Employment type</span>
+                    <div class="toggle-grid">
+                      <label v-for="option in employmentTypeOptions" :key="option.value" class="toggle-pill">
+                        <input v-model="form.employment_types" type="checkbox" :value="option.value" />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <span>Location type</span>
+                    <div class="toggle-grid">
+                      <label v-for="option in locationTypeOptions" :key="option.value" class="toggle-pill">
+                        <input v-model="form.location_types" type="checkbox" :value="option.value" />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <span>Education</span>
+                    <div class="toggle-grid">
+                      <label v-for="option in educationOptions" :key="option.value" class="toggle-pill">
+                        <input v-model="form.education_levels" type="checkbox" :value="option.value" />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
-
-                <div class="field">
-                  <span>Experience years</span>
-                  <div class="inline-grid inline-grid-2">
-                    <select v-model="form.experience_operator" class="select">
-                      <option v-for="option in numericOperators" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                    <input v-model="form.experience_years" class="input" type="number" min="0" placeholder="3" />
-                  </div>
-                </div>
               </div>
-
-              <div class="field">
-                <span>Experience level</span>
-                <div class="toggle-grid">
-                  <label v-for="option in experienceLevelOptions" :key="option.value" class="toggle-pill">
-                    <input v-model="form.experience_levels" type="checkbox" :value="option.value" />
-                    <span>{{ option.label }}</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="field">
-                <span>Employment type</span>
-                <div class="toggle-grid">
-                  <label v-for="option in employmentTypeOptions" :key="option.value" class="toggle-pill">
-                    <input v-model="form.employment_types" type="checkbox" :value="option.value" />
-                    <span>{{ option.label }}</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="field">
-                <span>Location type</span>
-                <div class="toggle-grid">
-                  <label v-for="option in locationTypeOptions" :key="option.value" class="toggle-pill">
-                    <input v-model="form.location_types" type="checkbox" :value="option.value" />
-                    <span>{{ option.label }}</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="field">
-                <span>Education</span>
-                <div class="toggle-grid">
-                  <label v-for="option in educationOptions" :key="option.value" class="toggle-pill">
-                    <input v-model="form.education_levels" type="checkbox" :value="option.value" />
-                    <span>{{ option.label }}</span>
-                  </label>
-                </div>
-              </div>
-            </div>
+            </section>
           </div>
         </section>
 
