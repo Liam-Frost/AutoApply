@@ -22,7 +22,8 @@ const icons = {
   filter:
     '<path d="M4 6h16" /><path d="M7 12h10" /><path d="M10 18h4" />',
   search: '<circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />',
-  refresh: '<path d="M20 11a8 8 0 1 0 2 5.3" /><path d="M20 4v7h-7" />',
+  refresh:
+    '<path d="M3 12a9 9 0 0 1 15.4-6.4L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" /><path d="M3 21v-5h5" />',
   external: '<path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v5H5V5h5" />',
   save:
     '<path d="M5 4h11l3 3v13H5z" /><path d="M9 4v5h6V4" /><path d="M9 20v-6h6v6" />',

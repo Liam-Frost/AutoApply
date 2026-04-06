@@ -7,7 +7,12 @@
     <script>
       ;(() => {
         const key = "autoapply.theme"
-        const stored = localStorage.getItem(key)
+        let stored = null
+        try {
+          stored = localStorage.getItem(key)
+        } catch {
+          stored = null
+        }
         const preference = ["system", "light", "dark"].includes(stored) ? stored : "system"
         const resolved =
           preference === "system"
@@ -20,8 +25,8 @@
         document.documentElement.style.colorScheme = resolved
       })()
     </script>
-    <script type="module" crossorigin src="/assets/index-_0veP742.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-C402MmpS.css">
+    <script type="module" crossorigin src="/assets/index-CoiY0B7p.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Dk9OMM36.css">
   </head>
   <body>
     <div id="app"></div>

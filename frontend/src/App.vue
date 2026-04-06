@@ -53,7 +53,11 @@ function isActive(item) {
 function applyTheme() {
   document.documentElement.dataset.theme = resolvedTheme.value
   document.documentElement.style.colorScheme = resolvedTheme.value
-  localStorage.setItem(THEME_STORAGE_KEY, themePreference.value)
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, themePreference.value)
+  } catch {
+    // Ignore storage restrictions and fall back to in-memory theme state.
+  }
 }
 
 function selectTheme(value) {
@@ -72,7 +76,12 @@ function onDocumentClick(event) {
 }
 
 onMounted(() => {
-  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY)
+  let storedTheme = null
+  try {
+    storedTheme = localStorage.getItem(THEME_STORAGE_KEY)
+  } catch {
+    storedTheme = null
+  }
   if (["system", "light", "dark"].includes(storedTheme)) {
     themePreference.value = storedTheme
   }
