@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, reactive } from "vue"
 
+import AppIcon from "../components/AppIcon.vue"
 import { api } from "../lib/api"
 
 const state = reactive({
@@ -105,8 +106,8 @@ onMounted(load)
           </label>
 
           <div class="actions-row">
-            <button class="button" type="submit" :disabled="state.saving || state.loading">
-              {{ state.saving ? "Saving" : "Save" }}
+            <button class="icon-button primary" type="submit" :disabled="state.saving || state.loading" aria-label="Save settings" title="Save settings">
+              <AppIcon name="save" />
             </button>
           </div>
         </form>

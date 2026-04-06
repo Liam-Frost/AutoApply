@@ -862,7 +862,7 @@ function makeId(prefix) {
         <div v-if="state.createMenuOpen" class="profile-create-panel">
           <div class="section-head compact-head">
             <h2>Create</h2>
-            <button class="button ghost compact" type="button" @click="closeCreateMenu">Close</button>
+            <button class="icon-button" type="button" aria-label="Close create menu" title="Close create menu" @click="closeCreateMenu"><AppIcon name="close" /></button>
           </div>
 
           <div class="chip-row">
@@ -877,8 +877,8 @@ function makeId(prefix) {
             </label>
 
             <div class="actions-row align-end">
-              <button class="button" type="button" :disabled="state.saving" @click="createProfile">
-                {{ state.saving ? 'Working' : 'Create and edit' }}
+              <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Create profile" title="Create profile" @click="createProfile">
+                <AppIcon name="plus" />
               </button>
             </div>
           </div>
@@ -900,8 +900,8 @@ function makeId(prefix) {
             </label>
 
             <div class="actions-row align-end">
-              <button class="button" type="button" :disabled="state.uploading" @click="uploadProfileFromFile">
-                {{ state.uploading ? 'Importing' : 'Import and open' }}
+              <button class="icon-button primary" type="button" :disabled="state.uploading" aria-label="Import profile" title="Import profile" @click="uploadProfileFromFile">
+                <AppIcon name="upload" />
               </button>
             </div>
           </div>
@@ -928,19 +928,15 @@ function makeId(prefix) {
               </label>
 
               <div class="actions-row">
-                <button class="button compact" type="button" :disabled="state.renaming" @click="renameProfile(profile.id)">
-                  {{ state.renaming ? 'Renaming' : 'Save rename' }}
-                </button>
-                <button class="button ghost compact" type="button" @click="cancelRename">Cancel</button>
+                <button class="icon-button primary" type="button" :disabled="state.renaming" aria-label="Save rename" title="Save rename" @click="renameProfile(profile.id)"><AppIcon name="save" /></button>
+                <button class="icon-button" type="button" aria-label="Cancel rename" title="Cancel rename" @click="cancelRename"><AppIcon name="close" /></button>
               </div>
             </div>
 
             <div v-else class="actions-row">
-              <button class="button compact" type="button" @click="openProfileEditor(profile.id)">Edit</button>
-              <button class="button ghost compact" type="button" @click="activateProfile(profile.id)">
-                {{ profile.is_active ? 'Selected' : 'Select' }}
-              </button>
-              <button class="button ghost compact" type="button" @click="startRename(profile)">Rename</button>
+              <button class="icon-button" type="button" aria-label="Edit profile" title="Edit profile" @click="openProfileEditor(profile.id)"><AppIcon name="edit" /></button>
+              <button class="icon-button" :class="{ 'is-active': profile.is_active }" type="button" aria-label="Select profile" title="Select profile" @click="activateProfile(profile.id)"><AppIcon name="check" /></button>
+              <button class="icon-button" type="button" aria-label="Rename profile" title="Rename profile" @click="startRename(profile)"><AppIcon name="rename" /></button>
               <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete profile" title="Delete profile" @click="deleteProfile(profile.id)"><AppIcon name="trash" /></button>
             </div>
           </article>
@@ -953,7 +949,7 @@ function makeId(prefix) {
       <section v-if="!state.data.has_profile" class="surface surface-narrow">
         <div class="section-head">
           <h2>Profile Not Found</h2>
-          <button class="button ghost compact" type="button" @click="goToLibrary">Back</button>
+          <button class="icon-button" type="button" aria-label="Back to profiles" title="Back to profiles" @click="goToLibrary"><AppIcon name="back" /></button>
         </div>
         <div class="empty-state">The selected profile does not exist.</div>
       </section>
@@ -965,14 +961,10 @@ function makeId(prefix) {
             <div class="muted-inline">{{ state.data.profile_path }}</div>
           </div>
           <div class="actions-row">
-            <button class="button ghost compact" type="button" @click="goToLibrary">Back</button>
-            <button class="button ghost compact" type="button" @click="activateProfile(currentProfileId)">
-              {{ state.data.active_profile_id === currentProfileId ? 'Selected' : 'Select' }}
-            </button>
+            <button class="icon-button" type="button" aria-label="Back to profiles" title="Back to profiles" @click="goToLibrary"><AppIcon name="back" /></button>
+            <button class="icon-button" :class="{ 'is-active': state.data.active_profile_id === currentProfileId }" type="button" aria-label="Select profile" title="Select profile" @click="activateProfile(currentProfileId)"><AppIcon name="check" /></button>
             <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete profile" title="Delete profile" @click="deleteProfile(currentProfileId)"><AppIcon name="trash" /></button>
-            <button class="button compact" type="button" :disabled="state.saving" @click="saveProfile">
-              {{ state.saving ? 'Saving' : 'Save' }}
-            </button>
+            <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Save profile" title="Save profile" @click="saveProfile"><AppIcon name="save" /></button>
           </div>
         </div>
 

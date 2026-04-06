@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive } from "vue"
 
+import AppIcon from "../components/AppIcon.vue"
 import { api } from "../lib/api"
 import { formatPercent } from "../lib/format"
 
@@ -70,15 +71,15 @@ onMounted(load)
       </article>
     </section>
 
-    <div v-if="error" class="banner is-danger">{{ error }}</div>
+    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
     <div v-else-if="!state.data.db_connected" class="banner is-warning">Database not connected</div>
 
     <section class="content-grid content-grid-wide">
       <article class="surface">
         <div class="section-head">
           <h2>Pipeline</h2>
-          <button class="button ghost compact" type="button" @click="load" :disabled="state.loading">
-            {{ state.loading ? "Loading" : "Refresh" }}
+          <button class="icon-button" type="button" :disabled="state.loading" aria-label="Refresh dashboard" title="Refresh dashboard" @click="load">
+            <AppIcon name="refresh" />
           </button>
         </div>
 
