@@ -7,6 +7,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import yaml
 
@@ -71,7 +72,7 @@ def import_resume_file(
         }
 
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_path = PROFILE_DIR / f"_upload{suffix}"
+    tmp_path = PROFILE_DIR / f"_upload_{uuid4().hex}{suffix}"
     tmp_path.write_bytes(content)
 
     try:
@@ -178,6 +179,40 @@ def delete_profile_data(*, profile_id: str) -> dict:
         "status": "deleted",
         "message": f"Profile '{target_profile_id}' deleted.",
         **load_profile_data(),
+    }
+
+
+def rename_profile_data(*, profile_id: str, new_profile_id: str) -> dict:
+    _ensure_profile_store()
+    current_profile_id = sanitize_profile_id(profile_id)
+    target_profile_id = sanitize_profile_id(new_profile_id)
+    current_path = get_profile_path(current_profile_id)
+    target_path = get_profile_path(target_profile_id)
+
+    if not current_path.exists():
+        return {
+            "ok": False,
+            "error": f"Profile '{current_profile_id}' not found.",
+            "error_code": "profile_not_found",
+        }
+
+    if target_profile_id != current_profile_id and target_path.exists():
+        return {
+            "ok": False,
+            "error": f"Profile '{target_profile_id}' already exists.",
+            "error_code": "profile_exists",
+        }
+
+    if target_profile_id != current_profile_id:
+        current_path.rename(target_path)
+        if get_active_profile_id() == current_profile_id:
+            set_active_profile(target_profile_id)
+
+    return {
+        "ok": True,
+        "status": "renamed",
+        "message": f"Profile '{current_profile_id}' renamed to '{target_profile_id}'.",
+        **load_profile_data(target_profile_id),
     }
 
 

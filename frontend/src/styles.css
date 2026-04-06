@@ -540,6 +540,79 @@ textarea {
   gap: 14px;
 }
 
+.profile-library-shell,
+.profile-editor-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-create-panel,
+.profile-library-card,
+.accordion-section {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface-muted);
+}
+
+.profile-create-panel {
+  padding: 16px;
+}
+
+.profile-create-grid,
+.profile-library-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.profile-create-grid,
+.profile-library-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-library-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.profile-library-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.accordion-section {
+  overflow: hidden;
+}
+
+.accordion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.accordion-head strong {
+  font-size: 14px;
+}
+
+.accordion-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 18px 18px;
+}
+
 .profile-admin-grid {
   grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.4fr);
 }
@@ -664,7 +737,9 @@ textarea {
 
   .jobs-grid,
   .jobs-panel-grid,
-  .editor-grid-2 {
+  .editor-grid-2,
+  .profile-create-grid,
+  .profile-library-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -712,6 +787,12 @@ textarea {
   }
 
   .editor-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-library-head,
+  .accordion-head {
     flex-direction: column;
     align-items: flex-start;
   }
