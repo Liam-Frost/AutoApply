@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, watch } from "vue"
 
+import AppIcon from "../components/AppIcon.vue"
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 import { formatPercent, truncateText } from "../lib/format"
@@ -339,7 +340,7 @@ function emptyCounts() {
                   <strong>Basic</strong>
                   <div class="muted-inline">Source, query, and candidate locations</div>
                 </div>
-                <span class="chip subtle">{{ state.sections.basic ? 'Hide' : 'Open' }}</span>
+                <span class="accordion-icon"><AppIcon :name="state.sections.basic ? 'chevron-down' : 'chevron-right'" /></span>
               </button>
 
               <div v-if="state.sections.basic" class="accordion-body">
@@ -410,7 +411,7 @@ function emptyCounts() {
                   <strong>Advanced</strong>
                   <div class="muted-inline">Pay, experience, employment, location, and education</div>
                 </div>
-                <span class="chip subtle">{{ state.sections.advanced ? 'Hide' : 'Open' }}</span>
+                <span class="accordion-icon"><AppIcon :name="state.sections.advanced ? 'chevron-down' : 'chevron-right'" /></span>
               </button>
 
               <div v-if="state.sections.advanced" class="accordion-body">
