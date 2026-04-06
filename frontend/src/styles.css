@@ -561,6 +561,67 @@ textarea {
   line-height: 1.5;
 }
 
+.editor-section,
+.editor-card,
+.editor-mini-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editor-stack,
+.editor-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-card,
+.editor-mini-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-muted);
+}
+
+.editor-mini-card {
+  padding: 14px;
+}
+
+.editor-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-card-head strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.editor-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.editor-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.editor-grid-skill {
+  align-items: end;
+}
+
+.editor-textarea {
+  min-height: 96px;
+}
+
+.compact-input {
+  min-height: 38px;
+  width: min(220px, 100%);
+}
+
 .profile-name {
   font-size: 1.3rem;
   font-weight: 650;
@@ -602,7 +663,8 @@ textarea {
   }
 
   .jobs-grid,
-  .jobs-panel-grid {
+  .jobs-panel-grid,
+  .editor-grid-2 {
     grid-template-columns: 1fr;
   }
 }
@@ -647,6 +709,11 @@ textarea {
 
   .jobs-panel {
     padding: 16px;
+  }
+
+  .editor-card-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .inline-grid-2 {

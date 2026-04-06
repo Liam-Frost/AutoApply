@@ -55,8 +55,9 @@ export const api = {
       body: JSON.stringify({ outcome }),
     })
   },
-  profile() {
-    return request("/api/profile")
+  profile(profileId = "") {
+    const suffix = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : ""
+    return request(`/api/profile${suffix}`)
   },
   createProfile(profileId, setActive = true) {
     return request("/api/profile", {
