@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, reactive } from "vue"
 
+import AppIcon from "../components/AppIcon.vue"
 import { api } from "../lib/api"
 import { formatDate, formatPercent } from "../lib/format"
 
@@ -93,8 +94,8 @@ onMounted(load)
         </label>
 
         <div class="actions-row align-end">
-          <button class="button" type="submit" :disabled="state.loading">
-            {{ state.loading ? "Loading" : "Filter" }}
+          <button class="icon-button primary" type="submit" :disabled="state.loading" aria-label="Apply filters" title="Apply filters">
+            <AppIcon name="filter" />
           </button>
         </div>
       </form>

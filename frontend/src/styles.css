@@ -2,6 +2,10 @@
   color-scheme: dark;
   --bg: #071019;
   --bg-soft: #0d1724;
+  --bg-top: #0c1520;
+  --bg-bottom: #071019;
+  --glow-1: rgba(144, 181, 255, 0.14);
+  --glow-2: rgba(105, 214, 192, 0.12);
   --surface: rgba(9, 15, 24, 0.84);
   --surface-strong: rgba(12, 19, 31, 0.94);
   --surface-muted: rgba(255, 255, 255, 0.03);
@@ -14,6 +18,30 @@
   --warning: #f0c76f;
   --success: #8ae0aa;
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+  --dock-bg: rgba(9, 15, 24, 0.74);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #edf3fb;
+  --bg-soft: #f4f8fd;
+  --bg-top: #edf4ff;
+  --bg-bottom: #f9fbff;
+  --glow-1: rgba(85, 128, 255, 0.12);
+  --glow-2: rgba(84, 201, 188, 0.1);
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --surface-muted: rgba(23, 48, 84, 0.04);
+  --border: rgba(20, 44, 77, 0.12);
+  --text: #102033;
+  --text-muted: #62748f;
+  --accent: #4d84ff;
+  --accent-strong: #59c8c1;
+  --danger: #d75d5d;
+  --warning: #a2751d;
+  --success: #2f8a54;
+  --shadow: 0 18px 48px rgba(56, 86, 128, 0.12);
+  --dock-bg: rgba(255, 255, 255, 0.78);
 }
 
 * {
@@ -30,9 +58,9 @@ body {
   margin: 0;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(144, 181, 255, 0.14), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(105, 214, 192, 0.12), transparent 24%),
-    linear-gradient(180deg, #0c1520 0%, var(--bg) 100%);
+    radial-gradient(circle at top left, var(--glow-1), transparent 28%),
+    radial-gradient(circle at bottom right, var(--glow-2), transparent 24%),
+    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
   color: var(--text);
 }
 
@@ -90,9 +118,55 @@ textarea {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 28px;
-  background: rgba(9, 15, 24, 0.74);
+  background: var(--dock-bg);
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
+}
+
+.dock-theme {
+  position: relative;
+}
+
+.dock-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dock-theme-menu {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--dock-bg);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  transform: translateY(-50%);
+}
+
+.dock-theme-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.dock-theme-item:hover,
+.dock-theme-item.is-active {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
 }
 
 .dock-item {
@@ -408,6 +482,22 @@ textarea {
   color: var(--text-muted);
   cursor: pointer;
   transition: color 160ms ease, background-color 160ms ease;
+}
+
+.icon-button.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #04101a;
+}
+
+.icon-button.primary:hover,
+.icon-button.primary:focus-visible {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #04101a;
+}
+
+.icon-button.is-active {
+  background: rgba(144, 181, 255, 0.14);
+  color: var(--text);
 }
 
 .icon-button:hover,
@@ -840,6 +930,14 @@ textarea {
   .dock {
     top: auto;
     bottom: 16px;
+    left: 50%;
+    flex-direction: row;
+    transform: translateX(-50%);
+  }
+
+  .dock-theme-menu {
+    top: auto;
+    bottom: calc(100% + 12px);
     left: 50%;
     flex-direction: row;
     transform: translateX(-50%);

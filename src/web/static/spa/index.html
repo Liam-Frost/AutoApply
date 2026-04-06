@@ -4,8 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AutoApply</title>
-    <script type="module" crossorigin src="/assets/index-COm3dvyp.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CKz0_Mhy.css">
+    <script>
+      ;(() => {
+        const key = "autoapply.theme"
+        const stored = localStorage.getItem(key)
+        const preference = ["system", "light", "dark"].includes(stored) ? stored : "system"
+        const resolved =
+          preference === "system"
+            ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference
+
+        document.documentElement.dataset.theme = resolved
+        document.documentElement.style.colorScheme = resolved
+      })()
+    </script>
+    <script type="module" crossorigin src="/assets/index-_0veP742.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C402MmpS.css">
   </head>
   <body>
     <div id="app"></div>

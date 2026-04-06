@@ -488,9 +488,11 @@ function emptyCounts() {
             <span v-for="label in activeFilterLabels" :key="label" class="chip subtle">{{ label }}</span>
           </div>
           <div class="actions-row">
-            <button class="button ghost" type="button" @click="resetForm">Reset</button>
-            <button class="button" type="submit" :disabled="state.searching">
-              {{ state.searching ? "Searching" : "Search" }}
+            <button class="icon-button" type="button" aria-label="Reset filters" title="Reset filters" @click="resetForm">
+              <AppIcon name="refresh" />
+            </button>
+            <button class="icon-button primary" type="submit" :disabled="state.searching" aria-label="Search jobs" title="Search jobs">
+              <AppIcon name="search" />
             </button>
           </div>
         </div>
@@ -543,16 +545,18 @@ function emptyCounts() {
           <div class="actions-row">
             <button
               v-if="job.application_url"
-              class="button"
+              class="icon-button primary"
               type="button"
               @click="applyToJob(job)"
               :disabled="state.applyState[job.id]?.loading"
+              aria-label="Apply to job"
+              title="Apply to job"
             >
-              {{ state.applyState[job.id]?.loading ? "Applying" : "Apply" }}
+              <AppIcon name="apply" />
             </button>
 
-            <a v-if="job.application_url" class="button ghost" :href="job.application_url" target="_blank" rel="noopener">
-              Open
+            <a v-if="job.application_url" class="icon-button" :href="job.application_url" target="_blank" rel="noopener" aria-label="Open job link" title="Open job link">
+              <AppIcon name="external" />
             </a>
           </div>
 
