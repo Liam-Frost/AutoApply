@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+
+_PROFILE_ID_RE = re.compile(r"^[\w][\w \-\.]{0,98}[\w]$|^[\w]$")
 
 from src.application.jobs import apply_to_url
 from src.application.jobs import clear_linkedin_session as clear_linkedin_session_usecase
@@ -172,6 +176,8 @@ async def filter_profiles() -> dict:
 
 @router.put("/jobs/filter-profiles/{profile_id}")
 async def save_filter_profile(profile_id: str, payload: SearchProfilePayload) -> dict:
+    if not _PROFILE_ID_RE.match(profile_id):
+        raise HTTPException(status_code=400, detail="Invalid filter profile name.")
     result = save_search_profile_data(profile_id=profile_id, profile=payload.model_dump())
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -180,6 +186,8 @@ async def save_filter_profile(profile_id: str, payload: SearchProfilePayload) ->
 
 @router.delete("/jobs/filter-profiles/{profile_id}")
 async def delete_filter_profile(profile_id: str) -> dict:
+    if not _PROFILE_ID_RE.match(profile_id):
+        raise HTTPException(status_code=400, detail="Invalid filter profile name.")
     result = delete_search_profile_data(profile_id)
     if not result["ok"]:
         raise HTTPException(status_code=404, detail=result["error"])

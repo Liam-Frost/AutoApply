@@ -77,7 +77,6 @@ def build_linkedin_search_cache_key(
     experience_levels: list[str] | None,
     job_types: list[str] | None,
     enrich_details: bool,
-    max_detail_fetches: int,
     allow_public_fallback: bool,
 ) -> dict:
     return {
@@ -88,7 +87,6 @@ def build_linkedin_search_cache_key(
         "experience_levels": experience_levels or [],
         "job_types": job_types or [],
         "enrich_details": enrich_details,
-        "max_detail_fetches": max_detail_fetches,
         "allow_public_fallback": allow_public_fallback,
     }
 

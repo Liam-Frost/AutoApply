@@ -85,7 +85,7 @@ def _write_profiles(profiles: dict[str, dict]) -> None:
             {"profiles": profiles},
             handle,
             sort_keys=False,
-            allow_unicode=False,
+            allow_unicode=True,
         )
 
 

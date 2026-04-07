@@ -941,7 +941,7 @@ def _normalize_linkedin_title_text(value: str) -> str:
     cleaned = _clean_html_text(value)
     cleaned = re.sub(r"\s+with verification(?:\s+at\s+.+)?$", "", cleaned, flags=re.IGNORECASE)
     parts = cleaned.split()
-    if parts and len(parts) % 2 == 0:
+    if len(parts) >= 6 and len(parts) % 2 == 0:
         midpoint = len(parts) // 2
         if parts[:midpoint] == parts[midpoint:]:
             cleaned = " ".join(parts[:midpoint])
