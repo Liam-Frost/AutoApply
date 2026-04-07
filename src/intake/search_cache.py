@@ -11,9 +11,15 @@ from src.core.config import PROJECT_ROOT
 from src.intake.schema import RawJob
 
 CACHE_DIR = PROJECT_ROOT / "data" / "cache" / "linkedin_search"
+CACHE_VERSION = 3
 
 
-def load_cached_linkedin_search(key: dict, *, ttl_hours: int) -> list[RawJob] | None:
+def load_cached_linkedin_search(
+    key: dict,
+    *,
+    ttl_hours: int,
+    requested_max_pages: int,
+) -> list[RawJob] | None:
     cache_path = _cache_path(key)
     if not cache_path.exists():
         return None
@@ -34,14 +40,19 @@ def load_cached_linkedin_search(key: dict, *, ttl_hours: int) -> list[RawJob] | 
         cache_path.unlink(missing_ok=True)
         return None
 
+    cached_max_pages = int(payload.get("max_pages") or 0)
+    if cached_max_pages < requested_max_pages:
+        return None
+
     jobs = payload.get("jobs", [])
     return [RawJob.model_validate(item) for item in jobs]
 
 
-def save_cached_linkedin_search(key: dict, jobs: list[RawJob]) -> None:
+def save_cached_linkedin_search(key: dict, jobs: list[RawJob], *, max_pages: int) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "created_at": datetime.now(UTC).isoformat(),
+        "max_pages": max_pages,
         "jobs": [job.model_dump(mode="json") for job in jobs],
     }
     _cache_path(key).write_text(json.dumps(payload), encoding="utf-8")
@@ -65,18 +76,17 @@ def build_linkedin_search_cache_key(
     time_filter: str,
     experience_levels: list[str] | None,
     job_types: list[str] | None,
-    max_pages: int,
     enrich_details: bool,
     max_detail_fetches: int,
     allow_public_fallback: bool,
 ) -> dict:
     return {
+        "version": CACHE_VERSION,
         "keywords": keywords,
         "location": location,
         "time_filter": time_filter,
         "experience_levels": experience_levels or [],
         "job_types": job_types or [],
-        "max_pages": max_pages,
         "enrich_details": enrich_details,
         "max_detail_fetches": max_detail_fetches,
         "allow_public_fallback": allow_public_fallback,

@@ -1,0 +1,232 @@
+identity:
+  full_name: Liam Liu
+  email: frostnova986@gmail.com
+  phone: 672-968-6198
+  location: Vancouver, BC
+education:
+- institution: University of British Columbia
+  degree: Bachelor of Applied Science
+  field: Computer Engineering
+  location: Vancouver, BC
+  start_date: 2024-09
+  end_date: Present
+- institution: China University of Political Science and Law
+  degree: Bachelor of Science
+  field: Psychology
+  start_date: 2023-09
+  end_date: 2024-05
+work_experiences:
+- company: EA Academy Canada
+  title: Academic Tutor
+  location: Richmond, BC
+  start_date: 2025-10
+  end_date: Present
+  bullets:
+  - text: Tutored middle school to first-year university students in mathematics,
+      physics, and computer science, emphasizing abstraction and first-principles
+      problem solving.
+    tags:
+    - teaching
+    - mathematics
+    - physics
+    - computer_science
+    - mentoring
+  - text: Developed structured learning plans and introduced computational thinking
+      to strengthen students' analytical and technical foundations.
+    tags:
+    - curriculum_design
+    - computational_thinking
+    - mentoring
+- company: Lighthouse STEM
+  title: Coding Instructor
+  location: Vancouver, BC
+  start_date: 2025-10
+  end_date: 2026-01
+  bullets:
+  - text: Delivered Python-based programming courses and guided students through game
+      development using Pygame fundamentals.
+    tags:
+    - python
+    - pygame
+    - teaching
+    - game_development
+  - text: Mentored students in building complete mini-game projects, strengthening
+      problem-solving and technical communication skills.
+    tags:
+    - mentoring
+    - problem_solving
+    - technical_communication
+projects:
+- name: SENTRA
+  role: Developer
+  description: TELUS Hackathon Project
+  tech_stack:
+  - Python
+  - Flask
+  bullets:
+  - text: Built a distributed control and monitoring platform using Python and Flask
+      to centrally manage and execute commands across multiple nodes, enabling automated
+      diagnostics and configuration at scale.
+    tags:
+    - python
+    - flask
+    - distributed_systems
+    - monitoring
+  - text: Designed rule-based validation and event-driven pipelines to ensure safe
+      batch execution, fault isolation, and traceable system operations.
+    tags:
+    - event_driven
+    - pipeline_design
+    - fault_isolation
+    - validation
+  - text: Implemented concurrent control loops, load-aware scheduling, and simulation
+      engines to support real-time monitoring, adaptive load balancing, and autonomous
+      decision-making.
+    tags:
+    - concurrency
+    - load_balancing
+    - scheduling
+    - real_time
+- name: Personal Portfolio Website
+  role: Developer
+  description: Personal Project
+  tech_stack:
+  - React
+  - TypeScript
+  - Vite
+  bullets:
+  - text: Built a high-performance photography portfolio using React, TypeScript,
+      and Vite with a custom adaptive quality system to maintain smooth rendering
+      across low- and high-end devices.
+    tags:
+    - react
+    - typescript
+    - vite
+    - performance_optimization
+  - text: Designed responsive image loading and progressive rendering pipelines integrated
+      with CDN services, significantly improving page load speed and bandwidth efficiency.
+    tags:
+    - cdn
+    - progressive_rendering
+    - responsive_design
+    - performance
+  - text: Implemented multilingual support, accessibility standards, and automated
+      CI/CD deployment to ensure scalable maintenance and consistent user experience.
+    tags:
+    - ci_cd
+    - accessibility
+    - i18n
+    - devops
+- name: Canvas Course Agent
+  role: Developer
+  description: Personal Project
+  tech_stack:
+  - Python
+  - Canvas API
+  - LLM
+  bullets:
+  - text: Built an AI-first Canvas course agent that syncs and normalizes data from
+      the Canvas API across 8+ course data types, creating structured per-course knowledge
+      bases for automated academic planning.
+    tags:
+    - python
+    - api_integration
+    - data_normalization
+    - ai_agents
+  - text: Designed an LLM-based planning pipeline that turns syllabi, course metadata,
+      and assignment streams into weekly digests with prioritized tasks, next actions,
+      and time estimates, enabling end-to-end agent support from data ingestion to
+      recommendation generation.
+    tags:
+    - llm
+    - pipeline_design
+    - ai_agents
+    - nlp
+  - text: Shipped persistent AI reasoning features including task-topic mapping with
+      confidence scores, evidence capture, and manual override tooling, improving
+      controllability for agent-generated study plans.
+    tags:
+    - llm
+    - ai_agents
+    - reasoning
+    - human_in_the_loop
+- name: Parallax
+  role: Developer
+  description: Team Project
+  tech_stack:
+  - Spring Boot
+  - React
+  - PostgreSQL
+  - JWT
+  - Nginx
+  - Flyway
+  bullets:
+  - text: Built a secure full-stack platform using Spring Boot, React, and PostgreSQL
+      with JWT authentication, refresh token rotation, and role-based access control,
+      enabling safe multi-device access and preventing token replay attacks.
+    tags:
+    - spring_boot
+    - react
+    - postgresql
+    - jwt
+    - authentication
+    - security
+  - text: Designed scalable database schemas and Flyway migration pipelines with advanced
+      indexing and UUID keys, improving query performance and ensuring long-term data
+      consistency.
+    tags:
+    - database_design
+    - flyway
+    - postgresql
+    - performance_optimization
+  - text: Architected RESTful APIs with unified error handling, DTO-based validation,
+      and audit logging to support reliable integration and long-term maintainability.
+    tags:
+    - api_design
+    - rest
+    - spring_boot
+    - validation
+  - text: Deployed stateless backend services behind Nginx load balancing and integrated
+      external OCR services via REST APIs to enable high availability, fault isolation,
+      and resilient system operations.
+    tags:
+    - nginx
+    - load_balancing
+    - ocr
+    - devops
+    - fault_isolation
+skills:
+  languages:
+  - Java
+  - C++
+  - Python
+  - Embedded C
+  - SystemVerilog
+  - TypeScript
+  frameworks:
+  - Spring Boot
+  - React
+  - Flask
+  - Tailwind CSS
+  - Pygame
+  - Vite
+  databases:
+  - PostgreSQL
+  - MySQL
+  - SQLite
+  - Redis
+  tools:
+  - AWS EC2
+  - Nginx
+  - Flyway
+  - JWT
+  - CI/CD
+  - Cubase
+  domains:
+  - distributed_systems
+  - web_development
+  - embedded_systems
+  - ai_agents
+  - full_stack
+  - photography
+  - music_production

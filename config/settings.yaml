@@ -1,36 +1,29 @@
-# AutoApply Global Settings
-
 database:
   host: localhost
   port: 5432
   name: autoapply
   user: autoapply
-  password: ""  # Override via .env (AUTOAPPLY_DB_PASSWORD)
-
+  password: ''
 llm:
-  provider: claude-cli  # legacy alias for primary_provider
-  primary_provider: claude-cli  # claude-cli | codex-cli
-  fallback_provider: codex-cli  # claude-cli | codex-cli | null
+  provider: claude-cli
+  primary_provider: claude-cli
+  fallback_provider: codex-cli
   allow_fallback: true
-  timeout: 120  # seconds per CLI call
+  timeout: 120
   max_retries: 2
-
 documents:
   output_dir: data/output
   template_dir: data/templates
-  naming_pattern: "{type}_{company}_{role}_{date}"  # type = resume|cover
-
+  naming_pattern: '{type}_{company}_{role}_{date}'
 logging:
   level: INFO
   file: logs/autoapply.log
-  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-
+  format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
 rate_limit:
-  min_delay: 3  # seconds between browser actions
+  min_delay: 3
   max_delay: 8
-  cooldown_on_error: 60  # seconds to wait after an error
+  cooldown_on_error: 60
   max_applications_per_hour: 15
-
 search_cache:
   enabled: true
   ttl_hours: 24

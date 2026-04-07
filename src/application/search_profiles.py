@@ -106,6 +106,7 @@ def _normalize_profile_payload(profile: dict | None) -> dict:
         "pay_amount": _int_or_none(payload.get("pay_amount")),
         "experience_operator": _string_value(payload.get("experience_operator")),
         "experience_years": _int_or_none(payload.get("experience_years")),
+        "max_pages": _int_or_default(payload.get("max_pages"), default=20),
     }
 
 
@@ -128,3 +129,10 @@ def _int_or_none(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _int_or_default(value, *, default: int) -> int:
+    parsed = _int_or_none(value)
+    if parsed is None:
+        return default
+    return max(parsed, 1)

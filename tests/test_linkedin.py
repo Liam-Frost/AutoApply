@@ -106,6 +106,46 @@ class TestLinkedInURLUtils:
         )
 
 
+class TestLinkedInSearchCache:
+    def test_cache_hits_when_requested_pages_are_within_cached_range(self, tmp_path):
+        from src.intake.schema import RawJob
+        from src.intake.search_cache import (
+            build_linkedin_search_cache_key,
+            load_cached_linkedin_search,
+            save_cached_linkedin_search,
+        )
+
+        job = RawJob(
+            source="linkedin",
+            source_id="1",
+            company="Example",
+            title="Software Engineer",
+            location="California",
+            ats_type="linkedin",
+        )
+        key = build_linkedin_search_cache_key(
+            keywords=["software"],
+            location="california",
+            time_filter="month",
+            experience_levels=None,
+            job_types=None,
+            enrich_details=False,
+            max_detail_fetches=8,
+            allow_public_fallback=False,
+        )
+
+        with patch("src.intake.search_cache.CACHE_DIR", tmp_path):
+            save_cached_linkedin_search(key, [job], max_pages=20)
+
+            cached = load_cached_linkedin_search(key, ttl_hours=24, requested_max_pages=10)
+            missed = load_cached_linkedin_search(key, ttl_hours=24, requested_max_pages=25)
+
+        assert cached is not None
+        assert len(cached) == 1
+        assert cached[0].title == "Software Engineer"
+        assert missed is None
+
+
 # ──────────────────────────────────────────────
 # Search URL Builder Tests
 # ──────────────────────────────────────────────

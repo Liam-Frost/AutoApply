@@ -56,14 +56,17 @@ async def search_jobs(
     experience_operator: str | None = None,
     experience_years: int | None = None,
     education_levels: list[str] | None = None,
-    max_pages: int = 5,
+    max_pages: int = 20,
     no_enrich: bool = False,
     headless: bool = False,
     require_keyword_for_linkedin: bool = False,
     warn_on_missing_profile: bool = False,
     allow_public_linkedin_fallback: bool = False,
+    include_views: bool = False,
 ) -> dict:
     jobs = []
+    ats_jobs: list = []
+    linkedin_jobs: list = []
     errors: list[str] = []
     error_code: str | None = None
     counts = {"ats": 0, "linkedin": 0, "linkedin_external_ats": 0, "total": 0}
@@ -74,6 +77,11 @@ async def search_jobs(
     education_levels = _normalize_list(education_levels)
     keywords = _normalize_string_list(keywords)
     linkedin_keywords = _resolve_linkedin_keywords(keyword, keywords)
+    linkedin_search_locations = _resolve_linkedin_search_locations(
+        source=source,
+        search_location=search_location,
+        candidate_locations=locations,
+    )
 
     if source in ("ats", "all"):
         try:
@@ -100,29 +108,35 @@ async def search_jobs(
                 from src.intake.linkedin import LinkedInAuthRequiredError
                 from src.intake.search import search_linkedin
 
-                linkedin_jobs = await search_linkedin(
-                    keywords=linkedin_keywords,
-                    location=search_location or "",
-                    time_filter=_normalize_time_filter(time_filter),
-                    experience_levels=_map_linkedin_experience_levels(experience_levels),
-                    job_types=_map_linkedin_job_types(employment_types),
-                    max_pages=_linkedin_max_pages(
-                        max_pages,
-                        search_location=search_location or "",
-                        experience_levels=experience_levels,
-                        employment_types=employment_types,
-                        location_types=location_types,
-                        locations=locations,
-                        pay_operator=pay_operator,
-                        experience_operator=experience_operator,
-                        education_levels=education_levels,
-                    ),
-                    enrich_details=not no_enrich,
-                    headless=headless,
-                    filter_profile=profile,
-                    config_dir=config_dir,
-                    allow_public_fallback=allow_public_linkedin_fallback,
-                )
+                linkedin_jobs = []
+                search_targets = linkedin_search_locations or [""]
+                for location_target in search_targets:
+                    location_jobs = await search_linkedin(
+                        keywords=linkedin_keywords,
+                        location=location_target,
+                        time_filter=_normalize_time_filter(time_filter),
+                        experience_levels=_map_linkedin_experience_levels(experience_levels),
+                        job_types=_map_linkedin_job_types(employment_types),
+                        max_pages=_linkedin_max_pages(
+                            max_pages,
+                            search_location=location_target,
+                            experience_levels=experience_levels,
+                            employment_types=employment_types,
+                            location_types=location_types,
+                            locations=locations,
+                            pay_operator=pay_operator,
+                            experience_operator=experience_operator,
+                            education_levels=education_levels,
+                        ),
+                        enrich_details=not no_enrich,
+                        headless=headless,
+                        filter_profile=profile,
+                        config_dir=config_dir,
+                        allow_public_fallback=allow_public_linkedin_fallback,
+                    )
+                    linkedin_jobs.extend(location_jobs)
+
+                linkedin_jobs = _dedupe_jobs_by_signature(linkedin_jobs)
                 counts["linkedin"] = len(linkedin_jobs)
                 counts["linkedin_external_ats"] = sum(
                     1 for job in linkedin_jobs if job.ats_type in ("greenhouse", "lever")
@@ -136,12 +150,26 @@ async def search_jobs(
                 errors.append(f"LinkedIn: {exc}")
 
     raw_total = len(jobs)
+    fetched_jobs = list(jobs)
+
+    if include_views and fetched_jobs:
+        _prepare_jobs_for_search_filters(fetched_jobs, use_llm=use_llm)
+
+    scored = False
+    if score and fetched_jobs and include_views:
+        scored, scoring_errors = _score_jobs(
+            fetched_jobs, warn_on_missing_profile=warn_on_missing_profile
+        )
+        errors.extend(scoring_errors)
+
     jobs = _apply_search_filters(
-        jobs,
+        list(fetched_jobs),
         experience_levels=experience_levels,
         employment_types=employment_types,
         location_types=location_types,
         locations=locations,
+        search_location=search_location,
+        searched_linkedin_locations=linkedin_search_locations,
         pay_operator=pay_operator,
         pay_amount=pay_amount,
         experience_operator=experience_operator,
@@ -150,10 +178,15 @@ async def search_jobs(
         use_llm=use_llm,
     )
 
-    scored = False
-    if score and jobs:
+    if score and jobs and not include_views:
         scored, scoring_errors = _score_jobs(jobs, warn_on_missing_profile=warn_on_missing_profile)
         errors.extend(scoring_errors)
+
+    if score and include_views:
+        jobs.sort(key=lambda item: item.raw_data.get("match_score", 0.0), reverse=True)
+        ats_jobs.sort(key=lambda item: item.raw_data.get("match_score", 0.0), reverse=True)
+        linkedin_jobs.sort(key=lambda item: item.raw_data.get("match_score", 0.0), reverse=True)
+        fetched_jobs.sort(key=lambda item: item.raw_data.get("match_score", 0.0), reverse=True)
 
     counts["total"] = len(jobs)
 
@@ -170,6 +203,7 @@ async def search_jobs(
             "keyword": keyword or "",
             "keywords": linkedin_keywords,
             "location": search_location or "",
+            "search_locations": linkedin_search_locations,
             "time_filter": time_filter,
             "experience_levels": experience_levels,
             "employment_types": employment_types,
@@ -185,6 +219,14 @@ async def search_jobs(
             "headless": headless,
         },
         "jobs": [serialize_job(job) for job in jobs],
+        "views": {
+            "shown": [serialize_job(job) for job in jobs],
+            "fetched": [serialize_job(job) for job in fetched_jobs],
+            "linkedin": [serialize_job(job) for job in linkedin_jobs],
+            "ats": [serialize_job(job) for job in ats_jobs],
+        }
+        if include_views
+        else None,
         "errors": errors,
         "error": "; ".join(errors) or None,
         "error_code": error_code,
@@ -652,6 +694,8 @@ def _apply_search_filters(
     employment_types: list[str],
     location_types: list[str],
     locations: list[str],
+    search_location: str | None,
+    searched_linkedin_locations: list[str],
     pay_operator: str | None,
     pay_amount: int | None,
     experience_operator: str | None,
@@ -683,7 +727,14 @@ def _apply_search_filters(
             continue
         if location_types and metadata.get("location_type") not in location_types:
             continue
-        if locations and not _matches_locations(job.location, locations):
+        should_skip_location_filter = job.source == "linkedin" and bool(
+            searched_linkedin_locations or search_location
+        )
+        if (
+            locations
+            and not should_skip_location_filter
+            and not _matches_locations(job.location, locations)
+        ):
             continue
         if education_levels and metadata.get("education_level") not in education_levels:
             continue
@@ -948,6 +999,37 @@ def _resolve_linkedin_keywords(keyword: str | None, keywords: list[str]) -> list
     if keyword and keyword.strip():
         return [keyword.strip()]
     return []
+
+
+def _resolve_linkedin_search_locations(
+    *,
+    source: str,
+    search_location: str | None,
+    candidate_locations: list[str],
+) -> list[str]:
+    if source not in {"linkedin", "all"}:
+        return []
+    if candidate_locations:
+        return candidate_locations
+    if search_location and search_location.strip():
+        return [search_location.strip().lower()]
+    return []
+
+
+def _dedupe_jobs_by_signature(jobs) -> list:
+    deduped = []
+    seen: set[tuple[str, str, str]] = set()
+    for job in jobs:
+        signature = (
+            (job.company or "").strip().lower(),
+            (job.title or "").strip().lower(),
+            (job.location or "").strip().lower(),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduped.append(job)
+    return deduped
 
 
 def _normalize_time_filter(value: str) -> str:

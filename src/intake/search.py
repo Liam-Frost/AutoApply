@@ -135,7 +135,7 @@ async def search_linkedin(
     time_filter: str = "week",
     experience_levels: list[str] | None = None,
     job_types: list[str] | None = None,
-    max_pages: int = 5,
+    max_pages: int = 20,
     enrich_details: bool = True,
     max_detail_fetches: int = 8,
     headless: bool = False,
@@ -174,7 +174,6 @@ async def search_linkedin(
         time_filter=time_filter,
         experience_levels=experience_levels,
         job_types=job_types,
-        max_pages=max_pages,
         enrich_details=enrich_details,
         max_detail_fetches=max_detail_fetches,
         allow_public_fallback=allow_public_fallback,
@@ -182,7 +181,11 @@ async def search_linkedin(
 
     jobs = None
     if cache_settings["enabled"]:
-        jobs = load_cached_linkedin_search(cache_key, ttl_hours=cache_settings["ttl_hours"])
+        jobs = load_cached_linkedin_search(
+            cache_key,
+            ttl_hours=cache_settings["ttl_hours"],
+            requested_max_pages=max_pages,
+        )
         if jobs is not None:
             logger.info("LinkedIn search cache hit: %d jobs", len(jobs))
 
@@ -207,8 +210,10 @@ async def search_linkedin(
             elif enrich_details and jobs:
                 logger.info("Skipping LinkedIn detail enrichment for public guest search results")
 
+            jobs = _dedupe_linkedin_results(jobs)
+
         if cache_settings["enabled"]:
-            save_cached_linkedin_search(cache_key, jobs)
+            save_cached_linkedin_search(cache_key, jobs, max_pages=max_pages)
 
     # Apply filter if requested
     if filter_profile:
@@ -260,6 +265,24 @@ def _linkedin_keyword_query(keywords: list[str]) -> str:
     if len(keywords) == 1:
         return keywords[0]
     return " OR ".join(keywords)
+
+
+def _dedupe_linkedin_results(jobs: list[RawJob]) -> list[RawJob]:
+    deduped: list[RawJob] = []
+    seen: set[tuple[str, str, str]] = set()
+    for job in jobs:
+        signature = (
+            (job.company or "").strip().lower(),
+            (job.title or "").strip().lower(),
+            (job.location or "").strip().lower(),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduped.append(job)
+    if len(deduped) != len(jobs):
+        logger.info("LinkedIn duplicate collapse: %d/%d jobs kept", len(deduped), len(jobs))
+    return deduped
 
 
 def _search_cache_settings() -> dict:

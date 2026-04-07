@@ -355,6 +355,77 @@ textarea {
   justify-content: flex-end;
 }
 
+.result-chip-button {
+  appearance: none;
+  cursor: pointer;
+}
+
+.jobs-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.jobs-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.jobs-page-numbers {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.jobs-page-size {
+  width: 128px;
+  flex: 0 0 110px;
+}
+
+.jobs-page-button {
+  min-width: 38px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.jobs-page-button.is-active {
+  border-color: rgba(74, 134, 255, 0.28);
+  background: rgba(74, 134, 255, 0.12);
+  color: var(--text);
+}
+
+.jobs-page-button.is-ellipsis {
+  min-width: 32px;
+  border-style: dashed;
+  cursor: default;
+}
+
+.jobs-page-jump {
+  width: 68px !important;
+  min-width: 68px;
+  height: 48px;
+  padding-inline: 2px;
+  border-radius: 56px;
+  text-align: center;
+}
+
+.jobs-pagination-bar {
+  margin-bottom: 8px;
+}
+
+.jobs-pagination-bar-bottom {
+  margin-top: 8px;
+}
+
 .compact-head {
   margin-bottom: 16px;
 }
@@ -365,6 +436,7 @@ textarea {
 
 .settings-card {
   display: flex;
+  width: 100%;
   flex-direction: column;
   gap: 18px;
 }
@@ -385,6 +457,11 @@ textarea {
 
 .settings-checkbox-row span {
   letter-spacing: 0.08em;
+}
+
+.settings-checkbox-compact {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .settings-divider {
@@ -1253,6 +1330,21 @@ textarea {
   .job-card-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .jobs-pagination-bar,
+  .jobs-pagination-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .jobs-page-numbers {
+    width: 100%;
+  }
+
+  .jobs-page-size {
+    width: 100%;
+    flex: 1 1 auto;
   }
 
   .job-card-actions,

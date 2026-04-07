@@ -349,7 +349,7 @@ class LinkedInScraper:
         time_filter: str = "week",
         experience_levels: list[str] | None = None,
         job_types: list[str] | None = None,
-        max_pages: int = 5,
+        max_pages: int = 20,
         allow_public_fallback: bool = False,
     ) -> list[RawJob]:
         """Search LinkedIn for jobs matching the given criteria.
@@ -413,29 +413,30 @@ class LinkedInScraper:
                 response = await page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
                 await self._random_delay()
 
-                jobs = []
+                jobs: list[RawJob] = []
                 if response is not None:
                     try:
                         jobs = _extract_html_job_cards(
                             await response.text(),
                             search_mode="authenticated_html",
                         )
+                        jobs = _dedupe_jobs(jobs)
                     except Exception as exc:
                         logger.debug("Failed to parse LinkedIn search response HTML: %s", exc)
 
-                if not jobs:
-                    # Wait for job cards to load
-                    await page.wait_for_selector(
-                        SELECTORS["job_card"],
-                        timeout=15000,
-                        state="visible",
-                    )
+                # Wait for job cards to load and then inspect the rendered list. The
+                # initial HTML often only contains a small subset of the visible jobs.
+                await page.wait_for_selector(
+                    SELECTORS["job_card"],
+                    timeout=15000,
+                    state="visible",
+                )
 
-                    # Scroll down to load more results
-                    await self._scroll_results(page)
-
-                    # Extract job cards
-                    jobs = await self._extract_job_cards(page)
+                rendered_jobs = await self._collect_result_cards(page)
+                if len(rendered_jobs) > len(jobs):
+                    jobs = rendered_jobs
+                elif rendered_jobs:
+                    jobs = _dedupe_jobs([*jobs, *rendered_jobs])
 
                 new_jobs = 0
                 for job in jobs:
@@ -470,7 +471,7 @@ class LinkedInScraper:
         time_filter: str = "week",
         experience_levels: list[str] | None = None,
         job_types: list[str] | None = None,
-        max_pages: int = 5,
+        max_pages: int = 20,
     ) -> list[RawJob]:
         """Search LinkedIn's public guest jobs pages without a saved session."""
         self.last_search_mode = "public_guest"
@@ -784,6 +785,69 @@ class LinkedInScraper:
 
         delay = random.uniform(self.min_delay, self.max_delay)
         await asyncio.sleep(delay)
+
+    async def _collect_result_cards(self, page: Page) -> list[RawJob]:
+        """Collect result cards while scrolling through LinkedIn's virtualized list."""
+        collected: list[RawJob] = []
+        seen: set[str] = set()
+
+        async def capture_visible_cards() -> int:
+            new_count = 0
+            for job in await self._extract_job_cards(page):
+                if not job.source_id or job.source_id in seen:
+                    continue
+                seen.add(job.source_id)
+                collected.append(job)
+                new_count += 1
+            return new_count
+
+        await capture_visible_cards()
+
+        try:
+            results_container = await page.query_selector(
+                "div.jobs-search-results-list, ul.jobs-search__results-list"
+            )
+            if results_container:
+                stable_rounds = 0
+                for _ in range(18):
+                    await page.evaluate(
+                        """(el) => el.scrollBy(0, 600)""",
+                        results_container,
+                    )
+                    await page.wait_for_timeout(700)
+                    if await capture_visible_cards() == 0:
+                        stable_rounds += 1
+                        if stable_rounds >= 3:
+                            break
+                    else:
+                        stable_rounds = 0
+                return _dedupe_jobs(collected)
+        except Exception:
+            logger.debug("Falling back to full-page result collection", exc_info=True)
+
+        stable_rounds = 0
+        for _ in range(18):
+            await page.keyboard.press("End")
+            await page.wait_for_timeout(700)
+            if await capture_visible_cards() == 0:
+                stable_rounds += 1
+                if stable_rounds >= 3:
+                    break
+            else:
+                stable_rounds = 0
+
+        return _dedupe_jobs(collected)
+
+
+def _dedupe_jobs(jobs: list[RawJob]) -> list[RawJob]:
+    unique: list[RawJob] = []
+    seen: set[str] = set()
+    for job in jobs:
+        if not job.source_id or job.source_id in seen:
+            continue
+        seen.add(job.source_id)
+        unique.append(job)
+    return unique
 
 
 def _extract_job_id_from_url(href: str) -> str | None:

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, watch } from "vue"
+import { computed, onMounted, watch } from "vue"
 import { RouterLink } from "vue-router"
 
 import AppIcon from "../components/AppIcon.vue"
@@ -7,6 +7,14 @@ import AppSelect from "../components/AppSelect.vue"
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 import { formatPercent, truncateText } from "../lib/format"
+import { ensureLinkedInSessionLoaded, linkedinSessionState, syncLinkedInSession } from "../lib/linkedin-session"
+import {
+  emptyCounts,
+  emptyResultSets,
+  jobsForm as form,
+  jobsState as state,
+  persistJobsState,
+} from "../lib/jobs-state"
 
 const sourceOptions = [
   { value: "ats", label: "ATS" },
@@ -74,47 +82,10 @@ const numericOperators = [
   { value: "lte", label: "<=" },
 ]
 
-const form = reactive({
-  source: "ats",
-  keywords: [],
-  profile: "",
-  time_filter: "all",
-  ats: "",
-  company: "",
-  locations: [],
-  experience_levels: [],
-  employment_types: [],
-  location_types: [],
-  education_levels: [],
-  pay_operator: "",
-  pay_amount: "",
-  experience_operator: "",
-  experience_years: "",
-})
-
-const state = reactive({
-  searching: false,
-  searched: false,
-  error: "",
-  message: "",
-  jobs: [],
-  counts: emptyCounts(),
-  applyState: {},
-  filterProfilesLoading: false,
-  filterProfiles: [],
-  selectedFilterProfileId: "",
-  linkedinSession: {
-    checked: false,
-    loading: false,
-    authenticated: false,
-    ok: true,
-    message: "",
-  },
-  sections: {
-    basic: true,
-    advanced: false,
-  },
-})
+const pageSizeOptions = [10, 20, 50, 100].map((value) => ({
+  value,
+  label: `${value} / page`,
+}))
 
 const sourceUsesLinkedIn = computed(() => form.source === "linkedin" || form.source === "all")
 const sourceUsesAts = computed(() => form.source === "ats" || form.source === "all")
@@ -122,9 +93,33 @@ const filterProfileOptions = computed(() => [
   { value: "", label: "Select saved profile" },
   ...state.filterProfiles.map((profile) => ({ value: profile.id, label: profile.id })),
 ])
-const linkedinSearchLocation = computed(() => {
-  const primaryLocation = form.locations.find((value) => value.trim()) || ""
-  return primaryLocation.trim()
+const currentViewJobs = computed(() => {
+  if (state.viewMode === "shown") {
+    return state.filteredJobs
+  }
+  return state.resultSets[state.viewMode] || []
+})
+const totalPages = computed(() => Math.max(1, Math.ceil(currentViewJobs.value.length / state.pageSize)))
+const paginatedJobs = computed(() => {
+  const start = (state.currentPage - 1) * state.pageSize
+  return currentViewJobs.value.slice(start, start + state.pageSize)
+})
+const pageButtons = computed(() => buildPageButtons(totalPages.value, state.currentPage))
+const resultViewChips = computed(() => {
+  const chips = []
+  if (state.searched) {
+    chips.push({ id: "shown", label: `${state.filteredJobs.length} shown` })
+    if (state.resultSets.fetched.length) {
+      chips.push({ id: "fetched", label: `${state.resultSets.fetched.length} fetched` })
+    }
+    if (state.resultSets.linkedin.length) {
+      chips.push({ id: "linkedin", label: `${state.resultSets.linkedin.length} LinkedIn` })
+    }
+    if (state.resultSets.ats.length) {
+      chips.push({ id: "ats", label: `${state.resultSets.ats.length} ATS` })
+    }
+  }
+  return chips
 })
 
 const activeFilterLabels = computed(() => {
@@ -164,6 +159,13 @@ const activeFilterLabels = computed(() => {
   return labels
 })
 
+const searchLocationNote = computed(() => {
+  if (!sourceUsesLinkedIn.value || !form.locations.length) {
+    return ""
+  }
+  return "LinkedIn search runs once per candidate location and merges the results."
+})
+
 watch(
   () => form.source,
   (source) => {
@@ -177,8 +179,8 @@ watch(
       form.company = ""
     }
 
-    if ((source === "linkedin" || source === "all") && !state.linkedinSession.checked) {
-      void loadLinkedInSessionStatus()
+    if (source === "linkedin" || source === "all") {
+      void ensureLinkedInSessionLoaded()
     }
   },
 )
@@ -196,50 +198,64 @@ watch(
   },
 )
 
+watch(
+  () => [state.viewMode, state.pageSize, currentViewJobs.value.length],
+  () => {
+    if (state.currentPage > totalPages.value) {
+      state.currentPage = totalPages.value
+    }
+    if (state.currentPage < 1) {
+      state.currentPage = 1
+    }
+  },
+)
+
+watch(
+  [form, state],
+  () => {
+    persistJobsState()
+  },
+  { deep: true },
+)
+
 onMounted(() => {
   if (sourceUsesLinkedIn.value) {
-    void loadLinkedInSessionStatus()
+    void ensureLinkedInSessionLoaded()
   }
   void loadFilterProfiles()
-})
-
-const resultSummary = computed(() => {
-  if (!state.searched) {
-    return ""
-  }
-
-  const { filtered_total, raw_total, ats, linkedin, linkedin_external_ats } = state.counts
-  const parts = [`${filtered_total} shown`, `${raw_total} fetched`]
-
-  if (ats) {
-    parts.push(`${ats} ATS`)
-  }
-  if (linkedin) {
-    parts.push(`${linkedin} LinkedIn`)
-  }
-  if (linkedin_external_ats) {
-    parts.push(`${linkedin_external_ats} external ATS`)
-  }
-
-  return parts.join(" / ")
 })
 
 const emptyStateMessage = computed(() => {
   if (!state.searched) {
     return "No jobs"
   }
-  if (state.counts.raw_total > 0 && state.jobs.length === 0) {
+  if (state.viewMode === "shown" && state.resultSets.fetched.length > 0 && state.filteredJobs.length === 0) {
     return "Jobs were fetched, but none matched your current filters."
   }
   return "No jobs"
 })
 
 async function search() {
+  const signature = buildFetchSignature()
+  if (canReuseFetchedResults(signature)) {
+    state.searched = true
+    state.error = ""
+    state.message = "Updated results from the last fetched set."
+    refreshDisplayedJobs()
+    return
+  }
+
   state.searching = true
   state.searched = true
   state.error = ""
   state.message = ""
-  state.jobs = []
+  if (sourceUsesLinkedIn.value) {
+    linkedinSessionState.checked = true
+    linkedinSessionState.authenticated = true
+    linkedinSessionState.ok = true
+  }
+  state.filteredJobs = []
+  state.resultSets = emptyResultSets()
   state.counts = emptyCounts()
 
   try {
@@ -248,56 +264,47 @@ async function search() {
       keyword: "",
       keywords: [...form.keywords],
       profile: "",
-      location: linkedinSearchLocation.value,
+      location: "",
+      max_pages: Number(form.max_pages) || 20,
       locations: [...form.locations],
       pay_amount: parseOptionalNumber(form.pay_amount),
       experience_years: parseOptionalNumber(form.experience_years),
     })
-    state.jobs = response.jobs
+    state.viewMode = "shown"
+    setResultSets(response.views)
+    refreshDisplayedJobs()
     state.counts = response.counts || emptyCounts()
     state.error = response.error || ""
+    state.lastFetchSignature = signature
+    state.currentPage = 1
 
     if (sourceUsesLinkedIn.value && response.error_code === "linkedin_auth_required") {
-      state.linkedinSession.checked = true
-      state.linkedinSession.authenticated = false
-      state.linkedinSession.ok = false
-      state.linkedinSession.message = response.error || "LinkedIn login required."
+      syncLinkedInSession({
+        ok: false,
+        authenticated: false,
+        has_session_data: linkedinSessionState.has_session_data,
+        message: response.error || "LinkedIn login required.",
+        error: response.error || "LinkedIn login required.",
+      })
     } else if (sourceUsesLinkedIn.value && response.counts?.linkedin) {
-      state.linkedinSession.checked = true
-      state.linkedinSession.authenticated = true
-      state.linkedinSession.ok = true
-      if (!state.linkedinSession.message) {
-        state.linkedinSession.message = "LinkedIn session is ready for authenticated searches."
+      syncLinkedInSession({
+        ok: true,
+        authenticated: true,
+        has_session_data: true,
+        message:
+          linkedinSessionState.message || "LinkedIn session is ready for authenticated searches.",
+      })
+      if (!linkedinSessionState.message) {
+        linkedinSessionState.message = "LinkedIn session is ready for authenticated searches."
       }
     }
   } catch (error) {
-    state.jobs = []
+    state.filteredJobs = []
+    state.resultSets = emptyResultSets()
     state.counts = emptyCounts()
     state.error = error.message
   } finally {
     state.searching = false
-  }
-}
-
-async function loadLinkedInSessionStatus(force = false) {
-  if (!force && state.linkedinSession.checked) {
-    return
-  }
-  if (state.linkedinSession.loading) {
-    return
-  }
-
-  state.linkedinSession.loading = true
-  try {
-    const response = await api.linkedinSession()
-    syncLinkedInSession(response)
-  } catch (error) {
-    state.linkedinSession.checked = true
-    state.linkedinSession.authenticated = false
-    state.linkedinSession.ok = false
-    state.linkedinSession.message = error.message
-  } finally {
-    state.linkedinSession.loading = false
   }
 }
 
@@ -306,6 +313,15 @@ async function loadFilterProfiles() {
   try {
     const response = await api.filterProfiles()
     state.filterProfiles = response.profiles || []
+
+    const activeProfileId = state.selectedFilterProfileId || form.profile.trim()
+    if (activeProfileId) {
+      const profile = state.filterProfiles.find((item) => item.id === activeProfileId)
+      if (profile) {
+        state.selectedFilterProfileId = profile.id
+        applyFilterProfile(profile)
+      }
+    }
   } catch (error) {
     state.error = error.message
   } finally {
@@ -359,6 +375,7 @@ function currentFilterProfilePayload() {
     source: form.source,
     keywords: [...form.keywords],
     time_filter: form.time_filter,
+    max_pages: Number(form.max_pages) || 20,
     ats: form.ats,
     company: form.company,
     locations: [...form.locations],
@@ -378,6 +395,7 @@ function applyFilterProfile(profile) {
   form.source = profile.source || "ats"
   form.keywords = [...(profile.keywords || [])]
   form.time_filter = profile.time_filter || "all"
+  form.max_pages = profile.max_pages ?? 20
   form.ats = profile.ats || ""
   form.company = profile.company || ""
   form.locations = [...(profile.locations || [])]
@@ -391,13 +409,6 @@ function applyFilterProfile(profile) {
   form.experience_years = profile.experience_years ?? ""
   state.message = `Loaded filter profile '${profile.id}'.`
   state.error = ""
-}
-
-function syncLinkedInSession(response) {
-  state.linkedinSession.checked = true
-  state.linkedinSession.authenticated = Boolean(response.authenticated)
-  state.linkedinSession.ok = response.ok !== false
-  state.linkedinSession.message = response.message || ""
 }
 
 async function applyToJob(job) {
@@ -561,6 +572,7 @@ function resetForm() {
   form.keywords = []
   form.profile = ""
   form.time_filter = "all"
+  form.max_pages = 20
   form.ats = ""
   form.company = ""
   form.locations = []
@@ -578,15 +590,160 @@ function toggleSection(section) {
   state.sections[section] = !state.sections[section]
 }
 
-function emptyCounts() {
-  return {
-    ats: 0,
-    linkedin: 0,
-    linkedin_external_ats: 0,
-    raw_total: 0,
-    filtered_total: 0,
-    total: 0,
+function setResultSets(views) {
+  const next = views || emptyResultSets()
+  state.resultSets = {
+    shown: next.shown || [],
+    fetched: next.fetched || [],
+    linkedin: next.linkedin || [],
+    ats: next.ats || [],
   }
+}
+
+function buildFetchSignature() {
+  return JSON.stringify({
+    source: form.source,
+    keywords: sourceUsesLinkedIn.value
+      ? [...form.keywords].map((value) => value.trim().toLowerCase())
+      : [],
+    time_filter: sourceUsesLinkedIn.value ? form.time_filter : "all",
+    search_locations: sourceUsesLinkedIn.value
+      ? [...form.locations].map((value) => value.trim().toLowerCase()).filter(Boolean)
+      : [],
+    ats: sourceUsesAts.value ? form.ats : "",
+    company: sourceUsesAts.value ? form.company.trim().toLowerCase() : "",
+    max_pages: sourceUsesLinkedIn.value ? Number(form.max_pages) || 20 : 0,
+  })
+}
+
+function canReuseFetchedResults(signature) {
+  return (
+    Boolean(state.lastFetchSignature)
+    && state.lastFetchSignature === signature
+    && state.resultSets.fetched.length > 0
+    && !state.error
+  )
+}
+
+function refreshDisplayedJobs() {
+  state.filteredJobs = filterFetchedJobs(state.resultSets.fetched)
+}
+
+function filterFetchedJobs(jobs) {
+  return jobs.filter((job) => matchesLocalFilters(job))
+}
+
+function matchesLocalFilters(job) {
+  if (form.experience_levels.length && !form.experience_levels.includes(job.experience_level)) {
+    return false
+  }
+  if (form.employment_types.length && !form.employment_types.includes(job.employment_category)) {
+    return false
+  }
+  if (form.location_types.length && !form.location_types.includes(job.location_type)) {
+    return false
+  }
+  if (form.education_levels.length && !form.education_levels.includes(job.education_level)) {
+    return false
+  }
+  if (!shouldSkipLocalLocationFilter() && form.locations.length && !matchesLocations(job.location, form.locations)) {
+    return false
+  }
+
+  const payAmount = parseOptionalNumber(form.pay_amount)
+  if (form.pay_operator && payAmount !== null && !matchesNumericRange(job.pay_min, job.pay_max, form.pay_operator, payAmount)) {
+    return false
+  }
+
+  const experienceYears = parseOptionalNumber(form.experience_years)
+  if (
+    form.experience_operator
+    && experienceYears !== null
+    && !matchesNumericRange(job.experience_years_min, job.experience_years_max, form.experience_operator, experienceYears)
+  ) {
+    return false
+  }
+
+  return true
+}
+
+function shouldSkipLocalLocationFilter() {
+  return sourceUsesLinkedIn.value && form.locations.length > 0
+}
+
+function matchesLocations(location, candidates) {
+  const normalizedLocation = (location || "").toLowerCase()
+  if (!normalizedLocation) {
+    return false
+  }
+  return candidates.some((candidate) => normalizedLocation.includes(candidate.toLowerCase()))
+}
+
+function matchesNumericRange(minValue, maxValue, operator, target) {
+  if (minValue === null || minValue === undefined) {
+    if (maxValue === null || maxValue === undefined) {
+      return false
+    }
+  }
+
+  const lower = minValue ?? maxValue
+  const upper = maxValue ?? minValue
+  if (operator === "gt") {
+    return upper > target
+  }
+  if (operator === "gte") {
+    return upper >= target
+  }
+  if (operator === "lt") {
+    return lower < target
+  }
+  if (operator === "lte") {
+    return lower <= target
+  }
+  return true
+}
+
+function setViewMode(mode) {
+  state.viewMode = mode
+  state.currentPage = 1
+  state.pageJump = ""
+}
+
+function goToPage(page) {
+  state.currentPage = Math.min(Math.max(page, 1), totalPages.value)
+  state.pageJump = ""
+}
+
+function jumpToPage() {
+  const page = Number(state.pageJump)
+  if (Number.isFinite(page) && page >= 1) {
+    goToPage(page)
+  }
+}
+
+function buildPageButtons(total, current) {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, index) => index + 1)
+  }
+
+  const buttons = [1]
+  const windowStart = Math.max(2, current - 1)
+  const windowEnd = Math.min(total - 1, current + 1)
+
+  if (windowStart > 2) {
+    buttons.push("ellipsis-left")
+  }
+
+  for (let page = windowStart; page <= windowEnd; page += 1) {
+    buttons.push(page)
+  }
+
+  if (windowEnd < total - 1) {
+    buttons.push("ellipsis-right")
+  }
+
+  buttons.push(total)
+  return buttons
 }
 </script>
 
@@ -652,15 +809,20 @@ function emptyCounts() {
                   </label>
 
                   <template v-if="sourceUsesLinkedIn">
+                    <label class="field">
+                      <span>Date Posted</span>
+                      <AppSelect v-model="form.time_filter" :options="postedDateOptions" aria-label="Date Posted" />
+                    </label>
+
+                    <label class="field">
+                      <span>Max Pages</span>
+                      <input v-model="form.max_pages" class="input" type="number" min="1" max="100" step="1" />
+                    </label>
+
                     <label class="field field-span-full">
                       <span>Keywords</span>
                       <TagInput v-model="form.keywords" placeholder="Add a keyword or phrase" />
                       <div class="muted-inline">Any keyword tag found in the title or description will keep the result.</div>
-                    </label>
-
-                    <label class="field field-span-full">
-                      <span>Date Posted</span>
-                      <AppSelect v-model="form.time_filter" :options="postedDateOptions" aria-label="Date Posted" />
                     </label>
                   </template>
 
@@ -679,8 +841,8 @@ function emptyCounts() {
                   <label class="field field-span-full">
                     <span>Candidate Locations</span>
                     <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
-                    <div v-if="sourceUsesLinkedIn && linkedinSearchLocation" class="muted-inline">
-                      LinkedIn search uses the first candidate location: {{ linkedinSearchLocation }}
+                    <div v-if="searchLocationNote" class="muted-inline">
+                      {{ searchLocationNote }}
                     </div>
                   </label>
                 </div>
@@ -777,7 +939,10 @@ function emptyCounts() {
       </form>
     </section>
 
-    <div v-if="sourceUsesLinkedIn && state.linkedinSession.checked && !state.linkedinSession.authenticated" class="banner is-warning">
+    <div
+      v-if="sourceUsesLinkedIn && linkedinSessionState.checked && !linkedinSessionState.authenticated && !state.searching && !state.resultSets.linkedin.length"
+      class="banner is-warning"
+    >
       LinkedIn session is not connected for web search.
       <RouterLink class="jobs-settings-link" to="/settings">Go to Settings</RouterLink>
       to connect or clear the saved session.
@@ -789,20 +954,60 @@ function emptyCounts() {
       <div class="section-head jobs-results-head">
         <div class="jobs-results-copy">
           <h2>Results</h2>
-          <div v-if="resultSummary" class="muted-inline">{{ resultSummary }}</div>
         </div>
 
         <div class="chip-row jobs-results-metrics" v-if="state.searched">
-          <span class="chip subtle">{{ state.jobs.length }} shown</span>
-          <span v-if="state.counts.raw_total" class="chip subtle">{{ state.counts.raw_total }} fetched</span>
-          <span v-if="state.counts.linkedin" class="chip subtle">{{ state.counts.linkedin }} LinkedIn</span>
-          <span v-if="state.counts.ats" class="chip subtle">{{ state.counts.ats }} ATS</span>
+          <button
+            v-for="chip in resultViewChips"
+            :key="chip.id"
+            class="chip result-chip-button"
+            :class="{ subtle: state.viewMode !== chip.id }"
+            type="button"
+            @click="setViewMode(chip.id)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar">
+        <div class="jobs-pagination-controls">
+          <div class="jobs-page-numbers">
+            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
+              <AppIcon name="chevrons-left" />
+            </button>
+            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
+              <AppIcon name="chevron-left" />
+            </button>
+            <button
+              v-for="page in pageButtons"
+              :key="`${page}`"
+              class="jobs-page-button"
+              :class="{ 'is-active': page === state.currentPage, 'is-ellipsis': String(page).startsWith('ellipsis') }"
+              type="button"
+              :disabled="String(page).startsWith('ellipsis')"
+              @click="typeof page === 'number' ? goToPage(page) : null"
+            >
+              {{ String(page).startsWith('ellipsis') ? '…' : page }}
+            </button>
+            <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
+            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
+              <AppIcon name="chevron-right" />
+            </button>
+            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
+              <AppIcon name="chevrons-right" />
+            </button>
+          </div>
+
+          <div class="jobs-page-size">
+            <AppSelect v-model="state.pageSize" :options="pageSizeOptions" compact aria-label="Results per page" />
+          </div>
         </div>
       </div>
 
       <div v-if="state.searching" class="empty-state">Searching</div>
-      <div v-else-if="state.jobs.length" class="job-list">
-        <article v-for="job in state.jobs" :key="job.id" class="job-card">
+      <div v-else-if="currentViewJobs.length" class="job-list">
+        <article v-for="job in paginatedJobs" :key="job.id" class="job-card">
           <div class="job-card-main">
             <div class="job-card-header">
               <div class="job-card-copy">
@@ -861,6 +1066,41 @@ function emptyCounts() {
         </article>
       </div>
       <div v-else class="empty-state">{{ emptyStateMessage }}</div>
+
+      <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar jobs-pagination-bar-bottom">
+        <div class="jobs-pagination-controls">
+          <div class="jobs-page-numbers">
+            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
+              <AppIcon name="chevrons-left" />
+            </button>
+            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
+              <AppIcon name="chevron-left" />
+            </button>
+            <button
+              v-for="page in pageButtons"
+              :key="`bottom-${page}`"
+              class="jobs-page-button"
+              :class="{ 'is-active': page === state.currentPage, 'is-ellipsis': String(page).startsWith('ellipsis') }"
+              type="button"
+              :disabled="String(page).startsWith('ellipsis')"
+              @click="typeof page === 'number' ? goToPage(page) : null"
+            >
+              {{ String(page).startsWith('ellipsis') ? '…' : page }}
+            </button>
+            <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
+            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
+              <AppIcon name="chevron-right" />
+            </button>
+            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
+              <AppIcon name="chevrons-right" />
+            </button>
+          </div>
+
+          <div class="jobs-page-size">
+            <AppSelect v-model="state.pageSize" :options="pageSizeOptions" compact aria-label="Results per page" />
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </template>

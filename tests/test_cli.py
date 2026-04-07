@@ -357,6 +357,17 @@ class TestApplicationUseCases:
 
         assert resolved == ["software", "backend"]
 
+    def test_resolve_linkedin_search_locations_prefers_candidate_locations(self):
+        from src.application.jobs import _resolve_linkedin_search_locations
+
+        resolved = _resolve_linkedin_search_locations(
+            source="linkedin",
+            search_location="california",
+            candidate_locations=["california", "new york"],
+        )
+
+        assert resolved == ["california", "new york"]
+
     def test_linkedin_max_pages_does_not_expand_when_search_location_is_used(self):
         from src.application.jobs import _linkedin_max_pages
 

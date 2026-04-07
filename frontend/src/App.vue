@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute } from "vue-router"
 
 import AppIcon from "./components/AppIcon.vue"
 import DockIcon from "./components/DockIcon.vue"
+import { ensureLinkedInSessionLoaded } from "./lib/linkedin-session"
 
 const route = useRoute()
 const themeMenuRef = ref(null)
@@ -101,6 +102,7 @@ onMounted(() => {
 
   const stopThemeWatch = watch([themePreference, resolvedTheme], applyTheme, { immediate: true })
   document.addEventListener("click", onDocumentClick)
+  void ensureLinkedInSessionLoaded()
 
   cleanupThemeListeners = () => {
     stopThemeWatch()
