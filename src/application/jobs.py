@@ -71,7 +71,7 @@ async def search_jobs(
     error_code: str | None = None
     counts = {"ats": 0, "linkedin": 0, "linkedin_external_ats": 0, "total": 0}
     experience_levels = _normalize_list(experience_levels)
-    employment_types = _normalize_list(employment_types)
+    employment_types = _normalize_list(employment_types)  # noqa: PLW0127 – intentional reassign
     location_types = _normalize_list(location_types)
     locations = _normalize_list(locations)
     education_levels = _normalize_list(education_levels)
@@ -1080,6 +1080,8 @@ def _linkedin_max_pages(
                 for value in employment_types
             ),
             location_types,
+            # When a search_location was already passed to LinkedIn, the results
+            # are pre-filtered by geography so we don't need extra pages for that.
             locations and not search_location,
             pay_operator,
             experience_operator,

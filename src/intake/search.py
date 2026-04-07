@@ -175,7 +175,6 @@ async def search_linkedin(
         experience_levels=experience_levels,
         job_types=job_types,
         enrich_details=enrich_details,
-        max_detail_fetches=max_detail_fetches,
         allow_public_fallback=allow_public_fallback,
     )
 
@@ -226,12 +225,11 @@ async def search_linkedin(
     return jobs
 
 
-def _apply_keyword_precision_filter(jobs: list[RawJob], keywords: str | list[str]) -> list[RawJob]:
-    keyword_terms = _keyword_terms(keywords)
-    if not keyword_terms:
+def _apply_keyword_precision_filter(jobs: list[RawJob], keywords: list[str]) -> list[RawJob]:
+    if not keywords:
         return jobs
 
-    matched = [job for job in jobs if _job_matches_keywords(job, keyword_terms)]
+    matched = [job for job in jobs if _job_matches_keywords(job, keywords)]
     logger.info("LinkedIn keyword precision filter: %d/%d jobs kept", len(matched), len(jobs))
     return matched
 
@@ -268,18 +266,9 @@ def _linkedin_keyword_query(keywords: list[str]) -> str:
 
 
 def _dedupe_linkedin_results(jobs: list[RawJob]) -> list[RawJob]:
-    deduped: list[RawJob] = []
-    seen: set[tuple[str, str, str]] = set()
-    for job in jobs:
-        signature = (
-            (job.company or "").strip().lower(),
-            (job.title or "").strip().lower(),
-            (job.location or "").strip().lower(),
-        )
-        if signature in seen:
-            continue
-        seen.add(signature)
-        deduped.append(job)
+    from src.application.jobs import _dedupe_jobs_by_signature
+
+    deduped = _dedupe_jobs_by_signature(jobs)
     if len(deduped) != len(jobs):
         logger.info("LinkedIn duplicate collapse: %d/%d jobs kept", len(deduped), len(jobs))
     return deduped

@@ -4,6 +4,7 @@ import { RouterLink } from "vue-router"
 
 import AppIcon from "../components/AppIcon.vue"
 import AppSelect from "../components/AppSelect.vue"
+import PaginationBar from "../components/PaginationBar.vue"
 import TagInput from "../components/TagInput.vue"
 import { api } from "../lib/api"
 import { formatPercent, truncateText } from "../lib/format"
@@ -104,7 +105,6 @@ const paginatedJobs = computed(() => {
   const start = (state.currentPage - 1) * state.pageSize
   return currentViewJobs.value.slice(start, start + state.pageSize)
 })
-const pageButtons = computed(() => buildPageButtons(totalPages.value, state.currentPage))
 const resultViewChips = computed(() => {
   const chips = []
   if (state.searched) {
@@ -210,10 +210,12 @@ watch(
   },
 )
 
+let persistTimer = null
 watch(
   [form, state],
   () => {
-    persistJobsState()
+    clearTimeout(persistTimer)
+    persistTimer = setTimeout(persistJobsState, 300)
   },
   { deep: true },
 )
@@ -714,37 +716,6 @@ function goToPage(page) {
   state.pageJump = ""
 }
 
-function jumpToPage() {
-  const page = Number(state.pageJump)
-  if (Number.isFinite(page) && page >= 1) {
-    goToPage(page)
-  }
-}
-
-function buildPageButtons(total, current) {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, index) => index + 1)
-  }
-
-  const buttons = [1]
-  const windowStart = Math.max(2, current - 1)
-  const windowEnd = Math.min(total - 1, current + 1)
-
-  if (windowStart > 2) {
-    buttons.push("ellipsis-left")
-  }
-
-  for (let page = windowStart; page <= windowEnd; page += 1) {
-    buttons.push(page)
-  }
-
-  if (windowEnd < total - 1) {
-    buttons.push("ellipsis-right")
-  }
-
-  buttons.push(total)
-  return buttons
-}
 </script>
 
 <template>
@@ -970,40 +941,17 @@ function buildPageButtons(total, current) {
         </div>
       </div>
 
-      <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar">
-        <div class="jobs-pagination-controls">
-          <div class="jobs-page-numbers">
-            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <AppIcon name="chevrons-left" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <AppIcon name="chevron-left" />
-            </button>
-            <button
-              v-for="page in pageButtons"
-              :key="`${page}`"
-              class="jobs-page-button"
-              :class="{ 'is-active': page === state.currentPage, 'is-ellipsis': String(page).startsWith('ellipsis') }"
-              type="button"
-              :disabled="String(page).startsWith('ellipsis')"
-              @click="typeof page === 'number' ? goToPage(page) : null"
-            >
-              {{ String(page).startsWith('ellipsis') ? '…' : page }}
-            </button>
-            <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <AppIcon name="chevron-right" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <AppIcon name="chevrons-right" />
-            </button>
-          </div>
-
-          <div class="jobs-page-size">
-            <AppSelect v-model="state.pageSize" :options="pageSizeOptions" compact aria-label="Results per page" />
-          </div>
-        </div>
-      </div>
+      <PaginationBar
+        v-if="state.searched && currentViewJobs.length"
+        :currentPage="state.currentPage"
+        :totalPages="totalPages"
+        :pageSize="state.pageSize"
+        :pageSizeOptions="pageSizeOptions"
+        :pageJump="state.pageJump"
+        @update:currentPage="goToPage($event)"
+        @update:pageSize="state.pageSize = $event"
+        @update:pageJump="state.pageJump = $event"
+      />
 
       <div v-if="state.searching" class="empty-state">Searching</div>
       <div v-else-if="currentViewJobs.length" class="job-list">
@@ -1067,40 +1015,18 @@ function buildPageButtons(total, current) {
       </div>
       <div v-else class="empty-state">{{ emptyStateMessage }}</div>
 
-      <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar jobs-pagination-bar-bottom">
-        <div class="jobs-pagination-controls">
-          <div class="jobs-page-numbers">
-            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <AppIcon name="chevrons-left" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <AppIcon name="chevron-left" />
-            </button>
-            <button
-              v-for="page in pageButtons"
-              :key="`bottom-${page}`"
-              class="jobs-page-button"
-              :class="{ 'is-active': page === state.currentPage, 'is-ellipsis': String(page).startsWith('ellipsis') }"
-              type="button"
-              :disabled="String(page).startsWith('ellipsis')"
-              @click="typeof page === 'number' ? goToPage(page) : null"
-            >
-              {{ String(page).startsWith('ellipsis') ? '…' : page }}
-            </button>
-            <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <AppIcon name="chevron-right" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <AppIcon name="chevrons-right" />
-            </button>
-          </div>
-
-          <div class="jobs-page-size">
-            <AppSelect v-model="state.pageSize" :options="pageSizeOptions" compact aria-label="Results per page" />
-          </div>
-        </div>
-      </div>
+      <PaginationBar
+        v-if="state.searched && currentViewJobs.length"
+        :currentPage="state.currentPage"
+        :totalPages="totalPages"
+        :pageSize="state.pageSize"
+        :pageSizeOptions="pageSizeOptions"
+        :pageJump="state.pageJump"
+        extraClass="jobs-pagination-bar-bottom"
+        @update:currentPage="goToPage($event)"
+        @update:pageSize="state.pageSize = $event"
+        @update:pageJump="state.pageJump = $event"
+      />
     </section>
   </div>
 </template>

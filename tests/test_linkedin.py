@@ -130,7 +130,6 @@ class TestLinkedInSearchCache:
             experience_levels=None,
             job_types=None,
             enrich_details=False,
-            max_detail_fetches=8,
             allow_public_fallback=False,
         )
 
@@ -344,7 +343,7 @@ class TestLinkedInKeywordPrecision:
             ),
         ]
 
-        matched = _apply_keyword_precision_filter(jobs, "Software")
+        matched = _apply_keyword_precision_filter(jobs, ["software"])
 
         assert len(matched) == 1
         assert matched[0].title == "Software Engineer"
