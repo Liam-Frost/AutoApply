@@ -605,6 +605,24 @@ class TestApplicationUseCases:
         assert result["jobs"][0]["pay_min"] == 120000
         assert result["jobs"][0]["pay_max"] == 140000
 
+    def test_employment_category_prefers_explicit_internship_over_temporary_description(self):
+        from src.application.jobs import _classify_employment_category
+        from src.intake.schema import RawJob
+
+        job = RawJob(
+            source="linkedin",
+            source_id="1",
+            company="Sentry",
+            title="Software Engineer, Intern (Fall 2026)",
+            location="Toronto, ON (Hybrid)",
+            employment_type="internship",
+            seniority="internship",
+            description="Temporary relocation support is available for the duration of your internship.",
+            ats_type="linkedin",
+        )
+
+        assert _classify_employment_category(job) == "internship"
+
     def test_setup_profile_retries_resume_input_after_failure(self):
         from src.cli.cmd_init import _setup_profile
 

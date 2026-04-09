@@ -45,6 +45,16 @@ class TestLinkedInURLUtils:
         url = "/jobs/search/?currentJobId=5555555555&keywords=swe"
         assert _extract_job_id_from_url(url) == "5555555555"
 
+    def test_canonical_linkedin_job_url_prefers_view_path_for_current_job_links(self):
+        from src.intake.linkedin import _canonical_linkedin_job_url
+
+        url = "/jobs/collections/recommended/?currentJobId=4316203097&trackingId=test"
+
+        assert (
+            _canonical_linkedin_job_url("4316203097", url)
+            == "https://www.linkedin.com/jobs/view/4316203097/"
+        )
+
     def test_extract_job_id_returns_none_for_invalid(self):
         from src.intake.linkedin import _extract_job_id_from_url
 
@@ -130,6 +140,7 @@ class TestLinkedInSearchCache:
             experience_levels=None,
             job_types=None,
             enrich_details=False,
+            max_detail_fetches=8,
             allow_public_fallback=False,
         )
 
@@ -143,6 +154,30 @@ class TestLinkedInSearchCache:
         assert len(cached) == 1
         assert cached[0].title == "Software Engineer"
         assert missed is None
+
+    def test_empty_results_are_not_cached(self, tmp_path):
+        from src.intake.search_cache import (
+            build_linkedin_search_cache_key,
+            load_cached_linkedin_search,
+            save_cached_linkedin_search,
+        )
+
+        key = build_linkedin_search_cache_key(
+            keywords=["software"],
+            location="toronto",
+            time_filter="month",
+            experience_levels=None,
+            job_types=["internship"],
+            enrich_details=True,
+            max_detail_fetches=8,
+            allow_public_fallback=False,
+        )
+
+        with patch("src.intake.search_cache.CACHE_DIR", tmp_path):
+            save_cached_linkedin_search(key, [], max_pages=20)
+            cached = load_cached_linkedin_search(key, ttl_hours=24, requested_max_pages=10)
+
+        assert cached is None
 
 
 # ──────────────────────────────────────────────
@@ -318,6 +353,44 @@ class TestLinkedInGuestSearchParsing:
             == "Security Engineer (Bangkok Based, Relocation Support)"
         )
 
+    def test_normalize_job_description_text_strips_about_the_job_heading(self):
+        from src.intake.linkedin import _normalize_job_description_text
+
+        value = "About the job\nBuild software systems for analytics workflows."
+
+        assert _normalize_job_description_text(value) == (
+            "Build software systems for analytics workflows."
+        )
+
+    def test_normalize_job_description_text_returns_none_for_empty(self):
+        from src.intake.linkedin import _normalize_job_description_text
+
+        assert _normalize_job_description_text("   ") is None
+
+    def test_page_has_no_results_text_detects_empty_search_message(self):
+        from src.intake.linkedin import _page_has_no_results_text
+
+        assert _page_has_no_results_text("No matching jobs found. Try changing your filters.")
+        assert not _page_has_no_results_text("software in Toronto, Ontario, Canada 100+ results")
+
+    def test_summarize_search_page_state_includes_key_fields(self):
+        from src.intake.linkedin import _summarize_search_page_state
+
+        summary = _summarize_search_page_state(
+            {
+                "status": "unknown",
+                "card_count": 0,
+                "title_count": 0,
+                "pagination_text": "Page 5 of 8",
+                "has_no_results_text": True,
+            }
+        )
+
+        assert "status=unknown" in summary
+        assert "cards=0" in summary
+        assert "pagination=Page 5 of 8" in summary
+        assert "no-results-text=true" in summary
+
 
 class TestLinkedInKeywordPrecision:
     def test_keyword_precision_filter_removes_unrelated_jobs(self):
@@ -330,6 +403,7 @@ class TestLinkedInKeywordPrecision:
                 source_id="1",
                 company="Example",
                 title="Software Engineer",
+                description="We are hiring a software engineer intern.",
                 location="Vancouver, BC",
                 ats_type="linkedin",
             ),
@@ -338,6 +412,7 @@ class TestLinkedInKeywordPrecision:
                 source_id="2",
                 company="TD",
                 title="Customer Experience Associate - Mandarin language skills an asset",
+                description="This branch role supports daily teller operations.",
                 location="Vancouver, BC",
                 ats_type="linkedin",
             ),
@@ -347,6 +422,324 @@ class TestLinkedInKeywordPrecision:
 
         assert len(matched) == 1
         assert matched[0].title == "Software Engineer"
+
+    def test_partition_jobs_by_title_keywords_only_keeps_title_hits(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import _partition_jobs_by_title_keywords
+
+        jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Software Engineer Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="2",
+                company="Example",
+                title="Platform Developer Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+        ]
+
+        title_matches, detail_candidates = _partition_jobs_by_title_keywords(jobs, "Software")
+
+        assert [job.source_id for job in title_matches] == ["1"]
+        assert [job.source_id for job in detail_candidates] == ["2"]
+
+    @pytest.mark.asyncio
+    async def test_search_linkedin_uses_title_then_description_keyword_matching(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import search_linkedin
+
+        initial_jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Software Engineer Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="2",
+                company="Example",
+                title="Platform Engineering Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="3",
+                company="Example",
+                title="Human Resources Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+        ]
+
+        enriched_candidates = {
+            "2": initial_jobs[1].model_copy(
+                update={"description": "Build software tools for internal systems."}
+            ),
+            "3": initial_jobs[2].model_copy(
+                update={"description": "Support recruiting and onboarding workflows."}
+            ),
+        }
+
+        enrich_calls: list[list[str]] = []
+
+        class FakeScraper:
+            def __init__(self, *args, **kwargs):
+                self.last_search_mode = "authenticated"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def search_jobs(self, **kwargs):
+                return [job.model_copy(deep=True) for job in initial_jobs]
+
+            async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
+                enrich_calls.append([job.source_id for job in jobs])
+                enriched = []
+                for job in jobs:
+                    enriched.append(enriched_candidates.get(job.source_id, job))
+                return enriched
+
+        with patch(
+            "src.intake.search._search_cache_settings",
+            return_value={"enabled": False, "ttl_hours": 24},
+        ):
+            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+                jobs = await search_linkedin(
+                    keywords="software",
+                    location="Toronto",
+                    enrich_details=True,
+                )
+
+        assert [job.source_id for job in jobs] == ["1", "2"]
+        assert enrich_calls == [["2", "3"], ["1", "2"]]
+
+    @pytest.mark.asyncio
+    async def test_search_linkedin_limits_description_enrichment_to_max_detail_fetches(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import search_linkedin
+
+        initial_jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Platform Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="2",
+                company="Example",
+                title="Backend Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="3",
+                company="Example",
+                title="Systems Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+        ]
+
+        enrichment_limits: list[int] = []
+
+        class FakeScraper:
+            def __init__(self, *args, **kwargs):
+                self.last_search_mode = "authenticated"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def search_jobs(self, **kwargs):
+                return [job.model_copy(deep=True) for job in initial_jobs]
+
+            async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
+                enrichment_limits.append(max_detail_fetches)
+                enriched = []
+                for job in jobs[:max_detail_fetches]:
+                    enriched.append(
+                        job.model_copy(update={"description": "software platform engineering"})
+                    )
+                enriched.extend(jobs[max_detail_fetches:])
+                return enriched
+
+        with patch(
+            "src.intake.search._search_cache_settings",
+            return_value={"enabled": False, "ttl_hours": 24},
+        ):
+            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+                jobs = await search_linkedin(
+                    keywords="software",
+                    location="Toronto",
+                    enrich_details=True,
+                    max_detail_fetches=2,
+                )
+
+        assert enrichment_limits == [2, 2]
+        assert [job.source_id for job in jobs] == ["1", "2"]
+
+    @pytest.mark.asyncio
+    async def test_search_linkedin_dedupes_after_description_keyword_matching(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import search_linkedin
+
+        initial_jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Platform Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="2",
+                company="Example",
+                title="Platform Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+        ]
+
+        class FakeScraper:
+            def __init__(self, *args, **kwargs):
+                self.last_search_mode = "authenticated"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def search_jobs(self, **kwargs):
+                return [job.model_copy(deep=True) for job in initial_jobs]
+
+            async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
+                enriched = []
+                for job in jobs:
+                    if job.source_id == "2":
+                        enriched.append(
+                            job.model_copy(update={"description": "software platform engineering"})
+                        )
+                    else:
+                        enriched.append(job)
+                return enriched
+
+        with patch(
+            "src.intake.search._search_cache_settings",
+            return_value={"enabled": False, "ttl_hours": 24},
+        ):
+            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+                jobs = await search_linkedin(
+                    keywords="software",
+                    location="Toronto",
+                    enrich_details=True,
+                )
+
+        assert [job.source_id for job in jobs] == ["2"]
+
+    @pytest.mark.asyncio
+    async def test_search_linkedin_keeps_final_enrichment_order_for_title_matches(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import search_linkedin
+
+        initial_jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Software Engineer Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="2",
+                company="Example",
+                title="Software Developer Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+            RawJob(
+                source="linkedin",
+                source_id="3",
+                company="Example",
+                title="Platform Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            ),
+        ]
+
+        final_enrichment_batches: list[list[str]] = []
+
+        class FakeScraper:
+            def __init__(self, *args, **kwargs):
+                self.last_search_mode = "authenticated"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def search_jobs(self, **kwargs):
+                return [job.model_copy(deep=True) for job in initial_jobs]
+
+            async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
+                if kwargs.get("delay_between_jobs") is False:
+                    enriched = []
+                    for job in jobs[:max_detail_fetches]:
+                        if job.source_id == "3":
+                            enriched.append(
+                                job.model_copy(update={"description": "software platform systems"})
+                            )
+                        else:
+                            enriched.append(job)
+                    enriched.extend(jobs[max_detail_fetches:])
+                    return enriched
+
+                final_enrichment_batches.append(
+                    [job.source_id for job in jobs[:max_detail_fetches]]
+                )
+                return jobs
+
+        with patch(
+            "src.intake.search._search_cache_settings",
+            return_value={"enabled": False, "ttl_hours": 24},
+        ):
+            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+                jobs = await search_linkedin(
+                    keywords="software",
+                    location="Toronto",
+                    enrich_details=True,
+                    max_detail_fetches=2,
+                )
+
+        assert [job.source_id for job in jobs] == ["1", "2", "3"]
+        assert final_enrichment_batches == [["1", "2"]]
 
 
 # ──────────────────────────────────────────────

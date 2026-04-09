@@ -836,19 +836,26 @@ def _classify_experience_level(title: str) -> str:
 
 
 def _classify_employment_category(job) -> str:
-    text = " ".join(
+    explicit_text = " ".join(
         filter(
             None,
             [
                 job.title,
                 job.employment_type,
-                job.description or "",
                 str(job.raw_data.get("employment_type", "")),
-                str(job.raw_data.get("workplaceType", "")),
                 str(job.raw_data.get("categories", {}).get("commitment", "")),
             ],
         )
     ).lower()
+    description_text = (job.description or "").lower()
+    text = " ".join(filter(None, [explicit_text, description_text])).lower()
+
+    if any(token in explicit_text for token in ("co-op", "coop")):
+        return "coop"
+    if any(
+        token in explicit_text for token in ("internship", "intern ")
+    ) or explicit_text.startswith("intern"):
+        return "internship"
 
     if any(token in text for token in ("volunteer",)):
         return "volunteer"
