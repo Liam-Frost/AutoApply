@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 import yaml
 
 from src.core.config import PROJECT_ROOT
 
 SEARCH_PROFILES_PATH = PROJECT_ROOT / "config" / "search_profiles.yaml"
+_PROFILE_ID_RE = re.compile(r"^[\w][\w \-\.]{0,98}[\w]$|^[\w]$")
 
 
 def load_search_profiles_data() -> dict:
@@ -28,11 +31,11 @@ def load_search_profiles_data() -> dict:
 
 def save_search_profile_data(*, profile_id: str, profile: dict) -> dict:
     normalized_id = profile_id.strip()
-    if not normalized_id:
+    if not _valid_profile_id(normalized_id):
         return {
             "ok": False,
-            "error": "Filter profile name is required.",
-            "error_code": "search_profile_name_required",
+            "error": "Invalid filter profile name.",
+            "error_code": "invalid_search_profile_name",
         }
 
     profiles = _read_profiles()
@@ -45,6 +48,13 @@ def save_search_profile_data(*, profile_id: str, profile: dict) -> dict:
 
 def delete_search_profile_data(profile_id: str) -> dict:
     normalized_id = profile_id.strip()
+    if not _valid_profile_id(normalized_id):
+        return {
+            "ok": False,
+            "error": "Invalid filter profile name.",
+            "error_code": "invalid_search_profile_name",
+        }
+
     profiles = _read_profiles()
     if normalized_id not in profiles:
         return {
@@ -85,8 +95,12 @@ def _write_profiles(profiles: dict[str, dict]) -> None:
             {"profiles": profiles},
             handle,
             sort_keys=False,
-            allow_unicode=True,
+            allow_unicode=False,
         )
+
+
+def _valid_profile_id(profile_id: str) -> bool:
+    return bool(_PROFILE_ID_RE.match(profile_id))
 
 
 def _normalize_profile_payload(profile: dict | None) -> dict:

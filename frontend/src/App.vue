@@ -24,6 +24,7 @@ let cleanupThemeListeners = () => {}
 const items = [
   { to: "/", label: "Dashboard", icon: "dashboard" },
   { to: "/jobs", label: "Jobs", icon: "jobs" },
+  { to: "/materials", label: "Materials", icon: "materials" },
   { to: "/applications", label: "Applications", icon: "applications" },
   { to: "/profile", label: "Profile", icon: "profile" },
   { to: "/settings", label: "Settings", icon: "settings" },

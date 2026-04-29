@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import re
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-
-_PROFILE_ID_RE = re.compile(r"^[\w][\w \-\.]{0,98}[\w]$|^[\w]$")
 
 from src.application.jobs import apply_to_url
 from src.application.jobs import clear_linkedin_session as clear_linkedin_session_usecase
 from src.application.jobs import connect_linkedin_session as connect_linkedin_session_usecase
+from src.application.jobs import generate_material_for_job as generate_material_for_job_usecase
 from src.application.jobs import get_linkedin_session_status as get_linkedin_session_status_usecase
+from src.application.jobs import list_material_templates as list_material_templates_usecase
 from src.application.jobs import resolve_manual_apply_url as resolve_manual_apply_url_usecase
 from src.application.jobs import search_jobs as search_jobs_usecase
+from src.application.jobs import upload_material_template as upload_material_template_usecase
 from src.application.profile import (
     activate_profile_data,
     create_empty_profile,
@@ -39,8 +41,10 @@ from src.application.tracking import (
     load_dashboard_data,
     update_application_outcome,
 )
+from src.core.config import PROJECT_ROOT
 
 router = APIRouter(prefix="/api", tags=["api"])
+MAX_TEMPLATE_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class JobSearchPayload(BaseModel):
@@ -66,6 +70,14 @@ class JobSearchPayload(BaseModel):
 
 class JobApplyPayload(BaseModel):
     url: str
+
+
+class JobMaterialPayload(BaseModel):
+    job: dict
+    material_type: str
+    use_llm: bool = False
+    template_id: str | None = None
+    profile_id: str | None = None
 
 
 class SearchProfilePayload(BaseModel):
@@ -169,6 +181,67 @@ async def manual_apply_target(payload: JobApplyPayload) -> dict:
     return result
 
 
+@router.post("/jobs/generate-material")
+async def generate_job_material(payload: JobMaterialPayload) -> dict:
+    result = await generate_material_for_job_usecase(
+        job_payload=payload.job,
+        material_type=payload.material_type,
+        use_llm=payload.use_llm,
+        template_id=payload.template_id,
+        profile_id=payload.profile_id,
+    )
+    if result["ok"]:
+        return result
+
+    status_code = 400
+    if result["error_code"] == "material_generation_failed":
+        status_code = 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.get("/templates")
+async def material_templates() -> dict:
+    return list_material_templates_usecase()
+
+
+@router.post("/templates/upload")
+async def upload_material_template(
+    template: UploadFile = File(...),
+    document_type: str = Form(...),
+    template_name: str = Form(""),
+) -> dict:
+    content = await _read_upload_limited(template)
+    result = upload_material_template_usecase(
+        document_type=document_type,
+        filename=template.filename or "",
+        content=content,
+        template_name=template_name or None,
+    )
+    if result["ok"]:
+        return result
+    status_code = 400 if result["error_code"] != "template_upload_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.get("/artifacts/download")
+async def download_artifact(path: str = Query(..., description="Artifact path from generation")):
+    output_root = (PROJECT_ROOT / "data" / "output").resolve()
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    resolved = candidate.resolve()
+
+    try:
+        resolved.relative_to(output_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Artifact path is not allowed") from exc
+
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return FileResponse(str(resolved), filename=resolved.name)
+
+
 @router.get("/jobs/filter-profiles")
 async def filter_profiles() -> dict:
     return load_search_profiles_data()
@@ -176,8 +249,6 @@ async def filter_profiles() -> dict:
 
 @router.put("/jobs/filter-profiles/{profile_id}")
 async def save_filter_profile(profile_id: str, payload: SearchProfilePayload) -> dict:
-    if not _PROFILE_ID_RE.match(profile_id):
-        raise HTTPException(status_code=400, detail="Invalid filter profile name.")
     result = save_search_profile_data(profile_id=profile_id, profile=payload.model_dump())
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -186,12 +257,26 @@ async def save_filter_profile(profile_id: str, payload: SearchProfilePayload) ->
 
 @router.delete("/jobs/filter-profiles/{profile_id}")
 async def delete_filter_profile(profile_id: str) -> dict:
-    if not _PROFILE_ID_RE.match(profile_id):
-        raise HTTPException(status_code=400, detail="Invalid filter profile name.")
     result = delete_search_profile_data(profile_id)
     if not result["ok"]:
+        if result["error_code"] == "invalid_search_profile_name":
+            raise HTTPException(status_code=400, detail=result["error"])
         raise HTTPException(status_code=404, detail=result["error"])
     return result
+
+
+async def _read_upload_limited(upload: UploadFile) -> bytes:
+    chunks = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_TEMPLATE_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Template upload is too large.")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.post("/jobs/apply")

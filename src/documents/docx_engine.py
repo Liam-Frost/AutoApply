@@ -15,10 +15,13 @@ from typing import Any
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.text.paragraph import Paragraph
+
+from src.documents.templates import TemplateManifest, default_manifest
 
 logger = logging.getLogger("autoapply.documents.docx_engine")
 
-PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
+PLACEHOLDER_RE = re.compile(r"\{\{([\w.]+)\}\}")
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +114,411 @@ def build_resume(
     doc.save(str(output_path))
     logger.info("Saved resume to %s", output_path)
     return output_path
+
+
+def build_resume_from_ir(
+    template_path: Path,
+    document,
+    output_path: Path,
+    manifest: TemplateManifest | None = None,
+) -> Path:
+    """Build a DOCX resume from a validated ResumeDocument IR.
+
+    This keeps the current DOCX-first renderer while decoupling content planning
+    from template rendering.
+    """
+    manifest = manifest or default_manifest("resume")
+    styles = manifest.styles
+    doc = Document(str(template_path))
+    substitute_placeholders(doc, _resume_template_variables(document))
+
+    if not _render_resume_markers(doc, document, styles, manifest):
+        _clear_document_body(doc)
+        _render_resume_sections(_DocxSink(doc), document, styles, include_header=True)
+
+    _remove_empty_placeholder_paragraphs(doc)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(output_path))
+    logger.info("Saved IR resume to %s", output_path)
+    return output_path
+
+
+def _render_resume_markers(
+    doc: Document,
+    document,
+    styles: dict[str, str],
+    manifest: TemplateManifest,
+) -> bool:
+    rendered = False
+    sections_marker = manifest.blocks.get("sections", "{{resume.sections}}")
+    marker_para = _find_marker_paragraph(doc, sections_marker)
+    if marker_para is not None:
+        sink = _DocxSink(doc, marker_para)
+        _render_resume_sections(sink, document, styles, include_header=False)
+        _remove_paragraph(marker_para)
+        rendered = True
+
+    section_markers = {
+        "header": manifest.blocks.get("header", "{{resume.header}}"),
+        "summary": manifest.blocks.get("summary", "{{resume.summary}}"),
+        "education": manifest.blocks.get("education", "{{resume.education}}"),
+        "skills": manifest.blocks.get("skills", "{{resume.skills}}"),
+        "experience": manifest.blocks.get("experience", "{{resume.experience}}"),
+        "projects": manifest.blocks.get("projects", "{{resume.projects}}"),
+    }
+    for section, marker in section_markers.items():
+        marker_para = _find_marker_paragraph(doc, marker)
+        if marker_para is None:
+            continue
+        sink = _DocxSink(doc, marker_para)
+        _render_resume_section(section, sink, document, styles)
+        _remove_paragraph(marker_para)
+        rendered = True
+    return rendered
+
+
+def _render_resume_sections(
+    sink,
+    document,
+    styles: dict[str, str],
+    *,
+    include_header: bool,
+) -> None:
+    rendered = set()
+    for section in _resolved_section_order(document):
+        if section == "header" and not include_header:
+            continue
+        if section in rendered:
+            continue
+        rendered.add(section)
+        _render_resume_section(section, sink, document, styles)
+
+
+def _render_resume_section(section: str, sink, document, styles: dict[str, str]) -> None:
+    if section == "header":
+        _render_ir_header(sink, document.header, styles)
+    elif section == "summary":
+        _render_ir_summary(sink, document.summary, styles)
+    elif section == "education":
+        _render_ir_education(sink, document.education, styles)
+    elif section == "skills":
+        _render_ir_skills(sink, document.skills, styles)
+    elif section == "experience":
+        _render_ir_experience(sink, document.experiences, styles)
+    elif section == "projects":
+        _render_ir_projects(sink, document.projects, styles)
+
+
+def build_cover_letter_from_ir(
+    document,
+    output_path: Path,
+    *,
+    template_path: Path | None = None,
+    manifest: TemplateManifest | None = None,
+) -> Path:
+    """Build a DOCX cover letter from CoverLetterDocument IR."""
+    manifest = manifest or default_manifest("cover_letter")
+    styles = manifest.styles
+    doc = Document(str(template_path)) if template_path and template_path.exists() else Document()
+    substitute_placeholders(doc, _cover_letter_template_variables(document))
+
+    marker = manifest.blocks.get("body", "{{cover_letter.body}}")
+    marker_para = _find_marker_paragraph(doc, marker)
+    if marker_para is not None:
+        sink = _DocxSink(doc, marker_para)
+        _render_cover_letter_body(sink, document, styles)
+        _remove_paragraph(marker_para)
+    else:
+        _clear_document_body(doc)
+        _render_cover_letter_fallback(_DocxSink(doc), document, styles)
+
+    _remove_empty_placeholder_paragraphs(doc)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(output_path))
+    logger.info("Saved cover letter to %s", output_path)
+    return output_path
+
+
+def _render_cover_letter_fallback(sink, document, styles: dict[str, str]) -> None:
+    applicant = document.applicant or {}
+    recipient = document.recipient or {}
+
+    name = applicant.get("name") or applicant.get("full_name") or ""
+    if name:
+        _add_styled_paragraph(sink, str(name), styles.get("header"))
+    contact = _join_nonempty([applicant.get("email"), applicant.get("phone")])
+    if contact:
+        _add_styled_paragraph(sink, contact, styles.get("header"))
+
+    company = recipient.get("company")
+    if company:
+        _add_styled_paragraph(sink, str(company), styles.get("recipient"))
+    _render_cover_letter_body(sink, document, styles)
+
+
+def _render_cover_letter_body(sink, document, styles: dict[str, str]) -> None:
+    for paragraph in document.paragraphs:
+        if paragraph.text:
+            _add_styled_paragraph(sink, paragraph.text, styles.get("body"))
+
+
+def _clear_document_body(doc: Document) -> None:
+    body = doc._body._element
+    for child in list(body):
+        if child.tag.endswith("}sectPr"):
+            continue
+        body.remove(child)
+
+
+class _DocxSink:
+    """Append paragraphs to a document or after a template block marker."""
+
+    def __init__(self, doc: Document, anchor: Paragraph | None = None):
+        self.doc = doc
+        self.anchor = anchor
+
+    def add_paragraph(self, text: str = "", style: str | None = None):
+        if self.anchor is None:
+            return self.doc.add_paragraph(text, style=style)
+        paragraph = _insert_paragraph_after(self.anchor, text, style)
+        self.anchor = paragraph
+        return paragraph
+
+
+def _insert_paragraph_after(
+    paragraph: Paragraph,
+    text: str = "",
+    style: str | None = None,
+) -> Paragraph:
+    new_element = OxmlElement("w:p")
+    paragraph._p.addnext(new_element)
+    new_paragraph = Paragraph(new_element, paragraph._parent)
+    if style:
+        try:
+            new_paragraph.style = style
+        except KeyError:
+            pass
+    if text:
+        new_paragraph.add_run(text)
+    return new_paragraph
+
+
+def _find_marker_paragraph(doc: Document, marker: str) -> Paragraph | None:
+    for paragraph in _iter_paragraphs(doc):
+        if marker in paragraph.text:
+            return paragraph
+    return None
+
+
+def _remove_paragraph(paragraph: Paragraph) -> None:
+    element = paragraph._element
+    element.getparent().remove(element)
+
+
+def _remove_empty_placeholder_paragraphs(doc: Document) -> None:
+    for paragraph in list(doc.paragraphs):
+        text = paragraph.text.strip()
+        if text in {"{{links}}", "{{applicant.contact}}", "{{signature}}"}:
+            _remove_paragraph(paragraph)
+
+
+def _resume_template_variables(document) -> dict[str, str]:
+    identity = document.header or {}
+    contact = _join_nonempty(
+        [identity.get("email"), identity.get("phone"), identity.get("location")]
+    )
+    links = _join_nonempty(
+        [identity.get("linkedin_url"), identity.get("github_url"), identity.get("portfolio_url")]
+    )
+    return {
+        "full_name": str(identity.get("full_name") or identity.get("name") or ""),
+        "contact": contact,
+        "links": links,
+    }
+
+
+def _cover_letter_template_variables(document) -> dict[str, str]:
+    applicant = document.applicant or {}
+    recipient = document.recipient or {}
+    name = applicant.get("name") or applicant.get("full_name") or ""
+    contact = _join_nonempty([applicant.get("email"), applicant.get("phone")])
+    return {
+        "applicant.name": str(name),
+        "applicant.contact": contact,
+        "recipient.company": str(recipient.get("company") or ""),
+        "signature": str(name),
+    }
+
+
+def _resolved_section_order(document) -> list[str]:
+    default_order = ["header", "summary", "education", "skills", "experience", "projects"]
+    order = [section for section in document.section_order if section in default_order]
+    order.extend(section for section in default_order if section not in order)
+    return order
+
+
+def _render_ir_header(doc: Document, identity: dict[str, Any], styles: dict[str, str]) -> None:
+    name = identity.get("full_name") or identity.get("name") or ""
+    if name:
+        _add_styled_paragraph(doc, str(name), styles.get("name"), fallback="Title")
+
+    contact = _join_nonempty(
+        [identity.get("email"), identity.get("phone"), identity.get("location")]
+    )
+    if contact:
+        _add_styled_paragraph(doc, contact, styles.get("contact"))
+
+    links = _join_nonempty(
+        [identity.get("linkedin_url"), identity.get("github_url"), identity.get("portfolio_url")]
+    )
+    if links:
+        _add_styled_paragraph(doc, links, styles.get("contact"))
+
+
+def _render_ir_summary(doc: Document, summary: list[str], styles: dict[str, str]) -> None:
+    if not summary:
+        return
+    _add_section_heading(doc, "Summary", styles)
+    for line in summary:
+        if line:
+            _add_styled_paragraph(doc, line, styles.get("normal"))
+
+
+def _render_ir_education(doc: Document, education: list[dict], styles: dict[str, str]) -> None:
+    if not education:
+        return
+    _add_section_heading(doc, "Education", styles)
+    for edu in education:
+        institution = edu.get("institution", "")
+        dates = _format_date_range(edu.get("start_date", ""), edu.get("end_date", ""))
+        _add_styled_paragraph(doc, _join_tab(institution, dates), styles.get("item_title"))
+        degree = " ".join(part for part in [edu.get("degree", ""), edu.get("field", "")] if part)
+        details = _join_nonempty([degree, edu.get("location"), f"GPA: {edu.get('gpa')}"])
+        if details:
+            _add_styled_paragraph(doc, details, styles.get("item_meta"))
+        courses = edu.get("relevant_courses", [])
+        if courses:
+            course_names = ", ".join(c.get("name", "") for c in courses if isinstance(c, dict))
+            if course_names:
+                _add_styled_paragraph(
+                    doc,
+                    f"Relevant coursework: {course_names}",
+                    styles.get("normal"),
+                )
+
+
+def _render_ir_skills(doc: Document, skills: dict[str, list[str]], styles: dict[str, str]) -> None:
+    rows = [(label, skills.get(key, [])) for key, label in _skill_label_map().items()]
+    rows.extend(
+        (key.replace("_", " ").title(), values)
+        for key, values in skills.items()
+        if key not in _skill_label_map()
+    )
+    rows = [(label, values) for label, values in rows if values]
+    if not rows:
+        return
+    _add_section_heading(doc, "Skills", styles)
+    for label, values in rows:
+        _add_styled_paragraph(doc, f"{label}: {', '.join(values)}", styles.get("skill_line"))
+
+
+def _render_ir_experience(doc: Document, experiences: list, styles: dict[str, str]) -> None:
+    if not experiences:
+        return
+    _add_section_heading(doc, "Experience", styles)
+    for item in experiences:
+        org = item.organization or item.name
+        dates = _format_date_range(item.start_date, item.end_date)
+        _add_styled_paragraph(doc, _join_tab(item.title or org, dates), styles.get("item_title"))
+        subtitle = _join_nonempty([org, item.location])
+        if subtitle:
+            _add_styled_paragraph(doc, subtitle, styles.get("item_subtitle"))
+        for bullet in item.bullets:
+            _add_resume_bullet(doc, bullet.text, styles)
+
+
+def _render_ir_projects(doc: Document, projects: list, styles: dict[str, str]) -> None:
+    if not projects:
+        return
+    _add_section_heading(doc, "Projects", styles)
+    for item in projects:
+        dates = _format_date_range(item.start_date, item.end_date)
+        tech = ", ".join(item.tech_stack)
+        _add_styled_paragraph(doc, _join_tab(item.name, dates), styles.get("item_title"))
+        if tech:
+            _add_styled_paragraph(doc, tech, styles.get("item_subtitle"))
+        if item.meta:
+            _add_styled_paragraph(doc, item.meta, styles.get("item_meta"))
+        for bullet in item.bullets:
+            _add_resume_bullet(doc, bullet.text, styles)
+
+
+def _add_section_heading(doc: Document, title: str, styles: dict[str, str]) -> None:
+    _add_styled_paragraph(doc, title, styles.get("section_heading"), fallback="Heading 2")
+
+
+def _add_styled_paragraph(
+    doc: Document,
+    text: str,
+    style_name: str | None,
+    *,
+    fallback: str | None = None,
+):
+    style_candidates = [style for style in (style_name, fallback) if style]
+    for style in style_candidates:
+        try:
+            return doc.add_paragraph(text, style=style)
+        except KeyError:
+            continue
+    return doc.add_paragraph(text)
+
+
+def _add_resume_bullet(doc: Document, text: str, styles: dict[str, str]) -> None:
+    _add_styled_paragraph(doc, text, styles.get("bullet"), fallback="List Bullet")
+
+
+def _add_bold_paragraph(doc: Document, text: str) -> None:
+    if not text:
+        return
+    paragraph = doc.add_paragraph()
+    paragraph.add_run(text).bold = True
+
+
+def _add_bullet(doc: Document, text: str) -> None:
+    try:
+        doc.add_paragraph(text, style="List Bullet")
+    except KeyError:
+        doc.add_paragraph(f"• {text}")
+
+
+def _format_date_range(start: str, end: str) -> str:
+    if start and end:
+        return f"{start} – {end}"
+    return start or end or ""
+
+
+def _join_nonempty(values: list) -> str:
+    return " | ".join(str(value) for value in values if value)
+
+
+def _join_tab(left: str, right: str) -> str:
+    if left and right:
+        return f"{left}\t{right}"
+    return left or right or ""
+
+
+def _skill_label_map() -> dict[str, str]:
+    return {
+        "languages": "Languages",
+        "frameworks": "Frameworks",
+        "databases": "Databases",
+        "tools": "Tools & DevOps",
+        "domains": "Domains",
+        "soft_skills": "Soft Skills",
+        "certifications": "Certifications",
+    }
 
 
 def _build_header_variables(identity: dict) -> dict[str, str]:

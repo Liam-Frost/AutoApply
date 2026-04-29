@@ -85,14 +85,12 @@ function splitTags(value) {
 
 <template>
   <div class="tag-input">
-    <div v-if="model.length" class="tag-list">
-      <span v-for="(tag, index) in model" :key="`${tag}-${index}`" class="tag-chip">
-        <span>{{ tag }}</span>
-        <button class="tag-remove" type="button" @click="removeTag(index)" :aria-label="`Remove ${tag}`">
-          x
-        </button>
-      </span>
-    </div>
+    <span v-for="(tag, index) in model" :key="`${tag}-${index}`" class="tag-chip">
+      <span>{{ tag }}</span>
+      <button class="tag-remove" type="button" @click="removeTag(index)" :aria-label="`Remove ${tag}`">
+        x
+      </button>
+    </span>
 
     <input
       v-model="draft"
@@ -109,8 +107,9 @@ function splitTags(value) {
 <style scoped>
 .tag-input {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   min-height: 48px;
   padding: 12px 14px;
   border: 1px solid var(--border);
@@ -121,12 +120,6 @@ function splitTags(value) {
 .tag-input:focus-within {
   border-color: rgba(144, 181, 255, 0.42);
   box-shadow: 0 0 0 4px rgba(144, 181, 255, 0.1);
-}
-
-.tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .tag-chip {
@@ -152,7 +145,8 @@ function splitTags(value) {
 }
 
 .tag-editor {
-  width: 100%;
+  flex: 1 0 160px;
+  min-width: 120px;
   min-height: 24px;
   padding: 0;
   border: 0;

@@ -8,13 +8,31 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from src.application.profile import get_active_profile_path
+from src.application.profile import get_active_profile_path, get_profile_path
 from src.core.config import PROJECT_ROOT
 from src.core.state_machine import ApplicationState, AppStatus
 
 logger = logging.getLogger("autoapply.application.jobs")
 
 SEARCH_METADATA_KEY = "_search_filters"
+MATERIAL_TYPES = {
+    "resume_pdf",
+    "resume_docx",
+    "cover_letter_pdf",
+    "cover_letter_docx",
+    "cover_letter_txt",
+}
+ATS_TYPES = {
+    "greenhouse",
+    "lever",
+    "ashby",
+    "linkedin",
+    "workday",
+    "company_site",
+    "unknown",
+}
+EMPLOYMENT_TYPES = {"internship", "fulltime", "parttime", "contract", "coop", "unknown"}
+SENIORITY_LEVELS = {"internship", "entry", "mid", "senior", "staff", "unknown"}
 
 PAY_RANGE_RE = re.compile(
     r"(?:\$|usd\s*)(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?\s*"
@@ -71,7 +89,7 @@ async def search_jobs(
     error_code: str | None = None
     counts = {"ats": 0, "linkedin": 0, "linkedin_external_ats": 0, "total": 0}
     experience_levels = _normalize_list(experience_levels)
-    employment_types = _normalize_list(employment_types)  # noqa: PLW0127 – intentional reassign
+    employment_types = _normalize_list(employment_types)
     location_types = _normalize_list(location_types)
     locations = _normalize_list(locations)
     education_levels = _normalize_list(education_levels)
@@ -367,6 +385,9 @@ async def apply_to_url(
             "dry_run": dry_run,
         }
 
+    resolved_url = _normalize_application_url_for_ats(resolved_url, ats_type)
+    payload["resolved_url"] = resolved_url
+
     try:
         job = _load_job_for_application(resolved_url, ats_type)
     except Exception as exc:
@@ -512,6 +533,186 @@ async def apply_to_job_id(
         mode="job_id",
         input_payload=payload["input"],
     )
+
+
+async def generate_material_for_job(
+    *,
+    job_payload: dict,
+    material_type: str,
+    use_llm: bool = False,
+    template_id: str | None = None,
+    profile_id: str | None = None,
+) -> dict:
+    """Generate one selected application artifact for a web search result."""
+    material_type = (material_type or "").strip()
+    if material_type not in MATERIAL_TYPES:
+        return {
+            "ok": False,
+            "job": None,
+            "material_type": material_type,
+            "artifact": None,
+            "artifacts": _empty_material_artifacts(),
+            "requirements": None,
+            "error": "Unsupported material type.",
+            "error_code": "invalid_material_type",
+        }
+
+    try:
+        job = _raw_job_from_web_payload(job_payload, use_llm=use_llm)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "job": None,
+            "material_type": material_type,
+            "artifact": None,
+            "artifacts": _empty_material_artifacts(),
+            "requirements": None,
+            "error": str(exc),
+            "error_code": "invalid_job_payload",
+        }
+
+    profile_data = _load_profile(profile_id)
+    if not profile_data:
+        return {
+            "ok": False,
+            "job": serialize_job(job),
+            "material_type": material_type,
+            "artifact": None,
+            "artifacts": _empty_material_artifacts(),
+            "requirements": job.requirements.model_dump(),
+            "error": "Profile not configured.",
+            "error_code": "profile_missing",
+        }
+
+    try:
+        material_result = _generate_selected_material(
+            profile_data,
+            job,
+            material_type,
+            template_id=template_id,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "job": serialize_job(job),
+            "material_type": material_type,
+            "artifact": None,
+            "artifacts": _empty_material_artifacts(),
+            "document": None,
+            "validation": None,
+            "requirements": job.requirements.model_dump(),
+            "error": str(exc),
+            "error_code": "invalid_template_id",
+        }
+    except Exception as exc:
+        logger.warning(
+            "Failed to generate %s for %s at %s: %s",
+            material_type,
+            job.title,
+            job.company,
+            exc,
+        )
+        return {
+            "ok": False,
+            "job": serialize_job(job),
+            "material_type": material_type,
+            "artifact": None,
+            "artifacts": _empty_material_artifacts(),
+            "document": None,
+            "validation": None,
+            "requirements": job.requirements.model_dump(),
+            "error": f"Failed to generate material: {exc}",
+            "error_code": "material_generation_failed",
+        }
+
+    artifacts = material_result["artifacts"]
+    document = material_result.get("document")
+    validation = material_result.get("validation")
+    template = material_result.get("template")
+    path = artifacts.get(material_type)
+    if not path:
+        return {
+            "ok": False,
+            "job": serialize_job(job),
+            "material_type": material_type,
+            "artifact": None,
+            "artifacts": _stringify_material_artifacts(artifacts),
+            "document": _serialize_generation_model(document),
+            "validation": _serialize_generation_model(validation),
+            "template": template,
+            "requirements": job.requirements.model_dump(),
+            "error": "The selected artifact could not be generated.",
+            "error_code": "material_generation_failed",
+        }
+
+    serialized_document = _serialize_generation_model(document)
+    serialized_validation = _serialize_generation_model(validation)
+    artifact = _serialize_material_artifact(material_type, path)
+    serialized_artifacts = _stringify_material_artifacts(artifacts)
+    serialized_job = serialize_job(job)
+    requirements = job.requirements.model_dump()
+    version = _save_generation_version(
+        job=serialized_job,
+        material_type=material_type,
+        artifact=artifact,
+        artifacts=serialized_artifacts,
+        document=serialized_document,
+        validation=serialized_validation,
+        requirements=requirements,
+    )
+
+    return {
+        "ok": True,
+        "job": serialized_job,
+        "material_type": material_type,
+        "artifact": artifact,
+        "artifacts": serialized_artifacts,
+        "document": serialized_document,
+        "validation": serialized_validation,
+        "template": template,
+        "requirements": requirements,
+        "version": version,
+        "error": None,
+        "error_code": None,
+    }
+
+
+def list_material_templates() -> dict:
+    """List available resume and cover-letter template packages for the UI."""
+    from src.documents.templates import list_template_packages
+
+    return {"templates": list_template_packages()}
+
+
+def upload_material_template(
+    *,
+    document_type: str,
+    filename: str,
+    content: bytes,
+    template_name: str | None = None,
+) -> dict:
+    """Save an uploaded DOCX as a material template package."""
+    from src.documents.templates import save_uploaded_template_package
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        template = save_uploaded_template_package(
+            document_type=document_type,
+            filename=filename,
+            content=content,
+            template_name=template_name,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "invalid_template_upload"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_upload_failed"}
+
+    return {"ok": True, "template": template, **list_material_templates()}
 
 
 async def apply_batch_jobs(
@@ -836,19 +1037,26 @@ def _classify_experience_level(title: str) -> str:
 
 
 def _classify_employment_category(job) -> str:
-    text = " ".join(
+    explicit_text = " ".join(
         filter(
             None,
             [
                 job.title,
                 job.employment_type,
-                job.description or "",
                 str(job.raw_data.get("employment_type", "")),
-                str(job.raw_data.get("workplaceType", "")),
                 str(job.raw_data.get("categories", {}).get("commitment", "")),
             ],
         )
     ).lower()
+    description_text = (job.description or "").lower()
+    text = " ".join(filter(None, [explicit_text, description_text])).lower()
+
+    if any(token in explicit_text for token in ("co-op", "coop")):
+        return "coop"
+    if any(
+        token in explicit_text for token in ("internship", "intern ")
+    ) or explicit_text.startswith("intern"):
+        return "internship"
 
     if any(token in text for token in ("volunteer",)):
         return "volunteer"
@@ -862,10 +1070,6 @@ def _classify_employment_category(job) -> str:
         return "temporary"
     if any(token in text for token in ("permanent",)):
         return "permanent"
-    if any(token in text for token in ("co-op", "coop")):
-        return "coop"
-    if any(token in text for token in ("internship", "intern ")) or text.startswith("intern"):
-        return "internship"
     if any(token in text for token in ("part-time", "part time", "parttime")):
         return "part_time"
     if any(token in text for token in ("contract", "contractor")):
@@ -1080,8 +1284,6 @@ def _linkedin_max_pages(
                 for value in employment_types
             ),
             location_types,
-            # When a search_location was already passed to LinkedIn, the results
-            # are pre-filtered by geography so we don't need extra pages for that.
             locations and not search_location,
             pay_operator,
             experience_operator,
@@ -1164,6 +1366,171 @@ def _empty_artifacts() -> dict:
         "resume_path": None,
         "cover_letter_path": None,
         "qa_responses": None,
+    }
+
+
+def _empty_material_artifacts() -> dict:
+    return {
+        "resume_pdf": None,
+        "resume_docx": None,
+        "cover_letter_pdf": None,
+        "cover_letter_docx": None,
+        "cover_letter_txt": None,
+    }
+
+
+def _stringify_material_artifacts(artifacts: dict) -> dict:
+    combined = _empty_material_artifacts()
+    combined.update(artifacts)
+    return {key: str(value) if value else None for key, value in combined.items()}
+
+
+def _serialize_material_artifact(material_type: str, path: Path) -> dict:
+    return {
+        "type": material_type,
+        "path": str(path),
+        "filename": path.name,
+    }
+
+
+def _serialize_generation_model(value):
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
+
+
+def _save_generation_version(**kwargs) -> dict | None:
+    try:
+        from src.generation.versions import save_generation_version
+
+        return save_generation_version(**kwargs)
+    except Exception as exc:
+        logger.warning("Generation version persistence skipped: %s", exc)
+        return None
+
+
+def _raw_job_from_web_payload(job_payload: dict, *, use_llm: bool):
+    from src.intake.jd_parser import parse_requirements
+    from src.intake.schema import JobRequirements, RawJob
+
+    if not isinstance(job_payload, dict):
+        raise ValueError("Job payload is required.")
+
+    company = _clean_web_payload_string(job_payload.get("company"))
+    title = _clean_web_payload_string(job_payload.get("title"))
+    if not company or not title:
+        raise ValueError("Job company and title are required.")
+
+    description = _clean_web_payload_string(job_payload.get("description")) or None
+    requirements_payload = job_payload.get("requirements")
+    if isinstance(requirements_payload, dict):
+        requirements = JobRequirements.model_validate(requirements_payload)
+    elif description:
+        requirements = parse_requirements(description, use_llm=use_llm)
+    else:
+        requirements = JobRequirements()
+
+    raw_data = (
+        job_payload.get("raw_data") if isinstance(job_payload.get("raw_data"), dict) else {}
+    )
+    source = _coerce_web_payload_value(job_payload.get("source"), ATS_TYPES, "unknown")
+    ats_type = _coerce_web_payload_value(job_payload.get("ats_type"), ATS_TYPES, "unknown")
+    if source == "unknown" and ats_type != "unknown":
+        source = ats_type
+
+    kwargs = {}
+    try:
+        if job_payload.get("id"):
+            kwargs["id"] = uuid.UUID(str(job_payload["id"]))
+    except (TypeError, ValueError):
+        pass
+
+    return RawJob(
+        **kwargs,
+        source=source,
+        source_id=str(
+            job_payload.get("source_id")
+            or job_payload.get("id")
+            or job_payload.get("application_url")
+            or f"{company}:{title}"
+        ),
+        company=company,
+        title=title,
+        location=_clean_web_payload_string(job_payload.get("location")) or None,
+        employment_type=_coerce_web_payload_value(
+            job_payload.get("employment_type"), EMPLOYMENT_TYPES, "unknown"
+        ),
+        seniority=_coerce_web_payload_value(
+            job_payload.get("seniority"), SENIORITY_LEVELS, "unknown"
+        ),
+        description=description,
+        requirements=requirements,
+        application_url=_clean_web_payload_string(job_payload.get("application_url")) or None,
+        ats_type=ats_type,
+        raw_data={**raw_data, "web_material_generation": True},
+    )
+
+
+def _clean_web_payload_string(value) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _coerce_web_payload_value(value, allowed: set[str], default: str) -> str:
+    if isinstance(value, str) and value in allowed:
+        return value
+    return default
+
+
+def _generate_selected_material(
+    profile_data: dict,
+    job,
+    material_type: str,
+    *,
+    template_id: str | None = None,
+) -> dict:
+    from src.documents.templates import ensure_template_package, serialize_template_package
+    from src.generation.cover_letter import generate_cover_letter
+    from src.generation.resume_builder import generate_resume
+
+    output_dir = PROJECT_ROOT / "data" / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    artifacts = _empty_material_artifacts()
+
+    if material_type in {"resume_pdf", "resume_docx"}:
+        template_package = ensure_template_package("resume", template_id)
+        resume_files = generate_resume(
+            job=job,
+            profile_data=profile_data,
+            output_dir=output_dir,
+            template_id=template_package.template_id,
+        )
+        artifacts["resume_pdf"] = resume_files.get("pdf")
+        artifacts["resume_docx"] = resume_files.get("docx")
+        return {
+            "artifacts": artifacts,
+            "document": resume_files.get("ir"),
+            "validation": resume_files.get("validation"),
+            "template": serialize_template_package(template_package),
+        }
+
+    template_package = ensure_template_package("cover_letter", template_id)
+    cover_files = generate_cover_letter(
+        job=job,
+        profile_data=profile_data,
+        output_dir=output_dir,
+        template_id=template_package.template_id,
+    )
+    artifacts["cover_letter_pdf"] = cover_files.get("pdf")
+    artifacts["cover_letter_docx"] = cover_files.get("docx")
+    artifacts["cover_letter_txt"] = cover_files.get("txt")
+    return {
+        "artifacts": artifacts,
+        "document": cover_files.get("ir"),
+        "validation": cover_files.get("validation"),
+        "template": serialize_template_package(template_package),
     }
 
 
@@ -1336,11 +1703,13 @@ async def _execute_application(
     headless: bool,
     state=None,
 ):
+    from src.execution.ats.ashby import AshbyAdapter
     from src.execution.ats.greenhouse import GreenhouseAdapter
     from src.execution.ats.lever import LeverAdapter
     from src.execution.browser import BrowserManager
 
     adapter_map = {
+        "ashby": AshbyAdapter,
         "greenhouse": GreenhouseAdapter,
         "lever": LeverAdapter,
     }
@@ -1356,12 +1725,14 @@ async def _execute_application(
     if state.status == AppStatus.QUALIFIED:
         state.transition(AppStatus.MATERIALS_READY)
 
+    application_url = _normalize_application_url_for_ats(url, ats_type)
+
     async with BrowserManager(headless=headless) as browser:
         adapter = adapter_cls(browser=browser)
         page = await browser.new_page()
         result = await adapter.apply(
             page=page,
-            application_url=url,
+            application_url=application_url,
             state=state,
             profile_data=profile_data,
             resume_path=resume_path,
@@ -1374,6 +1745,8 @@ async def _execute_application(
 
 def _detect_ats_from_url(url: str) -> str | None:
     url_lower = url.lower()
+    if "ashbyhq.com" in url_lower:
+        return "ashby"
     if "greenhouse.io" in url_lower:
         return "greenhouse"
     if "lever.co" in url_lower:
@@ -1381,12 +1754,24 @@ def _detect_ats_from_url(url: str) -> str | None:
     return None
 
 
+def _normalize_application_url_for_ats(url: str, ats_type: str) -> str:
+    if ats_type != "ashby":
+        return url
+
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    if not path or path.endswith("/application"):
+        return url
+
+    return parsed._replace(path=f"{path}/application").geturl()
+
+
 def _is_linkedin_url(url: str) -> bool:
     return "linkedin.com" in (url or "").lower()
 
 
-def _load_profile() -> dict | None:
-    profile_path = get_active_profile_path()
+def _load_profile(profile_id: str | None = None) -> dict | None:
+    profile_path = get_profile_path(profile_id) if profile_id else get_active_profile_path()
     if profile_path is None or not profile_path.exists():
         return None
 

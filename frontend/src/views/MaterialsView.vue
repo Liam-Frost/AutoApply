@@ -1,0 +1,657 @@
+<script setup>
+import { computed, onMounted, reactive, watch } from "vue"
+import { useRoute } from "vue-router"
+
+import AppSelect from "../components/AppSelect.vue"
+import { api } from "../lib/api"
+import { jobsState } from "../lib/jobs-state"
+
+const route = useRoute()
+
+const targets = [
+  { id: "resume", label: "Resume", materialType: "resume_docx", templateType: "resume" },
+  {
+    id: "cover_letter",
+    label: "Cover Letter",
+    materialType: "cover_letter_docx",
+    templateType: "cover_letter",
+  },
+]
+
+const formatOptions = {
+  resume: [
+    { type: "resume_docx", label: "DOCX" },
+    { type: "resume_pdf", label: "PDF" },
+  ],
+  cover_letter: [
+    { type: "cover_letter_docx", label: "DOCX" },
+    { type: "cover_letter_pdf", label: "PDF" },
+  ],
+}
+
+const materialLabels = {
+  resume_docx: "Resume DOCX",
+  resume_pdf: "Resume PDF",
+  cover_letter_docx: "Cover Letter DOCX",
+  cover_letter_pdf: "Cover Letter PDF",
+}
+
+const state = reactive({
+  loading: true,
+  generating: false,
+  error: "",
+  message: "",
+  sourceMode: "job",
+  selectedJobId: "",
+  profileId: "",
+  profiles: [],
+  templates: { resume: [], cover_letter: [] },
+  selectedMaterials: { resume: true, cover_letter: true },
+  selectedFormats: {
+    resume_docx: true,
+    resume_pdf: true,
+    cover_letter_docx: true,
+    cover_letter_pdf: true,
+  },
+  templateIds: { resume: "", cover_letter: "" },
+  templateUploads: {
+    resume: { file: null, name: "", loading: false, message: "", error: "" },
+    cover_letter: { file: null, name: "", loading: false, message: "", error: "" },
+  },
+  templateLibraryOpen: false,
+  activePreviewTab: "resume",
+  previewExpanded: {},
+  customJob: {
+    company: "",
+    title: "",
+    location: "",
+    application_url: "",
+    description: "",
+  },
+  results: {},
+})
+
+const allJobs = computed(() => {
+  const seen = new Set()
+  const jobs = []
+  for (const job of [
+    ...(jobsState.filteredJobs || []),
+    ...(jobsState.resultSets?.shown || []),
+    ...(jobsState.resultSets?.fetched || []),
+    ...(jobsState.resultSets?.linkedin || []),
+    ...(jobsState.resultSets?.ats || []),
+  ]) {
+    const key = job.id || `${job.company}-${job.title}-${job.application_url}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    jobs.push(job)
+  }
+  return jobs
+})
+
+const jobOptions = computed(() => [
+  { value: "", label: allJobs.value.length ? "Select a search result" : "No search results loaded" },
+  ...allJobs.value.map((job) => ({
+    value: job.id,
+    label: `${job.company} · ${job.title}${job.location ? ` · ${job.location}` : ""}`,
+  })),
+])
+
+const selectedJob = computed(() => allJobs.value.find((job) => job.id === state.selectedJobId) || null)
+const profileOptions = computed(() => [
+  { value: "", label: state.profiles.length ? "Select applicant" : "No saved applicants" },
+  ...state.profiles.map((profile) => ({ value: profile.id, label: profile.name || profile.id })),
+])
+
+const resumeTemplateOptions = computed(() => templateOptions("resume"))
+const coverLetterTemplateOptions = computed(() => templateOptions("cover_letter"))
+const selectedTargets = computed(() =>
+  targets.filter((target) => state.selectedMaterials[target.id] && selectedFormatTypes(target.id).length),
+)
+const canGenerate = computed(
+  () => Boolean(state.profileId) && Boolean(currentJobPayload.value) && selectedTargets.value.length > 0,
+)
+const currentJobPayload = computed(() => {
+  if (state.sourceMode === "job") {
+    return selectedJob.value
+  }
+  const title = state.customJob.title.trim()
+  const company = state.customJob.company.trim()
+  const description = state.customJob.description.trim()
+  if (!title || !company || !description) {
+    return null
+  }
+  return {
+    id: `manual-${company}-${title}`,
+    source: "company_site",
+    source_id: `manual:${company}:${title}`,
+    company,
+    title,
+    location: state.customJob.location.trim(),
+    description,
+    application_url: state.customJob.application_url.trim(),
+    ats_type: "company_site",
+    employment_type: "unknown",
+    seniority: "unknown",
+    raw_data: { manual_jd: true },
+  }
+})
+
+const reviewEntries = computed(() =>
+  targets
+    .map((target) => ({ ...target, result: state.results[target.id] }))
+    .filter((entry) => entry.result?.document),
+)
+const previewTabs = computed(() =>
+  targets.map((target) => ({
+    ...target,
+    available: Boolean(state.results[target.id]?.document),
+  })),
+)
+const activePreviewEntry = computed(
+  () => reviewEntries.value.find((entry) => entry.id === state.activePreviewTab) || reviewEntries.value[0] || null,
+)
+
+onMounted(async () => {
+  await Promise.all([loadProfiles(), loadTemplates()])
+  applyRouteJob()
+  state.loading = false
+})
+
+watch(
+  () => route.query.jobId,
+  () => applyRouteJob(),
+)
+
+async function loadProfiles() {
+  const response = await api.profile()
+  state.profiles = response.profiles || []
+  state.profileId = response.active_profile_id || state.profiles[0]?.id || ""
+}
+
+async function loadTemplates() {
+  const response = await api.templates()
+  state.templates = {
+    resume: response.templates?.resume || [],
+    cover_letter: response.templates?.cover_letter || [],
+  }
+  state.templateIds.resume = state.templates.resume[0]?.template_id || ""
+  state.templateIds.cover_letter = state.templates.cover_letter[0]?.template_id || ""
+}
+
+function applyRouteJob() {
+  const jobId = typeof route.query.jobId === "string" ? route.query.jobId : ""
+  if (!jobId) {
+    if (!state.selectedJobId && allJobs.value.length) {
+      state.selectedJobId = allJobs.value[0].id
+    }
+    return
+  }
+  const job = allJobs.value.find((item) => item.id === jobId)
+  if (job) {
+    state.sourceMode = "job"
+    state.selectedJobId = job.id
+  }
+}
+
+async function generateMaterials() {
+  state.error = ""
+  state.message = ""
+  state.results = {}
+  const job = currentJobPayload.value
+  if (!job) {
+    state.error = "Select a job or paste a complete JD before generating."
+    return
+  }
+  if (!state.profileId) {
+    state.error = "Select a saved applicant profile before generating."
+    return
+  }
+
+  state.generating = true
+  const settled = await Promise.allSettled(
+    selectedTargets.value.map((target) =>
+      api
+        .generateJobMaterial(job, primaryMaterialType(target), state.templateIds[target.templateType], state.profileId)
+        .then((response) => ({ target, response })),
+    ),
+  )
+  const successes = []
+  const failures = []
+  settled.forEach((result, index) => {
+    const target = selectedTargets.value[index]
+    if (result.status === "fulfilled") {
+      state.results[target.id] = result.value.response
+      state.previewExpanded[target.id] = false
+      state.activePreviewTab ||= target.id
+      successes.push(target.label)
+    } else {
+      failures.push(`${target.label}: ${result.reason?.message || "generation failed"}`)
+    }
+  })
+  state.generating = false
+  state.activePreviewTab = successes.length
+    ? selectedTargets.value.find((target) => state.results[target.id])?.id || state.activePreviewTab
+    : state.activePreviewTab
+  state.message = successes.length ? `Generated ${successes.join(" and ")}.` : ""
+  state.error = failures.join("; ")
+}
+
+function onTemplateFileChange(documentType, event) {
+  state.templateUploads[documentType].file = event.target.files?.[0] || null
+  state.templateUploads[documentType].message = ""
+  state.templateUploads[documentType].error = ""
+}
+
+async function uploadTemplate(documentType) {
+  const upload = state.templateUploads[documentType]
+  if (!upload.file) {
+    upload.error = "Choose a .docx template first."
+    return
+  }
+  upload.loading = true
+  upload.error = ""
+  upload.message = ""
+  try {
+    const response = await api.uploadTemplate(documentType, upload.file, upload.name)
+    state.templates = {
+      resume: response.templates?.resume || state.templates.resume,
+      cover_letter: response.templates?.cover_letter || state.templates.cover_letter,
+    }
+    state.templateIds[documentType] = response.template?.template_id || state.templateIds[documentType]
+    upload.file = null
+    upload.name = ""
+    upload.message = "Uploaded template."
+  } catch (error) {
+    upload.error = error.message
+  } finally {
+    upload.loading = false
+  }
+}
+
+function togglePreview(targetId) {
+  state.previewExpanded[targetId] = !state.previewExpanded[targetId]
+}
+
+function openTemplateLibrary() {
+  state.templateLibraryOpen = true
+}
+
+function closeTemplateLibrary() {
+  state.templateLibraryOpen = false
+}
+
+function selectPreviewTab(targetId) {
+  if (!state.results[targetId]?.document) {
+    return
+  }
+  state.activePreviewTab = targetId
+}
+
+function selectedTemplate(documentType) {
+  return (state.templates[documentType] || []).find(
+    (template) => template.template_id === state.templateIds[documentType],
+  )
+}
+
+function templateDescription(documentType) {
+  return selectedTemplate(documentType)?.description || "Template styles and capacity are read from manifest.json."
+}
+
+function jobSummary(job) {
+  if (!job) {
+    return "Choose a search result or paste a job description."
+  }
+  return [job.company, job.title, job.location].filter(Boolean).join(" · ")
+}
+
+function templateOptions(documentType) {
+  const templates = state.templates[documentType] || []
+  if (!templates.length) {
+    return [{ value: "", label: "Default template" }]
+  }
+  return templates.map((template) => ({
+    value: template.template_id,
+    label: template.name || template.template_id,
+  }))
+}
+
+function selectedFormatTypes(targetId) {
+  return formatOptions[targetId]
+    .filter((option) => state.selectedFormats[option.type])
+    .map((option) => option.type)
+}
+
+function primaryMaterialType(target) {
+  return selectedFormatTypes(target.id)[0] || target.materialType
+}
+
+function artifactEntries(result, targetId) {
+  const selected = new Set(selectedFormatTypes(targetId))
+  return Object.entries(result?.artifacts || {})
+    .filter(([type, path]) => selected.has(type) && Boolean(path))
+    .map(([type, path]) => ({ type, path, label: materialLabels[type] || type }))
+}
+
+function artifactDownloadUrl(path) {
+  return api.artifactDownloadUrl(path)
+}
+
+function validationIssues(result) {
+  return result?.validation?.issues || []
+}
+
+function validationMetrics(result) {
+  return result?.validation?.metrics || {}
+}
+
+function resumePreviewItems(document) {
+  if (!document || document.document_type !== "resume") {
+    return []
+  }
+  return [
+    ...(document.experiences || []).map((item) => ({ ...item, section: "Experience" })),
+    ...(document.projects || []).map((item) => ({ ...item, section: "Projects" })),
+  ]
+}
+
+function coverParagraphs(document) {
+  return document?.document_type === "cover_letter" ? document.paragraphs || [] : []
+}
+
+function prettyLabel(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+</script>
+
+<template>
+  <div class="materials-page">
+    <section class="materials-hero jobs-panel">
+      <div>
+        <span class="page-eyebrow">AutoApply</span>
+        <h2>Materials Workspace</h2>
+        <p>Generate tailored resumes and cover letters from a saved applicant profile and job description.</p>
+      </div>
+      <button class="button ghost compact" type="button" @click="openTemplateLibrary">
+        Template Library
+      </button>
+    </section>
+
+    <div class="materials-workspace">
+      <section class="jobs-panel materials-setup-panel">
+        <div class="section-head">
+          <div>
+            <h2>Generate</h2>
+            <p class="muted-inline">Configure the job, applicant, materials, and output formats.</p>
+          </div>
+        </div>
+
+        <div class="materials-step">
+          <div class="materials-step-title">1. Source</div>
+          <div class="materials-mode-row">
+            <label class="toggle-pill">
+              <input v-model="state.sourceMode" type="radio" value="job" />
+              <span>Search Result</span>
+            </label>
+            <label class="toggle-pill">
+              <input v-model="state.sourceMode" type="radio" value="paste" />
+              <span>Paste JD</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="materials-step">
+          <div class="materials-step-title">2. Job</div>
+          <div v-if="state.sourceMode === 'job'" class="materials-selector-stack">
+            <AppSelect v-model="state.selectedJobId" :options="jobOptions" aria-label="Select search result" />
+            <div class="materials-selected-card">
+              <strong>{{ selectedJob?.company || 'No job selected' }}</strong>
+              <span>{{ selectedJob?.title || 'Choose a job from the latest search results.' }}</span>
+              <small>{{ selectedJob?.location || 'Search results are loaded from the Jobs page.' }}</small>
+            </div>
+          </div>
+
+          <div v-else class="form-grid materials-jd-grid">
+            <label class="field">
+              <span>Company</span>
+              <input v-model="state.customJob.company" class="input" type="text" placeholder="Company" />
+            </label>
+            <label class="field">
+              <span>Role</span>
+              <input v-model="state.customJob.title" class="input" type="text" placeholder="Software Engineer Intern" />
+            </label>
+            <label class="field">
+              <span>Location</span>
+              <input v-model="state.customJob.location" class="input" type="text" placeholder="Vancouver, BC" />
+            </label>
+            <label class="field">
+              <span>Apply URL</span>
+              <input v-model="state.customJob.application_url" class="input" type="url" placeholder="https://..." />
+            </label>
+            <label class="field field-span-full">
+              <span>Job Description</span>
+              <textarea v-model="state.customJob.description" class="input textarea materials-jd-textarea" placeholder="Paste the full JD here."></textarea>
+            </label>
+          </div>
+        </div>
+
+        <div class="materials-step">
+          <div class="materials-step-title">3. Applicant</div>
+          <AppSelect v-model="state.profileId" :options="profileOptions" aria-label="Select applicant" />
+        </div>
+
+        <div class="materials-step">
+          <div class="materials-step-title">4. Materials</div>
+          <div class="materials-card-stack">
+            <article v-for="target in targets" :key="target.id" class="materials-choice-card" :class="{ 'is-disabled': !state.selectedMaterials[target.id] }">
+              <div class="materials-choice-head">
+                <label class="materials-generate-check">
+                  <input v-model="state.selectedMaterials[target.id]" type="checkbox" />
+                  <span>{{ target.label }}</span>
+                </label>
+                <div class="materials-format-row">
+                  <label v-for="format in formatOptions[target.id]" :key="format.type" class="materials-format-check">
+                    <input v-model="state.selectedFormats[format.type]" type="checkbox" :disabled="!state.selectedMaterials[target.id]" />
+                    <span>{{ format.label }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="materials-template-row">
+                <div class="field">
+                  <span>{{ target.label }} Template</span>
+                  <AppSelect
+                    v-model="state.templateIds[target.templateType]"
+                    :options="target.id === 'resume' ? resumeTemplateOptions : coverLetterTemplateOptions"
+                    :aria-label="`${target.label} template`"
+                    :disabled="!state.selectedMaterials[target.id]"
+                  />
+                </div>
+                <button class="button ghost compact" type="button" @click="openTemplateLibrary">Manage</button>
+              </div>
+              <p class="muted-inline">{{ templateDescription(target.templateType) }}</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="materials-actions">
+          <button class="button materials-primary-button" type="button" :disabled="state.generating || !canGenerate" @click="generateMaterials">
+            {{ state.generating ? "Generating..." : "Generate Materials" }}
+          </button>
+          <span v-if="state.message" class="inline-feedback review">{{ state.message }}</span>
+          <span v-if="state.error" class="inline-feedback error">{{ state.error }}</span>
+        </div>
+      </section>
+
+      <section class="jobs-panel materials-preview-workbench">
+        <div class="materials-preview-head">
+          <div>
+            <h2>Preview</h2>
+            <p class="muted-inline">{{ jobSummary(currentJobPayload) }}</p>
+          </div>
+          <div class="materials-preview-tabs">
+            <button
+              v-for="tab in previewTabs"
+              :key="tab.id"
+              class="materials-preview-tab"
+              :class="{ 'is-active': state.activePreviewTab === tab.id, 'is-empty': !tab.available }"
+              type="button"
+              @click="selectPreviewTab(tab.id)"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="!reviewEntries.length" class="materials-empty-preview">
+          <strong>No materials generated yet</strong>
+          <p>Choose a job, applicant, templates, and output formats. Your previews, status, and downloads will appear here.</p>
+          <button class="button compact" type="button" :disabled="state.generating || !canGenerate" @click="generateMaterials">
+            Generate Materials
+          </button>
+        </div>
+
+        <section v-else-if="activePreviewEntry" class="materials-result-workbench">
+          <div class="materials-result-summary">
+            <div>
+              <div class="muted-inline">{{ activePreviewEntry.result.template?.name || activePreviewEntry.result.template?.template_id || 'Template' }}</div>
+              <h3>{{ activePreviewEntry.label }}</h3>
+            </div>
+            <button class="button ghost compact" type="button" @click="togglePreview(activePreviewEntry.id)">
+              {{ state.previewExpanded[activePreviewEntry.id] ? "Collapse Preview" : "Expand Preview" }}
+            </button>
+          </div>
+
+          <div class="chip-row">
+            <span v-if="activePreviewEntry.result.version?.id" class="chip subtle">Version {{ activePreviewEntry.result.version.id.slice(0, 8) }}</span>
+            <span v-if="activePreviewEntry.result.validation" class="chip" :class="activePreviewEntry.result.validation.ok ? 'success' : 'danger'">
+              {{ activePreviewEntry.result.validation.ok ? 'Validation OK' : 'Needs Review' }}
+            </span>
+            <span v-if="validationMetrics(activePreviewEntry.result).pdf_page_count" class="chip subtle">
+              {{ validationMetrics(activePreviewEntry.result).pdf_page_count }} PDF page(s)
+            </span>
+            <span v-if="validationMetrics(activePreviewEntry.result).coverage_ratio" class="chip subtle">
+              {{ Math.round(validationMetrics(activePreviewEntry.result).coverage_ratio * 100) }}% keyword coverage
+            </span>
+          </div>
+
+          <div class="materials-downloads-card">
+            <strong>Generated files</strong>
+            <div v-if="artifactEntries(activePreviewEntry.result, activePreviewEntry.id).length" class="material-download-row">
+              <a
+                v-for="artifact in artifactEntries(activePreviewEntry.result, activePreviewEntry.id)"
+                :key="artifact.type"
+                class="button ghost compact"
+                :href="artifactDownloadUrl(artifact.path)"
+                target="_blank"
+                rel="noopener"
+              >
+                Download {{ artifact.label }}
+              </a>
+            </div>
+            <span v-else class="muted-inline">No selected download format is available for this material.</span>
+          </div>
+
+          <div v-if="!state.previewExpanded[activePreviewEntry.id]" class="materials-collapsed-preview">
+            Preview is collapsed by default. Expand it when you are ready to review the generated content.
+          </div>
+
+          <div v-if="state.previewExpanded[activePreviewEntry.id] && validationIssues(activePreviewEntry.result).length" class="material-review-issues">
+            <div v-for="issue in validationIssues(activePreviewEntry.result)" :key="`${activePreviewEntry.id}-${issue.type}-${issue.source_id || issue.message}`" class="material-issue" :class="issue.severity">
+              <strong>{{ prettyLabel(issue.type) }}</strong>
+              <span>{{ issue.message }}</span>
+            </div>
+          </div>
+
+          <div v-if="state.previewExpanded[activePreviewEntry.id] && activePreviewEntry.result.document?.document_type === 'resume'" class="material-preview-body materials-document-canvas">
+            <div v-if="activePreviewEntry.result.document.summary?.length" class="material-preview-section">
+              <strong>Summary</strong>
+              <p v-for="line in activePreviewEntry.result.document.summary" :key="line">{{ line }}</p>
+            </div>
+            <div v-if="activePreviewEntry.result.document.skills" class="material-preview-section">
+              <strong>Skills</strong>
+              <div class="chip-row">
+                <template v-for="(items, category) in activePreviewEntry.result.document.skills" :key="category">
+                  <span v-for="skill in items" :key="`${category}-${skill}`" class="chip subtle">{{ skill }}</span>
+                </template>
+              </div>
+            </div>
+            <div v-for="item in resumePreviewItems(activePreviewEntry.result.document)" :key="item.source_id" class="material-preview-section">
+              <div class="material-preview-item-head">
+                <strong>{{ item.section }} · {{ item.name }}</strong>
+                <span class="muted">{{ item.title || item.meta }}</span>
+              </div>
+              <div v-for="bullet in item.bullets" :key="bullet.source_id" class="material-bullet-preview">
+                <div>{{ bullet.text }}</div>
+                <div class="chip-row material-bullet-meta">
+                  <span class="chip subtle">{{ bullet.source_entity }}</span>
+                  <span v-if="bullet.score" class="chip subtle">score {{ Number(bullet.score).toFixed(1) }}</span>
+                  <span v-for="keyword in bullet.matched_keywords" :key="`${bullet.source_id}-${keyword}`" class="chip">{{ keyword }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="state.previewExpanded[activePreviewEntry.id]" class="material-preview-body materials-document-canvas">
+            <div v-for="paragraph in coverParagraphs(activePreviewEntry.result.document)" :key="paragraph.text" class="material-preview-section">
+              <div class="muted-inline">{{ prettyLabel(paragraph.type) }}</div>
+              <p>{{ paragraph.text }}</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <div v-if="state.templateLibraryOpen" class="material-modal-backdrop" @click.self="closeTemplateLibrary">
+      <section class="material-modal materials-library-modal" role="dialog" aria-modal="true" aria-label="Template Library">
+        <div class="material-modal-head">
+          <div>
+            <div class="muted-inline">Template Library</div>
+            <h3>Manage Templates</h3>
+            <p>Upload and validate DOCX templates outside the generation flow.</p>
+          </div>
+          <button class="icon-button" type="button" aria-label="Close template library" @click="closeTemplateLibrary">×</button>
+        </div>
+
+        <div class="materials-library-grid">
+          <section v-for="target in targets" :key="target.templateType" class="materials-library-section">
+            <div class="section-head">
+              <div>
+                <h2>{{ target.label }} Templates</h2>
+                <p class="muted-inline">Current templates and DOCX upload.</p>
+              </div>
+            </div>
+
+            <div class="materials-template-list">
+              <div v-for="template in state.templates[target.templateType]" :key="template.template_id" class="materials-template-card">
+                <strong>{{ template.name || template.template_id }}</strong>
+                <span>{{ template.description || 'No description provided.' }}</span>
+                <small :class="template.validation?.ok ? 'success-text' : 'danger-text'">
+                  {{ template.validation?.ok ? 'Validated' : 'Needs validation' }}
+                </small>
+              </div>
+            </div>
+
+            <div class="materials-upload-box">
+              <input v-model="state.templateUploads[target.templateType].name" class="input" type="text" placeholder="Template name" />
+              <label class="materials-upload-zone">
+                <input type="file" accept=".docx" @change="onTemplateFileChange(target.templateType, $event)" />
+                <strong>{{ state.templateUploads[target.templateType].file?.name || 'Drop DOCX here or browse' }}</strong>
+                <span>Required styles and markers will be added if missing.</span>
+              </label>
+              <button class="button compact" type="button" :disabled="state.templateUploads[target.templateType].loading" @click="uploadTemplate(target.templateType)">
+                {{ state.templateUploads[target.templateType].loading ? 'Uploading...' : `Upload ${target.label} Template` }}
+              </button>
+              <span v-if="state.templateUploads[target.templateType].message" class="inline-feedback review">{{ state.templateUploads[target.templateType].message }}</span>
+              <span v-if="state.templateUploads[target.templateType].error" class="inline-feedback error">{{ state.templateUploads[target.templateType].error }}</span>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </div>
+</template>

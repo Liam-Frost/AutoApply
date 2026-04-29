@@ -6,9 +6,22 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from src.documents.docx_engine import build_resume, create_default_template, substitute_placeholders
+from src.documents.docx_engine import (
+    build_resume,
+    build_resume_from_ir,
+    create_default_template,
+    substitute_placeholders,
+)
 from src.documents.file_manager import get_output_paths, make_filename
-from src.documents.templates import discover_templates, get_template_path, register_template
+from src.documents.templates import (
+    discover_templates,
+    ensure_template_package,
+    get_template_path,
+    list_template_packages,
+    register_template,
+    save_uploaded_template_package,
+)
+from src.generation.ir import ResumeBullet, ResumeDocument, ResumeItem
 
 TMP_DIR = Path("data/output/_test")
 
@@ -127,6 +140,79 @@ class TestDocxEngine:
         assert "Python" in full_text
         assert "UBC" in full_text
 
+    def test_build_resume_from_ir(self):
+        template_path = TMP_DIR / "template_ir.docx"
+        create_default_template(template_path)
+        output_path = TMP_DIR / "resume_ir.docx"
+        document = ResumeDocument(
+            target_role="Backend Intern",
+            company="Stripe",
+            header=SAMPLE_IDENTITY,
+            education=SAMPLE_EDUCATION,
+            skills=SAMPLE_SKILLS,
+            section_order=["header", "projects", "skills", "experience", "education"],
+            experiences=[
+                ResumeItem(
+                    source_id="experience:stripe",
+                    source_type="experience",
+                    name="Stripe",
+                    organization="Stripe",
+                    title="Software Engineer Intern",
+                    location="San Francisco, CA",
+                    start_date="2025-05",
+                    end_date="2025-08",
+                    bullets=[
+                        ResumeBullet(
+                            text="Built payment retry logic handling 1M+ transactions/day",
+                            source_id="experience:stripe:bullet:0",
+                            source_type="experience",
+                            source_entity="Stripe - Software Engineer Intern",
+                        )
+                    ],
+                )
+            ],
+            projects=[],
+        )
+
+        result = build_resume_from_ir(template_path, document, output_path)
+
+        assert result.exists()
+        doc = Document(str(result))
+        full_text = " ".join(p.text for p in doc.paragraphs)
+        assert "Jane Doe" in full_text
+        assert "Stripe" in full_text
+        assert "payment retry" in full_text
+        paragraph_text = [p.text for p in doc.paragraphs]
+        assert paragraph_text.index("Skills") < paragraph_text.index("Experience")
+        assert paragraph_text.index("Experience") < paragraph_text.index("Education")
+
+    def test_template_package_renderer_uses_named_styles(self, tmp_path):
+        package = ensure_template_package("resume", template_root=tmp_path)
+        output_path = tmp_path / "resume_named_styles.docx"
+        document = ResumeDocument(
+            target_role="Backend Intern",
+            company="Stripe",
+            header=SAMPLE_IDENTITY,
+            education=SAMPLE_EDUCATION,
+            skills=SAMPLE_SKILLS,
+            section_order=["header", "skills"],
+            experiences=[],
+            projects=[],
+        )
+
+        result = build_resume_from_ir(
+            package.template_path,
+            document,
+            output_path,
+            manifest=package.manifest,
+        )
+
+        doc = Document(str(result))
+        styles_by_text = {paragraph.text: paragraph.style.name for paragraph in doc.paragraphs}
+        assert styles_by_text["Jane Doe"] == "Resume.Name"
+        assert styles_by_text["Skills"] == "Resume.SectionHeading"
+        assert "{{resume.sections}}" not in " ".join(p.text for p in doc.paragraphs)
+
 
 class TestFileManager:
     def test_make_filename_resume(self):
@@ -176,3 +262,43 @@ class TestTemplateRegistry:
         # Both should now be registered
         assert get_template_path("modern") is not None
         assert get_template_path("classic") is not None
+
+    def test_list_template_packages(self, tmp_path):
+        resume_package = ensure_template_package("resume", template_root=tmp_path)
+        ensure_template_package("cover_letter", template_root=tmp_path)
+        (resume_package.directory / "preview.pdf").write_bytes(b"pdf")
+
+        templates = list_template_packages(template_root=tmp_path)
+
+        assert templates["resume"][0]["template_id"] == "ats_single_column_v1"
+        assert templates["resume"][0]["preview_pdf"] == "preview.pdf"
+        assert not Path(templates["resume"][0]["preview_pdf"]).is_absolute()
+        assert templates["resume"][0]["validation"]["ok"] is True
+        assert templates["cover_letter"][0]["template_id"] == "classic_v1"
+
+    def test_save_uploaded_template_package(self, tmp_path):
+        upload_docx = tmp_path / "upload.docx"
+        doc = Document()
+        doc.add_paragraph("Uploaded resume template")
+        doc.save(str(upload_docx))
+
+        template = save_uploaded_template_package(
+            document_type="resume",
+            filename="upload.docx",
+            content=upload_docx.read_bytes(),
+            template_name="My Resume Template",
+            template_root=tmp_path / "templates",
+        )
+
+        assert template["template_id"] == "my_resume_template"
+        assert template["validation"]["ok"] is True
+
+    def test_template_package_rejects_path_traversal_id(self, tmp_path):
+        with pytest.raises(ValueError, match="Invalid template id"):
+            ensure_template_package(
+                "resume",
+                "..\\escape",
+                template_root=tmp_path / "templates",
+            )
+
+        assert not (tmp_path / "escape").exists()

@@ -457,6 +457,52 @@ class TestApplicationUseCases:
         )
         assert mock_run.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_apply_to_url_normalizes_ashby_linkedin_target_to_application_page(self):
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch(
+                "src.application.jobs.resolve_manual_apply_url",
+                new=AsyncMock(
+                    return_value={
+                        "ok": True,
+                        "url": "https://jobs.ashbyhq.com/sentry/d2e3391f-9401-410a-b8a6-de3bf5f762b7",
+                        "source_url": "https://www.linkedin.com/jobs/view/123",
+                        "ats_url": "https://jobs.ashbyhq.com/sentry/d2e3391f-9401-410a-b8a6-de3bf5f762b7",
+                    }
+                ),
+            ),
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+            patch("src.application.jobs._load_profile", return_value={"identity": {}}),
+            patch(
+                "src.application.jobs._run_application_for_job",
+                new=AsyncMock(return_value={"ok": True, "status": "REVIEW_REQUIRED"}),
+            ) as mock_run,
+        ):
+            mock_load_job.return_value = SimpleNamespace(
+                id=uuid.uuid4(),
+                source="linkedin",
+                source_id="123",
+                company="Sentry",
+                title="Software Engineer Intern",
+                location="Toronto",
+                employment_type="internship",
+                seniority="internship",
+                description=None,
+                application_url="https://jobs.ashbyhq.com/sentry/d2e3391f-9401-410a-b8a6-de3bf5f762b7/application",
+                ats_type="ashby",
+                raw_data={},
+                discovered_at=None,
+            )
+            await apply_to_url(url="https://www.linkedin.com/jobs/view/123")
+
+        mock_load_job.assert_called_once_with(
+            "https://jobs.ashbyhq.com/sentry/d2e3391f-9401-410a-b8a6-de3bf5f762b7/application",
+            "ashby",
+        )
+        assert mock_run.await_count == 1
+
     def test_load_applications_data_uses_filtered_records_for_summaries(self):
         from src.application.tracking import load_applications_data
 
@@ -604,6 +650,48 @@ class TestApplicationUseCases:
         assert result["jobs"][0]["location_type"] == "remote"
         assert result["jobs"][0]["pay_min"] == 120000
         assert result["jobs"][0]["pay_max"] == 140000
+
+    def test_employment_category_prefers_explicit_internship_over_temporary_description(self):
+        from src.application.jobs import _classify_employment_category
+        from src.intake.schema import RawJob
+
+        job = RawJob(
+            source="linkedin",
+            source_id="1",
+            company="Sentry",
+            title="Software Engineer, Intern (Fall 2026)",
+            location="Toronto, ON (Hybrid)",
+            employment_type="internship",
+            seniority="internship",
+            description=(
+                "Temporary relocation support is available for the duration of your "
+                "internship."
+            ),
+            ats_type="linkedin",
+        )
+
+        assert _classify_employment_category(job) == "internship"
+
+    def test_employment_category_does_not_infer_internship_from_experience_note(self):
+        from src.application.jobs import _classify_employment_category
+        from src.intake.schema import RawJob
+
+        job = RawJob(
+            source="linkedin",
+            source_id="2",
+            company="Helic & Co.",
+            title="Junior Software Quality Engineer",
+            location="Canada (Remote)",
+            employment_type="unknown",
+            seniority="entry",
+            description=(
+                "0-2 years of experience in software testing or quality assurance "
+                "(internships count)."
+            ),
+            ats_type="linkedin",
+        )
+
+        assert _classify_employment_category(job) == "unknown"
 
     def test_setup_profile_retries_resume_input_after_failure(self):
         from src.cli.cmd_init import _setup_profile

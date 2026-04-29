@@ -80,6 +80,36 @@ export const api = {
       body: JSON.stringify({ url }),
     })
   },
+  templates() {
+    return request("/api/templates")
+  },
+  uploadTemplate(documentType, file, templateName = "") {
+    const form = new FormData()
+    form.append("document_type", documentType)
+    form.append("template", file)
+    if (templateName) {
+      form.append("template_name", templateName)
+    }
+    return request("/api/templates/upload", {
+      method: "POST",
+      body: form,
+    })
+  },
+  generateJobMaterial(job, materialType, templateId = "", profileId = "") {
+    return request("/api/jobs/generate-material", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        job,
+        material_type: materialType,
+        template_id: templateId || null,
+        profile_id: profileId || null,
+      }),
+    })
+  },
+  artifactDownloadUrl(path) {
+    return `/api/artifacts/download?path=${encodeURIComponent(path)}`
+  },
   applications(filters) {
     return request(`/api/applications${toQuery(filters)}`)
   },

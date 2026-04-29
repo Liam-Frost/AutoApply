@@ -37,6 +37,10 @@ class TestAppFactory:
         assert "/api/jobs/linkedin/session" in paths
         assert "/api/jobs/linkedin/session/connect" in paths
         assert "/api/jobs/manual-apply-target" in paths
+        assert "/api/jobs/generate-material" in paths
+        assert "/api/templates" in paths
+        assert "/api/templates/upload" in paths
+        assert "/api/artifacts/download" in paths
         assert "/api/jobs/filter-profiles" in paths
         assert "/api/applications" in paths
         assert "/api/profile" in paths
@@ -336,6 +340,46 @@ class TestJobsApi:
         assert response.status_code == 200
         assert response.json()["profiles"] == []
 
+    def test_search_profile_storage_rejects_invalid_profile_id(self, tmp_path):
+        from src.application.search_profiles import save_search_profile_data
+
+        with patch(
+            "src.application.search_profiles.SEARCH_PROFILES_PATH",
+            tmp_path / "search_profiles.yaml",
+        ):
+            result = save_search_profile_data(
+                profile_id=":\n  injected: true",
+                profile={"source": "linkedin", "keywords": ["software"]},
+            )
+
+        assert result["ok"] is False
+        assert result["error_code"] == "invalid_search_profile_name"
+        assert not (tmp_path / "search_profiles.yaml").exists()
+
+    def test_save_filter_profile_route_rejects_invalid_profile_id(self, client, tmp_path):
+        with patch(
+            "src.application.search_profiles.SEARCH_PROFILES_PATH",
+            tmp_path / "search_profiles.yaml",
+        ):
+            response = client.put(
+                "/api/jobs/filter-profiles/bad:name",
+                json={"source": "linkedin", "keywords": ["software"]},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid filter profile name."
+        assert not (tmp_path / "search_profiles.yaml").exists()
+
+    def test_delete_filter_profile_route_rejects_invalid_profile_id(self, client, tmp_path):
+        with patch(
+            "src.application.search_profiles.SEARCH_PROFILES_PATH",
+            tmp_path / "search_profiles.yaml",
+        ):
+            response = client.delete("/api/jobs/filter-profiles/bad:name")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid filter profile name."
+
     @patch("src.web.routes.api.apply_to_url")
     def test_jobs_apply_post(self, mock_apply_to_url, client):
         mock_apply_to_url.return_value = {
@@ -351,6 +395,173 @@ class TestJobsApi:
 
         assert response.status_code == 200
         assert response.json()["message"] == "Filled to review stage"
+
+    @patch("src.web.routes.api.generate_material_for_job_usecase")
+    def test_generate_material_route(self, mock_generate, client):
+        mock_generate.return_value = {
+            "ok": True,
+            "job": {"company": "TestCo", "title": "SWE Intern"},
+            "material_type": "resume_pdf",
+            "artifact": {
+                "type": "resume_pdf",
+                "path": "data/output/resume.pdf",
+                "filename": "resume.pdf",
+            },
+            "artifacts": {"resume_pdf": "data/output/resume.pdf"},
+            "template": {"template_id": "ats_single_column_v1"},
+            "requirements": {},
+            "error": None,
+            "error_code": None,
+        }
+
+        response = client.post(
+            "/api/jobs/generate-material",
+            json={
+                "material_type": "resume_pdf",
+                "template_id": "ats_single_column_v1",
+                "profile_id": "default",
+                "job": {"company": "TestCo", "title": "SWE Intern"},
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["artifact"]["filename"] == "resume.pdf"
+        assert mock_generate.call_args.kwargs["material_type"] == "resume_pdf"
+        assert mock_generate.call_args.kwargs["template_id"] == "ats_single_column_v1"
+        assert mock_generate.call_args.kwargs["profile_id"] == "default"
+
+    @patch("src.web.routes.api.generate_material_for_job_usecase")
+    def test_generate_material_route_returns_400_for_profile_missing(
+        self,
+        mock_generate,
+        client,
+    ):
+        mock_generate.return_value = {
+            "ok": False,
+            "error": "Profile not configured.",
+            "error_code": "profile_missing",
+        }
+
+        response = client.post(
+            "/api/jobs/generate-material",
+            json={"material_type": "resume_pdf", "job": {"title": "SWE"}},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Profile not configured."
+
+    @patch("src.web.routes.api.generate_material_for_job_usecase")
+    def test_generate_material_route_returns_500_for_generation_failure(
+        self,
+        mock_generate,
+        client,
+    ):
+        mock_generate.return_value = {
+            "ok": False,
+            "error": "Renderer failed.",
+            "error_code": "material_generation_failed",
+        }
+
+        response = client.post(
+            "/api/jobs/generate-material",
+            json={"material_type": "resume_pdf", "job": {"title": "SWE"}},
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Renderer failed."
+
+    @patch("src.web.routes.api.list_material_templates_usecase")
+    def test_templates_route(self, mock_templates, client):
+        mock_templates.return_value = {
+            "templates": {
+                "resume": [{"template_id": "ats_single_column_v1"}],
+                "cover_letter": [{"template_id": "classic_v1"}],
+            }
+        }
+
+        response = client.get("/api/templates")
+
+        assert response.status_code == 200
+        assert response.json()["templates"]["resume"][0]["template_id"] == "ats_single_column_v1"
+
+    @patch("src.web.routes.api.upload_material_template_usecase")
+    def test_template_upload_route(self, mock_upload, client):
+        mock_upload.return_value = {
+            "ok": True,
+            "template": {"template_id": "custom_resume"},
+            "templates": {"resume": [{"template_id": "custom_resume"}], "cover_letter": []},
+        }
+
+        response = client.post(
+            "/api/templates/upload",
+            data={"document_type": "resume", "template_name": "Custom Resume"},
+            files={
+                "template": (
+                    "custom.docx",
+                    b"docx-bytes",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["template"]["template_id"] == "custom_resume"
+        assert mock_upload.call_args.kwargs["document_type"] == "resume"
+        assert mock_upload.call_args.kwargs["filename"] == "custom.docx"
+
+    @patch("src.web.routes.api.upload_material_template_usecase")
+    def test_template_upload_route_rejects_oversized_upload(
+        self,
+        mock_upload,
+        client,
+    ):
+        with patch("src.web.routes.api.MAX_TEMPLATE_UPLOAD_BYTES", 4):
+            response = client.post(
+                "/api/templates/upload",
+                data={"document_type": "resume", "template_name": "Too Large"},
+                files={
+                    "template": (
+                        "large.docx",
+                        b"12345",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+
+        assert response.status_code == 413
+        assert response.json()["detail"] == "Template upload is too large."
+        mock_upload.assert_not_called()
+
+    def test_artifact_download_restricts_to_output_dir(self, client, tmp_path):
+        output_dir = tmp_path / "data" / "output"
+        output_dir.mkdir(parents=True)
+        artifact = output_dir / "resume.pdf"
+        artifact.write_bytes(b"pdf")
+        outside = tmp_path / "secret.txt"
+        outside.write_text("secret", encoding="utf-8")
+
+        with patch("src.web.routes.api.PROJECT_ROOT", tmp_path):
+            response = client.get(
+                "/api/artifacts/download", params={"path": str(artifact)}
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"pdf"
+
+        with patch("src.web.routes.api.PROJECT_ROOT", tmp_path):
+            response = client.get(
+                "/api/artifacts/download", params={"path": "data/output/resume.pdf"}
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"pdf"
+
+        with patch("src.web.routes.api.PROJECT_ROOT", tmp_path):
+            response = client.get(
+                "/api/artifacts/download", params={"path": str(outside)}
+            )
+
+        assert response.status_code == 400
 
 
 class TestApplicationsApi:

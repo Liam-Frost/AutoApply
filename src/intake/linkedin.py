@@ -27,10 +27,19 @@ import html
 import logging
 import re
 import shutil
+from contextlib import suppress
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    async_playwright,
+)
+from playwright.async_api import (
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from src.core.config import PROJECT_ROOT
 from src.intake.html_utils import strip_html
@@ -106,7 +115,12 @@ SELECTORS = {
     "login_form": "form.login__form, #username",
     "feed_indicator": "div.feed-identity-module, nav.global-nav",
     "job_detail_panel": "div.jobs-search__job-details, div.job-details",
-    "apply_button": "button.jobs-apply-button, a.jobs-apply-button",
+    "apply_button": (
+        "button.jobs-apply-button, a.jobs-apply-button, "
+        "[data-live-test-job-apply-button], "
+        "main#workspace a[aria-label*='Apply'], main#workspace button[aria-label*='Apply'], "
+        "main#workspace a[href*='/safety/go/']"
+    ),
     "external_apply_link": "a[data-tracking-control-name*='apply'], a.jobs-apply-button--top-card",
 }
 
@@ -404,39 +418,62 @@ class LinkedInScraper:
 
         all_jobs: list[RawJob] = []
         seen_ids: set[str] = set()
+        page_num = 0
 
-        for page_num in range(max_pages):
+        while page_num < max_pages:
             page_url = f"{url}&start={page_num * 25}" if page_num > 0 else url
             logger.info("Scraping LinkedIn page %d: %s", page_num + 1, page_url)
 
             try:
-                response = await page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
-                await self._random_delay()
-
-                jobs: list[RawJob] = []
-                if response is not None:
-                    try:
-                        jobs = _extract_html_job_cards(
-                            await response.text(),
-                            search_mode="authenticated_html",
-                        )
-                        jobs = _dedupe_jobs(jobs)
-                    except Exception as exc:
-                        logger.debug("Failed to parse LinkedIn search response HTML: %s", exc)
-
-                # Wait for job cards to load and then inspect the rendered list. The
-                # initial HTML often only contains a small subset of the visible jobs.
-                await page.wait_for_selector(
-                    SELECTORS["job_card"],
-                    timeout=15000,
-                    state="visible",
+                jobs, page_state = await self._load_authenticated_search_page(
+                    page,
+                    page_url,
+                    page_index=page_num + 1,
+                    max_attempts=4,
                 )
 
-                rendered_jobs = await self._collect_result_cards(page)
-                if len(rendered_jobs) > len(jobs):
-                    jobs = rendered_jobs
-                elif rendered_jobs:
-                    jobs = _dedupe_jobs([*jobs, *rendered_jobs])
+                if not jobs:
+                    if page_num + 1 < max_pages:
+                        probe_url = f"{url}&start={(page_num + 1) * 25}"
+                        logger.warning(
+                            "LinkedIn page %d stayed empty after retries (%s); "
+                            "probing page %d once before stopping",
+                            page_num + 1,
+                            _summarize_search_page_state(page_state),
+                            page_num + 2,
+                        )
+                        probe_jobs, probe_state = await self._load_authenticated_search_page(
+                            page,
+                            probe_url,
+                            page_index=page_num + 2,
+                            max_attempts=2,
+                        )
+                        if probe_jobs:
+                            logger.warning(
+                                "LinkedIn page %d stayed empty, but page %d has results "
+                                "(%s); stopping to avoid skipping page %d jobs",
+                                page_num + 1,
+                                page_num + 2,
+                                _summarize_search_page_state(probe_state),
+                                page_num + 1,
+                            )
+                        else:
+                            logger.info(
+                                "Stopping LinkedIn search after empty page %d and empty "
+                                "probe page %d; current=%s; next=%s",
+                                page_num + 1,
+                                page_num + 2,
+                                _summarize_search_page_state(page_state),
+                                _summarize_search_page_state(probe_state),
+                            )
+                        break
+
+                    logger.info(
+                        "Stopping LinkedIn search after empty page %d; last page state: %s",
+                        page_num + 1,
+                        _summarize_search_page_state(page_state),
+                    )
+                    break
 
                 new_jobs = 0
                 for job in jobs:
@@ -461,8 +498,59 @@ class LinkedInScraper:
                 logger.error("Error scraping page %d: %s", page_num + 1, e)
                 break
 
+            page_num += 1
+
         logger.info("LinkedIn search complete: %d total jobs", len(all_jobs))
         return all_jobs
+
+    async def _load_authenticated_search_page(
+        self,
+        page: Page,
+        page_url: str,
+        *,
+        page_index: int,
+        max_attempts: int,
+    ) -> tuple[list[RawJob], dict[str, object] | None]:
+        jobs: list[RawJob] = []
+        page_state: dict[str, object] | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            response = await page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
+            await self._random_delay()
+
+            jobs = []
+            if response is not None:
+                try:
+                    jobs = _extract_html_job_cards(
+                        await response.text(),
+                        search_mode="authenticated_html",
+                    )
+                    jobs = _dedupe_jobs(jobs)
+                except Exception as exc:
+                    logger.debug("Failed to parse LinkedIn search response HTML: %s", exc)
+
+            page_state = await self._wait_for_search_page_state(page)
+            if page_state["status"] == "results":
+                rendered_jobs = await self._collect_result_cards(page)
+                if len(rendered_jobs) > len(jobs):
+                    jobs = rendered_jobs
+                elif rendered_jobs:
+                    jobs = _dedupe_jobs([*jobs, *rendered_jobs])
+
+            if jobs:
+                return jobs, page_state
+
+            if attempt < max_attempts:
+                logger.warning(
+                    "LinkedIn page %d returned no jobs on attempt %d/%d (%s); retrying",
+                    page_index,
+                    attempt,
+                    max_attempts,
+                    _summarize_search_page_state(page_state),
+                )
+                await page.wait_for_timeout(1500)
+
+        return jobs, page_state
 
     async def search_public_jobs(
         self,
@@ -519,7 +607,14 @@ class LinkedInScraper:
         logger.info("LinkedIn public guest search complete: %d total jobs", len(all_jobs))
         return all_jobs
 
-    async def get_job_detail(self, page: Page, job: RawJob) -> RawJob:
+    async def get_job_detail(
+        self,
+        page: Page,
+        job: RawJob,
+        *,
+        include_apply_target: bool = True,
+        pause_after_load: bool = True,
+    ) -> RawJob:
         """Navigate to a job detail page and extract additional info.
 
         Enriches the job with:
@@ -530,20 +625,23 @@ class LinkedInScraper:
             return job
 
         try:
-            detail_url = job.raw_data.get("linkedin_url") or job.application_url
+            detail_url = _canonical_linkedin_job_url(
+                job.source_id,
+                job.raw_data.get("linkedin_url")
+                or job.raw_data.get("detail_url")
+                or job.application_url,
+            )
             job.raw_data["detail_url"] = detail_url
 
             await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-            await self._random_delay()
+            if pause_after_load:
+                await self._random_delay()
 
             # Extract full description
-            desc_el = await page.query_selector(
-                "div.jobs-description__content, "
-                "div.show-more-less-html__markup, "
-                "article.jobs-description"
-            )
-            if desc_el:
-                job.description = await desc_el.inner_text()
+            job.description = await self._extract_job_description_text(page)
+
+            if not include_apply_target:
+                return job
 
             # Resolve the visible Apply button target for manual apply first.
             apply_target = await self._resolve_apply_target(page, fallback_url=detail_url)
@@ -568,8 +666,53 @@ class LinkedInScraper:
 
         return job
 
+    async def _extract_job_description_text(self, page: Page) -> str | None:
+        selectors = [
+            "div.jobs-description__content",
+            "div.show-more-less-html__markup",
+            "article.jobs-description",
+        ]
+
+        for selector in selectors:
+            elements = await page.query_selector_all(selector)
+            candidates: list[str] = []
+            for element in elements:
+                try:
+                    text = _normalize_job_description_text(await element.inner_text())
+                except Exception:
+                    continue
+                if text:
+                    candidates.append(text)
+            if candidates:
+                return max(candidates, key=len)
+
+        try:
+            fallback_text = await page.evaluate(
+                """() => {
+                    const root = document.querySelector('main#workspace') || document.body;
+                    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                    let best = null;
+                    while (walker.nextNode()) {
+                        const el = walker.currentNode;
+                        const text = (el.innerText || '').trim();
+                        if (!text || !/about the job/i.test(text) || text.length < 40) {
+                            continue;
+                        }
+                        if (best === null || text.length > best.length) {
+                            best = text;
+                        }
+                    }
+                    return best;
+                }"""
+            )
+        except Exception:
+            return None
+
+        return _normalize_job_description_text(fallback_text)
+
     async def resolve_manual_apply_url(self, job_url: str) -> str:
         """Resolve the destination of LinkedIn's Apply button for a job detail page."""
+        await self._session.ensure_logged_in(timeout_ms=5000)
         page = await self._session.get_page()
         await page.goto(job_url, wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(1200)
@@ -580,6 +723,9 @@ class LinkedInScraper:
         self,
         jobs: list[RawJob],
         max_detail_fetches: int = 20,
+        *,
+        include_apply_target: bool = True,
+        delay_between_jobs: bool = True,
     ) -> list[RawJob]:
         """Fetch detail pages for jobs to get full descriptions and ATS links."""
         page = await self._session.get_page()
@@ -593,9 +739,15 @@ class LinkedInScraper:
                 job.title,
                 job.company,
             )
-            enriched_job = await self.get_job_detail(page, job)
+            enriched_job = await self.get_job_detail(
+                page,
+                job,
+                include_apply_target=include_apply_target,
+                pause_after_load=delay_between_jobs,
+            )
             enriched.append(enriched_job)
-            await self._random_delay()
+            if delay_between_jobs:
+                await self._random_delay()
 
         # Append remaining non-enriched jobs
         enriched.extend(jobs[max_detail_fetches:])
@@ -677,12 +829,7 @@ class LinkedInScraper:
             return None
 
         # Build application URL
-        if href.startswith("/"):
-            application_url = f"{LINKEDIN_BASE}{href.split('?')[0]}"
-        elif href.startswith("http"):
-            application_url = href.split("?")[0]
-        else:
-            application_url = f"{LINKEDIN_BASE}/jobs/view/{source_id}/"
+        application_url = _canonical_linkedin_job_url(source_id, href)
 
         # Extract company
         company_el = await card.query_selector(SELECTORS["job_company"])
@@ -713,11 +860,12 @@ class LinkedInScraper:
     async def _resolve_apply_target(self, page: Page, fallback_url: str) -> dict[str, str | None]:
         """Resolve the destination of the Apply button and classify ATS if possible."""
         try:
-            apply_btn = await page.query_selector(SELECTORS["apply_button"])
+            apply_btn = await self._find_primary_apply_button(page)
             if not apply_btn:
                 return {"manual_apply_url": fallback_url, "ats_url": None}
 
-            btn_text = (await apply_btn.inner_text()).strip().lower()
+            btn_text = _clean_html_text(await apply_btn.inner_text()).lower()
+            aria_label = _clean_html_text(await apply_btn.get_attribute("aria-label") or "").lower()
             href = _normalize_url(await apply_btn.get_attribute("href"))
             if href:
                 clean_href = _clean_tracking_url(href)
@@ -726,16 +874,10 @@ class LinkedInScraper:
                     "ats_url": clean_href if _is_known_ats_url(clean_href) else None,
                 }
 
-            if "easy apply" in btn_text:
+            if "easy apply" in btn_text or "easy apply" in aria_label:
                 return {"manual_apply_url": fallback_url, "ats_url": None}
 
-            async with page.expect_popup(timeout=10000) as popup_info:
-                await apply_btn.click()
-
-            popup = await popup_info.value
-            await popup.wait_for_load_state("domcontentloaded", timeout=10000)
-            external_url = _normalize_url(popup.url)
-            await popup.close()
+            external_url = await self._resolve_click_apply_target(page, apply_btn)
 
             if external_url:
                 clean_url = _clean_tracking_url(external_url)
@@ -750,12 +892,173 @@ class LinkedInScraper:
             logger.debug("Apply target detection failed: %s", e)
             return {"manual_apply_url": fallback_url, "ats_url": None}
 
+    async def _find_primary_apply_button(self, page: Page):
+        candidates: list[tuple[float, object]] = []
+        for element in await page.query_selector_all(SELECTORS["apply_button"]):
+            try:
+                if not await element.is_visible():
+                    continue
+                text = _clean_html_text(await element.inner_text())
+                aria_label = _clean_html_text(await element.get_attribute("aria-label") or "")
+                href = await element.get_attribute("href")
+                if not _is_primary_apply_candidate(text, aria_label, href):
+                    continue
+                box = await element.bounding_box()
+                y = box["y"] if box else float("inf")
+                candidates.append((y, element))
+            except Exception:
+                continue
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    async def _resolve_click_apply_target(self, page: Page, apply_btn) -> str | None:
+        baseline_url = _normalize_url(page.url)
+        popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=8000))
+
+        try:
+            await apply_btn.click()
+        except Exception:
+            await _cancel_pending_task(popup_task)
+            raise
+
+        popup = None
+        for _ in range(24):
+            if popup_task.done() and popup is None:
+                try:
+                    popup = popup_task.result()
+                except Exception:
+                    popup = None
+
+            if popup is not None:
+                target_url = await self._wait_for_page_target_url(
+                    popup,
+                    baseline_url="about:blank",
+                    timeout_ms=12000,
+                )
+                try:
+                    await popup.close()
+                except Exception:
+                    pass
+                if target_url:
+                    return target_url
+                break
+
+            current_url = _normalize_url(page.url)
+            if current_url and current_url != baseline_url:
+                return current_url
+
+            await page.wait_for_timeout(250)
+
+        if not popup_task.done():
+            await _cancel_pending_task(popup_task)
+        return None
+
+    async def _wait_for_page_target_url(
+        self,
+        page: Page,
+        *,
+        baseline_url: str | None,
+        timeout_ms: int,
+    ) -> str | None:
+        deadline = max(timeout_ms // 250, 1)
+        for _ in range(deadline):
+            current_url = _normalize_url(page.url)
+            if current_url and current_url != baseline_url:
+                return current_url
+            await page.wait_for_timeout(250)
+        return None
+
+    async def _wait_for_search_page_state(self, page: Page) -> dict[str, object]:
+        try:
+            await page.wait_for_selector(
+                SELECTORS["job_card"],
+                timeout=15000,
+                state="visible",
+            )
+        except PlaywrightTimeoutError:
+            try:
+                await page.wait_for_load_state("networkidle", timeout=3000)
+            except PlaywrightTimeoutError:
+                pass
+
+        card_count = await page.locator(SELECTORS["job_card"]).count()
+        title_count = await page.locator(SELECTORS["job_title"]).count()
+        pagination_text = None
+
+        for selector in (".artdeco-pagination__state--a11y", ".jobs-search-pagination__info"):
+            locator = page.locator(selector)
+            if await locator.count():
+                try:
+                    pagination_text = (await locator.first.inner_text()).strip() or None
+                except Exception:
+                    pagination_text = None
+                if pagination_text:
+                    break
+
+        body_text = ""
+        if card_count == 0 and title_count == 0:
+            try:
+                body_text = await page.locator("body").inner_text()
+            except Exception:
+                body_text = ""
+
+        status = "unknown"
+        if card_count > 0 or title_count > 0:
+            status = "results"
+        elif _page_has_no_results_text(body_text):
+            status = "no_results"
+
+        return {
+            "status": status,
+            "card_count": card_count,
+            "title_count": title_count,
+            "pagination_text": pagination_text,
+            "has_no_results_text": _page_has_no_results_text(body_text),
+        }
+
+    async def _get_results_scroll_container(self, page: Page):
+        candidates = [
+            "div.scaffold-layout__list > div",
+            "div.jobs-search-results-list",
+            "ul.jobs-search__results-list",
+        ]
+        best_container = None
+        best_score = -1
+
+        for selector in candidates:
+            for candidate in await page.query_selector_all(selector):
+                try:
+                    score = await page.evaluate(
+                        """(el) => {
+                            const cardCount = el.querySelectorAll([
+                                'div.job-card-container',
+                                'li.jobs-search-results__list-item',
+                                'li.scaffold-layout__list-item',
+                            ].join(', ')).length;
+                            if (cardCount === 0) {
+                                return -1;
+                            }
+                            return Math.max(el.scrollHeight - el.clientHeight, 0);
+                        }""",
+                        candidate,
+                    )
+                except Exception:
+                    continue
+
+                if score > best_score:
+                    best_container = candidate
+                    best_score = score
+
+        return best_container
+
     async def _scroll_results(self, page: Page) -> None:
         """Scroll the job results list to trigger lazy loading."""
         try:
-            results_container = await page.query_selector(
-                "div.jobs-search-results-list, ul.jobs-search__results-list"
-            )
+            results_container = await self._get_results_scroll_container(page)
             if results_container:
                 stable_rounds = 0
                 previous_count = -1
@@ -804,9 +1107,7 @@ class LinkedInScraper:
         await capture_visible_cards()
 
         try:
-            results_container = await page.query_selector(
-                "div.jobs-search-results-list, ul.jobs-search__results-list"
-            )
+            results_container = await self._get_results_scroll_container(page)
             if results_container:
                 stable_rounds = 0
                 for _ in range(18):
@@ -873,11 +1174,29 @@ def _extract_job_id_from_url(href: str) -> str | None:
     return None
 
 
+def _canonical_linkedin_job_url(source_id: str | None, href: str | None) -> str | None:
+    source_id = (source_id or "").strip()
+    raw_href = (href or "").strip()
+
+    if source_id:
+        return f"{LINKEDIN_BASE}/jobs/view/{source_id}/"
+
+    if not raw_href:
+        return None
+
+    if raw_href.startswith("http"):
+        return raw_href.split("?")[0]
+    if raw_href.startswith("/"):
+        return f"{LINKEDIN_BASE}{raw_href.split('?')[0]}"
+    return raw_href.split("?")[0]
+
+
 def _is_known_ats_url(url: str) -> bool:
     """Check if a URL belongs to a known ATS platform."""
     known_patterns = [
         "greenhouse.io",
         "lever.co",
+        "ashbyhq.com",
         "boards.greenhouse.io",
         "jobs.lever.co",
         "myworkdayjobs.com",
@@ -894,6 +1213,8 @@ def _detect_ats_type(url: str) -> str:
         return "greenhouse"
     elif "lever.co" in url_lower:
         return "lever"
+    elif "ashbyhq.com" in url_lower:
+        return "ashby"
     elif "workday" in url_lower:
         return "workday"
     return "company_site"
@@ -912,12 +1233,34 @@ def _normalize_url(url: str | None) -> str | None:
     if not url:
         return None
     normalized = url.strip()
-    if not normalized or normalized in {"#", "javascript:void(0)", "javascript:;"}:
+    if not normalized or normalized in {"#", "about:blank", "javascript:void(0)", "javascript:;"}:
         return None
     normalized = _unwrap_linkedin_redirect(normalized)
     if normalized.startswith("/"):
         return f"{LINKEDIN_BASE}{normalized}"
     return normalized
+
+
+def _is_primary_apply_candidate(text: str, aria_label: str, href: str | None) -> bool:
+    combined = " ".join(part for part in (text, aria_label) if part).lower()
+    href_lower = (href or "").lower()
+
+    if any(
+        blocked in href_lower for blocked in ("/jobs/collections/", "/jobs/search/", "/jobs/view/")
+    ):
+        return False
+    if "/safety/go/" in href_lower:
+        return True
+    if not combined or "apply" not in combined:
+        return False
+    if "apply on company website" in combined:
+        return True
+
+    normalized_text = text.lower().strip()
+    if normalized_text in {"apply", "easy apply", "apply now"}:
+        return True
+
+    return bool(aria_label and "apply" in aria_label.lower())
 
 
 def _unwrap_linkedin_redirect(url: str) -> str:
@@ -937,6 +1280,36 @@ def _clean_html_text(value: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(strip_html(value))).strip()
 
 
+def _page_has_no_results_text(body_text: str) -> bool:
+    normalized = " ".join(body_text.lower().split())
+    return any(
+        phrase in normalized
+        for phrase in (
+            "no matching jobs found",
+            "no jobs found",
+            "try changing your filters",
+            "there are no jobs that match your search",
+        )
+    )
+
+
+def _summarize_search_page_state(state: dict[str, object] | None) -> str:
+    if not state:
+        return "unknown state"
+
+    summary = [
+        f"status={state.get('status', 'unknown')}",
+        f"cards={state.get('card_count', 0)}",
+        f"titles={state.get('title_count', 0)}",
+    ]
+    pagination_text = state.get("pagination_text")
+    if pagination_text:
+        summary.append(f"pagination={pagination_text}")
+    if state.get("has_no_results_text"):
+        summary.append("no-results-text=true")
+    return ", ".join(summary)
+
+
 def _normalize_linkedin_title_text(value: str) -> str:
     cleaned = _clean_html_text(value)
     cleaned = re.sub(r"\s+with verification(?:\s+at\s+.+)?$", "", cleaned, flags=re.IGNORECASE)
@@ -946,6 +1319,18 @@ def _normalize_linkedin_title_text(value: str) -> str:
         if parts[:midpoint] == parts[midpoint:]:
             cleaned = " ".join(parts[:midpoint])
     return cleaned.strip(" -")
+
+
+def _normalize_job_description_text(value: str | None) -> str | None:
+    cleaned = _clean_html_text(value or "")
+    if not cleaned:
+        return None
+
+    match = re.search(r"about the job\b", cleaned, flags=re.IGNORECASE)
+    if match:
+        cleaned = cleaned[match.end() :].strip(" :-")
+
+    return cleaned or None
 
 
 def _extract_html_job_cards(html_text: str, *, search_mode: str) -> list[RawJob]:
@@ -979,7 +1364,7 @@ def _parse_html_job_card(attrs: str, body: str, *, search_mode: str) -> RawJob |
     if not source_id or not title or not href:
         return None
 
-    application_url = href.split("?")[0]
+    application_url = _canonical_linkedin_job_url(source_id, href)
     return RawJob(
         source="linkedin",
         source_id=source_id,
@@ -1073,6 +1458,14 @@ async def connect_linkedin_session(
         "error": "LinkedIn login timed out or was cancelled.",
         "error_code": "linkedin_auth_required",
     }
+
+
+async def _cancel_pending_task(task: asyncio.Task) -> None:
+    if task.done():
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 async def resolve_linkedin_apply_target(

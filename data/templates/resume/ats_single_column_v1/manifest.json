@@ -1,0 +1,67 @@
+{
+  "template_id": "ats_single_column_v1",
+  "document_type": "resume",
+  "name": "ATS Single Column",
+  "description": "One-page ATS-friendly resume with named Word styles and tab-stop dates.",
+  "page": {
+    "size": "letter",
+    "max_pages": 1
+  },
+  "styles": {
+    "name": "Resume.Name",
+    "contact": "Resume.Contact",
+    "section_heading": "Resume.SectionHeading",
+    "item_title": "Resume.ItemTitle",
+    "item_subtitle": "Resume.ItemSubtitle",
+    "item_meta": "Resume.ItemMeta",
+    "normal": "Resume.Normal",
+    "bullet": "Resume.Bullet",
+    "skill_category": "Resume.SkillCategory",
+    "skill_line": "Resume.SkillLine"
+  },
+  "sections": {
+    "summary": {
+      "enabled": true,
+      "max_items": 1
+    },
+    "education": {
+      "enabled": true,
+      "max_items": 2
+    },
+    "experience": {
+      "enabled": true,
+      "max_items": 3,
+      "max_bullets_per_item": 4,
+      "max_words_per_bullet": 24
+    },
+    "projects": {
+      "enabled": true,
+      "max_items": 3,
+      "max_bullets_per_item": 3,
+      "max_words_per_bullet": 22
+    },
+    "skills": {
+      "enabled": true,
+      "max_lines": 4
+    }
+  },
+  "section_order": [
+    "header",
+    "education",
+    "skills",
+    "projects",
+    "experience"
+  ],
+  "capacity": {
+    "max_pages": 1,
+    "max_sections": 5,
+    "max_experience_items": 3,
+    "max_project_items": 3,
+    "max_bullets_total": 13,
+    "max_words_per_bullet": 24,
+    "max_skill_lines": 4
+  },
+  "blocks": {
+    "sections": "{{resume.sections}}"
+  }
+}

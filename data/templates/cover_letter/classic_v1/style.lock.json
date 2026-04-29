@@ -1,0 +1,14 @@
+{
+  "template_id": "classic_v1",
+  "document_type": "cover_letter",
+  "styles": {
+    "header": "CoverLetter.Header",
+    "date": "CoverLetter.Date",
+    "recipient": "CoverLetter.Recipient",
+    "body": "CoverLetter.Body",
+    "signature": "CoverLetter.Signature"
+  },
+  "blocks": {
+    "body": "{{cover_letter.body}}"
+  }
+}

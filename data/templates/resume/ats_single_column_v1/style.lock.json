@@ -1,0 +1,19 @@
+{
+  "template_id": "ats_single_column_v1",
+  "document_type": "resume",
+  "styles": {
+    "name": "Resume.Name",
+    "contact": "Resume.Contact",
+    "section_heading": "Resume.SectionHeading",
+    "item_title": "Resume.ItemTitle",
+    "item_subtitle": "Resume.ItemSubtitle",
+    "item_meta": "Resume.ItemMeta",
+    "normal": "Resume.Normal",
+    "bullet": "Resume.Bullet",
+    "skill_category": "Resume.SkillCategory",
+    "skill_line": "Resume.SkillLine"
+  },
+  "blocks": {
+    "sections": "{{resume.sections}}"
+  }
+}

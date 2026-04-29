@@ -11,7 +11,7 @@ from src.core.config import PROJECT_ROOT
 from src.intake.schema import RawJob
 
 CACHE_DIR = PROJECT_ROOT / "data" / "cache" / "linkedin_search"
-CACHE_VERSION = 3
+CACHE_VERSION = 6
 
 
 def load_cached_linkedin_search(
@@ -45,10 +45,18 @@ def load_cached_linkedin_search(
         return None
 
     jobs = payload.get("jobs", [])
+    if not jobs:
+        cache_path.unlink(missing_ok=True)
+        return None
+
     return [RawJob.model_validate(item) for item in jobs]
 
 
 def save_cached_linkedin_search(key: dict, jobs: list[RawJob], *, max_pages: int) -> None:
+    if not jobs:
+        _cache_path(key).unlink(missing_ok=True)
+        return
+
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "created_at": datetime.now(UTC).isoformat(),
@@ -77,16 +85,18 @@ def build_linkedin_search_cache_key(
     experience_levels: list[str] | None,
     job_types: list[str] | None,
     enrich_details: bool,
+    max_detail_fetches: int,
     allow_public_fallback: bool,
 ) -> dict:
     return {
         "version": CACHE_VERSION,
-        "keywords": keywords,
+        "keywords": sorted(keywords),
         "location": location,
         "time_filter": time_filter,
-        "experience_levels": experience_levels or [],
-        "job_types": job_types or [],
+        "experience_levels": sorted(experience_levels or []),
+        "job_types": sorted(job_types or []),
         "enrich_details": enrich_details,
+        "max_detail_fetches": max_detail_fetches,
         "allow_public_fallback": allow_public_fallback,
     }
 

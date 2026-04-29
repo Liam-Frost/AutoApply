@@ -175,6 +175,7 @@ async def search_linkedin(
         experience_levels=experience_levels,
         job_types=job_types,
         enrich_details=enrich_details,
+        max_detail_fetches=max_detail_fetches,
         allow_public_fallback=allow_public_fallback,
     )
 
@@ -200,12 +201,72 @@ async def search_linkedin(
                 allow_public_fallback=allow_public_fallback,
             )
 
-            jobs = _apply_keyword_precision_filter(jobs, keyword_terms)
+            description_match_ids: set[str] = set()
+            if keyword_terms:
+                title_matches, detail_candidates = _partition_jobs_by_title_keywords(
+                    jobs,
+                    keyword_terms,
+                )
+                description_matches: list[RawJob] = []
+
+                if (
+                    detail_candidates
+                    and enrich_details
+                    and scraper.last_search_mode == "authenticated"
+                ):
+                    keyword_detail_fetches = min(max_detail_fetches, len(detail_candidates))
+                    if keyword_detail_fetches < len(detail_candidates):
+                        logger.info(
+                            "LinkedIn description keyword filter limited to %d/%d "
+                            "non-title matches",
+                            keyword_detail_fetches,
+                            len(detail_candidates),
+                        )
+                    enriched_candidates = await scraper.enrich_jobs_with_details(
+                        detail_candidates,
+                        max_detail_fetches=keyword_detail_fetches,
+                        delay_between_jobs=False,
+                    )
+                    description_matches = _apply_keyword_precision_filter(
+                        enriched_candidates,
+                        keyword_terms,
+                        include_title=False,
+                        log_label="LinkedIn description keyword filter",
+                    )
+                    description_match_ids = {job.source_id for job in description_matches}
+                elif detail_candidates:
+                    reason = (
+                        "public guest search results"
+                        if enrich_details
+                        else "detail enrichment disabled"
+                    )
+                    logger.info(
+                        "Skipping LinkedIn description keyword filter for %d non-title matches: %s",
+                        len(detail_candidates),
+                        reason,
+                    )
+
+                jobs = _dedupe_linkedin_results([*title_matches, *description_matches])
+                logger.info(
+                    "LinkedIn keyword precision filter: %d title matches, "
+                    "%d description matches, %d/%d jobs kept",
+                    len(title_matches),
+                    len(description_matches),
+                    len(jobs),
+                    len(title_matches) + len(detail_candidates),
+                )
 
             if enrich_details and jobs and scraper.last_search_mode == "authenticated":
-                jobs = await scraper.enrich_jobs_with_details(
-                    jobs, max_detail_fetches=max_detail_fetches
-                )
+                jobs_to_enrich = [
+                    job for job in jobs if job.source_id not in description_match_ids
+                ]
+                if jobs_to_enrich:
+                    enriched_jobs = await scraper.enrich_jobs_with_details(
+                        jobs_to_enrich,
+                        max_detail_fetches=max_detail_fetches,
+                    )
+                    enriched_by_id = {job.source_id: job for job in enriched_jobs}
+                    jobs = [enriched_by_id.get(job.source_id, job) for job in jobs]
             elif enrich_details and jobs:
                 logger.info("Skipping LinkedIn detail enrichment for public guest search results")
 
@@ -225,19 +286,64 @@ async def search_linkedin(
     return jobs
 
 
-def _apply_keyword_precision_filter(jobs: list[RawJob], keywords: list[str]) -> list[RawJob]:
-    if not keywords:
+def _apply_keyword_precision_filter(
+    jobs: list[RawJob],
+    keywords: str | list[str],
+    *,
+    include_title: bool = True,
+    include_description: bool = True,
+    log_label: str = "LinkedIn keyword precision filter",
+) -> list[RawJob]:
+    keyword_terms = _keyword_terms(keywords)
+    if not keyword_terms or not (include_title or include_description):
         return jobs
 
-    matched = [job for job in jobs if _job_matches_keywords(job, keywords)]
-    logger.info("LinkedIn keyword precision filter: %d/%d jobs kept", len(matched), len(jobs))
+    matched = [
+        job
+        for job in jobs
+        if _job_matches_keywords(
+            job,
+            keyword_terms,
+            include_title=include_title,
+            include_description=include_description,
+        )
+    ]
+    logger.info("%s: %d/%d jobs kept", log_label, len(matched), len(jobs))
     return matched
 
 
-def _job_matches_keywords(job: RawJob, keywords: list[str]) -> bool:
+def _partition_jobs_by_title_keywords(
+    jobs: list[RawJob],
+    keywords: str | list[str],
+) -> tuple[list[RawJob], list[RawJob]]:
+    keyword_terms = _keyword_terms(keywords)
+    if not keyword_terms:
+        return jobs, []
+
+    title_matches: list[RawJob] = []
+    remaining: list[RawJob] = []
+    for job in jobs:
+        if _job_matches_keywords(job, keyword_terms, include_description=False):
+            title_matches.append(job)
+        else:
+            remaining.append(job)
+    return title_matches, remaining
+
+
+def _job_matches_keywords(
+    job: RawJob,
+    keywords: list[str],
+    *,
+    include_title: bool = True,
+    include_description: bool = True,
+) -> bool:
     job_title = (job.title or "").lower()
     job_description = (job.description or "").lower()
-    return any(keyword in job_title or keyword in job_description for keyword in keywords)
+    return any(
+        (include_title and keyword in job_title)
+        or (include_description and keyword in job_description)
+        for keyword in keywords
+    )
 
 
 def _keyword_terms(keywords: str | list[str]) -> list[str]:
@@ -266,9 +372,18 @@ def _linkedin_keyword_query(keywords: list[str]) -> str:
 
 
 def _dedupe_linkedin_results(jobs: list[RawJob]) -> list[RawJob]:
-    from src.application.jobs import _dedupe_jobs_by_signature
-
-    deduped = _dedupe_jobs_by_signature(jobs)
+    deduped: list[RawJob] = []
+    seen: set[tuple[str, str, str]] = set()
+    for job in jobs:
+        signature = (
+            (job.company or "").strip().lower(),
+            (job.title or "").strip().lower(),
+            (job.location or "").strip().lower(),
+        )
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduped.append(job)
     if len(deduped) != len(jobs):
         logger.info("LinkedIn duplicate collapse: %d/%d jobs kept", len(deduped), len(jobs))
     return deduped

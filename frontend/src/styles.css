@@ -410,16 +410,12 @@ textarea {
 }
 
 .jobs-page-jump {
-  width: 68px !important;
-  min-width: 68px;
-  height: 48px;
-  padding-inline: 2px;
-  border-radius: 56px;
+  width: 60px;
+  min-width: 60px;
+  flex: 0 0 48px;
+  padding-inline: 4px;
+  border-radius: 10px;
   text-align: center;
-}
-
-.jobs-pagination-bar {
-  margin-bottom: 8px;
 }
 
 .jobs-pagination-bar-bottom {
@@ -1017,8 +1013,538 @@ textarea {
   gap: 10px;
 }
 
+.material-open-button {
+  gap: 8px;
+}
+
 .inline-feedback {
   font-size: 13px;
+}
+
+.inline-feedback-link {
+  margin-left: 8px;
+  color: inherit;
+  font-weight: 650;
+}
+
+.material-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 50% 15%, rgba(144, 181, 255, 0.18), transparent 34%),
+    rgba(2, 7, 13, 0.72);
+  backdrop-filter: blur(16px);
+}
+
+.material-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(940px, calc(100vw - 40px));
+  max-height: min(860px, calc(100vh - 56px));
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid rgba(144, 181, 255, 0.22);
+  border-radius: 26px;
+  background: linear-gradient(180deg, var(--surface-strong), rgba(9, 15, 24, 0.92));
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.46);
+}
+
+.material-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.material-modal-head h3,
+.material-modal-head p {
+  margin: 0;
+}
+
+.material-modal-head h3 {
+  margin-top: 4px;
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+}
+
+.material-modal-head p {
+  margin-top: 6px;
+  color: var(--text-muted);
+}
+
+.material-target-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.material-target-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.material-target-card:hover,
+.material-target-card:focus-within {
+  border-color: rgba(144, 181, 255, 0.34);
+  background: rgba(144, 181, 255, 0.08);
+}
+
+.material-target-card.is-selected {
+  border-color: rgba(105, 214, 192, 0.42);
+  background: linear-gradient(135deg, rgba(144, 181, 255, 0.13), rgba(105, 214, 192, 0.09));
+}
+
+.material-target-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.material-target-check {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: transparent;
+}
+
+.material-target-card.is-selected .material-target-check {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #04101a;
+}
+
+.material-target-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.material-target-copy small {
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.material-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.material-template-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.material-template-field > span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.material-template-field.is-disabled {
+  opacity: 0.58;
+}
+
+.material-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.material-review-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.material-preview-empty {
+  padding: 18px;
+  border: 1px dashed rgba(144, 181, 255, 0.24);
+  border-radius: 18px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.material-review-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid rgba(144, 181, 255, 0.18);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(144, 181, 255, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.material-review-head,
+.material-preview-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.material-review-head h4 {
+  margin: 0;
+}
+
+.material-download-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.material-review-issues,
+.material-preview-body,
+.material-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.material-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text-muted);
+}
+
+.material-issue.error {
+  border-color: rgba(255, 143, 143, 0.18);
+  color: var(--danger);
+}
+
+.material-issue.warning {
+  border-color: rgba(240, 199, 111, 0.18);
+  color: var(--warning);
+}
+
+.material-preview-section {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.material-preview-section p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.material-bullet-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.material-bullet-preview::before {
+  content: "•";
+  position: absolute;
+}
+
+.material-bullet-preview > div:first-child {
+  padding-left: 18px;
+}
+
+.material-bullet-meta {
+  padding-left: 18px;
+}
+
+.materials-page,
+.materials-setup-panel,
+.materials-preview-workbench,
+.materials-card-stack,
+.materials-selector-stack,
+.materials-step,
+.materials-actions,
+.materials-result-workbench,
+.materials-library-section,
+.materials-template-list,
+.materials-upload-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.materials-page {
+  gap: 18px;
+}
+
+.materials-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.materials-hero h2,
+.materials-hero p,
+.materials-preview-head h2,
+.materials-result-summary h3 {
+  margin: 0;
+}
+
+.materials-hero p {
+  margin-top: 6px;
+  color: var(--text-muted);
+}
+
+.materials-workspace {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.5fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.materials-setup-panel,
+.materials-preview-workbench,
+.materials-result-workbench {
+  gap: 18px;
+}
+
+.materials-step,
+.materials-card-stack,
+.materials-selector-stack,
+.materials-actions,
+.materials-library-section,
+.materials-template-list,
+.materials-upload-box {
+  gap: 12px;
+}
+
+.materials-step-title {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.materials-mode-row,
+.materials-format-row,
+.materials-preview-tabs,
+.materials-result-summary,
+.materials-choice-head,
+.materials-template-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.materials-selected-card,
+.materials-choice-card,
+.materials-downloads-card,
+.materials-empty-preview,
+.materials-collapsed-preview,
+.materials-template-card,
+.materials-upload-box {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.materials-selected-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.materials-selected-card small,
+.materials-template-card small {
+  color: var(--text-muted);
+}
+
+.materials-jd-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.materials-jd-textarea {
+  min-height: 220px;
+}
+
+.materials-choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.materials-choice-card.is-disabled {
+  opacity: 0.62;
+}
+
+.materials-choice-head,
+.materials-template-row,
+.materials-result-summary,
+.materials-preview-head {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.materials-generate-check,
+.materials-format-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.materials-generate-check span {
+  font-weight: 650;
+}
+
+.materials-format-check {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.materials-template-row .field {
+  flex: 1 1 260px;
+}
+
+.materials-primary-button {
+  background: var(--accent);
+  color: #04101a;
+}
+
+.materials-preview-head {
+  display: flex;
+  gap: 14px;
+}
+
+.materials-preview-tabs {
+  flex: 0 0 auto;
+}
+
+.materials-preview-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.materials-preview-tab.is-active {
+  border-color: rgba(144, 181, 255, 0.34);
+  background: rgba(144, 181, 255, 0.14);
+  color: var(--text);
+}
+
+.materials-preview-tab.is-empty {
+  opacity: 0.58;
+}
+
+.materials-empty-preview,
+.materials-collapsed-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.materials-empty-preview strong {
+  color: var(--text);
+}
+
+.materials-empty-preview p {
+  max-width: 56ch;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.materials-downloads-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.materials-document-canvas {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.materials-library-modal {
+  width: min(980px, calc(100vw - 40px));
+}
+
+.materials-library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.materials-template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.materials-upload-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  border: 1px dashed rgba(144, 181, 255, 0.34);
+  border-radius: 16px;
+  background: rgba(144, 181, 255, 0.06);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.materials-upload-zone input {
+  display: none;
+}
+
+.materials-upload-zone strong {
+  color: var(--text);
+}
+
+.success-text {
+  color: var(--success) !important;
+}
+
+.danger-text {
+  color: var(--danger) !important;
 }
 
 .table-surface {
@@ -1285,6 +1811,9 @@ textarea {
 
   .jobs-panel-grid,
   .jobs-panel-grid-wide,
+  .materials-workspace,
+  .materials-jd-grid,
+  .materials-library-grid,
   .settings-grid-2,
   .editor-grid-2,
   .profile-create-grid {
@@ -1306,6 +1835,26 @@ textarea {
   .jobs-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .materials-hero,
+  .materials-preview-head,
+  .materials-result-summary,
+  .materials-choice-head,
+  .materials-template-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .materials-preview-tabs,
+  .materials-format-row {
+    width: 100%;
+  }
+
+  .materials-preview-tab,
+  .materials-format-check {
+    flex: 1 1 auto;
+    justify-content: center;
   }
 
   .jobs-profile-strip,
@@ -1350,6 +1899,24 @@ textarea {
   .job-card-actions,
   .jobs-results-metrics {
     justify-content: flex-start;
+  }
+
+  .material-modal-backdrop {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .material-modal {
+    width: 100%;
+    max-height: calc(100vh - 32px);
+  }
+
+  .material-target-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .material-template-grid {
+    grid-template-columns: 1fr;
   }
 
   .dock {

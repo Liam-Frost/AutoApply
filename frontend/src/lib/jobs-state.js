@@ -58,6 +58,8 @@ export const jobsState = reactive({
   pageJump: "",
   lastFetchSignature: persisted.state?.lastFetchSignature || "",
   applyState: {},
+  materialState: {},
+  materialTemplates: { resume: [], cover_letter: [] },
   filterProfilesLoading: false,
   filterProfiles: persisted.state?.filterProfiles || [],
   selectedFilterProfileId: persisted.state?.selectedFilterProfileId || "",
