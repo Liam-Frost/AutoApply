@@ -118,6 +118,7 @@ def ensure_template_package(
         manifest_path.write_text(
             json.dumps(_default_manifest(document_type, template_id), indent=2),
             encoding="utf-8",
+            newline="\n",
         )
     if not template_path.exists():
         if document_type == "resume":
@@ -186,7 +187,11 @@ def save_uploaded_template_package(
         manifest_payload = _default_manifest(document_type, template_id)
         manifest_payload["name"] = display_name
         manifest_payload["description"] = f"Uploaded {document_type.replace('_', ' ')} template."
-        manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+        manifest_path.write_text(
+            json.dumps(manifest_payload, indent=2),
+            encoding="utf-8",
+            newline="\n",
+        )
         manifest = TemplateManifest.model_validate(manifest_payload)
         _ensure_default_styles(doc, document_type)
         doc.save(str(template_path))
@@ -442,7 +447,7 @@ def _write_sample_assets(package: TemplatePackage) -> None:
     )
     sample_path = package_dir / sample_name
     if not sample_path.exists():
-        sample_path.write_text("{}\n", encoding="utf-8")
+        sample_path.write_text("{}\n", encoding="utf-8", newline="\n")
     style_lock = package_dir / "style.lock.json"
     style_lock.write_text(
         json.dumps(
@@ -455,6 +460,7 @@ def _write_sample_assets(package: TemplatePackage) -> None:
             indent=2,
         ),
         encoding="utf-8",
+        newline="\n",
     )
 
 
