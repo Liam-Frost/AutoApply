@@ -116,7 +116,7 @@ def ensure_template_package(
 
     if not manifest_path.exists():
         manifest_path.write_text(
-            json.dumps(_default_manifest(document_type, template_id), indent=2),
+            json.dumps(_default_manifest(document_type, template_id), indent=2) + "\n",
             encoding="utf-8",
             newline="\n",
         )
@@ -188,7 +188,7 @@ def save_uploaded_template_package(
         manifest_payload["name"] = display_name
         manifest_payload["description"] = f"Uploaded {document_type.replace('_', ' ')} template."
         manifest_path.write_text(
-            json.dumps(manifest_payload, indent=2),
+            json.dumps(manifest_payload, indent=2) + "\n",
             encoding="utf-8",
             newline="\n",
         )
@@ -458,7 +458,8 @@ def _write_sample_assets(package: TemplatePackage) -> None:
                 "blocks": package.manifest.blocks,
             },
             indent=2,
-        ),
+        )
+        + "\n",
         encoding="utf-8",
         newline="\n",
     )
