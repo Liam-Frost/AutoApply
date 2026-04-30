@@ -25,6 +25,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { api } from "@/lib/api"
 import { formatPercent, truncateText } from "@/lib/format"
@@ -1444,18 +1451,15 @@ function buildPageButtons(total, current) {
       </div>
     </Card>
 
-    <div v-if="materialModal.open" class="material-modal-backdrop" @click.self="closeMaterialModal">
-      <section class="material-modal" role="dialog" aria-modal="true" aria-labelledby="material-modal-title">
-        <div class="material-modal-head">
-          <div>
-            <div class="muted-inline">Apply Materials</div>
-            <h3 id="material-modal-title">{{ materialModal.job?.title }}</h3>
-            <p>{{ materialModal.job?.company }}<span v-if="materialModal.job?.location"> · {{ materialModal.job.location }}</span></p>
-          </div>
-          <Button variant="ghost" size="icon" type="button" aria-label="Close materials modal" title="Close" @click="closeMaterialModal">
-            <X class="h-4 w-4" />
-          </Button>
-        </div>
+    <Dialog :open="materialModal.open" @update:open="(value) => !value && closeMaterialModal()">
+      <DialogContent class="max-w-3xl max-h-[calc(100vh-3.5rem)] overflow-y-auto">
+        <DialogHeader>
+          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Apply materials</p>
+          <DialogTitle class="text-xl">{{ materialModal.job?.title }}</DialogTitle>
+          <DialogDescription>
+            {{ materialModal.job?.company }}<span v-if="materialModal.job?.location"> · {{ materialModal.job.location }}</span>
+          </DialogDescription>
+        </DialogHeader>
 
         <div class="material-target-grid" aria-label="Select materials to generate">
           <label
@@ -1499,9 +1503,10 @@ function buildPageButtons(total, current) {
         </div>
 
         <div class="material-modal-actions">
-          <button class="button" type="button" :disabled="!canGenerateMaterials" @click="generateSelectedMaterials">
+          <Button type="button" :disabled="!canGenerateMaterials" @click="generateSelectedMaterials">
+            <Sparkles class="h-4 w-4" />
             {{ modalMaterialState.loading ? 'Generating...' : 'Generate Selected Materials' }}
-          </button>
+          </Button>
           <span v-if="modalMaterialState.message" class="inline-feedback" :class="modalMaterialState.status">
             {{ modalMaterialState.message }}
           </span>
@@ -1591,7 +1596,7 @@ function buildPageButtons(total, current) {
         <div v-else class="material-preview-empty">
           Select Resume, Cover Letter, or both. Generated previews and download buttons appear here.
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
