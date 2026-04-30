@@ -25,7 +25,11 @@ from src.generation.resume_builder import (
     rewrite_bullets,
     select_bullets_for_jd,
 )
-from src.generation.validator import validate_resume_artifacts, validate_resume_document
+from src.generation.validator import (
+    validate_latex_artifacts,
+    validate_resume_artifacts,
+    validate_resume_document,
+)
 from src.generation.versions import save_generation_version
 from src.intake.jd_parser import parse_requirements
 from src.intake.schema import JobRequirements, RawJob
@@ -265,6 +269,25 @@ class TestResumeIR:
         assert rendered.metrics["docx_generated"] is True
         assert rendered.metrics["pdf_generated"] is False
         assert any(issue.type == "pdf_generation_failed" for issue in rendered.issues)
+
+    def test_latex_artifact_validator_allows_tex_without_pdf(self, tmp_path):
+        job = _make_job()
+        document = build_resume_document(job, _PROFILE)
+        validation = validate_resume_document(document, jd_tags=["python"])
+        tex_path = tmp_path / "resume.tex"
+        tex_path.write_text("tex", encoding="utf-8")
+
+        rendered = validate_latex_artifacts(
+            validation,
+            tex_path=tex_path,
+            pdf_path=None,
+            pdf_attempted=True,
+        )
+
+        assert rendered.metrics["tex_generated"] is True
+        assert rendered.metrics["pdf_generated"] is False
+        assert any(issue.type == "pdf_generation_failed" for issue in rendered.issues)
+        assert not any(issue.type == "docx_generation_failed" for issue in rendered.issues)
 
     def test_artifact_validator_counts_pdf_pages(self, tmp_path):
         import fitz

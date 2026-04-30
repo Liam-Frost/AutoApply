@@ -18,22 +18,19 @@ const targets = [
   },
 ]
 
-const formatOptions = {
-  resume: [
-    { type: "resume_docx", label: "DOCX" },
-    { type: "resume_pdf", label: "PDF" },
-  ],
-  cover_letter: [
-    { type: "cover_letter_docx", label: "DOCX" },
-    { type: "cover_letter_pdf", label: "PDF" },
-  ],
+const outputFormatLabels = {
+  docx: "DOCX",
+  pdf: "PDF",
+  tex: "TEX",
 }
 
 const materialLabels = {
   resume_docx: "Resume DOCX",
   resume_pdf: "Resume PDF",
+  resume_tex: "Resume TEX",
   cover_letter_docx: "Cover Letter DOCX",
   cover_letter_pdf: "Cover Letter PDF",
+  cover_letter_tex: "Cover Letter TEX",
 }
 
 const state = reactive({
@@ -50,13 +47,32 @@ const state = reactive({
   selectedFormats: {
     resume_docx: true,
     resume_pdf: true,
+    resume_tex: false,
     cover_letter_docx: true,
     cover_letter_pdf: true,
+    cover_letter_tex: false,
   },
   templateIds: { resume: "", cover_letter: "" },
   templateUploads: {
     resume: { file: null, name: "", loading: false, message: "", error: "" },
     cover_letter: { file: null, name: "", loading: false, message: "", error: "" },
+  },
+  latexCreates: {
+    resume: { name: "", loading: false, message: "", error: "" },
+    cover_letter: { name: "", loading: false, message: "", error: "" },
+  },
+  templateEditor: {
+    documentType: "",
+    templateId: "",
+    name: "",
+    description: "",
+    content: "",
+    loading: false,
+    saving: false,
+    validating: false,
+    message: "",
+    error: "",
+    validation: null,
   },
   templateLibraryOpen: false,
   activePreviewTab: "resume",
@@ -165,6 +181,16 @@ watch(
   () => applyRouteJob(),
 )
 
+watch(
+  () => state.templateIds.resume,
+  () => syncSelectedFormats("resume"),
+)
+
+watch(
+  () => state.templateIds.cover_letter,
+  () => syncSelectedFormats("cover_letter"),
+)
+
 async function loadProfiles() {
   const response = await api.profile()
   state.profiles = response.profiles || []
@@ -179,6 +205,8 @@ async function loadTemplates() {
   }
   state.templateIds.resume = state.templates.resume[0]?.template_id || ""
   state.templateIds.cover_letter = state.templates.cover_letter[0]?.template_id || ""
+  syncSelectedFormats("resume")
+  syncSelectedFormats("cover_letter")
 }
 
 function applyRouteJob() {
@@ -248,7 +276,7 @@ function onTemplateFileChange(documentType, event) {
 async function uploadTemplate(documentType) {
   const upload = state.templateUploads[documentType]
   if (!upload.file) {
-    upload.error = "Choose a .docx template first."
+    upload.error = "Choose a .docx or .tex template first."
     return
   }
   upload.loading = true
@@ -256,11 +284,9 @@ async function uploadTemplate(documentType) {
   upload.message = ""
   try {
     const response = await api.uploadTemplate(documentType, upload.file, upload.name)
-    state.templates = {
-      resume: response.templates?.resume || state.templates.resume,
-      cover_letter: response.templates?.cover_letter || state.templates.cover_letter,
-    }
+    applyTemplateResponse(response)
     state.templateIds[documentType] = response.template?.template_id || state.templateIds[documentType]
+    syncSelectedFormats(documentType)
     upload.file = null
     upload.name = ""
     upload.message = "Uploaded template."
@@ -269,6 +295,118 @@ async function uploadTemplate(documentType) {
   } finally {
     upload.loading = false
   }
+}
+
+async function createLatexTemplate(documentType) {
+  const creator = state.latexCreates[documentType]
+  creator.loading = true
+  creator.error = ""
+  creator.message = ""
+  try {
+    const response = await api.createLatexTemplate(documentType, creator.name)
+    applyTemplateResponse(response)
+    state.templateIds[documentType] = response.template?.template_id || state.templateIds[documentType]
+    creator.name = ""
+    creator.message = "Created LaTeX template."
+    syncSelectedFormats(documentType)
+    if (response.template?.template_id) {
+      await editTemplate(documentType, response.template.template_id)
+    }
+  } catch (error) {
+    creator.error = error.message
+  } finally {
+    creator.loading = false
+  }
+}
+
+async function editTemplate(documentType, templateId) {
+  Object.assign(state.templateEditor, {
+    documentType,
+    templateId,
+    name: "",
+    description: "",
+    content: "",
+    loading: true,
+    saving: false,
+    validating: false,
+    message: "",
+    error: "",
+    validation: null,
+  })
+  try {
+    const response = await api.templateDetail(documentType, templateId)
+    const template = response.template || {}
+    Object.assign(state.templateEditor, {
+      name: template.name || template.template_id || "",
+      description: template.description || "",
+      content: template.content || "",
+      validation: template.validation || null,
+    })
+  } catch (error) {
+    state.templateEditor.error = error.message
+  } finally {
+    state.templateEditor.loading = false
+  }
+}
+
+async function saveTemplateEditor() {
+  const editor = state.templateEditor
+  if (!editor.documentType || !editor.templateId) {
+    return
+  }
+  editor.saving = true
+  editor.error = ""
+  editor.message = ""
+  try {
+    const response = await api.updateTemplate(editor.documentType, editor.templateId, {
+      template_name: editor.name,
+      description: editor.description,
+      content: editor.content,
+    })
+    applyTemplateResponse(response)
+    editor.validation = response.template?.validation || null
+    editor.message = "Saved template."
+  } catch (error) {
+    editor.error = error.message
+  } finally {
+    editor.saving = false
+  }
+}
+
+async function validateTemplateEditor() {
+  const editor = state.templateEditor
+  if (!editor.documentType || !editor.templateId) {
+    return
+  }
+  editor.validating = true
+  editor.error = ""
+  editor.message = ""
+  try {
+    const response = await api.validateTemplate(editor.documentType, editor.templateId)
+    editor.validation = response.validation || response.template?.validation || null
+    applyTemplateResponse(response)
+    editor.message = editor.validation?.ok ? "Template validated." : "Template needs review."
+  } catch (error) {
+    editor.error = error.message
+  } finally {
+    editor.validating = false
+  }
+}
+
+function closeTemplateEditor() {
+  Object.assign(state.templateEditor, {
+    documentType: "",
+    templateId: "",
+    name: "",
+    description: "",
+    content: "",
+    loading: false,
+    saving: false,
+    validating: false,
+    message: "",
+    error: "",
+    validation: null,
+  })
 }
 
 function togglePreview(targetId) {
@@ -297,7 +435,12 @@ function selectedTemplate(documentType) {
 }
 
 function templateDescription(documentType) {
-  return selectedTemplate(documentType)?.description || "Template styles and capacity are read from manifest.json."
+  const template = selectedTemplate(documentType)
+  const outputs = templateSupportedOutputs(template).map((output) => outputFormatLabels[output] || output).join("/")
+  const renderer = templateRenderer(template) === "latex" ? "LaTeX" : "DOCX"
+  return template
+    ? `${template.description || "Template capacity is read from manifest.json."} Renderer: ${renderer}. Outputs: ${outputs}.`
+    : "Template styles and capacity are read from manifest.json."
 }
 
 function jobSummary(job) {
@@ -314,14 +457,63 @@ function templateOptions(documentType) {
   }
   return templates.map((template) => ({
     value: template.template_id,
-    label: template.name || template.template_id,
+    label: `${template.name || template.template_id} · ${templateRenderer(template) === "latex" ? "LaTeX" : "DOCX"}`,
   }))
 }
 
 function selectedFormatTypes(targetId) {
-  return formatOptions[targetId]
+  return availableFormatOptions(targetId)
     .filter((option) => state.selectedFormats[option.type])
     .map((option) => option.type)
+}
+
+function availableFormatOptions(targetId) {
+  const target = targets.find((item) => item.id === targetId)
+  if (!target) {
+    return []
+  }
+  return templateSupportedOutputs(selectedTemplate(target.templateType)).map((output) => ({
+    type: materialTypeForOutput(target.templateType, output),
+    label: outputFormatLabels[output] || output.toUpperCase(),
+  }))
+}
+
+function syncSelectedFormats(documentType) {
+  const prefix = documentType === "cover_letter" ? "cover_letter" : "resume"
+  for (const output of ["docx", "pdf", "tex"]) {
+    state.selectedFormats[`${prefix}_${output}`] = false
+  }
+  for (const output of templateSupportedOutputs(selectedTemplate(documentType))) {
+    state.selectedFormats[materialTypeForOutput(documentType, output)] = true
+  }
+}
+
+function templateSupportedOutputs(template) {
+  const outputs = template?.supported_outputs || template?.manifest?.supported_outputs
+  if (Array.isArray(outputs) && outputs.length) {
+    return outputs.filter((output) => ["docx", "pdf", "tex"].includes(output))
+  }
+  return ["docx", "pdf"]
+}
+
+function templateRenderer(template) {
+  return template?.renderer || template?.manifest?.renderer || "docx"
+}
+
+function isLatexTemplate(template) {
+  return templateRenderer(template) === "latex"
+}
+
+function materialTypeForOutput(documentType, output) {
+  const prefix = documentType === "cover_letter" ? "cover_letter" : "resume"
+  return `${prefix}_${output}`
+}
+
+function applyTemplateResponse(response) {
+  state.templates = {
+    resume: response.templates?.resume || state.templates.resume,
+    cover_letter: response.templates?.cover_letter || state.templates.cover_letter,
+  }
 }
 
 function primaryMaterialType(target) {
@@ -454,7 +646,7 @@ function prettyLabel(value) {
                   <span>{{ target.label }}</span>
                 </label>
                 <div class="materials-format-row">
-                  <label v-for="format in formatOptions[target.id]" :key="format.type" class="materials-format-check">
+                  <label v-for="format in availableFormatOptions(target.id)" :key="format.type" class="materials-format-check">
                     <input v-model="state.selectedFormats[format.type]" type="checkbox" :disabled="!state.selectedMaterials[target.id]" />
                     <span>{{ format.label }}</span>
                   </label>
@@ -612,7 +804,7 @@ function prettyLabel(value) {
           <div>
             <div class="muted-inline">Template Library</div>
             <h3>Manage Templates</h3>
-            <p>Upload and validate DOCX templates outside the generation flow.</p>
+            <p>Upload DOCX templates or create, edit, and validate single-file LaTeX templates.</p>
           </div>
           <button class="icon-button" type="button" aria-label="Close template library" @click="closeTemplateLibrary">×</button>
         </div>
@@ -622,13 +814,29 @@ function prettyLabel(value) {
             <div class="section-head">
               <div>
                 <h2>{{ target.label }} Templates</h2>
-                <p class="muted-inline">Current templates and DOCX upload.</p>
+                <p class="muted-inline">Current templates, DOCX upload, and editable LaTeX.</p>
               </div>
             </div>
 
             <div class="materials-template-list">
               <div v-for="template in state.templates[target.templateType]" :key="template.template_id" class="materials-template-card">
-                <strong>{{ template.name || template.template_id }}</strong>
+                <div class="materials-template-card-head">
+                  <strong>{{ template.name || template.template_id }}</strong>
+                  <button
+                    v-if="isLatexTemplate(template)"
+                    class="button ghost compact"
+                    type="button"
+                    @click="editTemplate(target.templateType, template.template_id)"
+                  >
+                    Edit
+                  </button>
+                </div>
+                <div class="materials-template-meta">
+                  <span class="chip subtle">{{ templateRenderer(template) === 'latex' ? 'LaTeX' : 'DOCX' }}</span>
+                  <span v-for="output in templateSupportedOutputs(template)" :key="`${template.template_id}-${output}`" class="chip subtle">
+                    {{ outputFormatLabels[output] || output.toUpperCase() }}
+                  </span>
+                </div>
                 <span>{{ template.description || 'No description provided.' }}</span>
                 <small :class="template.validation?.ok ? 'success-text' : 'danger-text'">
                   {{ template.validation?.ok ? 'Validated' : 'Needs validation' }}
@@ -639,9 +847,9 @@ function prettyLabel(value) {
             <div class="materials-upload-box">
               <input v-model="state.templateUploads[target.templateType].name" class="input" type="text" placeholder="Template name" />
               <label class="materials-upload-zone">
-                <input type="file" accept=".docx" @change="onTemplateFileChange(target.templateType, $event)" />
-                <strong>{{ state.templateUploads[target.templateType].file?.name || 'Drop DOCX here or browse' }}</strong>
-                <span>Required styles and markers will be added if missing.</span>
+                <input type="file" accept=".docx,.tex" @change="onTemplateFileChange(target.templateType, $event)" />
+                <strong>{{ state.templateUploads[target.templateType].file?.name || 'Drop DOCX or TEX here or browse' }}</strong>
+                <span>DOCX styles can be repaired. LaTeX marker validation reports issues without rewriting your file.</span>
               </label>
               <button class="button compact" type="button" :disabled="state.templateUploads[target.templateType].loading" @click="uploadTemplate(target.templateType)">
                 {{ state.templateUploads[target.templateType].loading ? 'Uploading...' : `Upload ${target.label} Template` }}
@@ -649,8 +857,66 @@ function prettyLabel(value) {
               <span v-if="state.templateUploads[target.templateType].message" class="inline-feedback review">{{ state.templateUploads[target.templateType].message }}</span>
               <span v-if="state.templateUploads[target.templateType].error" class="inline-feedback error">{{ state.templateUploads[target.templateType].error }}</span>
             </div>
+
+            <div class="materials-latex-create">
+              <input v-model="state.latexCreates[target.templateType].name" class="input" type="text" :placeholder="`New ${target.label} LaTeX template name`" />
+              <button class="button ghost compact" type="button" :disabled="state.latexCreates[target.templateType].loading" @click="createLatexTemplate(target.templateType)">
+                {{ state.latexCreates[target.templateType].loading ? 'Creating...' : 'Create LaTeX Template' }}
+              </button>
+              <span v-if="state.latexCreates[target.templateType].message" class="inline-feedback review">{{ state.latexCreates[target.templateType].message }}</span>
+              <span v-if="state.latexCreates[target.templateType].error" class="inline-feedback error">{{ state.latexCreates[target.templateType].error }}</span>
+            </div>
           </section>
         </div>
+
+        <section v-if="state.templateEditor.templateId" class="materials-template-editor">
+          <div class="section-head">
+            <div>
+              <h2>Edit LaTeX Template</h2>
+              <p class="muted-inline">{{ state.templateEditor.documentType === 'resume' ? 'Resume' : 'Cover Letter' }} · {{ state.templateEditor.templateId }}</p>
+            </div>
+            <button class="button ghost compact" type="button" @click="closeTemplateEditor">Close</button>
+          </div>
+
+          <div v-if="state.templateEditor.loading" class="muted-inline">Loading template...</div>
+          <template v-else>
+            <div class="form-grid materials-editor-grid">
+              <label class="field">
+                <span>Name</span>
+                <input v-model="state.templateEditor.name" class="input" type="text" />
+              </label>
+              <label class="field">
+                <span>Description</span>
+                <input v-model="state.templateEditor.description" class="input" type="text" />
+              </label>
+              <label class="field field-span-full">
+                <span>template.tex</span>
+                <textarea v-model="state.templateEditor.content" class="input textarea code-textarea materials-code-editor" spellcheck="false"></textarea>
+              </label>
+            </div>
+
+            <div class="materials-editor-actions">
+              <button class="button compact" type="button" :disabled="state.templateEditor.saving" @click="saveTemplateEditor">
+                {{ state.templateEditor.saving ? 'Saving...' : 'Save Template' }}
+              </button>
+              <button class="button ghost compact" type="button" :disabled="state.templateEditor.validating" @click="validateTemplateEditor">
+                {{ state.templateEditor.validating ? 'Validating...' : 'Validate' }}
+              </button>
+              <span v-if="state.templateEditor.message" class="inline-feedback review">{{ state.templateEditor.message }}</span>
+              <span v-if="state.templateEditor.error" class="inline-feedback error">{{ state.templateEditor.error }}</span>
+            </div>
+
+            <div v-if="state.templateEditor.validation" class="materials-validation-list">
+              <span :class="state.templateEditor.validation.ok ? 'success-text' : 'danger-text'">
+                {{ state.templateEditor.validation.ok ? 'Validation OK' : 'Validation Issues' }}
+              </span>
+              <div v-for="issue in state.templateEditor.validation.issues" :key="`${issue.type}-${issue.message}`" class="material-issue" :class="issue.severity || 'warning'">
+                <strong>{{ prettyLabel(issue.type) }}</strong>
+                <span>{{ issue.message }}</span>
+              </div>
+            </div>
+          </template>
+        </section>
       </section>
     </div>
   </div>

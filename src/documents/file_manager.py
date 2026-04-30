@@ -51,7 +51,7 @@ def get_output_paths(
 ) -> dict[str, Path]:
     """Return all output paths for a single application's documents.
 
-    Returns dict with keys: resume_docx, resume_pdf, cover_docx, cover_pdf
+    Returns dict with keys for DOCX, PDF, and TEX resume/cover-letter artifacts.
     """
     if date is None:
         date = datetime.now(UTC)
@@ -61,8 +61,10 @@ def get_output_paths(
     return {
         "resume_docx": output_dir / make_filename("resume", company, role, date, "docx"),
         "resume_pdf": output_dir / make_filename("resume", company, role, date, "pdf"),
+        "resume_tex": output_dir / make_filename("resume", company, role, date, "tex"),
         "cover_docx": output_dir / make_filename("cover", company, role, date, "docx"),
         "cover_pdf": output_dir / make_filename("cover", company, role, date, "pdf"),
+        "cover_tex": output_dir / make_filename("cover", company, role, date, "tex"),
     }
 
 

@@ -95,6 +95,32 @@ export const api = {
       body: form,
     })
   },
+  createLatexTemplate(documentType, templateName = "", description = "") {
+    return request("/api/templates/latex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_type: documentType,
+        template_name: templateName,
+        description,
+      }),
+    })
+  },
+  templateDetail(documentType, templateId) {
+    return request(`/api/templates/${encodeURIComponent(documentType)}/${encodeURIComponent(templateId)}`)
+  },
+  updateTemplate(documentType, templateId, payload) {
+    return request(`/api/templates/${encodeURIComponent(documentType)}/${encodeURIComponent(templateId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  validateTemplate(documentType, templateId) {
+    return request(`/api/templates/${encodeURIComponent(documentType)}/${encodeURIComponent(templateId)}/validate`, {
+      method: "POST",
+    })
+  },
   generateJobMaterial(job, materialType, templateId = "", profileId = "") {
     return request("/api/jobs/generate-material", {
       method: "POST",
