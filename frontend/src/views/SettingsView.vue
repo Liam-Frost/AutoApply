@@ -1,14 +1,26 @@
 <script setup>
 import { onMounted, reactive, watch } from "vue"
+import {
+  Cpu,
+  Database,
+  Linkedin,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+} from "lucide-vue-next"
 
-import AppSelect from "../components/AppSelect.vue"
-import { api } from "../lib/api"
+import AppSelect from "@/components/AppSelect.vue"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { api } from "@/lib/api"
 import {
   clearLinkedInSessionStore,
   connectLinkedInSession,
   linkedinSessionState,
   refreshLinkedInSession,
-} from "../lib/linkedin-session"
+} from "@/lib/linkedin-session"
 
 const providerOptions = [
   { value: "claude-cli", label: "Claude Code CLI" },
@@ -153,136 +165,175 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-stack">
+  <div class="space-y-6">
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
     <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
 
-    <section class="page-stack settings-stack">
-      <article class="surface settings-card">
-        <div class="section-head">
-          <div>
-            <h2>LLM</h2>
-            <div class="muted-inline">Provider routing</div>
-          </div>
-          <span class="muted">{{ state.saving ? "Saving..." : "Live" }}</span>
-        </div>
+    <Card>
+      <CardHeader class="flex flex-row items-center justify-between space-y-0">
+        <CardTitle class="flex items-center gap-2 text-sm">
+          <Sparkles class="h-4 w-4 text-muted-foreground" />
+          LLM
+        </CardTitle>
+        <Badge variant="secondary" class="tabular-nums">
+          {{ state.saving ? "Saving..." : "Live" }}
+        </Badge>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <p class="text-xs text-muted-foreground">Provider routing for resume tailoring and form filling.</p>
 
-        <div class="form-grid settings-form">
-          <div class="settings-grid settings-grid-2">
-            <label class="field">
-              <span>Primary</span>
-              <AppSelect v-model="state.form.primary_provider" :options="providerOptions" aria-label="Primary provider" />
-            </label>
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="space-y-1.5">
+            <span class="text-xs font-medium text-muted-foreground">Primary</span>
+            <AppSelect v-model="state.form.primary_provider" :options="providerOptions" aria-label="Primary provider" />
+          </label>
 
-            <label class="field">
-              <span>Fallback</span>
-              <AppSelect v-model="state.form.fallback_provider" :options="fallbackOptions" aria-label="Fallback provider" />
-            </label>
-          </div>
-
-          <label class="checkbox-row settings-checkbox-row settings-checkbox-compact">
-            <input v-model="state.form.allow_fallback" type="checkbox" />
-            <span>Auto fallback</span>
+          <label class="space-y-1.5">
+            <span class="text-xs font-medium text-muted-foreground">Fallback</span>
+            <AppSelect v-model="state.form.fallback_provider" :options="fallbackOptions" aria-label="Fallback provider" />
           </label>
         </div>
-      </article>
 
-      <article class="surface settings-card">
-        <div class="section-head">
-          <div>
-            <h2>CLI</h2>
-            <div class="muted-inline">Runtime availability and config path</div>
-          </div>
-          <span class="muted">{{ state.loading ? "..." : "ready" }}</span>
-        </div>
+        <label class="flex items-center gap-2 text-sm text-foreground">
+          <input v-model="state.form.allow_fallback" type="checkbox" class="h-4 w-4 rounded border-input accent-primary" />
+          <span>Auto fallback when the primary provider fails</span>
+        </label>
+      </CardContent>
+    </Card>
 
-        <div class="list-stack settings-list">
-          <div class="list-row settings-row">
+    <Card>
+      <CardHeader class="flex flex-row items-center justify-between space-y-0">
+        <CardTitle class="flex items-center gap-2 text-sm">
+          <Cpu class="h-4 w-4 text-muted-foreground" />
+          CLI
+        </CardTitle>
+        <Badge variant="secondary" class="tabular-nums">
+          {{ state.loading ? "..." : "Ready" }}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        <p class="mb-4 text-xs text-muted-foreground">Runtime availability and config path.</p>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50">
             <span>Claude Code CLI</span>
-            <span class="chip" :class="{ success: state.data.available_providers['claude-cli'] }">
+            <Badge :variant="state.data.available_providers['claude-cli'] ? 'success' : 'secondary'">
               {{ state.data.available_providers['claude-cli'] ? "Available" : "Missing" }}
-            </span>
+            </Badge>
           </div>
-          <div class="list-row settings-row">
+          <div class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50">
             <span>Codex CLI</span>
-            <span class="chip" :class="{ success: state.data.available_providers['codex-cli'] }">
+            <Badge :variant="state.data.available_providers['codex-cli'] ? 'success' : 'secondary'">
               {{ state.data.available_providers['codex-cli'] ? "Available" : "Missing" }}
-            </span>
+            </Badge>
           </div>
-          <div class="list-row settings-row settings-row-path">
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50">
             <span>Config</span>
-            <code class="path-label">{{ state.data.config_path }}</code>
+            <code class="break-all rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">{{ state.data.config_path }}</code>
           </div>
         </div>
-      </article>
+      </CardContent>
+    </Card>
 
-      <article class="surface settings-card">
-        <div class="section-head">
-          <div>
-            <h2>Search Cache</h2>
-            <div class="muted-inline">Reuse recent LinkedIn search results to avoid repeat pulls</div>
-          </div>
-          <span class="muted">{{ state.saving ? "Saving..." : "Live" }}</span>
+    <Card>
+      <CardHeader class="flex flex-row items-center justify-between space-y-0">
+        <CardTitle class="flex items-center gap-2 text-sm">
+          <Database class="h-4 w-4 text-muted-foreground" />
+          Search Cache
+        </CardTitle>
+        <Badge variant="secondary" class="tabular-nums">
+          {{ state.saving ? "Saving..." : "Live" }}
+        </Badge>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <p class="text-xs text-muted-foreground">Reuse recent LinkedIn search results to avoid repeat pulls.</p>
+
+        <label class="grid max-w-xs gap-1.5">
+          <span class="text-xs font-medium text-muted-foreground">TTL hours</span>
+          <Input v-model="state.form.cache_ttl_hours" type="number" min="1" step="1" />
+        </label>
+
+        <label class="flex items-center gap-2 text-sm text-foreground">
+          <input v-model="state.form.cache_enabled" type="checkbox" class="h-4 w-4 rounded border-input accent-primary" />
+          <span>Enable cache</span>
+        </label>
+
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            :disabled="state.cache.clearing"
+            @click="clearSearchCache"
+          >
+            <Trash2 class="h-4 w-4" />
+            {{ state.cache.clearing ? "Clearing..." : "Clear search cache" }}
+          </Button>
         </div>
+      </CardContent>
+    </Card>
 
-        <div class="page-stack settings-subsection">
-          <label class="field">
-            <span>TTL Hours</span>
-            <input v-model="state.form.cache_ttl_hours" class="input" type="number" min="1" step="1" />
-          </label>
+    <Card>
+      <CardHeader class="flex flex-row items-center justify-between space-y-0">
+        <CardTitle class="flex items-center gap-2 text-sm">
+          <Linkedin class="h-4 w-4 text-muted-foreground" />
+          LinkedIn
+        </CardTitle>
+        <Badge :variant="linkedinSessionState.authenticated ? 'success' : 'secondary'">
+          {{ linkedinSessionState.authenticated ? "Connected" : "Not connected" }}
+        </Badge>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <p class="text-xs text-muted-foreground">Manage the saved browser session used for authenticated search.</p>
 
-          <label class="checkbox-row settings-checkbox-row settings-checkbox-compact">
-            <input v-model="state.form.cache_enabled" type="checkbox" />
-            <span>Enable cache</span>
-          </label>
-
-          <div class="actions-row settings-actions-row">
-            <button class="button ghost compact settings-danger-button" type="button" :disabled="state.cache.clearing" @click="clearSearchCache">
-              {{ state.cache.clearing ? "Clearing..." : "Clear Search Cache" }}
-            </button>
-          </div>
-        </div>
-      </article>
-
-      <article class="surface settings-card">
-        <div class="section-head">
-          <div>
-            <h2>LinkedIn</h2>
-            <div class="muted-inline">Manage the saved browser session used for authenticated search</div>
-          </div>
-          <span class="chip" :class="{ success: linkedinSessionState.authenticated }">
-            {{ linkedinSessionState.authenticated ? "Connected" : "Not connected" }}
-          </span>
-        </div>
-
-        <div class="page-stack settings-subsection">
-          <div class="list-row settings-row">
+        <div class="space-y-2">
+          <div class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50">
             <span>Saved session</span>
-            <span class="chip" :class="{ success: linkedinSessionState.has_session_data }">
+            <Badge :variant="linkedinSessionState.has_session_data ? 'success' : 'secondary'">
               {{ linkedinSessionState.has_session_data ? "Present" : "Empty" }}
-            </span>
+            </Badge>
           </div>
-
-          <div class="list-row settings-row settings-row-status">
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50">
             <span>Status</span>
-            <span class="muted-inline">{{ linkedinSessionState.message || "Check LinkedIn session status." }}</span>
-          </div>
-
-          <div v-if="linkedinSessionState.error" class="banner is-danger">{{ linkedinSessionState.error }}</div>
-
-          <div class="actions-row settings-actions-row">
-            <button class="button ghost compact" type="button" :disabled="linkedinSessionState.loading || linkedinSessionState.connecting || linkedinSessionState.clearing" @click="refreshLinkedInSession">
-              {{ linkedinSessionState.loading ? "Checking..." : "Check Status" }}
-            </button>
-            <button class="button compact" type="button" :disabled="linkedinSessionState.connecting || linkedinSessionState.clearing" @click="connectLinkedIn">
-              {{ linkedinSessionState.connecting ? "Waiting For Login..." : "Connect LinkedIn" }}
-            </button>
-            <button class="button ghost compact settings-danger-button" type="button" :disabled="linkedinSessionState.connecting || linkedinSessionState.clearing" @click="clearLinkedInSession">
-              {{ linkedinSessionState.clearing ? "Clearing..." : "Clear Session" }}
-            </button>
+            <span class="text-xs text-muted-foreground">{{ linkedinSessionState.message || "Check LinkedIn session status." }}</span>
           </div>
         </div>
-      </article>
-    </section>
+
+        <div v-if="linkedinSessionState.error" class="banner is-danger">{{ linkedinSessionState.error }}</div>
+
+        <div class="flex flex-wrap gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            :disabled="linkedinSessionState.loading || linkedinSessionState.connecting || linkedinSessionState.clearing"
+            @click="refreshLinkedInSession"
+          >
+            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': linkedinSessionState.loading }" />
+            {{ linkedinSessionState.loading ? "Checking..." : "Check status" }}
+          </Button>
+          <Button
+            size="sm"
+            type="button"
+            :disabled="linkedinSessionState.connecting || linkedinSessionState.clearing"
+            @click="connectLinkedIn"
+          >
+            <Linkedin class="h-4 w-4" />
+            {{ linkedinSessionState.connecting ? "Waiting for login..." : "Connect LinkedIn" }}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            :disabled="linkedinSessionState.connecting || linkedinSessionState.clearing"
+            @click="clearLinkedInSession"
+          >
+            <Trash2 class="h-4 w-4" />
+            {{ linkedinSessionState.clearing ? "Clearing..." : "Clear session" }}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   </div>
 </template>

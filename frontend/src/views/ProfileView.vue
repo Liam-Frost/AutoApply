@@ -1,10 +1,27 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue"
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router"
+import {
+  ArrowLeft,
+  Check,
+  Pencil,
+  Plus,
+  Save,
+  Trash2,
+  Upload,
+  UserCircle,
+  Users,
+  X,
+} from "lucide-vue-next"
 
-import AppIcon from "../components/AppIcon.vue"
-import TagInput from "../components/TagInput.vue"
-import { api } from "../lib/api"
+import AppIcon from "@/components/AppIcon.vue"
+import TagInput from "@/components/TagInput.vue"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Skeleton } from "@/components/ui/skeleton"
+import { api } from "@/lib/api"
 
 const route = useRoute()
 const router = useRouter()
@@ -844,22 +861,29 @@ function makeId(prefix) {
 </script>
 
 <template>
-  <div class="page-stack">
-    <div v-if="state.loading && !state.ready" class="empty-state">Loading</div>
+  <div class="space-y-6">
+    <div v-if="state.loading && !state.ready" class="space-y-2">
+      <Skeleton class="h-8 w-40" />
+      <Skeleton class="h-24 w-full" />
+    </div>
     <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
     <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
 
     <template v-if="!state.loading && !isEditingView">
-      <section class="surface profile-library-shell" :class="{ 'is-loading': state.loading }">
-        <div class="section-head">
+      <Card class="profile-library-shell" :class="{ 'is-loading': state.loading }">
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
           <div>
-            <h2>Profiles</h2>
-                <div class="muted-inline">{{ profiles.length }} Available</div>
+            <CardTitle class="flex items-center gap-2 text-sm">
+              <Users class="h-4 w-4 text-muted-foreground" />
+              Profiles
+            </CardTitle>
+            <p class="mt-1 text-xs text-muted-foreground">{{ profiles.length }} available</p>
           </div>
-          <button class="icon-button" type="button" aria-label="Add profile" title="Add profile" @click="openCreateMenu()">
-            <AppIcon name="plus" />
-          </button>
-        </div>
+          <Button variant="ghost" size="icon" type="button" aria-label="Add profile" title="Add profile" @click="openCreateMenu()">
+            <Plus class="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent class="space-y-4">
 
         <div v-if="state.createMenuOpen" class="profile-create-panel">
           <div class="section-head compact-head">
@@ -916,9 +940,9 @@ function makeId(prefix) {
                 <strong>{{ profile.name }}</strong>
                 <div class="muted-inline">{{ profile.path }}</div>
               </div>
-              <span class="chip" :class="{ success: profile.is_active }">
+              <Badge :variant="profile.is_active ? 'success' : 'secondary'">
                 {{ profile.is_active ? 'Selected' : 'Stored' }}
-              </span>
+              </Badge>
             </div>
 
             <div class="muted-inline">Updated {{ formatUpdatedAt(profile.updated_at) }}</div>
@@ -930,45 +954,84 @@ function makeId(prefix) {
               </label>
 
               <div class="actions-row">
-                <button class="icon-button primary" type="button" :disabled="state.renaming" aria-label="Save Rename" title="Save Rename" @click="renameProfile(profile.id)"><AppIcon name="save" /></button>
-                <button class="icon-button" type="button" aria-label="Cancel Rename" title="Cancel Rename" @click="cancelRename"><AppIcon name="close" /></button>
+                <Button variant="default" size="icon" type="button" :disabled="state.renaming" aria-label="Save Rename" title="Save Rename" @click="renameProfile(profile.id)">
+                  <Save class="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" type="button" aria-label="Cancel Rename" title="Cancel Rename" @click="cancelRename">
+                  <X class="h-4 w-4" />
+                </Button>
               </div>
             </div>
 
             <div v-else class="actions-row">
-              <button class="icon-button" type="button" aria-label="Edit Profile" title="Edit Profile" @click="openProfileEditor(profile.id)"><AppIcon name="edit" /></button>
-              <button class="icon-button" :class="{ 'is-active': profile.is_active }" type="button" aria-label="Select Profile" title="Select Profile" @click="activateProfile(profile.id)"><AppIcon name="check" /></button>
-              <button class="icon-button" type="button" aria-label="Rename Profile" title="Rename Profile" @click="startRename(profile)"><AppIcon name="rename" /></button>
-              <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(profile.id)"><AppIcon name="trash" /></button>
+              <Button variant="ghost" size="icon" type="button" aria-label="Edit Profile" title="Edit Profile" @click="openProfileEditor(profile.id)">
+                <Pencil class="h-4 w-4" />
+              </Button>
+              <Button :variant="profile.is_active ? 'default' : 'ghost'" size="icon" type="button" aria-label="Select Profile" title="Select Profile" @click="activateProfile(profile.id)">
+                <Check class="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" type="button" aria-label="Rename Profile" title="Rename Profile" @click="startRename(profile)">
+                <AppIcon name="rename" />
+              </Button>
+              <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(profile.id)">
+                <Trash2 class="h-4 w-4" />
+              </Button>
             </div>
           </article>
         </div>
-        <div v-else class="empty-state">No Profiles Yet</div>
-      </section>
+        <EmptyState v-else title="No profiles yet" description="Create a blank template or import a resume to get started.">
+          <template #icon><UserCircle /></template>
+          <template #action>
+            <Button type="button" size="sm" @click="openCreateMenu()">
+              <Plus class="h-4 w-4" />
+              New profile
+            </Button>
+          </template>
+        </EmptyState>
+        </CardContent>
+      </Card>
     </template>
 
     <template v-else-if="!state.loading && isEditingView">
-      <section v-if="!state.data.has_profile" class="surface surface-narrow" :class="{ 'is-loading': state.loading }">
-        <div class="section-head">
-          <h2>Profile Not Found</h2>
-          <button class="icon-button" type="button" aria-label="Back To Profiles" title="Back To Profiles" @click="goToLibrary"><AppIcon name="back" /></button>
-        </div>
-        <div class="empty-state">The Selected Profile Does Not Exist.</div>
-      </section>
+      <Card v-if="!state.data.has_profile" class="surface-narrow" :class="{ 'is-loading': state.loading }">
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <CardTitle class="text-sm">Profile not found</CardTitle>
+          <Button variant="ghost" size="icon" type="button" aria-label="Back To Profiles" title="Back To Profiles" @click="goToLibrary">
+            <ArrowLeft class="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <EmptyState title="The selected profile does not exist" description="Return to the library to pick another profile or create a new one.">
+            <template #icon><UserCircle /></template>
+          </EmptyState>
+        </CardContent>
+      </Card>
 
-      <section v-else class="surface profile-editor-shell" :class="{ 'is-loading': state.loading }">
-        <div class="section-head">
-          <div>
-            <h2>{{ currentProfileId }}</h2>
-            <div class="muted-inline">{{ state.data.profile_path }}</div>
+      <Card v-else class="profile-editor-shell" :class="{ 'is-loading': state.loading }">
+        <CardHeader class="flex flex-row items-start justify-between space-y-0">
+          <div class="space-y-1">
+            <CardTitle class="flex items-center gap-2 text-sm">
+              <UserCircle class="h-4 w-4 text-muted-foreground" />
+              {{ currentProfileId }}
+            </CardTitle>
+            <p class="text-xs text-muted-foreground">{{ state.data.profile_path }}</p>
           </div>
           <div class="actions-row">
-            <button class="icon-button" type="button" aria-label="Back To Profiles" title="Back To Profiles" @click="goToLibrary"><AppIcon name="back" /></button>
-            <button class="icon-button" :class="{ 'is-active': state.data.active_profile_id === currentProfileId }" type="button" aria-label="Select Profile" title="Select Profile" @click="activateProfile(currentProfileId)"><AppIcon name="check" /></button>
-            <button class="icon-button danger" type="button" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(currentProfileId)"><AppIcon name="trash" /></button>
-            <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Save Profile" title="Save Profile" @click="saveProfile"><AppIcon name="save" /></button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Back To Profiles" title="Back To Profiles" @click="goToLibrary">
+              <ArrowLeft class="h-4 w-4" />
+            </Button>
+            <Button :variant="state.data.active_profile_id === currentProfileId ? 'default' : 'ghost'" size="icon" type="button" aria-label="Select Profile" title="Select Profile" @click="activateProfile(currentProfileId)">
+              <Check class="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(currentProfileId)">
+              <Trash2 class="h-4 w-4" />
+            </Button>
+            <Button variant="default" size="icon" type="button" :disabled="state.saving" aria-label="Save Profile" title="Save Profile" @click="saveProfile">
+              <Save class="h-4 w-4" />
+            </Button>
           </div>
-        </div>
+        </CardHeader>
+        <CardContent>
 
         <div class="page-stack">
           <section class="editor-section accordion-section">
@@ -1234,7 +1297,8 @@ function makeId(prefix) {
             </div>
           </section>
         </div>
-      </section>
+        </CardContent>
+      </Card>
     </template>
   </div>
 </template>
