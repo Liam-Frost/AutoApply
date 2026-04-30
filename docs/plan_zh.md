@@ -20,10 +20,10 @@
 | 数据库 | PostgreSQL + pgvector |
 | 文档处理 | python-docx + docx 模板系统, docx2pdf / LibreOffice CLI |
 | 任务队列 | asyncio 调度（MVP），后期可升级 Celery + Redis |
-| 前端面板 | CLI 交互（MVP），后期 Next.js |
+| 前端面板 | CLI + FastAPI 托管的 Vue 3 SPA |
 | 包管理 | uv |
 | 配置 | YAML |
-| 目标平台 | 英文 ATS：Greenhouse / Lever / Workday（中文平台后期扩展） |
+| 目标平台 | 英文 ATS：Greenhouse / Lever / Ashby，LinkedIn 搜索发现（中文平台后期扩展） |
 
 ### LLM 调用方式
 
@@ -63,7 +63,7 @@ AutoApply/
 │   │   ├── base.py              # 抓取器基类
 │   │   ├── greenhouse.py        # Greenhouse ATS
 │   │   ├── lever.py             # Lever ATS
-│   │   ├── workday.py           # Workday ATS
+│   │   ├── linkedin.py          # LinkedIn 搜索与 ATS 跳转发现
 │   │   └── schema.py            # 统一岗位 schema
 │   ├── matching/                # Layer 2: 匹配与筛选
 │   │   ├── rules.py             # 硬规则过滤
@@ -75,8 +75,11 @@ AutoApply/
 │   │   ├── qa_bank.py           # 问答库
 │   │   └── bullet_pool.py       # 简历 bullet 池
 │   ├── generation/              # Layer 4: 简历/CL 生成
-│   │   ├── resume_builder.py    # Block-based 简历组装
+│   │   ├── ir.py                # 简历/Cover Letter 结构化 IR
+│   │   ├── resume_builder.py    # 基于证据的简历组装
 │   │   ├── cover_letter.py      # 受约束的 CL 生成
+│   │   ├── fitting.py           # 基于模板容量的裁剪
+│   │   ├── validator.py         # 生成材料校验
 │   │   └── qa_responder.py      # Quick question 回答
 │   ├── execution/               # Layer 5: 表单填写与提交
 │   │   ├── browser.py           # Playwright 浏览器管理
@@ -84,13 +87,14 @@ AutoApply/
 │   │   ├── file_uploader.py     # 文件上传
 │   │   └── ats/                 # 各 ATS 适配器
 │   │       ├── base.py
+│   │       ├── ashby.py
 │   │       ├── greenhouse.py
-│   │       ├── lever.py
-│   │       └── workday.py
+│   │       └── lever.py
 │   ├── documents/               # Layer 6: 文件处理
-│   │   ├── docx_engine.py       # Word 创建/编辑
+│   │   ├── docx_engine.py       # 从结构化 IR 渲染 DOCX
 │   │   ├── pdf_converter.py     # Word → PDF
-│   │   └── templates.py         # 模板管理
+│   │   ├── page_count.py        # DOCX/PDF 页数统计
+│   │   └── templates.py         # 模板 package 管理
 │   ├── tracker/                 # Layer 7: 追踪与分析
 │   │   ├── database.py          # 数据库操作
 │   │   ├── analytics.py         # 统计分析
@@ -101,8 +105,9 @@ AutoApply/
 │       └── logger.py            # 日志与截图
 ├── data/
 │   ├── profile/                 # 申请人资料 YAML
-│   ├── templates/               # Word 模板
+│   ├── templates/               # DOCX 模板 package
 │   └── output/                  # 生成的简历/CL
+├── frontend/                     # Vue SPA 源码和 Vite 构建配置
 ├── config/
 │   ├── settings.yaml            # 全局设置
 │   ├── filters.yaml             # 筛选规则
@@ -196,7 +201,7 @@ CREATE TABLE qa_bank (
 
 负责抓取、聚合、标准化 JD。
 
-- 输入来源：Greenhouse / Lever / Workday / 公司 careers page
+- 输入来源：Greenhouse / Lever / Ashby / LinkedIn / 公司 careers page
 - 输出统一 schema：company, title, location, employment_type, seniority, skills, visa, ATS type, application URL, quick questions, deadline
 
 核心原则：先标准化，不是"看到岗位就投"。
@@ -226,11 +231,11 @@ CREATE TABLE qa_bank (
 
 ### Layer 4: 简历 / Cover Letter 生成层
 
-**简历**：Block-based assembly，不做全文 LLM 重写
-- 每个 bullet 带标签（backend/frontend/ml/security/leadership 等）
-- JD 来了 → 提取关键词 → 映射 tags → 选最匹配的 bullets → 轻量 lexical rewrite → 事实漂移检查
+**简历**：结构化 IR + Block-based assembly，不做全文 LLM 重写
+- 每个 bullet 带标签，并能追溯到 profile 中的真实证据
+- JD 来了 → 提取关键词 → 检索证据 → 选最匹配的 bullets → 可选轻量 lexical rewrite → 基于模板容量裁剪 → 校验
 
-**Cover Letter**：受结构约束的半生成
+**Cover Letter**：受结构约束的 IR 生成
 - opening: role + reason
 - middle: 2-3 个最匹配的证据点
 - company tie-in: 为什么这家公司
@@ -252,8 +257,11 @@ DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
 
 ### Layer 6: 文件处理层 (File Pipeline)
 
-- 主模板 `.docx`，变量替换 + block 级内容拼装
-- 统一导出 PDF
+- 模板 package：`template.docx` + `manifest.json` + `style.lock.json` + 示例 JSON
+- 使用 `{{resume.sections}}` 和 `{{cover_letter.body}}` 等 block marker
+- Word 样式由模板 manifest 中的命名 style 管理
+- DOCX-first 渲染，统一导出 PDF
+- 生成材料校验和页数统计
 - 文件版本号系统：`resume_{company}_{role}_{date}.pdf`
 - 记录每次申请用了哪个版本
 
@@ -329,11 +337,38 @@ DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
 11. 申请追踪与统计分析
 12. Agent 主循环编排 + CLI 交互界面
 
+### Phase 6: LinkedIn 集成（已完成）
+
+**目标**：发现 LinkedIn 岗位、补全详情，并解析外部 ATS 链接，接入已有投递流程。
+
+13. 基于 Playwright persistent context 的 LinkedIn 登录会话管理
+14. LinkedIn 搜索 URL 构建、翻页、岗位卡提取、缓存和去重
+15. 详情页 enrichment 与 Apply 按钮跳转解析
+16. `--source linkedin`、搜索 profile、Web 搜索集成
+
+### Phase 7: Web GUI（已完成）
+
+**目标**：提供面向人的操作控制台。
+
+17. FastAPI JSON API + Vue 3 SPA，构建产物由 `src/web/static/spa` 托管
+18. Dashboard、Jobs、Applications、Profile、Settings 页面
+19. 搜索 profile、LLM provider 设置、LinkedIn 会话管理、搜索缓存控制
+
+### Phase 8: Materials 工作台 + 模板 package（已完成）
+
+**目标**：把申请材料生成做成可复核、可下载的主流程。
+
+20. `/materials` 工作台，支持搜索结果岗位或手动粘贴 JD
+21. 申请人 profile 选择、简历/Cover Letter 模板选择、DOCX/PDF 格式选择
+22. Preview、校验状态、生成版本、artifact 下载
+23. Template Library 上传和 package 校验
+24. template ID、artifact path、上传大小、profile ID、LinkedIn cache/enrichment、parser heuristics 等安全和稳定性修复
+
 ## 关键设计原则
 
 1. **状态机驱动**：每次申请都是状态机，可中断、可恢复、可审计
 2. **Block-based 简历**：不做全文 LLM 重写，从 bullet pool 选择 + 轻量改写
-3. **受约束生成**：所有 LLM 生成都有结构模板约束，防止风格漂移和事实编造
+3. **DOCX-first 渲染**：LLM/内容规划只生成结构化 IR，最终 DOCX/PDF 由 deterministic renderer 输出
 4. **人工确认点**：默认在提交前暂停，只有满足条件才开放自动提交
 5. **全程审计**：截图、DOM 快照、文件版本、QA 响应全部记录
 
@@ -351,3 +386,8 @@ DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
 - Phase 3: 给定 JD → 自动选 bullets → 生成定制简历 + CL + 回答 quick questions
 - Phase 4: 对 Greenhouse 岗位 → 自动填表 → 上传文件 → 截图（不提交）
 - Phase 5: 跑完整流程 10 个岗位 → 查看追踪面板 → 分析报告
+- Phase 6: LinkedIn 搜索 → 外部 ATS 链接解析 → 接入现有 apply/material 流程
+- Phase 7: `autoapply web` → Vue SPA 搜索/追踪/settings 流程
+- Phase 8: `/jobs` → `/materials?jobId=...` → DOCX/PDF 生成、preview、校验、下载
+
+当前基线：`uv run python -m pytest` 通过，340 个测试通过、1 个 LinkedIn smoke 测试跳过；`uv run ruff check .` 和 `npm run build` 通过。

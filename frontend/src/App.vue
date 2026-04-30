@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute } from "vue-router"
 
 import AppIcon from "./components/AppIcon.vue"
 import DockIcon from "./components/DockIcon.vue"
+import { ensureLinkedInSessionLoaded } from "./lib/linkedin-session"
 
 const route = useRoute()
 const themeMenuRef = ref(null)
@@ -23,6 +24,7 @@ let cleanupThemeListeners = () => {}
 const items = [
   { to: "/", label: "Dashboard", icon: "dashboard" },
   { to: "/jobs", label: "Jobs", icon: "jobs" },
+  { to: "/materials", label: "Materials", icon: "materials" },
   { to: "/applications", label: "Applications", icon: "applications" },
   { to: "/profile", label: "Profile", icon: "profile" },
   { to: "/settings", label: "Settings", icon: "settings" },
@@ -101,6 +103,7 @@ onMounted(() => {
 
   const stopThemeWatch = watch([themePreference, resolvedTheme], applyTheme, { immediate: true })
   document.addEventListener("click", onDocumentClick)
+  void ensureLinkedInSessionLoaded()
 
   cleanupThemeListeners = () => {
     stopThemeWatch()

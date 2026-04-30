@@ -16,7 +16,7 @@ logger = logging.getLogger("autoapply.cli.search")
 
 
 @click.command("search")
-@click.option("--profile", default="default", help="Filter profile name from filters.yaml.")
+@click.option("--profile", default="", help="Optional filter profile name from filters.yaml.")
 @click.option(
     "--config-dir",
     type=click.Path(exists=True, path_type=Path),
@@ -44,7 +44,7 @@ logger = logging.getLogger("autoapply.cli.search")
     default="week",
     help="LinkedIn time posted filter.",
 )
-@click.option("--max-pages", default=5, help="Max LinkedIn result pages to scrape.")
+@click.option("--max-pages", default=20, help="Max LinkedIn result pages to scrape.")
 @click.option("--no-enrich", is_flag=True, help="Skip LinkedIn detail page enrichment.")
 @click.option("--headless/--no-headless", default=False, help="Run LinkedIn browser headless.")
 @click.option("--json", "as_json", is_flag=True, help="Output structured JSON for agents.")
@@ -84,6 +84,7 @@ def search_cmd(
             headless=headless,
             require_keyword_for_linkedin=True,
             warn_on_missing_profile=score,
+            allow_public_linkedin_fallback=True,
         )
     )
 

@@ -1,10 +1,15 @@
 """Tests for src.generation — resume builder, cover letter, QA responder."""
 
+from pathlib import Path
+
+from src.documents.templates import default_manifest
 from src.generation.cover_letter import (
     _format_education_brief,
     _generate_template,
     _select_evidence,
+    generate_cover_letter,
 )
+from src.generation.evidence import select_relevant_evidence
 from src.generation.qa_responder import (
     _estimate_experience_years,
     _find_qa_match,
@@ -15,9 +20,14 @@ from src.generation.qa_responder import (
 )
 from src.generation.resume_builder import (
     _rank_and_select,
+    build_resume_document,
     extract_jd_tags,
+    rewrite_bullets,
     select_bullets_for_jd,
 )
+from src.generation.validator import validate_resume_artifacts, validate_resume_document
+from src.generation.versions import save_generation_version
+from src.intake.jd_parser import parse_requirements
 from src.intake.schema import JobRequirements, RawJob
 
 # ---------------------------------------------------------------------------
@@ -139,6 +149,22 @@ class TestExtractJDTags:
         # No tech keywords in "Intern" alone
         assert isinstance(tags, list)
 
+    def test_includes_extended_requirement_fields(self):
+        job = _make_job(title="Software Intern")
+        job.requirements = JobRequirements(
+            keywords=["automation"],
+            soft_skills=["collaboration"],
+            domain="software_engineering",
+            role_family="backend",
+            seniority="intern",
+        )
+
+        tags = extract_jd_tags(job)
+
+        assert "automation" in tags
+        assert "collaboration" in tags
+        assert "backend" in tags
+
 
 class TestSelectBullets:
     def test_selects_matching_bullets(self):
@@ -164,6 +190,17 @@ class TestSelectBullets:
         # Should still return bullets (all have 0 overlap, falls back to all)
         assert any(len(v) > 0 for v in selected.values())
 
+    def test_semantic_query_can_rank_without_tags(self):
+        evidence = select_relevant_evidence(
+            [],
+            _PROFILE,
+            query_text="React frontend dashboard user interface",
+            max_total=1,
+        )
+
+        assert evidence[0].text == "Built React frontend dashboard"
+        assert evidence[0].semantic_score > 0
+
 
 class TestRankAndSelect:
     def test_ordering(self):
@@ -178,6 +215,171 @@ class TestRankAndSelect:
 
     def test_empty_bullets(self):
         assert _rank_and_select([], {"python"}, max_count=3) == []
+
+
+class TestResumeIR:
+    def test_build_resume_document_preserves_evidence_provenance(self):
+        job = _make_job()
+        job.requirements = JobRequirements(must_have_skills=["Python", "FastAPI"])
+
+        document = build_resume_document(job, _PROFILE)
+        bullets = [
+            bullet
+            for item in [*document.experiences, *document.projects]
+            for bullet in item.bullets
+        ]
+
+        assert document.document_type == "resume"
+        assert document.target_role == "Backend Engineering Intern"
+        assert document.section_order[0] == "header"
+        assert any(bullet.source_id.startswith("experience:") for bullet in bullets)
+        assert any("fastapi" in bullet.matched_keywords for bullet in bullets)
+        assert all(bullet.original_text for bullet in bullets)
+
+    def test_resume_validator_flags_added_numbers(self):
+        job = _make_job()
+        job.requirements = JobRequirements(must_have_skills=["Python"])
+        document = build_resume_document(job, _PROFILE)
+        first_item = next(item for item in document.experiences if item.bullets)
+        first_item.bullets[0].text = f"{first_item.bullets[0].text} and reduced latency by 42%"
+
+        validation = validate_resume_document(document, jd_tags=["python"])
+
+        assert validation.ok is False
+        assert any(issue.type == "added_unverified_number" for issue in validation.issues)
+
+    def test_artifact_validator_records_render_outputs(self, tmp_path):
+        job = _make_job()
+        document = build_resume_document(job, _PROFILE)
+        validation = validate_resume_document(document, jd_tags=["python"])
+        docx_path = tmp_path / "resume.docx"
+        docx_path.write_bytes(b"docx")
+
+        rendered = validate_resume_artifacts(
+            validation,
+            docx_path=docx_path,
+            pdf_path=None,
+            pdf_attempted=True,
+        )
+
+        assert rendered.metrics["docx_generated"] is True
+        assert rendered.metrics["pdf_generated"] is False
+        assert any(issue.type == "pdf_generation_failed" for issue in rendered.issues)
+
+    def test_artifact_validator_counts_pdf_pages(self, tmp_path):
+        import fitz
+
+        pdf_path = tmp_path / "resume.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.new_page()
+        doc.save(str(pdf_path))
+        doc.close()
+        docx_path = tmp_path / "resume.docx"
+        docx_path.write_bytes(b"docx")
+
+        rendered = validate_resume_artifacts(
+            validate_resume_document(build_resume_document(_make_job(), _PROFILE)),
+            docx_path=docx_path,
+            pdf_path=pdf_path,
+            pdf_attempted=True,
+        )
+
+        assert rendered.metrics["pdf_page_count"] == 2
+        assert rendered.metrics["docx_page_count"] == 2
+        assert any(issue.type == "rendered_page_overflow" for issue in rendered.issues)
+
+    def test_structured_bullet_rewrite_uses_json_output(self):
+        from unittest.mock import patch
+
+        with patch(
+            "src.utils.llm.generate_json",
+            return_value={
+                "rewritten_bullet": "Built backend REST APIs with Python and FastAPI",
+                "used_skills": ["Python", "FastAPI"],
+                "source_ids": [],
+                "confidence": "high",
+                "changed_claims": [],
+            },
+        ):
+            rewritten = rewrite_bullets(
+                {"Acme Corp - Software Dev Intern": ["Built REST APIs with Python and FastAPI"]},
+                ["backend", "FastAPI"],
+            )
+
+        assert rewritten["Acme Corp - Software Dev Intern"][0] == (
+            "Built backend REST APIs with Python and FastAPI"
+        )
+
+    def test_template_capacity_limits_resume_content(self):
+        manifest = default_manifest("resume")
+        manifest.sections["experience"].max_bullets_per_item = 1
+        manifest.sections["projects"].max_bullets_per_item = 1
+        manifest.capacity.max_bullets_total = 2
+
+        document = build_resume_document(_make_job(), _PROFILE, template_manifest=manifest)
+
+        bullets = [
+            bullet
+            for item in [*document.experiences, *document.projects]
+            for bullet in item.bullets
+        ]
+        assert len(bullets) <= 2
+        assert all(len(item.bullets) <= 1 for item in document.experiences)
+        assert all(len(item.bullets) <= 1 for item in document.projects)
+
+
+class TestJDParserExtendedFields:
+    def test_regex_parser_extracts_matching_context(self):
+        requirements = parse_requirements(
+            """
+            Software Engineer Intern
+            Build backend REST APIs with Python and Docker.
+            Collaborate with product and engineering teams to debug automation workflows.
+            Strong communication required. Bachelor degree preferred.
+            """,
+            use_llm=False,
+        )
+
+        assert "python" in requirements.keywords
+        assert requirements.seniority == "intern"
+        assert requirements.domain == "software_engineering"
+        assert requirements.role_family == "backend"
+        assert "communication" in requirements.soft_skills
+        assert requirements.responsibilities
+
+    def test_regex_parser_does_not_infer_backend_from_api_mentions(self):
+        requirements = parse_requirements(
+            """
+            Data Analyst Intern
+            Build dashboards and consume REST APIs for reporting workflows.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.role_family == "data"
+
+    def test_regex_parser_does_not_infer_ml_from_substrings(self):
+        requirements = parse_requirements(
+            """
+            Frontend Engineer Intern
+            Build HTML email templates and YAML-backed configuration workflows.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.domain == "software_engineering"
+
+    def test_regex_parser_does_not_infer_data_from_database_substring(self):
+        requirements = parse_requirements(
+            """
+            Software Engineer Intern
+            Build PostgreSQL database integrations for platform services.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.role_family is None
 
 
 # ===========================================================================
@@ -217,6 +419,40 @@ class TestGenerateTemplate:
         job = _make_job()
         text = _generate_template(job, _PROFILE["identity"], [])
         assert "TestCo" in text
+
+    def test_generate_cover_letter_outputs_docx_ir_and_validation(self, tmp_path):
+        from unittest.mock import patch
+
+        with patch("src.generation.cover_letter.convert_to_pdf", side_effect=RuntimeError):
+            result = generate_cover_letter(
+                _make_job(),
+                _PROFILE,
+                output_dir=tmp_path,
+                use_llm=False,
+            )
+
+        assert result["docx"].exists()
+        assert result["ir"].document_type == "cover_letter"
+        assert result["validation"].metrics["docx_generated"] is True
+
+
+class TestGenerationVersions:
+    def test_save_generation_version(self, tmp_path):
+        from unittest.mock import patch
+
+        with patch("src.generation.versions.VERSIONS_DIR", tmp_path):
+            version = save_generation_version(
+                job={"company": "TestCo", "title": "SWE Intern"},
+                material_type="resume_docx",
+                artifact={"path": "data/output/resume.docx"},
+                artifacts={"resume_docx": "data/output/resume.docx"},
+                document={"document_type": "resume"},
+                validation={"ok": True},
+                requirements={},
+            )
+
+        assert version["id"]
+        assert Path(version["path"]).exists()
 
 
 class TestFormatEducation:

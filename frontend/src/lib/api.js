@@ -38,12 +38,77 @@ export const api = {
       body: JSON.stringify(payload),
     })
   },
+  filterProfiles() {
+    return request("/api/jobs/filter-profiles")
+  },
+  saveFilterProfile(profileId, payload) {
+    return request(`/api/jobs/filter-profiles/${encodeURIComponent(profileId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteFilterProfile(profileId) {
+    return request(`/api/jobs/filter-profiles/${encodeURIComponent(profileId)}`, {
+      method: "DELETE",
+    })
+  },
+  linkedinSession() {
+    return request("/api/jobs/linkedin/session")
+  },
+  connectLinkedIn() {
+    return request("/api/jobs/linkedin/session/connect", {
+      method: "POST",
+    })
+  },
+  clearLinkedInSession() {
+    return request("/api/jobs/linkedin/session", {
+      method: "DELETE",
+    })
+  },
+  manualApplyTarget(url) {
+    return request("/api/jobs/manual-apply-target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    })
+  },
   applyJob(url) {
     return request("/api/jobs/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     })
+  },
+  templates() {
+    return request("/api/templates")
+  },
+  uploadTemplate(documentType, file, templateName = "") {
+    const form = new FormData()
+    form.append("document_type", documentType)
+    form.append("template", file)
+    if (templateName) {
+      form.append("template_name", templateName)
+    }
+    return request("/api/templates/upload", {
+      method: "POST",
+      body: form,
+    })
+  },
+  generateJobMaterial(job, materialType, templateId = "", profileId = "") {
+    return request("/api/jobs/generate-material", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        job,
+        material_type: materialType,
+        template_id: templateId || null,
+        profile_id: profileId || null,
+      }),
+    })
+  },
+  artifactDownloadUrl(path) {
+    return `/api/artifacts/download?path=${encodeURIComponent(path)}`
   },
   applications(filters) {
     return request(`/api/applications${toQuery(filters)}`)
@@ -111,6 +176,11 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    })
+  },
+  clearSearchCache() {
+    return request("/api/settings/search-cache", {
+      method: "DELETE",
     })
   },
 }

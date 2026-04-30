@@ -13,7 +13,15 @@ from pydantic import BaseModel, Field, field_validator
 
 EmploymentType = Literal["internship", "fulltime", "parttime", "contract", "coop", "unknown"]
 SeniorityLevel = Literal["internship", "entry", "mid", "senior", "staff", "unknown"]
-ATSType = Literal["greenhouse", "lever", "linkedin", "workday", "company_site", "unknown"]
+ATSType = Literal[
+    "greenhouse",
+    "lever",
+    "ashby",
+    "linkedin",
+    "workday",
+    "company_site",
+    "unknown",
+]
 
 
 class JobRequirements(BaseModel):
@@ -21,6 +29,12 @@ class JobRequirements(BaseModel):
 
     must_have_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(default_factory=list)
+    soft_skills: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    seniority: str | None = None
+    domain: str | None = None
+    role_family: str | None = None
     education_level: str | None = None  # e.g. "Bachelor's", "Master's"
     experience_years_min: int | None = None
     experience_years_max: int | None = None

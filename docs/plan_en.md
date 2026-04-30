@@ -20,10 +20,10 @@ Core decisions (based on research report + architecture design):
 | Database | PostgreSQL + pgvector |
 | Document Processing | python-docx + docx templates, docx2pdf / LibreOffice CLI |
 | Task Scheduling | asyncio (MVP), upgradeable to Celery + Redis |
-| Frontend | CLI (MVP), Next.js later |
+| Frontend | CLI + FastAPI-served Vue 3 SPA |
 | Package Manager | uv |
 | Configuration | YAML |
-| Target Platforms | English ATS: Greenhouse / Lever / Workday (Chinese platforms later) |
+| Target Platforms | English ATS: Greenhouse / Lever / Ashby, LinkedIn discovery (Chinese platforms later) |
 
 ### LLM Integration
 
@@ -63,7 +63,7 @@ AutoApply/
 │   │   ├── base.py              # Scraper base class
 │   │   ├── greenhouse.py        # Greenhouse ATS
 │   │   ├── lever.py             # Lever ATS
-│   │   ├── workday.py           # Workday ATS
+│   │   ├── linkedin.py          # LinkedIn search and ATS redirect discovery
 │   │   └── schema.py            # Unified job schema
 │   ├── matching/                # Layer 2: Matching & Filtering
 │   │   ├── rules.py             # Hard rule filters
@@ -75,8 +75,11 @@ AutoApply/
 │   │   ├── qa_bank.py           # Q&A knowledge base
 │   │   └── bullet_pool.py       # Resume bullet pool
 │   ├── generation/              # Layer 4: Resume/CL Generation
-│   │   ├── resume_builder.py    # Block-based resume assembly
+│   │   ├── ir.py                # Resume/Cover Letter structured IR
+│   │   ├── resume_builder.py    # Evidence-grounded resume assembly
 │   │   ├── cover_letter.py      # Constrained CL generation
+│   │   ├── fitting.py           # Template-aware capacity fitting
+│   │   ├── validator.py         # Artifact validation
 │   │   └── qa_responder.py      # Quick question answering
 │   ├── execution/               # Layer 5: Form Filling & Submission
 │   │   ├── browser.py           # Playwright browser management
@@ -84,13 +87,14 @@ AutoApply/
 │   │   ├── file_uploader.py     # File upload
 │   │   └── ats/                 # ATS adapters
 │   │       ├── base.py
+│   │       ├── ashby.py
 │   │       ├── greenhouse.py
-│   │       ├── lever.py
-│   │       └── workday.py
+│   │       └── lever.py
 │   ├── documents/               # Layer 6: File Pipeline
-│   │   ├── docx_engine.py       # Word creation/editing
+│   │   ├── docx_engine.py       # DOCX rendering from structured IR
 │   │   ├── pdf_converter.py     # Word -> PDF
-│   │   └── templates.py         # Template management
+│   │   ├── page_count.py        # DOCX/PDF page count helpers
+│   │   └── templates.py         # Template package management
 │   ├── tracker/                 # Layer 7: Tracking & Analytics
 │   │   ├── database.py          # Database operations
 │   │   ├── analytics.py         # Statistical analysis
@@ -101,8 +105,9 @@ AutoApply/
 │       └── logger.py            # Logging & screenshots
 ├── data/
 │   ├── profile/                 # Applicant profile YAML
-│   ├── templates/               # Word templates
+│   ├── templates/               # DOCX template packages
 │   └── output/                  # Generated resumes/CLs
+├── frontend/                     # Vue SPA source and Vite build config
 ├── config/
 │   ├── settings.yaml            # Global settings
 │   ├── filters.yaml             # Filter rules
@@ -196,7 +201,7 @@ CREATE TABLE qa_bank (
 
 Responsible for scraping, aggregating, and standardizing JDs.
 
-- Input sources: Greenhouse / Lever / Workday / company careers pages
+- Input sources: Greenhouse / Lever / Ashby / LinkedIn / company careers pages
 - Unified output schema: company, title, location, employment_type, seniority, skills, visa, ATS type, application URL, quick questions, deadline
 
 Core principle: standardize first, don't "apply on sight."
@@ -226,11 +231,11 @@ A structured knowledge base, not just a resume dumped to an LLM:
 
 ### Layer 4: Resume / Cover Letter Generation
 
-**Resume**: Block-based assembly, no full-text LLM rewrite
-- Each bullet tagged (backend/frontend/ml/security/leadership, etc.)
-- JD arrives → extract keywords → map to tags → select best-matching bullets → light lexical rewrite → fact-drift check
+**Resume**: Structured IR + block-based assembly, no full-text LLM rewrite
+- Each bullet is tagged and traceable to profile evidence
+- JD arrives → extract keywords → retrieve evidence → select best-matching bullets → optional light lexical rewrite → template-aware fitting → validation
 
-**Cover Letter**: Structure-constrained semi-generation
+**Cover Letter**: Structure-constrained IR generation
 - Opening: role + reason
 - Middle: 2-3 best-matching evidence points
 - Company tie-in: why this company
@@ -252,8 +257,11 @@ Every step: screenshot, save DOM/field mapping, log errors, resumable from any s
 
 ### Layer 6: File Pipeline
 
-- Master template in `.docx`, variable substitution + block-level content assembly
-- Unified PDF export
+- Template package: `template.docx` + `manifest.json` + `style.lock.json` + sample JSON asset
+- Block markers such as `{{resume.sections}}` and `{{cover_letter.body}}`
+- Named Word styles owned by the template manifest
+- DOCX-first rendering, unified PDF export
+- Artifact validation and page counting
 - File versioning: `resume_{company}_{role}_{date}.pdf`
 - Record which version was used for each application
 
@@ -329,11 +337,38 @@ Built from day one, not retrofitted:
 11. Application tracking & statistical analytics
 12. Agent main loop orchestration + CLI interactive interface
 
+### Phase 6: LinkedIn Integration (Complete)
+
+**Goal**: Discover LinkedIn jobs, enrich descriptions, and resolve external ATS links for the existing application pipeline.
+
+13. Authenticated LinkedIn session manager with Playwright persistent context
+14. LinkedIn search URL builder, pagination, job-card extraction, cache, and deduplication
+15. Detail enrichment and Apply-button redirect resolution for external ATS links
+16. CLI/web integration for `--source linkedin` and search profiles
+
+### Phase 7: Web GUI (Complete)
+
+**Goal**: Provide a human-facing operator console over the existing application layer.
+
+17. FastAPI JSON API + Vue 3 SPA served from `src/web/static/spa`
+18. Dashboard, Jobs, Applications, Profile, and Settings pages
+19. Search profiles, LLM provider settings, LinkedIn session management, search cache controls
+
+### Phase 8: Materials Workspace + Template Packages (Complete)
+
+**Goal**: Make application material generation a first-class, reviewable product workflow.
+
+20. `/materials` workspace for search-result jobs or pasted JDs
+21. Applicant profile selection, resume/cover template selection, DOCX/PDF format selection
+22. Preview, validation status, generation versions, and artifact downloads
+23. Template Library uploads and package validation
+24. Security hardening for template IDs, artifact paths, upload sizes, profile IDs, LinkedIn cache/enrichment, and parser heuristics
+
 ## Key Design Principles
 
 1. **State machine-driven**: Every application is a state machine — interruptible, resumable, auditable
 2. **Block-based resume**: No full-text LLM rewrite — select from bullet pool + light rewrite
-3. **Constrained generation**: All LLM generation bounded by structural templates to prevent style drift and fabrication
+3. **DOCX-first rendering**: LLM/content planning creates structured IR; deterministic renderers own final DOCX/PDF output
 4. **Human confirmation points**: Default pause before submit; auto-submit only under validated conditions
 5. **Full audit trail**: Screenshots, DOM snapshots, file versions, QA responses all recorded
 
@@ -351,3 +386,8 @@ Built from day one, not retrofitted:
 - Phase 3: Given a JD → auto-select bullets → generate tailored resume + CL + answer quick questions
 - Phase 4: For a Greenhouse job → auto-fill form → upload files → screenshot (no submit)
 - Phase 5: Run full pipeline on 10 jobs → view tracking dashboard → analytics report
+- Phase 6: LinkedIn search → external ATS link resolution → existing apply/material pipeline
+- Phase 7: `autoapply web` → Vue SPA search/tracking/settings workflow
+- Phase 8: `/jobs` → `/materials?jobId=...` → DOCX/PDF generation, preview, validation, download
+
+Current baseline: `uv run python -m pytest` passes with 340 tests and 1 skipped LinkedIn smoke test; `uv run ruff check .` and `npm run build` pass.

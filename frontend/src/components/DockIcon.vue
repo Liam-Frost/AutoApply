@@ -11,6 +11,8 @@ const icons = {
     '<path d="M4 4h7v7H4z" /><path d="M13 4h7v4h-7z" /><path d="M13 10h7v10h-7z" /><path d="M4 13h7v7H4z" />',
   jobs:
     '<path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M4 8h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /><path d="M9 12h6" />',
+  materials:
+    '<path d="M7 3h7l4 4v14H7z" /><path d="M14 3v5h4" /><path d="M10 13h5" /><path d="M10 17h4" /><path d="M4 8l1-2 1 2 2 1-2 1-1 2-1-2-2-1z" />',
   applications:
     '<path d="M9 3h6l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M9 3v5h5" /><path d="M8 13h8" /><path d="M8 17h5" />',
   profile:

@@ -9,16 +9,19 @@ An AI-powered agent that automates the entire job application process — from j
 - [Implementation Plan (EN)](docs/plan_en.md)
 - [实施计划（中文）](docs/plan_zh.md)
 - [Changelog](docs/CHANGELOG.md)
+- [Architecture Decisions](docs/DECISIONS.md)
+- [Project Management](docs/PROJECT_MANAGEMENT.md)
 
 ## What It Does
 
-- **Job Intake**: Scrape and standardize job postings from Greenhouse, Lever, and LinkedIn-discovered external ATS links
+- **Job Intake**: Scrape and standardize job postings from Greenhouse, Lever, Ashby, and LinkedIn-discovered external ATS links
 - **Smart Filtering**: Three-tier scoring (hard rules + semantic matching + risk filtering) to only target high-fit positions
 - **Applicant Memory**: Structured knowledge base of your education, projects, skills, stories, and Q&A templates
-- **Tailored Materials**: Block-based resume assembly and constrained cover letter generation per position — no full-text LLM hallucination
+- **Materials Workspace**: Web workflow for selecting a job/JD, applicant profile, templates, formats, preview, and downloads
+- **Tailored Materials**: DOCX-first resume and cover letter generation from structured IR — no full-text LLM hallucination
 - **Quick Question Answering**: Auto-answer common application questions with confidence-based routing and human review flags
 - **Form Automation**: Playwright-driven form filling with state machine recovery, screenshots, and human confirmation before submit
-- **Document Pipeline**: Word template system with PDF export and version tracking
+- **Document Pipeline**: Template packages (`template.docx` + manifest/style lock), deterministic rendering, PDF export, validation, and version tracking
 - **Application Tracking**: Full CRM with analytics on hit rates, platform quality, and resume version effectiveness
 
 ## Architecture
@@ -31,7 +34,7 @@ Layer 2: Matching & Filtering — Rule + semantic + risk scoring
 Layer 3: Applicant Memory     — Structured profile & knowledge base
 Layer 4: Generation           — Resume/CL tailoring & QA
 Layer 5: Execution            — Browser automation & form filling
-Layer 6: File Pipeline        — Word/PDF creation & versioning
+Layer 6: File Pipeline        — DOCX templates, PDF export, validation & versioning
 Layer 7: Analytics            — Tracking, statistics & optimization
 ```
 
@@ -47,7 +50,7 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 | Database | PostgreSQL + pgvector |
 | Document Processing | python-docx, docx2pdf / LibreOffice |
 | Package Manager | uv + npm |
-| Target Platforms | Greenhouse, Lever, LinkedIn discovery |
+| Target Platforms | Greenhouse, Lever, Ashby, LinkedIn discovery |
 
 ## Project Structure
 
@@ -59,9 +62,9 @@ src/
 ├── intake/        # Job scraping & schema
 ├── matching/      # Filtering & scoring
 ├── memory/        # Applicant profile, story bank, QA bank, bullet pool
-├── generation/    # Resume builder, cover letter, QA responder
+├── generation/    # Resume/cover IR, fitting, validation, QA responder
 ├── execution/     # Playwright browser, form filler, ATS adapters
-├── documents/     # Word/PDF engine & templates
+├── documents/     # DOCX/PDF engine, template packages, page count helpers
 ├── tracker/       # Database, analytics, export
 ├── utils/         # LLM wrapper, rate limiter, logger
 └── web/           # FastAPI API + built SPA assets
@@ -76,8 +79,9 @@ src/
 - **Phase 5** (CLI + Tracking + Full Pipeline) — Complete
 - **Phase 6** (LinkedIn Integration) — Complete
 - **Phase 7** (Web GUI) — Complete
+- **Phase 8** (Materials Workspace + DOCX Template Packages + Hardening) — Complete
 
-262 tests passing. See [CHANGELOG](docs/CHANGELOG.md) for details.
+340 tests passing, 1 skipped. See [CHANGELOG](docs/CHANGELOG.md) for details.
 
 ## CLI Usage
 
@@ -90,6 +94,9 @@ autoapply search --profile default --score
 
 # Search with machine-readable output
 autoapply search --profile default --score --json
+
+# Search LinkedIn with authenticated enrichment
+autoapply search --source linkedin --keyword "software engineer intern" --location "Canada" --max-pages 3
 
 # Apply to a single job
 autoapply apply --url https://boards.greenhouse.io/company/jobs/123
@@ -111,6 +118,22 @@ autoapply status --json
 ```
 
 CLI is the agent-facing control plane and now supports structured `--json` output for the core `search`, `apply`, and `status` commands. The Web GUI remains the human-facing control plane.
+
+## Web Usage
+
+```bash
+uv run autoapply web --host 127.0.0.1 --port 8000
+```
+
+Primary routes:
+
+- `/jobs` searches ATS/LinkedIn jobs and links each result to the Materials workflow
+- `/materials` generates resumes and cover letters from search results or pasted JDs
+- `/applications` tracks outcomes and pipeline status
+- `/profile` manages applicant profile data
+- `/settings` manages LLM provider priority, fallback, and search cache settings
+
+The Materials page is the main human-in-the-loop generation workflow: select a job or paste a JD, choose an applicant profile, select resume/cover letter templates and formats, generate, preview, then download DOCX/PDF artifacts.
 
 ## Getting Started
 
@@ -164,7 +187,7 @@ The committed repo includes built frontend assets under `src/web/static/spa`, so
 
 1. **State machine-driven** — Every application is interruptible, resumable, auditable
 2. **Block-based resume** — Select from bullet pool + light rewrite, no full-text LLM hallucination
-3. **Constrained generation** — All LLM output bounded by structural templates
+3. **DOCX-first rendering** — LLM/content planning produces structured IR; deterministic renderers own final DOCX/PDF output
 4. **Human-in-the-loop** — Default pause before submit; auto-submit only under validated conditions
 5. **Full audit trail** — Screenshots, DOM snapshots, file versions, QA responses all recorded
 

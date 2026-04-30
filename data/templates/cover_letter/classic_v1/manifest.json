@@ -1,0 +1,39 @@
+{
+  "template_id": "classic_v1",
+  "document_type": "cover_letter",
+  "name": "Classic Cover Letter",
+  "description": "Simple one-page cover letter with editable Word styles.",
+  "page": {
+    "size": "letter",
+    "max_pages": 1
+  },
+  "styles": {
+    "header": "CoverLetter.Header",
+    "date": "CoverLetter.Date",
+    "recipient": "CoverLetter.Recipient",
+    "body": "CoverLetter.Body",
+    "signature": "CoverLetter.Signature"
+  },
+  "sections": {
+    "header": {
+      "enabled": true
+    },
+    "body": {
+      "enabled": true,
+      "max_items": 5
+    }
+  },
+  "section_order": [
+    "header",
+    "recipient",
+    "body",
+    "signature"
+  ],
+  "capacity": {
+    "max_pages": 1,
+    "max_sections": 4
+  },
+  "blocks": {
+    "body": "{{cover_letter.body}}"
+  }
+}

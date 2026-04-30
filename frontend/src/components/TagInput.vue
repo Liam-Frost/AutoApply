@@ -85,14 +85,12 @@ function splitTags(value) {
 
 <template>
   <div class="tag-input">
-    <div v-if="model.length" class="tag-list">
-      <span v-for="(tag, index) in model" :key="`${tag}-${index}`" class="tag-chip">
-        <span>{{ tag }}</span>
-        <button class="tag-remove" type="button" @click="removeTag(index)" :aria-label="`Remove ${tag}`">
-          x
-        </button>
-      </span>
-    </div>
+    <span v-for="(tag, index) in model" :key="`${tag}-${index}`" class="tag-chip">
+      <span>{{ tag }}</span>
+      <button class="tag-remove" type="button" @click="removeTag(index)" :aria-label="`Remove ${tag}`">
+        x
+      </button>
+    </span>
 
     <input
       v-model="draft"
@@ -109,8 +107,9 @@ function splitTags(value) {
 <style scoped>
 .tag-input {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   min-height: 48px;
   padding: 12px 14px;
   border: 1px solid var(--border);
@@ -123,21 +122,16 @@ function splitTags(value) {
   box-shadow: 0 0 0 4px rgba(144, 181, 255, 0.1);
 }
 
-.tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .tag-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-height: 30px;
   padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(144, 181, 255, 0.24);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(135deg, rgba(144, 181, 255, 0.12), rgba(105, 214, 192, 0.1));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
   font-size: 12px;
   color: var(--text);
 }
@@ -151,7 +145,8 @@ function splitTags(value) {
 }
 
 .tag-editor {
-  width: 100%;
+  flex: 1 0 160px;
+  min-width: 120px;
   min-height: 24px;
   padding: 0;
   border: 0;
