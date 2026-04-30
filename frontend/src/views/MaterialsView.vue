@@ -1,10 +1,23 @@
 <script setup>
 import { computed, onMounted, reactive, watch } from "vue"
 import { useRoute } from "vue-router"
+import {
+  FileText,
+  FolderCog,
+  Library,
+  Sparkles,
+  Wand2,
+  X,
+} from "lucide-vue-next"
 
-import AppSelect from "../components/AppSelect.vue"
-import { api } from "../lib/api"
-import { jobsState } from "../lib/jobs-state"
+import AppSelect from "@/components/AppSelect.vue"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Input } from "@/components/ui/input"
+import { api } from "@/lib/api"
+import { jobsState } from "@/lib/jobs-state"
 
 const route = useRoute()
 
@@ -562,25 +575,30 @@ function prettyLabel(value) {
 
 <template>
   <div class="materials-page">
-    <section class="materials-hero jobs-panel">
-      <div>
-        <span class="page-eyebrow">AutoApply</span>
-        <h2>Materials Workspace</h2>
-        <p>Generate tailored resumes and cover letters from a saved applicant profile and job description.</p>
-      </div>
-      <button class="button ghost compact" type="button" @click="openTemplateLibrary">
-        Template Library
-      </button>
-    </section>
+    <Card>
+      <CardContent class="flex flex-col items-start justify-between gap-3 p-5 md:flex-row md:items-center">
+        <div class="space-y-1">
+          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">AutoApply</p>
+          <h2 class="text-lg font-semibold tracking-tight text-foreground">Materials Workspace</h2>
+          <p class="text-sm text-muted-foreground">Generate tailored resumes and cover letters from a saved applicant profile and job description.</p>
+        </div>
+        <Button variant="ghost" size="sm" type="button" @click="openTemplateLibrary">
+          <Library class="h-4 w-4" />
+          Template Library
+        </Button>
+      </CardContent>
+    </Card>
 
     <div class="materials-workspace">
-      <section class="jobs-panel materials-setup-panel">
-        <div class="section-head">
-          <div>
-            <h2>Generate</h2>
-            <p class="muted-inline">Configure the job, applicant, materials, and output formats.</p>
-          </div>
-        </div>
+      <Card class="materials-setup-panel">
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2 text-sm">
+            <Wand2 class="h-4 w-4 text-muted-foreground" />
+            Generate
+          </CardTitle>
+          <p class="text-xs text-muted-foreground">Configure the job, applicant, materials, and output formats.</p>
+        </CardHeader>
+        <CardContent class="space-y-4">
 
         <div class="materials-step">
           <div class="materials-step-title">1. Source</div>
@@ -663,27 +681,35 @@ function prettyLabel(value) {
                     :disabled="!state.selectedMaterials[target.id]"
                   />
                 </div>
-                <button class="button ghost compact" type="button" @click="openTemplateLibrary">Manage</button>
+                <Button variant="ghost" size="sm" type="button" @click="openTemplateLibrary">
+                  <FolderCog class="h-4 w-4" />
+                  Manage
+                </Button>
               </div>
-              <p class="muted-inline">{{ templateDescription(target.templateType) }}</p>
+              <p class="text-xs text-muted-foreground">{{ templateDescription(target.templateType) }}</p>
             </article>
           </div>
         </div>
 
         <div class="materials-actions">
-          <button class="button materials-primary-button" type="button" :disabled="state.generating || !canGenerate" @click="generateMaterials">
+          <Button type="button" :disabled="state.generating || !canGenerate" @click="generateMaterials">
+            <Sparkles class="h-4 w-4" />
             {{ state.generating ? "Generating..." : "Generate Materials" }}
-          </button>
+          </Button>
           <span v-if="state.message" class="inline-feedback review">{{ state.message }}</span>
           <span v-if="state.error" class="inline-feedback error">{{ state.error }}</span>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section class="jobs-panel materials-preview-workbench">
-        <div class="materials-preview-head">
-          <div>
-            <h2>Preview</h2>
-            <p class="muted-inline">{{ jobSummary(currentJobPayload) }}</p>
+      <Card class="materials-preview-workbench">
+        <CardHeader class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div class="space-y-1">
+            <CardTitle class="flex items-center gap-2 text-sm">
+              <FileText class="h-4 w-4 text-muted-foreground" />
+              Preview
+            </CardTitle>
+            <p class="text-xs text-muted-foreground">{{ jobSummary(currentJobPayload) }}</p>
           </div>
           <div class="materials-preview-tabs">
             <button
@@ -697,15 +723,22 @@ function prettyLabel(value) {
               {{ tab.label }}
             </button>
           </div>
-        </div>
+        </CardHeader>
+        <CardContent class="space-y-4">
 
-        <div v-if="!reviewEntries.length" class="materials-empty-preview">
-          <strong>No materials generated yet</strong>
-          <p>Choose a job, applicant, templates, and output formats. Your previews, status, and downloads will appear here.</p>
-          <button class="button compact" type="button" :disabled="state.generating || !canGenerate" @click="generateMaterials">
-            Generate Materials
-          </button>
-        </div>
+        <EmptyState
+          v-if="!reviewEntries.length"
+          title="No materials generated yet"
+          description="Choose a job, applicant, templates, and output formats. Your previews, status, and downloads will appear here."
+        >
+          <template #icon><FileText /></template>
+          <template #action>
+            <Button type="button" size="sm" :disabled="state.generating || !canGenerate" @click="generateMaterials">
+              <Sparkles class="h-4 w-4" />
+              Generate Materials
+            </Button>
+          </template>
+        </EmptyState>
 
         <section v-else-if="activePreviewEntry" class="materials-result-workbench">
           <div class="materials-result-summary">
@@ -795,7 +828,8 @@ function prettyLabel(value) {
             </div>
           </div>
         </section>
-      </section>
+        </CardContent>
+      </Card>
     </div>
 
     <div v-if="state.templateLibraryOpen" class="material-modal-backdrop" @click.self="closeTemplateLibrary">
@@ -806,7 +840,9 @@ function prettyLabel(value) {
             <h3>Manage Templates</h3>
             <p>Upload DOCX templates or create, edit, and validate single-file LaTeX templates.</p>
           </div>
-          <button class="icon-button" type="button" aria-label="Close template library" @click="closeTemplateLibrary">×</button>
+          <Button variant="ghost" size="icon" type="button" aria-label="Close template library" @click="closeTemplateLibrary">
+            <X class="h-4 w-4" />
+          </Button>
         </div>
 
         <div class="materials-library-grid">
