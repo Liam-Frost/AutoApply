@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive } from "vue"
 import {
   Activity,
+  AlertCircle,
   Building2,
   CheckCircle2,
   Filter,
@@ -11,6 +12,7 @@ import {
 } from "lucide-vue-next"
 
 import AppSelect from "@/components/AppSelect.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -157,7 +159,10 @@ onMounted(load)
       </Card>
     </section>
 
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
 
     <section class="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
       <Card>

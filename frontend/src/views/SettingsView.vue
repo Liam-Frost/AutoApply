@@ -1,6 +1,8 @@
 <script setup>
 import { onMounted, reactive, watch } from "vue"
 import {
+  AlertCircle,
+  CheckCircle2,
   Cpu,
   Database,
   Linkedin,
@@ -10,6 +12,7 @@ import {
 } from "lucide-vue-next"
 
 import AppSelect from "@/components/AppSelect.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -166,8 +169,14 @@ onMounted(load)
 
 <template>
   <div class="space-y-6">
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-    <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
+    <Alert v-if="state.message" variant="success">
+      <CheckCircle2 class="h-4 w-4" />
+      <AlertDescription>{{ state.message }}</AlertDescription>
+    </Alert>
 
     <Card>
       <CardHeader class="flex flex-row items-center justify-between space-y-0">
@@ -299,7 +308,10 @@ onMounted(load)
           </div>
         </div>
 
-        <div v-if="linkedinSessionState.error" class="banner is-danger">{{ linkedinSessionState.error }}</div>
+        <Alert v-if="linkedinSessionState.error" variant="destructive">
+          <AlertCircle class="h-4 w-4" />
+          <AlertDescription>{{ linkedinSessionState.error }}</AlertDescription>
+        </Alert>
 
         <div class="flex flex-wrap gap-2">
           <Button

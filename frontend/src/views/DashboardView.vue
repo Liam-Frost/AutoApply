@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive } from "vue"
 import {
   Activity,
+  AlertCircle,
+  AlertTriangle,
   Building2,
   CheckCircle2,
   Inbox,
@@ -12,6 +14,7 @@ import {
   TrendingUp,
 } from "lucide-vue-next"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -146,13 +149,17 @@ onMounted(load)
       </Card>
     </section>
 
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-    <div
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
+    <Alert
       v-else-if="!state.loading && !state.data.db_connected"
-      class="banner is-warning"
+      variant="warning"
     >
-      Database not connected.
-    </div>
+      <AlertTriangle class="h-4 w-4" />
+      <AlertDescription>Database not connected.</AlertDescription>
+    </Alert>
 
     <section class="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
       <Card>

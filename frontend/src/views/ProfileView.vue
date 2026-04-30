@@ -2,8 +2,10 @@
 import { computed, reactive, ref, watch } from "vue"
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router"
 import {
+  AlertCircle,
   ArrowLeft,
   Check,
+  CheckCircle2,
   Pencil,
   Plus,
   Save,
@@ -16,6 +18,7 @@ import {
 
 import AppIcon from "@/components/AppIcon.vue"
 import TagInput from "@/components/TagInput.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -866,8 +869,14 @@ function makeId(prefix) {
       <Skeleton class="h-8 w-40" />
       <Skeleton class="h-24 w-full" />
     </div>
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-    <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
+    <Alert v-if="state.message" variant="success">
+      <CheckCircle2 class="h-4 w-4" />
+      <AlertDescription>{{ state.message }}</AlertDescription>
+    </Alert>
 
     <template v-if="!state.loading && !isEditingView">
       <Card class="profile-library-shell" :class="{ 'is-loading': state.loading }">

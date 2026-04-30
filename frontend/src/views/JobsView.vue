@@ -2,7 +2,10 @@
 import { computed, onMounted, reactive, watch } from "vue"
 import { RouterLink, useRouter } from "vue-router"
 import {
+  AlertCircle,
+  AlertTriangle,
   Briefcase,
+  CheckCircle2,
   ChevronsLeft,
   ChevronsRight,
   Filter as FilterIcon,
@@ -18,6 +21,7 @@ import {
 import AppIcon from "@/components/AppIcon.vue"
 import AppSelect from "@/components/AppSelect.vue"
 import TagInput from "@/components/TagInput.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -1058,7 +1062,10 @@ function buildPageButtons(total, current) {
 
 <template>
   <div class="space-y-6">
-    <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
+    <Alert v-if="state.message" variant="success">
+      <CheckCircle2 class="h-4 w-4" />
+      <AlertDescription>{{ state.message }}</AlertDescription>
+    </Alert>
     <Card class="jobs-shell">
       <form class="page-stack" @submit.prevent="search">
         <section class="jobs-panel jobs-panel-full">
@@ -1251,16 +1258,22 @@ function buildPageButtons(total, current) {
       </form>
     </Card>
 
-    <div
+    <Alert
       v-if="sourceUsesLinkedIn && linkedinSessionState.checked && !linkedinSessionState.authenticated && !state.searching && !state.resultSets.linkedin.length"
-      class="banner is-warning"
+      variant="warning"
     >
-      LinkedIn session is not connected for web search.
-      <RouterLink class="jobs-settings-link" to="/settings">Go to Settings</RouterLink>
-      to connect or clear the saved session.
-    </div>
+      <AlertTriangle class="h-4 w-4" />
+      <AlertDescription>
+        LinkedIn session is not connected for web search.
+        <RouterLink class="font-medium underline underline-offset-2 hover:no-underline" to="/settings">Go to Settings</RouterLink>
+        to connect or clear the saved session.
+      </AlertDescription>
+    </Alert>
 
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
 
     <Card class="jobs-results-shell">
       <div class="section-head jobs-results-head">
