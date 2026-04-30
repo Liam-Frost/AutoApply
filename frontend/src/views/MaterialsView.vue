@@ -6,14 +6,21 @@ import {
   FolderCog,
   Library,
   Sparkles,
+  Upload,
   Wand2,
-  X,
 } from "lucide-vue-next"
 
 import AppSelect from "@/components/AppSelect.vue"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
@@ -832,18 +839,15 @@ function prettyLabel(value) {
       </Card>
     </div>
 
-    <div v-if="state.templateLibraryOpen" class="material-modal-backdrop" @click.self="closeTemplateLibrary">
-      <section class="material-modal materials-library-modal" role="dialog" aria-modal="true" aria-label="Template Library">
-        <div class="material-modal-head">
-          <div>
-            <div class="muted-inline">Template Library</div>
-            <h3>Manage Templates</h3>
-            <p>Upload DOCX templates or create, edit, and validate single-file LaTeX templates.</p>
-          </div>
-          <Button variant="ghost" size="icon" type="button" aria-label="Close template library" @click="closeTemplateLibrary">
-            <X class="h-4 w-4" />
-          </Button>
-        </div>
+    <Dialog :open="state.templateLibraryOpen" @update:open="(value) => !value && closeTemplateLibrary()">
+      <DialogContent class="max-w-4xl max-h-[calc(100vh-3.5rem)] overflow-y-auto">
+        <DialogHeader>
+          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Template library</p>
+          <DialogTitle class="text-xl">Manage templates</DialogTitle>
+          <DialogDescription>
+            Upload DOCX templates or create, edit, and validate single-file LaTeX templates.
+          </DialogDescription>
+        </DialogHeader>
 
         <div class="materials-library-grid">
           <section v-for="target in targets" :key="target.templateType" class="materials-library-section">
@@ -858,14 +862,15 @@ function prettyLabel(value) {
               <div v-for="template in state.templates[target.templateType]" :key="template.template_id" class="materials-template-card">
                 <div class="materials-template-card-head">
                   <strong>{{ template.name || template.template_id }}</strong>
-                  <button
+                  <Button
                     v-if="isLatexTemplate(template)"
-                    class="button ghost compact"
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     @click="editTemplate(target.templateType, template.template_id)"
                   >
                     Edit
-                  </button>
+                  </Button>
                 </div>
                 <div class="materials-template-meta">
                   <span class="chip subtle">{{ templateRenderer(template) === 'latex' ? 'LaTeX' : 'DOCX' }}</span>
@@ -887,18 +892,20 @@ function prettyLabel(value) {
                 <strong>{{ state.templateUploads[target.templateType].file?.name || 'Drop DOCX or TEX here or browse' }}</strong>
                 <span>DOCX styles can be repaired. LaTeX marker validation reports issues without rewriting your file.</span>
               </label>
-              <button class="button compact" type="button" :disabled="state.templateUploads[target.templateType].loading" @click="uploadTemplate(target.templateType)">
+              <Button size="sm" type="button" :disabled="state.templateUploads[target.templateType].loading" @click="uploadTemplate(target.templateType)">
+                <Upload class="h-4 w-4" />
                 {{ state.templateUploads[target.templateType].loading ? 'Uploading...' : `Upload ${target.label} Template` }}
-              </button>
+              </Button>
               <span v-if="state.templateUploads[target.templateType].message" class="inline-feedback review">{{ state.templateUploads[target.templateType].message }}</span>
               <span v-if="state.templateUploads[target.templateType].error" class="inline-feedback error">{{ state.templateUploads[target.templateType].error }}</span>
             </div>
 
             <div class="materials-latex-create">
               <input v-model="state.latexCreates[target.templateType].name" class="input" type="text" :placeholder="`New ${target.label} LaTeX template name`" />
-              <button class="button ghost compact" type="button" :disabled="state.latexCreates[target.templateType].loading" @click="createLatexTemplate(target.templateType)">
+              <Button variant="ghost" size="sm" type="button" :disabled="state.latexCreates[target.templateType].loading" @click="createLatexTemplate(target.templateType)">
+                <Sparkles class="h-4 w-4" />
                 {{ state.latexCreates[target.templateType].loading ? 'Creating...' : 'Create LaTeX Template' }}
-              </button>
+              </Button>
               <span v-if="state.latexCreates[target.templateType].message" class="inline-feedback review">{{ state.latexCreates[target.templateType].message }}</span>
               <span v-if="state.latexCreates[target.templateType].error" class="inline-feedback error">{{ state.latexCreates[target.templateType].error }}</span>
             </div>
@@ -911,7 +918,7 @@ function prettyLabel(value) {
               <h2>Edit LaTeX Template</h2>
               <p class="muted-inline">{{ state.templateEditor.documentType === 'resume' ? 'Resume' : 'Cover Letter' }} · {{ state.templateEditor.templateId }}</p>
             </div>
-            <button class="button ghost compact" type="button" @click="closeTemplateEditor">Close</button>
+            <Button variant="ghost" size="sm" type="button" @click="closeTemplateEditor">Close</Button>
           </div>
 
           <div v-if="state.templateEditor.loading" class="muted-inline">Loading template...</div>
@@ -932,12 +939,12 @@ function prettyLabel(value) {
             </div>
 
             <div class="materials-editor-actions">
-              <button class="button compact" type="button" :disabled="state.templateEditor.saving" @click="saveTemplateEditor">
+              <Button size="sm" type="button" :disabled="state.templateEditor.saving" @click="saveTemplateEditor">
                 {{ state.templateEditor.saving ? 'Saving...' : 'Save Template' }}
-              </button>
-              <button class="button ghost compact" type="button" :disabled="state.templateEditor.validating" @click="validateTemplateEditor">
+              </Button>
+              <Button variant="ghost" size="sm" type="button" :disabled="state.templateEditor.validating" @click="validateTemplateEditor">
                 {{ state.templateEditor.validating ? 'Validating...' : 'Validate' }}
-              </button>
+              </Button>
               <span v-if="state.templateEditor.message" class="inline-feedback review">{{ state.templateEditor.message }}</span>
               <span v-if="state.templateEditor.error" class="inline-feedback error">{{ state.templateEditor.error }}</span>
             </div>
@@ -953,7 +960,7 @@ function prettyLabel(value) {
             </div>
           </template>
         </section>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
