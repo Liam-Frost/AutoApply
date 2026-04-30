@@ -1289,7 +1289,10 @@ textarea {
 .materials-result-workbench,
 .materials-library-section,
 .materials-template-list,
-.materials-upload-box {
+.materials-upload-box,
+.materials-latex-create,
+.materials-template-editor,
+.materials-validation-list {
   display: flex;
   flex-direction: column;
 }
@@ -1336,7 +1339,10 @@ textarea {
 .materials-actions,
 .materials-library-section,
 .materials-template-list,
-.materials-upload-box {
+.materials-upload-box,
+.materials-latex-create,
+.materials-template-editor,
+.materials-validation-list {
   gap: 12px;
 }
 
@@ -1359,13 +1365,23 @@ textarea {
   gap: 10px;
 }
 
+.materials-template-card-head,
+.materials-template-meta,
+.materials-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .materials-selected-card,
 .materials-choice-card,
 .materials-downloads-card,
 .materials-empty-preview,
 .materials-collapsed-preview,
 .materials-template-card,
-.materials-upload-box {
+.materials-upload-box,
+.materials-latex-create,
+.materials-template-editor {
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -1517,6 +1533,24 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.materials-template-card-head,
+.materials-editor-actions {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.materials-template-meta {
+  align-items: center;
+}
+
+.materials-editor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.materials-code-editor {
+  min-height: 360px;
 }
 
 .materials-upload-zone {

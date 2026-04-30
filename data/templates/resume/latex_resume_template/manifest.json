@@ -1,0 +1,62 @@
+{
+  "template_id": "latex_resume_template",
+  "document_type": "resume",
+  "template_format": "latex",
+  "renderer": "latex",
+  "supported_outputs": [
+    "tex",
+    "pdf"
+  ],
+  "name": "LaTeX Resume Template",
+  "description": "Single-file LaTeX resume template.",
+  "page": {
+    "size": "letter",
+    "max_pages": 1
+  },
+  "styles": {},
+  "sections": {
+    "summary": {
+      "enabled": true,
+      "max_items": 1
+    },
+    "education": {
+      "enabled": true,
+      "max_items": 2
+    },
+    "experience": {
+      "enabled": true,
+      "max_items": 3,
+      "max_bullets_per_item": 4,
+      "max_words_per_bullet": 24
+    },
+    "projects": {
+      "enabled": true,
+      "max_items": 3,
+      "max_bullets_per_item": 3,
+      "max_words_per_bullet": 22
+    },
+    "skills": {
+      "enabled": true,
+      "max_lines": 4
+    }
+  },
+  "section_order": [
+    "header",
+    "education",
+    "skills",
+    "projects",
+    "experience"
+  ],
+  "capacity": {
+    "max_pages": 1,
+    "max_sections": 5,
+    "max_experience_items": 3,
+    "max_project_items": 3,
+    "max_bullets_total": 13,
+    "max_words_per_bullet": 24,
+    "max_skill_lines": 4
+  },
+  "blocks": {
+    "sections": "{{resume.sections}}"
+  }
+}
