@@ -8,15 +8,17 @@
 
 - Greenhouse / Lever ATS 抓取
 - LinkedIn 搜索与外部 ATS 链接发现
-- 按岗位生成定制简历与 Cover Letter
+- Materials 工作台：按搜索结果或粘贴 JD 生成定制简历与 Cover Letter
+- DOCX-first 模板包：通过 manifest 管理样式、容量、预览、校验和上传
 - 从 `qa_bank` 加载问答模板
-- Greenhouse / Lever 表单自动填写
+- Greenhouse / Lever / Ashby 表单自动填写
 - 申请记录追踪、统计分析、CSV 导出、Vue Web 界面
 
 当前“直接投递”已实现的平台：
 
 - Greenhouse
 - Lever
+- Ashby
 
 ## 2. 部署前准备
 
@@ -43,7 +45,7 @@ uv sync
 uv run playwright install chromium
 ```
 
-## 3.2 前端构建
+## 3.1 前端构建
 
 仓库已经提交了 `src/web/static/spa` 下的构建产物。
 只有在你修改 `frontend/` 里的源码时，才需要重新构建：
@@ -55,7 +57,7 @@ npm run build
 cd ..
 ```
 
-## 3.1 安装并认证 LLM CLI
+## 3.2 安装并认证 LLM CLI
 
 AutoApply 当前不直接走 SDK，而是调用本地 CLI。
 所以运行 AutoApply 的机器上，至少要安装一个：
@@ -228,6 +230,8 @@ llm:
 通常需要编辑这些文件：
 
 - `data/profile/profile.yaml`
+- `data/profile/profiles/<profile_id>.yaml`
+- `data/templates/<document_type>/<template_id>/manifest.json`
 - `config/settings.yaml`
 - `config/filters.yaml`
 - `config/companies.yaml`
@@ -235,6 +239,7 @@ llm:
 建议：
 
 - 在 `profile.yaml` 中填写身份信息、教育、经历、项目、技能、`story_bank`、`qa_bank`
+- 将简历和 Cover Letter 模板作为 package 放在 `data/templates/` 下维护
 - 在 `companies.yaml` 中维护要抓取的 ATS 公司 slug
 - 在 `filters.yaml` 中维护筛选条件
 
@@ -273,6 +278,7 @@ uv run autoapply search --source all --keyword "backend intern" --score
 
 - 第一次使用 LinkedIn 时，通常需要人工登录一次
 - LinkedIn 搜索结果会尽量提取外部 ATS 链接
+- LinkedIn 搜索会使用 `data/cache/linkedin_search/` 下的本地缓存；需要强制刷新时可在 Settings 中清空或删除缓存 JSON
 - 打分功能依赖可用的 `data/profile/profile.yaml`
 
 ## 10. 投递岗位
@@ -335,11 +341,62 @@ http://127.0.0.1:8000
 
 - `/` 仪表盘
 - `/jobs` 搜索岗位并触发 apply
+- `/materials` 生成简历和 Cover Letter 的主工作台
 - `/applications` 查看申请记录并更新 outcome
 - `/profile` 查看 profile 和上传简历
 - `/settings` 修改 LLM 主备优先级和 fallback 配置
 
 部署后如果要改 LLM 优先级，除了手动编辑 YAML，也可以直接打开 `/settings`。
+
+### 11.1 Materials 工作台
+
+当你只想先生成材料、暂时不进入自动填表流程时，使用 `/materials`。
+
+主流程：
+
+1. 从 `/jobs` 点击 `Generate Apply Materials`，或直接打开 `/materials`。
+2. 选择搜索结果，或者手动粘贴完整 JD。
+3. 选择保存好的 applicant profile。
+4. 选择 Resume 和/或 Cover Letter、DOCX/PDF 格式以及模板。
+5. 生成材料，按需展开 preview，然后下载选中的文件。
+
+说明：
+
+- Resume 支持 DOCX 和 PDF。
+- Cover Letter 在 UI 中支持 DOCX 和 PDF。
+- Preview 默认折叠，方便优先查看下载链接和校验状态。
+- 生成文件通过 `/api/artifacts/download` 下载，并限制只能读取 `data/output` 下的文件。
+
+### 11.2 Template Library
+
+Materials 页面内置 Template Library 弹窗，用于低频模板管理。
+
+模板包目录：
+
+```text
+data/templates/resume/<template_id>/
+data/templates/cover_letter/<template_id>/
+```
+
+每个模板包包含：
+
+- `template.docx`：Word 模板本体，负责视觉样式
+- `manifest.json`：模板元数据、命名 Word 样式、section 顺序、block marker 和容量限制
+- `style.lock.json`：renderer 使用的样式/block 合同
+- `sample_resume.json` 或 `sample_cover_letter.json`：示例 IR 占位文件
+
+上传只支持 10 MiB 以内的 `.docx`。服务端会生成安全的 template ID，尽量补齐缺失的样式和 block marker，校验模板包，并刷新模板列表。
+
+### 11.3 Materials API
+
+Vue 前端主要使用这些 JSON endpoint：
+
+- `POST /api/jobs/generate-material`
+- `GET /api/templates`
+- `POST /api/templates/upload`
+- `GET /api/artifacts/download?path=...`
+
+这些接口会先校验 template ID、profile ID、artifact path 和上传大小，再读写文件。
 
 ## 12. Tracking 与导出
 
@@ -507,7 +564,7 @@ server {
     listen 80;
     server_name autoapply.example.com;
 
-    client_max_body_size 20m;
+    client_max_body_size 10m;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -546,6 +603,7 @@ sudo certbot --nginx -d autoapply.example.com
 - 数据库密码只放在 `.env` 或系统环境变量里
 - 服务进程使用独立的非 root 用户运行
 - `logs/`、`data/output/`、`data/.linkedin_session/` 需要对运行用户可写
+- 如果需要从 Web UI 上传模板，`data/templates/` 也需要对运行用户可写
 - 被配置为 primary / fallback 的 LLM CLI 也必须对同一个运行用户可用且已认证
 - 如果服务器上要跑 LinkedIn 搜索，第一次登录通常仍需要人工完成
 - 基于 Playwright 的自动投递更适合受控内部环境，不建议直接做成开放式公网多租户服务
@@ -613,6 +671,13 @@ uv run autoapply apply --url <ats-url> --no-headless
 - Microsoft Word + `docx2pdf`
 - LibreOffice
 
+### 模板上传失败
+
+- 只支持 `.docx` 文件
+- 文件大小必须不超过 10 MiB
+- 无法解析或校验失败的模板不会进入列表
+- 缺失的必需样式或 block marker 会在可能时自动补齐
+
 ### LinkedIn 登录问题
 
 - 第一次建议使用 `--no-headless`
@@ -630,7 +695,9 @@ uv run autoapply web --no-open
 
 当前预期基线：
 
-- 测试通过
+- `uv run pytest -q` 通过，当前为 340 个测试通过、1 个 LinkedIn smoke 测试跳过
+- `uv run ruff check .` 通过
+- 安装前端依赖后，`npm run build` 通过
 - CLI 正常加载
 - Web 面板可启动
 - 初始化后 tracking 可正常工作

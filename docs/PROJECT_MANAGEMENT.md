@@ -13,13 +13,13 @@ AutoApply is a 7-layer modular job application automation system:
 | 1 | `src/intake/` | Scrape & standardize job postings from ATS (Greenhouse, Lever) and LinkedIn |
 | 2 | `src/matching/` | Rule-based + semantic + risk filtering to score jobs |
 | 3 | `src/memory/` | Structured applicant profile, bullet pool, story bank, QA bank |
-| 4 | `src/generation/` | Block-based resume assembly, constrained CL generation, QA answering |
+| 4 | `src/generation/` | Resume/Cover Letter IR, evidence retrieval, fitting, validation, QA answering |
 | 5 | `src/execution/` | Playwright browser automation, form filling, ATS adapters |
-| 6 | `src/documents/` | Word/PDF creation, template system, file versioning |
+| 6 | `src/documents/` | DOCX/PDF creation, template packages, page counts, file versioning |
 | 7 | `src/tracker/` | Application tracking, analytics, reporting |
 
 | 8 | `src/application/` | Shared use-case layer consumed by CLI and Web |
-| 9 | `src/web/` + `frontend/` | FastAPI JSON API + Vue SPA: dashboard, job search, tracking, profile, settings |
+| 9 | `src/web/` + `frontend/` | FastAPI JSON API + Vue SPA: dashboard, job search, Materials, tracking, profile, settings |
 
 Orchestration lives in `src/core/` (agent, state machine, config).
 Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
@@ -36,7 +36,7 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 - **LLM**: Claude Code CLI (`claude -p`) + Codex CLI — invoked via subprocess, no API SDK
 - **Document processing**: python-docx, docx2pdf / LibreOffice CLI
 - **DB migrations**: Alembic + SQLAlchemy
-- **Target platforms**: Greenhouse + Lever for direct apply, LinkedIn for job discovery / ATS redirect extraction
+- **Target platforms**: Greenhouse + Lever + Ashby for direct apply, LinkedIn for job discovery / ATS redirect extraction
 - **Agent interface**: CLI with `--json` support for core commands
 
 ## Development Workflow
@@ -49,7 +49,7 @@ Shared utilities in `src/utils/` (LLM CLI wrapper, rate limiter, logger).
 ### Commit & Review Cadence
 
 1. Write code for a sub-phase (e.g., Phase 1.1, 1.2, 1.3)
-2. Run a Codex CLI review for the current sub-phase
+2. Run a Codex CLI or Claude Code CLI review for the current sub-phase
 3. Address review findings
 4. Commit with descriptive message → push to `dev`
 5. After full Phase completion: final code review → merge `dev` into `master` → update docs
@@ -68,6 +68,7 @@ GUI role: human-facing operator console.
 | `docs/DECISIONS.md` | Architecture & design decisions log |
 | `config/settings.yaml` | Runtime configuration |
 | `config/.env.example` | Environment variable template |
+| `data/templates/` | DOCX-first template packages for resume and cover letter generation |
 
 ## Phase Plan
 
@@ -150,10 +151,22 @@ GUI role: human-facing operator console.
 
 **Verification**: `autoapply web` -> browser opens dashboard -> search jobs -> trigger apply -> view status
 
+### Phase 8: Materials Workspace + Template Packages + Hardening
+
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| 8.1 | Dedicated `/materials` Vue workspace for job/JD, applicant, template, format, preview, and downloads | **Complete** |
+| 8.2 | DOCX-first template packages with manifests, style locks, upload, validation, and deterministic rendering | **Complete** |
+| 8.3 | Resume/Cover Letter IR, evidence retrieval, template fitting, artifact validation, page counting, version persistence | **Complete** |
+| 8.4 | API hardening: template ID validation, artifact path restrictions, upload limits, profile ID validation | **Complete** |
+| 8.5 | LinkedIn/cache/parser hardening from Claude Code review | **Complete** |
+
+**Verification**: `/jobs` -> `Generate Apply Materials` -> `/materials?jobId=...` -> generate DOCX/PDF -> preview/download. Full test baseline: 340 passed, 1 skipped.
+
 ## Current Session Context
 
 - **Active branch**: `dev`
-- **Current phase**: Phase 7 complete with Vue frontend refactor
-- **Last verification**: Vue SPA build passes, web tests pass, legacy server-rendered layer removed
+- **Current phase**: Phase 8 complete; docs updated after Materials/template hardening
+- **Last verification**: `uv run python -m pytest` -> 340 passed, 1 skipped; `uv run ruff check .` passes; `npm run build` passes
 - **Blockers**: None
-- **Next step**: Push `dev`, merge to `master`, then continue with production hardening as needed
+- **Next step**: Create/merge PR from `dev` to `master`, then continue production hardening and UX refinement as needed

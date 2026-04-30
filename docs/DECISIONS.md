@@ -92,3 +92,39 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Rationale**: The GUI needed a cleaner and more controllable interaction model than the template-heavy dashboard could provide. Splitting the frontend into `frontend/` keeps the UI independent, makes the visual system easier to simplify, and preserves the existing Python backend as a thin JSON API over the current services.
 
 **Alternative considered**: Keep the Jinja2/HTMX stack and simplify templates in place. That would have avoided adding a Node build step, but it would keep the frontend tightly coupled to server templates and make larger layout simplifications slower to iterate.
+
+---
+
+## D011 — Materials as a first-class web workspace (2026-04-29)
+
+**Decision**: Treat application materials generation as its own primary route at `/materials`, not as an inline modal inside job search results.
+
+**Rationale**: Generating application materials requires multiple user choices: job/JD source, applicant profile, material types, output formats, templates, preview, validation, and downloads. A dedicated workspace keeps the high-frequency generation path visible and separates it from search-result browsing. Job cards link into this workspace with `jobId` query state so search context is preserved without duplicating generation UI.
+
+**Alternative considered**: Keep generation in the Jobs page. That approach made template selection and preview/download state harder to reason about and would have crowded the search-result card layout.
+
+---
+
+## D012 — DOCX-first template packages, not free-form renderer styling (2026-04-29)
+
+**Decision**: Store document templates as first-class packages: `template.docx`, `manifest.json`, `style.lock.json`, and sample JSON assets. The renderer only references manifest-declared block markers and named Word styles.
+
+**Rationale**: Word documents own the visual style. Code should assemble validated content into named blocks and styles rather than scattering font, margin, and bold overrides through the renderer. This makes uploaded templates predictable, keeps user-owned style changes in DOCX, and allows capacity/fitting rules to live beside the template that imposes them.
+
+**Key design**: LLM/content planning produces structured IR. Deterministic renderers convert IR into DOCX and PDF. The LLM does not generate final document files.
+
+---
+
+## D013 — Template and artifact APIs must not expose filesystem authority (2026-04-29)
+
+**Decision**: Validate template IDs, constrain artifact downloads to `data/output`, limit template upload size, and serialize template preview paths as project-relative/public-safe values instead of absolute paths.
+
+**Rationale**: Template IDs and artifact paths cross the HTTP boundary. Even for a local-first app, these APIs should not allow path traversal, arbitrary large uploads, or leakage of host filesystem layout.
+
+---
+
+## D014 — Claude Code CLI review for final hardening (2026-04-29)
+
+**Decision**: Use Claude Code CLI as the final review pass for this Materials/template work, while keeping Codex review as an earlier-phase practice documented in D008.
+
+**Rationale**: The current development environment already depends on Claude Code CLI and the review found concrete security and regression issues in template IDs, LinkedIn enrichment, upload limits, parser heuristics, and cache keys. Automated review is treated as an input to engineering judgment; findings are fixed and verified with tests before commit.

@@ -4,6 +4,49 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Materials Workspace
+- Added a dedicated Vue Materials page at `/materials` for job/JD selection, applicant profile selection, resume/cover letter options, template selection, preview, and artifact downloads
+- Job search results now route `Generate Apply Materials` into `/materials?jobId=...` so the selected search result carries into the generation workflow
+- Added Preview tabs for Resume and Cover Letter, collapsed-by-default review, validation chips, version metadata, and selected-format download links
+- Moved template upload into a Template Library modal so low-frequency template management does not interrupt the core generation flow
+- Removed TXT as a product-facing Cover Letter output option; DOCX/PDF are the supported UI formats
+
+### DOCX-First Template Packages
+- Added first-class template package assets under `data/templates/<document_type>/<template_id>/`
+- Template packages now include `template.docx`, `manifest.json`, `style.lock.json`, and sample JSON assets
+- Added default packages: `resume/ats_single_column_v1` and `cover_letter/classic_v1`
+- Added template APIs for listing packages and uploading DOCX templates
+- Uploaded templates are validated, assigned safe IDs, given required named styles/markers, and serialized without leaking absolute filesystem paths
+- Template package writes are stable on Windows with LF newlines and trailing final newline
+
+### Generation Pipeline
+- Added structured Resume/Cover Letter IR models, evidence retrieval, template-aware fitting, artifact validation, page counting, and local generation version persistence
+- DOCX rendering now prefers manifest block markers such as `{{resume.sections}}` and `{{cover_letter.body}}`
+- Renderers use named Word styles from template manifests instead of ad hoc formatting overrides
+- Resume fitting applies template capacity limits for sections, items, bullets, bullet length, and skill lines
+- Cover letter generation now follows the same DOCX-first artifact path with validation and version metadata
+
+### Web/API Hardening
+- Added `/api/jobs/generate-material`, `/api/templates`, `/api/templates/upload`, and `/api/artifacts/download`
+- Added artifact download path restrictions to `data/output`
+- Added template ID validation to prevent path traversal outside `data/templates`
+- Added template upload size limits before parsing DOCX content
+- Restored strict search-profile ID validation at the service layer and mapped invalid DELETE requests to HTTP 400
+- Added profile-aware material generation from saved applicant profiles
+
+### Search, Intake, And ATS Fixes
+- Added Ashby ATS adapter support and Ashby application URL normalization
+- Hardened LinkedIn pagination, page-state probing, job-card scroll detection, primary Apply-button selection, popup cancellation, and description extraction
+- Avoided double-enriching LinkedIn description-filter matches
+- Restored duplicate collapse for no-keyword LinkedIn searches
+- Normalized LinkedIn cache keys so keyword/filter order does not cause duplicate cache entries
+- Fixed JD parser false positives for `ml`, `api`, and `data` substring matches
+
+### Review And Verification
+- Ran Claude Code CLI review, fixed all actionable findings, and rechecked the final cache-key/partition coverage fixes
+- Current verification baseline: `uv run python -m pytest` -> 340 passed, 1 skipped
+- Current lint/build baseline: `uv run ruff check .` and `npm run build` pass
+
 ### Packaging + Runtime Fixes
 - Added package build metadata so `uv sync` installs the `autoapply` CLI entrypoint
 - Added missing `itsdangerous` dependency required by FastAPI session middleware
@@ -21,9 +64,9 @@ All notable changes to AutoApply are documented here, organized by Phase.
 - Job search page now shows match scores when a profile is available
 - Job search page now exposes an Apply action that triggers the existing pipeline
 
-### Verification
+### Earlier Verification Snapshot
 - `uv run autoapply --help`
-- `uv run pytest -q` → 244 passing
+- `uv run pytest -q` -> 244 passing at the packaging/runtime-fix checkpoint
 
 ## [0.7.0] -- 2026-04-03 -- Phase 7: Web GUI
 

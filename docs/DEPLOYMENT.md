@@ -9,15 +9,17 @@ AutoApply currently supports:
 
 - ATS job intake from Greenhouse and Lever
 - LinkedIn search with external ATS redirect discovery
-- Tailored resume and cover letter generation per job
+- Materials workspace for tailored resume and cover letter generation per job or pasted JD
+- DOCX-first template packages with manifest-driven styles, capacity, preview, validation, and uploads
 - QA template loading from `qa_bank`
-- Browser automation for Greenhouse and Lever applications
+- Browser automation for Greenhouse, Lever, and Ashby applications
 - Application tracking, analytics, CSV export, and the Vue web GUI
 
 Direct apply support is currently implemented for:
 
 - Greenhouse
 - Lever
+- Ashby
 
 ## 2. Prerequisites
 
@@ -44,7 +46,7 @@ uv sync
 uv run playwright install chromium
 ```
 
-## 3.2 Frontend Build
+## 3.1 Frontend Build
 
 The repository already includes built frontend assets under `src/web/static/spa`.
 You only need this step when you modify files under `frontend/`.
@@ -56,7 +58,7 @@ npm run build
 cd ..
 ```
 
-## 3.1 Install And Authenticate LLM CLIs
+## 3.2 Install And Authenticate LLM CLIs
 
 AutoApply does not use an SDK for generation. It shells out to local CLIs.
 You must install at least one of these on the same machine that runs AutoApply:
@@ -229,6 +231,8 @@ Even after both CLIs fail, several features still degrade gracefully:
 Main files you will edit:
 
 - `data/profile/profile.yaml`
+- `data/profile/profiles/<profile_id>.yaml`
+- `data/templates/<document_type>/<template_id>/manifest.json`
 - `config/settings.yaml`
 - `config/filters.yaml`
 - `config/companies.yaml`
@@ -236,6 +240,7 @@ Main files you will edit:
 Guidance:
 
 - put your identity, education, experiences, projects, skills, `story_bank`, and `qa_bank` in `profile.yaml`
+- keep resume and cover letter templates as packages under `data/templates/`
 - put ATS company slugs in `companies.yaml`
 - define matching filters in `filters.yaml`
 
@@ -274,6 +279,7 @@ Notes:
 
 - first LinkedIn use may require interactive login
 - LinkedIn results can be enriched with external ATS links
+- LinkedIn search uses a local file cache under `data/cache/linkedin_search/`; clear it from Settings or delete cached JSON if you need a fresh scrape
 - scoring requires a valid `data/profile/profile.yaml`
 
 ## 10. Application Workflow
@@ -336,11 +342,62 @@ Pages:
 
 - `/` dashboard
 - `/jobs` job search and apply actions
+- `/materials` resume and cover letter generation workspace
 - `/applications` tracking and outcome updates
 - `/profile` profile inspection and resume import
 - `/settings` LLM provider priority and fallback settings
 
 Use `/settings` after deployment if you want to change the primary or fallback provider without editing YAML by hand.
+
+### 11.1 Materials Workspace
+
+Use `/materials` when you want to generate documents without immediately filling an application form.
+
+Main flow:
+
+1. Start from `/jobs` and click `Generate Apply Materials`, or open `/materials` directly.
+2. Choose a search result or paste a complete JD.
+3. Choose the saved applicant profile.
+4. Choose Resume and/or Cover Letter, select DOCX/PDF formats, and select templates.
+5. Generate materials, expand preview when needed, then download selected artifacts.
+
+Notes:
+
+- Resume outputs support DOCX and PDF.
+- Cover Letter outputs support DOCX and PDF in the UI.
+- Preview is collapsed by default so downloads and validation status stay easy to scan.
+- Generated artifacts are downloaded through `/api/artifacts/download`, restricted to `data/output`.
+
+### 11.2 Template Library
+
+The Materials page includes a Template Library modal for low-frequency template management.
+
+Template packages live under:
+
+```text
+data/templates/resume/<template_id>/
+data/templates/cover_letter/<template_id>/
+```
+
+Each package contains:
+
+- `template.docx` — Word document that owns visual styling
+- `manifest.json` — template metadata, named Word styles, section order, blocks, and capacity limits
+- `style.lock.json` — renderer-facing style/block contract
+- `sample_resume.json` or `sample_cover_letter.json` — sample IR payload placeholder
+
+Uploads accept `.docx` files up to 10 MiB. The server assigns a safe template ID, adds required styles and block markers if missing, validates the package, and refreshes the template list.
+
+### 11.3 Materials API Surface
+
+The Vue app uses these JSON endpoints:
+
+- `POST /api/jobs/generate-material`
+- `GET /api/templates`
+- `POST /api/templates/upload`
+- `GET /api/artifacts/download?path=...`
+
+These endpoints validate template IDs, profile IDs, artifact paths, and upload size before touching files.
 
 ## 12. Tracking And Export
 
@@ -503,7 +560,7 @@ server {
     listen 80;
     server_name autoapply.example.com;
 
-    client_max_body_size 20m;
+    client_max_body_size 10m;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -542,6 +599,7 @@ sudo certbot --nginx -d autoapply.example.com
 - keep PostgreSQL credentials only in `.env` or environment variables
 - run the service under a dedicated non-root user
 - keep `logs/`, `data/output/`, and `data/.linkedin_session/` writable by the service user
+- keep `data/templates/` writable only if users need to upload templates from the Web UI
 - keep the configured LLM CLI binaries installed and authenticated for the same service user
 - if you use LinkedIn search on a server, the first login may still require an interactive browser session
 - Playwright-based apply jobs are better suited to trusted internal use than a public multi-user SaaS deployment
@@ -609,6 +667,13 @@ Install one of:
 - Microsoft Word with `docx2pdf`
 - LibreOffice
 
+### Template upload fails
+
+- only `.docx` uploads are supported
+- upload size must be 10 MiB or smaller
+- invalid templates are rejected before being listed
+- missing required styles or block markers are added automatically when possible
+
 ### LinkedIn login problems
 
 - run LinkedIn search with `--no-headless`
@@ -629,7 +694,9 @@ uv run autoapply web --no-open
 
 Expected current baseline:
 
-- tests passing
+- `uv run pytest -q` passes with 340 tests and 1 skipped LinkedIn smoke test
+- `uv run ruff check .` passes
+- `npm run build` passes when frontend dependencies are installed
 - CLI loads
 - dashboard starts
 - database-backed tracking is available after initialization
