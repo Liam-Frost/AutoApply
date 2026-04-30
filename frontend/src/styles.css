@@ -81,13 +81,13 @@ textarea {
 }
 
 .workspace {
-  width: min(1180px, calc(100vw - 168px));
+  width: min(1400px, calc(100vw - 140px));
   margin: 0 auto;
-  padding-left: 96px;
+  padding-left: 80px;
 }
 
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .page-eyebrow {
@@ -152,13 +152,13 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text-muted);
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
 }
 
@@ -172,15 +172,12 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
-  color: var(--text-muted);
-  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
-}
-
-.dock-item {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
 }
 
 .dock-item:hover {
@@ -234,23 +231,25 @@ textarea {
 }
 
 .metric-card {
-  padding: 18px;
-  background: linear-gradient(180deg, hsl(var(--muted) / 0.6), hsl(var(--muted) / 0.2));
+  padding: 18px 20px;
+  background: hsl(var(--card));
 }
 
 .metric-label {
   display: block;
   font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
 }
 
 .metric-value {
   display: block;
-  margin-top: 10px;
-  font-size: clamp(1.4rem, 2vw, 2rem);
-  font-weight: 650;
+  margin-top: 8px;
+  font-size: clamp(1.5rem, 2vw, 2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
 }
 
 .content-grid {
@@ -515,6 +514,14 @@ textarea {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.section-head h2 {
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: hsl(var(--muted-foreground));
 }
 
 .form-grid {
@@ -918,13 +925,16 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--card));
+  font-size: 14px;
+  transition: background-color 160ms ease;
 }
 
-.list-row {
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-muted);
+.list-row:hover {
+  background: hsl(var(--muted) / 0.5);
 }
 
 .empty-state {
@@ -969,11 +979,17 @@ textarea {
 .job-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: linear-gradient(180deg, hsl(var(--muted) / 0.6), hsl(var(--muted) / 0.3));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.job-card:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  background: hsl(var(--muted) / 0.3);
 }
 
 .job-card-main {
@@ -1035,7 +1051,7 @@ textarea {
 }
 
 .job-card-note {
-  border-color: rgba(240, 199, 111, 0.18);
+  border-color: hsl(var(--warning) / 0.4);
 }
 
 .job-card-actions {
@@ -1626,16 +1642,27 @@ textarea {
 
 .table th,
 .table td {
-  padding: 14px 12px;
-  border-bottom: 1px solid hsl(var(--secondary));
+  padding: 12px 14px;
+  border-bottom: 1px solid hsl(var(--border));
   text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.table tbody tr:hover {
+  background: hsl(var(--muted) / 0.5);
 }
 
 .table th {
-  font-size: 12px;
-  letter-spacing: 0.12em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.4);
+}
+
+.table td {
+  font-size: 14px;
 }
 
 .profile-block {
