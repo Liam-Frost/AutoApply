@@ -262,6 +262,7 @@ textarea {
 }
 
 .jobs-shell {
+  padding: 20px 24px 24px;
   gap: 18px;
 }
 
@@ -339,6 +340,7 @@ textarea {
 }
 
 .jobs-results-shell {
+  padding: 20px 24px 24px;
   gap: 18px;
 }
 

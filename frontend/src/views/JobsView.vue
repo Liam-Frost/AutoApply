@@ -5,7 +5,11 @@ import {
   AlertCircle,
   AlertTriangle,
   Briefcase,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Filter as FilterIcon,
@@ -15,10 +19,8 @@ import {
   Search,
   Sparkles,
   Trash2,
-  X,
 } from "lucide-vue-next"
 
-import AppIcon from "@/components/AppIcon.vue"
 import AppSelect from "@/components/AppSelect.vue"
 import TagInput from "@/components/TagInput.vue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -1124,7 +1126,7 @@ function buildPageButtons(total, current) {
                   <strong>Basic</strong>
                   <div class="muted-inline">Source, Query, And Candidate Locations</div>
                 </div>
-                <span class="accordion-icon"><AppIcon :name="state.sections.basic ? 'chevron-down' : 'chevron-right'" /></span>
+                <span class="accordion-icon"><component :is="state.sections.basic ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
               </button>
 
               <div v-if="state.sections.basic" class="accordion-body">
@@ -1181,7 +1183,7 @@ function buildPageButtons(total, current) {
                   <strong>Advanced</strong>
                   <div class="muted-inline">Pay, Experience, Employment, Location, And Education</div>
                 </div>
-                <span class="accordion-icon"><AppIcon :name="state.sections.advanced ? 'chevron-down' : 'chevron-right'" /></span>
+                <span class="accordion-icon"><component :is="state.sections.advanced ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
               </button>
 
               <div v-if="state.sections.advanced" class="accordion-body">
@@ -1307,10 +1309,10 @@ function buildPageButtons(total, current) {
         <div class="jobs-pagination-controls">
           <div class="jobs-page-numbers">
             <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <AppIcon name="chevrons-left" />
+              <ChevronsLeft class="h-4 w-4" />
             </button>
             <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <AppIcon name="chevron-left" />
+              <ChevronLeft class="h-4 w-4" />
             </button>
             <button
               v-for="page in pageButtons"
@@ -1325,10 +1327,10 @@ function buildPageButtons(total, current) {
             </button>
             <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
             <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <AppIcon name="chevron-right" />
+              <ChevronRight class="h-4 w-4" />
             </button>
             <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <AppIcon name="chevrons-right" />
+              <ChevronsRight class="h-4 w-4" />
             </button>
           </div>
 
@@ -1419,10 +1421,10 @@ function buildPageButtons(total, current) {
         <div class="jobs-pagination-controls">
           <div class="jobs-page-numbers">
             <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <AppIcon name="chevrons-left" />
+              <ChevronsLeft class="h-4 w-4" />
             </button>
             <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <AppIcon name="chevron-left" />
+              <ChevronLeft class="h-4 w-4" />
             </button>
             <button
               v-for="page in pageButtons"
@@ -1437,10 +1439,10 @@ function buildPageButtons(total, current) {
             </button>
             <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
             <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <AppIcon name="chevron-right" />
+              <ChevronRight class="h-4 w-4" />
             </button>
             <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <AppIcon name="chevrons-right" />
+              <ChevronsRight class="h-4 w-4" />
             </button>
           </div>
 
@@ -1470,7 +1472,7 @@ function buildPageButtons(total, current) {
           >
             <input v-model="materialModal.selected[target.id]" type="checkbox" :disabled="modalMaterialState.loading" />
             <span class="material-target-check">
-              <AppIcon name="check" />
+              <Check class="h-3.5 w-3.5" />
             </span>
             <span class="material-target-copy">
               <strong>{{ target.label }}</strong>

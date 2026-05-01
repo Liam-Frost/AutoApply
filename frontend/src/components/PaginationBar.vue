@@ -1,7 +1,12 @@
 <script setup>
 import { computed } from "vue"
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from "lucide-vue-next"
 
-import AppIcon from "./AppIcon.vue"
 import AppSelect from "./AppSelect.vue"
 
 const props = defineProps({
@@ -61,10 +66,10 @@ function jumpToPage() {
     <div class="jobs-pagination-controls">
       <div class="jobs-page-numbers">
         <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="currentPage <= 1" @click="goToPage(1)">
-          <AppIcon name="chevrons-left" />
+          <ChevronsLeft class="h-4 w-4" />
         </button>
         <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
-          <AppIcon name="chevron-left" />
+          <ChevronLeft class="h-4 w-4" />
         </button>
         <button
           v-for="page in pageButtons"
@@ -79,10 +84,10 @@ function jumpToPage() {
         </button>
         <input :value="pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @input="emit('update:pageJump', $event.target.value)" @keydown.enter.prevent="jumpToPage" />
         <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
-          <AppIcon name="chevron-right" />
+          <ChevronRight class="h-4 w-4" />
         </button>
         <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">
-          <AppIcon name="chevrons-right" />
+          <ChevronsRight class="h-4 w-4" />
         </button>
       </div>
 
