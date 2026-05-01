@@ -2,9 +2,14 @@
 import { computed, reactive, ref, watch } from "vue"
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router"
 import {
+  AlertCircle,
   ArrowLeft,
   Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Pencil,
+  PenLine,
   Plus,
   Save,
   Trash2,
@@ -14,8 +19,8 @@ import {
   X,
 } from "lucide-vue-next"
 
-import AppIcon from "@/components/AppIcon.vue"
 import TagInput from "@/components/TagInput.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -866,8 +871,14 @@ function makeId(prefix) {
       <Skeleton class="h-8 w-40" />
       <Skeleton class="h-24 w-full" />
     </div>
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-    <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
+    <Alert v-if="state.message" variant="success">
+      <CheckCircle2 class="h-4 w-4" />
+      <AlertDescription>{{ state.message }}</AlertDescription>
+    </Alert>
 
     <template v-if="!state.loading && !isEditingView">
       <Card class="profile-library-shell" :class="{ 'is-loading': state.loading }">
@@ -888,7 +899,7 @@ function makeId(prefix) {
         <div v-if="state.createMenuOpen" class="profile-create-panel">
           <div class="section-head compact-head">
             <h2>Create</h2>
-            <button class="icon-button" type="button" aria-label="Close Create Menu" title="Close Create Menu" @click="closeCreateMenu"><AppIcon name="close" /></button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Close Create Menu" title="Close Create Menu" @click="closeCreateMenu"><X class="h-4 w-4" /></Button>
           </div>
 
           <div class="chip-row mode-toggle-row">
@@ -904,7 +915,7 @@ function makeId(prefix) {
 
             <div class="actions-row align-end">
               <button class="icon-button primary" type="button" :disabled="state.saving" aria-label="Create Profile" title="Create Profile" @click="createProfile">
-                <AppIcon name="plus" />
+                <Plus class="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -927,7 +938,7 @@ function makeId(prefix) {
 
             <div class="actions-row align-end">
               <button class="icon-button primary" type="button" :disabled="state.uploading" aria-label="Import Profile" title="Import Profile" @click="uploadProfileFromFile">
-                <AppIcon name="upload" />
+                <Upload class="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -971,7 +982,7 @@ function makeId(prefix) {
                 <Check class="h-4 w-4" />
               </Button>
               <Button variant="ghost" size="icon" type="button" aria-label="Rename Profile" title="Rename Profile" @click="startRename(profile)">
-                <AppIcon name="rename" />
+                <PenLine class="h-4 w-4" />
               </Button>
               <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" :disabled="state.deleting" aria-label="Delete Profile" title="Delete Profile" @click="deleteProfile(profile.id)">
                 <Trash2 class="h-4 w-4" />
@@ -1035,12 +1046,12 @@ function makeId(prefix) {
 
         <div class="page-stack">
           <section class="editor-section accordion-section">
-            <button class="accordion-head" type="button" @click="toggleSection('identity')">
+            <button class="accordion-head" type="button" :aria-expanded="state.sections.identity" @click="toggleSection('identity')">
               <div>
                 <strong>Identity</strong>
                 <div class="muted-inline">{{ sectionLabel('identity') }}</div>
               </div>
-              <span class="accordion-icon"><AppIcon :name="state.sections.identity ? 'chevron-down' : 'chevron-right'" /></span>
+              <span class="accordion-icon"><component :is="state.sections.identity ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
             </button>
 
             <div v-if="state.sections.identity" class="accordion-body">
@@ -1057,31 +1068,31 @@ function makeId(prefix) {
           </section>
 
           <section class="editor-section accordion-section">
-            <button class="accordion-head" type="button" @click="toggleSection('education')">
+            <button class="accordion-head" type="button" :aria-expanded="state.sections.education" @click="toggleSection('education')">
               <div>
                 <strong>Education</strong>
                 <div class="muted-inline">{{ sectionLabel('education') }}</div>
               </div>
-              <span class="accordion-icon"><AppIcon :name="state.sections.education ? 'chevron-down' : 'chevron-right'" /></span>
+              <span class="accordion-icon"><component :is="state.sections.education ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
             </button>
 
             <div v-if="state.sections.education" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Education Entries</h2>
-                <button class="icon-button" type="button" aria-label="Add education" title="Add education" @click="addEducation"><AppIcon name="plus" /></button>
+                <Button variant="ghost" size="icon" type="button" aria-label="Add education" title="Add education" @click="addEducation"><Plus class="h-4 w-4" /></Button>
               </div>
 
               <div v-if="state.editor.education.length" class="editor-stack">
                 <article v-for="(item, index) in state.editor.education" :key="item.id" class="editor-card">
                   <div class="editor-card-head">
-                    <button class="editor-item-head" type="button" @click="toggleItem(item)">
+                    <button class="editor-item-head" type="button" :aria-expanded="item.expanded" @click="toggleItem(item)">
                       <div>
                         <strong>{{ educationEntryLabel(item, index) }}</strong>
                         <div class="muted-inline">{{ summaryLine([item.degree, item.field, item.start_date || item.end_date ? `${item.start_date || '?'} - ${item.end_date || 'Present'}` : '']) }}</div>
                       </div>
-                      <span class="accordion-icon"><AppIcon :name="item.expanded ? 'chevron-down' : 'chevron-right'" /></span>
+                      <span class="accordion-icon"><component :is="item.expanded ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
                     </button>
-                    <button class="icon-button danger" type="button" aria-label="Delete education" title="Delete education" @click="removeEducation(index)"><AppIcon name="trash" /></button>
+                    <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete education" title="Delete education" @click="removeEducation(index)"><Trash2 class="h-4 w-4" /></Button>
                   </div>
 
                   <div v-if="item.expanded" class="editor-item-body">
@@ -1098,7 +1109,7 @@ function makeId(prefix) {
                     <div class="editor-subsection">
                       <div class="section-head compact-head">
                         <h2>Relevant Courses</h2>
-                        <button class="icon-button" type="button" aria-label="Add course" title="Add course" @click="addCourse(index)"><AppIcon name="plus" /></button>
+                        <Button variant="ghost" size="icon" type="button" aria-label="Add course" title="Add course" @click="addCourse(index)"><Plus class="h-4 w-4" /></Button>
                       </div>
 
                       <div v-if="item.relevant_courses.length" class="editor-stack">
@@ -1108,7 +1119,7 @@ function makeId(prefix) {
                             <label class="field"><span>Tags</span><TagInput v-model="course.tags" placeholder="Python, Systems" /></label>
                           </div>
                           <div class="actions-row">
-                            <button class="icon-button danger" type="button" aria-label="Delete course" title="Delete course" @click="removeCourse(index, courseIndex)"><AppIcon name="trash" /></button>
+                            <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete course" title="Delete course" @click="removeCourse(index, courseIndex)"><Trash2 class="h-4 w-4" /></Button>
                           </div>
                         </div>
                       </div>
@@ -1121,31 +1132,31 @@ function makeId(prefix) {
           </section>
 
           <section class="editor-section accordion-section">
-            <button class="accordion-head" type="button" @click="toggleSection('experience')">
+            <button class="accordion-head" type="button" :aria-expanded="state.sections.experience" @click="toggleSection('experience')">
               <div>
                 <strong>Experience</strong>
                 <div class="muted-inline">{{ sectionLabel('experience') }}</div>
               </div>
-              <span class="accordion-icon"><AppIcon :name="state.sections.experience ? 'chevron-down' : 'chevron-right'" /></span>
+              <span class="accordion-icon"><component :is="state.sections.experience ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
             </button>
 
             <div v-if="state.sections.experience" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Work Experiences</h2>
-                <button class="icon-button" type="button" aria-label="Add experience" title="Add experience" @click="addExperience"><AppIcon name="plus" /></button>
+                <Button variant="ghost" size="icon" type="button" aria-label="Add experience" title="Add experience" @click="addExperience"><Plus class="h-4 w-4" /></Button>
               </div>
 
               <div v-if="state.editor.work_experiences.length" class="editor-stack">
                 <article v-for="(item, index) in state.editor.work_experiences" :key="item.id" class="editor-card">
                   <div class="editor-card-head">
-                    <button class="editor-item-head" type="button" @click="toggleItem(item)">
+                    <button class="editor-item-head" type="button" :aria-expanded="item.expanded" @click="toggleItem(item)">
                       <div>
                         <strong>{{ experienceEntryLabel(item, index) }}</strong>
                         <div class="muted-inline">{{ summaryLine([item.title, item.location, item.start_date || item.end_date ? `${item.start_date || '?'} - ${item.end_date || 'Present'}` : '']) }}</div>
                       </div>
-                      <span class="accordion-icon"><AppIcon :name="item.expanded ? 'chevron-down' : 'chevron-right'" /></span>
+                      <span class="accordion-icon"><component :is="item.expanded ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
                     </button>
-                    <button class="icon-button danger" type="button" aria-label="Delete experience" title="Delete experience" @click="removeExperience(index)"><AppIcon name="trash" /></button>
+                    <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete experience" title="Delete experience" @click="removeExperience(index)"><Trash2 class="h-4 w-4" /></Button>
                   </div>
 
                   <div v-if="item.expanded" class="editor-item-body">
@@ -1160,20 +1171,20 @@ function makeId(prefix) {
                     <div class="editor-subsection">
                       <div class="section-head compact-head">
                         <h2>Bullets</h2>
-                        <button class="icon-button" type="button" aria-label="Add bullet" title="Add bullet" @click="addExperienceBullet(index)"><AppIcon name="plus" /></button>
+                        <Button variant="ghost" size="icon" type="button" aria-label="Add bullet" title="Add bullet" @click="addExperienceBullet(index)"><Plus class="h-4 w-4" /></Button>
                       </div>
 
                       <div v-if="item.bullets.length" class="editor-stack">
                         <div v-for="(bullet, bulletIndex) in item.bullets" :key="bullet.id" class="editor-mini-card">
                           <div class="editor-card-head">
-                            <button class="editor-item-head" type="button" @click="toggleItem(bullet)">
+                            <button class="editor-item-head" type="button" :aria-expanded="bullet.expanded" @click="toggleItem(bullet)">
                               <div>
                                 <strong>Bullet {{ bulletIndex + 1 }}</strong>
                                 <div class="muted-inline">{{ bulletLabel(bullet, bulletIndex) }}</div>
                               </div>
-                              <span class="accordion-icon"><AppIcon :name="bullet.expanded ? 'chevron-down' : 'chevron-right'" /></span>
+                              <span class="accordion-icon"><component :is="bullet.expanded ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
                             </button>
-                            <button class="icon-button danger" type="button" aria-label="Delete bullet" title="Delete bullet" @click="removeExperienceBullet(index, bulletIndex)"><AppIcon name="trash" /></button>
+                            <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete bullet" title="Delete bullet" @click="removeExperienceBullet(index, bulletIndex)"><Trash2 class="h-4 w-4" /></Button>
                           </div>
 
                           <div v-if="bullet.expanded" class="editor-item-body">
@@ -1191,31 +1202,31 @@ function makeId(prefix) {
           </section>
 
           <section class="editor-section accordion-section">
-            <button class="accordion-head" type="button" @click="toggleSection('projects')">
+            <button class="accordion-head" type="button" :aria-expanded="state.sections.projects" @click="toggleSection('projects')">
               <div>
                 <strong>Projects</strong>
                 <div class="muted-inline">{{ sectionLabel('projects') }}</div>
               </div>
-              <span class="accordion-icon"><AppIcon :name="state.sections.projects ? 'chevron-down' : 'chevron-right'" /></span>
+              <span class="accordion-icon"><component :is="state.sections.projects ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
             </button>
 
             <div v-if="state.sections.projects" class="accordion-body">
               <div class="section-head compact-head">
                 <h2>Projects</h2>
-                <button class="icon-button" type="button" aria-label="Add project" title="Add project" @click="addProject"><AppIcon name="plus" /></button>
+                <Button variant="ghost" size="icon" type="button" aria-label="Add project" title="Add project" @click="addProject"><Plus class="h-4 w-4" /></Button>
               </div>
 
               <div v-if="state.editor.projects.length" class="editor-stack">
                 <article v-for="(item, index) in state.editor.projects" :key="item.id" class="editor-card">
                   <div class="editor-card-head">
-                    <button class="editor-item-head" type="button" @click="toggleItem(item)">
+                    <button class="editor-item-head" type="button" :aria-expanded="item.expanded" @click="toggleItem(item)">
                       <div>
                         <strong>{{ projectEntryLabel(item, index) }}</strong>
                         <div class="muted-inline">{{ summaryLine([item.role, item.tech_stack.length ? `${item.tech_stack.length} tech tags` : '', item.links.length ? `${item.links.length} links` : '']) }}</div>
                       </div>
-                      <span class="accordion-icon"><AppIcon :name="item.expanded ? 'chevron-down' : 'chevron-right'" /></span>
+                      <span class="accordion-icon"><component :is="item.expanded ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
                     </button>
-                    <button class="icon-button danger" type="button" aria-label="Delete project" title="Delete project" @click="removeProject(index)"><AppIcon name="trash" /></button>
+                    <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete project" title="Delete project" @click="removeProject(index)"><Trash2 class="h-4 w-4" /></Button>
                   </div>
 
                   <div v-if="item.expanded" class="editor-item-body">
@@ -1230,20 +1241,20 @@ function makeId(prefix) {
                     <div class="editor-subsection">
                       <div class="section-head compact-head">
                         <h2>Bullets</h2>
-                        <button class="icon-button" type="button" aria-label="Add bullet" title="Add bullet" @click="addProjectBullet(index)"><AppIcon name="plus" /></button>
+                        <Button variant="ghost" size="icon" type="button" aria-label="Add bullet" title="Add bullet" @click="addProjectBullet(index)"><Plus class="h-4 w-4" /></Button>
                       </div>
 
                       <div v-if="item.bullets.length" class="editor-stack">
                         <div v-for="(bullet, bulletIndex) in item.bullets" :key="bullet.id" class="editor-mini-card">
                           <div class="editor-card-head">
-                            <button class="editor-item-head" type="button" @click="toggleItem(bullet)">
+                            <button class="editor-item-head" type="button" :aria-expanded="bullet.expanded" @click="toggleItem(bullet)">
                               <div>
                                 <strong>Bullet {{ bulletIndex + 1 }}</strong>
                                 <div class="muted-inline">{{ bulletLabel(bullet, bulletIndex) }}</div>
                               </div>
-                              <span class="accordion-icon"><AppIcon :name="bullet.expanded ? 'chevron-down' : 'chevron-right'" /></span>
+                              <span class="accordion-icon"><component :is="bullet.expanded ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
                             </button>
-                            <button class="icon-button danger" type="button" aria-label="Delete bullet" title="Delete bullet" @click="removeProjectBullet(index, bulletIndex)"><AppIcon name="trash" /></button>
+                            <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete bullet" title="Delete bullet" @click="removeProjectBullet(index, bulletIndex)"><Trash2 class="h-4 w-4" /></Button>
                           </div>
 
                           <div v-if="bullet.expanded" class="editor-item-body">
@@ -1261,31 +1272,31 @@ function makeId(prefix) {
           </section>
 
           <section class="editor-section accordion-section">
-            <button class="accordion-head" type="button" @click="toggleSection('skills')">
+            <button class="accordion-head" type="button" :aria-expanded="state.sections.skills" @click="toggleSection('skills')">
               <div>
                 <strong>Skills</strong>
                 <div class="muted-inline">{{ sectionLabel('skills') }}</div>
               </div>
-              <span class="accordion-icon"><AppIcon :name="state.sections.skills ? 'chevron-down' : 'chevron-right'" /></span>
+              <span class="accordion-icon"><component :is="state.sections.skills ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
             </button>
 
             <div v-if="state.sections.skills" class="accordion-body">
                 <div class="section-head compact-head">
                   <h2>Skill Categories</h2>
-                  <button class="icon-button" type="button" aria-label="Add skill category" title="Add skill category" @click="addSkillCategory"><AppIcon name="plus" /></button>
+                  <Button variant="ghost" size="icon" type="button" aria-label="Add skill category" title="Add skill category" @click="addSkillCategory"><Plus class="h-4 w-4" /></Button>
                 </div>
 
                 <div class="editor-stack">
                   <div v-for="(entry, index) in state.editor.skills" :key="entry.id" class="editor-mini-card">
                   <div class="editor-card-head">
-                    <button class="editor-item-head" type="button" @click="toggleItem(entry)">
+                    <button class="editor-item-head" type="button" :aria-expanded="entry.expanded" @click="toggleItem(entry)">
                       <div>
                         <strong>{{ skillEntryLabel(entry) }}</strong>
                         <div class="muted-inline">{{ entry.values.length }} tags</div>
                       </div>
-                      <span class="accordion-icon"><AppIcon :name="entry.expanded ? 'chevron-down' : 'chevron-right'" /></span>
+                      <span class="accordion-icon"><component :is="entry.expanded ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
                     </button>
-                    <button v-if="!defaultSkillCategories.includes(slugifyCategory(entry.key))" class="icon-button danger" type="button" aria-label="Delete category" title="Delete category" @click="removeSkillCategory(index)"><AppIcon name="trash" /></button>
+                    <Button v-if="!defaultSkillCategories.includes(slugifyCategory(entry.key))" variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete category" title="Delete category" @click="removeSkillCategory(index)"><Trash2 class="h-4 w-4" /></Button>
                   </div>
 
                   <div v-if="entry.expanded" class="editor-item-body">

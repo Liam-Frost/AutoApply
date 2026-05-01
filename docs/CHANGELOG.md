@@ -4,6 +4,29 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### UI Overhaul -- Phase A: Design System
+- Generated the AutoApply design system spec via the `ui-ux-pro-max` agent — color palette, typography scale, spacing rhythm, and component inventory
+
+### UI Overhaul -- Phase B: Tailwind + shadcn-vue Foundation
+- Installed Tailwind v3 and `tailwindcss-animate`, configured `darkMode: ["class", '[data-theme="dark"]']`, and aliased every theme color (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent`, `destructive`, `success`, `warning`, `popover`, `border`, `input`, `ring`) to HSL CSS variables
+- Added the HSL token sets in `frontend/src/tokens.css` for both light and dark themes
+- Added shadcn-style base components under `frontend/src/components/ui/`: `Button`, `Input`, `Label`, `Card` (+ `CardHeader` / `CardTitle` / `CardContent` / `CardFooter` / `CardDescription`), `Badge`, `Dialog` (+ `DialogContent` / `DialogHeader` / `DialogTitle` / `DialogDescription` / `DialogFooter` / `DialogClose`), `Skeleton`, and `EmptyState`
+
+### UI Overhaul -- Phase C: View Rebuilds
+- Rebased `styles.css` onto the Phase B HSL tokens; tightened core controls (button / input / chip / banner / page header) and tightened layout (workspace 1400px, denser tables, hoverable rows)
+- Rebuilt every view shell with shadcn `Card` + Lucide icons: Dashboard, Applications, Settings, Materials, Profile, Jobs
+- Replaced empty states with the shared `EmptyState`, switched primary actions to shadcn `Button` (default / ghost / destructive / icon variants), and added `tabular-nums` to numeric columns
+
+### UI Overhaul -- Phase D: Primitives + a11y Polish
+- Added shadcn `Alert` (+ `AlertTitle` / `AlertDescription`) with destructive / success / warning / default variants and migrated every `.banner is-*` div across all views to the new primitive
+- Migrated the JobsView "Apply Materials" modal and the MaterialsView Template Library modal to reka-ui `Dialog` (portal, overlay, scroll-lock, focus-trap, built-in close button)
+- Rebuilt `AppSelect.vue` as a wrapper around reka-ui Select primitives (portal, scroll buttons, animated open/close); preserved the existing `{ value, label }` API by mapping empty-string sentinels to an internal token
+- Rebuilt `TagInput.vue` with shadcn-style chip pills (rounded-full, `bg-secondary`) and a flush inline `Input`; preserved the keyboard / paste / commit-on-blur behavior
+- Replaced `AppIcon.vue` and `DockIcon.vue` (hand-rolled SVG dictionaries) with direct lucide-vue-next components everywhere, then deleted both files
+- Migrated the dock navigation, theme toggle, and the ProfileView / JobsView / PaginationBar accordion + pagination icon-buttons to shadcn `Button` (`variant="ghost"`, `size="icon"`); destructive variants pick up `text-destructive` + `hover:bg-destructive/10`
+- Added `aria-expanded` bindings to every accordion-head and editor-item-head button across ProfileView and JobsView
+- Pruned dead CSS for the migrated banner / modal patterns; bundle CSS dropped from 53 kB to 52 kB
+
 ### Materials Workspace
 - Added a dedicated Vue Materials page at `/materials` for job/JD selection, applicant profile selection, resume/cover letter options, template selection, preview, and artifact downloads
 - Job search results now route `Generate Apply Materials` into `/materials?jobId=...` so the selected search result carries into the generation workflow

@@ -23,6 +23,10 @@
 
         document.documentElement.dataset.theme = resolved
         document.documentElement.style.colorScheme = resolved
+        // Phase D: Tailwind's `dark:` variants key off the .dark class on
+        // <html>, so set it synchronously here too — otherwise users with a
+        // saved dark preference get a light-theme flash before Vue mounts.
+        document.documentElement.classList.toggle("dark", resolved === "dark")
       })()
     </script>
   </head>

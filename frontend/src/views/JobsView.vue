@@ -2,7 +2,14 @@
 import { computed, onMounted, reactive, watch } from "vue"
 import { RouterLink, useRouter } from "vue-router"
 import {
+  AlertCircle,
+  AlertTriangle,
   Briefcase,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Filter as FilterIcon,
@@ -12,15 +19,21 @@ import {
   Search,
   Sparkles,
   Trash2,
-  X,
 } from "lucide-vue-next"
 
-import AppIcon from "@/components/AppIcon.vue"
 import AppSelect from "@/components/AppSelect.vue"
 import TagInput from "@/components/TagInput.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { api } from "@/lib/api"
 import { formatPercent, truncateText } from "@/lib/format"
@@ -1058,7 +1071,10 @@ function buildPageButtons(total, current) {
 
 <template>
   <div class="space-y-6">
-    <div v-if="state.message" class="banner is-success">{{ state.message }}</div>
+    <Alert v-if="state.message" variant="success">
+      <CheckCircle2 class="h-4 w-4" />
+      <AlertDescription>{{ state.message }}</AlertDescription>
+    </Alert>
     <Card class="jobs-shell">
       <form class="page-stack" @submit.prevent="search">
         <section class="jobs-panel jobs-panel-full">
@@ -1105,12 +1121,12 @@ function buildPageButtons(total, current) {
 
           <div class="page-stack jobs-panel-stack">
             <section class="accordion-section jobs-accordion">
-              <button class="accordion-head" type="button" @click="toggleSection('basic')">
+              <button class="accordion-head" type="button" :aria-expanded="state.sections.basic" @click="toggleSection('basic')">
                 <div>
                   <strong>Basic</strong>
                   <div class="muted-inline">Source, Query, And Candidate Locations</div>
                 </div>
-                <span class="accordion-icon"><AppIcon :name="state.sections.basic ? 'chevron-down' : 'chevron-right'" /></span>
+                <span class="accordion-icon"><component :is="state.sections.basic ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
               </button>
 
               <div v-if="state.sections.basic" class="accordion-body">
@@ -1162,12 +1178,12 @@ function buildPageButtons(total, current) {
             </section>
 
             <section class="accordion-section jobs-accordion">
-              <button class="accordion-head" type="button" @click="toggleSection('advanced')">
+              <button class="accordion-head" type="button" :aria-expanded="state.sections.advanced" @click="toggleSection('advanced')">
                 <div>
                   <strong>Advanced</strong>
                   <div class="muted-inline">Pay, Experience, Employment, Location, And Education</div>
                 </div>
-                <span class="accordion-icon"><AppIcon :name="state.sections.advanced ? 'chevron-down' : 'chevron-right'" /></span>
+                <span class="accordion-icon"><component :is="state.sections.advanced ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
               </button>
 
               <div v-if="state.sections.advanced" class="accordion-body">
@@ -1251,16 +1267,22 @@ function buildPageButtons(total, current) {
       </form>
     </Card>
 
-    <div
+    <Alert
       v-if="sourceUsesLinkedIn && linkedinSessionState.checked && !linkedinSessionState.authenticated && !state.searching && !state.resultSets.linkedin.length"
-      class="banner is-warning"
+      variant="warning"
     >
-      LinkedIn session is not connected for web search.
-      <RouterLink class="jobs-settings-link" to="/settings">Go to Settings</RouterLink>
-      to connect or clear the saved session.
-    </div>
+      <AlertTriangle class="h-4 w-4" />
+      <AlertDescription>
+        LinkedIn session is not connected for web search.
+        <RouterLink class="font-medium underline underline-offset-2 hover:no-underline" to="/settings">Go to Settings</RouterLink>
+        to connect or clear the saved session.
+      </AlertDescription>
+    </Alert>
 
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
 
     <Card class="jobs-results-shell">
       <div class="section-head jobs-results-head">
@@ -1286,12 +1308,12 @@ function buildPageButtons(total, current) {
       <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar">
         <div class="jobs-pagination-controls">
           <div class="jobs-page-numbers">
-            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <AppIcon name="chevrons-left" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <AppIcon name="chevron-left" />
-            </button>
+            <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
+              <ChevronsLeft class="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
+              <ChevronLeft class="h-4 w-4" />
+            </Button>
             <button
               v-for="page in pageButtons"
               :key="`${page}`"
@@ -1304,12 +1326,12 @@ function buildPageButtons(total, current) {
               {{ String(page).startsWith('ellipsis') ? '…' : page }}
             </button>
             <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <AppIcon name="chevron-right" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <AppIcon name="chevrons-right" />
-            </button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
+              <ChevronRight class="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
+              <ChevronsRight class="h-4 w-4" />
+            </Button>
           </div>
 
           <div class="jobs-page-size">
@@ -1398,12 +1420,12 @@ function buildPageButtons(total, current) {
       <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar jobs-pagination-bar-bottom">
         <div class="jobs-pagination-controls">
           <div class="jobs-page-numbers">
-            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <AppIcon name="chevrons-left" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <AppIcon name="chevron-left" />
-            </button>
+            <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
+              <ChevronsLeft class="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
+              <ChevronLeft class="h-4 w-4" />
+            </Button>
             <button
               v-for="page in pageButtons"
               :key="`bottom-${page}`"
@@ -1416,12 +1438,12 @@ function buildPageButtons(total, current) {
               {{ String(page).startsWith('ellipsis') ? '…' : page }}
             </button>
             <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <AppIcon name="chevron-right" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <AppIcon name="chevrons-right" />
-            </button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
+              <ChevronRight class="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
+              <ChevronsRight class="h-4 w-4" />
+            </Button>
           </div>
 
           <div class="jobs-page-size">
@@ -1431,18 +1453,15 @@ function buildPageButtons(total, current) {
       </div>
     </Card>
 
-    <div v-if="materialModal.open" class="material-modal-backdrop" @click.self="closeMaterialModal">
-      <section class="material-modal" role="dialog" aria-modal="true" aria-labelledby="material-modal-title">
-        <div class="material-modal-head">
-          <div>
-            <div class="muted-inline">Apply Materials</div>
-            <h3 id="material-modal-title">{{ materialModal.job?.title }}</h3>
-            <p>{{ materialModal.job?.company }}<span v-if="materialModal.job?.location"> · {{ materialModal.job.location }}</span></p>
-          </div>
-          <Button variant="ghost" size="icon" type="button" aria-label="Close materials modal" title="Close" @click="closeMaterialModal">
-            <X class="h-4 w-4" />
-          </Button>
-        </div>
+    <Dialog :open="materialModal.open" @update:open="(value) => !value && closeMaterialModal()">
+      <DialogContent class="max-w-3xl max-h-[calc(100vh-3.5rem)] overflow-y-auto">
+        <DialogHeader>
+          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Apply materials</p>
+          <DialogTitle class="text-xl">{{ materialModal.job?.title }}</DialogTitle>
+          <DialogDescription>
+            {{ materialModal.job?.company }}<span v-if="materialModal.job?.location"> · {{ materialModal.job.location }}</span>
+          </DialogDescription>
+        </DialogHeader>
 
         <div class="material-target-grid" aria-label="Select materials to generate">
           <label
@@ -1453,7 +1472,7 @@ function buildPageButtons(total, current) {
           >
             <input v-model="materialModal.selected[target.id]" type="checkbox" :disabled="modalMaterialState.loading" />
             <span class="material-target-check">
-              <AppIcon name="check" />
+              <Check class="h-3.5 w-3.5" />
             </span>
             <span class="material-target-copy">
               <strong>{{ target.label }}</strong>
@@ -1486,9 +1505,10 @@ function buildPageButtons(total, current) {
         </div>
 
         <div class="material-modal-actions">
-          <button class="button" type="button" :disabled="!canGenerateMaterials" @click="generateSelectedMaterials">
+          <Button type="button" :disabled="!canGenerateMaterials" @click="generateSelectedMaterials">
+            <Sparkles class="h-4 w-4" />
             {{ modalMaterialState.loading ? 'Generating...' : 'Generate Selected Materials' }}
-          </button>
+          </Button>
           <span v-if="modalMaterialState.message" class="inline-feedback" :class="modalMaterialState.status">
             {{ modalMaterialState.message }}
           </span>
@@ -1578,7 +1598,7 @@ function buildPageButtons(total, current) {
         <div v-else class="material-preview-empty">
           Select Resume, Cover Letter, or both. Generated previews and download buttons appear here.
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
