@@ -8,6 +8,7 @@ import {
 } from "lucide-vue-next"
 
 import AppSelect from "./AppSelect.vue"
+import { Button } from "./ui/button"
 
 const props = defineProps({
   currentPage: { type: Number, required: true },
@@ -65,12 +66,12 @@ function jumpToPage() {
   <div class="jobs-pagination-bar" :class="extraClass">
     <div class="jobs-pagination-controls">
       <div class="jobs-page-numbers">
-        <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="currentPage <= 1" @click="goToPage(1)">
+        <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="currentPage <= 1" @click="goToPage(1)">
           <ChevronsLeft class="h-4 w-4" />
-        </button>
-        <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+        </Button>
+        <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
           <ChevronLeft class="h-4 w-4" />
-        </button>
+        </Button>
         <button
           v-for="page in pageButtons"
           :key="`${page}`"
@@ -83,12 +84,12 @@ function jumpToPage() {
           {{ String(page).startsWith('ellipsis') ? '…' : page }}
         </button>
         <input :value="pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @input="emit('update:pageJump', $event.target.value)" @keydown.enter.prevent="jumpToPage" />
-        <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+        <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
           <ChevronRight class="h-4 w-4" />
-        </button>
-        <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">
+        </Button>
+        <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">
           <ChevronsRight class="h-4 w-4" />
-        </button>
+        </Button>
       </div>
 
       <div class="jobs-page-size">

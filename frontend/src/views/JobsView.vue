@@ -1121,7 +1121,7 @@ function buildPageButtons(total, current) {
 
           <div class="page-stack jobs-panel-stack">
             <section class="accordion-section jobs-accordion">
-              <button class="accordion-head" type="button" @click="toggleSection('basic')">
+              <button class="accordion-head" type="button" :aria-expanded="state.sections.basic" @click="toggleSection('basic')">
                 <div>
                   <strong>Basic</strong>
                   <div class="muted-inline">Source, Query, And Candidate Locations</div>
@@ -1178,7 +1178,7 @@ function buildPageButtons(total, current) {
             </section>
 
             <section class="accordion-section jobs-accordion">
-              <button class="accordion-head" type="button" @click="toggleSection('advanced')">
+              <button class="accordion-head" type="button" :aria-expanded="state.sections.advanced" @click="toggleSection('advanced')">
                 <div>
                   <strong>Advanced</strong>
                   <div class="muted-inline">Pay, Experience, Employment, Location, And Education</div>
@@ -1308,12 +1308,12 @@ function buildPageButtons(total, current) {
       <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar">
         <div class="jobs-pagination-controls">
           <div class="jobs-page-numbers">
-            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
+            <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
               <ChevronsLeft class="h-4 w-4" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
               <ChevronLeft class="h-4 w-4" />
-            </button>
+            </Button>
             <button
               v-for="page in pageButtons"
               :key="`${page}`"
@@ -1326,12 +1326,12 @@ function buildPageButtons(total, current) {
               {{ String(page).startsWith('ellipsis') ? '…' : page }}
             </button>
             <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
+            <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
               <ChevronRight class="h-4 w-4" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
               <ChevronsRight class="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div class="jobs-page-size">
@@ -1420,12 +1420,12 @@ function buildPageButtons(total, current) {
       <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar jobs-pagination-bar-bottom">
         <div class="jobs-pagination-controls">
           <div class="jobs-page-numbers">
-            <button class="icon-button" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
+            <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
               <ChevronsLeft class="h-4 w-4" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
               <ChevronLeft class="h-4 w-4" />
-            </button>
+            </Button>
             <button
               v-for="page in pageButtons"
               :key="`bottom-${page}`"
@@ -1438,12 +1438,12 @@ function buildPageButtons(total, current) {
               {{ String(page).startsWith('ellipsis') ? '…' : page }}
             </button>
             <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <button class="icon-button" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
+            <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
               <ChevronRight class="h-4 w-4" />
-            </button>
-            <button class="icon-button" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
               <ChevronsRight class="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div class="jobs-page-size">
