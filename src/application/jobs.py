@@ -850,6 +850,38 @@ def validate_material_template(*, document_type: str, template_id: str) -> dict:
     return {"ok": True, "template": template, "validation": template["validation"]}
 
 
+def delete_material_template(*, document_type: str, template_id: str) -> dict:
+    """Delete a material template package, refusing for built-in defaults."""
+    from src.documents.templates import delete_template_package
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        delete_template_package(document_type, template_id)
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_not_found"}
+    except ValueError as exc:
+        # _template_package_dir raises ValueError on bad ids, and
+        # delete_template_package raises ValueError when refusing to
+        # delete the built-in default. Both surface as a 400-shape error
+        # so the API can decide between 400 and 403.
+        message = str(exc)
+        code = (
+            "template_default_protected"
+            if "default" in message.lower()
+            else "invalid_template_id"
+        )
+        return {"ok": False, "error": message, "error_code": code}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_delete_failed"}
+
+    return {"ok": True, **list_material_templates()}
+
+
 async def apply_batch_jobs(
     *,
     selected_jobs: list[tuple],

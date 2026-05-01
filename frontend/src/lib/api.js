@@ -121,6 +121,11 @@ export const api = {
       method: "POST",
     })
   },
+  deleteTemplate(documentType, templateId) {
+    return request(`/api/templates/${encodeURIComponent(documentType)}/${encodeURIComponent(templateId)}`, {
+      method: "DELETE",
+    })
+  },
   generateJobMaterial(job, materialType, templateId = "", profileId = "") {
     return request("/api/jobs/generate-material", {
       method: "POST",

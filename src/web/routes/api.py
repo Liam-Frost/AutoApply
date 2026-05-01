@@ -21,6 +21,9 @@ from src.application.jobs import (
     create_material_template as create_material_template_usecase,
 )
 from src.application.jobs import (
+    delete_material_template as delete_material_template_usecase,
+)
+from src.application.jobs import (
     generate_material_for_job as generate_material_for_job_usecase,
 )
 from src.application.jobs import (
@@ -317,6 +320,25 @@ async def validate_material_template(document_type: str, template_id: str) -> di
     if result["ok"]:
         return result
     status_code = 400 if result["error_code"] != "template_validate_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.delete("/templates/{document_type}/{template_id}")
+async def delete_material_template(document_type: str, template_id: str) -> dict:
+    result = delete_material_template_usecase(
+        document_type=document_type,
+        template_id=template_id,
+    )
+    if result["ok"]:
+        return result
+    status_code_map = {
+        "template_not_found": 404,
+        "template_default_protected": 403,
+        "invalid_document_type": 400,
+        "invalid_template_id": 400,
+        "template_delete_failed": 500,
+    }
+    status_code = status_code_map.get(result["error_code"], 400)
     raise HTTPException(status_code=status_code, detail=result["error"])
 
 

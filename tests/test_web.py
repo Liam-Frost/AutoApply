@@ -616,6 +616,33 @@ class TestJobsApi:
         assert response.status_code == 200
         assert response.json()["validation"]["ok"] is False
 
+    @patch("src.web.routes.api.delete_material_template_usecase")
+    def test_template_delete_route(self, mock_delete, client):
+        mock_delete.return_value = {
+            "ok": True,
+            "templates": {"resume": [], "cover_letter": []},
+        }
+
+        response = client.delete("/api/templates/resume/latex_resume")
+
+        assert response.status_code == 200
+        assert response.json()["templates"]["resume"] == []
+        assert mock_delete.call_args.kwargs["document_type"] == "resume"
+        assert mock_delete.call_args.kwargs["template_id"] == "latex_resume"
+
+    @patch("src.web.routes.api.delete_material_template_usecase")
+    def test_template_delete_route_protects_default(self, mock_delete, client):
+        mock_delete.return_value = {
+            "ok": False,
+            "error": "Built-in default templates cannot be deleted.",
+            "error_code": "template_default_protected",
+        }
+
+        response = client.delete("/api/templates/resume/ats_single_column_v1")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Built-in default templates cannot be deleted."
+
     def test_artifact_download_restricts_to_output_dir(self, client, tmp_path):
         output_dir = tmp_path / "data" / "output"
         output_dir.mkdir(parents=True)

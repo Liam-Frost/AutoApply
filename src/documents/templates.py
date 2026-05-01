@@ -266,6 +266,35 @@ def get_template_package_detail(
     return serialized
 
 
+def delete_template_package(
+    document_type: DocumentType,
+    template_id: str,
+    *,
+    template_root: Path = TEMPLATE_ROOT,
+) -> None:
+    """Delete a template package directory.
+
+    Refuses to delete the seeded defaults (DEFAULT_TEMPLATE_IDS[document_type])
+    so the app always has a renderable fallback. Validates the template id
+    via _template_package_dir() so callers cannot escape the document-type
+    root via path traversal. No-op when the package directory does not exist.
+    """
+
+    if document_type not in {"resume", "cover_letter"}:
+        raise ValueError("Unsupported template document type.")
+
+    if template_id == DEFAULT_TEMPLATE_IDS.get(document_type):
+        raise ValueError("Built-in default templates cannot be deleted.")
+
+    package_dir = _template_package_dir(document_type, template_id, template_root)
+    if not package_dir.exists():
+        raise FileNotFoundError(f"Template '{template_id}' not found.")
+    if not package_dir.is_dir():
+        raise ValueError("Template path is not a directory.")
+
+    shutil.rmtree(package_dir)
+
+
 def update_latex_template_package(
     *,
     document_type: DocumentType,
@@ -396,6 +425,7 @@ def serialize_template_package(package: TemplatePackage) -> dict:
     """Serialize template metadata for APIs/UI without leaking system internals."""
     preview_pdf = package.directory / "preview.pdf"
     preview_png = package.directory / "preview.png"
+    is_default = package.template_id == DEFAULT_TEMPLATE_IDS.get(package.document_type)
     return {
         "template_id": package.template_id,
         "document_type": package.document_type,
@@ -408,6 +438,7 @@ def serialize_template_package(package: TemplatePackage) -> dict:
         "preview_pdf": _public_asset_path(preview_pdf),
         "preview_png": _public_asset_path(preview_png),
         "validation": validate_template_package(package),
+        "is_default": is_default,
     }
 
 

@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Sparkles,
+  Trash2,
   Upload,
 } from "lucide-vue-next"
 
@@ -56,6 +57,8 @@ const latexState = reactive({
   resume: { name: "", loading: false, message: "", error: "" },
   cover_letter: { name: "", loading: false, message: "", error: "" },
 })
+
+const deleteState = reactive({ loadingKey: "" })
 
 const pageError = ref("")
 const pageMessage = ref("")
@@ -145,6 +148,42 @@ function editTemplate(documentType, templateId) {
   router.push(`/materials/templates/${documentType}/${templateId}`)
 }
 
+function templateDeleteKey(documentType, templateId) {
+  return `${documentType}:${templateId}`
+}
+
+function isDeleting(documentType, templateId) {
+  return deleteState.loadingKey === templateDeleteKey(documentType, templateId)
+}
+
+async function deleteTemplate(documentType, template) {
+  if (!template || template.is_default) {
+    return
+  }
+
+  const templateName = template.name || template.template_id
+  const confirmed = window.confirm(
+    `Delete ${documentTypeLabel(documentType)} template "${templateName}"? This cannot be undone.`,
+  )
+  if (!confirmed) {
+    return
+  }
+
+  deleteState.loadingKey = templateDeleteKey(documentType, template.template_id)
+  pageError.value = ""
+  pageMessage.value = ""
+
+  try {
+    const response = await api.deleteTemplate(documentType, template.template_id)
+    applyTemplatesResponse(response)
+    pageMessage.value = `Deleted ${documentTypeLabel(documentType)} template "${templateName}".`
+  } catch (error) {
+    pageError.value = error.message
+  } finally {
+    deleteState.loadingKey = ""
+  }
+}
+
 const isLoading = computed(() => templatesState.loading && !templatesState.loaded)
 </script>
 
@@ -216,21 +255,36 @@ const isLoading = computed(() => templatesState.loading && !templatesState.loade
                     {{ template.description || "No description provided." }}
                   </p>
                 </div>
-                <Button
-                  v-if="isLatexTemplate(template)"
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  @click="editTemplate(target.documentType, template.template_id)"
-                >
-                  <Pencil class="h-4 w-4" />
-                  Edit
-                </Button>
+                <div class="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                  <Button
+                    v-if="isLatexTemplate(template)"
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    @click="editTemplate(target.documentType, template.template_id)"
+                  >
+                    <Pencil class="h-4 w-4" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    class="text-destructive hover:text-destructive"
+                    :disabled="template.is_default || isDeleting(target.documentType, template.template_id)"
+                    :title="template.is_default ? 'Built-in default templates cannot be deleted.' : 'Delete template'"
+                    @click="deleteTemplate(target.documentType, template)"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                    {{ isDeleting(target.documentType, template.template_id) ? "Deleting..." : "Delete" }}
+                  </Button>
+                </div>
               </div>
               <div class="flex flex-wrap items-center gap-1.5">
                 <Badge variant="outline">
                   {{ templateRenderer(template) === "latex" ? "LaTeX" : "DOCX" }}
                 </Badge>
+                <Badge v-if="template.is_default" variant="secondary">Default</Badge>
                 <Badge
                   v-for="output in templateSupportedOutputs(template)"
                   :key="`${template.template_id}-${output}`"
