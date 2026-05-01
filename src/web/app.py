@@ -12,7 +12,6 @@ WEB_DIR = Path(__file__).parent
 FRONTEND_DIST_DIR = WEB_DIR / "static" / "spa"
 FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
 FRONTEND_INDEX = FRONTEND_DIST_DIR / "index.html"
-SPA_SEGMENTS = {"", "jobs", "applications", "profile", "settings"}
 
 
 def _frontend_html() -> FileResponse | HTMLResponse:
@@ -53,13 +52,14 @@ def create_app() -> FastAPI:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_routes(full_path: str):
+        # Reserve /api/* for the JSON API and /assets/* for the bundled SPA
+        # asset chunks. Everything else falls back to index.html so client-
+        # side router paths (e.g. /materials, /materials/templates,
+        # /profile/<id>) survive a hard refresh; vue-router handles "not
+        # found" rendering itself.
         if full_path.startswith("api") or full_path.startswith("assets"):
             return HTMLResponse("Not Found", status_code=404)
 
-        first_segment = full_path.split("/", 1)[0]
-        if first_segment in SPA_SEGMENTS:
-            return _frontend_html()
-
-        return HTMLResponse("Not Found", status_code=404)
+        return _frontend_html()
 
     return app
