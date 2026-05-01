@@ -394,7 +394,7 @@ async def apply_to_url(
     payload["resolved_url"] = resolved_url
 
     try:
-        job = _load_job_for_application(resolved_url, ats_type)
+        job, hydrated = _load_job_for_application(resolved_url, ats_type)
     except Exception as exc:
         return {
             **payload,
@@ -406,6 +406,25 @@ async def apply_to_url(
             "artifacts": _empty_artifacts(),
             "error": f"Failed to load job context: {exc}",
             "error_code": "job_load_failed",
+            "dry_run": dry_run,
+        }
+
+    if not hydrated and ats_type in ("ashby", "workday", "company_site"):
+        # Generic / company-site / Workday URLs cannot be hydrated from the
+        # URL alone (we don't have a parser that recovers the JD), so we'd
+        # be tailoring against title="Unknown Role" with no description.
+        # Force the caller to apply via a stored job id (which carries real
+        # JD context) instead of generating useless materials.
+        return {
+            **payload,
+            "ok": False,
+            "status": None,
+            "job": serialize_job(job),
+            "tracking_id": None,
+            "result": None,
+            "artifacts": _empty_artifacts(),
+            "error": _no_job_context_message(ats_type),
+            "error_code": "job_context_required",
             "dry_run": dry_run,
         }
 
@@ -1708,6 +1727,20 @@ def _unsupported_ats_message(url: str) -> str:
     return "Could not detect an application URL from this input."
 
 
+def _no_job_context_message(ats_type: str) -> str:
+    label_map = {
+        "ashby": "Ashby",
+        "workday": "Workday",
+        "company_site": "company-site",
+    }
+    label = label_map.get(ats_type, ats_type)
+    return (
+        f"Cannot apply to a {label} URL without a stored job. "
+        "Run `autoapply search` first and apply via the resulting job id, "
+        "or paste the JD into the Materials page to download tailored files."
+    )
+
+
 def _serialize_execution_result(result) -> dict:
     if result is None:
         return {
@@ -1957,16 +1990,26 @@ def _load_profile(profile_id: str | None = None) -> dict | None:
     return load_profile_yaml(profile_path)
 
 
-def _load_job_for_application(url: str, ats_type: str):
+def _load_job_for_application(url: str, ats_type: str) -> tuple:
+    """Return ``(raw_job, hydrated)`` for the given apply URL.
+
+    ``hydrated`` is True when we have real job context (a stored job from
+    the database or a freshly scraped one from a supported ATS). It is
+    False when we had to fall back to ``_synthesize_job_from_url``, which
+    produces a placeholder Job with ``title="Unknown Role"`` and no
+    description. Callers must refuse to generate tailored materials in
+    that case so we never run the LLM/template pipeline on an empty JD.
+    """
+
     db_job = _find_db_job_by_url(url)
     if db_job is not None:
-        return _job_to_raw_job(db_job)
+        return _job_to_raw_job(db_job), True
 
     fetched_job = _fetch_job_from_ats(url, ats_type)
     if fetched_job is not None:
-        return fetched_job
+        return fetched_job, True
 
-    return _synthesize_job_from_url(url, ats_type)
+    return _synthesize_job_from_url(url, ats_type), False
 
 
 def _find_db_job_by_url(url: str):

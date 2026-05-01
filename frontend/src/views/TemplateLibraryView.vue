@@ -39,7 +39,13 @@ const targets = [
   { id: "cover_letter", label: "Cover Letter", documentType: "cover_letter" },
 ]
 
-const fileInputs = ref({ resume: null, cover_letter: null })
+// reactive() rather than ref({}) so the (el) => fileInputs[type] = el ref
+// callback in the template writes directly to the underlying object. With a
+// ref<object> you must write fileInputs.value[type] from the script side
+// AND fileInputs.value[type] from the template, but the template's auto-
+// unwrapping makes that fragile when the ref binding fires. Going through
+// a flat reactive proxy avoids the gotcha.
+const fileInputs = reactive({ resume: null, cover_letter: null })
 
 const uploadState = reactive({
   resume: { name: "", file: null, loading: false, message: "", error: "" },
@@ -93,8 +99,12 @@ async function uploadTemplate(documentType) {
     pageMessage.value = local.message
     local.name = ""
     local.file = null
-    if (fileInputs.value[documentType]) {
-      fileInputs.value[documentType].value = ""
+    // fileInputs is a reactive() proxy (not a ref), so the DOM node lives
+    // directly under fileInputs[documentType]. Clearing the value resets
+    // the <input type="file"> so re-selecting the same filename fires
+    // change again.
+    if (fileInputs[documentType]) {
+      fileInputs[documentType].value = ""
     }
   } catch (error) {
     local.error = error.message
