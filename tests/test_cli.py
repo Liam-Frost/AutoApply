@@ -503,6 +503,65 @@ class TestApplicationUseCases:
         )
         assert mock_run.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_apply_to_url_uses_generic_adapter_for_unknown_external_site(self):
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+            patch("src.application.jobs._load_profile", return_value={"identity": {}}),
+            patch(
+                "src.application.jobs._run_application_for_job",
+                new=AsyncMock(return_value={"ok": True, "status": "REVIEW_REQUIRED"}),
+            ) as mock_run,
+        ):
+            mock_load_job.return_value = SimpleNamespace(
+                id=uuid.uuid4(),
+                source="company_site",
+                source_id="123",
+                company="Example",
+                title="Software Engineer",
+                location="Remote",
+                employment_type="unknown",
+                seniority="unknown",
+                description=None,
+                application_url="https://careers.example.com/jobs/123/apply",
+                ats_type="company_site",
+                raw_data={},
+                discovered_at=None,
+            )
+            await apply_to_url(url="https://careers.example.com/jobs/123/apply")
+
+        mock_load_job.assert_called_once_with(
+            "https://careers.example.com/jobs/123/apply",
+            "company_site",
+        )
+        assert mock_run.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_to_url_skips_linkedin_easy_apply_without_external_target(self):
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch(
+                "src.application.jobs.resolve_manual_apply_url",
+                new=AsyncMock(
+                    return_value={
+                        "ok": True,
+                        "url": "https://www.linkedin.com/jobs/view/123/",
+                        "source_url": "https://www.linkedin.com/jobs/view/123/",
+                        "ats_url": None,
+                    }
+                ),
+            ),
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+        ):
+            result = await apply_to_url(url="https://www.linkedin.com/jobs/view/123/")
+
+        assert result["ok"] is False
+        assert result["error_code"] == "unsupported_ats"
+        mock_load_job.assert_not_called()
+
     def test_load_applications_data_uses_filtered_records_for_summaries(self):
         from src.application.tracking import load_applications_data
 
@@ -767,7 +826,12 @@ class TestATSDetection:
     def test_unknown_url(self):
         from src.cli.cmd_apply import _detect_ats_from_url
 
-        assert _detect_ats_from_url("https://careers.example.com/apply") is None
+        assert _detect_ats_from_url("https://careers.example.com/apply") == "company_site"
+
+    def test_linkedin_url_is_not_generic_company_site(self):
+        from src.cli.cmd_apply import _detect_ats_from_url
+
+        assert _detect_ats_from_url("https://www.linkedin.com/jobs/view/123") is None
 
     def test_case_insensitive(self):
         from src.cli.cmd_apply import _detect_ats_from_url

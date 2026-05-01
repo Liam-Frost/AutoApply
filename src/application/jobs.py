@@ -159,7 +159,9 @@ async def search_jobs(
                 linkedin_jobs = _dedupe_jobs_by_signature(linkedin_jobs)
                 counts["linkedin"] = len(linkedin_jobs)
                 counts["linkedin_external_ats"] = sum(
-                    1 for job in linkedin_jobs if job.ats_type in ("greenhouse", "lever")
+                    1
+                    for job in linkedin_jobs
+                    if job.ats_type in ("greenhouse", "lever", "ashby", "workday", "company_site")
                 )
                 jobs.extend(linkedin_jobs)
             except LinkedInAuthRequiredError as exc:
@@ -368,8 +370,9 @@ async def apply_to_url(
     resolved_url = url
     if _is_linkedin_url(url):
         resolved = await resolve_manual_apply_url(url)
-        if resolved.get("ats_url"):
-            resolved_url = resolved["ats_url"]
+        resolved_target = resolved.get("ats_url") or resolved.get("url")
+        if resolved_target and not _is_linkedin_url(resolved_target):
+            resolved_url = resolved_target
             payload["resolved_url"] = resolved_url
 
     ats_type = _detect_ats_from_url(resolved_url)
@@ -405,6 +408,10 @@ async def apply_to_url(
             "error_code": "job_load_failed",
             "dry_run": dry_run,
         }
+
+    detected_ats = _detect_ats_from_url(job.application_url or "")
+    if detected_ats:
+        job.ats_type = detected_ats
 
     profile_data = _load_profile()
     if not profile_data:
@@ -510,6 +517,10 @@ async def apply_to_job_id(
             "error_code": "job_load_failed",
             "dry_run": dry_run,
         }
+
+    detected_ats = _detect_ats_from_url(job.application_url or "")
+    if detected_ats:
+        job.ats_type = detected_ats
 
     profile_data = _load_profile()
     if not profile_data:
@@ -892,6 +903,8 @@ async def apply_batch_jobs(
             )
             summary["skipped"] += 1
             continue
+
+        job.ats_type = ats_type
 
         item = await _run_application_for_job(
             job=job,
@@ -1689,10 +1702,10 @@ def _ensure_template_supports_material(template_package, material_type: str) -> 
 def _unsupported_ats_message(url: str) -> str:
     if "linkedin.com" in url.lower():
         return (
-            "This is a LinkedIn URL. Use `autoapply search --source linkedin` "
-            "to find the external ATS link first."
+            "This LinkedIn job did not expose an external apply target. "
+            "Open the job manually if it uses LinkedIn Easy Apply."
         )
-    return "Could not detect ATS type from URL. Supported: greenhouse, lever."
+    return "Could not detect an application URL from this input."
 
 
 def _serialize_execution_result(result) -> dict:
@@ -1782,6 +1795,7 @@ async def _run_application_for_job(
     result = await _execute_application(
         url=job.application_url or "",
         ats_type=job.ats_type,
+        job=job,
         profile_data=profile_data,
         resume_path=resume_path,
         cover_letter_path=cover_letter_path,
@@ -1847,6 +1861,7 @@ async def _execute_application(
     *,
     url: str,
     ats_type: str,
+    job=None,
     profile_data: dict,
     resume_path: Path | None,
     cover_letter_path: Path | None,
@@ -1856,14 +1871,17 @@ async def _execute_application(
     state=None,
 ):
     from src.execution.ats.ashby import AshbyAdapter
+    from src.execution.ats.generic import GenericAdapter
     from src.execution.ats.greenhouse import GreenhouseAdapter
     from src.execution.ats.lever import LeverAdapter
     from src.execution.browser import BrowserManager
 
     adapter_map = {
         "ashby": AshbyAdapter,
+        "company_site": GenericAdapter,
         "greenhouse": GreenhouseAdapter,
         "lever": LeverAdapter,
+        "workday": GenericAdapter,
     }
     adapter_cls = adapter_map.get(ats_type)
     if not adapter_cls:
@@ -1891,19 +1909,26 @@ async def _execute_application(
             cover_letter_path=cover_letter_path,
             qa_responses=qa_responses,
             auto_submit=auto_submit,
+            job_context=job,
         )
         return result
 
 
 def _detect_ats_from_url(url: str) -> str | None:
     url_lower = url.lower()
+    if not url_lower.startswith(("http://", "https://")):
+        return None
+    if "linkedin.com" in url_lower:
+        return None
     if "ashbyhq.com" in url_lower:
         return "ashby"
     if "greenhouse.io" in url_lower:
         return "greenhouse"
     if "lever.co" in url_lower:
         return "lever"
-    return None
+    if "workday" in url_lower or "myworkdayjobs.com" in url_lower:
+        return "workday"
+    return "company_site"
 
 
 def _normalize_application_url_for_ats(url: str, ats_type: str) -> str:
