@@ -56,6 +56,7 @@ class BaseATSAdapter(ABC):
         cover_letter_path: Path | None = None,
         qa_responses: dict[str, str] | None = None,
         auto_submit: bool = False,
+        job_context: Any | None = None,
     ) -> ApplicationResult:
         """Execute the full application workflow.
 

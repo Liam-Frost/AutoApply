@@ -122,7 +122,7 @@ def _render_search_result(
     if source in ("linkedin", "all") and result["search_params"]["keyword"]:
         click.echo(
             f"LinkedIn: {counts['linkedin']} jobs found "
-            f"({counts['linkedin_external_ats']} with external ATS links)"
+            f"({counts['linkedin_external_ats']} with external apply links)"
         )
 
     for error in result["errors"]:

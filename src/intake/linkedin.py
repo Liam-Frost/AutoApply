@@ -648,17 +648,22 @@ class LinkedInScraper:
             if apply_target.get("manual_apply_url"):
                 job.raw_data["manual_apply_url"] = apply_target["manual_apply_url"]
 
-            # Detect external apply link (ATS redirect)
-            ats_url = apply_target.get("ats_url")
-            if ats_url:
+            # Detect external apply link (ATS redirect or company-hosted apply page).
+            manual_apply_url = apply_target.get("manual_apply_url")
+            external_apply_url = (
+                manual_apply_url
+                if manual_apply_url and "linkedin.com" not in manual_apply_url.lower()
+                else None
+            )
+            if external_apply_url:
                 job.raw_data["linkedin_url"] = detail_url
-                job.application_url = ats_url
-                job.ats_type = _detect_ats_type(ats_url)
+                job.application_url = external_apply_url
+                job.ats_type = _detect_ats_type(external_apply_url)
                 logger.info(
-                    "Detected external ATS for %s: %s -> %s",
+                    "Detected external apply target for %s: %s -> %s",
                     job.title,
                     job.raw_data["linkedin_url"],
-                    ats_url,
+                    external_apply_url,
                 )
 
         except Exception as e:
@@ -866,7 +871,10 @@ class LinkedInScraper:
 
             btn_text = _clean_html_text(await apply_btn.inner_text()).lower()
             aria_label = _clean_html_text(await apply_btn.get_attribute("aria-label") or "").lower()
-            href = _normalize_url(await apply_btn.get_attribute("href"))
+            href = _manual_apply_destination_url(
+                await apply_btn.get_attribute("href"),
+                source_url=fallback_url,
+            )
             if href:
                 clean_href = _clean_tracking_url(href)
                 return {
@@ -917,44 +925,84 @@ class LinkedInScraper:
 
     async def _resolve_click_apply_target(self, page: Page, apply_btn) -> str | None:
         baseline_url = _normalize_url(page.url)
-        popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=8000))
+        seen_document_targets: list[str] = []
+        existing_pages = set(page.context.pages)
+
+        def record_document_request(request) -> None:
+            try:
+                if request.resource_type != "document":
+                    return
+                target_url = _manual_apply_destination_url(
+                    request.url,
+                    source_url=baseline_url,
+                )
+                if target_url:
+                    seen_document_targets.append(target_url)
+            except Exception:
+                return
+
+        page.context.on("request", record_document_request)
+        popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=12000))
+        new_page_task = asyncio.create_task(
+            page.context.wait_for_event(
+                "page",
+                predicate=lambda candidate: candidate not in existing_pages,
+                timeout=12000,
+            )
+        )
 
         try:
             await apply_btn.click()
         except Exception:
             await _cancel_pending_task(popup_task)
+            await _cancel_pending_task(new_page_task)
+            with suppress(Exception):
+                page.context.remove_listener("request", record_document_request)
             raise
 
-        popup = None
-        for _ in range(24):
-            if popup_task.done() and popup is None:
-                try:
-                    popup = popup_task.result()
-                except Exception:
-                    popup = None
+        try:
+            handled_pages = set()
+            for _ in range(48):
+                if seen_document_targets:
+                    return seen_document_targets[0]
 
-            if popup is not None:
-                target_url = await self._wait_for_page_target_url(
-                    popup,
-                    baseline_url="about:blank",
-                    timeout_ms=12000,
-                )
-                try:
-                    await popup.close()
-                except Exception:
-                    pass
-                if target_url:
-                    return target_url
-                break
+                for task in (popup_task, new_page_task):
+                    if not task.done():
+                        continue
+                    try:
+                        opened_page = task.result()
+                    except Exception:
+                        continue
+                    if opened_page in handled_pages:
+                        continue
+                    handled_pages.add(opened_page)
 
-            current_url = _normalize_url(page.url)
-            if current_url and current_url != baseline_url:
-                return current_url
+                    target_url = await self._wait_for_page_target_url(
+                        opened_page,
+                        baseline_url="about:blank",
+                        source_url=baseline_url,
+                        timeout_ms=12000,
+                    )
+                    try:
+                        await opened_page.close()
+                    except Exception:
+                        pass
+                    if target_url:
+                        return target_url
 
-            await page.wait_for_timeout(250)
+                current_url = _manual_apply_destination_url(page.url, source_url=baseline_url)
+                if current_url:
+                    return current_url
 
-        if not popup_task.done():
-            await _cancel_pending_task(popup_task)
+                await page.wait_for_timeout(250)
+        finally:
+            if not popup_task.done():
+                await _cancel_pending_task(popup_task)
+            if not new_page_task.done():
+                await _cancel_pending_task(new_page_task)
+            with suppress(Exception):
+                page.context.remove_listener("request", record_document_request)
+
         return None
 
     async def _wait_for_page_target_url(
@@ -962,12 +1010,16 @@ class LinkedInScraper:
         page: Page,
         *,
         baseline_url: str | None,
+        source_url: str | None = None,
         timeout_ms: int,
     ) -> str | None:
         deadline = max(timeout_ms // 250, 1)
         for _ in range(deadline):
-            current_url = _normalize_url(page.url)
-            if current_url and current_url != baseline_url:
+            current_url = _manual_apply_destination_url(
+                page.url,
+                source_url=source_url or baseline_url,
+            )
+            if current_url:
                 return current_url
             await page.wait_for_timeout(250)
         return None
@@ -1239,6 +1291,25 @@ def _normalize_url(url: str | None) -> str | None:
     if normalized.startswith("/"):
         return f"{LINKEDIN_BASE}{normalized}"
     return normalized
+
+
+def _manual_apply_destination_url(url: str | None, *, source_url: str | None = None) -> str | None:
+    """Return a real Apply destination, ignoring LinkedIn job-detail navigation."""
+    normalized = _normalize_url(url)
+    if not normalized:
+        return None
+
+    clean_url = _clean_tracking_url(normalized)
+    source_normalized = _normalize_url(source_url)
+    if source_normalized and clean_url.rstrip("/") == source_normalized.rstrip("/"):
+        return None
+
+    parsed = urlparse(clean_url)
+    netloc = parsed.netloc.lower()
+    if "linkedin.com" in netloc:
+        return None
+
+    return clean_url
 
 
 def _is_primary_apply_candidate(text: str, aria_label: str, href: str | None) -> bool:

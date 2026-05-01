@@ -63,6 +63,28 @@ class TestSpaShell:
         assert response.status_code == 200
         assert '<div id="app"></div>' in response.text
 
+    def test_materials_route_serves_spa_index(self, client):
+        response = client.get("/materials")
+        assert response.status_code == 200
+        assert '<div id="app"></div>' in response.text
+
+    def test_materials_subroute_serves_spa_index(self, client):
+        response = client.get("/materials/templates")
+        assert response.status_code == 200
+        assert '<div id="app"></div>' in response.text
+
+    def test_unknown_top_level_path_serves_spa_index(self, client):
+        # Any non-/api/, non-/assets/ path falls back to the SPA so
+        # vue-router can render its own "not found" view rather than
+        # FastAPI returning a 404 on a hard refresh.
+        response = client.get("/some-deep/client-only/route")
+        assert response.status_code == 200
+        assert '<div id="app"></div>' in response.text
+
+    def test_unknown_api_path_returns_404(self, client):
+        response = client.get("/api/does-not-exist")
+        assert response.status_code == 404
+
 
 class TestDashboardApi:
     def test_dashboard_returns_json(self, client):
