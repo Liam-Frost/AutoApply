@@ -1,0 +1,14 @@
+{
+  "id": "01_finish_immediately",
+  "description": "Agent calls finish on the first turn with the requested answer.",
+  "input": {
+    "goal": "Reply with the word PASS as the answer.",
+    "tools": ["finish"],
+    "llm_responses": [
+      "{\"thought\":\"trivial\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"PASS\"}}}"
+    ]
+  },
+  "expectations": [
+    {"type": "equals", "value": "PASS"}
+  ]
+}

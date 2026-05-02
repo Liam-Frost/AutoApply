@@ -1,0 +1,16 @@
+{
+  "id": "02_uses_text_stats",
+  "description": "Agent calls text_stats then reports the word count.",
+  "input": {
+    "goal": "Count the words in 'one two three' and report the count.",
+    "tools": ["text_stats", "finish"],
+    "llm_responses": [
+      "{\"thought\":\"measure\",\"action\":{\"name\":\"text_stats\",\"args\":{\"text\":\"one two three\"}}}",
+      "{\"thought\":\"answer\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"3 words\"}}}"
+    ]
+  },
+  "expectations": [
+    {"type": "contains_all", "values": ["3", "words"]},
+    {"type": "length_between", "unit": "chars", "min": 1, "max": 50}
+  ]
+}

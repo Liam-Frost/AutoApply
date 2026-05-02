@@ -1,0 +1,15 @@
+{
+  "id": "03_recovers_from_parse_error",
+  "description": "Agent's first response is malformed; loop must recover on the retry.",
+  "input": {
+    "goal": "Recover from a malformed first turn and finish with OK.",
+    "tools": ["finish"],
+    "llm_responses": [
+      "this is not JSON at all",
+      "{\"thought\":\"retry\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"OK\"}}}"
+    ]
+  },
+  "expectations": [
+    {"type": "equals", "value": "OK"}
+  ]
+}
