@@ -221,6 +221,69 @@ def validate_cover_letter_artifacts(
     )
 
 
+def validate_latex_artifacts(
+    validation: ValidationResult | None = None,
+    *,
+    tex_path: Path | None,
+    pdf_path: Path | None = None,
+    pdf_attempted: bool = False,
+    max_pages: int = 1,
+) -> ValidationResult:
+    """Validate rendered LaTeX files without requiring a DOCX artifact."""
+    validation = validation or ValidationResult(ok=True, issues=[], metrics={})
+    issues = list(validation.issues)
+    metrics = dict(validation.metrics)
+
+    tex_ok = bool(tex_path and tex_path.exists() and tex_path.stat().st_size > 0)
+    pdf_ok = bool(pdf_path and pdf_path.exists() and pdf_path.stat().st_size > 0)
+    pdf_pages = get_pdf_page_count(pdf_path)
+    metrics.update(
+        {
+            "tex_generated": tex_ok,
+            "tex_path": str(tex_path) if tex_path else None,
+            "pdf_generated": pdf_ok,
+            "pdf_path": str(pdf_path) if pdf_path else None,
+            "pdf_page_count": pdf_pages,
+        }
+    )
+
+    if not tex_ok:
+        issues.append(
+            ValidationIssue(
+                type="tex_generation_failed",
+                severity="error",
+                message="LaTeX renderer did not produce a valid .tex file.",
+                details={"path": str(tex_path) if tex_path else None},
+            )
+        )
+
+    if pdf_attempted and not pdf_ok:
+        issues.append(
+            ValidationIssue(
+                type="pdf_generation_failed",
+                severity="warning",
+                message="LaTeX PDF compilation did not produce a valid file.",
+                details={"path": str(pdf_path) if pdf_path else None},
+            )
+        )
+
+    if pdf_pages is not None and pdf_pages > max_pages:
+        issues.append(
+            ValidationIssue(
+                type="rendered_page_overflow",
+                severity="warning",
+                message="Rendered document exceeds the configured page target.",
+                details={"page_count": pdf_pages, "max_pages": max_pages},
+            )
+        )
+
+    return ValidationResult(
+        ok=not any(issue.severity == "error" for issue in issues),
+        issues=issues,
+        metrics=metrics,
+    )
+
+
 def _word_count(value: str) -> int:
     return len(re.findall(r"\b[\w+#.]+\b", value))
 

@@ -40,6 +40,9 @@ class TestAppFactory:
         assert "/api/jobs/generate-material" in paths
         assert "/api/templates" in paths
         assert "/api/templates/upload" in paths
+        assert "/api/templates/latex" in paths
+        assert "/api/templates/{document_type}/{template_id}" in paths
+        assert "/api/templates/{document_type}/{template_id}/validate" in paths
         assert "/api/artifacts/download" in paths
         assert "/api/jobs/filter-profiles" in paths
         assert "/api/applications" in paths
@@ -59,6 +62,28 @@ class TestSpaShell:
         response = client.get("/jobs/")
         assert response.status_code == 200
         assert '<div id="app"></div>' in response.text
+
+    def test_materials_route_serves_spa_index(self, client):
+        response = client.get("/materials")
+        assert response.status_code == 200
+        assert '<div id="app"></div>' in response.text
+
+    def test_materials_subroute_serves_spa_index(self, client):
+        response = client.get("/materials/templates")
+        assert response.status_code == 200
+        assert '<div id="app"></div>' in response.text
+
+    def test_unknown_top_level_path_serves_spa_index(self, client):
+        # Any non-/api/, non-/assets/ path falls back to the SPA so
+        # vue-router can render its own "not found" view rather than
+        # FastAPI returning a 404 on a hard refresh.
+        response = client.get("/some-deep/client-only/route")
+        assert response.status_code == 200
+        assert '<div id="app"></div>' in response.text
+
+    def test_unknown_api_path_returns_404(self, client):
+        response = client.get("/api/does-not-exist")
+        assert response.status_code == 404
 
 
 class TestDashboardApi:
@@ -531,6 +556,92 @@ class TestJobsApi:
         assert response.status_code == 413
         assert response.json()["detail"] == "Template upload is too large."
         mock_upload.assert_not_called()
+
+    @patch("src.web.routes.api.create_material_template_usecase")
+    def test_template_latex_create_route(self, mock_create, client):
+        mock_create.return_value = {
+            "ok": True,
+            "template": {"template_id": "latex_resume", "renderer": "latex"},
+            "templates": {"resume": [{"template_id": "latex_resume"}], "cover_letter": []},
+        }
+
+        response = client.post(
+            "/api/templates/latex",
+            json={"document_type": "resume", "template_name": "LaTeX Resume"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["template"]["renderer"] == "latex"
+        assert mock_create.call_args.kwargs["document_type"] == "resume"
+
+    @patch("src.web.routes.api.get_material_template_usecase")
+    def test_template_detail_route(self, mock_detail, client):
+        mock_detail.return_value = {
+            "ok": True,
+            "template": {"template_id": "latex_resume", "content": "{{resume.sections}}"},
+        }
+
+        response = client.get("/api/templates/resume/latex_resume")
+
+        assert response.status_code == 200
+        assert response.json()["template"]["content"] == "{{resume.sections}}"
+
+    @patch("src.web.routes.api.update_material_template_usecase")
+    def test_template_update_route(self, mock_update, client):
+        mock_update.return_value = {
+            "ok": True,
+            "template": {"template_id": "latex_resume", "validation": {"ok": True}},
+            "templates": {"resume": [{"template_id": "latex_resume"}], "cover_letter": []},
+        }
+
+        response = client.put(
+            "/api/templates/resume/latex_resume",
+            json={"template_name": "LaTeX Resume", "content": "{{resume.sections}}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["template"]["validation"]["ok"] is True
+        assert mock_update.call_args.kwargs["content"] == "{{resume.sections}}"
+
+    @patch("src.web.routes.api.validate_material_template_usecase")
+    def test_template_validate_route(self, mock_validate, client):
+        mock_validate.return_value = {
+            "ok": True,
+            "template": {"template_id": "latex_resume", "validation": {"ok": False}},
+            "validation": {"ok": False, "issues": [{"type": "missing_block"}]},
+        }
+
+        response = client.post("/api/templates/resume/latex_resume/validate")
+
+        assert response.status_code == 200
+        assert response.json()["validation"]["ok"] is False
+
+    @patch("src.web.routes.api.delete_material_template_usecase")
+    def test_template_delete_route(self, mock_delete, client):
+        mock_delete.return_value = {
+            "ok": True,
+            "templates": {"resume": [], "cover_letter": []},
+        }
+
+        response = client.delete("/api/templates/resume/latex_resume")
+
+        assert response.status_code == 200
+        assert response.json()["templates"]["resume"] == []
+        assert mock_delete.call_args.kwargs["document_type"] == "resume"
+        assert mock_delete.call_args.kwargs["template_id"] == "latex_resume"
+
+    @patch("src.web.routes.api.delete_material_template_usecase")
+    def test_template_delete_route_protects_default(self, mock_delete, client):
+        mock_delete.return_value = {
+            "ok": False,
+            "error": "Built-in default templates cannot be deleted.",
+            "error_code": "template_default_protected",
+        }
+
+        response = client.delete("/api/templates/resume/ats_single_column_v1")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Built-in default templates cannot be deleted."
 
     def test_artifact_download_restricts_to_output_dir(self, client, tmp_path):
         output_dir = tmp_path / "data" / "output"

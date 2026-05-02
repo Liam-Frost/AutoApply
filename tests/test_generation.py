@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.documents.templates import default_manifest
 from src.generation.cover_letter import (
+    _clean_llm_cover_letter_output,
     _format_education_brief,
     _generate_template,
     _select_evidence,
@@ -25,7 +26,11 @@ from src.generation.resume_builder import (
     rewrite_bullets,
     select_bullets_for_jd,
 )
-from src.generation.validator import validate_resume_artifacts, validate_resume_document
+from src.generation.validator import (
+    validate_latex_artifacts,
+    validate_resume_artifacts,
+    validate_resume_document,
+)
 from src.generation.versions import save_generation_version
 from src.intake.jd_parser import parse_requirements
 from src.intake.schema import JobRequirements, RawJob
@@ -266,6 +271,25 @@ class TestResumeIR:
         assert rendered.metrics["pdf_generated"] is False
         assert any(issue.type == "pdf_generation_failed" for issue in rendered.issues)
 
+    def test_latex_artifact_validator_allows_tex_without_pdf(self, tmp_path):
+        job = _make_job()
+        document = build_resume_document(job, _PROFILE)
+        validation = validate_resume_document(document, jd_tags=["python"])
+        tex_path = tmp_path / "resume.tex"
+        tex_path.write_text("tex", encoding="utf-8")
+
+        rendered = validate_latex_artifacts(
+            validation,
+            tex_path=tex_path,
+            pdf_path=None,
+            pdf_attempted=True,
+        )
+
+        assert rendered.metrics["tex_generated"] is True
+        assert rendered.metrics["pdf_generated"] is False
+        assert any(issue.type == "pdf_generation_failed" for issue in rendered.issues)
+        assert not any(issue.type == "docx_generation_failed" for issue in rendered.issues)
+
     def test_artifact_validator_counts_pdf_pages(self, tmp_path):
         import fitz
 
@@ -434,6 +458,39 @@ class TestGenerateTemplate:
         assert result["docx"].exists()
         assert result["ir"].document_type == "cover_letter"
         assert result["validation"].metrics["docx_generated"] is True
+
+    def test_invalid_llm_cover_letter_response_falls_back_to_template(self, tmp_path):
+        from unittest.mock import patch
+
+        bad_response = (
+            "Please paste the system instructions you want me to follow. If you want me "
+            "to inspect or modify instructions in this repo, point me to the relevant file."
+        )
+
+        with (
+            patch("src.generation.cover_letter.generate_text", return_value=bad_response),
+            patch("src.generation.cover_letter.convert_to_pdf", side_effect=RuntimeError),
+        ):
+            result = generate_cover_letter(
+                _make_job(),
+                _PROFILE,
+                output_dir=tmp_path,
+                use_llm=True,
+            )
+
+        assert "Please paste the system instructions" not in result["text"]
+        assert "Backend Engineering Intern" in result["text"]
+        assert result["docx"].exists()
+
+    def test_rejects_codex_transcript_as_cover_letter(self):
+        transcript = "OpenAI Codex v0.118.0\nuser\nSystem instructions...\ntokens used\n123"
+
+        try:
+            _clean_llm_cover_letter_output(transcript)
+        except Exception as exc:
+            assert "meta-response" in str(exc)
+        else:
+            raise AssertionError("Expected invalid Codex transcript to be rejected")
 
 
 class TestGenerationVersions:

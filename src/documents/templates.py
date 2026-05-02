@@ -31,6 +31,11 @@ DEFAULT_TEMPLATE_IDS = {
 }
 _TEMPLATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
 
+DocumentType = Literal["resume", "cover_letter"]
+TemplateFormat = Literal["docx", "latex"]
+TemplateRenderer = Literal["docx", "latex"]
+TemplateOutput = Literal["docx", "pdf", "tex"]
+
 
 class TemplatePage(BaseModel):
     size: str = "letter"
@@ -57,7 +62,10 @@ class TemplateCapacity(BaseModel):
 
 class TemplateManifest(BaseModel):
     template_id: str
-    document_type: Literal["resume", "cover_letter"]
+    document_type: DocumentType
+    template_format: TemplateFormat = "docx"
+    renderer: TemplateRenderer = "docx"
+    supported_outputs: list[TemplateOutput] = Field(default_factory=lambda: ["docx", "pdf"])
     name: str = ""
     description: str = ""
     page: TemplatePage = Field(default_factory=TemplatePage)
@@ -70,7 +78,7 @@ class TemplateManifest(BaseModel):
 
 class TemplatePackage(BaseModel):
     template_id: str
-    document_type: Literal["resume", "cover_letter"]
+    document_type: DocumentType
     directory: Path
     template_path: Path
     manifest_path: Path
@@ -101,7 +109,7 @@ def discover_templates(template_dir: Path) -> None:
 
 
 def ensure_template_package(
-    document_type: Literal["resume", "cover_letter"],
+    document_type: DocumentType,
     template_id: str | None = None,
     *,
     template_root: Path = TEMPLATE_ROOT,
@@ -111,15 +119,21 @@ def ensure_template_package(
     package_dir = _template_package_dir(document_type, template_id, template_root)
     package_dir.mkdir(parents=True, exist_ok=True)
 
-    template_path = package_dir / "template.docx"
     manifest_path = package_dir / "manifest.json"
 
-    if not manifest_path.exists():
-        manifest_path.write_text(
-            json.dumps(_default_manifest(document_type, template_id), indent=2) + "\n",
-            encoding="utf-8",
-            newline="\n",
-        )
+    if manifest_path.exists():
+        package = load_template_package(document_type, template_id, template_root=template_root)
+        _ensure_required_markers(package)
+        _write_sample_assets(package)
+        return load_template_package(document_type, template_id, template_root=template_root)
+
+    template_path = package_dir / "template.docx"
+
+    manifest_path.write_text(
+        json.dumps(_default_manifest(document_type, template_id), indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     if not template_path.exists():
         if document_type == "resume":
             _create_default_resume_template(template_path)
@@ -133,7 +147,7 @@ def ensure_template_package(
 
 
 def list_template_packages(
-    document_type: Literal["resume", "cover_letter"] | None = None,
+    document_type: DocumentType | None = None,
     *,
     template_root: Path = TEMPLATE_ROOT,
 ) -> dict[str, list[dict]]:
@@ -160,19 +174,171 @@ def list_template_packages(
 
 def save_uploaded_template_package(
     *,
-    document_type: Literal["resume", "cover_letter"],
+    document_type: DocumentType,
     filename: str,
     content: bytes,
     template_name: str | None = None,
     template_root: Path = TEMPLATE_ROOT,
 ) -> dict:
-    """Persist an uploaded DOCX as a template package and return metadata."""
+    """Persist an uploaded DOCX or single-file LaTeX template package."""
     if document_type not in DEFAULT_TEMPLATE_IDS:
         raise ValueError("Unsupported template document type.")
-    if Path(filename).suffix.lower() != ".docx":
-        raise ValueError("Only .docx templates are supported.")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".docx", ".tex"}:
+        raise ValueError("Only .docx and .tex templates are supported.")
     if not content:
         raise ValueError("Template upload is empty.")
+
+    if suffix == ".tex":
+        return _save_uploaded_latex_template_package(
+            document_type=document_type,
+            filename=filename,
+            content=content,
+            template_name=template_name,
+            template_root=template_root,
+        )
+
+    return _save_uploaded_docx_template_package(
+        document_type=document_type,
+        filename=filename,
+        content=content,
+        template_name=template_name,
+        template_root=template_root,
+    )
+
+
+def create_latex_template_package(
+    *,
+    document_type: DocumentType,
+    template_name: str | None = None,
+    description: str | None = None,
+    template_root: Path = TEMPLATE_ROOT,
+) -> dict:
+    """Create a blank single-file LaTeX template package and return metadata."""
+    if document_type not in DEFAULT_TEMPLATE_IDS:
+        raise ValueError("Unsupported template document type.")
+
+    default_name = "LaTeX Resume Template" if document_type == "resume" else "LaTeX Cover Letter"
+    display_name = (template_name or default_name).strip() or default_name
+    template_id = _unique_template_id(template_root / document_type, _slugify(display_name))
+    package_dir = template_root / document_type / template_id
+    package_dir.mkdir(parents=True, exist_ok=False)
+
+    template_path = package_dir / "template.tex"
+    manifest_path = package_dir / "manifest.json"
+    try:
+        manifest_payload = _default_latex_manifest(document_type, template_id)
+        manifest_payload["name"] = display_name
+        if description is not None:
+            manifest_payload["description"] = description.strip()
+        template_path.write_text(
+            _default_latex_template(document_type),
+            encoding="utf-8",
+            newline="\n",
+        )
+        manifest_path.write_text(
+            json.dumps(manifest_payload, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        package = load_template_package(document_type, template_id, template_root=template_root)
+        _write_sample_assets(package)
+        return serialize_template_package(package)
+    except Exception:
+        shutil.rmtree(package_dir, ignore_errors=True)
+        raise
+
+
+def get_template_package_detail(
+    document_type: DocumentType,
+    template_id: str,
+    *,
+    template_root: Path = TEMPLATE_ROOT,
+) -> dict:
+    """Return template metadata plus editable content for text-based templates."""
+    package = load_template_package(document_type, template_id, template_root=template_root)
+    serialized = serialize_template_package(package)
+    serialized["content"] = (
+        package.template_path.read_text(encoding="utf-8")
+        if package.manifest.renderer == "latex"
+        else None
+    )
+    return serialized
+
+
+def delete_template_package(
+    document_type: DocumentType,
+    template_id: str,
+    *,
+    template_root: Path = TEMPLATE_ROOT,
+) -> None:
+    """Delete a template package directory.
+
+    Refuses to delete the seeded defaults (DEFAULT_TEMPLATE_IDS[document_type])
+    so the app always has a renderable fallback. Validates the template id
+    via _template_package_dir() so callers cannot escape the document-type
+    root via path traversal. No-op when the package directory does not exist.
+    """
+
+    if document_type not in {"resume", "cover_letter"}:
+        raise ValueError("Unsupported template document type.")
+
+    if template_id == DEFAULT_TEMPLATE_IDS.get(document_type):
+        raise ValueError("Built-in default templates cannot be deleted.")
+
+    package_dir = _template_package_dir(document_type, template_id, template_root)
+    if not package_dir.exists():
+        raise FileNotFoundError(f"Template '{template_id}' not found.")
+    if not package_dir.is_dir():
+        raise ValueError("Template path is not a directory.")
+
+    shutil.rmtree(package_dir)
+
+
+def update_latex_template_package(
+    *,
+    document_type: DocumentType,
+    template_id: str,
+    content: str,
+    template_name: str | None = None,
+    description: str | None = None,
+    template_root: Path = TEMPLATE_ROOT,
+) -> dict:
+    """Update editable LaTeX template content and metadata."""
+    package = load_template_package(document_type, template_id, template_root=template_root)
+    if package.manifest.renderer != "latex":
+        raise ValueError("Only LaTeX templates can be edited as text.")
+    if not content.strip():
+        raise ValueError("Template content is required.")
+
+    package.template_path.write_text(content, encoding="utf-8", newline="\n")
+    manifest = package.manifest.model_copy(
+        update={
+            "name": template_name.strip() if template_name is not None else package.manifest.name,
+            "description": (
+                description.strip() if description is not None else package.manifest.description
+            ),
+        }
+    )
+    package.manifest_path.write_text(
+        json.dumps(manifest.model_dump(mode="json"), indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    package = load_template_package(document_type, template_id, template_root=template_root)
+    _write_sample_assets(package)
+    return serialize_template_package(package)
+
+
+def _save_uploaded_docx_template_package(
+    *,
+    document_type: DocumentType,
+    filename: str,
+    content: bytes,
+    template_name: str | None,
+    template_root: Path,
+) -> dict:
+    """Persist an uploaded DOCX as a template package and return metadata."""
 
     display_name = (template_name or Path(filename).stem or "Uploaded Template").strip()
     template_id = _unique_template_id(template_root / document_type, _slugify(display_name))
@@ -212,44 +378,111 @@ def save_uploaded_template_package(
         raise
 
 
+def _save_uploaded_latex_template_package(
+    *,
+    document_type: DocumentType,
+    filename: str,
+    content: bytes,
+    template_name: str | None,
+    template_root: Path,
+) -> dict:
+    """Persist an uploaded single-file LaTeX template package and return metadata."""
+    try:
+        template_text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("LaTeX templates must be UTF-8 text files.") from exc
+    if "\x00" in template_text:
+        raise ValueError("LaTeX template contains invalid null bytes.")
+
+    display_name = (template_name or Path(filename).stem or "Uploaded LaTeX Template").strip()
+    template_id = _unique_template_id(template_root / document_type, _slugify(display_name))
+    package_dir = template_root / document_type / template_id
+    package_dir.mkdir(parents=True, exist_ok=False)
+
+    template_path = package_dir / "template.tex"
+    manifest_path = package_dir / "manifest.json"
+    try:
+        manifest_payload = _default_latex_manifest(document_type, template_id)
+        manifest_payload["name"] = display_name
+        manifest_payload["description"] = (
+            f"Uploaded {document_type.replace('_', ' ')} LaTeX template."
+        )
+        template_path.write_text(template_text, encoding="utf-8", newline="\n")
+        manifest_path.write_text(
+            json.dumps(manifest_payload, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        package = load_template_package(document_type, template_id, template_root=template_root)
+        _write_sample_assets(package)
+        return serialize_template_package(package)
+    except Exception:
+        shutil.rmtree(package_dir, ignore_errors=True)
+        raise
+
+
 def serialize_template_package(package: TemplatePackage) -> dict:
     """Serialize template metadata for APIs/UI without leaking system internals."""
     preview_pdf = package.directory / "preview.pdf"
     preview_png = package.directory / "preview.png"
+    is_default = package.template_id == DEFAULT_TEMPLATE_IDS.get(package.document_type)
     return {
         "template_id": package.template_id,
         "document_type": package.document_type,
+        "template_format": package.manifest.template_format,
+        "renderer": package.manifest.renderer,
+        "supported_outputs": package.manifest.supported_outputs,
         "name": package.manifest.name or package.template_id.replace("_", " ").title(),
         "description": package.manifest.description,
         "manifest": package.manifest.model_dump(mode="json"),
         "preview_pdf": _public_asset_path(preview_pdf),
         "preview_png": _public_asset_path(preview_png),
         "validation": validate_template_package(package),
+        "is_default": is_default,
     }
 
 
 def validate_template_package(package: TemplatePackage) -> dict:
-    """Check the DOCX has the styles and block markers declared by manifest."""
+    """Check the template has the styles and block markers declared by manifest."""
     issues = []
     try:
-        doc = Document(str(package.template_path))
-        style_names = {style.name for style in doc.styles}
-        for style in package.manifest.styles.values():
-            if style not in style_names:
-                issues.append({"type": "missing_style", "message": f"Missing style: {style}"})
-        text = _document_text(doc)
+        if package.manifest.renderer == "latex":
+            text = package.template_path.read_text(encoding="utf-8")
+            if not text.strip():
+                issues.append(
+                    {
+                        "type": "empty_template",
+                        "severity": "error",
+                        "message": "Template content is empty.",
+                    }
+                )
+        else:
+            doc = Document(str(package.template_path))
+            style_names = {style.name for style in doc.styles}
+            for style in package.manifest.styles.values():
+                if style not in style_names:
+                    issues.append({"type": "missing_style", "message": f"Missing style: {style}"})
+            text = _document_text(doc)
+
         for marker in package.manifest.blocks.values():
             if marker and marker not in text:
                 issues.append(
-                    {"type": "missing_block", "message": f"Missing block marker: {marker}"}
+                    {
+                        "type": "missing_block",
+                        "severity": "error",
+                        "message": (
+                            f"Missing block marker: {marker}. Add this marker exactly where "
+                            "AutoApply should insert the generated content."
+                        ),
+                    }
                 )
     except Exception as exc:
-        issues.append({"type": "template_unreadable", "message": str(exc)})
+        issues.append({"type": "template_unreadable", "severity": "error", "message": str(exc)})
     return {"ok": not issues, "issues": issues}
 
 
 def load_template_package(
-    document_type: Literal["resume", "cover_letter"],
+    document_type: DocumentType,
     template_id: str | None = None,
     *,
     template_root: Path = TEMPLATE_ROOT,
@@ -258,14 +491,15 @@ def load_template_package(
     template_id = template_id or DEFAULT_TEMPLATE_IDS[document_type]
     package_dir = _template_package_dir(document_type, template_id, template_root)
     manifest_path = package_dir / "manifest.json"
-    template_path = package_dir / "template.docx"
 
     if not manifest_path.exists():
         raise FileNotFoundError(f"Template manifest not found: {manifest_path}")
-    if not template_path.exists():
-        raise FileNotFoundError(f"Template DOCX not found: {template_path}")
 
     manifest = TemplateManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+    template_name = "template.tex" if manifest.renderer == "latex" else "template.docx"
+    template_path = package_dir / template_name
+    if not template_path.exists():
+        raise FileNotFoundError(f"Template file not found: {template_path}")
     if manifest.document_type != document_type:
         raise ValueError(
             f"Template {template_id} is {manifest.document_type}, not {document_type}"
@@ -290,6 +524,9 @@ def _default_manifest(document_type: str, template_id: str) -> dict:
         return {
             "template_id": template_id,
             "document_type": "cover_letter",
+            "template_format": "docx",
+            "renderer": "docx",
+            "supported_outputs": ["docx", "pdf"],
             "name": "Classic Cover Letter",
             "description": "Simple one-page cover letter with editable Word styles.",
             "page": {"size": "letter", "max_pages": 1},
@@ -312,6 +549,9 @@ def _default_manifest(document_type: str, template_id: str) -> dict:
     return {
         "template_id": template_id,
         "document_type": "resume",
+        "template_format": "docx",
+        "renderer": "docx",
+        "supported_outputs": ["docx", "pdf"],
         "name": "ATS Single Column",
         "description": "One-page ATS-friendly resume with named Word styles and tab-stop dates.",
         "page": {"size": "letter", "max_pages": 1},
@@ -356,6 +596,62 @@ def _default_manifest(document_type: str, template_id: str) -> dict:
         },
         "blocks": {"sections": "{{resume.sections}}"},
     }
+
+
+def _default_latex_manifest(document_type: str, template_id: str) -> dict:
+    manifest = _default_manifest(document_type, template_id)
+    manifest["template_format"] = "latex"
+    manifest["renderer"] = "latex"
+    manifest["supported_outputs"] = ["tex", "pdf"]
+    manifest["styles"] = {}
+    if document_type == "cover_letter":
+        manifest["name"] = "LaTeX Cover Letter"
+        manifest["description"] = "Single-file LaTeX cover letter template."
+    else:
+        manifest["name"] = "LaTeX Resume"
+        manifest["description"] = "Single-file LaTeX resume template."
+    return manifest
+
+
+def _default_latex_template(document_type: str) -> str:
+    if document_type == "cover_letter":
+        return r"""\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=0.8in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{8pt}
+
+\begin{document}
+
+{\large\textbf{ {{applicant.name}} }}\\
+{{applicant.contact}}
+
+{{recipient.company}}
+
+{{cover_letter.body}}
+
+Sincerely,\\
+{{signature}}
+
+\end{document}
+"""
+
+    return r"""\documentclass[10pt,letterpaper]{article}
+\usepackage[margin=0.65in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+
+\begin{document}
+
+{\LARGE\textbf{ {{full_name}} }}\\
+{{contact}}\\
+{{links}}
+
+{{resume.sections}}
+
+\end{document}
+"""
 
 
 def _create_default_resume_template(path: Path) -> None:
@@ -467,6 +763,8 @@ def _write_sample_assets(package: TemplatePackage) -> None:
 
 def _ensure_required_markers(package: TemplatePackage) -> None:
     if not package.manifest.blocks:
+        return
+    if package.manifest.renderer == "latex":
         return
     try:
         doc = Document(str(package.template_path))

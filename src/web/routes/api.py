@@ -8,15 +8,48 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from src.application.jobs import apply_to_url
-from src.application.jobs import clear_linkedin_session as clear_linkedin_session_usecase
-from src.application.jobs import connect_linkedin_session as connect_linkedin_session_usecase
-from src.application.jobs import generate_material_for_job as generate_material_for_job_usecase
-from src.application.jobs import get_linkedin_session_status as get_linkedin_session_status_usecase
-from src.application.jobs import list_material_templates as list_material_templates_usecase
-from src.application.jobs import resolve_manual_apply_url as resolve_manual_apply_url_usecase
-from src.application.jobs import search_jobs as search_jobs_usecase
-from src.application.jobs import upload_material_template as upload_material_template_usecase
+from src.application.jobs import (
+    apply_to_url,
+)
+from src.application.jobs import (
+    clear_linkedin_session as clear_linkedin_session_usecase,
+)
+from src.application.jobs import (
+    connect_linkedin_session as connect_linkedin_session_usecase,
+)
+from src.application.jobs import (
+    create_material_template as create_material_template_usecase,
+)
+from src.application.jobs import (
+    delete_material_template as delete_material_template_usecase,
+)
+from src.application.jobs import (
+    generate_material_for_job as generate_material_for_job_usecase,
+)
+from src.application.jobs import (
+    get_linkedin_session_status as get_linkedin_session_status_usecase,
+)
+from src.application.jobs import (
+    get_material_template as get_material_template_usecase,
+)
+from src.application.jobs import (
+    list_material_templates as list_material_templates_usecase,
+)
+from src.application.jobs import (
+    resolve_manual_apply_url as resolve_manual_apply_url_usecase,
+)
+from src.application.jobs import (
+    search_jobs as search_jobs_usecase,
+)
+from src.application.jobs import (
+    update_material_template as update_material_template_usecase,
+)
+from src.application.jobs import (
+    upload_material_template as upload_material_template_usecase,
+)
+from src.application.jobs import (
+    validate_material_template as validate_material_template_usecase,
+)
 from src.application.profile import (
     activate_profile_data,
     create_empty_profile,
@@ -78,6 +111,18 @@ class JobMaterialPayload(BaseModel):
     use_llm: bool = False
     template_id: str | None = None
     profile_id: str | None = None
+
+
+class TemplateCreatePayload(BaseModel):
+    document_type: str
+    template_name: str = ""
+    description: str = ""
+
+
+class TemplateUpdatePayload(BaseModel):
+    content: str
+    template_name: str = ""
+    description: str = ""
 
 
 class SearchProfilePayload(BaseModel):
@@ -220,6 +265,80 @@ async def upload_material_template(
     if result["ok"]:
         return result
     status_code = 400 if result["error_code"] != "template_upload_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.post("/templates/latex")
+async def create_latex_template(payload: TemplateCreatePayload) -> dict:
+    result = create_material_template_usecase(
+        document_type=payload.document_type,
+        template_name=payload.template_name or None,
+        description=payload.description or None,
+    )
+    if result["ok"]:
+        return result
+    status_code = 400 if result["error_code"] != "template_create_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.get("/templates/{document_type}/{template_id}")
+async def material_template_detail(document_type: str, template_id: str) -> dict:
+    result = get_material_template_usecase(document_type=document_type, template_id=template_id)
+    if result["ok"]:
+        return result
+    status_code = 400 if result["error_code"] != "template_load_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.put("/templates/{document_type}/{template_id}")
+async def update_material_template(
+    document_type: str,
+    template_id: str,
+    payload: TemplateUpdatePayload,
+) -> dict:
+    if len(payload.content.encode("utf-8")) > MAX_TEMPLATE_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Template content is too large.")
+    result = update_material_template_usecase(
+        document_type=document_type,
+        template_id=template_id,
+        content=payload.content,
+        template_name=payload.template_name or None,
+        description=payload.description or None,
+    )
+    if result["ok"]:
+        return result
+    status_code = 400 if result["error_code"] != "template_update_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.post("/templates/{document_type}/{template_id}/validate")
+async def validate_material_template(document_type: str, template_id: str) -> dict:
+    result = validate_material_template_usecase(
+        document_type=document_type,
+        template_id=template_id,
+    )
+    if result["ok"]:
+        return result
+    status_code = 400 if result["error_code"] != "template_validate_failed" else 500
+    raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+@router.delete("/templates/{document_type}/{template_id}")
+async def delete_material_template(document_type: str, template_id: str) -> dict:
+    result = delete_material_template_usecase(
+        document_type=document_type,
+        template_id=template_id,
+    )
+    if result["ok"]:
+        return result
+    status_code_map = {
+        "template_not_found": 404,
+        "template_default_protected": 403,
+        "invalid_document_type": 400,
+        "invalid_template_id": 400,
+        "template_delete_failed": 500,
+    }
+    status_code = status_code_map.get(result["error_code"], 400)
     raise HTTPException(status_code=status_code, detail=result["error"])
 
 

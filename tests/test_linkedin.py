@@ -138,6 +138,44 @@ class TestLinkedInURLUtils:
             == "https://jobs.ashbyhq.com/Example/abc/application?utm_source=linkedin"
         )
 
+    def test_manual_apply_destination_rejects_linkedin_detail_url(self):
+        from src.intake.linkedin import _manual_apply_destination_url
+
+        assert (
+            _manual_apply_destination_url(
+                "https://www.linkedin.com/jobs/view/123/?refId=abc",
+                source_url="https://www.linkedin.com/jobs/view/123/",
+            )
+            is None
+        )
+
+    def test_manual_apply_destination_rejects_linkedin_internal_apply_url(self):
+        from src.intake.linkedin import _manual_apply_destination_url
+
+        assert (
+            _manual_apply_destination_url(
+                "https://www.linkedin.com/jobs/apply/123/",
+                source_url="https://www.linkedin.com/jobs/view/123/",
+            )
+            is None
+        )
+
+    def test_manual_apply_destination_unwraps_safety_redirect(self):
+        from src.intake.linkedin import _manual_apply_destination_url
+
+        wrapped = (
+            "https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fcareers.example.com"
+            "%2Fjobs%2F123%3Futm_source%3Dlinkedin&urlhash=test"
+        )
+
+        assert (
+            _manual_apply_destination_url(
+                wrapped,
+                source_url="https://www.linkedin.com/jobs/view/123/",
+            )
+            == "https://careers.example.com/jobs/123"
+        )
+
 
 class TestLinkedInSearchCache:
     def test_cache_hits_when_requested_pages_are_within_cached_range(self, tmp_path):
@@ -976,7 +1014,7 @@ class TestLinkedInCLI:
             ],
         )
         assert result.exit_code == 0
-        assert "1 with external ATS links" in result.output
+        assert "1 with external apply links" in result.output
 
 
 # ──────────────────────────────────────────────

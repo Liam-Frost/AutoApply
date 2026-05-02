@@ -18,11 +18,17 @@ from typing import Any
 
 from src.documents.docx_engine import build_cover_letter_from_ir
 from src.documents.file_manager import get_output_paths
+from src.documents.latex_engine import build_cover_letter_tex_from_ir, compile_latex_to_pdf
 from src.documents.pdf_converter import convert_to_pdf
-from src.documents.templates import TemplateManifest, default_manifest, ensure_template_package
+from src.documents.templates import (
+    TemplateManifest,
+    default_manifest,
+    ensure_template_package,
+    load_template_package,
+)
 from src.generation.evidence import select_relevant_evidence
 from src.generation.ir import CoverLetterDocument, CoverLetterParagraph
-from src.generation.validator import validate_cover_letter_artifacts
+from src.generation.validator import validate_cover_letter_artifacts, validate_latex_artifacts
 from src.intake.schema import RawJob
 from src.utils.llm import LLMError, generate_text
 
@@ -124,6 +130,77 @@ def generate_cover_letter(
     return result
 
 
+def generate_cover_letter_latex(
+    job: RawJob,
+    profile_data: dict[str, Any],
+    evidence_bullets: list[str] | None = None,
+    *,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    use_llm: bool = True,
+    template_id: str,
+) -> dict[str, Any]:
+    """Generate a tailored cover letter as LaTeX, with optional PDF compilation."""
+    identity = profile_data.get("identity", {})
+    package = load_template_package("cover_letter", template_id)
+    if package.manifest.renderer != "latex":
+        raise ValueError("Selected cover letter template is not a LaTeX template.")
+
+    if evidence_bullets is None:
+        evidence_bullets = _select_evidence(job, profile_data)
+
+    if use_llm:
+        try:
+            text = _generate_with_llm(job, profile_data, evidence_bullets)
+        except (LLMError, Exception) as exc:
+            logger.warning("LLM cover letter generation failed (%s), using template", exc)
+            text = _generate_template(job, identity, evidence_bullets)
+    else:
+        text = _generate_template(job, identity, evidence_bullets)
+
+    paths = get_output_paths(
+        company=job.company,
+        role=job.title,
+        output_dir=output_dir,
+    )
+    document = build_cover_letter_document(
+        job=job,
+        profile_data=profile_data,
+        body_text=text,
+        evidence_bullets=evidence_bullets,
+    )
+    document = _fit_cover_letter_document(document, package.manifest)
+    tex_path = build_cover_letter_tex_from_ir(
+        package.template_path,
+        document,
+        paths["cover_tex"],
+        manifest=package.manifest,
+    )
+
+    pdf_path = None
+    try:
+        pdf_path = compile_latex_to_pdf(tex_path, paths["cover_pdf"])
+    except Exception as exc:
+        logger.warning("LaTeX cover letter PDF compilation failed: %s", exc)
+
+    validation = validate_latex_artifacts(
+        tex_path=tex_path,
+        pdf_path=pdf_path,
+        pdf_attempted=True,
+        max_pages=package.manifest.capacity.max_pages,
+    )
+
+    result: dict[str, Any] = {
+        "text": text,
+        "tex": tex_path,
+        "ir": document,
+        "validation": validation,
+    }
+    if pdf_path:
+        result["pdf"] = pdf_path
+    logger.info("Generated LaTeX cover letter for %s at %s", job.title, job.company)
+    return result
+
+
 def build_cover_letter_document(
     *,
     job: RawJob,
@@ -201,6 +278,17 @@ Rules:
   or sign-off (Sincerely) — those are added separately
 - Output ONLY the body text of the cover letter"""
 
+_INVALID_LLM_OUTPUT_PATTERNS = (
+    "please paste the system instructions",
+    "paste the system instructions",
+    "system instructions you want me to follow",
+    "if you want me to inspect or modify",
+    "point me to the relevant file",
+    "openai codex",
+    "tokens used",
+    "reading additional input from stdin",
+)
+
 
 def _generate_with_llm(
     job: RawJob,
@@ -220,7 +308,11 @@ def _generate_with_llm(
             skill_summary.append(f"{category}: {', '.join(items[:8])}")
     skills_text = "\n".join(skill_summary)
 
-    prompt = f"""Write a cover letter body for this application:
+    prompt = f"""Write a cover letter body for this application.
+
+<cover_letter_instructions>
+{_CL_SYSTEM}
+</cover_letter_instructions>
 
 <job>
 Company: {job.company}
@@ -242,10 +334,27 @@ Skills:
 {skills_text}
 </applicant>
 
-Generate the cover letter body following the structure in the system prompt."""
+Generate the cover letter body following the instructions above."""
 
     raw = generate_text(prompt, system=_CL_SYSTEM, timeout=90)
-    return raw.strip()
+    return _clean_llm_cover_letter_output(raw)
+
+
+def _clean_llm_cover_letter_output(raw: str) -> str:
+    """Reject CLI/meta responses so they fall back to deterministic templates."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        lines = [line for line in text.splitlines() if not line.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    lower = text.lower()
+    if not text:
+        raise LLMError("LLM returned an empty cover letter.")
+    if any(pattern in lower for pattern in _INVALID_LLM_OUTPUT_PATTERNS):
+        raise LLMError("LLM returned a meta-response instead of a cover letter.")
+    if len(text.split()) < 80:
+        raise LLMError("LLM returned a cover letter that is too short.")
+    return text
 
 
 def _generate_template(

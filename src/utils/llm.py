@@ -11,6 +11,8 @@ import json
 import logging
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from src.core.config import load_config
@@ -176,7 +178,20 @@ def codex_generate(
     if output_format == "json":
         full_prompt = f"{full_prompt}\n\nReturn only valid JSON with no markdown fences."
 
-    cmd = [executable, "exec", "--full-auto", full_prompt]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as output_file:
+        output_path = Path(output_file.name)
+    output_path.unlink(missing_ok=True)
+
+    cmd = [
+        executable,
+        "exec",
+        "--full-auto",
+        "--color",
+        "never",
+        "--output-last-message",
+        str(output_path),
+        full_prompt,
+    ]
 
     logger.debug("Codex CLI call: prompt=%d chars, system=%d chars", len(prompt), len(system))
 
@@ -189,14 +204,23 @@ def codex_generate(
             encoding="utf-8",
         )
     except subprocess.TimeoutExpired:
+        output_path.unlink(missing_ok=True)
         raise LLMError(f"Codex CLI timed out after {timeout}s")
     except FileNotFoundError as exc:
+        output_path.unlink(missing_ok=True)
         raise LLMError("Codex CLI not found. Install with: npm install -g @openai/codex") from exc
+
+    try:
+        final_message = (
+            output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        )
+    finally:
+        output_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
         raise LLMError(f"Codex CLI error (code {result.returncode}): {result.stderr.strip()}")
 
-    response = result.stdout.strip()
+    response = final_message or result.stdout.strip()
     logger.debug("Codex CLI response: %d chars", len(response))
     return response
 

@@ -19,8 +19,14 @@ from typing import Any
 
 from src.documents.docx_engine import build_resume_from_ir, create_default_template
 from src.documents.file_manager import get_output_paths
+from src.documents.latex_engine import build_resume_tex_from_ir, compile_latex_to_pdf
 from src.documents.pdf_converter import convert_to_pdf
-from src.documents.templates import TemplateManifest, default_manifest, ensure_template_package
+from src.documents.templates import (
+    TemplateManifest,
+    default_manifest,
+    ensure_template_package,
+    load_template_package,
+)
 from src.generation.evidence import (
     EvidenceBullet,
     collect_profile_evidence,
@@ -29,7 +35,11 @@ from src.generation.evidence import (
 )
 from src.generation.fitting import fit_resume_document_to_template
 from src.generation.ir import BulletRewriteResult, ResumeDocument, ResumeItem
-from src.generation.validator import validate_resume_artifacts, validate_resume_document
+from src.generation.validator import (
+    validate_latex_artifacts,
+    validate_resume_artifacts,
+    validate_resume_document,
+)
 from src.intake.schema import RawJob
 
 logger = logging.getLogger("autoapply.generation.resume_builder")
@@ -145,6 +155,74 @@ def generate_resume(
         job.company,
         list(result.keys()),
     )
+    return result
+
+
+def generate_resume_latex(
+    job: RawJob,
+    profile_data: dict[str, Any],
+    selected_bullets: dict[str, list[str]] | None = None,
+    *,
+    template_id: str,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    rewrite: bool = False,
+    use_llm: bool = False,
+) -> dict[str, Any]:
+    """Generate a tailored resume as LaTeX, with optional PDF compilation."""
+    package = load_template_package("resume", template_id)
+    if package.manifest.renderer != "latex":
+        raise ValueError("Selected resume template is not a LaTeX template.")
+
+    resume_document = build_resume_document(
+        job=job,
+        profile_data=profile_data,
+        selected_bullets=selected_bullets,
+        rewrite=rewrite,
+        use_llm=use_llm,
+        template_id=package.template_id,
+        template_manifest=package.manifest,
+    )
+    validation = validate_resume_document(
+        resume_document,
+        jd_tags=resume_document.metadata.get("jd_tags", []),
+        max_bullet_words=package.manifest.capacity.max_words_per_bullet or 32,
+        max_estimated_pages=package.manifest.capacity.max_pages,
+    )
+
+    paths = get_output_paths(
+        company=job.company,
+        role=job.title,
+        output_dir=output_dir,
+    )
+    tex_path = build_resume_tex_from_ir(
+        template_path=package.template_path,
+        document=resume_document,
+        output_path=paths["resume_tex"],
+        manifest=package.manifest,
+    )
+
+    pdf_path = None
+    try:
+        pdf_path = compile_latex_to_pdf(tex_path, paths["resume_pdf"])
+    except Exception as exc:
+        logger.warning("LaTeX resume PDF compilation failed: %s", exc)
+
+    validation = validate_latex_artifacts(
+        validation,
+        tex_path=tex_path,
+        pdf_path=pdf_path,
+        pdf_attempted=True,
+        max_pages=package.manifest.capacity.max_pages,
+    )
+
+    result = {
+        "tex": tex_path,
+        "ir": resume_document,
+        "validation": validation,
+    }
+    if pdf_path:
+        result["pdf"] = pdf_path
+    logger.info("Generated LaTeX resume for %s at %s", job.title, job.company)
     return result
 
 

@@ -25,5 +25,5 @@ rate_limit:
   cooldown_on_error: 60
   max_applications_per_hour: 15
 search_cache:
-  enabled: true
+  enabled: false
   ttl_hours: 24

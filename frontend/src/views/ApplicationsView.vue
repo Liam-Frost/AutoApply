@@ -1,10 +1,26 @@
 <script setup>
-import { onMounted, reactive } from "vue"
+import { computed, onMounted, reactive } from "vue"
+import {
+  Activity,
+  AlertCircle,
+  Building2,
+  CheckCircle2,
+  Filter,
+  Inbox,
+  Send,
+  TrendingUp,
+} from "lucide-vue-next"
 
-import AppIcon from "../components/AppIcon.vue"
-import AppSelect from "../components/AppSelect.vue"
-import { api } from "../lib/api"
-import { formatDate, formatPercent } from "../lib/format"
+import AppSelect from "@/components/AppSelect.vue"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
+import { api } from "@/lib/api"
+import { formatDate, formatPercent } from "@/lib/format"
 
 const statusOptions = [
   { value: "", label: "All" },
@@ -46,6 +62,21 @@ const state = reactive({
   },
 })
 
+const cards = computed(() => [
+  { label: "Submitted", value: state.data.outcomes.total, icon: Send },
+  { label: "Pending", value: state.data.outcomes.pending, icon: Activity },
+  {
+    label: "Response",
+    value: formatPercent(state.data.outcomes.rates.response_rate, "N/A"),
+    icon: TrendingUp,
+  },
+  {
+    label: "Positive",
+    value: formatPercent(state.data.outcomes.rates.positive_rate, "N/A"),
+    icon: CheckCircle2,
+  },
+])
+
 async function load() {
   state.loading = true
   state.error = ""
@@ -82,111 +113,149 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-stack">
-    <section class="surface">
-      <form class="form-grid form-grid-4" @submit.prevent="load">
-        <label class="field">
-          <span>Status</span>
-          <AppSelect v-model="filters.status" :options="statusOptions" aria-label="Status filter" />
-        </label>
+  <div class="space-y-6">
+    <Card>
+      <CardContent class="p-5">
+        <form class="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_1fr_auto]" @submit.prevent="load">
+          <label class="space-y-1.5">
+            <span class="text-xs font-medium text-muted-foreground">Status</span>
+            <AppSelect v-model="filters.status" :options="statusOptions" aria-label="Status filter" />
+          </label>
 
-        <label class="field">
-          <span>Outcome</span>
-          <AppSelect v-model="filters.outcome" :options="outcomeOptions" aria-label="Outcome filter" />
-        </label>
+          <label class="space-y-1.5">
+            <span class="text-xs font-medium text-muted-foreground">Outcome</span>
+            <AppSelect v-model="filters.outcome" :options="outcomeOptions" aria-label="Outcome filter" />
+          </label>
 
-        <label class="field">
-          <span>Company</span>
-          <input v-model="filters.company" class="input" type="text" placeholder="Company" />
-        </label>
+          <label class="space-y-1.5">
+            <span class="text-xs font-medium text-muted-foreground">Company</span>
+            <Input v-model="filters.company" type="text" placeholder="Stripe, Shopify, ..." />
+          </label>
 
-        <div class="actions-row align-end">
-          <button class="icon-button primary" type="submit" :disabled="state.loading" aria-label="Apply filters" title="Apply filters">
-            <AppIcon name="filter" />
-          </button>
-        </div>
-      </form>
-    </section>
-
-    <section class="metric-grid">
-      <article class="metric-card">
-        <span class="metric-label">Submitted</span>
-        <strong class="metric-value">{{ state.data.outcomes.total }}</strong>
-      </article>
-      <article class="metric-card">
-        <span class="metric-label">Pending</span>
-        <strong class="metric-value">{{ state.data.outcomes.pending }}</strong>
-      </article>
-      <article class="metric-card">
-        <span class="metric-label">Response</span>
-        <strong class="metric-value">{{ formatPercent(state.data.outcomes.rates.response_rate, "N/A") }}</strong>
-      </article>
-      <article class="metric-card">
-        <span class="metric-label">Positive</span>
-        <strong class="metric-value">{{ formatPercent(state.data.outcomes.rates.positive_rate, "N/A") }}</strong>
-      </article>
-    </section>
-
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-
-    <section class="content-grid content-grid-wide">
-      <article class="surface">
-        <div class="section-head">
-          <h2>Pipeline</h2>
-        </div>
-
-        <div v-if="Object.keys(state.data.pipeline || {}).length" class="list-stack">
-          <div v-for="(count, status) in state.data.pipeline" :key="status" class="list-row">
-            <span>{{ prettify(status) }}</span>
-            <span class="chip">{{ count }}</span>
+          <div class="flex items-end">
+            <Button type="submit" :disabled="state.loading" class="w-full md:w-auto">
+              <Filter class="h-4 w-4" />
+              Apply
+            </Button>
           </div>
-        </div>
-        <div v-else class="empty-state">No data</div>
-      </article>
+        </form>
+      </CardContent>
+    </Card>
 
-      <article class="surface table-surface">
-        <div class="section-head">
-          <h2>Queue</h2>
-          <span class="muted">{{ state.data.applications.length }}</span>
-        </div>
+    <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <Card v-for="card in cards" :key="card.label">
+        <CardContent class="flex items-start justify-between gap-3 p-5">
+          <div class="space-y-1.5">
+            <p class="text-xs font-medium text-muted-foreground">{{ card.label }}</p>
+            <p class="text-2xl font-bold tabular-nums tracking-tight text-foreground">
+              <Skeleton v-if="state.loading" class="h-7 w-16" />
+              <template v-else>{{ card.value }}</template>
+            </p>
+          </div>
+          <div class="rounded-md bg-primary/10 p-2 text-primary">
+            <component :is="card.icon" class="h-4 w-4" />
+          </div>
+        </CardContent>
+      </Card>
+    </section>
 
-        <div v-if="state.loading" class="empty-state">Loading</div>
-        <div v-else-if="state.data.applications.length" class="table-shell">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Score</th>
-                <th>Outcome</th>
-                <th>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="application in state.data.applications" :key="application.id">
-                <td>
-                  <strong>{{ application.job.company }}</strong>
-                  <div class="muted-inline">{{ application.job.title }}</div>
-                </td>
-                <td>{{ prettify(application.status) }}</td>
-                <td>{{ application.match_score === null ? "-" : formatPercent(application.match_score, "0%") }}</td>
-                <td>
-                  <AppSelect
-                    :model-value="application.outcome"
-                    :options="outcomeEditOptions"
-                    compact
-                    :disabled="state.updatingId === application.id"
-                    aria-label="Update outcome"
-                    @update:model-value="updateOutcome(application, $event)"
-                  />
-                </td>
-                <td>{{ formatDate(application.created_at) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="empty-state">No applications</div>
-      </article>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
+
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
+      <Card>
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2 text-sm">
+            <Activity class="h-4 w-4 text-muted-foreground" />
+            Pipeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div v-if="state.loading" class="space-y-2">
+            <Skeleton v-for="n in 4" :key="n" class="h-9 w-full" />
+          </div>
+          <div
+            v-else-if="Object.keys(state.data.pipeline || {}).length"
+            class="space-y-2"
+          >
+            <div
+              v-for="(count, status) in state.data.pipeline"
+              :key="status"
+              class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm capitalize transition-colors hover:bg-muted/50"
+            >
+              <span>{{ prettify(status) }}</span>
+              <Badge variant="secondary" class="tabular-nums">{{ count }}</Badge>
+            </div>
+          </div>
+          <EmptyState v-else title="No pipeline data">
+            <template #icon><Inbox /></template>
+          </EmptyState>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <CardTitle class="flex items-center gap-2 text-sm">
+            <Building2 class="h-4 w-4 text-muted-foreground" />
+            Application queue
+          </CardTitle>
+          <span class="text-xs tabular-nums text-muted-foreground">
+            {{ state.data.applications.length }}
+          </span>
+        </CardHeader>
+        <CardContent class="p-0">
+          <div v-if="state.loading" class="space-y-2 p-6 pt-0">
+            <Skeleton v-for="n in 5" :key="n" class="h-12 w-full" />
+          </div>
+          <div v-else-if="state.data.applications.length" class="overflow-x-auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Outcome</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="application in state.data.applications" :key="application.id">
+                  <td>
+                    <div class="font-medium text-foreground">{{ application.job.company }}</div>
+                    <div class="text-xs text-muted-foreground">{{ application.job.title }}</div>
+                  </td>
+                  <td>
+                    <Badge :variant="application.status === 'FAILED' ? 'destructive' : application.status === 'SUBMITTED' ? 'success' : 'secondary'">
+                      {{ prettify(application.status) }}
+                    </Badge>
+                  </td>
+                  <td class="tabular-nums">
+                    {{ application.match_score === null ? "-" : formatPercent(application.match_score, "0%") }}
+                  </td>
+                  <td>
+                    <AppSelect
+                      :model-value="application.outcome"
+                      :options="outcomeEditOptions"
+                      compact
+                      :disabled="state.updatingId === application.id"
+                      aria-label="Update outcome"
+                      @update:model-value="updateOutcome(application, $event)"
+                    />
+                  </td>
+                  <td class="tabular-nums text-muted-foreground">{{ formatDate(application.created_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="p-6 pt-0">
+            <EmptyState title="No applications yet" description="Submit an application from the Jobs view and it will appear here.">
+              <template #icon><Send /></template>
+            </EmptyState>
+          </div>
+        </CardContent>
+      </Card>
     </section>
   </div>
 </template>

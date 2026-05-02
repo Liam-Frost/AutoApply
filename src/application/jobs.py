@@ -18,8 +18,10 @@ SEARCH_METADATA_KEY = "_search_filters"
 MATERIAL_TYPES = {
     "resume_pdf",
     "resume_docx",
+    "resume_tex",
     "cover_letter_pdf",
     "cover_letter_docx",
+    "cover_letter_tex",
     "cover_letter_txt",
 }
 ATS_TYPES = {
@@ -157,7 +159,9 @@ async def search_jobs(
                 linkedin_jobs = _dedupe_jobs_by_signature(linkedin_jobs)
                 counts["linkedin"] = len(linkedin_jobs)
                 counts["linkedin_external_ats"] = sum(
-                    1 for job in linkedin_jobs if job.ats_type in ("greenhouse", "lever")
+                    1
+                    for job in linkedin_jobs
+                    if job.ats_type in ("greenhouse", "lever", "ashby", "workday", "company_site")
                 )
                 jobs.extend(linkedin_jobs)
             except LinkedInAuthRequiredError as exc:
@@ -366,8 +370,9 @@ async def apply_to_url(
     resolved_url = url
     if _is_linkedin_url(url):
         resolved = await resolve_manual_apply_url(url)
-        if resolved.get("ats_url"):
-            resolved_url = resolved["ats_url"]
+        resolved_target = resolved.get("ats_url") or resolved.get("url")
+        if resolved_target and not _is_linkedin_url(resolved_target):
+            resolved_url = resolved_target
             payload["resolved_url"] = resolved_url
 
     ats_type = _detect_ats_from_url(resolved_url)
@@ -389,7 +394,7 @@ async def apply_to_url(
     payload["resolved_url"] = resolved_url
 
     try:
-        job = _load_job_for_application(resolved_url, ats_type)
+        job, hydrated = _load_job_for_application(resolved_url, ats_type)
     except Exception as exc:
         return {
             **payload,
@@ -403,6 +408,29 @@ async def apply_to_url(
             "error_code": "job_load_failed",
             "dry_run": dry_run,
         }
+
+    if not hydrated and ats_type in ("ashby", "workday", "company_site"):
+        # Generic / company-site / Workday URLs cannot be hydrated from the
+        # URL alone (we don't have a parser that recovers the JD), so we'd
+        # be tailoring against title="Unknown Role" with no description.
+        # Force the caller to apply via a stored job id (which carries real
+        # JD context) instead of generating useless materials.
+        return {
+            **payload,
+            "ok": False,
+            "status": None,
+            "job": serialize_job(job),
+            "tracking_id": None,
+            "result": None,
+            "artifacts": _empty_artifacts(),
+            "error": _no_job_context_message(ats_type),
+            "error_code": "job_context_required",
+            "dry_run": dry_run,
+        }
+
+    detected_ats = _detect_ats_from_url(job.application_url or "")
+    if detected_ats:
+        job.ats_type = detected_ats
 
     profile_data = _load_profile()
     if not profile_data:
@@ -509,6 +537,10 @@ async def apply_to_job_id(
             "dry_run": dry_run,
         }
 
+    detected_ats = _detect_ats_from_url(job.application_url or "")
+    if detected_ats:
+        job.ats_type = detected_ats
+
     profile_data = _load_profile()
     if not profile_data:
         return {
@@ -556,6 +588,8 @@ async def generate_material_for_job(
             "error": "Unsupported material type.",
             "error_code": "invalid_material_type",
         }
+    template_id = _clean_optional_web_payload_id(template_id)
+    profile_id = _clean_optional_web_payload_id(profile_id)
 
     try:
         job = _raw_job_from_web_payload(job_payload, use_llm=use_llm)
@@ -691,7 +725,7 @@ def upload_material_template(
     content: bytes,
     template_name: str | None = None,
 ) -> dict:
-    """Save an uploaded DOCX as a material template package."""
+    """Save an uploaded DOCX or LaTeX material template package."""
     from src.documents.templates import save_uploaded_template_package
 
     if document_type not in {"resume", "cover_letter"}:
@@ -713,6 +747,141 @@ def upload_material_template(
         return {"ok": False, "error": str(exc), "error_code": "template_upload_failed"}
 
     return {"ok": True, "template": template, **list_material_templates()}
+
+
+def create_material_template(
+    *,
+    document_type: str,
+    template_name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Create a blank editable LaTeX material template package."""
+    from src.documents.templates import create_latex_template_package
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        template = create_latex_template_package(
+            document_type=document_type,
+            template_name=template_name,
+            description=description,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "invalid_template"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_create_failed"}
+
+    return {"ok": True, "template": template, **list_material_templates()}
+
+
+def get_material_template(*, document_type: str, template_id: str) -> dict:
+    """Return a material template package, including editable content for LaTeX."""
+    from src.documents.templates import get_template_package_detail
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        template = get_template_package_detail(document_type, template_id)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "invalid_template_id"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_load_failed"}
+
+    return {"ok": True, "template": template}
+
+
+def update_material_template(
+    *,
+    document_type: str,
+    template_id: str,
+    content: str,
+    template_name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update an editable LaTeX material template package."""
+    from src.documents.templates import update_latex_template_package
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        template = update_latex_template_package(
+            document_type=document_type,
+            template_id=template_id,
+            content=content,
+            template_name=template_name,
+            description=description,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "invalid_template"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_update_failed"}
+
+    return {"ok": True, "template": template, **list_material_templates()}
+
+
+def validate_material_template(*, document_type: str, template_id: str) -> dict:
+    """Validate a material template package."""
+    from src.documents.templates import load_template_package, serialize_template_package
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        package = load_template_package(document_type, template_id)
+        template = serialize_template_package(package)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "invalid_template_id"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_validate_failed"}
+
+    return {"ok": True, "template": template, "validation": template["validation"]}
+
+
+def delete_material_template(*, document_type: str, template_id: str) -> dict:
+    """Delete a material template package, refusing for built-in defaults."""
+    from src.documents.templates import delete_template_package
+
+    if document_type not in {"resume", "cover_letter"}:
+        return {
+            "ok": False,
+            "error": "Unsupported template document type.",
+            "error_code": "invalid_document_type",
+        }
+    try:
+        delete_template_package(document_type, template_id)
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_not_found"}
+    except ValueError as exc:
+        # _template_package_dir raises ValueError on bad ids, and
+        # delete_template_package raises ValueError when refusing to
+        # delete the built-in default. Both surface as a 400-shape error
+        # so the API can decide between 400 and 403.
+        message = str(exc)
+        code = (
+            "template_default_protected"
+            if "default" in message.lower()
+            else "invalid_template_id"
+        )
+        return {"ok": False, "error": message, "error_code": code}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "error_code": "template_delete_failed"}
+
+    return {"ok": True, **list_material_templates()}
 
 
 async def apply_batch_jobs(
@@ -787,6 +956,8 @@ async def apply_batch_jobs(
             )
             summary["skipped"] += 1
             continue
+
+        job.ats_type = ats_type
 
         item = await _run_application_for_job(
             job=job,
@@ -1373,8 +1544,10 @@ def _empty_material_artifacts() -> dict:
     return {
         "resume_pdf": None,
         "resume_docx": None,
+        "resume_tex": None,
         "cover_letter_pdf": None,
         "cover_letter_docx": None,
+        "cover_letter_tex": None,
         "cover_letter_txt": None,
     }
 
@@ -1477,6 +1650,15 @@ def _clean_web_payload_string(value) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _clean_optional_web_payload_id(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() in {"null", "none", "undefined"}:
+        return None
+    return cleaned
+
+
 def _coerce_web_payload_value(value, allowed: set[str], default: str) -> str:
     if isinstance(value, str) and value in allowed:
         return value
@@ -1491,16 +1673,33 @@ def _generate_selected_material(
     template_id: str | None = None,
 ) -> dict:
     from src.documents.templates import ensure_template_package, serialize_template_package
-    from src.generation.cover_letter import generate_cover_letter
-    from src.generation.resume_builder import generate_resume
+    from src.generation.cover_letter import generate_cover_letter, generate_cover_letter_latex
+    from src.generation.resume_builder import generate_resume, generate_resume_latex
 
     output_dir = PROJECT_ROOT / "data" / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     artifacts = _empty_material_artifacts()
 
-    if material_type in {"resume_pdf", "resume_docx"}:
+    if material_type in {"resume_pdf", "resume_docx", "resume_tex"}:
         template_package = ensure_template_package("resume", template_id)
+        _ensure_template_supports_material(template_package, material_type)
+        if template_package.manifest.renderer == "latex":
+            resume_files = generate_resume_latex(
+                job=job,
+                profile_data=profile_data,
+                output_dir=output_dir,
+                template_id=template_package.template_id,
+            )
+            artifacts["resume_pdf"] = resume_files.get("pdf")
+            artifacts["resume_tex"] = resume_files.get("tex")
+            return {
+                "artifacts": artifacts,
+                "document": resume_files.get("ir"),
+                "validation": resume_files.get("validation"),
+                "template": serialize_template_package(template_package),
+            }
+
         resume_files = generate_resume(
             job=job,
             profile_data=profile_data,
@@ -1517,6 +1716,23 @@ def _generate_selected_material(
         }
 
     template_package = ensure_template_package("cover_letter", template_id)
+    _ensure_template_supports_material(template_package, material_type)
+    if template_package.manifest.renderer == "latex":
+        cover_files = generate_cover_letter_latex(
+            job=job,
+            profile_data=profile_data,
+            output_dir=output_dir,
+            template_id=template_package.template_id,
+        )
+        artifacts["cover_letter_pdf"] = cover_files.get("pdf")
+        artifacts["cover_letter_tex"] = cover_files.get("tex")
+        return {
+            "artifacts": artifacts,
+            "document": cover_files.get("ir"),
+            "validation": cover_files.get("validation"),
+            "template": serialize_template_package(template_package),
+        }
+
     cover_files = generate_cover_letter(
         job=job,
         profile_data=profile_data,
@@ -1534,13 +1750,38 @@ def _generate_selected_material(
     }
 
 
+def _ensure_template_supports_material(template_package, material_type: str) -> None:
+    output_format = material_type.rsplit("_", 1)[-1]
+    if output_format == "txt" and template_package.manifest.renderer == "docx":
+        return
+    if output_format not in set(template_package.manifest.supported_outputs):
+        raise ValueError(
+            f"Template '{template_package.template_id}' does not support "
+            f"{output_format.upper()} output."
+        )
+
+
 def _unsupported_ats_message(url: str) -> str:
     if "linkedin.com" in url.lower():
         return (
-            "This is a LinkedIn URL. Use `autoapply search --source linkedin` "
-            "to find the external ATS link first."
+            "This LinkedIn job did not expose an external apply target. "
+            "Open the job manually if it uses LinkedIn Easy Apply."
         )
-    return "Could not detect ATS type from URL. Supported: greenhouse, lever."
+    return "Could not detect an application URL from this input."
+
+
+def _no_job_context_message(ats_type: str) -> str:
+    label_map = {
+        "ashby": "Ashby",
+        "workday": "Workday",
+        "company_site": "company-site",
+    }
+    label = label_map.get(ats_type, ats_type)
+    return (
+        f"Cannot apply to a {label} URL without a stored job. "
+        "Run `autoapply search` first and apply via the resulting job id, "
+        "or paste the JD into the Materials page to download tailored files."
+    )
 
 
 def _serialize_execution_result(result) -> dict:
@@ -1630,6 +1871,7 @@ async def _run_application_for_job(
     result = await _execute_application(
         url=job.application_url or "",
         ats_type=job.ats_type,
+        job=job,
         profile_data=profile_data,
         resume_path=resume_path,
         cover_letter_path=cover_letter_path,
@@ -1695,6 +1937,7 @@ async def _execute_application(
     *,
     url: str,
     ats_type: str,
+    job=None,
     profile_data: dict,
     resume_path: Path | None,
     cover_letter_path: Path | None,
@@ -1704,14 +1947,17 @@ async def _execute_application(
     state=None,
 ):
     from src.execution.ats.ashby import AshbyAdapter
+    from src.execution.ats.generic import GenericAdapter
     from src.execution.ats.greenhouse import GreenhouseAdapter
     from src.execution.ats.lever import LeverAdapter
     from src.execution.browser import BrowserManager
 
     adapter_map = {
         "ashby": AshbyAdapter,
+        "company_site": GenericAdapter,
         "greenhouse": GreenhouseAdapter,
         "lever": LeverAdapter,
+        "workday": GenericAdapter,
     }
     adapter_cls = adapter_map.get(ats_type)
     if not adapter_cls:
@@ -1739,19 +1985,26 @@ async def _execute_application(
             cover_letter_path=cover_letter_path,
             qa_responses=qa_responses,
             auto_submit=auto_submit,
+            job_context=job,
         )
         return result
 
 
 def _detect_ats_from_url(url: str) -> str | None:
     url_lower = url.lower()
+    if not url_lower.startswith(("http://", "https://")):
+        return None
+    if "linkedin.com" in url_lower:
+        return None
     if "ashbyhq.com" in url_lower:
         return "ashby"
     if "greenhouse.io" in url_lower:
         return "greenhouse"
     if "lever.co" in url_lower:
         return "lever"
-    return None
+    if "workday" in url_lower or "myworkdayjobs.com" in url_lower:
+        return "workday"
+    return "company_site"
 
 
 def _normalize_application_url_for_ats(url: str, ats_type: str) -> str:
@@ -1780,16 +2033,26 @@ def _load_profile(profile_id: str | None = None) -> dict | None:
     return load_profile_yaml(profile_path)
 
 
-def _load_job_for_application(url: str, ats_type: str):
+def _load_job_for_application(url: str, ats_type: str) -> tuple:
+    """Return ``(raw_job, hydrated)`` for the given apply URL.
+
+    ``hydrated`` is True when we have real job context (a stored job from
+    the database or a freshly scraped one from a supported ATS). It is
+    False when we had to fall back to ``_synthesize_job_from_url``, which
+    produces a placeholder Job with ``title="Unknown Role"`` and no
+    description. Callers must refuse to generate tailored materials in
+    that case so we never run the LLM/template pipeline on an empty JD.
+    """
+
     db_job = _find_db_job_by_url(url)
     if db_job is not None:
-        return _job_to_raw_job(db_job)
+        return _job_to_raw_job(db_job), True
 
     fetched_job = _fetch_job_from_ats(url, ats_type)
     if fetched_job is not None:
-        return fetched_job
+        return fetched_job, True
 
-    return _synthesize_job_from_url(url, ats_type)
+    return _synthesize_job_from_url(url, ats_type), False
 
 
 def _find_db_job_by_url(url: str):

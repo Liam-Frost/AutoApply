@@ -1,9 +1,18 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { RouterLink, RouterView, useRoute } from "vue-router"
+import {
+  Briefcase,
+  FileText,
+  LayoutDashboard,
+  Monitor,
+  Moon,
+  Send,
+  Settings as SettingsIcon,
+  Sun,
+  UserCircle,
+} from "lucide-vue-next"
 
-import AppIcon from "./components/AppIcon.vue"
-import DockIcon from "./components/DockIcon.vue"
 import { ensureLinkedInSessionLoaded } from "./lib/linkedin-session"
 
 const route = useRoute()
@@ -14,20 +23,20 @@ const themeMenuOpen = ref(false)
 const THEME_STORAGE_KEY = "autoapply.theme"
 
 const themeOptions = [
-  { value: "system", label: "Follow system", icon: "system" },
-  { value: "light", label: "Light mode", icon: "sun" },
-  { value: "dark", label: "Dark mode", icon: "moon" },
+  { value: "system", label: "Follow system", icon: Monitor },
+  { value: "light", label: "Light mode", icon: Sun },
+  { value: "dark", label: "Dark mode", icon: Moon },
 ]
 
 let cleanupThemeListeners = () => {}
 
 const items = [
-  { to: "/", label: "Dashboard", icon: "dashboard" },
-  { to: "/jobs", label: "Jobs", icon: "jobs" },
-  { to: "/materials", label: "Materials", icon: "materials" },
-  { to: "/applications", label: "Applications", icon: "applications" },
-  { to: "/profile", label: "Profile", icon: "profile" },
-  { to: "/settings", label: "Settings", icon: "settings" },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/jobs", label: "Jobs", icon: Briefcase },
+  { to: "/materials", label: "Materials", icon: FileText },
+  { to: "/applications", label: "Applications", icon: Send },
+  { to: "/profile", label: "Profile", icon: UserCircle },
+  { to: "/settings", label: "Settings", icon: SettingsIcon },
 ]
 
 const resolvedTheme = computed(() => {
@@ -39,9 +48,9 @@ const resolvedTheme = computed(() => {
 
 const themeButtonIcon = computed(() => {
   if (themePreference.value === "system") {
-    return "system"
+    return Monitor
   }
-  return resolvedTheme.value === "dark" ? "moon" : "sun"
+  return resolvedTheme.value === "dark" ? Moon : Sun
 })
 
 function isActive(item) {
@@ -55,6 +64,8 @@ function isActive(item) {
 function applyTheme() {
   document.documentElement.dataset.theme = resolvedTheme.value
   document.documentElement.style.colorScheme = resolvedTheme.value
+  // Tailwind dark: variants opt into the .dark class on <html>.
+  document.documentElement.classList.toggle("dark", resolvedTheme.value === "dark")
   try {
     localStorage.setItem(THEME_STORAGE_KEY, themePreference.value)
   } catch {
@@ -132,7 +143,7 @@ onBeforeUnmount(() => {
         :class="{ 'is-active': isActive(item) }"
         :aria-label="item.label"
       >
-        <DockIcon :name="item.icon" />
+        <component :is="item.icon" class="dock-icon" />
       </RouterLink>
 
       <div ref="themeMenuRef" class="dock-theme">
@@ -144,7 +155,7 @@ onBeforeUnmount(() => {
           title="Theme mode"
           @click.stop="toggleThemeMenu"
         >
-          <AppIcon :name="themeButtonIcon" />
+          <component :is="themeButtonIcon" class="dock-icon" />
         </button>
 
         <div v-if="themeMenuOpen" class="dock-theme-menu">
@@ -158,7 +169,7 @@ onBeforeUnmount(() => {
             :title="option.label"
             @click.stop="selectTheme(option.value)"
           >
-            <AppIcon :name="option.icon" />
+            <component :is="option.icon" class="dock-icon" />
           </button>
         </div>
       </div>

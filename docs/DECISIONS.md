@@ -128,3 +128,13 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Decision**: Use Claude Code CLI as the final review pass for this Materials/template work, while keeping Codex review as an earlier-phase practice documented in D008.
 
 **Rationale**: The current development environment already depends on Claude Code CLI and the review found concrete security and regression issues in template IDs, LinkedIn enrichment, upload limits, parser heuristics, and cache keys. Automated review is treated as an input to engineering judgment; findings are fixed and verified with tests before commit.
+
+---
+
+## D015 — Tailwind v3 + shadcn-vue + reka-ui as the SPA design system (2026-04-30)
+
+**Decision**: Adopt Tailwind v3 (with `tailwindcss-animate`), HSL CSS variables in `frontend/src/tokens.css`, and shadcn-style Vue components built on reka-ui primitives as the standard UI layer. Keep `darkMode: ["class", '[data-theme="dark"]']` so the existing dock theme switcher and the new utility classes both drive the same dark-mode state.
+
+**Rationale**: The original SPA shipped a hand-rolled scoped-style system (`.surface`, `.button`, `.banner`, `.material-modal`, `AppSelect`, `AppIcon`, `DockIcon`, custom dropdowns, custom modals) that drifted as features were added. Switching to Tailwind + shadcn primitives gives consistent focus rings, dark-mode coverage, accessible Dialog / Select / Alert behavior, and a single token source of truth without locking the project into a heavy component library. reka-ui is chosen over a Vue-port of Radix because it is the upstream port shadcn-vue tracks and exposes the full primitive surface (Dialog portal/overlay/scroll-lock/focus-trap, Select portal/scroll-buttons, Collapsible) needed for the existing workflows.
+
+**Migration path**: Phases A → D over 9.A through 9.D-10 in `PROJECT_MANAGEMENT.md`. Each sub-phase ships a single commit with `npm run build` verification and a code-review pass before merge to `dev`. View shells are migrated to `Card` + Lucide icons first; banners and modals follow; primitive components (`AppSelect`, `TagInput`) are rewritten last; legacy `AppIcon` / `DockIcon` are deleted once nothing references them.

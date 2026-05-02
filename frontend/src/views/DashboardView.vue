@@ -1,9 +1,27 @@
 <script setup>
 import { computed, onMounted, reactive } from "vue"
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  Building2,
+  CheckCircle2,
+  Inbox,
+  Percent,
+  RefreshCw,
+  Send,
+  Target,
+  TrendingUp,
+} from "lucide-vue-next"
 
-import AppIcon from "../components/AppIcon.vue"
-import { api } from "../lib/api"
-import { formatPercent } from "../lib/format"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Skeleton } from "@/components/ui/skeleton"
+import { api } from "@/lib/api"
+import { formatPercent } from "@/lib/format"
 
 const MAX_CONNECTION_ATTEMPTS = 3
 const CONNECTION_RETRY_DELAY_MS = 350
@@ -35,12 +53,31 @@ const state = reactive({
 })
 
 const cards = computed(() => [
-  { label: "Tracked", value: state.data.summary.total_discovered },
-  { label: "Submitted", value: state.data.summary.total_applied },
-  { label: "Pending", value: state.data.outcomes.pending },
+  { label: "Tracked", value: state.data.summary.total_discovered, icon: Inbox },
+  { label: "Submitted", value: state.data.summary.total_applied, icon: Send },
+  { label: "Pending", value: state.data.outcomes.pending, icon: Activity },
   {
     label: "Response",
     value: formatPercent(state.data.outcomes.rates.response_rate, "N/A"),
+    icon: TrendingUp,
+  },
+])
+
+const signals = computed(() => [
+  {
+    label: "Positive rate",
+    value: formatPercent(state.data.outcomes.rates.positive_rate, "N/A"),
+    icon: CheckCircle2,
+  },
+  {
+    label: "Avg match",
+    value: formatPercent(state.data.summary.avg_match_score, "0%"),
+    icon: Target,
+  },
+  {
+    label: "Form fill",
+    value: formatPercent(state.data.summary.avg_fields_filled_pct, "0%"),
+    icon: Percent,
   },
 ])
 
@@ -94,75 +131,139 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-stack">
-    <section class="metric-grid">
-      <article v-for="card in cards" :key="card.label" class="metric-card">
-        <span class="metric-label">{{ card.label }}</span>
-        <strong class="metric-value">{{ card.value }}</strong>
-      </article>
+  <div class="space-y-6">
+    <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <Card v-for="card in cards" :key="card.label" class="overflow-hidden">
+        <CardContent class="flex items-start justify-between gap-3 p-5">
+          <div class="space-y-1.5">
+            <p class="text-xs font-medium text-muted-foreground">{{ card.label }}</p>
+            <p class="text-2xl font-bold tabular-nums tracking-tight text-foreground">
+              <Skeleton v-if="state.loading" class="h-7 w-16" />
+              <template v-else>{{ card.value }}</template>
+            </p>
+          </div>
+          <div class="rounded-md bg-primary/10 p-2 text-primary">
+            <component :is="card.icon" class="h-4 w-4" />
+          </div>
+        </CardContent>
+      </Card>
     </section>
 
-    <div v-if="state.error" class="banner is-danger">{{ state.error }}</div>
-    <div v-else-if="!state.loading && !state.data.db_connected" class="banner is-warning">Database Not Connected</div>
+    <Alert v-if="state.error" variant="destructive">
+      <AlertCircle class="h-4 w-4" />
+      <AlertDescription>{{ state.error }}</AlertDescription>
+    </Alert>
+    <Alert
+      v-else-if="!state.loading && !state.data.db_connected"
+      variant="warning"
+    >
+      <AlertTriangle class="h-4 w-4" />
+      <AlertDescription>Database not connected.</AlertDescription>
+    </Alert>
 
-    <section class="content-grid content-grid-wide">
-      <article class="surface">
-        <div class="section-head">
-          <h2>Pipeline</h2>
-          <button class="icon-button" type="button" :disabled="state.loading" aria-label="Refresh dashboard" title="Refresh dashboard" @click="load">
-            <AppIcon name="refresh" />
-          </button>
-        </div>
-
-        <div v-if="state.loading" class="empty-state">Loading</div>
-        <div v-else-if="Object.keys(state.data.pipeline).length" class="list-stack">
-          <div v-for="(count, status) in state.data.pipeline" :key="status" class="list-row">
-            <span>{{ prettify(status) }}</span>
-            <span class="chip">{{ count }}</span>
+    <section class="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
+      <Card>
+        <CardHeader class="flex flex-row items-center justify-between space-y-0">
+          <CardTitle class="flex items-center gap-2 text-sm">
+            <Activity class="h-4 w-4 text-muted-foreground" />
+            Pipeline
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="icon"
+            :disabled="state.loading"
+            aria-label="Refresh dashboard"
+            @click="load"
+          >
+            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': state.loading }" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div v-if="state.loading" class="space-y-2">
+            <Skeleton v-for="n in 4" :key="n" class="h-9 w-full" />
           </div>
-        </div>
-        <div v-else class="empty-state">No data</div>
-      </article>
-
-      <div class="panel-stack">
-        <article class="surface">
-          <div class="section-head">
-            <h2>Companies</h2>
-            <span class="muted">{{ state.data.companies.length }}</span>
+          <div
+            v-else-if="Object.keys(state.data.pipeline).length"
+            class="space-y-2"
+          >
+            <div
+              v-for="(count, status) in state.data.pipeline"
+              :key="status"
+              class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm capitalize transition-colors hover:bg-muted/50"
+            >
+              <span>{{ prettify(status) }}</span>
+              <Badge variant="secondary" class="tabular-nums">{{ count }}</Badge>
+            </div>
           </div>
+          <EmptyState v-else title="No pipeline data" description="Run a search to start tracking jobs.">
+            <template #icon><Inbox /></template>
+          </EmptyState>
+        </CardContent>
+      </Card>
 
-          <div v-if="state.data.companies.length" class="list-stack">
-            <div v-for="company in state.data.companies.slice(0, 6)" :key="company.company" class="list-row">
-              <div>
-                <strong>{{ company.company }}</strong>
-                <div class="muted-inline">{{ company.applications }} / {{ company.submitted }}</div>
+      <div class="space-y-4">
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0">
+            <CardTitle class="flex items-center gap-2 text-sm">
+              <Building2 class="h-4 w-4 text-muted-foreground" />
+              Top companies
+            </CardTitle>
+            <span class="text-xs tabular-nums text-muted-foreground">
+              {{ state.data.companies.length }}
+            </span>
+          </CardHeader>
+          <CardContent>
+            <div v-if="state.loading" class="space-y-2">
+              <Skeleton v-for="n in 4" :key="n" class="h-11 w-full" />
+            </div>
+            <div v-else-if="state.data.companies.length" class="space-y-2">
+              <div
+                v-for="company in state.data.companies.slice(0, 6)"
+                :key="company.company"
+                class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+              >
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-medium text-foreground">{{ company.company }}</div>
+                  <div class="text-xs tabular-nums text-muted-foreground">
+                    {{ company.applications }} applied · {{ company.submitted }} submitted
+                  </div>
+                </div>
+                <Badge variant="secondary" class="tabular-nums">
+                  {{ formatPercent(company.avg_match_score, "0%") }}
+                </Badge>
               </div>
-              <span class="chip">{{ formatPercent(company.avg_match_score, "0%") }}</span>
             </div>
-          </div>
-          <div v-else class="empty-state">No data</div>
-        </article>
+            <EmptyState
+              v-else
+              title="No company breakdown yet"
+              description="Apply to a few jobs to see top companies here."
+            >
+              <template #icon><Building2 /></template>
+            </EmptyState>
+          </CardContent>
+        </Card>
 
-        <article class="surface">
-          <div class="section-head">
-            <h2>Signals</h2>
-          </div>
-
-          <div class="list-stack">
-            <div class="list-row">
-              <span>Positive</span>
-              <span class="chip">{{ formatPercent(state.data.outcomes.rates.positive_rate, "N/A") }}</span>
+        <Card>
+          <CardHeader>
+            <CardTitle class="flex items-center gap-2 text-sm">
+              <TrendingUp class="h-4 w-4 text-muted-foreground" />
+              Signals
+            </CardTitle>
+          </CardHeader>
+          <CardContent class="grid gap-2">
+            <div
+              v-for="signal in signals"
+              :key="signal.label"
+              class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+            >
+              <span class="flex items-center gap-2 text-foreground">
+                <component :is="signal.icon" class="h-4 w-4 text-muted-foreground" />
+                {{ signal.label }}
+              </span>
+              <Badge variant="secondary" class="tabular-nums">{{ signal.value }}</Badge>
             </div>
-            <div class="list-row">
-              <span>Avg match</span>
-              <span class="chip">{{ formatPercent(state.data.summary.avg_match_score, "0%") }}</span>
-            </div>
-            <div class="list-row">
-              <span>Form fill</span>
-              <span class="chip">{{ formatPercent(state.data.summary.avg_fields_filled_pct, "0%") }}</span>
-            </div>
-          </div>
-        </article>
+          </CardContent>
+        </Card>
       </div>
     </section>
   </div>

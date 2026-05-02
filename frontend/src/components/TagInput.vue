@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from "vue"
+import { X } from "lucide-vue-next"
 
 const model = defineModel({
   type: Array,
@@ -10,6 +11,10 @@ const props = defineProps({
   placeholder: {
     type: String,
     default: "Add tag",
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -84,77 +89,36 @@ function splitTags(value) {
 </script>
 
 <template>
-  <div class="tag-input">
-    <span v-for="(tag, index) in model" :key="`${tag}-${index}`" class="tag-chip">
+  <div
+    class="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
+    :class="{ 'cursor-not-allowed opacity-50': disabled }"
+  >
+    <span
+      v-for="(tag, index) in model"
+      :key="`${tag}-${index}`"
+      class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground"
+    >
       <span>{{ tag }}</span>
-      <button class="tag-remove" type="button" @click="removeTag(index)" :aria-label="`Remove ${tag}`">
-        x
+      <button
+        class="rounded-sm opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+        type="button"
+        :disabled="disabled"
+        :aria-label="`Remove ${tag}`"
+        @click="removeTag(index)"
+      >
+        <X class="h-3 w-3" />
       </button>
     </span>
 
     <input
       v-model="draft"
-      class="tag-editor"
+      class="min-w-[8rem] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
       type="text"
       :placeholder="placeholder"
+      :disabled="disabled"
       @keydown="onKeydown"
       @blur="commitDraft"
       @paste="onPaste"
     />
   </div>
 </template>
-
-<style scoped>
-.tag-input {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface-strong);
-}
-
-.tag-input:focus-within {
-  border-color: rgba(144, 181, 255, 0.42);
-  box-shadow: 0 0 0 4px rgba(144, 181, 255, 0.1);
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid rgba(144, 181, 255, 0.24);
-  border-radius: 999px;
-  background: linear-gradient(135deg, rgba(144, 181, 255, 0.12), rgba(105, 214, 192, 0.1));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  font-size: 12px;
-  color: var(--text);
-}
-
-.tag-remove {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.tag-editor {
-  flex: 1 0 160px;
-  min-width: 120px;
-  min-height: 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-}
-
-.tag-editor:focus {
-  outline: none;
-}
-</style>

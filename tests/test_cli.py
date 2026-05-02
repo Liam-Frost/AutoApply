@@ -350,6 +350,13 @@ class TestStatusCommand:
 
 
 class TestApplicationUseCases:
+    def test_clean_optional_web_payload_id_treats_null_strings_as_missing(self):
+        from src.application.jobs import _clean_optional_web_payload_id
+
+        assert _clean_optional_web_payload_id("null") is None
+        assert _clean_optional_web_payload_id(" undefined ") is None
+        assert _clean_optional_web_payload_id("classic_v1") == "classic_v1"
+
     def test_resolve_linkedin_keywords_prefers_keyword_tags(self):
         from src.application.jobs import _resolve_linkedin_keywords
 
@@ -434,20 +441,23 @@ class TestApplicationUseCases:
                 new=AsyncMock(return_value={"ok": True, "status": "REVIEW_REQUIRED"}),
             ) as mock_run,
         ):
-            mock_load_job.return_value = SimpleNamespace(
-                id=uuid.uuid4(),
-                source="linkedin",
-                source_id="123",
-                company="Example",
-                title="Software Engineer",
-                location="Remote",
-                employment_type="unknown",
-                seniority="unknown",
-                description=None,
-                application_url="https://boards.greenhouse.io/example/jobs/123",
-                ats_type="greenhouse",
-                raw_data={},
-                discovered_at=None,
+            mock_load_job.return_value = (
+                SimpleNamespace(
+                    id=uuid.uuid4(),
+                    source="linkedin",
+                    source_id="123",
+                    company="Example",
+                    title="Software Engineer",
+                    location="Remote",
+                    employment_type="unknown",
+                    seniority="unknown",
+                    description="Build great things at Example.",
+                    application_url="https://boards.greenhouse.io/example/jobs/123",
+                    ats_type="greenhouse",
+                    raw_data={},
+                    discovered_at=None,
+                ),
+                True,
             )
             await apply_to_url(url="https://www.linkedin.com/jobs/view/123")
 
@@ -480,20 +490,23 @@ class TestApplicationUseCases:
                 new=AsyncMock(return_value={"ok": True, "status": "REVIEW_REQUIRED"}),
             ) as mock_run,
         ):
-            mock_load_job.return_value = SimpleNamespace(
-                id=uuid.uuid4(),
-                source="linkedin",
-                source_id="123",
-                company="Sentry",
-                title="Software Engineer Intern",
-                location="Toronto",
-                employment_type="internship",
-                seniority="internship",
-                description=None,
-                application_url="https://jobs.ashbyhq.com/sentry/d2e3391f-9401-410a-b8a6-de3bf5f762b7/application",
-                ats_type="ashby",
-                raw_data={},
-                discovered_at=None,
+            mock_load_job.return_value = (
+                SimpleNamespace(
+                    id=uuid.uuid4(),
+                    source="linkedin",
+                    source_id="123",
+                    company="Sentry",
+                    title="Software Engineer Intern",
+                    location="Toronto",
+                    employment_type="internship",
+                    seniority="internship",
+                    description="Sentry is hiring an intern...",
+                    application_url="https://jobs.ashbyhq.com/sentry/d2e3391f-9401-410a-b8a6-de3bf5f762b7/application",
+                    ats_type="ashby",
+                    raw_data={},
+                    discovered_at=None,
+                ),
+                True,
             )
             await apply_to_url(url="https://www.linkedin.com/jobs/view/123")
 
@@ -502,6 +515,110 @@ class TestApplicationUseCases:
             "ashby",
         )
         assert mock_run.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_to_url_uses_generic_adapter_for_unknown_external_site(self):
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+            patch("src.application.jobs._load_profile", return_value={"identity": {}}),
+            patch(
+                "src.application.jobs._run_application_for_job",
+                new=AsyncMock(return_value={"ok": True, "status": "REVIEW_REQUIRED"}),
+            ) as mock_run,
+        ):
+            mock_load_job.return_value = (
+                SimpleNamespace(
+                    id=uuid.uuid4(),
+                    source="company_site",
+                    source_id="123",
+                    company="Example",
+                    title="Software Engineer",
+                    location="Remote",
+                    employment_type="unknown",
+                    seniority="unknown",
+                    description="Build great things at Example.",
+                    application_url="https://careers.example.com/jobs/123/apply",
+                    ats_type="company_site",
+                    raw_data={},
+                    discovered_at=None,
+                ),
+                True,
+            )
+            await apply_to_url(url="https://careers.example.com/jobs/123/apply")
+
+        mock_load_job.assert_called_once_with(
+            "https://careers.example.com/jobs/123/apply",
+            "company_site",
+        )
+        assert mock_run.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_to_url_refuses_company_site_without_real_job_context(self):
+        # When _load_job_for_application falls back to a synthesized stub
+        # (hydrated=False) for a generic / Workday / Ashby URL we cannot
+        # tailor materials, so apply_to_url must refuse rather than run
+        # the LLM/template pipeline against a placeholder Job. See codex
+        # review of feat/materials-refactor for context.
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+            patch("src.application.jobs._load_profile", return_value={"identity": {}}),
+            patch(
+                "src.application.jobs._run_application_for_job",
+                new=AsyncMock(return_value={"ok": True, "status": "SUBMITTED"}),
+            ) as mock_run,
+        ):
+            mock_load_job.return_value = (
+                SimpleNamespace(
+                    id=None,
+                    source="company_site",
+                    source_id="careers.example.com",
+                    company="Example",
+                    title="Unknown Role",
+                    location=None,
+                    employment_type="unknown",
+                    seniority="unknown",
+                    description=None,
+                    application_url="https://careers.example.com/apply",
+                    ats_type="company_site",
+                    raw_data={},
+                    discovered_at=None,
+                ),
+                False,
+            )
+            result = await apply_to_url(url="https://careers.example.com/apply")
+
+        assert result["ok"] is False
+        assert result["error_code"] == "job_context_required"
+        assert "stored job" in result["error"]
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_to_url_skips_linkedin_easy_apply_without_external_target(self):
+        from src.application.jobs import apply_to_url
+
+        with (
+            patch(
+                "src.application.jobs.resolve_manual_apply_url",
+                new=AsyncMock(
+                    return_value={
+                        "ok": True,
+                        "url": "https://www.linkedin.com/jobs/view/123/",
+                        "source_url": "https://www.linkedin.com/jobs/view/123/",
+                        "ats_url": None,
+                    }
+                ),
+            ),
+            patch("src.application.jobs._load_job_for_application") as mock_load_job,
+        ):
+            result = await apply_to_url(url="https://www.linkedin.com/jobs/view/123/")
+
+        assert result["ok"] is False
+        assert result["error_code"] == "unsupported_ats"
+        mock_load_job.assert_not_called()
 
     def test_load_applications_data_uses_filtered_records_for_summaries(self):
         from src.application.tracking import load_applications_data
@@ -767,7 +884,12 @@ class TestATSDetection:
     def test_unknown_url(self):
         from src.cli.cmd_apply import _detect_ats_from_url
 
-        assert _detect_ats_from_url("https://careers.example.com/apply") is None
+        assert _detect_ats_from_url("https://careers.example.com/apply") == "company_site"
+
+    def test_linkedin_url_is_not_generic_company_site(self):
+        from src.cli.cmd_apply import _detect_ats_from_url
+
+        assert _detect_ats_from_url("https://www.linkedin.com/jobs/view/123") is None
 
     def test_case_insensitive(self):
         from src.cli.cmd_apply import _detect_ats_from_url

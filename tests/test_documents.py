@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 import pytest
 from docx import Document
@@ -13,13 +15,21 @@ from src.documents.docx_engine import (
     substitute_placeholders,
 )
 from src.documents.file_manager import get_output_paths, make_filename
+from src.documents.latex_engine import (
+    build_resume_tex_from_ir,
+    compile_latex_to_pdf,
+    latex_escape,
+)
 from src.documents.templates import (
+    create_latex_template_package,
     discover_templates,
     ensure_template_package,
+    get_template_package_detail,
     get_template_path,
     list_template_packages,
     register_template,
     save_uploaded_template_package,
+    update_latex_template_package,
 )
 from src.generation.ir import ResumeBullet, ResumeDocument, ResumeItem
 
@@ -237,10 +247,13 @@ class TestFileManager:
         paths = get_output_paths(TMP_DIR, "Stripe", "Backend Intern", date)
         assert "resume_docx" in paths
         assert "resume_pdf" in paths
+        assert "resume_tex" in paths
         assert "cover_docx" in paths
         assert "cover_pdf" in paths
+        assert "cover_tex" in paths
         assert paths["resume_docx"].suffix == ".docx"
         assert paths["resume_pdf"].suffix == ".pdf"
+        assert paths["resume_tex"].suffix == ".tex"
 
 
 class TestTemplateRegistry:
@@ -302,3 +315,169 @@ class TestTemplateRegistry:
             )
 
         assert not (tmp_path / "escape").exists()
+
+
+class TestLatexTemplates:
+    def test_create_latex_template_package(self, tmp_path):
+        template = create_latex_template_package(
+            document_type="resume",
+            template_name="Technical LaTeX Resume",
+            template_root=tmp_path / "templates",
+        )
+
+        assert template["template_id"] == "technical_latex_resume"
+        assert template["renderer"] == "latex"
+        assert template["supported_outputs"] == ["tex", "pdf"]
+        assert template["validation"]["ok"] is True
+
+        detail = get_template_package_detail(
+            "resume",
+            template["template_id"],
+            template_root=tmp_path / "templates",
+        )
+        assert "{{resume.sections}}" in detail["content"]
+
+    def test_uploaded_latex_template_reports_missing_marker(self, tmp_path):
+        template = save_uploaded_template_package(
+            document_type="resume",
+            filename="plain.tex",
+            content=b"\\documentclass{article}\n\\begin{document}No marker\\end{document}\n",
+            template_name="Plain LaTeX",
+            template_root=tmp_path / "templates",
+        )
+
+        assert template["renderer"] == "latex"
+        assert template["validation"]["ok"] is False
+        assert template["validation"]["issues"][0]["type"] == "missing_block"
+        assert template["validation"]["issues"][0]["severity"] == "error"
+        assert "Add this marker exactly" in template["validation"]["issues"][0]["message"]
+
+    def test_update_latex_template_package(self, tmp_path):
+        template = create_latex_template_package(
+            document_type="cover_letter",
+            template_name="Editable Cover",
+            template_root=tmp_path / "templates",
+        )
+        updated = update_latex_template_package(
+            document_type="cover_letter",
+            template_id=template["template_id"],
+            template_name="Updated Cover",
+            description="Edited in tests.",
+            content="\\documentclass{article}\n\\begin{document}\n{{cover_letter.body}}\n\\end{document}\n",
+            template_root=tmp_path / "templates",
+        )
+
+        assert updated["name"] == "Updated Cover"
+        assert updated["description"] == "Edited in tests."
+        assert updated["validation"]["ok"] is True
+
+    def test_latex_escape(self):
+        escaped = latex_escape(r"R&D_50% C# {x} \ path")
+
+        assert r"R\&D\_50\% C\# \{x\}" in escaped
+        assert r"\textbackslash{} path" in escaped
+
+    def test_build_resume_tex_from_ir(self, tmp_path):
+        template = create_latex_template_package(
+            document_type="resume",
+            template_name="Render LaTeX Resume",
+            template_root=tmp_path / "templates",
+        )
+        package = ensure_template_package(
+            "resume",
+            template["template_id"],
+            template_root=tmp_path / "templates",
+        )
+        output_path = tmp_path / "resume.tex"
+        document = ResumeDocument(
+            target_role="Backend Intern",
+            company="Stripe",
+            header={**SAMPLE_IDENTITY, "full_name": "Jane & Doe"},
+            education=SAMPLE_EDUCATION,
+            skills=SAMPLE_SKILLS,
+            section_order=["header", "skills", "experience", "education"],
+            experiences=[
+                ResumeItem(
+                    source_id="experience:stripe",
+                    source_type="experience",
+                    name="Stripe",
+                    organization="Stripe",
+                    title="Software Engineer Intern",
+                    bullets=[
+                        ResumeBullet(
+                            text="Built R&D tooling with C# and 50% less toil",
+                            source_id="experience:stripe:bullet:0",
+                            source_type="experience",
+                            source_entity="Stripe",
+                        )
+                    ],
+                )
+            ],
+            projects=[],
+        )
+
+        result = build_resume_tex_from_ir(
+            package.template_path,
+            document,
+            output_path,
+            manifest=package.manifest,
+        )
+
+        text = result.read_text(encoding="utf-8")
+        assert r"Jane \& Doe" in text
+        assert r"\section*{Skills}" in text
+        assert r"R\&D tooling with C\# and 50\% less toil" in text
+        assert "{{resume.sections}}" not in text
+
+    def test_latex_renderer_rejects_missing_marker(self, tmp_path):
+        template = create_latex_template_package(
+            document_type="resume",
+            template_name="Broken LaTeX Resume",
+            template_root=tmp_path / "templates",
+        )
+        package = ensure_template_package(
+            "resume",
+            template["template_id"],
+            template_root=tmp_path / "templates",
+        )
+        package.template_path.write_text(
+            "\\documentclass{article}\n\\begin{document}No marker\\end{document}\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="missing block marker"):
+            build_resume_tex_from_ir(
+                package.template_path,
+                ResumeDocument(
+                    target_role="Backend Intern",
+                    company="Stripe",
+                    header=SAMPLE_IDENTITY,
+                ),
+                tmp_path / "out.tex",
+                manifest=package.manifest,
+            )
+
+    def test_compile_latex_to_pdf_disables_shell_escape(self, tmp_path):
+        tex_path = tmp_path / "resume.tex"
+        tex_path.write_text("\\documentclass{article}\n\\begin{document}Hi\\end{document}\n")
+        pdf_path = tmp_path / "resume.pdf"
+
+        def fake_run(command, *, cwd, **kwargs):
+            Path(cwd, "main.pdf").write_bytes(b"%PDF")
+            Path(cwd, "main.log").write_text("compile log", encoding="utf-8")
+            return CompletedProcess(command, 0, stdout="", stderr="")
+
+        def fake_which(name):
+            return "pdflatex" if name == "pdflatex" else None
+
+        with (
+            patch("src.documents.latex_engine.shutil.which", side_effect=fake_which),
+            patch("src.documents.latex_engine.subprocess.run", side_effect=fake_run) as run,
+        ):
+            result = compile_latex_to_pdf(tex_path, pdf_path)
+
+        assert result == pdf_path
+        assert pdf_path.exists()
+        assert pdf_path.with_suffix(".log").read_text(encoding="utf-8") == "compile log"
+        first_command = run.call_args_list[0].args[0]
+        assert "-no-shell-escape" in first_command
