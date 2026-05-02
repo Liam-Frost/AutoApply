@@ -42,9 +42,11 @@ def create_app() -> FastAPI:
         name="frontend_assets",
     )
 
+    from src.web.routes.agent import router as agent_router
     from src.web.routes.api import router as api_router
 
     app.include_router(api_router)
+    app.include_router(agent_router)
 
     @app.get("/", include_in_schema=False)
     async def spa_root():
