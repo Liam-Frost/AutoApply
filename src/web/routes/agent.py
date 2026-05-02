@@ -10,10 +10,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
+from src.agent.gate.queue import ApprovalGate, ApprovalStatus, GateError
 from src.agent.trace.store import TraceStore
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+
+class _DecisionBody(BaseModel):
+    reason: str | None = None
+    decided_by: str = "user"
 
 
 @router.get("/traces")
@@ -38,10 +45,70 @@ def get_trace(trace_id: str) -> dict:
     return record.to_dict()
 
 
+@router.get("/gate/requests")
+def list_gate_requests(status: str | None = None, limit: int = 100) -> dict:
+    """Pending (and historical) HITL approval requests."""
+    if limit < 1 or limit > 500:
+        raise HTTPException(400, "limit must be between 1 and 500.")
+    status_enum: ApprovalStatus | None = None
+    if status:
+        try:
+            status_enum = ApprovalStatus(status)
+        except ValueError as exc:
+            raise HTTPException(
+                400, f"Unknown status '{status}'."
+            ) from exc
+    gate = ApprovalGate()
+    return {
+        "requests": [r.to_dict() for r in gate.list(status=status_enum, limit=limit)]
+    }
+
+
+@router.get("/gate/requests/{request_id}")
+def get_gate_request(request_id: str) -> dict:
+    gate = ApprovalGate()
+    try:
+        return gate.get(request_id).to_dict()
+    except GateError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/gate/requests/{request_id}/approve")
+def approve_gate_request(request_id: str, body: _DecisionBody) -> dict:
+    gate = ApprovalGate()
+    try:
+        return gate.approve(
+            request_id, decided_by=body.decided_by, reason=body.reason
+        ).to_dict()
+    except GateError as exc:
+        message = str(exc)
+        status = 409 if "immutable" in message else 404
+        raise HTTPException(status, message) from exc
+
+
+@router.post("/gate/requests/{request_id}/reject")
+def reject_gate_request(request_id: str, body: _DecisionBody) -> dict:
+    gate = ApprovalGate()
+    try:
+        return gate.reject(
+            request_id, decided_by=body.decided_by, reason=body.reason
+        ).to_dict()
+    except GateError as exc:
+        message = str(exc)
+        status = 409 if "immutable" in message else 404
+        raise HTTPException(status, message) from exc
+
+
 @router.get("/viewer", response_class=HTMLResponse)
 def viewer() -> HTMLResponse:
     """Minimal trace replay UI -- no JS framework, just fetch + DOM."""
     return HTMLResponse(_VIEWER_HTML)
+
+
+@router.get("/gate/viewer", response_class=HTMLResponse)
+def gate_viewer() -> HTMLResponse:
+    """Minimal HITL approval UI."""
+    return HTMLResponse(_GATE_HTML)
 
 
 _VIEWER_HTML = """<!doctype html>
@@ -168,6 +235,134 @@ async function loadDetail(id) {
 }
 
 loadList();
+</script>
+</body>
+</html>
+"""
+
+
+_GATE_HTML = """<!doctype html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>AutoApply -- Approval queue</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif;
+         margin: 0; padding: 16px 24px; max-width: 900px; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .filters { margin-bottom: 16px; display: flex; gap: 8px; }
+  button { font: inherit; padding: 6px 10px; border-radius: 6px;
+           border: 1px solid #8884; background: transparent; cursor: pointer; }
+  button.primary { background: #2a8a3a; color: white; border-color: #2a8a3a; }
+  button.danger  { background: #c0392b; color: white; border-color: #c0392b; }
+  .req { border: 1px solid #8884; border-radius: 8px;
+         margin-bottom: 12px; padding: 12px 14px; }
+  .req h3 { margin: 0 0 4px; font-size: 14px; }
+  .req .meta { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px;
+          font-size: 11px; background: #8882; }
+  .pill.pending  { background: #f1c40f33; color: #b8860b; }
+  .pill.approved { background: #2a8a3a33; color: #2a8a3a; }
+  .pill.rejected { background: #c0392b33; color: #c0392b; }
+  .pill.expired  { background: #8884; }
+  pre { background: #8881; padding: 8px 10px; border-radius: 6px;
+        font-size: 12px; white-space: pre-wrap; }
+  .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .empty { color: #888; }
+</style>
+</head>
+<body>
+<h1>Approval queue</h1>
+<div class=\"filters\">
+  <button data-status=\"pending\" class=\"primary\">Pending</button>
+  <button data-status=\"\">All</button>
+  <button data-status=\"approved\">Approved</button>
+  <button data-status=\"rejected\">Rejected</button>
+</div>
+<div id=\"list\"><p class=\"empty\">Loading...</p></div>
+<script>
+const $list = document.getElementById('list');
+let currentStatus = 'pending';
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>\"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]
+  ));
+}
+
+async function load() {
+  const url = currentStatus
+    ? `/api/agent/gate/requests?status=${currentStatus}`
+    : '/api/agent/gate/requests';
+  const r = await fetch(url);
+  if (!r.ok) { $list.innerHTML = '<p class=\"empty\">Failed to load.</p>'; return; }
+  const { requests } = await r.json();
+  if (!requests.length) {
+    $list.innerHTML = '<p class=\"empty\">No requests in this view.</p>'; return;
+  }
+  $list.innerHTML = '';
+  for (const req of requests) {
+    $list.appendChild(renderRequest(req));
+  }
+}
+
+function renderRequest(req) {
+  const div = document.createElement('div');
+  div.className = 'req';
+  const isPending = req.status === 'pending';
+  div.innerHTML = `
+    <h3>${escapeHtml(req.kind)} <span class=\"pill ${escapeHtml(req.status)}\">
+      ${escapeHtml(req.status)}
+    </span></h3>
+    <p>${escapeHtml(req.summary)}</p>
+    <div class=\"meta\">id ${escapeHtml(req.id)} • created ${escapeHtml(req.created_at)}
+      ${req.decided_at ? '• decided ' + escapeHtml(req.decided_at) : ''}
+      ${req.decided_by ? ' by ' + escapeHtml(req.decided_by) : ''}
+    </div>
+    <details><summary>Payload</summary>
+      <pre>${escapeHtml(JSON.stringify(req.payload, null, 2))}</pre></details>
+    ${req.reason ? `<p><b>Reason:</b> ${escapeHtml(req.reason)}</p>` : ''}
+    ${isPending ? `
+      <div class=\"actions\">
+        <button class=\"primary\" data-act=\"approve\">Approve</button>
+        <button class=\"danger\" data-act=\"reject\">Reject</button>
+      </div>` : ''}`;
+  if (isPending) {
+    div.querySelector('[data-act=\"approve\"]').addEventListener(
+      'click', () => decide(req.id, 'approve'));
+    div.querySelector('[data-act=\"reject\"]').addEventListener(
+      'click', () => decide(req.id, 'reject'));
+  }
+  return div;
+}
+
+async function decide(id, action) {
+  const reason = prompt(`Optional ${action} reason:`) || null;
+  const r = await fetch(`/api/agent/gate/requests/${encodeURIComponent(id)}/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ reason })
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    alert(`Failed: ${t}`);
+    return;
+  }
+  load();
+}
+
+for (const btn of document.querySelectorAll('.filters button')) {
+  btn.addEventListener('click', () => {
+    currentStatus = btn.dataset.status;
+    for (const other of document.querySelectorAll('.filters button')) {
+      other.classList.toggle('primary', other === btn);
+    }
+    load();
+  });
+}
+load();
 </script>
 </body>
 </html>
