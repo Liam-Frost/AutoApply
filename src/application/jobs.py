@@ -588,6 +588,8 @@ async def generate_material_for_job(
             "error": "Unsupported material type.",
             "error_code": "invalid_material_type",
         }
+    template_id = _clean_optional_web_payload_id(template_id)
+    profile_id = _clean_optional_web_payload_id(profile_id)
 
     try:
         job = _raw_job_from_web_payload(job_payload, use_llm=use_llm)
@@ -1646,6 +1648,15 @@ def _raw_job_from_web_payload(job_payload: dict, *, use_llm: bool):
 
 def _clean_web_payload_string(value) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _clean_optional_web_payload_id(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() in {"null", "none", "undefined"}:
+        return None
+    return cleaned
 
 
 def _coerce_web_payload_value(value, allowed: set[str], default: str) -> str:

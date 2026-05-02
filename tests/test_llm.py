@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -52,6 +53,25 @@ class TestDirectCLIInvocation:
         assert result == "OK"
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == r"C:\Users\me\AppData\Roaming\npm\codex.cmd"
+        assert "--output-last-message" in cmd
+
+    def test_codex_returns_last_message_file_when_available(self):
+        from src.utils.llm import codex_generate
+
+        completed = type("Completed", (), {"returncode": 0, "stdout": "TRANSCRIPT", "stderr": ""})()
+
+        def fake_run(cmd, **kwargs):
+            output_path = Path(cmd[cmd.index("--output-last-message") + 1])
+            output_path.write_text("FINAL ANSWER", encoding="utf-8")
+            return completed
+
+        with (
+            patch("src.utils.llm._resolve_executable", return_value="codex.cmd"),
+            patch("src.utils.llm.subprocess.run", side_effect=fake_run),
+        ):
+            result = codex_generate("hello")
+
+        assert result == "FINAL ANSWER"
 
 
 class TestLLMFallback:

@@ -350,6 +350,13 @@ class TestStatusCommand:
 
 
 class TestApplicationUseCases:
+    def test_clean_optional_web_payload_id_treats_null_strings_as_missing(self):
+        from src.application.jobs import _clean_optional_web_payload_id
+
+        assert _clean_optional_web_payload_id("null") is None
+        assert _clean_optional_web_payload_id(" undefined ") is None
+        assert _clean_optional_web_payload_id("classic_v1") == "classic_v1"
+
     def test_resolve_linkedin_keywords_prefers_keyword_tags(self):
         from src.application.jobs import _resolve_linkedin_keywords
 

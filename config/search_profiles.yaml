@@ -1,1 +1,25 @@
-profiles: {}
+profiles:
+  SDE:
+    source: linkedin
+    keywords:
+    - fullstack
+    - frontend
+    - backend
+    - software
+    - SDE
+    time_filter: all
+    ats: ''
+    company: ''
+    locations:
+    - vancouver
+    experience_levels: []
+    employment_types:
+    - internship
+    - coop
+    location_types: []
+    education_levels: []
+    pay_operator: ''
+    pay_amount: null
+    experience_operator: ''
+    experience_years: null
+    max_pages: 10

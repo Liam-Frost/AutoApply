@@ -349,6 +349,8 @@ class TestLatexTemplates:
         assert template["renderer"] == "latex"
         assert template["validation"]["ok"] is False
         assert template["validation"]["issues"][0]["type"] == "missing_block"
+        assert template["validation"]["issues"][0]["severity"] == "error"
+        assert "Add this marker exactly" in template["validation"]["issues"][0]["message"]
 
     def test_update_latex_template_package(self, tmp_path):
         template = create_latex_template_package(

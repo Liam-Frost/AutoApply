@@ -278,6 +278,17 @@ Rules:
   or sign-off (Sincerely) — those are added separately
 - Output ONLY the body text of the cover letter"""
 
+_INVALID_LLM_OUTPUT_PATTERNS = (
+    "please paste the system instructions",
+    "paste the system instructions",
+    "system instructions you want me to follow",
+    "if you want me to inspect or modify",
+    "point me to the relevant file",
+    "openai codex",
+    "tokens used",
+    "reading additional input from stdin",
+)
+
 
 def _generate_with_llm(
     job: RawJob,
@@ -297,7 +308,11 @@ def _generate_with_llm(
             skill_summary.append(f"{category}: {', '.join(items[:8])}")
     skills_text = "\n".join(skill_summary)
 
-    prompt = f"""Write a cover letter body for this application:
+    prompt = f"""Write a cover letter body for this application.
+
+<cover_letter_instructions>
+{_CL_SYSTEM}
+</cover_letter_instructions>
 
 <job>
 Company: {job.company}
@@ -319,10 +334,27 @@ Skills:
 {skills_text}
 </applicant>
 
-Generate the cover letter body following the structure in the system prompt."""
+Generate the cover letter body following the instructions above."""
 
     raw = generate_text(prompt, system=_CL_SYSTEM, timeout=90)
-    return raw.strip()
+    return _clean_llm_cover_letter_output(raw)
+
+
+def _clean_llm_cover_letter_output(raw: str) -> str:
+    """Reject CLI/meta responses so they fall back to deterministic templates."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        lines = [line for line in text.splitlines() if not line.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    lower = text.lower()
+    if not text:
+        raise LLMError("LLM returned an empty cover letter.")
+    if any(pattern in lower for pattern in _INVALID_LLM_OUTPUT_PATTERNS):
+        raise LLMError("LLM returned a meta-response instead of a cover letter.")
+    if len(text.split()) < 80:
+        raise LLMError("LLM returned a cover letter that is too short.")
+    return text
 
 
 def _generate_template(

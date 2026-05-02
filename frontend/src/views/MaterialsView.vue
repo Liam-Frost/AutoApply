@@ -414,6 +414,18 @@ function prettyLabel(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
+function validationIssueSeverity(issue) {
+  return issue?.severity || "warning"
+}
+
+function validationIssueBadgeClass(issue) {
+  const severity = validationIssueSeverity(issue)
+  if (severity === "info") {
+    return "border-muted-foreground/40 bg-muted/60 text-foreground"
+  }
+  return "border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15"
+}
+
 function selectPreviewTab(targetId) {
   if (!state.results[targetId]?.document) {
     return
@@ -868,8 +880,8 @@ function jobSummaryParts(job) {
               class="rounded-md border border-border bg-muted/40 p-3"
             >
               <div class="flex items-center gap-2">
-                <Badge :variant="issue.severity === 'error' ? 'destructive' : 'warning'">
-                  {{ prettyLabel(issue.severity || "warning") }}
+                <Badge variant="outline" :class="validationIssueBadgeClass(issue)">
+                  {{ prettyLabel(validationIssueSeverity(issue)) }}
                 </Badge>
                 <strong class="text-sm text-foreground">{{ prettyLabel(issue.type) }}</strong>
               </div>

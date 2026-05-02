@@ -449,7 +449,13 @@ def validate_template_package(package: TemplatePackage) -> dict:
         if package.manifest.renderer == "latex":
             text = package.template_path.read_text(encoding="utf-8")
             if not text.strip():
-                issues.append({"type": "empty_template", "message": "Template content is empty."})
+                issues.append(
+                    {
+                        "type": "empty_template",
+                        "severity": "error",
+                        "message": "Template content is empty.",
+                    }
+                )
         else:
             doc = Document(str(package.template_path))
             style_names = {style.name for style in doc.styles}
@@ -457,13 +463,21 @@ def validate_template_package(package: TemplatePackage) -> dict:
                 if style not in style_names:
                     issues.append({"type": "missing_style", "message": f"Missing style: {style}"})
             text = _document_text(doc)
+
         for marker in package.manifest.blocks.values():
             if marker and marker not in text:
                 issues.append(
-                    {"type": "missing_block", "message": f"Missing block marker: {marker}"}
+                    {
+                        "type": "missing_block",
+                        "severity": "error",
+                        "message": (
+                            f"Missing block marker: {marker}. Add this marker exactly where "
+                            "AutoApply should insert the generated content."
+                        ),
+                    }
                 )
     except Exception as exc:
-        issues.append({"type": "template_unreadable", "message": str(exc)})
+        issues.append({"type": "template_unreadable", "severity": "error", "message": str(exc)})
     return {"ok": not issues, "issues": issues}
 
 
