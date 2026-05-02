@@ -144,6 +144,25 @@ class TestFileReadTool:
         assert result.data["truncated"] is True
         assert result.output.endswith("[truncated]")
 
+    def test_truncation_handles_utf8_boundary(self, tmp_path: Path):
+        # Place a 3-byte UTF-8 character (中, 0xE4 0xB8 0xAD) so it straddles
+        # the truncation point. Without boundary handling, decode() fails.
+        from src.agent.tools.builtin import _MAX_READ_BYTES
+
+        path = tmp_path / "chinese.txt"
+        # Pad so that the multi-byte char crosses the byte cap.
+        prefix = b"a" * (_MAX_READ_BYTES - 1)
+        body = prefix + "中".encode() + b"a" * 100
+        path.write_bytes(body)
+
+        tool = FileReadTool(base_dir=tmp_path)
+        result = tool.spec().invoke({"path": "chinese.txt"})
+        assert not result.is_error
+        assert result.data["truncated"] is True
+        # The straddling character is dropped, but earlier ASCII content
+        # decodes cleanly and the cap is honored.
+        assert result.output.startswith("a")
+
 
 class TestTextStatsTool:
     def test_basic_stats(self):

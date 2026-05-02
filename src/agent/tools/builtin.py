@@ -61,15 +61,32 @@ class FileReadTool(Tool):
             raise ToolError(f"File '{rel}' not found.")
         if not target.is_file():
             raise ToolError(f"Path '{rel}' is not a file.")
-        raw = target.read_bytes()
-        truncated = False
-        if len(raw) > _MAX_READ_BYTES:
-            raw = raw[:_MAX_READ_BYTES]
-            truncated = True
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ToolError(f"File '{rel}' is not valid UTF-8: {exc}") from exc
+        # Stream up to the cap (+ a small look-ahead so we can tell whether
+        # the file is larger). Reading byte-by-byte avoids loading the
+        # entire file when it exceeds the limit.
+        with target.open("rb") as fh:
+            raw = fh.read(_MAX_READ_BYTES)
+            truncated = bool(fh.read(1))
+        if truncated:
+            # On truncation we may have sliced through a multi-byte UTF-8
+            # codepoint. Walk back at most 3 bytes to land on a valid
+            # boundary so decode() doesn't fail on otherwise-readable text.
+            for _ in range(3):
+                try:
+                    text = raw.decode("utf-8")
+                    break
+                except UnicodeDecodeError:
+                    if not raw:
+                        text = ""
+                        break
+                    raw = raw[:-1]
+            else:
+                text = raw.decode("utf-8", errors="replace")
+        else:
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ToolError(f"File '{rel}' is not valid UTF-8: {exc}") from exc
         suffix = "\n[truncated]" if truncated else ""
         return ToolResult(
             output=text + suffix,
