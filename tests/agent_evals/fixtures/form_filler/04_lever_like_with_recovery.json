@@ -1,0 +1,40 @@
+{
+  "id": "04_lever_like_with_recovery",
+  "description": "Lever-style form. Agent makes a wrong field_id call once (recoverable error), then retries successfully on the same turn's next attempt.",
+  "input": {
+    "url": "https://jobs.lever.co/example/4321",
+    "title": "Lever — Backend Engineer",
+    "max_steps": 14,
+    "html": "<html><head><title>Lever Apply</title></head><body><h2>Personal</h2><label for='fn'>Full name</label><input id='fn' name='name' type='text' required/><label for='em'>Email</label><input id='em' name='email' type='email' required/><label for='lo'>Current location</label><input id='lo' name='location' type='text'/></body></html>",
+    "profile": {
+      "identity": {
+        "full_name": "Liam Liu",
+        "email": "frostnova986@gmail.com",
+        "location": "Vancouver, BC"
+      }
+    },
+    "llm_responses": [
+      "{\"thought\":\"see fields\",\"action\":{\"name\":\"browser_inspect_page\",\"args\":{}}}",
+      "{\"thought\":\"name -- wrong id intentionally\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f99\",\"value\":\"Liam Liu\",\"confidence\":0.9,\"reasoning\":\"guessing\"}}}",
+      "{\"thought\":\"recover, use find_field\",\"action\":{\"name\":\"browser_find_field\",\"args\":{\"query\":\"full name\"}}}",
+      "{\"thought\":\"now propose with correct id\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f1\",\"value\":\"Liam Liu\",\"confidence\":0.95,\"reasoning\":\"single full-name field\"}}}",
+      "{\"thought\":\"email\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f2\",\"value\":\"frostnova986@gmail.com\",\"confidence\":0.99,\"reasoning\":\"identity.email\"}}}",
+      "{\"thought\":\"location\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f3\",\"value\":\"Vancouver, BC\",\"confidence\":0.92,\"reasoning\":\"identity.location\"}}}",
+      "{\"thought\":\"done\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"3 fields after recovery\"}}}"
+    ]
+  },
+  "expectations": [
+    {
+      "type": "field_mapping_match",
+      "expected": {
+        "Full name": "Liam Liu",
+        "Email": "frostnova986@gmail.com",
+        "Current location": "Vancouver, BC"
+      }
+    },
+    {
+      "type": "regex",
+      "pattern": "\"finished\"\\s*:\\s*true"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "05_ashby_long_select",
+  "description": "Ashby-style page with a long university select whose options are truncated past the snapshot budget. The agent should still propose a value that exists in the dropped tail (validator stays permissive when truncation marker is present).",
+  "input": {
+    "url": "https://jobs.ashbyhq.com/example/4242",
+    "title": "Ashby — ML Engineer Intern",
+    "max_steps": 8,
+    "html": "<html><head><title>Ashby Apply</title></head><body><h2>Personal</h2><label for='fn'>First Name</label><input id='fn' name='first_name' type='text' required/><label for='em'>Email</label><input id='em' name='email' type='email' required/><h2>Education</h2><label for='uni'>School</label><select id='uni' name='school'><option value='0'>University 0</option><option value='1'>University 1</option><option value='2'>University 2</option><option value='3'>University 3</option><option value='4'>University 4</option><option value='5'>University 5</option><option value='6'>University 6</option><option value='7'>University 7</option><option value='8'>University 8</option><option value='9'>University 9</option><option value='10'>University 10</option><option value='11'>University 11</option><option value='12'>University 12</option><option value='13'>University 13</option><option value='14'>University 14</option><option value='15'>University 15</option><option value='16'>University 16</option><option value='17'>University 17</option><option value='18'>University 18</option><option value='19'>University 19</option><option value='20'>University 20</option><option value='21'>University 21</option><option value='22'>University 22</option><option value='23'>University 23</option><option value='24'>University 24</option><option value='25'>University 25</option><option value='26'>University 26</option><option value='27'>University 27</option><option value='28'>University 28</option><option value='29'>University 29</option><option value='ubc'>University of British Columbia</option></select></body></html>",
+    "profile": {
+      "identity": {"full_name": "Liam Liu", "email": "frostnova986@gmail.com"},
+      "education": [{"institution": "University of British Columbia"}]
+    },
+    "llm_responses": [
+      "{\"thought\":\"survey\",\"action\":{\"name\":\"browser_inspect_page\",\"args\":{}}}",
+      "{\"thought\":\"first\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f1\",\"value\":\"Liam\",\"confidence\":0.95,\"reasoning\":\"first token\"}}}",
+      "{\"thought\":\"email\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f2\",\"value\":\"frostnova986@gmail.com\",\"confidence\":0.99,\"reasoning\":\"identity.email\"}}}",
+      "{\"thought\":\"school may be past truncation cap, propose anyway\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f3\",\"value\":\"University of British Columbia\",\"confidence\":0.7,\"reasoning\":\"profile.education[0].institution; option list truncated, lower confidence\"}}}",
+      "{\"thought\":\"done\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"3 fields, school below threshold\"}}}"
+    ]
+  },
+  "expectations": [
+    {
+      "type": "field_mapping_match",
+      "expected": {
+        "First Name": "Liam",
+        "Email": "frostnova986@gmail.com",
+        "School": "University of British Columbia"
+      }
+    }
+  ]
+}

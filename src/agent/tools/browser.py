@@ -508,18 +508,22 @@ def _validate_proposal(field: FieldDescriptor, value: str) -> str | None:
     vs 'Yes') and we want the orchestrator's filler to handle that.
     """
     if field.field_type == "select" and field.options:
-        # Allow exact match, or fuzzy/partial match against option labels.
-        if value not in field.options and not any(
-            value.lower() == opt.lower() or value.lower() in opt.lower()
-            for opt in field.options
-            if not opt.startswith("…")
-        ):
-            preview = list(field.options)[:5]
-            ellipsis = "..." if len(field.options) > 5 else ""
-            return (
-                f"value {value!r} is not one of the field's options "
-                f"({preview}{ellipsis})"
-            )
+        # If the option list was truncated to fit the snapshot budget,
+        # we cannot be sure the value isn't in the dropped portion, so
+        # we only validate strictly when the full list is in view.
+        truncated = any(opt.startswith("…(+") for opt in field.options)
+        if not truncated:
+            # Allow exact match, or fuzzy/partial match against option labels.
+            if value not in field.options and not any(
+                value.lower() == opt.lower() or value.lower() in opt.lower()
+                for opt in field.options
+            ):
+                preview = list(field.options)[:5]
+                ellipsis = "..." if len(field.options) > 5 else ""
+                return (
+                    f"value {value!r} is not one of the field's options "
+                    f"({preview}{ellipsis})"
+                )
     if field.field_type == "radio" and field.options:
         if value not in field.options and not any(
             value.lower() == opt.lower() for opt in field.options

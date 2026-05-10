@@ -1,0 +1,42 @@
+{
+  "id": "03_greenhouse_like",
+  "description": "Greenhouse-style form with a custom question whose answer the profile does not contain. The agent must use low confidence so the orchestrator routes through HITL.",
+  "input": {
+    "url": "https://boards.greenhouse.io/example/jobs/1234",
+    "title": "Greenhouse — Senior Engineer",
+    "max_steps": 14,
+    "html": "<html><head><title>GH Apply</title></head><body><h2>About you</h2><label for='fn'>First name</label><input id='fn' name='first_name' type='text' required/><label for='ln'>Last name</label><input id='ln' name='last_name' type='text' required/><label for='em'>Email</label><input id='em' name='email' type='email' required/><label for='li'>LinkedIn URL</label><input id='li' name='linkedin' type='url'/><h2>Custom Questions</h2><label for='salary'>Expected base salary (USD)</label><input id='salary' name='salary' type='number'/></body></html>",
+    "profile": {
+      "identity": {
+        "full_name": "Liam Liu",
+        "email": "frostnova986@gmail.com",
+        "linkedin_url": "https://linkedin.com/in/liamliu"
+      }
+    },
+    "llm_responses": [
+      "{\"thought\":\"survey\",\"action\":{\"name\":\"browser_inspect_page\",\"args\":{}}}",
+      "{\"thought\":\"first\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f1\",\"value\":\"Liam\",\"confidence\":0.95,\"reasoning\":\"first token\"}}}",
+      "{\"thought\":\"last\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f2\",\"value\":\"Liu\",\"confidence\":0.95,\"reasoning\":\"second token\"}}}",
+      "{\"thought\":\"email\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f3\",\"value\":\"frostnova986@gmail.com\",\"confidence\":0.99,\"reasoning\":\"identity.email\"}}}",
+      "{\"thought\":\"linkedin\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f4\",\"value\":\"https://linkedin.com/in/liamliu\",\"confidence\":0.95,\"reasoning\":\"identity.linkedin_url\"}}}",
+      "{\"thought\":\"check salary\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"identity.expected_salary\"}}}",
+      "{\"thought\":\"profile lacks salary -- propose blank with low confidence so a human reviews\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f5\",\"value\":\"\",\"confidence\":0.2,\"reasoning\":\"profile has no expected salary; deferring to user\"}}}",
+      "{\"thought\":\"done\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"5 fields, 1 needs review\"}}}"
+    ]
+  },
+  "expectations": [
+    {
+      "type": "field_mapping_match",
+      "expected": {
+        "First name": "Liam",
+        "Last name": "Liu",
+        "Email": "frostnova986@gmail.com",
+        "LinkedIn URL": "https://linkedin.com/in/liamliu"
+      }
+    },
+    {
+      "type": "regex",
+      "pattern": "\"confidence\"\\s*:\\s*0\\.[12]"
+    }
+  ]
+}
