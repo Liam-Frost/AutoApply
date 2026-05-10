@@ -62,12 +62,27 @@ def eval_cmd(
         )
         for case in report.cases:
             mark = "PASS" if case.passed else "FAIL"
-            click.echo(f"  [{mark}] {case.case_id}  ({case.elapsed_ms} ms)")
+            cost_suffix = ""
+            if case.cost_usd > 0:
+                cost_suffix = (
+                    f", {case.prompt_tokens}+{case.output_tokens} tok, "
+                    f"${case.cost_usd:.4f}"
+                )
+            click.echo(
+                f"  [{mark}] {case.case_id}  "
+                f"({case.elapsed_ms} ms{cost_suffix})"
+            )
             if case.error:
                 click.echo(f"        error: {case.error}")
             for exp in case.expectations:
                 if not exp.passed:
                     click.echo(f"        - {exp.type}: {exp.detail}")
+        if report.total_cost_usd > 0 or report.total_prompt_tokens > 0:
+            click.echo(
+                f"Total: {report.total_prompt_tokens} prompt + "
+                f"{report.total_output_tokens} output tokens, "
+                f"${report.total_cost_usd:.4f}"
+            )
 
     if min_pass_rate is not None and report.pass_rate < min_pass_rate:
         click.echo(

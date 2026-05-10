@@ -8,8 +8,18 @@ from src.agent.tools.base import (
     ToolSpec,
     get_default_registry,
 )
+from src.agent.tools.browser_models import (
+    FieldDescriptor,
+    FillProposal,
+    PageSnapshot,
+    ProposalCollector,
+)
 
 __all__ = [
+    "FieldDescriptor",
+    "FillProposal",
+    "PageSnapshot",
+    "ProposalCollector",
     "Tool",
     "ToolError",
     "ToolRegistry",

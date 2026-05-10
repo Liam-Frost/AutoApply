@@ -1,0 +1,28 @@
+{
+  "suite": "form_filler",
+  "pass_rate": 1.0,
+  "passed": 5,
+  "total": 5,
+  "cases": [
+    {
+      "id": "01_basic_contact",
+      "passed": true
+    },
+    {
+      "id": "02_workday_like",
+      "passed": true
+    },
+    {
+      "id": "03_greenhouse_like",
+      "passed": true
+    },
+    {
+      "id": "04_lever_like_with_recovery",
+      "passed": true
+    },
+    {
+      "id": "05_ashby_long_select",
+      "passed": true
+    }
+  ]
+}

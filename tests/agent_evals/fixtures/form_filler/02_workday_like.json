@@ -1,0 +1,53 @@
+{
+  "id": "02_workday_like",
+  "description": "Workday-style multi-section form with required identity, select, radio, and a file upload that must be skipped.",
+  "input": {
+    "url": "https://wd5.myworkdayjobs.com/example/job/apply",
+    "title": "Workday — Apply",
+    "max_steps": 24,
+    "html": "<html><head><title>Workday Apply</title></head><body><h2>Personal Information</h2><label for='fn'>First Name</label><input id='fn' name='first_name' type='text' required/><label for='ln'>Last Name</label><input id='ln' name='last_name' type='text' required/><label for='em'>Email Address</label><input id='em' name='email' type='email' required/><label for='ph'>Mobile Phone</label><input id='ph' name='phone' type='tel'/><h2>Education</h2><label for='uni'>University</label><select id='uni' name='university'><option value=''>Choose</option><option value='ubc'>University of British Columbia</option><option value='sfu'>Simon Fraser University</option><option value='other'>Other</option></select><h2>Work Authorization</h2><label for='auth_yes'>Yes</label><input id='auth_yes' type='radio' name='auth' value='yes'/><label for='auth_no'>No</label><input id='auth_no' type='radio' name='auth' value='no'/><h2>Documents</h2><label for='cv'>Resume</label><input id='cv' type='file' name='resume'/></body></html>",
+    "profile": {
+      "identity": {
+        "full_name": "Liam Liu",
+        "email": "frostnova986@gmail.com",
+        "phone": "672-968-6198",
+        "work_authorization": "Canadian PR"
+      },
+      "education": [
+        {"institution": "University of British Columbia", "degree": "BASc", "field": "Computer Engineering"}
+      ]
+    },
+    "llm_responses": [
+      "{\"thought\":\"survey\",\"action\":{\"name\":\"browser_inspect_page\",\"args\":{}}}",
+      "{\"thought\":\"name\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"identity.full_name\"}}}",
+      "{\"thought\":\"first\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f1\",\"value\":\"Liam\",\"confidence\":0.95,\"reasoning\":\"first token of full_name\"}}}",
+      "{\"thought\":\"last\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f2\",\"value\":\"Liu\",\"confidence\":0.95,\"reasoning\":\"second token of full_name\"}}}",
+      "{\"thought\":\"email\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"identity.email\"}}}",
+      "{\"thought\":\"propose email\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f3\",\"value\":\"frostnova986@gmail.com\",\"confidence\":0.99,\"reasoning\":\"identity.email\"}}}",
+      "{\"thought\":\"phone\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"identity.phone\"}}}",
+      "{\"thought\":\"propose phone\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f4\",\"value\":\"672-968-6198\",\"confidence\":0.95,\"reasoning\":\"identity.phone\"}}}",
+      "{\"thought\":\"uni\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"education[0].institution\"}}}",
+      "{\"thought\":\"propose uni\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f5\",\"value\":\"University of British Columbia\",\"confidence\":0.9,\"reasoning\":\"matches one of the select options\"}}}",
+      "{\"thought\":\"work auth\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"identity.work_authorization\"}}}",
+      "{\"thought\":\"propose auth\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f6\",\"value\":\"yes\",\"confidence\":0.85,\"reasoning\":\"Canadian PR is authorized to work\"}}}",
+      "{\"thought\":\"skip resume upload\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"6 fields proposed; resume upload skipped\"}}}"
+    ]
+  },
+  "expectations": [
+    {
+      "type": "field_mapping_match",
+      "expected": {
+        "First Name": "Liam",
+        "Last Name": "Liu",
+        "Email Address": "frostnova986@gmail.com",
+        "Mobile Phone": "672-968-6198",
+        "University": "University of British Columbia",
+        "Yes": "yes"
+      }
+    },
+    {
+      "type": "no_proposal_for_label",
+      "label": "Resume"
+    }
+  ]
+}

@@ -16,6 +16,9 @@ class EvalCaseResult:
     expectations: list[ExpectationResult]
     elapsed_ms: int
     error: str | None = None
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -40,11 +43,26 @@ class EvalReport:
     def pass_rate(self) -> float:
         return (self.passed_count / self.total) if self.total else 0.0
 
+    @property
+    def total_prompt_tokens(self) -> int:
+        return sum(c.prompt_tokens for c in self.cases)
+
+    @property
+    def total_output_tokens(self) -> int:
+        return sum(c.output_tokens for c in self.cases)
+
+    @property
+    def total_cost_usd(self) -> float:
+        return round(sum(c.cost_usd for c in self.cases), 6)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "suite": self.suite,
             "total": self.total,
             "passed": self.passed_count,
             "pass_rate": round(self.pass_rate, 4),
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cost_usd": self.total_cost_usd,
             "cases": [c.to_dict() for c in self.cases],
         }

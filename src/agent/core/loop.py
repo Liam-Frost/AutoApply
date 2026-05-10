@@ -27,6 +27,11 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from src.agent.core.cost import (
+    CostRates,
+    estimate_cost_usd,
+    estimate_tokens,
+)
 from src.agent.tools.base import ToolRegistry, ToolResult
 
 logger = logging.getLogger("autoapply.agent")
@@ -51,7 +56,13 @@ class SessionLimits:
 
 @dataclass
 class AgentStep:
-    """One iteration of the loop. Captured verbatim into the trace."""
+    """One iteration of the loop. Captured verbatim into the trace.
+
+    ``prompt_tokens`` / ``output_tokens`` are estimates -- the CLI
+    providers we use don't surface real counts. ``cost_usd`` is the
+    same estimate run through the configured rates. See
+    :mod:`src.agent.core.cost` for the heuristic.
+    """
 
     index: int
     prompt: str
@@ -63,6 +74,9 @@ class AgentStep:
     is_error: bool
     latency_ms: int
     parse_error: str | None = None
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -79,6 +93,18 @@ class AgentResult:
     stop_reason: str = ""
     elapsed_ms: int = 0
 
+    @property
+    def total_prompt_tokens(self) -> int:
+        return sum(s.prompt_tokens for s in self.steps)
+
+    @property
+    def total_output_tokens(self) -> int:
+        return sum(s.output_tokens for s in self.steps)
+
+    @property
+    def total_cost_usd(self) -> float:
+        return round(sum(s.cost_usd for s in self.steps), 6)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "goal": self.goal,
@@ -86,6 +112,9 @@ class AgentResult:
             "finished": self.finished,
             "stop_reason": self.stop_reason,
             "elapsed_ms": self.elapsed_ms,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cost_usd": self.total_cost_usd,
             "steps": [s.to_dict() for s in self.steps],
         }
 
@@ -126,6 +155,7 @@ class AgentSession:
         llm: LLMCallable,
         limits: SessionLimits | None = None,
         system_prompt: str | None = None,
+        cost_rates: CostRates | None = None,
     ) -> None:
         if FINISH_TOOL not in tools:
             raise ValueError(
@@ -136,6 +166,7 @@ class AgentSession:
         self.llm = llm
         self.limits = limits or SessionLimits()
         self.system_prompt = system_prompt or _SYSTEM_PROMPT
+        self.cost_rates = cost_rates or CostRates.from_env()
         self.steps: list[AgentStep] = []
         self._transcript: list[tuple[str, str]] = []
 
@@ -172,13 +203,16 @@ class AgentSession:
 
     def _step(self, index: int) -> AgentStep:
         prompt = self._build_prompt(index)
+        # Compute prompt-side tokens once -- used by every AgentStep this
+        # call constructs, regardless of which return branch fires.
+        prompt_tokens = estimate_tokens(prompt) + estimate_tokens(self.system_prompt)
         t0 = time.monotonic()
         try:
             raw = self.llm(prompt, self.system_prompt, self.limits.step_timeout)
         except Exception as exc:  # noqa: BLE001 -- LLM boundary
             latency = int((time.monotonic() - t0) * 1000)
             logger.warning("LLM call failed at step %d: %s", index, exc)
-            return AgentStep(
+            return self._make_step(
                 index=index,
                 prompt=prompt,
                 raw_response="",
@@ -189,8 +223,10 @@ class AgentSession:
                 is_error=True,
                 latency_ms=latency,
                 parse_error=str(exc),
+                prompt_tokens=prompt_tokens,
             )
         latency = int((time.monotonic() - t0) * 1000)
+        output_tokens = estimate_tokens(raw)
 
         thought, action_name, action_args, parse_error = _parse_response(raw)
         if parse_error:
@@ -200,7 +236,7 @@ class AgentSession:
             )
             self._transcript.append(("assistant", raw))
             self._transcript.append(("observation", obs))
-            return AgentStep(
+            return self._make_step(
                 index=index,
                 prompt=prompt,
                 raw_response=raw,
@@ -211,12 +247,14 @@ class AgentSession:
                 is_error=True,
                 latency_ms=latency,
                 parse_error=parse_error,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
             )
 
         if action_name == FINISH_TOOL:
             answer = str(action_args.get("answer", ""))
             self._transcript.append(("assistant", raw))
-            return AgentStep(
+            return self._make_step(
                 index=index,
                 prompt=prompt,
                 raw_response=raw,
@@ -226,6 +264,8 @@ class AgentSession:
                 observation=answer,
                 is_error=False,
                 latency_ms=latency,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
             )
 
         if action_name not in self.tools:
@@ -235,7 +275,7 @@ class AgentSession:
             )
             self._transcript.append(("assistant", raw))
             self._transcript.append(("observation", obs))
-            return AgentStep(
+            return self._make_step(
                 index=index,
                 prompt=prompt,
                 raw_response=raw,
@@ -245,12 +285,14 @@ class AgentSession:
                 observation=obs,
                 is_error=True,
                 latency_ms=latency,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
             )
 
         tool_result = self.tools.get(action_name).invoke(action_args)
         self._transcript.append(("assistant", raw))
         self._transcript.append(("observation", _format_observation(tool_result)))
-        return AgentStep(
+        return self._make_step(
             index=index,
             prompt=prompt,
             raw_response=raw,
@@ -260,6 +302,51 @@ class AgentSession:
             observation=tool_result.output,
             is_error=tool_result.is_error,
             latency_ms=latency,
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+        )
+
+    def _make_step(
+        self,
+        *,
+        index: int,
+        prompt: str,
+        raw_response: str,
+        thought: str,
+        action_name: str,
+        action_args: dict[str, Any],
+        observation: str,
+        is_error: bool,
+        latency_ms: int,
+        parse_error: str | None = None,
+        prompt_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> AgentStep:
+        """Build an :class:`AgentStep` with cost telemetry filled in.
+
+        Centralising construction here is the only way to keep token
+        and cost accounting consistent across the loop's many return
+        branches.
+        """
+        cost = estimate_cost_usd(
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+            rates=self.cost_rates,
+        )
+        return AgentStep(
+            index=index,
+            prompt=prompt,
+            raw_response=raw_response,
+            thought=thought,
+            action_name=action_name,
+            action_args=action_args,
+            observation=observation,
+            is_error=is_error,
+            latency_ms=latency_ms,
+            parse_error=parse_error,
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost,
         )
 
     def _build_prompt(self, index: int) -> str:

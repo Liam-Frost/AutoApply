@@ -184,10 +184,38 @@ Front-end-only refresh of the Vue SPA. No backend changes.
 
 **Verification**: `npm run build` succeeds at every sub-phase; `codex review` reports no actionable regressions; manual smoke covers Dashboard / Jobs / Applications / Materials / Profile / Settings in both light and dark themes.
 
+### Agent Phase 8: Agent Harness Foundations
+
+Foundational layer for running confined LLM-driven loops inside AutoApply. Independent of the UI Overhaul Phase 9 above (different concern, separate numbering).
+
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| 8.1 | Tool abstraction layer (Tool ABC, ToolRegistry allow-lists, builtin `fs_read` / `text_stats` / `finish`) | **Complete** |
+| 8.2 | Bounded ReAct agent loop with manual JSON protocol (works on `claude` and `codex` CLIs) | **Complete** |
+| 8.3 | JSON-on-disk trace store + FastAPI viewer at `/api/agent/viewer` | **Complete** |
+| 8.4 | Fixture-driven eval harness; `autoapply eval` CLI with suites, scorers, `--min-pass-rate` | **Complete** |
+| 8.5 | HITL approval gate (file-backed queue, viewer UI, `propose` / `approve` / `reject`) | **Complete** |
+
+**Verification**: `autoapply eval --suite agent_smoke` -> all cases pass.
+
+### Agent Phase 9: Form-Filler Agent
+
+First business node converted to agent mode. The deterministic `form_filler.py` is still the default; the agent path is opt-in via `AgentFormFiller` / `run_agent_form_fill(...)`.
+
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| 9.1 | Browser tool layer: `browser_inspect_page`, `browser_find_field`, `browser_propose_fill`, `browser_screenshot`. Sync, side-effect-free; agent never holds a Playwright handle. Stdlib HTML snapshot builder + async builder for live pages. | **Complete** |
+| 9.2 | `AgentFormFiller` orchestrator: snapshot → agent loop → proposal review → HITL gate → deterministic fill. `submit()` raises `PermissionError` unless gate approves. `profile_lookup` tool replaces prompt-pasted PII. Falls back to rules on agent failure. | **Complete** |
+| 9.3 | `form_filler` eval suite: 5 fixtures (basic / Workday / Greenhouse / Lever w/ recovery / Ashby long select), `field_mapping_match` and `no_proposal_for_label` scorers, baseline JSON, CLI gate at `--min-pass-rate 0.85`. | **Complete** |
+| 9.4 | Cost / latency telemetry: `prompt_tokens` / `output_tokens` / `cost_usd` per AgentStep, aggregated into AgentResult, TraceRecord, EvalReport. Surfaces in CLI eval output, web trace viewer, persisted JSON. Rates configurable via env. | **Complete** |
+| 9.5 | Docs: new `AGENT_ARCHITECTURE.md`, README updates, CHANGELOG entries for Agent Phase 8 + 9. | **Complete** |
+
+**Verification**: 553 passed, 1 skipped. `ruff check` clean. `autoapply eval --suite form_filler --min-pass-rate 0.85` exits 0 with 5/5 passing at ~$0.23 estimated cost under default rates.
+
 ## Current Session Context
 
-- **Active branch**: `dev`
-- **Current phase**: Phase 8 complete; docs updated after Materials/template hardening
-- **Last verification**: `uv run python -m pytest` -> 340 passed, 1 skipped; `uv run ruff check .` passes; `npm run build` passes
+- **Active branch**: `feat/phase-9`
+- **Current phase**: Agent Phase 9 complete; ready for review and merge
+- **Last verification**: 553 passed, 1 skipped; `ruff check` clean; `autoapply eval --suite form_filler --min-pass-rate 0.85` exits 0
 - **Blockers**: None
-- **Next step**: Create/merge PR from `dev` to `master`, then continue production hardening and UX refinement as needed
+- **Next step**: Code review of `feat/phase-9`, merge to dev/master. Phase 10 (cover-letter agent) waits for one week of stable form-filler agent runs.

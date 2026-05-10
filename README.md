@@ -8,6 +8,7 @@ An AI-powered agent that automates the entire job application process — from j
 - [部署与使用教程（中文）](docs/DEPLOYMENT_zh.md)
 - [Implementation Plan (EN)](docs/plan_en.md)
 - [实施计划（中文）](docs/plan_zh.md)
+- [Agent Architecture](docs/AGENT_ARCHITECTURE.md)
 - [Changelog](docs/CHANGELOG.md)
 - [Architecture Decisions](docs/DECISIONS.md)
 - [Project Management](docs/PROJECT_MANAGEMENT.md)
@@ -80,8 +81,11 @@ src/
 - **Phase 6** (LinkedIn Integration) — Complete
 - **Phase 7** (Web GUI) — Complete
 - **Phase 8** (Materials Workspace + DOCX Template Packages + Hardening) — Complete
+- **Agent Phase 8** (Agent Harness: tools / loop / trace / eval / HITL gate) — Complete
+- **Agent Phase 9** (Form-Filler Agent with HITL review + eval suite + cost telemetry) — Complete
 
-340 tests passing, 1 skipped. See [CHANGELOG](docs/CHANGELOG.md) for details.
+553 tests passing, 1 skipped. See [CHANGELOG](docs/CHANGELOG.md) and
+[AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
 
 ## CLI Usage
 
@@ -115,7 +119,30 @@ autoapply status --export-csv report.csv
 
 # Inspect tracking data as JSON
 autoapply status --json
+
+# Run agent regression evals (form_filler suite, gated at 85% pass)
+autoapply eval --suite form_filler --min-pass-rate 0.85
+
+# List available eval suites
+autoapply eval --list
 ```
+
+## Agent Mode
+
+The form-filler can run in agent mode (Phase 9). Tool access is
+allow-listed, all proposals go through a confidence-threshold review,
+and submit always requires human approval through the gate at
+`/api/agent/viewer` (web GUI). Per-step token + cost telemetry is
+recorded into the trace.
+
+See [docs/AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for the
+HITL contract, layering, and eval workflow. Cost rates are
+configurable via `AUTOAPPLY_AGENT_COST_PROMPT_PER_1K` /
+`AUTOAPPLY_AGENT_COST_OUTPUT_PER_1K` env vars.
+
+The deterministic `form_filler.py` remains the default; agent mode is
+opted in via `AgentFormFiller` / `run_agent_form_fill(...)` from
+`src.execution.agent_form_filler`.
 
 CLI is the agent-facing control plane and now supports structured `--json` output for the core `search`, `apply`, and `status` commands. The Web GUI remains the human-facing control plane.
 

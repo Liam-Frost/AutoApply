@@ -13,8 +13,23 @@ from src.agent.eval.report import EvalCaseResult, EvalReport
 from src.agent.eval.scorers import score_expectations
 from src.core.config import PROJECT_ROOT
 
-RunnerFn = Callable[[dict[str, Any]], str]
-"""(case_input) -> output text. Output is what scorers operate on."""
+RunnerFn = Callable[[dict[str, Any]], "str | RunnerOutput"]
+"""(case_input) -> output text or :class:`RunnerOutput`.
+
+Plain-string return values are still supported for back-compat (the
+agent_smoke suite uses them). Suites that want token / cost telemetry
+in the report should return a :class:`RunnerOutput` instead.
+"""
+
+
+@dataclass
+class RunnerOutput:
+    """Rich runner return value: scored text plus per-case telemetry."""
+
+    output: str
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass
@@ -54,10 +69,19 @@ def run_eval(
         t0 = time.monotonic()
         error: str | None = None
         output = ""
+        prompt_tokens = output_tokens = 0
+        cost_usd = 0.0
         try:
-            output = runner(case.input)
-            if not isinstance(output, str):
-                output = json.dumps(output, ensure_ascii=False, default=str)
+            raw = runner(case.input)
+            if isinstance(raw, RunnerOutput):
+                output = raw.output
+                prompt_tokens = raw.prompt_tokens
+                output_tokens = raw.output_tokens
+                cost_usd = raw.cost_usd
+            elif isinstance(raw, str):
+                output = raw
+            else:
+                output = json.dumps(raw, ensure_ascii=False, default=str)
         except Exception as exc:  # noqa: BLE001 -- harness boundary
             error = f"{type(exc).__name__}: {exc}"
         elapsed = int((time.monotonic() - t0) * 1000)
@@ -83,6 +107,9 @@ def run_eval(
                 output=output,
                 expectations=results,
                 elapsed_ms=elapsed,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost_usd,
             )
         )
     return report
@@ -124,10 +151,112 @@ def _agent_smoke_runner(case_input: dict[str, Any]) -> str:
     return f"[unfinished:{result.stop_reason}]"
 
 
+def _form_filler_runner(case_input: dict[str, Any]) -> str:
+    """Drive the agent loop end-to-end against a static HTML fixture.
+
+    Each fixture supplies:
+        html        - the form HTML
+        profile     - applicant profile dict
+        llm_responses - scripted LLM transcript (one element per turn)
+        max_steps   - optional, defaults to 16
+        url, title  - optional metadata pinned into the snapshot
+
+    The runner emits a JSON envelope:
+        {
+          "stop_reason": <agent_result.stop_reason>,
+          "finished":     <bool>,
+          "answer":       <str|null>,
+          "proposals":    [{field_id, field_label, field_type,
+                            value, confidence, reasoning}, ...]
+        }
+
+    Scorers like ``field_mapping_match`` consume this directly.
+    """
+    import json as _json  # noqa: PLC0415
+
+    from src.agent.core.loop import AgentSession, SessionLimits  # noqa: PLC0415
+    from src.agent.tools.browser import (  # noqa: PLC0415
+        build_browser_tools,
+        build_snapshot_from_html,
+    )
+    from src.agent.tools.profile import ProfileLookupTool  # noqa: PLC0415
+    from src.execution.agent_form_filler import build_goal  # noqa: PLC0415
+
+    html = str(case_input.get("html", ""))
+    profile = case_input.get("profile") or {}
+    responses = list(case_input.get("llm_responses", []))
+    if not html:
+        raise ValueError("form_filler fixture missing 'html'")
+
+    snapshot = build_snapshot_from_html(
+        html,
+        url=str(case_input.get("url", "")),
+        title=str(case_input.get("title", "")),
+    )
+    bundle = build_browser_tools(snapshot)
+    if isinstance(profile, dict):
+        bundle.registry.register(ProfileLookupTool(profile))
+
+    queue = list(responses)
+
+    def scripted(_p: str, _s: str, _t: int) -> str:
+        if not queue:
+            raise RuntimeError("Scripted LLM ran out of responses.")
+        return queue.pop(0)
+
+    limits = SessionLimits(
+        max_steps=int(case_input.get("max_steps", 16)),
+        step_timeout=int(case_input.get("step_timeout", 30)),
+    )
+    goal = build_goal(
+        profile_summary=", ".join(sorted(profile.keys())) if isinstance(profile, dict) else None,
+        extra_context=case_input.get("extra_context"),
+    )
+    session = AgentSession(
+        goal=goal, tools=bundle.registry, llm=scripted, limits=limits
+    )
+    result = session.run()
+
+    proposals = []
+    for prop in bundle.collector.latest():
+        descriptor = snapshot.field_by_id(prop.field_id)
+        proposals.append(
+            {
+                "field_id": prop.field_id,
+                "field_label": descriptor.label if descriptor else "",
+                "field_type": descriptor.field_type if descriptor else "",
+                "value": prop.value,
+                "confidence": prop.confidence,
+                "reasoning": prop.reasoning,
+            }
+        )
+
+    output = _json.dumps(
+        {
+            "stop_reason": result.stop_reason,
+            "finished": result.finished,
+            "answer": result.answer,
+            "step_count": len(result.steps),
+            "proposals": proposals,
+        },
+        ensure_ascii=False,
+    )
+    return RunnerOutput(
+        output=output,
+        prompt_tokens=result.total_prompt_tokens,
+        output_tokens=result.total_output_tokens,
+        cost_usd=result.total_cost_usd,
+    )
+
+
 _BUILTIN_SUITES: dict[str, tuple[Path, RunnerFn]] = {
     "agent_smoke": (
         PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "agent_smoke",
         _agent_smoke_runner,
+    ),
+    "form_filler": (
+        PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "form_filler",
+        _form_filler_runner,
     ),
 }
 

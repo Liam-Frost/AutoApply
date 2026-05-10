@@ -4,6 +4,76 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Agent Phase 9: Form-Filler Agent (with HITL gate, eval suite, cost telemetry)
+
+The first real business node converted to agent-mode. The deterministic
+`form_filler.py` is still the default; `agent_form_filler.py` is the
+new path, gated on confidence + the existing approval queue.
+
+- **9.1 Browser tool layer** (`src/agent/tools/browser.py`,
+  `src/agent/tools/browser_models.py`): four sync, side-effect-free
+  tools the agent can call -- `browser_inspect_page`,
+  `browser_find_field`, `browser_propose_fill`, `browser_screenshot`.
+  Operate on a `PageSnapshot` extracted by the orchestrator; the agent
+  never holds a Playwright handle. Stdlib HTML snapshot builder for
+  fixtures + an async `build_snapshot_from_page` for live runs. 38 tests.
+- **9.2 Orchestrator** (`src/execution/agent_form_filler.py`): wires
+  snapshot → agent loop → proposal review → approval gate →
+  deterministic `fill_fields`. Two gate kinds, `form_fill_review`
+  (soft, optional based on confidence threshold) and `submit_form`
+  (hard, always required). `submit()` raises `PermissionError` if
+  the gate hasn't approved -- there is no force flag. Falls back to
+  rule-based filling when the agent crashes or proposes nothing.
+  Adds `profile_lookup` tool so PII is never pasted into the prompt.
+  21 + 15 tests across orchestrator and profile tool.
+- **9.3 Eval suite** (`tests/agent_evals/fixtures/form_filler/`):
+  five fixtures (basic / Workday-like / Greenhouse-like /
+  Lever-like w/ recovery / Ashby-like long select). Two new scorers:
+  `field_mapping_match` and `no_proposal_for_label`. Runner emits a
+  JSON envelope; CLI gate is `autoapply eval --suite form_filler
+  --min-pass-rate 0.85`. Baseline JSON locked in
+  `tests/agent_evals/baselines/`. 14 tests.
+- **9.4 Cost / latency telemetry**: `AgentStep` now carries
+  `prompt_tokens`, `output_tokens`, `cost_usd`; `AgentResult` and
+  `TraceRecord` aggregate. Estimated via chars/4 heuristic with rates
+  configurable by env var. Surfaces in `autoapply eval`, the web trace
+  viewer, and persisted trace JSON. 13 tests.
+- **9.5 Docs**: new `docs/AGENT_ARCHITECTURE.md` describing the
+  three-layer orchestrator/loop/tool split and the HITL contract;
+  README updated with agent-mode notes; this changelog entry.
+
+Verification baseline: 553 passed, 1 skipped. `ruff check` clean.
+`autoapply eval --suite form_filler --min-pass-rate 0.85` exits 0
+with 5/5 passing at ~$0.23 estimated under default rates.
+
+### Agent Phase 8: Agent Harness (foundational layer)
+
+Foundational primitives that Phase 9 sits on top of. Shipped in
+commits ed75568..e6a06ee on `feat/phase-8`.
+
+- **8.1 Tool abstraction layer** (`src/agent/tools/base.py`): `Tool`
+  ABC, `ToolSpec`, `ToolRegistry` with allow-list views, `ToolResult`
+  with structured payload + error channel. Built-in `fs_read`,
+  `text_stats`, `finish`. Hardened `fs_read` truncation to handle
+  multi-byte UTF-8 boundary cleanly.
+- **8.2 Bounded ReAct agent loop** (`src/agent/core/loop.py`): manual
+  `{thought, action}` JSON protocol so both `claude` and `codex` CLIs
+  work without provider-native tool-use. Hard `max_steps`,
+  `step_timeout`, `allow_tool_errors` controls; `finish` sentinel; tool
+  errors surface as observations rather than aborting.
+- **8.3 Trace store + viewer** (`src/agent/trace/`, `src/web/routes/agent.py`):
+  per-session JSON document under `data/agent_traces/`; FastAPI viewer
+  at `/api/agent/viewer` lists recent runs and replays steps.
+- **8.4 Fixture-driven eval harness** (`src/agent/eval/`,
+  `tests/agent_evals/fixtures/agent_smoke/`): JSON fixtures specify
+  `goal`, allowed tools, scripted LLM responses, and scorer
+  expectations. New `autoapply eval` CLI command with `--suite`,
+  `--list`, `--json`, `--min-pass-rate`.
+- **8.5 HITL approval gate** (`src/agent/gate/queue.py`,
+  `/api/agent/gate/...`): file-backed approval queue with `propose`,
+  `approve`, `reject`, lazy expiry, and a viewer UI for pending
+  requests.
+
 ### UI Overhaul -- Phase A: Design System
 - Generated the AutoApply design system spec via the `ui-ux-pro-max` agent — color palette, typography scale, spacing rhythm, and component inventory
 

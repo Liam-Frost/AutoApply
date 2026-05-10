@@ -1,0 +1,34 @@
+{
+  "id": "01_basic_contact",
+  "description": "Plain three-field contact form (first/last/email). Agent should propose all three with high confidence.",
+  "input": {
+    "url": "https://jobs.example.com/apply",
+    "title": "Apply for Software Engineer Intern",
+    "max_steps": 8,
+    "html": "<html><head><title>Apply</title></head><body><h2>Contact</h2><label for='fn'>First Name</label><input id='fn' name='first_name' type='text' required/><label for='ln'>Last Name</label><input id='ln' name='last_name' type='text' required/><label for='em'>Email</label><input id='em' name='email' type='email' required/></body></html>",
+    "profile": {
+      "identity": {
+        "full_name": "Liam Liu",
+        "email": "frostnova986@gmail.com"
+      }
+    },
+    "llm_responses": [
+      "{\"thought\":\"see fields\",\"action\":{\"name\":\"browser_inspect_page\",\"args\":{}}}",
+      "{\"thought\":\"first name\",\"action\":{\"name\":\"profile_lookup\",\"args\":{\"path\":\"identity.full_name\"}}}",
+      "{\"thought\":\"propose first\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f1\",\"value\":\"Liam\",\"confidence\":0.95,\"reasoning\":\"first token of full_name\"}}}",
+      "{\"thought\":\"propose last\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f2\",\"value\":\"Liu\",\"confidence\":0.95,\"reasoning\":\"second token of full_name\"}}}",
+      "{\"thought\":\"propose email\",\"action\":{\"name\":\"browser_propose_fill\",\"args\":{\"field_id\":\"f3\",\"value\":\"frostnova986@gmail.com\",\"confidence\":0.99,\"reasoning\":\"identity.email\"}}}",
+      "{\"thought\":\"done\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"3 fields proposed\"}}}"
+    ]
+  },
+  "expectations": [
+    {
+      "type": "field_mapping_match",
+      "expected": {
+        "First Name": "Liam",
+        "Last Name": "Liu",
+        "Email": "frostnova986@gmail.com"
+      }
+    }
+  ]
+}
