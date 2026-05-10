@@ -27,7 +27,13 @@ _DEFAULT_DIR = PROJECT_ROOT / "data" / "agent_traces"
 
 @dataclass
 class TraceRecord:
-    """Persisted form of an agent run."""
+    """Persisted form of an agent run.
+
+    Token/cost columns are populated from :class:`AgentResult`; they
+    are best-effort estimates (see :mod:`src.agent.core.cost`) but
+    suffice to spot order-of-magnitude regressions in the trace
+    viewer or eval report.
+    """
 
     id: str
     started_at: str
@@ -40,6 +46,9 @@ class TraceRecord:
     tools_allowed: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     steps: list[dict[str, Any]] = field(default_factory=list)
+    total_prompt_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,6 +64,9 @@ class TraceRecord:
             "answer": self.answer,
             "elapsed_ms": self.elapsed_ms,
             "step_count": self.step_count,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cost_usd": self.total_cost_usd,
         }
 
 
@@ -133,6 +145,9 @@ def record_from_result(
         tools_allowed=list(tools_allowed),
         metadata=dict(metadata or {}),
         steps=[s.to_dict() for s in result.steps],
+        total_prompt_tokens=result.total_prompt_tokens,
+        total_output_tokens=result.total_output_tokens,
+        total_cost_usd=result.total_cost_usd,
     )
 
 
@@ -149,4 +164,7 @@ def _record_from_dict(data: dict[str, Any]) -> TraceRecord:
         tools_allowed=list(data.get("tools_allowed", [])),
         metadata=dict(data.get("metadata", {})),
         steps=list(data.get("steps", [])),
+        total_prompt_tokens=int(data.get("total_prompt_tokens", 0)),
+        total_output_tokens=int(data.get("total_output_tokens", 0)),
+        total_cost_usd=float(data.get("total_cost_usd", 0.0)),
     )

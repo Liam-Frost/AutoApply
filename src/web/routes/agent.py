@@ -186,11 +186,15 @@ async function loadList() {
     const status = t.finished
       ? '<span class=\"pill ok\">finished</span>'
       : `<span class=\"pill err\">${escapeHtml(t.stop_reason || 'failed')}</span>`;
+    const cost = t.total_cost_usd > 0
+      ? `<span>$${Number(t.total_cost_usd).toFixed(4)}</span>`
+      : '';
     li.innerHTML = `
       <div class=\"goal\">${escapeHtml(t.goal || '(no goal)')}</div>
       <div class=\"meta\">${status}
         <span>${escapeHtml(t.step_count)} steps</span>
-        <span>${escapeHtml(fmtMs(t.elapsed_ms))}</span></div>`;
+        <span>${escapeHtml(fmtMs(t.elapsed_ms))}</span>
+        ${cost}</div>`;
     li.addEventListener('click', () => loadDetail(t.id));
     $list.appendChild(li);
   }
@@ -211,7 +215,13 @@ async function loadDetail(id) {
     </span>
     <span class=\"pill\">${escapeHtml(t.step_count)} steps</span>
     <span class=\"pill\">${escapeHtml(fmtMs(t.elapsed_ms))}</span>
-    <span class=\"pill\">${escapeHtml(t.started_at)}</span></p>
+    <span class=\"pill\">${escapeHtml(t.started_at)}</span>
+    ${(t.total_cost_usd > 0 || t.total_prompt_tokens > 0)
+      ? `<span class=\"pill\">${escapeHtml(t.total_prompt_tokens)}+`
+        + `${escapeHtml(t.total_output_tokens)} tok, `
+        + `$${Number(t.total_cost_usd).toFixed(4)}</span>`
+      : ''}
+    </p>
     ${t.answer ? `<p><b>Answer:</b> ${escapeHtml(t.answer)}</p>` : ''}
     <p><b>Tools:</b> ${
       (t.tools_allowed || [])
@@ -222,7 +232,12 @@ async function loadDetail(id) {
     <div class=\"step\">
       <h3>Step ${escapeHtml(s.index)}: <code>${escapeHtml(s.action_name || '(none)')}</code>
         ${s.is_error ? '<span class=\"pill err\">error</span>' : ''}
-        <span class=\"pill\">${escapeHtml(fmtMs(s.latency_ms))}</span></h3>
+        <span class=\"pill\">${escapeHtml(fmtMs(s.latency_ms))}</span>
+        ${(s.cost_usd > 0 || s.prompt_tokens > 0)
+          ? `<span class=\"pill\">${escapeHtml(s.prompt_tokens)}+`
+            + `${escapeHtml(s.output_tokens)} tok, `
+            + `$${Number(s.cost_usd).toFixed(4)}</span>`
+          : ''}</h3>
       ${s.thought ? `<p class=\"thought\">${escapeHtml(s.thought)}</p>` : ''}
       <details><summary>Args</summary>
         <pre>${escapeHtml(JSON.stringify(s.action_args || {}, null, 2))}</pre></details>

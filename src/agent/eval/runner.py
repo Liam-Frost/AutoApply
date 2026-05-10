@@ -13,8 +13,23 @@ from src.agent.eval.report import EvalCaseResult, EvalReport
 from src.agent.eval.scorers import score_expectations
 from src.core.config import PROJECT_ROOT
 
-RunnerFn = Callable[[dict[str, Any]], str]
-"""(case_input) -> output text. Output is what scorers operate on."""
+RunnerFn = Callable[[dict[str, Any]], "str | RunnerOutput"]
+"""(case_input) -> output text or :class:`RunnerOutput`.
+
+Plain-string return values are still supported for back-compat (the
+agent_smoke suite uses them). Suites that want token / cost telemetry
+in the report should return a :class:`RunnerOutput` instead.
+"""
+
+
+@dataclass
+class RunnerOutput:
+    """Rich runner return value: scored text plus per-case telemetry."""
+
+    output: str
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass
@@ -54,10 +69,19 @@ def run_eval(
         t0 = time.monotonic()
         error: str | None = None
         output = ""
+        prompt_tokens = output_tokens = 0
+        cost_usd = 0.0
         try:
-            output = runner(case.input)
-            if not isinstance(output, str):
-                output = json.dumps(output, ensure_ascii=False, default=str)
+            raw = runner(case.input)
+            if isinstance(raw, RunnerOutput):
+                output = raw.output
+                prompt_tokens = raw.prompt_tokens
+                output_tokens = raw.output_tokens
+                cost_usd = raw.cost_usd
+            elif isinstance(raw, str):
+                output = raw
+            else:
+                output = json.dumps(raw, ensure_ascii=False, default=str)
         except Exception as exc:  # noqa: BLE001 -- harness boundary
             error = f"{type(exc).__name__}: {exc}"
         elapsed = int((time.monotonic() - t0) * 1000)
@@ -83,6 +107,9 @@ def run_eval(
                 output=output,
                 expectations=results,
                 elapsed_ms=elapsed,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost_usd,
             )
         )
     return report
@@ -204,7 +231,7 @@ def _form_filler_runner(case_input: dict[str, Any]) -> str:
             }
         )
 
-    return _json.dumps(
+    output = _json.dumps(
         {
             "stop_reason": result.stop_reason,
             "finished": result.finished,
@@ -213,6 +240,12 @@ def _form_filler_runner(case_input: dict[str, Any]) -> str:
             "proposals": proposals,
         },
         ensure_ascii=False,
+    )
+    return RunnerOutput(
+        output=output,
+        prompt_tokens=result.total_prompt_tokens,
+        output_tokens=result.total_output_tokens,
+        cost_usd=result.total_cost_usd,
     )
 
 
