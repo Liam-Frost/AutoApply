@@ -99,12 +99,17 @@ def get_registry() -> ProviderRegistry:
 def _register_builtins(registry: ProviderRegistry) -> None:
     """Register the providers shipped with AutoApply.
 
-    10.1 ships an empty registry so the rest of the harness can be
-    wired and tested. Concrete provider classes are added by 10.2
-    (OpenAI / Anthropic / Gemini), 10.3 (Codex OAuth), and 10.6
-    (Claude / Codex CLI subprocess providers).
+    Lazy imports keep the dependency surface small until callers
+    actually need a provider.
     """
-    # Intentionally empty. See module docstring.
+    from src.providers.anthropic import AnthropicProvider  # noqa: PLC0415
+    from src.providers.gemini import GeminiProvider  # noqa: PLC0415
+    from src.providers.openai import OpenAIProvider  # noqa: PLC0415
+
+    registry.register(OpenAIProvider)
+    registry.register(AnthropicProvider)
+    registry.register(GeminiProvider)
+    # Codex (OAuth) and the CLI subprocess providers register in 10.3 and 10.6.
 
 
 def reset_default_registry() -> None:
