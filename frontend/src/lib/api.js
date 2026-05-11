@@ -214,4 +214,31 @@ export const api = {
       method: "DELETE",
     })
   },
+  providers() {
+    return request("/api/providers")
+  },
+  testProvider(providerId) {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/test`, {
+      method: "POST",
+    })
+  },
+  connectApiKeyProvider(providerId, payload) {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/set-key`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  disconnectProvider(providerId) {
+    return request(`/api/providers/${encodeURIComponent(providerId)}`, {
+      method: "DELETE",
+    })
+  },
+  useProvider(providerId, fallbackProvider = null) {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/use`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fallback_provider: fallbackProvider }),
+    })
+  },
 }
