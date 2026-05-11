@@ -1,8 +1,19 @@
-"""LLM CLI wrapper.
+"""LLM CLI wrapper + registry bridge.
 
-Invokes Claude Code CLI and Codex CLI via subprocess.
-The high-level helpers honor configured provider priority and can fall back
-between CLIs when one fails or is unavailable.
+Invokes Claude Code CLI and Codex CLI via subprocess. As of Phase 10.5
+this module also bridges to the provider registry so the same
+``generate_text`` entry point can dispatch to API-key providers
+(OpenAI / Anthropic / Gemini) without changing call-sites.
+
+Dispatch order:
+
+1. If the configured provider id is registered AND configured in the
+   registry (``LLMProvider.is_configured``), call its ``generate``.
+2. Otherwise, fall back to the legacy CLI helpers below.
+
+The fallback path is what kept Phase 1-9 working before the registry
+existed; we intentionally keep it so users who haven't gone through
+the new `autoapply provider` flow see no regression.
 """
 
 from __future__ import annotations
@@ -19,7 +30,15 @@ from src.core.config import load_config
 
 logger = logging.getLogger("autoapply.llm")
 
-SUPPORTED_PROVIDERS = ("claude-cli", "codex-cli")
+# Provider ids that the legacy subprocess dispatcher knows how to
+# handle. The registry may know more ids than this -- those are
+# dispatched via :func:`_dispatch_via_registry` instead.
+_LEGACY_CLI_PROVIDERS = ("claude-cli", "codex-cli")
+
+# Backwards-compatible export used elsewhere in the codebase (tests +
+# config validation). Now includes registry-only providers so a
+# settings.yaml entry like ``primary_provider: openai`` is accepted.
+SUPPORTED_PROVIDERS = _LEGACY_CLI_PROVIDERS
 
 
 class LLMError(Exception):
@@ -233,7 +252,24 @@ def _call_provider(
     timeout: int,
     output_format: str,
 ) -> str:
-    """Dispatch to the selected provider."""
+    """Dispatch to the selected provider.
+
+    Tries the Phase 10 provider registry first; falls back to the
+    legacy hard-wired CLI dispatch for the two original providers
+    (``claude-cli`` / ``codex-cli``) so behaviour is unchanged for
+    users who haven't enrolled a provider via the registry yet.
+    """
+    if _dispatch_via_registry_enabled():
+        registry_result = _dispatch_via_registry(
+            provider,
+            prompt,
+            system=system,
+            timeout=timeout,
+            output_format=output_format,
+        )
+        if registry_result is not None:
+            return registry_result
+
     if provider == "claude-cli":
         return claude_generate(prompt, system=system, timeout=timeout, output_format=output_format)
     if provider == "codex-cli":
@@ -241,12 +277,96 @@ def _call_provider(
     raise LLMError(f"Unsupported LLM provider: {provider}")
 
 
+def _dispatch_via_registry_enabled() -> bool:
+    """Module-level toggle so tests can disable the registry path."""
+    return True
+
+
+def _dispatch_via_registry(
+    provider: str,
+    prompt: str,
+    *,
+    system: str,
+    timeout: int,
+    output_format: str,
+) -> str | None:
+    """Try to satisfy the request from the provider registry.
+
+    Returns ``None`` when the registry can't (provider unknown or not
+    configured), letting the caller fall back to the legacy CLI path.
+    Raises :class:`LLMError` when the provider IS configured but the
+    call fails -- bubbling that up preserves the existing
+    primary/fallback semantics in ``generate_text``.
+    """
+    try:
+        from src.providers import get_registry  # noqa: PLC0415
+        from src.providers.base import ProviderError  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 -- import errors must not break callers
+        logger.debug("Provider registry unavailable: %s", exc)
+        return None
+
+    try:
+        registry = get_registry()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Provider registry init failed: %s", exc)
+        return None
+
+    instance = registry.maybe_get(provider)
+    if instance is None:
+        # Provider id not registered at all -- fall back to legacy.
+        return None
+    if not instance.is_configured():
+        # Registered but the user hasn't run `autoapply provider
+        # connect`. For legacy CLI providers, this is the normal
+        # case -- silently fall back so behaviour matches Phase 9.
+        return None
+
+    try:
+        raw = instance.generate(
+            prompt,
+            system=system,
+            timeout=timeout,
+            output_format=output_format,
+        )
+    except ProviderError as exc:
+        # Re-raise as LLMError so generate_text's fallback loop
+        # records the error and tries the next provider.
+        raise LLMError(f"Provider {provider!r} failed: {exc}") from exc
+
+    # Provider already honoured the output_format hint (CLI providers
+    # via --output-format, API providers via prompt) so just return.
+    return raw
+
+
 def _normalize_provider(provider: str, *, role: str) -> str:
-    """Validate a provider string."""
-    if provider not in SUPPORTED_PROVIDERS:
-        supported = ", ".join(SUPPORTED_PROVIDERS)
-        raise ValueError(f"Invalid {role} LLM provider '{provider}'. Expected one of: {supported}")
-    return provider
+    """Validate a provider string.
+
+    Accepts legacy CLI ids and any id registered with the Phase 10
+    provider registry so a ``primary_provider: openai`` setting works
+    without explicit config-layer additions.
+    """
+    if provider in SUPPORTED_PROVIDERS:
+        return provider
+    if _provider_id_is_known(provider):
+        return provider
+    supported = ", ".join(sorted({*SUPPORTED_PROVIDERS, *_known_registry_ids()}))
+    raise ValueError(
+        f"Invalid {role} LLM provider '{provider}'. Expected one of: {supported}"
+    )
+
+
+def _provider_id_is_known(provider_id: str) -> bool:
+    return provider_id in _known_registry_ids()
+
+
+def _known_registry_ids() -> tuple[str, ...]:
+    """Best-effort introspection of the registry; never raises."""
+    try:
+        from src.providers import get_registry  # noqa: PLC0415
+
+        return tuple(get_registry().ids())
+    except Exception:  # noqa: BLE001
+        return ()
 
 
 def _resolve_executable(command: str) -> str | None:

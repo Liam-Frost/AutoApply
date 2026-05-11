@@ -10,6 +10,7 @@ from src.core.config import (
     update_llm_settings,
 )
 from src.intake.search_cache import clear_linkedin_search_cache
+from src.providers import get_registry
 from src.utils.llm import detect_available_providers, get_llm_settings
 
 
@@ -19,8 +20,31 @@ def load_llm_settings_data() -> dict:
         "llm": get_llm_settings(config),
         "search_cache": _search_cache_settings(config),
         "available_providers": detect_available_providers(),
+        # Phase 10 providers (API key / OAuth) the user has connected
+        # via ``autoapply provider`` -- the Web UI uses this to render
+        # "Connected" badges alongside the CLI availability map above.
+        "configured_providers": _configured_registry_providers(),
         "config_path": str(PROJECT_ROOT / "config" / "settings.yaml"),
     }
+
+
+def _configured_registry_providers() -> list[dict]:
+    """Return the public view of every registry provider that's
+    currently configured. Empty on a fresh install. Never raises --
+    if the registry blows up we just show nothing rather than break
+    the settings page."""
+    try:
+        registry = get_registry()
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict] = []
+    for provider in registry.all():
+        try:
+            if provider.is_configured():
+                out.append(provider.public_view())
+        except Exception:  # noqa: BLE001
+            continue
+    return out
 
 
 def update_llm_settings_data(
