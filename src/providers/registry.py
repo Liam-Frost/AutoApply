@@ -103,13 +103,16 @@ def _register_builtins(registry: ProviderRegistry) -> None:
     actually need a provider.
     """
     from src.providers.anthropic import AnthropicProvider  # noqa: PLC0415
+    from src.providers.claude_cli import ClaudeCliProvider  # noqa: PLC0415
+    from src.providers.codex import CodexOAuthProvider  # noqa: PLC0415
     from src.providers.gemini import GeminiProvider  # noqa: PLC0415
     from src.providers.openai import OpenAIProvider  # noqa: PLC0415
 
     registry.register(OpenAIProvider)
     registry.register(AnthropicProvider)
     registry.register(GeminiProvider)
-    # Codex (OAuth) and the CLI subprocess providers register in 10.3 and 10.6.
+    registry.register(CodexOAuthProvider)
+    registry.register(ClaudeCliProvider)
 
 
 def reset_default_registry() -> None:

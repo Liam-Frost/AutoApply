@@ -463,9 +463,17 @@ class TestGeminiProvider:
 
 
 class TestRegistryRegistersBuiltins:
-    def test_three_providers_present(self) -> None:
+    def test_builtin_providers_present(self) -> None:
         from src.providers.registry import ProviderRegistry, _register_builtins
 
         registry = ProviderRegistry()
         _register_builtins(registry)
-        assert set(registry.ids()) == {"openai", "anthropic", "gemini"}
+        # The three API-key providers plus the Codex OAuth wrapper
+        # (10.3) and the Claude CLI subprocess provider (10.4).
+        assert set(registry.ids()) == {
+            "openai",
+            "anthropic",
+            "gemini",
+            "codex-cli",
+            "claude-cli",
+        }
