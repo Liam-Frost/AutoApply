@@ -551,12 +551,19 @@ def _configure_llm_settings(
 
 
 def _check_llm(config: dict | None = None) -> bool:
-    """Check if Claude CLI and/or Codex CLI are available."""
-    from src.utils.llm import detect_available_providers, get_llm_settings
+    """Check if any LLM provider is available.
+
+    A provider counts as "available" if either:
+      * The legacy CLI (``claude`` / ``codex``) is on PATH, OR
+      * A Phase 10 provider is registered AND ``is_configured()`` (e.g.
+        an OpenAI / Anthropic / Gemini API key has been saved via
+        ``autoapply provider set-key``).
+    """
+    from src.providers import get_registry  # noqa: PLC0415
+    from src.utils.llm import detect_available_providers, get_llm_settings  # noqa: PLC0415
 
     available = detect_available_providers()
     settings = get_llm_settings(config) if config is not None else None
-    found_any = any(available.values())
 
     if settings is not None:
         click.echo(
@@ -578,12 +585,34 @@ def _check_llm(config: dict | None = None) -> bool:
     else:
         click.secho("    ! Codex CLI not found", fg="yellow")
 
+    # Check registry-configured providers (Phase 10 API-key / OAuth).
+    configured_registry_providers: list[str] = []
+    try:
+        registry = get_registry()
+        for provider in registry.all():
+            # Avoid double-counting the CLI subprocess providers --
+            # those are already reported via detect_available_providers
+            # above. We only surface providers that introduce a brand
+            # new capability (API key / OAuth credential).
+            if provider.id in available:
+                continue
+            if provider.is_configured():
+                configured_registry_providers.append(provider.id)
+                click.secho(
+                    f"    [OK] Provider {provider.id} configured ({provider.auth_type.value})",
+                    fg="green",
+                )
+    except Exception as exc:  # noqa: BLE001 -- registry must never break init
+        click.secho(f"    ! Provider registry check failed: {exc}", fg="yellow")
+
+    found_any = any(available.values()) or bool(configured_registry_providers)
     if not found_any:
         click.secho(
-            "    [FAIL] No LLM CLI available -- resume tailoring and QA will fail",
+            "    [FAIL] No LLM provider available -- resume tailoring and QA will fail",
             fg="red",
         )
-        click.echo("      Install: npm install -g @anthropic-ai/claude-code")
+        click.echo("      Install a CLI: npm install -g @anthropic-ai/claude-code")
+        click.echo("      Or connect a provider: autoapply provider set-key openai")
         return False
 
     return True
