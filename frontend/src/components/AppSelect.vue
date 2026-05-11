@@ -96,7 +96,24 @@ const triggerHeight = computed(() => (props.compact ? "h-8 text-sm" : "h-10 text
               :key="toInternal(option.value)"
               :value="toInternal(option.value)"
               :disabled="option.disabled"
-              class="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              :class="cn(
+                'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm text-popover-foreground outline-none',
+                // Currently-selected option: subtle muted background +
+                // medium weight, so the user can tell which value is
+                // active even before they move the mouse / use arrows.
+                // (reka-ui exposes the selection state via
+                // data-state=checked.)
+                'data-[state=checked]:bg-muted data-[state=checked]:font-medium',
+                // Keyboard/mouse highlight: full accent. We set BOTH
+                // data-[highlighted] (reka-ui's programmatic highlight,
+                // used during keyboard nav) AND focus: (browser focus
+                // when reka-ui auto-focuses the selected item on open)
+                // so neither path leaves the user with a blank-looking
+                // item that blends into the popover background.
+                'focus:bg-accent focus:text-accent-foreground',
+                'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground',
+                'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+              )"
             >
               <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                 <SelectItemIndicator>

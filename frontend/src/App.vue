@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { RouterLink, RouterView, useRoute } from "vue-router"
+import { ConfigProvider } from "reka-ui"
 import {
   Briefcase,
   FileText,
@@ -133,6 +134,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!--
+    `scrollBody: false` tells reka-ui's modal scroll lock NOT to add
+    padding/margin to <body> when a Select / Dialog / Popover opens.
+    Default behaviour assumes the scrollbar lives on <body>, so it adds
+    padding-right equal to the scrollbar width to "compensate" — but
+    we moved the scrollbar to <html> (see styles.css). That left
+    reka-ui shifting the body content by 15px even though the
+    scrollbar never disappeared.
+  -->
+  <ConfigProvider :scroll-body="false">
   <div class="app-shell">
     <aside class="dock" aria-label="Primary navigation">
       <RouterLink
@@ -184,4 +195,5 @@ onBeforeUnmount(() => {
       <RouterView />
     </main>
   </div>
+  </ConfigProvider>
 </template>
