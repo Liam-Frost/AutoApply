@@ -161,8 +161,17 @@ class LLMProvider(ABC):
         *,
         system: str = "",
         timeout: int = 120,
+        output_format: str = "text",
     ) -> str:
-        ...
+        """Run a single text generation.
+
+        ``output_format`` is either ``"text"`` (default) or ``"json"``.
+        CLI-backed providers (Claude Code, Codex) thread this through
+        to the underlying ``--output-format`` flag / prompt suffix so
+        the resulting string is valid JSON. API providers always
+        return text and may ignore the hint -- the caller's
+        ``_parse_json_response`` strips fences if necessary.
+        """
 
     # ----- public metadata -----
 

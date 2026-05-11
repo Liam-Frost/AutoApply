@@ -85,6 +85,7 @@ class OpenAIProvider(ApiKeyProvider):
         *,
         system: str = "",
         timeout: int = 120,
+        output_format: str = "text",  # noqa: ARG002 -- JSON is prompt-driven for REST providers
     ) -> str:
         api_key = self.get_api_key()
         model = self.get_model()

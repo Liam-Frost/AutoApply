@@ -43,7 +43,14 @@ class _StubProvider(LLMProvider):
     def test_connection(self, *, timeout: int = 10) -> ProviderTestResult:
         return ProviderTestResult(ok=True, detail="stub", latency_ms=1)
 
-    def generate(self, prompt: str, *, system: str = "", timeout: int = 120) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        timeout: int = 120,
+        output_format: str = "text",
+    ) -> str:
         return f"echo: {prompt}"
 
 
@@ -55,7 +62,14 @@ class _OtherStub(LLMProvider):
     def test_connection(self, *, timeout: int = 10) -> ProviderTestResult:
         return ProviderTestResult(ok=False, detail="not connected")
 
-    def generate(self, prompt: str, *, system: str = "", timeout: int = 120) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        timeout: int = 120,
+        output_format: str = "text",
+    ) -> str:
         raise ProviderError("not connected")
 
 
@@ -203,7 +217,14 @@ class TestProviderRegistry:
             def test_connection(self, *, timeout: int = 10) -> ProviderTestResult:
                 return ProviderTestResult(ok=False)
 
-            def generate(self, prompt: str, *, system: str = "", timeout: int = 120) -> str:
+            def generate(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        timeout: int = 120,
+        output_format: str = "text",
+    ) -> str:
                 return ""
 
         registry = ProviderRegistry(store=CredentialStore(path=tmp_path / "c.json"))
