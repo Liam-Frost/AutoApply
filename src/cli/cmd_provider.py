@@ -5,9 +5,15 @@ Subcommands:
 * ``provider list``        — show every provider, configured or not.
 * ``provider test <id>``   — non-mutating connection probe.
 * ``provider set-key <id>``— save an API key (API-key providers only).
-* ``provider login <id>``  — start the OAuth flow (Codex).
 * ``provider disconnect <id>`` — drop the saved credential.
 * ``provider use <id>``    — set as primary in ``config/settings.yaml``.
+
+There is no ``provider login`` subcommand: the CLI subprocess
+providers (claude-cli, codex-cli) own their auth via their own
+``login`` commands (run ``claude login`` / ``codex login`` directly).
+A future native OAuth provider — where AutoApply owns the OpenAI
+client and the OAuth tokens itself — would reintroduce a login
+subcommand.
 
 Every subcommand supports ``--json`` so the Web UI / external agents
 can consume a stable envelope.
@@ -30,7 +36,6 @@ from src.providers.base import (
     AuthType,
     LLMProvider,
     ProviderCredentials,
-    ProviderError,
     ProviderTestResult,
     now_iso,
 )
@@ -179,8 +184,8 @@ def set_key_cmd(
             "provider.set-key",
             f"Provider {provider_id!r} uses auth_type "
             f"{provider.auth_type.value!r}, not 'api_key'. "
-            f"Use `provider login` for OAuth or just `provider test` "
-            f"for subprocess providers.",
+            f"Subprocess providers manage their own auth -- "
+            f"run `claude login` / `codex login` directly.",
             as_json=as_json,
             exit_code=2,
         )
@@ -287,111 +292,12 @@ def _emit_set_key_result(
 
 
 # ---------------------------------------------------------------------------
-# login (OAuth -- currently only Codex)
+# Note: there is no `provider login` subcommand. The CLI subprocess
+# providers (claude-cli, codex-cli) handle their own auth via their
+# own login commands -- run `claude login` or `codex login` directly
+# in your shell. A future native OAuth provider that owns its own
+# token storage would re-introduce a login flow here.
 # ---------------------------------------------------------------------------
-
-
-@provider_cmd.command("login")
-@click.argument("provider_id")
-@click.option(
-    "--device-auth",
-    is_flag=True,
-    help="Use device-auth flow (for headless / SSH sessions).",
-)
-@click.option(
-    "--no-browser",
-    is_flag=True,
-    help="Do not auto-open a browser; just print the URL.",
-)
-@click.option("--json", "as_json", is_flag=True)
-def login_cmd(
-    provider_id: str, device_auth: bool, no_browser: bool, as_json: bool
-) -> None:
-    """Run an OAuth login flow against the provider's CLI."""
-    provider = _get_or_die(provider_id, as_json=as_json, command="provider.login")
-    if provider.auth_type is not AuthType.OAUTH:
-        _emit_error(
-            "provider.login",
-            f"Provider {provider_id!r} does not support OAuth login.",
-            as_json=as_json,
-            exit_code=2,
-        )
-
-    # We currently only support the Codex OAuth provider; future
-    # OAuth providers should expose the same start_login/finalize_login
-    # surface so this branch stays generic.
-    from src.providers.codex import (  # noqa: PLC0415
-        CodexLoginEvent,
-        CodexOAuthProvider,
-    )
-
-    if not isinstance(provider, CodexOAuthProvider):
-        _emit_error(
-            "provider.login",
-            f"Provider {provider_id!r} declared OAuth but has no login adapter.",
-            as_json=as_json,
-            exit_code=2,
-        )
-
-    events: list[dict[str, Any]] = []
-
-    def _on_event(ev: CodexLoginEvent) -> None:
-        events.append(ev.to_dict())
-        if as_json:
-            return
-        if ev.type == "url":
-            click.secho(f"Open this URL: {ev.message}", fg="cyan")
-        elif ev.type == "code":
-            click.secho(f"Device code: {ev.message}", fg="cyan")
-        elif ev.type == "browser_opened":
-            click.echo("  (browser auto-opened)")
-        elif ev.type == "complete":
-            click.secho("Login completed.", fg="green")
-        elif ev.type == "error":
-            click.secho(f"Login error: {ev.message}", fg="red")
-        else:
-            click.echo(f"  {ev.message}")
-
-    try:
-        session = provider.start_login(
-            device_auth=device_auth,
-            auto_open_browser=not no_browser,
-            on_event=_on_event,
-        )
-        rc = session.wait(timeout=600)  # 10-minute upper bound
-    except ProviderError as exc:
-        _emit_error(
-            "provider.login", str(exc), as_json=as_json, exit_code=1
-        )
-        return  # pragma: no cover
-
-    if rc != 0:
-        _emit_error(
-            "provider.login",
-            f"codex login exited with code {rc}.",
-            as_json=as_json,
-            exit_code=rc or 1,
-            extra={"events": events},
-        )
-        return  # pragma: no cover
-
-    try:
-        provider.finalize_login(session)
-    except ProviderError as exc:
-        _emit_error(
-            "provider.login", str(exc), as_json=as_json, exit_code=1
-        )
-        return  # pragma: no cover
-
-    if as_json:
-        emit_json(
-            build_json_payload(
-                command="provider.login",
-                data={"ok": True, "provider_id": provider_id, "events": events},
-            )
-        )
-    else:
-        click.secho(f"Provider {provider_id!r} is now connected.", fg="green")
 
 
 # ---------------------------------------------------------------------------

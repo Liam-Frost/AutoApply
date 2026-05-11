@@ -104,14 +104,18 @@ def _register_builtins(registry: ProviderRegistry) -> None:
     """
     from src.providers.anthropic import AnthropicProvider  # noqa: PLC0415
     from src.providers.claude_cli import ClaudeCliProvider  # noqa: PLC0415
-    from src.providers.codex import CodexOAuthProvider  # noqa: PLC0415
+    from src.providers.codex import CodexCliProvider  # noqa: PLC0415
     from src.providers.gemini import GeminiProvider  # noqa: PLC0415
     from src.providers.openai import OpenAIProvider  # noqa: PLC0415
 
     registry.register(OpenAIProvider)
     registry.register(AnthropicProvider)
     registry.register(GeminiProvider)
-    registry.register(CodexOAuthProvider)
+    # Codex and Claude are both subprocess wrappers around an
+    # already-installed agent CLI; neither owns its OAuth flow. A
+    # future native CodexOAuthProvider would live alongside these,
+    # not replace them.
+    registry.register(CodexCliProvider)
     registry.register(ClaudeCliProvider)
 
 

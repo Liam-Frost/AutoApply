@@ -20,7 +20,6 @@ from src.providers.base import (
     ProviderCredentials,
     ProviderTestResult,
 )
-from src.providers.codex import CodexLoginEvent
 from src.providers.registry import ProviderRegistry, reset_default_registry
 from src.providers.store import CredentialStore
 
@@ -373,81 +372,22 @@ class TestProviderUse:
         assert json.loads(result.output)["ok"] is False
 
 
-# ---------------------------------------------------------------------------
-# login (Codex OAuth)
-# ---------------------------------------------------------------------------
+# Note: there is no longer a `provider login` subcommand. Codex /
+# Claude CLI providers manage their own auth via `codex login` /
+# `claude login` in the user's shell. A native OAuth provider (one
+# that owns its own tokens, not just wraps a CLI's login flow) would
+# reintroduce a Connect command here.
 
 
-class TestProviderLogin:
-    def test_login_drives_codex_session(
-        self,
-        runner: CliRunner,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from src.providers.codex import CodexOAuthProvider
-
-        reset_default_registry()
-        store = CredentialStore(path=tmp_path / "creds.json")
-
-        # Fake login session: pretend the user finished OAuth quickly.
-        class _FakeSession:
-            return_code = 0
-            url = "https://auth.openai.com/oauth"
-            code = None
-            events: list[CodexLoginEvent] = []
-
-            def wait(self, timeout: float | None = None) -> int:  # noqa: ARG002
-                return 0
-
-            def cancel(self) -> None:  # pragma: no cover
-                pass
-
-        provider = CodexOAuthProvider(store=store, codex_executable="codex")
-
-        # Monkeypatch start_login to skip subprocess entirely.
-        def fake_start_login(**kwargs):
-            on_event = kwargs.get("on_event")
-            if on_event:
-                on_event(
-                    CodexLoginEvent(
-                        type="url", message="https://auth.openai.com/oauth"
-                    )
-                )
-                on_event(CodexLoginEvent(type="complete", message="done"))
-            return _FakeSession()
-
-        monkeypatch.setattr(provider, "start_login", fake_start_login)
-
-        registry = ProviderRegistry(store=store)
-        registry._classes["codex-cli"] = CodexOAuthProvider
-        registry._instances["codex-cli"] = provider
-
-        import src.providers.registry as registry_module
-
-        registry_module._default_registry = registry
-
-        result = runner.invoke(
-            cli,
-            ["provider", "login", "codex-cli", "--no-browser", "--json"],
-        )
-        try:
-            assert result.exit_code == 0, result.output
-            payload = json.loads(result.output)
-            assert payload["ok"] is True
-            assert any(
-                ev["type"] == "url" for ev in payload["data"]["events"]
-            )
-            assert store.get("codex-cli") is not None
-        finally:
-            reset_default_registry()
-
-    def test_login_rejects_non_oauth_provider(
+class TestNoLoginSubcommand:
+    def test_login_subcommand_does_not_exist(
         self, runner: CliRunner, isolated_registry: ProviderRegistry
     ) -> None:
-        result = runner.invoke(
-            cli, ["provider", "login", "stub-api", "--json"]
-        )
+        result = runner.invoke(cli, ["provider", "login", "codex-cli"])
+        # click returns exit code 2 ("usage error") when an unknown
+        # subcommand is invoked.
         assert result.exit_code == 2
-        payload = json.loads(result.output)
-        assert "does not support OAuth" in payload["error"]["message"]
+        assert (
+            "No such command" in result.output
+            or "no such command" in result.output.lower()
+        )

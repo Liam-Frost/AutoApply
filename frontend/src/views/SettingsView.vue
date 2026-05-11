@@ -11,7 +11,6 @@ import {
   Plug,
   RefreshCw,
   Sparkles,
-  Terminal,
   Trash2,
   Unplug,
 } from "lucide-vue-next"
@@ -104,12 +103,6 @@ const connectDialog = reactive({
   error: "",
 })
 
-const cliHintDialog = reactive({
-  open: false,
-  providerId: "",
-  providerLabel: "",
-  authType: "",
-})
 
 function providerOp(providerId) {
   if (!state.providerOps[providerId]) {
@@ -208,13 +201,6 @@ function openConnectDialog(provider) {
   connectDialog.error = ""
   connectDialog.submitting = false
   connectDialog.open = true
-}
-
-function openCliHint(provider) {
-  cliHintDialog.providerId = provider.id
-  cliHintDialog.providerLabel = provider.display_name
-  cliHintDialog.authType = provider.auth_type
-  cliHintDialog.open = true
 }
 
 async function submitConnect() {
@@ -376,6 +362,28 @@ function isSubprocessProvider(provider) {
   return provider.auth_type === "subprocess"
 }
 
+/**
+ * Did AutoApply store a credential record for this provider?
+ *
+ * For API-key providers this is "yes, user pasted a key".
+ * For subprocess providers this should normally be "no" -- the CLI
+ * owns its own auth and we don't store anything. The exception is
+ * users upgrading from the older Phase-10 OAuth-wrapper revision,
+ * who may have a "managed_by: codex-cli" breadcrumb left over. We
+ * surface that as a stored credential so the Disconnect button is
+ * available to clean it up.
+ */
+function hasStoredCredential(provider) {
+  return Boolean(provider.credentials && provider.credentials.has_secret)
+}
+
+function disconnectLabel(provider) {
+  if (isSubprocessProvider(provider) && hasStoredCredential(provider)) {
+    return "Clear stored record"
+  }
+  return "Disconnect"
+}
+
 function isPrimary(provider) {
   return state.form.primary_provider === provider.id
 }
@@ -515,7 +523,15 @@ function isPrimary(provider) {
                 {{ providerOp(provider.id).using ? "..." : "Use as primary" }}
               </Button>
 
-              <!-- API_KEY provider: open dialog with key input -->
+              <!--
+                API_KEY providers expose a Connect dialog where the
+                user pastes their key. Subprocess providers (Claude /
+                Codex CLI) deliberately have NO Connect button -- they
+                are orchestrated agent CLIs that own their own auth
+                (run `claude login` / `codex login` in your shell).
+                A future native OAuth provider would reintroduce its
+                own Connect affordance here.
+              -->
               <Button
                 v-if="provider.auth_type === 'api_key'"
                 :variant="provider.configured ? 'ghost' : 'default'"
@@ -526,24 +542,20 @@ function isPrimary(provider) {
                 {{ provider.configured ? "Update key" : "Connect" }}
               </Button>
 
-              <!-- OAUTH provider: surface CLI instructions -->
-              <Button
-                v-if="provider.auth_type === 'oauth' && !provider.configured"
-                size="sm"
-                @click="openCliHint(provider)"
-              >
-                <Terminal class="h-4 w-4" />
-                Connect
-              </Button>
-
               <!--
-                Disconnect: only for API-key and OAuth providers. We
-                deliberately hide it for subprocess (CLI) providers
-                because the CLI manages its own auth -- "disconnect"
-                from AutoApply's side would be a no-op.
+                Disconnect is shown for:
+                  * API-key providers (the normal connect/disconnect flow)
+                  * Subprocess providers ONLY when AutoApply has a
+                    stored credential record for them. The current
+                    subprocess providers never write a record, but
+                    users upgrading from the Phase-10 OAuth-wrapper
+                    revision may have a stale "managed_by: codex-cli"
+                    breadcrumb. Letting them clear it from the UI
+                    avoids the misleading "Last verified ..." line
+                    sticking around forever.
               -->
               <Button
-                v-if="provider.configured && !isSubprocessProvider(provider)"
+                v-if="(!isSubprocessProvider(provider) && provider.configured) || hasStoredCredential(provider)"
                 variant="ghost"
                 size="sm"
                 class="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -551,7 +563,7 @@ function isPrimary(provider) {
                 @click="disconnectProvider(provider)"
               >
                 <Unplug class="h-4 w-4" />
-                {{ providerOp(provider.id).disconnecting ? "..." : "Disconnect" }}
+                {{ providerOp(provider.id).disconnecting ? "..." : disconnectLabel(provider) }}
               </Button>
             </div>
           </div>
@@ -766,33 +778,5 @@ function isPrimary(provider) {
       </DialogContent>
     </Dialog>
 
-    <!-- CLI-flow hint dialog (OAuth providers) --------------------------- -->
-    <Dialog v-model:open="cliHintDialog.open">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Connect {{ cliHintDialog.providerLabel }}</DialogTitle>
-          <DialogDescription>
-            OAuth login needs to open a browser on your machine. Run the command below in a terminal -- it will print a
-            URL, open your browser, and AutoApply will pick up the connection automatically.
-          </DialogDescription>
-        </DialogHeader>
-
-        <pre
-          class="overflow-x-auto rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground"
-        ><code>autoapply provider login {{ cliHintDialog.providerId }}</code></pre>
-
-        <p class="text-xs text-muted-foreground">
-          When the CLI prints "Login completed", come back here and click "Refresh" to see the connection.
-        </p>
-
-        <DialogFooter>
-          <Button variant="ghost" @click="cliHintDialog.open = false">Close</Button>
-          <Button @click="refreshAll">
-            <RefreshCw class="h-4 w-4" />
-            Refresh
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   </div>
 </template>
