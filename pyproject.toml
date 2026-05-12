@@ -4,6 +4,21 @@ version = "0.7.0"
 description = "AI-powered automated job application agent"
 readme = "README.md"
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Liam Frost", email = "frostnova986@gmail.com" },
+]
+classifiers = [
+    # PolyForm Noncommercial 1.0.0 is not on the OSI/SPDX standard list,
+    # so we use the "Other/Proprietary" classifier. See LICENSE for full terms.
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
 dependencies = [
     # Database
     "sqlalchemy>=2.0",
@@ -65,3 +80,8 @@ package = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.hatch.metadata]
+# License file is referenced via `project.license` (file = "LICENSE").
+# Hatchling picks it up automatically; this section is kept for clarity.
+allow-direct-references = false

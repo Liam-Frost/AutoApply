@@ -4,6 +4,34 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Licensing: PolyForm Noncommercial 1.0.0 adopted
+
+The project was previously unlicensed ("Private -- not yet
+determined" in the README). Adopted **PolyForm Noncommercial 1.0.0**
+as the source-available license.
+
+- Added `LICENSE` at the repo root with the full PolyForm
+  Noncommercial 1.0.0 text plus a `Required Notice` and a
+  `Commercial Use` section directing commercial users to
+  `frostnova986@gmail.com` for a separate license.
+- Updated `README.md` License section with a permitted-vs-
+  commercial table and the commercial-licensing contact path.
+- Updated `pyproject.toml`: `license = { file = "LICENSE" }`,
+  `authors`, and a `License :: Other/Proprietary License`
+  classifier (PolyForm Noncommercial is not on the OSI/SPDX
+  standard list, so we use the "Other" classifier; the canonical
+  license name lives in `LICENSE` itself).
+
+**What is permitted without contacting the author**: personal use
+to apply for your own jobs, academic / coursework / thesis use,
+nonprofit / public-research / educational-institution use, and
+noncommercial open-source forks.
+
+**What requires a commercial license**: running AutoApply as a
+paid service, bundling it into a commercial product, using it
+inside a for-profit company's recruiting workflow, or selling
+support / hosting / modifications.
+
 ### Phase 10: LLM Provider Abstraction
 
 The "LLM" layer was previously hard-coded to two subprocess

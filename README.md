@@ -1,6 +1,8 @@
 # AutoApply
 
-An AI-powered agent that automates the entire job application process — from job discovery to submission tracking.
+An AI-powered agent that automates the entire job application process — from job discovery to submission tracking. Provider-agnostic LLM layer (OpenAI / Anthropic / Gemini / Claude CLI / Codex CLI), human-in-the-loop on every submit, fully auditable trace.
+
+> **License**: [PolyForm Noncommercial 1.0.0](LICENSE). Personal / academic / nonprofit use is free. Commercial use requires a separate license — see [Commercial Use](#commercial-use).
 
 ## Docs
 
@@ -24,6 +26,8 @@ An AI-powered agent that automates the entire job application process — from j
 - **Form Automation**: Playwright-driven form filling with state machine recovery, screenshots, and human confirmation before submit
 - **Document Pipeline**: Template packages (`template.docx` + manifest/style lock), deterministic rendering, PDF export, validation, and version tracking
 - **Application Tracking**: Full CRM with analytics on hit rates, platform quality, and resume version effectiveness
+- **Provider-Agnostic LLM Layer**: Plug in OpenAI / Anthropic / Gemini (REST) or Claude CLI / Codex CLI (subprocess) interchangeably. Credentials stored at `0600` with OS-keyring fallback; primary + fallback chain configurable per call site
+- **Agent Mode** (form-filler today, cover-letter & filter next): allow-listed tool registry, bounded ReAct loop, file-backed HITL approval gate, fixture-driven eval harness, per-step cost / latency telemetry
 
 ## Architecture
 
@@ -44,10 +48,11 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 | Component | Technology |
 |---|---|
 | Language | Python 3.12+ |
-| Frontend | Vue 3 + Vue Router + Vite |
+| Frontend | Vue 3 + Vue Router + Vite + Tailwind v3 + shadcn-vue + reka-ui |
 | Web Backend | FastAPI JSON API |
 | Browser Automation | Playwright |
-| LLM | Claude Code CLI + Codex CLI (via subprocess) |
+| LLM Providers | OpenAI / Anthropic / Gemini (REST via httpx) **or** Claude Code CLI / Codex CLI (subprocess) — interchangeable through `ProviderRegistry` |
+| Agent Harness | In-house ReAct loop with allow-listed `ToolRegistry`, file-backed HITL gate, JSON-on-disk trace store, fixture-driven eval runner |
 | Database | PostgreSQL + pgvector |
 | Document Processing | python-docx, docx2pdf / LibreOffice |
 | Package Manager | uv + npm |
@@ -59,7 +64,7 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 frontend/            # Vue frontend source and build config
 src/
 ├── application/   # Shared use cases for CLI and Web
-├── core/          # Agent orchestration & state machine
+├── core/          # Orchestration & state machine
 ├── intake/        # Job scraping & schema
 ├── matching/      # Filtering & scoring
 ├── memory/        # Applicant profile, story bank, QA bank, bullet pool
@@ -67,11 +72,24 @@ src/
 ├── execution/     # Playwright browser, form filler, ATS adapters
 ├── documents/     # DOCX/PDF engine, template packages, page count helpers
 ├── tracker/       # Database, analytics, export
-├── utils/         # LLM wrapper, rate limiter, logger
+├── providers/     # LLM provider abstraction: OpenAI / Anthropic / Gemini REST
+│                  # adapters + Claude CLI / Codex CLI subprocess providers,
+│                  # credential store, registry, dispatch bridge
+├── agent/         # In-house agent harness:
+│   ├── tools/     #   tool ABC + builtin / browser / profile tools
+│   ├── core/      #   ReAct loop, cost telemetry
+│   ├── trace/     #   JSON-on-disk trace store
+│   ├── eval/      #   fixture-driven eval runner + scorers
+│   └── gate/      #   file-backed HITL approval queue
+├── cli/           # `autoapply` Click CLI (search, apply, status,
+│                  #   provider, eval)
+├── utils/         # LLM dispatch wrapper, rate limiter, logger
 └── web/           # FastAPI API + built SPA assets
 ```
 
 ## Current Status
+
+### Shipped
 
 - **Phase 1** (Infrastructure + Applicant Memory + Document Processing) — Complete
 - **Phase 2** (Job Intake + Smart Filtering) — Complete
@@ -83,9 +101,24 @@ src/
 - **Phase 8** (Materials Workspace + DOCX Template Packages + Hardening) — Complete
 - **Agent Phase 8** (Agent Harness: tools / loop / trace / eval / HITL gate) — Complete
 - **Agent Phase 9** (Form-Filler Agent with HITL review + eval suite + cost telemetry) — Complete
+- **Phase 10** (LLM Provider Abstraction: REST adapters for OpenAI / Anthropic / Gemini + subprocess providers for Claude CLI / Codex CLI; credential store; `autoapply provider` CLI; `/settings` provider management UI) — Complete
 
-553 tests passing, 1 skipped. See [CHANGELOG](docs/CHANGELOG.md) and
-[AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
+**669 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
+
+### Roadmap (Phase 11 → 16)
+
+Re-planned 2026-05-12 after Phase 10 landed. Two new cross-cutting infrastructure phases (caching, scheduling) are inserted ahead of the remaining agent work because they unblock the nightly-run loop in Phase 16.
+
+| Phase | Scope | Est. |
+|---|---|---|
+| 11 | Reliability & Cleanup — provider fallback chain, `autoapply migrate`, provider health monitor, docs sync | ~1 week |
+| 12 | Caching Foundation — `src/cache/` tiered (L1 LRU + L2 SQLite), per-namespace TTL, wire into JD scraping + LLM + embeddings, inspector UI, cost-saved dashboard | ~1.5 weeks |
+| 13 | Scheduled Task System — APScheduler + SQLite jobstore, built-in jobs (`daily_search`, `jd_health_check`, `status_sync`, `cookie_refresh`, `cache_eviction`), CLI + Web UI | ~1.5 weeks |
+| 14 | Cover-letter Agent — `jd_lookup` tool, `AgentCoverLetter` orchestrator, fact-drift guard, 5-fixture eval suite (was originally Phase 10) | ~2 weeks |
+| 15 | Filter Agent + Explainability — reason chain in `src/matching/`, edge-case agent for borderline scores, "Why was this filtered?" UI | ~1.5 weeks |
+| 16 | Daily Run Loop + Review Queue — `nightly_run` orchestrator, `/review` kanban, bulk operations, morning digest, kill switch | ~2 weeks |
+
+See [PROJECT_MANAGEMENT.md](docs/PROJECT_MANAGEMENT.md) for the full sub-phase breakdown and per-phase verification commands.
 
 ## CLI Usage
 
@@ -125,6 +158,14 @@ autoapply eval --suite form_filler --min-pass-rate 0.85
 
 # List available eval suites
 autoapply eval --list
+
+# Manage LLM providers (Phase 10)
+autoapply provider list                          # show all providers + auth state
+autoapply provider set-key openai sk-...         # store API key (file 0600 + keyring fallback)
+autoapply provider test openai                   # deep round-trip test, not just key presence
+autoapply provider set-primary anthropic         # which provider gets called by generate_text
+autoapply provider set-fallback openai           # provider chain (Phase 11.1 will use it for auto-failover)
+autoapply provider disconnect openai             # remove stored credential
 ```
 
 ## Agent Mode
@@ -158,7 +199,8 @@ Primary routes:
 - `/materials` generates resumes and cover letters from search results or pasted JDs
 - `/applications` tracks outcomes and pipeline status
 - `/profile` manages applicant profile data
-- `/settings` manages LLM provider priority, fallback, and search cache settings
+- `/settings` manages LLM providers (connect / test / set-primary / set-fallback / disconnect for OpenAI, Anthropic, Gemini, Claude CLI, Codex CLI), LinkedIn session, and search-cache settings
+- `/api/agent/viewer` agent trace viewer + HITL approval queue (read traces, approve/reject pending submits)
 
 The Materials page is the main human-in-the-loop generation workflow: select a job or paste a JD, choose an applicant profile, select resume/cover letter templates and formats, generate, preview, then download DOCX/PDF artifacts.
 
@@ -170,7 +212,9 @@ The Materials page is the main human-in-the-loop generation workflow: select a j
 
 - Python 3.12+
 - PostgreSQL 16+ with pgvector extension
-- At least one local LLM CLI: Claude Code CLI or Codex CLI
+- **At least one LLM provider** — any of:
+  - **API key**: OpenAI / Anthropic / Gemini (configured via `autoapply provider set-key <name> <key>` or the `/settings` page)
+  - **CLI**: Claude Code CLI (`npm install -g @anthropic-ai/claude-code`) or Codex CLI (`npm install -g @openai/codex`) — auth managed by the CLI itself via `claude login` / `codex login`
 - uv package manager
 - Node.js and npm only if you plan to rebuild the frontend assets locally
 
@@ -193,10 +237,6 @@ cd ..
 # Install Playwright browser
 uv run playwright install chromium
 
-# Install at least one LLM CLI locally
-# npm install -g @anthropic-ai/claude-code
-# npm install -g @openai/codex
-
 # Configure
 cp config/.env.example .env
 # Edit .env with your settings
@@ -204,8 +244,21 @@ cp config/.env.example .env
 # Setup database
 alembic upgrade head
 
-# First-time setup with explicit LLM priority
-uv run autoapply init --llm-primary claude-cli --llm-fallback codex-cli
+# Pick at least one LLM provider:
+
+#   --- Option A: API key (no CLI install needed) ---
+uv run autoapply provider set-key openai sk-...
+uv run autoapply provider set-primary openai
+uv run autoapply provider test openai
+
+#   --- Option B: Use a local CLI (auth lives in the CLI) ---
+# npm install -g @anthropic-ai/claude-code   # then `claude login`
+# npm install -g @openai/codex               # then `codex login`
+uv run autoapply provider set-primary claude-cli   # or codex-cli
+uv run autoapply provider test claude-cli
+
+# First-time setup wizard (interactive; configures profile, provider, settings)
+uv run autoapply init
 ```
 
 The committed repo includes built frontend assets under `src/web/static/spa`, so rebuilding the Vue app is mainly needed when you change files under `frontend/`.
@@ -220,4 +273,38 @@ The committed repo includes built frontend assets under `src/web/static/spa`, so
 
 ## License
 
-Private — not yet determined.
+AutoApply is released under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+### What this means
+
+| | Allowed | Requires Commercial License |
+|---|---|---|
+| Run AutoApply to apply for **your own** jobs | ✅ | |
+| Personal experimentation, learning, hobby use | ✅ | |
+| Academic research, coursework, thesis projects | ✅ | |
+| Use by a registered nonprofit / public-research org / educational institution | ✅ | |
+| Open-source forks for noncommercial experimentation | ✅ | |
+| Read, modify, and redistribute the source code (noncommercial) | ✅ | |
+| Run AutoApply as a **paid service** for other job seekers | | ❌ |
+| Bundle AutoApply (in whole or in part) into a **commercial product** | | ❌ |
+| Use AutoApply inside a **for-profit company's** workflow (e.g., a recruiting service) | | ❌ |
+| Sell **support, hosting, or modifications** based on AutoApply | | ❌ |
+
+### Commercial Use
+
+Commercial use is **not** granted under the default license. If your use case falls on the right column of the table — or you're unsure — please contact the author to negotiate a separate commercial license:
+
+- **Email**: <frostnova986@gmail.com>
+- **GitHub**: <https://github.com/Liam-Frost/AutoApply>
+
+When you reach out, please briefly describe (a) your organization, (b) the intended use case, and (c) expected scale. I'll respond with terms.
+
+### Required Notice
+
+> Required Notice: Copyright (c) 2026 Liam Frost (frostnova986@gmail.com)
+
+This notice must be preserved in any redistribution of the software, in source or binary form.
+
+### Warranty disclaimer
+
+The software is provided **as-is**, without any warranty. See the [full LICENSE text](LICENSE) for the legally binding terms.
