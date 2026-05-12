@@ -49,6 +49,12 @@ class TestAppFactory:
         assert "/api/profile" in paths
         assert "/api/settings/llm" in paths
         assert "/api/settings/search-cache" in paths
+        # Phase 10.7: provider management endpoints
+        assert "/api/providers" in paths
+        assert "/api/providers/{provider_id}/test" in paths
+        assert "/api/providers/{provider_id}/set-key" in paths
+        assert "/api/providers/{provider_id}" in paths
+        assert "/api/providers/{provider_id}/use" in paths
 
 
 class TestSpaShell:
@@ -980,6 +986,118 @@ class TestSettingsApi:
 
         assert response.status_code == 200
         assert "Cleared 3" in response.json()["message"]
+
+
+class TestProvidersApi:
+    """HTTP smoke tests for the Phase 10 provider management surface."""
+
+    def test_list_providers(self, client):
+        with patch(
+            "src.web.routes.api.list_providers",
+            return_value={
+                "ok": True,
+                "providers": [
+                    {
+                        "id": "openai",
+                        "display_name": "OpenAI",
+                        "auth_type": "api_key",
+                        "configured": False,
+                    }
+                ],
+                "primary_provider": "claude-cli",
+                "fallback_provider": None,
+            },
+        ):
+            response = client.get("/api/providers")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["providers"][0]["id"] == "openai"
+
+    def test_test_provider_unknown_returns_404(self, client):
+        with patch(
+            "src.web.routes.api.test_provider_connection",
+            return_value={
+                "ok": False,
+                "error": "Unknown provider 'nope'.",
+                "error_code": "unknown_provider",
+            },
+        ):
+            response = client.post("/api/providers/nope/test")
+        assert response.status_code == 404
+
+    def test_test_provider_ok(self, client):
+        with patch(
+            "src.web.routes.api.test_provider_connection",
+            return_value={
+                "ok": True,
+                "provider_id": "openai",
+                "result": {"ok": True, "detail": "OK", "latency_ms": 42, "model_count": 7},
+            },
+        ):
+            response = client.post("/api/providers/openai/test")
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_set_key_rejects_empty_key(self, client):
+        with patch(
+            "src.web.routes.api.connect_api_key_provider",
+            return_value={
+                "ok": False,
+                "error": "API key is empty.",
+                "error_code": "empty_api_key",
+            },
+        ):
+            response = client.post(
+                "/api/providers/openai/set-key",
+                json={"api_key": ""},
+            )
+        assert response.status_code == 400
+
+    def test_set_key_saves_and_verifies(self, client):
+        with patch(
+            "src.web.routes.api.connect_api_key_provider",
+            return_value={
+                "ok": True,
+                "provider_id": "openai",
+                "verified": True,
+                "message": "Connected and verified.",
+                "test_result": {"ok": True, "detail": "OK"},
+            },
+        ) as mocked:
+            response = client.post(
+                "/api/providers/openai/set-key",
+                json={"api_key": "sk-test", "model": "gpt-4o-mini"},
+            )
+        assert response.status_code == 200
+        assert mocked.call_args.kwargs["api_key"] == "sk-test"
+        assert mocked.call_args.kwargs["model"] == "gpt-4o-mini"
+
+    def test_disconnect_provider(self, client):
+        with patch(
+            "src.web.routes.api.disconnect_provider",
+            return_value={"ok": True, "provider_id": "openai", "message": "Disconnected openai."},
+        ):
+            response = client.delete("/api/providers/openai")
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_use_provider(self, client):
+        with patch(
+            "src.web.routes.api.use_provider_as_primary",
+            return_value={
+                "ok": True,
+                "primary_provider": "openai",
+                "fallback_provider": "claude-cli",
+                "message": "Primary provider set to openai.",
+            },
+        ) as mocked:
+            response = client.post(
+                "/api/providers/openai/use",
+                json={"fallback_provider": "claude-cli"},
+            )
+        assert response.status_code == 200
+        assert mocked.call_args.kwargs["fallback_provider"] == "claude-cli"
 
 
 class TestWebCLI:

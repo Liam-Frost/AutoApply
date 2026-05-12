@@ -59,6 +59,13 @@ from src.application.profile import (
     rename_profile_data,
     save_profile_data,
 )
+from src.application.providers import (
+    connect_api_key_provider,
+    disconnect_provider,
+    list_providers,
+    test_provider_connection,
+    use_provider_as_primary,
+)
 from src.application.search_profiles import (
     delete_search_profile_data,
     load_search_profiles_data,
@@ -153,6 +160,16 @@ class LLMSettingsPayload(BaseModel):
     allow_fallback: bool = False
     cache_enabled: bool = True
     cache_ttl_hours: int = 24
+
+
+class ProviderSetKeyPayload(BaseModel):
+    api_key: str
+    model: str | None = None
+    base_url: str | None = None
+
+
+class ProviderUsePayload(BaseModel):
+    fallback_provider: str | None = None
 
 
 class ProfileSavePayload(BaseModel):
@@ -554,4 +571,61 @@ async def clear_search_cache() -> dict:
     result = clear_search_cache_data()
     if not result["ok"]:
         raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Providers (Phase 10 registry surface)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/providers")
+async def providers_list() -> dict:
+    """Return the public view of every registered provider."""
+    return list_providers()
+
+
+@router.post("/providers/{provider_id}/test")
+async def providers_test(provider_id: str) -> dict:
+    result = test_provider_connection(provider_id)
+    if not result["ok"] and result.get("error_code") == "unknown_provider":
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.post("/providers/{provider_id}/set-key")
+async def providers_set_key(
+    provider_id: str, payload: ProviderSetKeyPayload
+) -> dict:
+    result = connect_api_key_provider(
+        provider_id,
+        api_key=payload.api_key,
+        model=payload.model,
+        base_url=payload.base_url,
+    )
+    code = result.get("error_code") if not result.get("ok") else None
+    if code == "unknown_provider":
+        raise HTTPException(status_code=404, detail=result["error"])
+    if code in {"wrong_auth_type", "empty_api_key"}:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/providers/{provider_id}")
+async def providers_disconnect(provider_id: str) -> dict:
+    result = disconnect_provider(provider_id)
+    if not result["ok"] and result.get("error_code") == "unknown_provider":
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.post("/providers/{provider_id}/use")
+async def providers_use(
+    provider_id: str, payload: ProviderUsePayload
+) -> dict:
+    result = use_provider_as_primary(
+        provider_id, fallback_provider=payload.fallback_provider
+    )
+    if not result["ok"] and result.get("error_code") == "unknown_provider":
+        raise HTTPException(status_code=404, detail=result["error"])
     return result
