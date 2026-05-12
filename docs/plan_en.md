@@ -364,6 +364,64 @@ Built from day one, not retrofitted:
 23. Template Library uploads and package validation
 24. Security hardening for template IDs, artifact paths, upload sizes, profile IDs, LinkedIn cache/enrichment, and parser heuristics
 
+### Agent Phase 8 + 9: Agent Harness + Form-Filler Agent (Complete)
+
+**Goal**: Stand up a confined, evaluable, HITL-gated agent loop and convert the first business node (form-filling) onto it.
+
+25. Tool abstraction layer with allow-list registry; bounded ReAct loop (works on Claude and Codex CLIs); JSON-on-disk trace store + web viewer; fixture-driven eval harness; file-backed HITL approval queue.
+26. Browser tool layer (read-only inspect + propose-only fill); `AgentFormFiller` orchestrator with HITL gate on submit; 5-fixture eval suite; per-step cost / latency telemetry surfaced in eval output and trace viewer.
+
+### Phase 10: LLM Provider Abstraction (Complete)
+
+**Goal**: Break out of the "Claude CLI + Codex CLI subprocess" lock-in so every downstream agent phase can target any of the major LLM providers.
+
+27. `LLMProvider` ABC + `ProviderRegistry` + secure credential store; REST adapters for OpenAI / Anthropic / Gemini using `httpx`; subprocess providers for Claude CLI / Codex CLI (`auth_type=SUBPROCESS`).
+28. Deep `test_connection` for every provider (auth round-trip, not just key-present); `codex login status` probe for subprocess providers so installed-but-unauthenticated is reported correctly.
+29. `autoapply provider` CLI subcommands (`list / set-key / test / set-primary / set-fallback / disconnect`) and a `/settings` Web UI that exposes the same operations.
+
+### Phase 11: Reliability & Cleanup (Next)
+
+**Goal**: Make the provider layer production-grade and clean up upgrade paths.
+
+30. Provider fallback chain in `generate_text` -- primary + ordered fallbacks; auto-failover on quota / network / auth; attempt chain recorded in trace.
+31. `autoapply migrate` command to clean stale credential breadcrumbs and rename legacy settings keys on upgrade.
+32. Background provider health probe; "Last verified" in Settings becomes real telemetry.
+
+### Phase 12: Caching Foundation + Integration
+
+**Goal**: General-purpose tiered cache for the project's expensive operations; wire it into LLM, JD scraping, and embeddings.
+
+33. `src/cache/` -- L1 in-memory LRU + L2 SQLite-backed; per-namespace TTL; version-stamped keys; explicit invalidation API.
+34. Hook into Greenhouse / Lever / LinkedIn scrapers and into `generate_text()` (opt-in via `cache=True`); cache inspector + cost-saved dashboard in the Web UI.
+
+### Phase 13: Scheduled Task System
+
+**Goal**: First-class scheduler for nightly batches, periodic refreshes, and cookie maintenance.
+
+35. APScheduler + SQLite jobstore integrated into FastAPI lifespan; built-in jobs (`daily_search`, `jd_health_check`, `application_status_sync`, `linkedin_cookie_refresh`, `cache_eviction`).
+36. CLI + Web UI for managing schedules; trace records for every scheduled run reusing the Phase 8.3 store.
+
+### Phase 14: Cover-letter Agent
+
+**Goal**: The original "agent-mode cover letter" plan, now done after the provider + cache + scheduler foundations are in place.
+
+37. New `jd_lookup` tool; `AgentCoverLetter` orchestrator producing structured IR with evidence citations.
+38. Fact-drift checker as post-guard; HITL gate fires only on bullet/story-bank mutation, not on letter generation; eval suite with 5 fixtures; Phase 12 cache participation keeps per-letter cost bounded.
+
+### Phase 15: Filter Agent + Explainability
+
+**Goal**: Make every job-filter decision explainable; only invoke an agent for borderline cases.
+
+39. Filter reason chain in `src/matching/` -- every reject carries `{rule_id, reason, evidence_excerpt}`.
+40. Edge-case agent for jobs scoring [0.4, 0.6]; "Why was this filtered?" affordance in JobsView; eval suite against human-annotated borderline jobs.
+
+### Phase 16: Daily Run Loop + Review Queue
+
+**Goal**: Integration phase. Thread the scheduler + cache + agents into a "sleep, wake to a review queue" flow.
+
+41. `nightly_run` orchestrator: scheduled search → filter (with reasons) → top-N tailored via Phase 9 + Phase 14 agents → enqueue into review queue. Never auto-submits.
+42. `/review` kanban (Pending / Approved / Submitted / Rejected) with bulk operations; morning digest; `autoapply pause-nightly` kill switch.
+
 ## Key Design Principles
 
 1. **State machine-driven**: Every application is a state machine — interruptible, resumable, auditable
@@ -389,5 +447,14 @@ Built from day one, not retrofitted:
 - Phase 6: LinkedIn search → external ATS link resolution → existing apply/material pipeline
 - Phase 7: `autoapply web` → Vue SPA search/tracking/settings workflow
 - Phase 8: `/jobs` → `/materials?jobId=...` → DOCX/PDF generation, preview, validation, download
+- Agent Phase 8: `autoapply eval --suite agent_smoke` → all cases pass
+- Agent Phase 9: `autoapply eval --suite form_filler --min-pass-rate 0.85` → 5/5 pass, est. cost ≤ $0.25
+- Phase 10: Settings page → connect/test/disconnect each provider; `autoapply provider test <name>` reports auth state accurately for both REST and CLI providers
+- Phase 11: revoke primary provider mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` cleans legacy state
+- Phase 12: re-run same batch → LLM cache hit-rate > 80%, wall time < 20%, cost < 5%
+- Phase 13: register a cron'd job → restart process → trace record appears at next tick
+- Phase 14: cover-letter eval 5/5 pass, ≤ $0.08/letter cache-miss, ≤ $0.02 cache-hit
+- Phase 15: any rejected job in JobsView surfaces a reason chain in < 5s
+- Phase 16: schedule nightly run Monday 23:00 → wake Tuesday 08:00 to N pre-tailored applications in review queue, each approvable in < 30s
 
-Current baseline: `uv run python -m pytest` passes with 340 tests and 1 skipped LinkedIn smoke test; `uv run ruff check .` and `npm run build` pass.
+Current baseline at Phase 10 close: `uv run python -m pytest` passes with 669 tests and 1 skipped; `uv run ruff check src/ tests/` and `npm run build` pass.

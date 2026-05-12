@@ -364,6 +364,64 @@ DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
 23. Template Library 上传和 package 校验
 24. template ID、artifact path、上传大小、profile ID、LinkedIn cache/enrichment、parser heuristics 等安全和稳定性修复
 
+### Agent Phase 8 + 9: Agent Harness + Form-Filler Agent（已完成）
+
+**目标**：搭建受限、可评估、HITL-gated 的 agent loop，并把第一个业务节点（表单填写）切到 agent 模式。
+
+25. Tool 抽象层 + allow-list 注册表；Bounded ReAct loop（同时支持 Claude / Codex CLI）；JSON 落盘 trace store + Web viewer；fixture 驱动的 eval harness；文件队列 HITL approval gate。
+26. Browser tool 层（read-only inspect + propose-only fill）；`AgentFormFiller` orchestrator 在 submit 时强制走 HITL gate；5 个 fixture 的 eval suite；per-step token/cost/latency 数据贯通到 eval 输出和 trace viewer。
+
+### Phase 10: LLM Provider 抽象（已完成）
+
+**目标**：摆脱"只支持 Claude CLI + Codex CLI 子进程"的锁定，让下游每个 agent phase 都能选任意一家 LLM 厂商。
+
+27. `LLMProvider` ABC + `ProviderRegistry` + 安全凭证存储；OpenAI / Anthropic / Gemini 三家的 REST 适配器（`httpx`）；Claude CLI / Codex CLI 子进程 provider（`auth_type=SUBPROCESS`）。
+28. 每个 provider 都有深度 `test_connection`（真正发请求，不只是看 token 是否存在）；子进程 provider 额外跑 `codex login status`，正确报告"已安装但未登录"状态。
+29. `autoapply provider` CLI 子命令（`list / set-key / test / set-primary / set-fallback / disconnect`）+ `/settings` Web UI 同等能力。
+
+### Phase 11: 可靠性 & 收尾（下一步）
+
+**目标**：让 provider 层达到生产级；为升级用户提供平滑迁移。
+
+30. `generate_text` 支持 primary + 多个 fallback；遇到 quota / network / auth 错误自动切换；尝试链记录到 trace。
+31. `autoapply migrate` 命令：清理过时凭证 breadcrumb、重命名旧 settings 字段。
+32. 后台 provider 健康探测；Settings 页面"上次验证"显示真实数据。
+
+### Phase 12: 缓存基础设施 + 集成
+
+**目标**：通用分层缓存，覆盖项目中所有昂贵操作（LLM、JD 抓取、embedding）。
+
+33. `src/cache/` —— L1 in-memory LRU + L2 SQLite 落盘；按 namespace 设 TTL；带版本号的 cache key；显式失效 API。
+34. 接入 Greenhouse / Lever / LinkedIn scraper 和 `generate_text()`（`cache=True` opt-in）；Web UI 提供 cache inspector + 节省成本看板。
+
+### Phase 13: 定时任务系统
+
+**目标**：一等公民的调度器，支持夜间批处理、定期刷新、cookie 维护。
+
+35. APScheduler + SQLite jobstore 集成到 FastAPI lifespan；内建任务（`daily_search`、`jd_health_check`、`application_status_sync`、`linkedin_cookie_refresh`、`cache_eviction`）。
+36. CLI + Web UI 管理调度；每次执行写一条 trace（复用 Phase 8.3 store）。
+
+### Phase 14: Cover-letter Agent
+
+**目标**：原"Phase 10 cover-letter agent"计划，在 provider / cache / scheduler 基础就绪后落地。
+
+37. 新工具 `jd_lookup`；`AgentCoverLetter` orchestrator 生成结构化 IR（带 evidence 引用）。
+38. 事实漂移检查作为 post-guard；HITL gate 只在 agent 修改 bullet/story bank 时触发，不在生成 letter 本身；5 个 fixture 的 eval suite；接入 Phase 12 缓存控制单封成本。
+
+### Phase 15: Filter Agent + 可解释性
+
+**目标**：让每个 job filter 决策都可解释；只对 borderline 的岗位调用 agent。
+
+39. `src/matching/` 每个 reject 决策记录 `{rule_id, reason, evidence_excerpt}`。
+40. Score ∈ [0.4, 0.6] 的岗位调用 edge-case agent；JobsView 上"为什么被过滤"按钮；用人工标注的 borderline jobs 做 eval suite。
+
+### Phase 16: 夜跑闭环 + Review Queue
+
+**目标**：集成 phase。把 scheduler + cache + agents 串成"睡觉前调度，第二天早上审"的端到端流程。
+
+41. `nightly_run` orchestrator：scheduler 触发 → search → filter（带 reason）→ top-N 跑 Phase 9 + Phase 14 agent → 入 review queue。**不自动提交。**
+42. `/review` 看板（Pending / Approved / Submitted / Rejected）+ bulk operations；每日早晨 digest；`autoapply pause-nightly` kill switch。
+
 ## 关键设计原则
 
 1. **状态机驱动**：每次申请都是状态机，可中断、可恢复、可审计
@@ -389,5 +447,14 @@ DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
 - Phase 6: LinkedIn 搜索 → 外部 ATS 链接解析 → 接入现有 apply/material 流程
 - Phase 7: `autoapply web` → Vue SPA 搜索/追踪/settings 流程
 - Phase 8: `/jobs` → `/materials?jobId=...` → DOCX/PDF 生成、preview、校验、下载
+- Agent Phase 8: `autoapply eval --suite agent_smoke` → 全部 case 通过
+- Agent Phase 9: `autoapply eval --suite form_filler --min-pass-rate 0.85` → 5/5 通过，估算成本 ≤ $0.25
+- Phase 10: Settings 页面对每个 provider 都能 connect/test/disconnect；`autoapply provider test <name>` 对 REST 和 CLI provider 都准确报告认证状态
+- Phase 11: 中途 revoke primary provider → fallback 链生效 → eval 仍通过；`autoapply migrate` 能清理遗留状态
+- Phase 12: 同 batch 跑第二次 → LLM cache hit-rate > 80%，wall time < 20%，cost < 5%
+- Phase 13: 注册一个 cron 任务 → 重启进程 → 下次 tick trace 出现
+- Phase 14: cover-letter eval 5/5 通过，cache miss ≤ $0.08/封、cache hit ≤ $0.02/封
+- Phase 15: JobsView 任意被过滤的岗位都能在 5 秒内看到 reason chain
+- Phase 16: 周一 23:00 调度夜跑 → 周二 08:00 review queue 已有 N 条预生成 application，每条 30 秒内可 approve
 
-当前基线：`uv run python -m pytest` 通过，340 个测试通过、1 个 LinkedIn smoke 测试跳过；`uv run ruff check .` 和 `npm run build` 通过。
+Phase 10 收尾基线：`uv run python -m pytest` 通过 669 个测试、跳过 1 个；`uv run ruff check src/ tests/` 和 `npm run build` 通过。

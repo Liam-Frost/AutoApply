@@ -138,3 +138,31 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Rationale**: The original SPA shipped a hand-rolled scoped-style system (`.surface`, `.button`, `.banner`, `.material-modal`, `AppSelect`, `AppIcon`, `DockIcon`, custom dropdowns, custom modals) that drifted as features were added. Switching to Tailwind + shadcn primitives gives consistent focus rings, dark-mode coverage, accessible Dialog / Select / Alert behavior, and a single token source of truth without locking the project into a heavy component library. reka-ui is chosen over a Vue-port of Radix because it is the upstream port shadcn-vue tracks and exposes the full primitive surface (Dialog portal/overlay/scroll-lock/focus-trap, Select portal/scroll-buttons, Collapsible) needed for the existing workflows.
 
 **Migration path**: Phases A → D over 9.A through 9.D-10 in `PROJECT_MANAGEMENT.md`. Each sub-phase ships a single commit with `npm run build` verification and a code-review pass before merge to `dev`. View shells are migrated to `Card` + Lucide icons first; banners and modals follow; primitive components (`AppSelect`, `TagInput`) are rewritten last; legacy `AppIcon` / `DockIcon` are deleted once nothing references them.
+
+---
+
+## D016 — LLM Provider abstraction promoted ahead of cover-letter agent (2026-05-11)
+
+**Decision**: Reorder the roadmap so that Phase 10 is "LLM Provider Abstraction" (REST adapters for OpenAI / Anthropic / Gemini + subprocess providers for Claude CLI / Codex CLI behind a `ProviderRegistry`), and the original "cover-letter agent" plan slides to Phase 14. Insert two new infrastructure phases between them: Phase 12 (caching) and Phase 13 (scheduled tasks). The "multi-agent orchestrator" idea is descoped to a batch + review-queue pattern as Phase 16.
+
+**Rationale**: After Agent Phase 9 (form-filler) shipped, every subsequent agent phase would have been written against a hard-coded `subprocess.run(['claude', ...])` or `codex exec` call. That blocked: (a) users without the CLI tools installed; (b) future cost-control via OpenAI batch APIs or Anthropic prompt caching; (c) provider-level fallback chains. Doing the provider abstraction first means the cover-letter agent, the matching agent, and the nightly run loop all inherit the same provider plumbing for free.
+
+**Trade-off**: pushes user-visible agent features (cover letter, filter explainability) ~5 weeks later than the original plan. Accepted because the alternative was rewriting all three agents once provider support landed anyway.
+
+---
+
+## D017 — No LangChain / LangGraph for agent orchestration (2026-05-12)
+
+**Decision**: Continue evolving the in-house agent harness in `src/agent/` for Phases 14-16. Do not migrate to LangChain, LangGraph, LlamaIndex, or any equivalent framework.
+
+**Rationale**:
+
+1. **Heterogeneous LLM access.** AutoApply targets both REST APIs (OpenAI / Anthropic / Gemini) and CLI subprocesses (Claude CLI / Codex CLI). LangChain's `BaseChatModel` assumes HTTP + native tool-call protocol. Wrapping a CLI's stdout-parsed ReAct JSON into LangChain's `AIMessage(tool_calls=...)` would require a custom adapter per CLI and would re-break every time LangChain rev'd its agent API.
+2. **HITL is a product feature, not a debugger.** The `gate/queue.py` + `/api/agent/gate/...` + Web UI is end-to-end production-grade with file-based persistence, restartability, and per-trace audit. LangGraph's `interrupt_before` is newer and less proven; the job-application domain is "wrong once is expensive" (ATS ban, mis-sent resume, PII leak) and warrants the strict gate we already have.
+3. **Cost telemetry is plumbed end-to-end.** Phase 9.4 surfaces per-step `prompt_tokens / output_tokens / cost_usd` through `AgentStep → AgentResult → TraceRecord → EvalReport`, with rates configurable per provider for Phase 10. The LangChain equivalent (LangSmith) is a paid SaaS that ships data off-host.
+4. **Framework churn risk.** LangChain rewrote its agent API three times in 18 months (initial AgentExecutor → LCEL → LangGraph). Each rewrite forced consumers to migrate. The in-house harness is ~1000 lines and stable.
+5. **Domain mismatch.** LangChain's strengths are document loaders, vector stores, RAG templates, and chatbot patterns. AutoApply is not a chatbot and has narrow, structured RAG needs (profile + JD only) that don't justify the framework weight.
+
+**Trade-off**: gives up the LangChain ecosystem of pre-built integrations and LangSmith hosted observability. Accepted because the integrations the project actually needs (browser tools, profile lookup, JD lookup, fact-drift check) are already in-house, and the trace store + viewer already serve the observability role locally.
+
+**Re-evaluation trigger**: If Phase 16 reveals a genuine need for stateful multi-agent state machines (not just batch fan-out), LangGraph specifically — not full LangChain — may be reconsidered in isolation. The current Phase 16 plan uses asyncio fan-out + review queue, which does not require a framework.

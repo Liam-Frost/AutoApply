@@ -212,10 +212,141 @@ First business node converted to agent mode. The deterministic `form_filler.py` 
 
 **Verification**: 553 passed, 1 skipped. `ruff check` clean. `autoapply eval --suite form_filler --min-pass-rate 0.85` exits 0 with 5/5 passing at ~$0.23 estimated cost under default rates.
 
+### Phase 10: LLM Provider Abstraction (was originally planned as "cover-letter agent" -- pivoted)
+
+Multi-provider LLM layer so AutoApply is no longer locked to the
+Claude CLI + Codex CLI subprocess pair. Adds REST adapters for the
+big three API providers and treats the CLI tools as just another
+provider kind.
+
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| 10.1 | Provider abstraction (`LLMProvider` ABC, `ProviderKind`, `ProviderTestResult`) + secure credential store (file-backed, OS keyring fallback) | **Complete** |
+| 10.2 | OpenAI / Anthropic / Gemini REST adapters using `httpx`. Per-provider error normalization, model listing, `test_connection` deep probe. | **Complete** |
+| 10.3 | (Originally Codex OAuth wrapper -- rewritten in 10.7 as `CodexCliProvider`, a subprocess provider mirroring Claude CLI.) | **Superseded** |
+| 10.4 | `ClaudeCliProvider` subprocess provider (`auth_type=SUBPROCESS`) -- `codex login`/`claude login` own their own auth; AutoApply stores nothing. | **Complete** |
+| 10.5 | Wire `ProviderRegistry` into `src.utils.llm.generate_text` -- old call sites unchanged, dispatch picks the configured primary provider. | **Complete** |
+| 10.6 | `autoapply provider` CLI subcommands: `list`, `set-key`, `test`, `set-primary`, `set-fallback`, `disconnect`. | **Complete** |
+| 10.7 | Settings page UI for provider management: connect / disconnect / test / set-primary / set-fallback. Distinguishes subprocess vs API-key providers. `test_connection` for subprocess providers runs `codex login status` so installed-but-unauthenticated is reported correctly. | **Complete** |
+
+**Verification**: 669 passed, 1 skipped. `ruff check` clean. Frontend rebuilt and committed. PR #12 open against `master`.
+
 ## Current Session Context
 
-- **Active branch**: `feat/phase-9`
-- **Current phase**: Agent Phase 9 complete; ready for review and merge
-- **Last verification**: 553 passed, 1 skipped; `ruff check` clean; `autoapply eval --suite form_filler --min-pass-rate 0.85` exits 0
+- **Active branch**: `feat/llm-providers`
+- **Current phase**: Phase 10 complete; PR #12 open for review
+- **Last verification**: 669 passed, 1 skipped; `ruff check` clean; frontend builds; manual smoke OK on Settings page in light + dark
 - **Blockers**: None
-- **Next step**: Code review of `feat/phase-9`, merge to dev/master. Phase 10 (cover-letter agent) waits for one week of stable form-filler agent runs.
+- **Next step**: Land PR #12, then start Phase 11 (Reliability & Cleanup).
+
+## Roadmap: Phase 11 -- 16
+
+Re-planned 2026-05-12 after Phase 10 pivot. Original architecture
+doc had "cover-letter agent" as Phase 10 and "matching agent" as
+Phase 11; those slid down a number once Phase 10 became the LLM
+provider abstraction. Two new cross-cutting concerns -- caching and
+scheduled tasks -- are promoted to their own phases because they
+each unblock multiple downstream phases.
+
+### Phase 11: Reliability & Cleanup (~1 week)
+
+Tighten the provider layer Phase 10 introduced; ship the migration
+tool needed for users upgrading from earlier revisions.
+
+| Sub | Scope |
+|-----|-------|
+| 11.1 | Provider fallback chain: `generate_text()` accepts primary + ordered fallbacks; quota / network / auth failures fail over automatically; attempt chain recorded in trace. The Settings UI fallback field finally takes effect. |
+| 11.2 | `autoapply migrate` CLI command: cleans stale `managed_by: codex-cli` credential breadcrumbs, renames legacy settings.yaml keys, detects and prompts about stale credentials. Run once per upgrade. |
+| 11.3 | Docs sync: bring PROJECT_MANAGEMENT.md / AGENT_ARCHITECTURE.md / CHANGELOG.md up to Phase 10 complete state; add the Phase 11-16 plan inline. |
+| 11.4 | Provider health monitor: `/api/providers/health` background probe every 5 min; Settings page "Last verified" line shows real telemetry instead of "just now". |
+
+**Verification**: revoke OpenAI key mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` against a fixture environment with legacy breadcrumbs leaves state clean.
+
+### Phase 12: Caching Foundation + Integration (~1.5 weeks)
+
+Build a general-purpose cache layer and wire it through the
+expensive call sites (LLM, JD scraping, embeddings).
+
+| Sub | Scope |
+|-----|-------|
+| 12.1 | `src/cache/` module: tiered cache (L1 in-memory LRU + L2 SQLite-backed), per-namespace TTL (`llm:7d`, `jd:24h`, `embedding:30d`, `linkedin:6h`), explicit invalidation API, version-stamped keys. |
+| 12.2 | JD / scrape caching: Greenhouse / Lever / LinkedIn scrapers consult cache before HTTP; 24h TTL; ETag / Last-Modified aware. |
+| 12.3 | LLM response caching: `generate_text()` accepts `cache=True` and computes `cache_key=hash(provider+model+prompt+system+temperature)`; agent loops default to `cache=False`, deterministic retrieval steps default to `cache=True`. |
+| 12.4 | Cache inspector UI at `/settings/cache`: per-namespace entry count / size / hit-rate / $ saved; one-click clear. |
+| 12.5 | Cost dashboard upgrade: split Phase 9.4 aggregates into "cached vs fresh" with a $-saved line. |
+
+**Verification**: same job batch run twice -- second run's LLM cache hit-rate > 80%, wall time < 20% of first run, total cost < 5% of first run.
+
+### Phase 13: Scheduled Task System (~1.5 weeks)
+
+Production-grade scheduler. Lays the foundation Phase 16 needs to
+run nightly batches without the user being at the keyboard.
+
+| Sub | Scope |
+|-----|-------|
+| 13.1 | Engine: APScheduler + SQLite jobstore (not Celery -- single-user app doesn't need a broker; not OS cron -- needs persistent state and live management). Integrated into FastAPI lifespan; auto-resume on process start. |
+| 13.2 | Built-in jobs: `daily_search`, `jd_health_check`, `application_status_sync`, `linkedin_cookie_refresh`, `cache_eviction`. Each is a plain function registered with a cron expression. |
+| 13.3 | CLI: `autoapply schedule list / add / remove / pause / run-now / logs`. `add` accepts `--cron "0 9 * * *"` or `--every 2h`. |
+| 13.4 | Web UI at `/schedule`: table of jobs (cron / last-run / next-run / status), manual trigger, pause/resume, history viewer. |
+| 13.5 | Trace integration: each scheduled run emits a trace record (reuses Phase 8.3 store); failures carry stacktrace; viewable in the existing trace viewer. |
+| 13.6 | (Optional) Notification hook on N consecutive failures: desktop notification only -- no email/Slack yet. |
+
+**Verification**: register `daily_search` with `* * * * *`, wait 1 minute, new trace appears; restart the process, jobstore is restored and the next tick fires.
+
+**Constraint**: single-instance only. APScheduler with the SQLite jobstore is not safe across multiple `autoapply web` processes; document this and add a startup check.
+
+### Phase 14: Cover-letter Agent (~2 weeks)
+
+The original "Phase 10" plan, now done third. Benefits from Phase
+12 caching to keep cost predictable.
+
+| Sub | Scope |
+|-----|-------|
+| 14.1 | New tools: `jd_lookup` (read JD by section, replaces pasting whole JD into the prompt). Reuses `profile_lookup`. Read-only. |
+| 14.2 | `AgentCoverLetter` orchestrator: agent emits cover-letter IR (structured paragraphs with evidence citations) → existing fact-drift checker in `src/generation/` as post-guard → fallback to deterministic path on failure. |
+| 14.3 | Eval suite: 5 fixtures (varied roles / company styles); scorers `fact_drift_score`, `keyword_coverage`, `length_compliance`. |
+| 14.4 | HITL gate: letter generation itself does not block; gate fires only when the agent tries to mutate bullet pool / story bank (writing newly-discovered stories back to memory). |
+| 14.5 | Cache integration: JD retrieval results use 12.3; profile lookups use 12.1 in-memory LRU. |
+
+**Verification**: 5/5 eval pass; per-letter cost ≤ $0.08 on cache-miss, ≤ $0.02 on cache-hit; quality matches or beats deterministic baseline (human judgement).
+
+### Phase 15: Filter Agent + Explainability Layer (~1.5 weeks)
+
+Not a replacement for the deterministic filter -- an explainability
+layer on top, plus agent invocation for borderline jobs only.
+
+| Sub | Scope |
+|-----|-------|
+| 15.1 | Filter reason chain: every reject in `src/matching/` records `{rule_id, rule_name, reason, evidence_excerpt}` instead of just a score. |
+| 15.2 | Edge-case agent: invoked only for jobs with score ∈ [0.4, 0.6]; explains why borderline and whether to surface for human review. Uses Phase 8 harness + new `score_breakdown` tool. |
+| 15.3 | Web UI "Why was this filtered?": ⓘ button on every rejected job in JobsView; popover shows rule-based reasons and agent commentary if present. |
+| 15.4 | Eval suite: 10 human-annotated borderline jobs; agent decision matches human ≥ 70%. |
+
+**Verification**: any rejected job's reason can be surfaced in < 5 seconds from the UI; agent cost stays < $0.50 per 100 jobs (agent fires on ~10%).
+
+### Phase 16: Daily Run Loop + Review Queue (~2 weeks)
+
+Integration phase. Threads Phase 13 (scheduler) + Phase 12 (cache)
++ Phase 9/14 (agents) into the "sleep, wake up to a review queue"
+end-to-end flow.
+
+| Sub | Scope |
+|-----|-------|
+| 16.1 | `nightly_run` orchestrator (registered with Phase 13): search → filter (with 15's explainability) → take top-N → run form-filler agent (Phase 9) + cover-letter agent (Phase 14) → enqueue into review queue. **Never auto-submits.** |
+| 16.2 | Review queue model: new table `review_queue(id, job_id, materials_path, status, created_at, reviewed_at, decision, reason)`; state machine `pending → approved → submitted` or `pending → rejected`. |
+| 16.3 | Review UI at `/review`: kanban with `[Pending] [Approved] [Submitted] [Rejected]` columns; each card has job summary + materials preview + one-click approve/reject. |
+| 16.4 | Bulk operations: multi-select approve, bulk-reject by company/keyword, approve-and-submit (still gated by Phase 4/9 HITL final gate). |
+| 16.5 | Daily digest at 08:00: desktop notification + dashboard banner -- "Last night: 12 new jobs, 7 passed filter, 3 in review queue, est. cost $0.21". |
+| 16.6 | Kill switch: `autoapply pause-nightly` -- pauses all schedules and clears the pending queue (for vacation). |
+
+**Verification**: schedule a nightly run at 23:00 Monday → wake Tuesday 08:00 → N pre-tailored applications in the review queue, each approvable in < 30s, submit triggers HITL gate as expected; no manual CLI invocation needed between Mon evening and Tue morning.
+
+## Cross-cutting Concerns
+
+These are not phases but quality bars enforced across all of 11-16:
+
+- **Test discipline**: every new module ships with tests; no new code can drop the suite below the current 669 passing.
+- **Lint discipline**: `ruff check src/ tests/` must stay clean.
+- **Codex review per sub-phase**: each sub-phase gets a `codex review --uncommitted` pass before commit; P1 findings block merge.
+- **Cost ceiling**: any eval suite that pushes total cost above $1.00 / 100 cases needs explicit justification.
+- **Docs sync**: PROJECT_MANAGEMENT.md and CHANGELOG.md updated at the end of every Phase, not in a batch later.

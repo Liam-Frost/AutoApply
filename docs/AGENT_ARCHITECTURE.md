@@ -164,11 +164,20 @@ in `src/agent/eval/scorers.py`.
 
 * Multi-step / multi-page agents (we run one snapshot per page).
 * Provider-native tool use protocol (we still use a ReAct JSON
-  protocol so both `claude` and `codex` CLIs work).
-* Cover-letter generation as an agent (Phase 10).
-* Matching / filter as an agent (Phase 11).
-* Multi-agent orchestrators ("apply to 5 matching jobs") -- Phase
-  12+.
+  protocol so both `claude` and `codex` CLIs work, and so the new
+  Phase 10 REST adapters get the same loop for free).
+* Cover-letter generation as an agent -- **Phase 14** (the original
+  Phase 10 plan slid down two slots once Phase 10 became the LLM
+  provider abstraction and Phase 11-13 inserted reliability /
+  caching / scheduler foundations).
+* Matching / filter agent + explainability -- **Phase 15**.
+* Daily nightly run loop + review queue (the original
+  "multi-agent orchestrator" idea, descoped to a batch + queue
+  pattern) -- **Phase 16**.
+
+See `docs/PROJECT_MANAGEMENT.md` for the full Phase 11-16 roadmap,
+including the two new cross-cutting infrastructure phases
+(caching and scheduled tasks) that unblock the agent work.
 
 ## Reading the code
 

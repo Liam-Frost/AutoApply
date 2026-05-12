@@ -4,6 +4,72 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Phase 10: LLM Provider Abstraction
+
+The "LLM" layer was previously hard-coded to two subprocess
+providers (`claude -p` and `codex exec`). Phase 10 breaks that open:
+all five call paths now go through a `ProviderRegistry` so users
+can plug in any of OpenAI / Anthropic / Gemini (REST) or Claude CLI
+/ Codex CLI (subprocess).
+
+- **10.1 Provider abstraction + credential store**
+  (`src/providers/base.py`, `src/providers/store.py`):
+  `LLMProvider` ABC, `ProviderKind`, `AuthType` (`API_KEY`,
+  `SUBPROCESS`), `ProviderTestResult`. Credentials live in
+  `data/providers/credentials.json` (mode 0600) with OS-keyring
+  fallback when available. Never written to git, never logged.
+- **10.2 REST adapters** (`src/providers/openai.py`,
+  `src/providers/anthropic.py`, `src/providers/gemini.py`):
+  one adapter per vendor using `httpx`. Each implements
+  `generate(prompt, system, model)`, `list_models()`, and a deep
+  `test_connection()` that does an auth-validating round-trip
+  (not just a token presence check).
+- **10.3** Originally a "Codex OAuth wrapper" -- removed in 10.7.
+  The wrapper conflated "drive Codex CLI as a subprocess" with
+  "implement a native OAuth client", and the OAuth half was never
+  real (generation always went through `codex exec`). Kept for one
+  revision under a back-compat alias before 10.7 cleaned it up.
+- **10.4 Claude CLI subprocess provider**
+  (`src/providers/claude_cli.py`): `auth_type=SUBPROCESS`. The CLI
+  owns its own login -- AutoApply doesn't store a token, doesn't
+  manage refresh, doesn't run an OAuth dance. `test_connection`
+  is a deep probe (`claude --version` + status check).
+- **10.5 Registry bridge into `generate_text`**
+  (`src/providers/registry.py`, `src/utils/llm.py`): old call sites
+  in `generation/`, `matching/`, `agent/` are unchanged -- the
+  dispatch picks the configured primary provider transparently.
+  Fallback dispatch (when primary errors) lands in Phase 11.1.
+- **10.6 `autoapply provider` CLI subcommands**
+  (`src/cli/cmd_provider.py`): `list`, `set-key`, `test`,
+  `set-primary`, `set-fallback`, `disconnect`. The
+  `provider login` subcommand introduced in 10.3 was removed in
+  10.7 -- subprocess providers manage their own auth; users run
+  `codex login` / `claude login` directly.
+- **10.7 Settings page UI**
+  (`frontend/src/views/SettingsView.vue`): connect / disconnect /
+  test / set-primary / set-fallback for every provider in one
+  place. Distinguishes "API-key provider, configured" from
+  "subprocess provider, CLI installed and authenticated" from
+  "subprocess provider, CLI installed but NOT logged in" --
+  the last case is reported via `codex login status` so the user
+  doesn't dispatch generations that will crash at runtime.
+  Disconnect button stays visible for subprocess providers when a
+  stale credential breadcrumb exists from earlier revisions
+  (labelled "Clear stored record" in that mode).
+
+**Architectural pivot recorded here**: this Phase 10 was originally
+planned as "cover-letter agent". It was reordered after Phase 9
+because the LLM-provider abstraction unblocks every subsequent
+agent phase (no point writing a second agent against a hard-coded
+`subprocess.run(['claude', ...])`). The original cover-letter-agent
+work is now Phase 14; matching-agent is Phase 15; daily run loop is
+Phase 16. Two new cross-cutting phases are inserted: Phase 12
+(caching) and Phase 13 (scheduled tasks). See
+`docs/PROJECT_MANAGEMENT.md` for the full roadmap.
+
+Test baseline at Phase 10 close: 669 passed, 1 skipped.
+`ruff check src/ tests/` clean. Frontend rebuilds clean.
+
 ### Agent Phase 9: Form-Filler Agent (with HITL gate, eval suite, cost telemetry)
 
 The first real business node converted to agent-mode. The deterministic
