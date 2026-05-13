@@ -113,6 +113,59 @@ class TestLoopTelemetry:
             round(sum(s.cost_usd for s in result.steps), 6)
         )
 
+    def test_step_captures_llm_attempts_from_contextvar(self) -> None:
+        """Phase 11.1 -- the loop snapshots the per-provider attempt list
+        published by ``src.utils.llm.generate_text`` onto each AgentStep."""
+        from src.utils.llm import last_attempt_chain  # noqa: PLC0415
+
+        registry = ToolRegistry()
+        registry.register(FinishTool())
+
+        responses = [
+            "{\"thought\":\"d\",\"action\":{\"name\":\"finish\",\"args\":{\"answer\":\"ok\"}}}"
+        ]
+        queue = list(responses)
+
+        def scripted_with_attempts(_p: str, _s: str, _t: int) -> str:
+            # Simulate what generate_text would do: publish a chain into
+            # the ContextVar before returning.
+            last_attempt_chain.set(
+                [
+                    {
+                        "provider": "claude-cli",
+                        "ok": False,
+                        "kind": "quota",
+                        "error": "rate limit",
+                        "latency_ms": 12,
+                    },
+                    {
+                        "provider": "codex-cli",
+                        "ok": True,
+                        "kind": None,
+                        "error": None,
+                        "latency_ms": 34,
+                    },
+                ]
+            )
+            return queue.pop(0)
+
+        session = AgentSession(
+            goal="x",
+            tools=registry,
+            llm=scripted_with_attempts,
+            limits=SessionLimits(max_steps=2),
+        )
+        result = session.run()
+        assert result.finished
+        first = result.steps[0]
+        assert [a["provider"] for a in first.llm_attempts] == [
+            "claude-cli",
+            "codex-cli",
+        ]
+        # to_dict() serialisation should expose the new field.
+        assert "llm_attempts" in first.to_dict()
+        assert first.to_dict()["llm_attempts"][1]["ok"] is True
+
     def test_llm_failure_records_prompt_tokens_only(self) -> None:
         registry = ToolRegistry()
         registry.register(FinishTool())

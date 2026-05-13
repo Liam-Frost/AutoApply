@@ -35,7 +35,9 @@ from src.providers.base import (
     AuthType,
     LLMProvider,
     ProviderError,
+    ProviderErrorKind,
     ProviderTestResult,
+    classify_cli_error,
 )
 
 logger = logging.getLogger("autoapply.providers.codex")
@@ -177,7 +179,8 @@ class CodexCliProvider(LLMProvider):
         if not self.is_installed():
             raise ProviderError(
                 "Codex CLI not found in PATH. "
-                "Install with `npm install -g @openai/codex`."
+                "Install with `npm install -g @openai/codex`.",
+                kind=ProviderErrorKind.AUTH,
             )
         # Late import: keeps the provider package free of CLI module
         # imports at load time and avoids a circular dep through
@@ -193,7 +196,9 @@ class CodexCliProvider(LLMProvider):
                 output_format=output_format,
             )
         except LLMError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ProviderError(
+                str(exc), kind=classify_cli_error(str(exc))
+            ) from exc
 
     def public_view(self) -> dict[str, Any]:
         # Surface "installed" so the Web UI can render

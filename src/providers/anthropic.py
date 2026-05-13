@@ -15,7 +15,12 @@ from typing import Any
 import httpx
 
 from src.providers.api_base import ApiKeyProvider
-from src.providers.base import ProviderError, ProviderTestResult
+from src.providers.base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderTestResult,
+    classify_http_status,
+)
 
 DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 DEFAULT_MODEL = "claude-sonnet-4-5"
@@ -114,23 +119,42 @@ class AnthropicProvider(ApiKeyProvider):
         if system:
             payload["system"] = system
 
-        with self._client(timeout) as client:
-            response = client.post(
-                url, headers=self._headers(api_key), json=payload
-            )
+        try:
+            with self._client(timeout) as client:
+                response = client.post(
+                    url, headers=self._headers(api_key), json=payload
+                )
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                f"Anthropic generation timed out after {timeout}s",
+                kind=ProviderErrorKind.TIMEOUT,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"Anthropic network error: {exc}",
+                kind=ProviderErrorKind.NETWORK,
+            ) from exc
+
         if response.status_code >= 400:
             raise ProviderError(
                 f"Anthropic generation failed (HTTP {response.status_code}): "
-                f"{_safe_text(response)}"
+                f"{_safe_text(response)}",
+                kind=classify_http_status(response.status_code),
             )
         try:
             body = response.json()
         except ValueError as exc:
-            raise ProviderError(f"Anthropic response was not JSON: {exc}") from exc
+            raise ProviderError(
+                f"Anthropic response was not JSON: {exc}",
+                kind=ProviderErrorKind.PARSE,
+            ) from exc
 
         content = body.get("content") if isinstance(body, dict) else None
         if not isinstance(content, list) or not content:
-            raise ProviderError(f"Anthropic response missing 'content': {body!r}")
+            raise ProviderError(
+                f"Anthropic response missing 'content': {body!r}",
+                kind=ProviderErrorKind.PARSE,
+            )
         # Concatenate all text-type blocks; ignore tool/use blocks here.
         parts = []
         for block in content:
@@ -140,7 +164,8 @@ class AnthropicProvider(ApiKeyProvider):
                     parts.append(value)
         if not parts:
             raise ProviderError(
-                f"Anthropic response had no text blocks: {body!r}"
+                f"Anthropic response had no text blocks: {body!r}",
+                kind=ProviderErrorKind.PARSE,
             )
         return "".join(parts)
 

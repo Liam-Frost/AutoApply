@@ -25,9 +25,89 @@ from enum import Enum
 from typing import Any
 
 
+class ProviderErrorKind(str, Enum):  # noqa: UP042
+    """Why a provider call failed.
+
+    The fallback chain in ``src.utils.llm.generate_text`` keeps trying
+    the next provider when the kind is :attr:`is_transient`. Non-transient
+    kinds (bad request, parse) abort immediately -- retrying a malformed
+    prompt on a second provider just burns money on the same failure.
+    """
+
+    AUTH = "auth"                # 401/403, expired key, "not authenticated"
+    QUOTA = "quota"              # 429, rate limit, daily cap
+    NETWORK = "network"          # DNS, connection refused, TLS error
+    TIMEOUT = "timeout"          # request timeout or upstream slowloris
+    SERVER = "server"            # 5xx
+    BAD_REQUEST = "bad_request"  # 400, prompt rejected, content filter -- NOT retryable
+    PARSE = "parse"              # response decoded but missing required fields -- NOT retryable
+    UNKNOWN = "unknown"          # default; treated as transient
+
+    @property
+    def is_transient(self) -> bool:
+        return self not in (
+            ProviderErrorKind.BAD_REQUEST,
+            ProviderErrorKind.PARSE,
+        )
+
+
 class ProviderError(Exception):
     """Raised when a provider operation fails in a way the caller
-    should surface to the user (e.g. invalid key, network error)."""
+    should surface to the user (e.g. invalid key, network error).
+
+    The ``kind`` field lets the fallback chain decide whether to try
+    the next provider; older call sites that constructed a bare
+    :class:`ProviderError` without a kind get :attr:`ProviderErrorKind.UNKNOWN`
+    which is treated as transient (i.e. fallback applies), matching the
+    pre-Phase-11.1 behaviour.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ProviderErrorKind = ProviderErrorKind.UNKNOWN,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+def classify_http_status(status_code: int) -> ProviderErrorKind:
+    """Map an HTTP status code to a :class:`ProviderErrorKind`."""
+    if status_code in (401, 403):
+        return ProviderErrorKind.AUTH
+    if status_code == 429:
+        return ProviderErrorKind.QUOTA
+    if 400 <= status_code < 500:
+        return ProviderErrorKind.BAD_REQUEST
+    if 500 <= status_code < 600:
+        return ProviderErrorKind.SERVER
+    return ProviderErrorKind.UNKNOWN
+
+
+def classify_cli_error(message: str) -> ProviderErrorKind:
+    """Best-effort classification of a CLI provider failure message.
+
+    Subprocess providers (`claude`, `codex`) don't surface structured
+    error codes; we match on the surface text of common failure modes.
+    Anything we can't recognise stays ``UNKNOWN`` -- which the fallback
+    chain treats as transient, matching pre-Phase-11.1 behaviour.
+    """
+    msg = message.lower()
+    if "timed out" in msg or "timeout" in msg:
+        return ProviderErrorKind.TIMEOUT
+    if (
+        "not authenticated" in msg
+        or "please login" in msg
+        or "claude login" in msg
+        or "codex login" in msg
+    ):
+        return ProviderErrorKind.AUTH
+    if "rate limit" in msg or "quota" in msg or "429" in msg:
+        return ProviderErrorKind.QUOTA
+    if "not found" in msg and "install" in msg:
+        return ProviderErrorKind.AUTH
+    return ProviderErrorKind.UNKNOWN
 
 
 class AuthType(str, Enum):  # noqa: UP042 -- match ApprovalStatus's str+Enum pattern

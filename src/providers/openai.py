@@ -15,7 +15,12 @@ from typing import Any
 import httpx
 
 from src.providers.api_base import ApiKeyProvider
-from src.providers.base import ProviderError, ProviderTestResult
+from src.providers.base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderTestResult,
+    classify_http_status,
+)
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -96,28 +101,48 @@ class OpenAIProvider(ApiKeyProvider):
         messages.append({"role": "user", "content": prompt})
         payload = {"model": model, "messages": messages}
 
-        with self._client(timeout) as client:
-            response = client.post(
-                url, headers=self._headers(api_key), json=payload
-            )
+        try:
+            with self._client(timeout) as client:
+                response = client.post(
+                    url, headers=self._headers(api_key), json=payload
+                )
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                f"OpenAI generation timed out after {timeout}s",
+                kind=ProviderErrorKind.TIMEOUT,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"OpenAI network error: {exc}",
+                kind=ProviderErrorKind.NETWORK,
+            ) from exc
+
         if response.status_code >= 400:
             raise ProviderError(
                 f"OpenAI generation failed (HTTP {response.status_code}): "
-                f"{_safe_text(response)}"
+                f"{_safe_text(response)}",
+                kind=classify_http_status(response.status_code),
             )
         try:
             body = response.json()
         except ValueError as exc:
-            raise ProviderError(f"OpenAI response was not JSON: {exc}") from exc
+            raise ProviderError(
+                f"OpenAI response was not JSON: {exc}",
+                kind=ProviderErrorKind.PARSE,
+            ) from exc
 
         choices = body.get("choices") if isinstance(body, dict) else None
         if not isinstance(choices, list) or not choices:
-            raise ProviderError(f"OpenAI response missing 'choices': {body!r}")
+            raise ProviderError(
+                f"OpenAI response missing 'choices': {body!r}",
+                kind=ProviderErrorKind.PARSE,
+            )
         message = choices[0].get("message") if isinstance(choices[0], dict) else None
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str):
             raise ProviderError(
-                f"OpenAI response missing 'choices[0].message.content': {body!r}"
+                f"OpenAI response missing 'choices[0].message.content': {body!r}",
+                kind=ProviderErrorKind.PARSE,
             )
         return content
 

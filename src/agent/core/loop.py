@@ -77,6 +77,11 @@ class AgentStep:
     prompt_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
+    # Phase 11.1: per-provider dispatch record for this LLM round-trip.
+    # Each entry is ``{provider, ok, kind, error, latency_ms}``; the list
+    # is populated by ``src.utils.llm.generate_text`` via a ContextVar and
+    # is empty when the LLM callable is a stub (e.g. eval fixtures).
+    llm_attempts: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -207,10 +212,20 @@ class AgentSession:
         # call constructs, regardless of which return branch fires.
         prompt_tokens = estimate_tokens(prompt) + estimate_tokens(self.system_prompt)
         t0 = time.monotonic()
+        # Reset the per-call attempt chain so a previous step's record
+        # doesn't leak into this one when the LLM callable is a stub
+        # that bypasses ``src.utils.llm.generate_text``.
+        try:
+            from src.utils.llm import last_attempt_chain  # noqa: PLC0415
+
+            last_attempt_chain.set([])
+        except Exception:  # noqa: BLE001 -- never break the loop on a missing helper
+            pass
         try:
             raw = self.llm(prompt, self.system_prompt, self.limits.step_timeout)
         except Exception as exc:  # noqa: BLE001 -- LLM boundary
             latency = int((time.monotonic() - t0) * 1000)
+            attempts = _read_llm_attempts(exc)
             logger.warning("LLM call failed at step %d: %s", index, exc)
             return self._make_step(
                 index=index,
@@ -224,9 +239,11 @@ class AgentSession:
                 latency_ms=latency,
                 parse_error=str(exc),
                 prompt_tokens=prompt_tokens,
+                llm_attempts=attempts,
             )
         latency = int((time.monotonic() - t0) * 1000)
         output_tokens = estimate_tokens(raw)
+        llm_attempts = _read_llm_attempts(None)
 
         thought, action_name, action_args, parse_error = _parse_response(raw)
         if parse_error:
@@ -249,6 +266,7 @@ class AgentSession:
                 parse_error=parse_error,
                 prompt_tokens=prompt_tokens,
                 output_tokens=output_tokens,
+                llm_attempts=llm_attempts,
             )
 
         if action_name == FINISH_TOOL:
@@ -266,6 +284,7 @@ class AgentSession:
                 latency_ms=latency,
                 prompt_tokens=prompt_tokens,
                 output_tokens=output_tokens,
+                llm_attempts=llm_attempts,
             )
 
         if action_name not in self.tools:
@@ -287,6 +306,7 @@ class AgentSession:
                 latency_ms=latency,
                 prompt_tokens=prompt_tokens,
                 output_tokens=output_tokens,
+                llm_attempts=llm_attempts,
             )
 
         tool_result = self.tools.get(action_name).invoke(action_args)
@@ -304,6 +324,7 @@ class AgentSession:
             latency_ms=latency,
             prompt_tokens=prompt_tokens,
             output_tokens=output_tokens,
+            llm_attempts=llm_attempts,
         )
 
     def _make_step(
@@ -321,6 +342,7 @@ class AgentSession:
         parse_error: str | None = None,
         prompt_tokens: int = 0,
         output_tokens: int = 0,
+        llm_attempts: list[dict[str, Any]] | None = None,
     ) -> AgentStep:
         """Build an :class:`AgentStep` with cost telemetry filled in.
 
@@ -347,6 +369,7 @@ class AgentSession:
             prompt_tokens=prompt_tokens,
             output_tokens=output_tokens,
             cost_usd=cost,
+            llm_attempts=list(llm_attempts or []),
         )
 
     def _build_prompt(self, index: int) -> str:
@@ -369,6 +392,26 @@ class AgentSession:
             f"TRANSCRIPT SO FAR\n{history}\n\n"
             "Continue. Output the next JSON object."
         )
+
+
+def _read_llm_attempts(exc: Exception | None) -> list[dict[str, Any]]:
+    """Pull the latest provider-dispatch chain out of ``src.utils.llm``.
+
+    Prefers the chain attached to a raised :class:`LLMError` (those are
+    snapshotted at raise time); otherwise reads the ContextVar set by
+    the most recent ``generate_text`` call. Returns an empty list when
+    no provider chain was recorded -- e.g. tests inject a stub LLM
+    callable that bypasses ``generate_text`` entirely.
+    """
+    if exc is not None and hasattr(exc, "attempts"):
+        attempts = getattr(exc, "attempts", None) or []
+        return [dict(a) for a in attempts]
+    try:
+        from src.utils.llm import last_attempt_chain  # noqa: PLC0415
+
+        return [dict(a) for a in last_attempt_chain.get()]
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def run_agent(
