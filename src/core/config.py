@@ -69,12 +69,20 @@ def update_llm_settings(
     allow_fallback: bool,
     config_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Update the persisted LLM provider settings in config/settings.yaml."""
+    """Update the persisted LLM provider settings in config/settings.yaml.
+
+    Phase 11.1 added the list-form ``fallback_providers``. Writers must
+    keep both the scalar and the list in sync; otherwise a user who has
+    already migrated to the list form will not see fallback changes
+    take effect (``get_llm_settings`` prefers the list when both
+    exist).
+    """
     config = load_raw_config(config_path)
     llm = config.setdefault("llm", {})
     llm["provider"] = primary_provider
     llm["primary_provider"] = primary_provider
     llm["fallback_provider"] = fallback_provider
+    llm["fallback_providers"] = [fallback_provider] if fallback_provider else []
     llm["allow_fallback"] = allow_fallback
     save_config(config, config_path)
     return config

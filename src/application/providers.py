@@ -26,6 +26,22 @@ from src.providers.base import (
 _SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 
 
+def _coerce_chain(raw: Any) -> list[str]:
+    """Normalise the on-disk ``fallback_providers`` value to a list.
+
+    ``get_llm_settings`` accepts three shapes -- ``["a", "b"]``,
+    ``"a, b"``, and missing -- so any writer that mutates the chain
+    must accept the same inputs. Without this, iterating the raw
+    string yields one provider per *character* and we end up persisting
+    a corrupted list back to settings.yaml.
+    """
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, str) and item]
+    if isinstance(raw, str):
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return []
+
+
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
@@ -202,28 +218,64 @@ def disconnect_provider(provider_id: str) -> dict:
     reset_routing = False
     settings = _load_settings()
     llm = settings.get("llm", {}) if isinstance(settings, dict) else {}
+
+    # Build the canonical chain once. ``fallback_providers`` may be a
+    # list OR a comma-separated string OR missing -- ``_coerce_chain``
+    # handles all three. We only fall back to the legacy scalar when
+    # the list is absent/empty, mirroring ``get_llm_settings`` which
+    # treats the list as authoritative and ignores a stale scalar.
+    # Otherwise disconnect cleanup could re-promote a fallback the
+    # runtime was already ignoring.
+    raw_chain = _coerce_chain(llm.get("fallback_providers"))
+    if not raw_chain:
+        scalar = llm.get("fallback_provider")
+        if isinstance(scalar, str) and scalar:
+            raw_chain = [scalar]
+    # De-dupe while preserving order.
+    seen: set[str] = set()
+    existing_chain: list[str] = []
+    for entry in raw_chain:
+        if entry not in seen:
+            existing_chain.append(entry)
+            seen.add(entry)
+
     if llm.get("primary_provider") == provider_id or llm.get("provider") == provider_id:
-        # Promote the current fallback to primary if it exists and is
-        # itself still configured. Otherwise just blank out the field
-        # and tell the UI to surface a "pick a primary" affordance.
-        fallback = llm.get("fallback_provider")
-        promoted = None
-        if (
-            isinstance(fallback, str)
-            and fallback
-            and fallback != provider_id
-            and (registry.maybe_get(fallback) is not None)
-            and registry.get(fallback).is_configured()
-        ):
-            promoted = fallback
+        # Walk the full chain looking for the first still-configured
+        # entry that isn't the one being disconnected. Any remaining
+        # entries stay in the chain as deeper fallbacks.
+        promoted: str | None = None
+        for cand in existing_chain:
+            if (
+                cand != provider_id
+                and registry.maybe_get(cand) is not None
+                and registry.get(cand).is_configured()
+            ):
+                promoted = cand
+                break
         llm["primary_provider"] = promoted or ""
         llm["provider"] = promoted or ""
-        llm["fallback_provider"] = None
-        llm["allow_fallback"] = False
+        new_chain = [
+            f for f in existing_chain if f != provider_id and f != promoted
+        ]
+        llm["fallback_providers"] = new_chain
+        llm["fallback_provider"] = new_chain[0] if new_chain else None
+        # Only force ``allow_fallback`` off when the chain is empty.
+        # If the user had explicitly disabled fallback with a chain
+        # still present, respect that -- don't silently re-enable
+        # fallback routing as a side-effect of disconnect cleanup.
+        if not new_chain:
+            llm["allow_fallback"] = False
         reset_routing = True
-    elif llm.get("fallback_provider") == provider_id:
-        llm["fallback_provider"] = None
-        llm["allow_fallback"] = False
+    elif provider_id in existing_chain:
+        # Only the fallback chain was affected -- primary stays put.
+        # Drop the disconnected provider from both shapes; promote the
+        # next entry into the scalar slot so we don't lose deeper
+        # fallbacks the user configured.
+        new_chain = [f for f in existing_chain if f != provider_id]
+        llm["fallback_providers"] = new_chain
+        llm["fallback_provider"] = new_chain[0] if new_chain else None
+        if not new_chain:
+            llm["allow_fallback"] = False
         reset_routing = True
 
     if reset_routing:
@@ -284,19 +336,55 @@ def use_provider_as_primary(
     llm["primary_provider"] = provider_id
     llm["provider"] = provider_id  # legacy alias
 
+    # Phase 11.1: when the caller writes a fallback, keep the list form
+    # in sync with the scalar so generate_text() never routes through
+    # a stale list this writer failed to update. When the caller passes
+    # ``fallback_provider=None`` ("preserve current") we leave BOTH the
+    # scalar and the list alone -- collapsing the list to one entry
+    # would silently drop chains a user configured directly in
+    # settings.yaml.
     if fallback_provider in ("", "none"):
         llm["fallback_provider"] = None
+        llm["fallback_providers"] = []
         llm["allow_fallback"] = False
     elif fallback_provider is not None:
         llm["fallback_provider"] = fallback_provider
+        llm["fallback_providers"] = [fallback_provider]
         llm["allow_fallback"] = True
-    # else: fallback_provider is None -> preserve existing keys untouched.
 
-    # Self-heal: if the newly-promoted primary is also the existing
-    # fallback, clear the fallback so primary != fallback.
+    # Self-heal: if the newly-promoted primary is also in the existing
+    # fallback chain, remove just that entry from both shapes. Deeper
+    # fallbacks the user configured (e.g. ``[codex-cli, openai]`` while
+    # promoting ``codex-cli``) must survive -- the previous version
+    # cleared the whole chain and silently disabled fallback.
+    # ``_coerce_chain`` is required because ``fallback_providers`` may
+    # be the comma-separated string shape that ``get_llm_settings``
+    # accepts; iterating the raw string would walk characters and
+    # corrupt the saved list.
+    chain_now = _coerce_chain(llm.get("fallback_providers"))
+    healed = False
     if llm.get("fallback_provider") == provider_id:
         llm["fallback_provider"] = None
-        llm["allow_fallback"] = False
+        healed = True
+    if provider_id in chain_now:
+        chain_now = [f for f in chain_now if f != provider_id]
+        llm["fallback_providers"] = chain_now
+        healed = True
+    if healed:
+        if chain_now:
+            # Always mirror the scalar onto the list head so the saved
+            # config matches what ``get_llm_settings`` (list-first)
+            # will read back. Without this, a config with a stale
+            # scalar + good list ends up persisting two disagreeing
+            # shapes after we prune the list. ``allow_fallback`` is
+            # left untouched here: the caller's explicit fallback path
+            # above already set it when needed, and self-heal must
+            # preserve a user's ``allow_fallback: false`` choice.
+            llm["fallback_provider"] = chain_now[0]
+        else:
+            llm["fallback_provider"] = None
+            llm["fallback_providers"] = []
+            llm["allow_fallback"] = False
 
     _save_settings(settings)
 

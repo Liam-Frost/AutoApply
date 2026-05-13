@@ -318,6 +318,220 @@ class TestUseProviderAsPrimary:
         assert data["llm"]["fallback_provider"] == "stub-third"
         assert data["llm"]["allow_fallback"] is True
 
+    def test_promoting_preserves_allow_fallback_false_during_self_heal(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 (round 4) regression: ``use_provider_as_primary``
+        with ``fallback_provider=None`` (preserve current) must keep
+        ``allow_fallback: false`` if that's what the user had, even
+        when the self-heal path prunes the new primary from the list."""
+        from src.application.providers import use_provider_as_primary
+
+        _, settings_path = isolated_setup
+        registry, _ = isolated_setup
+
+        class _StubThird(LLMProvider):
+            id = "stub-third"
+            display_name = "Third"
+            auth_type = AuthType.SUBPROCESS
+
+            def test_connection(
+                self, *, timeout: int = 10
+            ) -> ProviderTestResult:
+                return ProviderTestResult(ok=True)
+
+            def generate(
+                self,
+                prompt: str,
+                *,
+                system: str = "",
+                timeout: int = 120,
+                output_format: str = "text",
+            ) -> str:
+                return "third"
+
+        registry.register(_StubThird)
+        # User has fallback explicitly off, with a chain queued up
+        # presumably for later. Promoting stub-api (currently in the
+        # chain) must NOT flip allow_fallback on as a side-effect.
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-sub\n"
+            "  fallback_providers: [stub-api, stub-third]\n"
+            "  allow_fallback: false\n",
+            encoding="utf-8",
+        )
+        result = use_provider_as_primary("stub-api")  # preserve fallback
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        assert data["llm"]["primary_provider"] == "stub-api"
+        assert data["llm"]["fallback_providers"] == ["stub-third"]
+        assert data["llm"]["fallback_provider"] == "stub-third"
+        # The user's explicit "fallback disabled" must survive.
+        assert data["llm"]["allow_fallback"] is False
+
+    def test_promoting_syncs_scalar_to_list_head_after_pruning(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 (round 3) regression: when the saved config
+        has BOTH shapes with a stale scalar (e.g. list ``[codex-cli,
+        openai]``, scalar ``"old"``), promoting ``codex-cli`` must
+        update the scalar to the new list head (``"openai"``). Otherwise
+        the persisted scalar disagrees with the list that
+        ``get_llm_settings`` reads back as authoritative."""
+        from src.application.providers import use_provider_as_primary
+
+        _, settings_path = isolated_setup
+        registry, _ = isolated_setup
+
+        class _StubThird(LLMProvider):
+            id = "stub-third"
+            display_name = "Third"
+            auth_type = AuthType.SUBPROCESS
+
+            def test_connection(
+                self, *, timeout: int = 10
+            ) -> ProviderTestResult:
+                return ProviderTestResult(ok=True)
+
+            def generate(
+                self,
+                prompt: str,
+                *,
+                system: str = "",
+                timeout: int = 120,
+                output_format: str = "text",
+            ) -> str:
+                return "third"
+
+        registry.register(_StubThird)
+        # Note: scalar deliberately disagrees with the list head.
+        # The list is the runtime-authoritative shape, so the scalar
+        # was being ignored. After we prune the list, the scalar must
+        # be synced to the new list head, not left at the stale value.
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-sub\n"
+            "  fallback_providers: [stub-api, stub-third]\n"
+            "  fallback_provider: stub-sub\n"
+            "  allow_fallback: true\n",
+            encoding="utf-8",
+        )
+        result = use_provider_as_primary("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        assert data["llm"]["primary_provider"] == "stub-api"
+        assert data["llm"]["fallback_providers"] == ["stub-third"]
+        # Scalar must mirror list head, not the stale value.
+        assert data["llm"]["fallback_provider"] == "stub-third"
+        assert data["llm"]["allow_fallback"] is True
+
+    def test_promoting_member_handles_comma_string_chain(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 (round 2) regression: ``get_llm_settings``
+        accepts ``fallback_providers: "a, b"`` as a string. Writers
+        must normalise that shape before mutating the chain -- iterating
+        the raw string walks one character per entry and corrupts the
+        saved list."""
+        from src.application.providers import use_provider_as_primary
+
+        _, settings_path = isolated_setup
+        registry, _ = isolated_setup
+
+        class _StubThird(LLMProvider):
+            id = "stub-third"
+            display_name = "Third"
+            auth_type = AuthType.SUBPROCESS
+
+            def test_connection(
+                self, *, timeout: int = 10
+            ) -> ProviderTestResult:
+                return ProviderTestResult(ok=True)
+
+            def generate(
+                self,
+                prompt: str,
+                *,
+                system: str = "",
+                timeout: int = 120,
+                output_format: str = "text",
+            ) -> str:
+                return "third"
+
+        registry.register(_StubThird)
+        # ``fallback_providers`` is a comma-separated string (the
+        # shape ``get_llm_settings`` also accepts).
+        settings_path.write_text(
+            'llm:\n'
+            '  primary_provider: stub-sub\n'
+            '  fallback_providers: "stub-api, stub-third"\n'
+            '  allow_fallback: true\n',
+            encoding="utf-8",
+        )
+        result = use_provider_as_primary("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        assert data["llm"]["primary_provider"] == "stub-api"
+        # The string was split into ['stub-api','stub-third'], then
+        # stub-api was removed -> stub-third remains.
+        assert data["llm"]["fallback_providers"] == ["stub-third"]
+        assert data["llm"]["fallback_provider"] == "stub-third"
+        assert data["llm"]["allow_fallback"] is True
+
+    def test_promoting_chain_member_preserves_deeper_fallbacks(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 regression: promoting a provider that is
+        currently the *first* fallback must drop only that entry from
+        the chain. Deeper fallbacks the user configured (e.g.
+        ``[stub-api, stub-third]`` while promoting ``stub-api``) must
+        survive -- the previous version wiped the entire list and
+        silently disabled fallback."""
+        from src.application.providers import use_provider_as_primary
+
+        _, settings_path = isolated_setup
+        registry, _ = isolated_setup
+
+        class _StubThird(LLMProvider):
+            id = "stub-third"
+            display_name = "Third"
+            auth_type = AuthType.SUBPROCESS
+
+            def test_connection(
+                self, *, timeout: int = 10
+            ) -> ProviderTestResult:
+                return ProviderTestResult(ok=True)
+
+            def generate(
+                self,
+                prompt: str,
+                *,
+                system: str = "",
+                timeout: int = 120,
+                output_format: str = "text",
+            ) -> str:
+                return "third"
+
+        registry.register(_StubThird)
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-sub\n"
+            "  fallback_providers: [stub-api, stub-third]\n"
+            "  fallback_provider: stub-api\n"
+            "  allow_fallback: true\n",
+            encoding="utf-8",
+        )
+        # Promote stub-api -- it was the first fallback. Deeper entry
+        # stub-third must remain as the new fallback.
+        result = use_provider_as_primary("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        assert data["llm"]["primary_provider"] == "stub-api"
+        assert data["llm"]["fallback_providers"] == ["stub-third"]
+        assert data["llm"]["fallback_provider"] == "stub-third"
+        assert data["llm"]["allow_fallback"] is True
+
     def test_explicit_clear_via_empty_string(self, isolated_setup) -> None:
         from src.application.providers import use_provider_as_primary
 
@@ -470,3 +684,241 @@ class TestDisconnectRoutingCleanup:
         assert data["llm"]["primary_provider"] == "stub-sub"
         assert data["llm"]["fallback_provider"] is None
         assert data["llm"]["allow_fallback"] is False
+
+    def test_disconnect_primary_preserves_list_only_fallback_chain(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 regression: a Phase 11.1 config that has only
+        the list form ``fallback_providers`` (no scalar) must NOT have
+        its chain wiped when the current primary is disconnected. The
+        first usable list entry should be promoted, with the rest
+        preserved as deeper fallbacks."""
+        from src.application.providers import disconnect_provider
+
+        registry, settings_path = isolated_setup
+        # Seed creds for both providers so is_configured() is True
+        # for the fallback we expect to be promoted.
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-api",
+                auth_type=AuthType.API_KEY,
+                secret={"api_key": "sk"},
+            )
+        )
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-sub",
+                auth_type=AuthType.SUBPROCESS,
+                secret={"_marker": "present"},
+            )
+        )
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-api\n"
+            "  fallback_providers: [stub-sub]\n"
+            "  allow_fallback: true\n",
+            encoding="utf-8",
+        )
+        result = disconnect_provider("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        # stub-sub should have been promoted from the list.
+        assert data["llm"]["primary_provider"] == "stub-sub"
+        # No deeper entries -> chain empty, fallback off.
+        assert data["llm"]["fallback_providers"] == []
+        assert data["llm"]["fallback_provider"] is None
+        assert data["llm"]["allow_fallback"] is False
+
+    def test_disconnect_primary_preserves_allow_fallback_false(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 (round 4) regression: when the user has
+        ``allow_fallback: false`` but a list is still present,
+        disconnecting the primary must NOT silently re-enable
+        fallback routing. The cleanup may prune/promote entries, but
+        the user's explicit toggle must be preserved."""
+        from src.application.providers import disconnect_provider
+
+        registry, settings_path = isolated_setup
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-api",
+                auth_type=AuthType.API_KEY,
+                secret={"api_key": "sk"},
+            )
+        )
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-sub",
+                auth_type=AuthType.SUBPROCESS,
+                secret={"_marker": "present"},
+            )
+        )
+
+        class _StubThird(LLMProvider):
+            id = "stub-third"
+            display_name = "Third"
+            auth_type = AuthType.SUBPROCESS
+
+            def test_connection(
+                self, *, timeout: int = 10
+            ) -> ProviderTestResult:
+                return ProviderTestResult(ok=True)
+
+            def generate(
+                self,
+                prompt: str,
+                *,
+                system: str = "",
+                timeout: int = 120,
+                output_format: str = "text",
+            ) -> str:
+                return "third"
+
+        registry.register(_StubThird)
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-third",
+                auth_type=AuthType.SUBPROCESS,
+                secret={"_marker": "present"},
+            )
+        )
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-api\n"
+            "  fallback_providers: [stub-sub, stub-third]\n"
+            "  allow_fallback: false\n",
+            encoding="utf-8",
+        )
+        result = disconnect_provider("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        # stub-sub promoted, stub-third still in chain ...
+        assert data["llm"]["primary_provider"] == "stub-sub"
+        assert data["llm"]["fallback_providers"] == ["stub-third"]
+        # ... but the user's explicit "fallback disabled" must remain.
+        assert data["llm"]["allow_fallback"] is False
+
+    def test_disconnect_ignores_stale_scalar_when_list_present(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 (round 3) regression: ``get_llm_settings``
+        treats ``fallback_providers`` as authoritative when present
+        and ignores ``fallback_provider``. Disconnect cleanup must
+        honour that priority -- otherwise a stale scalar gets
+        promoted into the list and silently re-enables a fallback
+        the runtime was already ignoring."""
+        from src.application.providers import disconnect_provider
+
+        registry, settings_path = isolated_setup
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-api",
+                auth_type=AuthType.API_KEY,
+                secret={"api_key": "sk"},
+            )
+        )
+        # List has only stub-api; scalar is stale ("stub-third" was
+        # never registered and would have been ignored at runtime).
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-sub\n"
+            "  fallback_providers: [stub-api]\n"
+            "  fallback_provider: stub-third\n"
+            "  allow_fallback: true\n",
+            encoding="utf-8",
+        )
+        result = disconnect_provider("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        # Stale scalar must NOT be promoted into the list.
+        assert data["llm"]["fallback_providers"] == []
+        assert data["llm"]["fallback_provider"] is None
+        assert data["llm"]["allow_fallback"] is False
+
+    def test_disconnect_handles_comma_string_chain(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 (round 2) regression: ``fallback_providers``
+        may be a comma-separated string. Disconnect must normalise
+        before iterating, otherwise the loop walks characters."""
+        from src.application.providers import disconnect_provider
+
+        registry, settings_path = isolated_setup
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-api",
+                auth_type=AuthType.API_KEY,
+                secret={"api_key": "sk"},
+            )
+        )
+        settings_path.write_text(
+            'llm:\n'
+            '  primary_provider: stub-sub\n'
+            '  fallback_providers: "stub-api"\n'
+            '  allow_fallback: true\n',
+            encoding="utf-8",
+        )
+        result = disconnect_provider("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        # Primary untouched; stub-api dropped from chain.
+        assert data["llm"]["primary_provider"] == "stub-sub"
+        assert data["llm"]["fallback_providers"] == []
+        assert data["llm"]["fallback_provider"] is None
+        assert data["llm"]["allow_fallback"] is False
+
+    def test_disconnect_fallback_preserves_deeper_chain(
+        self, isolated_setup
+    ) -> None:
+        """Codex review P2 regression: disconnecting one entry from a
+        multi-element ``fallback_providers`` chain must only drop that
+        entry; deeper fallbacks the user configured must remain."""
+        from src.application.providers import disconnect_provider
+
+        registry, settings_path = isolated_setup
+        registry.store.set(
+            ProviderCredentials(
+                provider_id="stub-api",
+                auth_type=AuthType.API_KEY,
+                secret={"api_key": "sk"},
+            )
+        )
+
+        class _StubThird(LLMProvider):
+            id = "stub-third"
+            display_name = "Third"
+            auth_type = AuthType.SUBPROCESS
+
+            def test_connection(
+                self, *, timeout: int = 10
+            ) -> ProviderTestResult:
+                return ProviderTestResult(ok=True)
+
+            def generate(
+                self,
+                prompt: str,
+                *,
+                system: str = "",
+                timeout: int = 120,
+                output_format: str = "text",
+            ) -> str:
+                return "third"
+
+        registry.register(_StubThird)
+        settings_path.write_text(
+            "llm:\n"
+            "  primary_provider: stub-sub\n"
+            "  fallback_providers: [stub-api, stub-third]\n"
+            "  fallback_provider: stub-api\n"
+            "  allow_fallback: true\n",
+            encoding="utf-8",
+        )
+        result = disconnect_provider("stub-api")
+        assert result["ok"] is True
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        # Primary unchanged.
+        assert data["llm"]["primary_provider"] == "stub-sub"
+        # stub-api removed; stub-third remains and is now the scalar.
+        assert data["llm"]["fallback_providers"] == ["stub-third"]
+        assert data["llm"]["fallback_provider"] == "stub-third"

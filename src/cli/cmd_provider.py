@@ -349,11 +349,16 @@ def use_cmd(provider_id: str, fallback: str | None, as_json: bool) -> None:
     llm = settings.setdefault("llm", {})
     llm["primary_provider"] = provider_id
     llm["provider"] = provider_id  # legacy alias kept for compat
+    # Phase 11.1: keep the list and the scalar in sync so post-migrate
+    # configs don't end up routing to a stale fallback (get_llm_settings
+    # prefers the list when both are present).
     if fallback in ("", "none"):
         llm["fallback_provider"] = None
+        llm["fallback_providers"] = []
         llm["allow_fallback"] = False
     elif fallback is not None:
         llm["fallback_provider"] = fallback
+        llm["fallback_providers"] = [fallback]
         llm["allow_fallback"] = True
 
     _save_settings(settings)

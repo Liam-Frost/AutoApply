@@ -217,6 +217,12 @@ export const api = {
   providers() {
     return request("/api/providers")
   },
+  providersHealth() {
+    return request("/api/providers/health")
+  },
+  refreshProvidersHealth() {
+    return request("/api/providers/health/refresh", { method: "POST" })
+  },
   testProvider(providerId) {
     return request(`/api/providers/${encodeURIComponent(providerId)}/test`, {
       method: "POST",

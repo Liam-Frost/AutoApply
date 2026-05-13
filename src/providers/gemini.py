@@ -17,7 +17,12 @@ from typing import Any
 import httpx
 
 from src.providers.api_base import ApiKeyProvider
-from src.providers.base import ProviderError, ProviderTestResult
+from src.providers.base import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderTestResult,
+    classify_http_status,
+)
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = "gemini-2.5-flash"
@@ -102,38 +107,61 @@ class GeminiProvider(ApiKeyProvider):
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
 
-        with self._client(timeout) as client:
-            response = client.post(
-                url,
-                params={"key": api_key},
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent": "autoapply/0.7",
-                },
-                json=payload,
-            )
+        try:
+            with self._client(timeout) as client:
+                response = client.post(
+                    url,
+                    params={"key": api_key},
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "autoapply/0.7",
+                    },
+                    json=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                f"Gemini generation timed out after {timeout}s",
+                kind=ProviderErrorKind.TIMEOUT,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"Gemini network error: {exc}",
+                kind=ProviderErrorKind.NETWORK,
+            ) from exc
+
         if response.status_code >= 400:
             raise ProviderError(
                 f"Gemini generation failed (HTTP {response.status_code}): "
-                f"{_safe_text(response, key=api_key)}"
+                f"{_safe_text(response, key=api_key)}",
+                kind=classify_http_status(response.status_code),
             )
         try:
             body = response.json()
         except ValueError as exc:
-            raise ProviderError(f"Gemini response was not JSON: {exc}") from exc
+            raise ProviderError(
+                f"Gemini response was not JSON: {exc}",
+                kind=ProviderErrorKind.PARSE,
+            ) from exc
 
         candidates = body.get("candidates") if isinstance(body, dict) else None
         if not isinstance(candidates, list) or not candidates:
-            raise ProviderError(f"Gemini response missing 'candidates': {body!r}")
+            raise ProviderError(
+                f"Gemini response missing 'candidates': {body!r}",
+                kind=ProviderErrorKind.PARSE,
+            )
         content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
         parts = content.get("parts") if isinstance(content, dict) else None
         if not isinstance(parts, list) or not parts:
-            raise ProviderError(f"Gemini response missing parts: {body!r}")
+            raise ProviderError(
+                f"Gemini response missing parts: {body!r}",
+                kind=ProviderErrorKind.PARSE,
+            )
         text_parts = [p.get("text", "") for p in parts if isinstance(p, dict)]
         joined = "".join(t for t in text_parts if isinstance(t, str))
         if not joined:
             raise ProviderError(
-                f"Gemini response had no text parts: {body!r}"
+                f"Gemini response had no text parts: {body!r}",
+                kind=ProviderErrorKind.PARSE,
             )
         return joined
 

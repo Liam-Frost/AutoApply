@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -28,12 +30,36 @@ def _frontend_html() -> FileResponse | HTMLResponse:
     )
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """FastAPI startup/shutdown plumbing.
+
+    Phase 11.4 wires the :class:`ProviderHealthMonitor` here so the
+    Settings page's ``Last verified ...`` line is backed by an actual
+    background probe rather than the last manual test timestamp. The
+    monitor is opt-out via ``AUTOAPPLY_DISABLE_HEALTH_MONITOR=1`` for
+    test environments that don't want a stray asyncio task.
+    """
+    from src.providers.health import get_monitor  # noqa: PLC0415
+
+    monitor = None
+    if os.environ.get("AUTOAPPLY_DISABLE_HEALTH_MONITOR") not in {"1", "true", "yes"}:
+        monitor = get_monitor()
+        await monitor.start()
+    try:
+        yield
+    finally:
+        if monitor is not None:
+            await monitor.stop()
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="AutoApply",
         description="AI-powered job application automation web API",
         version="0.7.0",
+        lifespan=_lifespan,
     )
 
     app.mount(

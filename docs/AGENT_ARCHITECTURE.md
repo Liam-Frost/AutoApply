@@ -139,12 +139,21 @@ AUTOAPPLY_AGENT_COST_OUTPUT_PER_1K  default $0.015 / 1k tokens
 Treat the numbers as accurate to ~30%. They exist to spot order-of-
 magnitude regressions, not to reconcile invoices.
 
+Phase 11.1 adds `AgentStep.llm_attempts` -- a list of
+`{provider, ok, kind, error, latency_ms}` records describing which
+provider answered each turn. `src.utils.llm.generate_text` writes the
+list into a `ContextVar` (`last_attempt_chain`) on every call; `_step`
+in the agent loop snapshots it before constructing the AgentStep, also
+pulling `LLMError.attempts` off the raised exception when the call
+failed. The field is empty for tests that inject a stub LLM callable
+bypassing `generate_text`.
+
 Surfaces:
 
 * `autoapply eval --suite <name>`: per-case + suite totals
 * Web trace viewer: per-step + per-trace pills
 * Persisted trace JSON: `total_prompt_tokens`, `total_output_tokens`,
-  `total_cost_usd`
+  `total_cost_usd`, plus `steps[].llm_attempts` (Phase 11.1+)
 
 ## Eval
 

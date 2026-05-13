@@ -629,3 +629,40 @@ async def providers_use(
     if not result["ok"] and result.get("error_code") == "unknown_provider":
         raise HTTPException(status_code=404, detail=result["error"])
     return result
+
+
+@router.get("/providers/health")
+async def providers_health() -> dict:
+    """Phase 11.4 -- cached health snapshot for every configured provider.
+
+    Backed by :class:`src.providers.health.ProviderHealthMonitor`, which
+    runs ``test_connection()`` against each configured provider every
+    ``interval_seconds`` (default 5 min). The records survive between
+    HTTP requests but reset on process restart.
+
+    Returns ``{records, last_run_started_at, last_run_finished_at,
+    interval_seconds, running}``; ``records[provider_id]`` is
+    ``{ok, detail, latency_ms, checked_at}``.
+    """
+    from src.providers.health import get_monitor  # noqa: PLC0415
+
+    return get_monitor().snapshot().to_dict()
+
+
+@router.post("/providers/health/refresh")
+async def providers_health_refresh() -> dict:
+    """Force a probe round and return the fresh snapshot.
+
+    Useful from the Settings UI when the user clicks "Refresh now" or
+    just connected a new key and wants to confirm health without
+    waiting for the next scheduled tick.
+    """
+    from src.providers.health import get_monitor  # noqa: PLC0415
+
+    monitor = get_monitor()
+    # Run in a worker thread so the HTTP loop doesn't stall on the
+    # provider probes (httpx + subprocess).
+    import asyncio  # noqa: PLC0415
+
+    await asyncio.to_thread(monitor.probe_all)
+    return monitor.snapshot().to_dict()

@@ -40,6 +40,7 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 from src.cli.cmd_apply import apply_cmd  # noqa: E402
 from src.cli.cmd_eval import eval_cmd  # noqa: E402
 from src.cli.cmd_init import init_cmd  # noqa: E402
+from src.cli.cmd_migrate import migrate_cmd  # noqa: E402
 from src.cli.cmd_provider import provider_cmd  # noqa: E402
 from src.cli.cmd_search import search_cmd  # noqa: E402
 from src.cli.cmd_status import status_cmd  # noqa: E402
@@ -52,6 +53,7 @@ cli.add_command(status_cmd, "status")
 cli.add_command(web_cmd, "web")
 cli.add_command(eval_cmd, "eval")
 cli.add_command(provider_cmd, "provider")
+cli.add_command(migrate_cmd, "migrate")
 
 
 def main() -> None:

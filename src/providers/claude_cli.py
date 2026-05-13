@@ -34,7 +34,9 @@ from src.providers.base import (
     AuthType,
     LLMProvider,
     ProviderError,
+    ProviderErrorKind,
     ProviderTestResult,
+    classify_cli_error,
     now_iso,
 )
 
@@ -129,7 +131,8 @@ class ClaudeCliProvider(LLMProvider):
         if not self.is_installed():
             raise ProviderError(
                 "Claude CLI not found in PATH. "
-                "Install with `npm install -g @anthropic-ai/claude-code`."
+                "Install with `npm install -g @anthropic-ai/claude-code`.",
+                kind=ProviderErrorKind.AUTH,
             )
         # Late import keeps the provider package free of CLI module
         # imports at load time (matches CodexOAuthProvider's pattern).
@@ -146,7 +149,9 @@ class ClaudeCliProvider(LLMProvider):
                 output_format=output_format,
             )
         except LLMError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ProviderError(
+                str(exc), kind=classify_cli_error(str(exc))
+            ) from exc
 
     def public_view(self) -> dict[str, Any]:
         # Surface "installed" as a top-level breadcrumb so the UI can
