@@ -233,11 +233,11 @@ provider kind.
 
 ## Current Session Context
 
-- **Active branch**: `dev`
-- **Current phase**: Phase 10 complete; PR #12 merged (commit `9cbb354`)
-- **Last verification**: 680 passed, 1 skipped (post-Phase-10 baseline; 669 at the Phase 10 close commit); `ruff check` clean; frontend builds; manual smoke OK on Settings page in light + dark
+- **Active branch**: `feat/phase-11`
+- **Current phase**: Phase 11 in progress -- 11.1 + 11.2 + 11.3 landed, 11.4 pending
+- **Last verification**: 718 passed, 1 skipped on `feat/phase-11` after 11.2; `ruff check` clean; frontend untouched in this phase
 - **Blockers**: None
-- **Next step**: Start Phase 11 (Reliability & Cleanup).
+- **Next step**: 11.4 Provider health monitor → end-of-phase codex review → docs sweep → PR to `dev`.
 
 ## Roadmap: Phase 11 -- 18
 
@@ -260,12 +260,12 @@ material and the JD snapshot it was built from.
 Tighten the provider layer Phase 10 introduced; ship the migration
 tool needed for users upgrading from earlier revisions.
 
-| Sub | Scope |
-|-----|-------|
-| 11.1 | Provider fallback chain: `generate_text()` accepts primary + ordered fallbacks; quota / network / auth failures fail over automatically; attempt chain recorded in trace. The Settings UI fallback field finally takes effect. |
-| 11.2 | `autoapply migrate` CLI command: cleans stale `managed_by: codex-cli` credential breadcrumbs, renames legacy settings.yaml keys, detects and prompts about stale credentials. Run once per upgrade. |
-| 11.3 | Docs sync: bring PROJECT_MANAGEMENT.md / AGENT_ARCHITECTURE.md / CHANGELOG.md up to Phase 10 complete state; add the Phase 11-18 plan inline. |
-| 11.4 | Provider health monitor: `/api/providers/health` background probe every 5 min; Settings page "Last verified" line shows real telemetry instead of "just now". |
+| Sub | Scope | Status |
+|-----|-------|--------|
+| 11.1 | Provider fallback chain: `generate_text()` accepts primary + ordered fallbacks; quota / network / auth failures fail over automatically; attempt chain recorded in trace. The Settings UI fallback field finally takes effect. | **Complete** (commit `a60e846`) |
+| 11.2 | `autoapply migrate` CLI command: cleans stale `managed_by: codex-cli` credential breadcrumbs, renames legacy settings.yaml keys, detects and prompts about stale credentials. Run once per upgrade. | **Complete** (commit `c45a2f6`) |
+| 11.3 | Docs sync: bring PROJECT_MANAGEMENT.md / AGENT_ARCHITECTURE.md / CHANGELOG.md up to Phase 10 complete state; add the Phase 11-18 plan inline. | **Complete** |
+| 11.4 | Provider health monitor: `/api/providers/health` background probe every 5 min; Settings page "Last verified" line shows real telemetry instead of "just now". | Pending |
 
 **Verification**: revoke OpenAI key mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` against a fixture environment with legacy breadcrumbs leaves state clean.
 
