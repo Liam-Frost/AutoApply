@@ -208,6 +208,24 @@ def detect_settings_issues(settings: dict[str, Any]) -> list[MigrationIssue]:
                 fix="Remove the `llm.provider` key from config/settings.yaml.",
             )
         )
+    elif provider and not primary:
+        # Pre-Phase-10 configs only carried `llm.provider`. Promote it
+        # so the runtime stops falling back to the legacy alias.
+        issues.append(
+            MigrationIssue(
+                code=ISSUE_LEGACY_PROVIDER_KEY,
+                target="llm.provider",
+                detail=(
+                    f"Config has only the legacy `llm.provider: {provider!r}` "
+                    "key. The current code prefers `llm.primary_provider` "
+                    "and only falls back to the alias for read."
+                ),
+                fix=(
+                    f"Set `llm.primary_provider: {provider}` and drop "
+                    "`llm.provider` from config/settings.yaml."
+                ),
+            )
+        )
 
     fallback = llm.get("fallback_provider")
     fallback_list = llm.get("fallback_providers")
@@ -261,9 +279,21 @@ def apply_settings_fixes(
         return applied
 
     for issue in issues:
-        if issue.code == ISSUE_LEGACY_PROVIDER_KEY and "provider" in llm:
-            llm.pop("provider", None)
-            applied.append("dropped `llm.provider` (alias of `primary_provider`)")
+        if issue.code == ISSUE_LEGACY_PROVIDER_KEY:
+            legacy = llm.get("provider")
+            primary = llm.get("primary_provider")
+            if legacy and not primary:
+                # Orphan case: only `llm.provider` exists. Promote it
+                # to `primary_provider` then drop the alias.
+                llm["primary_provider"] = legacy
+                llm.pop("provider", None)
+                applied.append(
+                    f"promoted legacy `llm.provider: {legacy}` to "
+                    "`llm.primary_provider` and dropped the alias"
+                )
+            elif legacy and primary == legacy:
+                llm.pop("provider", None)
+                applied.append("dropped `llm.provider` (alias of `primary_provider`)")
         if issue.code == ISSUE_LEGACY_FALLBACK_SCALAR:
             scalar = llm.pop("fallback_provider", None)
             if scalar:

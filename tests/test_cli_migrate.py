@@ -132,6 +132,15 @@ class TestDetectSettings:
         )
         assert any(i.code == ISSUE_LEGACY_PROVIDER_KEY for i in issues)
 
+    def test_legacy_provider_only_orphan(self) -> None:
+        """Codex review P2: pre-Phase-10 configs only carry `llm.provider`.
+        Migrate must promote it, not treat the config as clean."""
+        issues = detect_settings_issues(
+            {"llm": {"provider": "claude-cli"}}
+        )
+        codes = [i.code for i in issues]
+        assert ISSUE_LEGACY_PROVIDER_KEY in codes
+
     def test_provider_alias_with_mismatch_keeps_quiet(self) -> None:
         # If the two keys disagree something weirder is going on; we
         # leave it alone rather than silently overwriting either one.
@@ -288,6 +297,29 @@ class TestMigrateCommand:
         assert "issues" in payload["data"]
         codes = [i["code"] for i in payload["data"]["issues"]]
         assert ISSUE_MANAGED_BY in codes
+
+    def test_apply_promotes_legacy_provider_only(self, tmp_path: Path) -> None:
+        """Codex review P2: ``--apply`` against a config with only the
+        legacy ``llm.provider`` key must write ``primary_provider`` so
+        the user finishes migration in the canonical shape."""
+        patches, _creds_path, settings_path = self._isolated_env(
+            tmp_path,
+            settings={"llm": {"provider": "claude-cli"}},
+            credentials={},
+        )
+        for p in patches:
+            p.start()
+        try:
+            result = CliRunner().invoke(migrate_cmd, ["--apply"])
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert result.exit_code == 0, result.output
+        settings_after = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+        llm = settings_after["llm"]
+        assert llm["primary_provider"] == "claude-cli"  # promoted
+        assert "provider" not in llm  # alias dropped
 
     def test_clean_environment_says_nothing_to_do(self, tmp_path: Path) -> None:
         patches, _creds_path, _settings_path = self._isolated_env(

@@ -25,6 +25,57 @@ from src.providers.base import (
 from src.utils.llm import LLMError, generate_text, get_llm_settings, last_attempt_chain
 
 
+class TestWritersSyncListAndScalar:
+    """Codex review P2: writers must keep both `fallback_providers` and
+    `fallback_provider` in sync. After ``autoapply migrate`` creates the
+    list form, every later writer (`update_llm_settings`, `use_provider_as_primary`,
+    `use_cmd`) must update both shapes -- otherwise `generate_text` keeps
+    reading a stale list."""
+
+    def test_update_llm_settings_syncs_both_shapes(self, tmp_path):
+        from src.core.config import update_llm_settings  # noqa: PLC0415
+
+        config_path = tmp_path / "settings.yaml"
+        config_path.write_text(
+            "llm:\n  primary_provider: claude-cli\n  fallback_providers: [old-fallback]\n",
+            encoding="utf-8",
+        )
+        update_llm_settings(
+            "claude-cli",
+            fallback_provider="codex-cli",
+            allow_fallback=True,
+            config_path=config_path,
+        )
+        import yaml  # noqa: PLC0415
+
+        out = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert out["llm"]["fallback_provider"] == "codex-cli"
+        assert out["llm"]["fallback_providers"] == ["codex-cli"]
+
+    def test_update_llm_settings_clearing_clears_both(self, tmp_path):
+        from src.core.config import update_llm_settings  # noqa: PLC0415
+
+        config_path = tmp_path / "settings.yaml"
+        config_path.write_text(
+            "llm:\n"
+            "  primary_provider: claude-cli\n"
+            "  fallback_providers: [codex-cli]\n"
+            "  fallback_provider: codex-cli\n",
+            encoding="utf-8",
+        )
+        update_llm_settings(
+            "claude-cli",
+            fallback_provider=None,
+            allow_fallback=False,
+            config_path=config_path,
+        )
+        import yaml  # noqa: PLC0415
+
+        out = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert out["llm"]["fallback_provider"] is None
+        assert out["llm"]["fallback_providers"] == []
+
+
 class TestSettingsChain:
     def test_list_shape_is_honoured(self):
         settings = get_llm_settings(
