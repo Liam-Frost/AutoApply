@@ -234,10 +234,10 @@ provider kind.
 ## Current Session Context
 
 - **Active branch**: `feat/phase-11`
-- **Current phase**: Phase 11 in progress -- 11.1 + 11.2 + 11.3 landed, 11.4 pending
-- **Last verification**: 718 passed, 1 skipped on `feat/phase-11` after 11.2; `ruff check` clean; frontend untouched in this phase
+- **Current phase**: Phase 11 complete -- 11.1 + 11.2 + 11.3 + 11.4 + 11.5 all landed; PR to `dev` next
+- **Last verification**: 727 passed, 1 skipped on `feat/phase-11` after 11.5; `ruff check` clean. (11 `test_memory.py` errors are environment-level `psycopg` missing -- not a Phase 11 regression.)
 - **Blockers**: None
-- **Next step**: 11.4 Provider health monitor → end-of-phase codex review → docs sweep → PR to `dev`.
+- **Next step**: Push `feat/phase-11` → open PR to `dev` → after merge, Phase 12 (Cache Infrastructure / Redis introduction) on a fresh `feat/phase-12` branch.
 
 ## Roadmap: Phase 11 -- 18
 
@@ -264,10 +264,11 @@ tool needed for users upgrading from earlier revisions.
 |-----|-------|--------|
 | 11.1 | Provider fallback chain: `generate_text()` accepts primary + ordered fallbacks; quota / network / auth failures fail over automatically; attempt chain recorded in trace. The Settings UI fallback field finally takes effect. | **Complete** (commit `a60e846`) |
 | 11.2 | `autoapply migrate` CLI command: cleans stale `managed_by: codex-cli` credential breadcrumbs, renames legacy settings.yaml keys, detects and prompts about stale credentials. Run once per upgrade. | **Complete** (commit `c45a2f6`) |
-| 11.3 | Docs sync: bring PROJECT_MANAGEMENT.md / AGENT_ARCHITECTURE.md / CHANGELOG.md up to Phase 10 complete state; add the Phase 11-18 plan inline. | **Complete** |
-| 11.4 | Provider health monitor: `/api/providers/health` background probe every 5 min; Settings page "Last verified" line shows real telemetry instead of "just now". | Pending |
+| 11.3 | Docs sync: bring PROJECT_MANAGEMENT.md / AGENT_ARCHITECTURE.md / CHANGELOG.md up to Phase 10 complete state; add the Phase 11-18 plan inline. | **Complete** (commit `47dbfba`) |
+| 11.4 | Provider health monitor: `/api/providers/health` background probe every 5 min; Settings page "Last verified" line shows real telemetry instead of "just now". | **Complete** (commit `f8ea3dd`) |
+| 11.5 | Writer sync for list+scalar fallback shapes: `update_llm_settings`, `use_provider_as_primary`, `disconnect_provider`, `use_cmd`, and `autoapply migrate` all keep `fallback_providers` (list, authoritative) and `fallback_provider` (legacy scalar) in agreement. Added across four codex review rounds — preserves `allow_fallback: false` through disconnect cleanup, handles the comma-string chain shape, prunes without re-promoting stale scalars, and promotes the orphan `llm.provider` key for pre-Phase-10 configs. | **Complete** (commit `a8f8c59`) |
 
-**Verification**: revoke OpenAI key mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` against a fixture environment with legacy breadcrumbs leaves state clean.
+**Verification**: revoke OpenAI key mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` against a fixture environment with legacy breadcrumbs leaves state clean; `/api/providers/health` snapshot reflects live `test_connection` results; codex review of 11.5 returned no findings after round 4.
 
 ### Phase 12: Cache Infrastructure (~1.5 weeks)
 

@@ -4,11 +4,11 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
-### Phase 11: Reliability & Cleanup (in progress)
+### Phase 11: Reliability & Cleanup
 
 Tightens the Phase 10 provider layer and ships the upgrade migration
-tool. Sub-phases are landed independently on `feat/phase-11` and merged
-to `dev` as one Phase.
+tool. Sub-phases landed independently on `feat/phase-11`; merged to
+`dev` as one Phase.
 
 - **11.1 Provider fallback chain** -- `generate_text()` now accepts an
   ordered chain (`fallback_providers: [a, b, c]` in `config/settings.yaml`
@@ -36,7 +36,39 @@ to `dev` as one Phase.
   to reflect the 11.1 ContextVar plumbing on `AgentStep`. The Phase
   11-18 v2 roadmap was already in the docs after commit `68421bc`;
   no further roadmap edits needed in 11.3.
-- **11.4 Provider health monitor** -- pending.
+- **11.4 Provider health monitor** -- background poller calls
+  `test_connection()` on every configured provider every 5 minutes and
+  caches results in memory (`src/providers/health.py`,
+  `ProviderHealthMonitor`). Probes run in a worker thread
+  (`asyncio.to_thread`) so subprocess providers' `--version` checks
+  don't block the FastAPI event loop. Lifecycle is managed by a
+  `@asynccontextmanager` lifespan on the app, with
+  `AUTOAPPLY_DISABLE_HEALTH_MONITOR=1` opt-out for TestClient usage.
+  New endpoints `GET /api/providers/health` (cached snapshot) and
+  `POST /api/providers/health/refresh` (force probe + return fresh
+  snapshot). The Settings page's "Last verified ..." line now reflects
+  live telemetry rather than the last manual-test breadcrumb, and
+  surfaces `health.detail` in the destructive variant when a probe
+  failed. +7 tests (725 total).
+- **11.5 Writer sync for list+scalar fallback shapes** -- Phase 11.1
+  made `fallback_providers` (list) authoritative; `get_llm_settings`
+  ignores the legacy `fallback_provider` scalar when both exist. Before
+  this sub-phase the writers that mutate `settings.yaml` only updated
+  the scalar, so users who had already migrated to the list form never
+  saw their fallback selections take effect. Fixed across four codex
+  review rounds in `src/core/config.py` (`update_llm_settings`),
+  `src/cli/cmd_provider.py` (`use_cmd`), `src/cli/cmd_migrate.py`
+  (`detect_settings_issues` / `apply_settings_fixes` now promote the
+  orphan `llm.provider` key for pre-Phase-10 configs), and
+  `src/application/providers.py` (`disconnect_provider`,
+  `use_provider_as_primary`). The new `_coerce_chain` helper accepts
+  list / comma-separated string / missing -- the same three shapes
+  `get_llm_settings` reads -- and the chain logic now: (a) preserves
+  list-only configs through disconnect, (b) keeps deeper fallbacks when
+  one chain entry is removed, (c) ignores a stale scalar when the list
+  is present, (d) mirrors the new list head onto the scalar after
+  pruning, and (e) preserves `allow_fallback: false` through both
+  disconnect cleanup and self-heal. +8 tests (727 total). ruff clean.
 
 ### Licensing: PolyForm Noncommercial 1.0.0 adopted
 
