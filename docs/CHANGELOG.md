@@ -89,11 +89,17 @@ can plug in any of OpenAI / Anthropic / Gemini (REST) or Claude CLI
 planned as "cover-letter agent". It was reordered after Phase 9
 because the LLM-provider abstraction unblocks every subsequent
 agent phase (no point writing a second agent against a hard-coded
-`subprocess.run(['claude', ...])`). The original cover-letter-agent
-work is now Phase 14; matching-agent is Phase 15; daily run loop is
-Phase 16. Two new cross-cutting phases are inserted: Phase 12
-(caching) and Phase 13 (scheduled tasks). See
-`docs/PROJECT_MANAGEMENT.md` for the full roadmap.
+`subprocess.run(['claude', ...])`). The roadmap was re-planned a
+second time on 2026-05-12 (v2) once the project committed to a
+Redis-backed cache substrate and a commercial path: the original
+cover-letter-agent work is now Phase 15; filter-agent is Phase 16;
+daily run loop is Phase 17. Four new cross-cutting / infrastructure
+phases are inserted ahead of agent work: Phase 11 (reliability),
+Phase 12 (cache infrastructure with Redis), Phase 13 (Job Index &
+Freshness Engine), Phase 14 (scheduled task system). Phase 18
+(multi-tenancy & auth hardening) closes the v1 commercial-ready
+core. See `docs/PROJECT_MANAGEMENT.md` for the full sub-phase
+breakdown and `docs/DECISIONS.md` D018-D021 for the rationale.
 
 Test baseline at Phase 10 close: 669 passed, 1 skipped.
 `ruff check src/ tests/` clean. Frontend rebuilds clean.

@@ -28,6 +28,7 @@
 - `uv`
 - PostgreSQL `16+`
 - PostgreSQL `pgvector` 扩展
+- Redis `7+`（Phase 12 起作为缓存 / 分布式锁 / 队列基础设施所需；当前版本尚未强制依赖，但 v0.12 起所有发布版都需要。建议现在就安装，升级时无缝衔接。）
 - Playwright 使用的 Chromium
 - 至少一种 PDF 转换方案：
   - Microsoft Word + `docx2pdf`
@@ -695,7 +696,7 @@ uv run autoapply web --no-open
 
 当前预期基线：
 
-- `uv run pytest -q` 通过，当前为 340 个测试通过、1 个 LinkedIn smoke 测试跳过
+- `uv run pytest -q` 通过，当前为 680 个测试通过、1 个 LinkedIn smoke 测试跳过
 - `uv run ruff check .` 通过
 - 安装前端依赖后，`npm run build` 通过
 - CLI 正常加载

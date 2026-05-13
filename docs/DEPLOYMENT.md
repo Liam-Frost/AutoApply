@@ -29,6 +29,7 @@ Install these before starting:
 - `uv`
 - PostgreSQL `16+`
 - PostgreSQL `pgvector` extension
+- Redis `7+` (required from Phase 12 onward as the cache / distributed-lock / queue substrate; the current code does not yet require it, but every release from v0.12 will. Install now so the upgrade is seamless.)
 - Chromium for Playwright
 - At least one document-to-PDF path:
   - Microsoft Word + `docx2pdf`, or
@@ -694,7 +695,7 @@ uv run autoapply web --no-open
 
 Expected current baseline:
 
-- `uv run pytest -q` passes with 340 tests and 1 skipped LinkedIn smoke test
+- `uv run pytest -q` passes with 680 tests and 1 skipped LinkedIn smoke test
 - `uv run ruff check .` passes
 - `npm run build` passes when frontend dependencies are installed
 - CLI loads

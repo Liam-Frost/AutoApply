@@ -54,6 +54,7 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 | LLM Providers | OpenAI / Anthropic / Gemini (REST via httpx) **or** Claude Code CLI / Codex CLI (subprocess) — interchangeable through `ProviderRegistry` |
 | Agent Harness | In-house ReAct loop with allow-listed `ToolRegistry`, file-backed HITL gate, JSON-on-disk trace store, fixture-driven eval runner |
 | Database | PostgreSQL + pgvector |
+| Cache / Lock / Queue | Redis (from Phase 12) — L2 cache, distributed locks, task substrate |
 | Document Processing | python-docx, docx2pdf / LibreOffice |
 | Package Manager | uv + npm |
 | Target Platforms | Greenhouse, Lever, Ashby, LinkedIn discovery |
@@ -103,22 +104,24 @@ src/
 - **Agent Phase 9** (Form-Filler Agent with HITL review + eval suite + cost telemetry) — Complete
 - **Phase 10** (LLM Provider Abstraction: REST adapters for OpenAI / Anthropic / Gemini + subprocess providers for Claude CLI / Codex CLI; credential store; `autoapply provider` CLI; `/settings` provider management UI) — Complete
 
-**669 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
+**680 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
 
-### Roadmap (Phase 11 → 16)
+### Roadmap (Phase 11 → 18)
 
-Re-planned 2026-05-12 after Phase 10 landed. Two new cross-cutting infrastructure phases (caching, scheduling) are inserted ahead of the remaining agent work because they unblock the nightly-run loop in Phase 16.
+Re-planned 2026-05-12 (v2). Redis is adopted from Phase 12 as cache / lock / queue substrate; JD caching graduates into a dedicated Job Index & Freshness Engine (Phase 13) with content-hashed snapshots and audit binding from generated materials back to the exact JD version they were built from; a new Phase 18 plants the multi-tenancy seeds for a future commercial deployment. See [DECISIONS.md](docs/DECISIONS.md) D018-D021 for rationale.
 
 | Phase | Scope | Est. |
 |---|---|---|
 | 11 | Reliability & Cleanup — provider fallback chain, `autoapply migrate`, provider health monitor, docs sync | ~1 week |
-| 12 | Caching Foundation — `src/cache/` tiered (L1 LRU + L2 SQLite), per-namespace TTL, wire into JD scraping + LLM + embeddings, inspector UI, cost-saved dashboard | ~1.5 weeks |
-| 13 | Scheduled Task System — APScheduler + SQLite jobstore, built-in jobs (`daily_search`, `jd_health_check`, `status_sync`, `cookie_refresh`, `cache_eviction`), CLI + Web UI | ~1.5 weeks |
-| 14 | Cover-letter Agent — `jd_lookup` tool, `AgentCoverLetter` orchestrator, fact-drift guard, 5-fixture eval suite (was originally Phase 10) | ~2 weeks |
-| 15 | Filter Agent + Explainability — reason chain in `src/matching/`, edge-case agent for borderline scores, "Why was this filtered?" UI | ~1.5 weeks |
-| 16 | Daily Run Loop + Review Queue — `nightly_run` orchestrator, `/review` kanban, bulk operations, morning digest, kill switch | ~2 weeks |
+| 12 | Cache Infrastructure (Redis) — `src/cache/` L1 LRU + L2 Redis, distributed lock primitive, LLM + embedding response caching, inspector UI, cost-saved dashboard | ~1.5 weeks |
+| 13 | Job Index & Freshness Engine — `job_postings` / `job_snapshots` / `search_queries` / `search_results` / `refresh_tasks` tables, content-hash versioning, freshness state machine, cache-first search + force-refresh UX, audit binding via `job_snapshot_id` | ~2 weeks |
+| 14 | Scheduled Task System — APScheduler + Postgres jobstore, RefreshTask worker, built-in jobs (`daily_search`, `jd_health_check`, `status_sync`, `cookie_refresh`, `cache_eviction`), multi-instance safe | ~1.5 weeks |
+| 15 | Cover-letter Agent — `jd_lookup` tool, `AgentCoverLetter` orchestrator, snapshot-bound generation, fact-drift guard, 5-fixture eval suite (was originally Phase 10) | ~2 weeks |
+| 16 | Filter Agent + Explainability — reason chain in `src/matching/`, edge-case agent for borderline scores, "Why was this filtered?" UI | ~1.5 weeks |
+| 17 | Daily Run Loop + Review Queue — `nightly_run` orchestrator, `/review` kanban, bulk operations, pre-submit freshness gate, morning digest, kill switch | ~2 weeks |
+| 18 | Multi-Tenancy & Auth Hardening — `tenants` / `users` tables, FastAPI auth middleware, Postgres RLS, per-tenant Redis namespace, quotas, audit log | ~2 weeks |
 
-See [PROJECT_MANAGEMENT.md](docs/PROJECT_MANAGEMENT.md) for the full sub-phase breakdown and per-phase verification commands.
+~3 months to v1.0 commercial-ready core. See [PROJECT_MANAGEMENT.md](docs/PROJECT_MANAGEMENT.md) for the full sub-phase breakdown and per-phase verification commands.
 
 ## CLI Usage
 

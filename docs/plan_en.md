@@ -1,251 +1,213 @@
-# AutoApply - Automated Job Application AI Agent Implementation Plan
+# AutoApply — Full Project Plan
 
-## Context
+This document is the authoritative end-to-end project plan: what AutoApply
+is, what it is built from, what is shipped, and what remains to ship through
+Phase 18 (v1 commercial-ready core).
 
-The goal is to build a complete job-seeking automation system (not a simple application script) covering 7 layers of capability: job intake & filtering, applicant memory, resume/cover letter tailoring, Q&A auto-response, document processing, browser automation, and application tracking & analytics.
+It is intentionally redundant with parts of `README.md`, `docs/PROJECT_MANAGEMENT.md`,
+`docs/AGENT_ARCHITECTURE.md`, and `docs/DECISIONS.md`. Where any of those
+documents disagree with this one, the source of truth is:
 
-Core decisions (based on research report + architecture design):
-- **Build from scratch** — do not fork any existing project as the main trunk
-- **Playwright + Python + PostgreSQL** with pgvector for vector search
-- Reference: AIHawk (architecture ideas), get_jobs (platform action patterns), GodsScion (config/QA/material customization)
-- Phased approach: "high-hit semi-auto" first → conditional auto-submit → analytics-driven optimization
-
-## Tech Stack
-
-| Layer | Technology |
+| Topic | Authoritative source |
 |---|---|
-| Browser Automation | Playwright (Python) |
-| Backend / Agent | Python 3.12+, asyncio |
-| LLM | Claude Code CLI (`claude -p`) + Codex CLI — via subprocess, no API SDK |
-| Database | PostgreSQL + pgvector |
-| Document Processing | python-docx + docx templates, docx2pdf / LibreOffice CLI |
-| Task Scheduling | asyncio (MVP), upgradeable to Celery + Redis |
-| Frontend | CLI + FastAPI-served Vue 3 SPA |
-| Package Manager | uv |
-| Configuration | YAML |
-| Target Platforms | English ATS: Greenhouse / Lever / Ashby, LinkedIn discovery (Chinese platforms later) |
+| Per-sub-phase scope, ETAs, verification | `docs/PROJECT_MANAGEMENT.md` |
+| Why we chose / rejected each design | `docs/DECISIONS.md` |
+| Agent harness internals | `docs/AGENT_ARCHITECTURE.md` |
+| User-facing setup | `docs/DEPLOYMENT.md` |
+| This file | Strategy + history + roadmap summary |
 
-### LLM Integration
+Last refreshed: **2026-05-12 (roadmap v2)**.
 
-The system invokes Claude Code CLI and Codex CLI via `subprocess` rather than calling APIs directly:
+---
 
-```python
-# src/utils/llm.py core interface
-import subprocess, json
+## 1. Goal
 
-def claude_generate(prompt: str, system: str = "", max_tokens: int = 4096) -> str:
-    """Call Claude Code CLI for text generation"""
-    cmd = ["claude", "-p", prompt]
-    if system:
-        cmd.extend(["--system", system])
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return result.stdout.strip()
+Build an end-to-end job-application automation system covering seven
+capability layers: job intake & filtering, applicant memory, resume &
+cover-letter tailoring, quick-question response, document processing,
+form-filling automation, and tracking / analytics.
 
-def codex_generate(prompt: str) -> str:
-    """Call Codex CLI for text generation"""
-    cmd = ["codex", "--quiet", "--full-auto", prompt]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return result.stdout.strip()
+Commercial ambition has been preserved since the 2026-05-12 v2 re-plan:
+multi-tenancy, Redis-backed cache, distributed locks, per-tenant quotas,
+and Postgres RLS are all in the roadmap, even though no SaaS business
+layer is on the table yet.
+
+## 2. Design Principles
+
+1. **State machine-driven.** Every application is a state machine —
+   interruptible, resumable, auditable.
+2. **Block-based resume generation.** No full-text LLM rewrite. Select from
+   a tagged bullet pool, optionally apply light lexical rewrite with a
+   fact-drift guard.
+3. **DOCX-first rendering.** LLMs produce structured IR; deterministic
+   renderers own the final DOCX/PDF.
+4. **Human-in-the-loop on every submit.** Default pauses before submit;
+   `--auto-submit` is an opt-in escape hatch that still passes through the
+   gate queue.
+5. **Full audit trail.** Screenshots, DOM snapshots, file versions, QA
+   responses are all persisted. Phase 13 extends this with content-hashed
+   JD snapshots so we know forever which JD version a given letter / resume
+   was generated against.
+6. **Provider-agnostic LLM.** No subprocess- or REST-specific code outside
+   `src/providers/`. Every call site uses `generate_text()`.
+7. **No autonomous agent.** The agent loop is confined: it only sees tools
+   the orchestrator allow-listed, only proposes, never submits.
+
+## 3. Tech Stack
+
+| Layer | Technology | Rationale |
+|---|---|---|
+| Language / runtime | Python 3.12+, `uv` | Standard async + typing baseline |
+| Backend | FastAPI + Click CLI (`autoapply`) | Single codebase serves web + CLI |
+| Frontend | Vue 3 + Vue Router + Vite + Tailwind v3 + shadcn-vue + reka-ui | See D015 |
+| Browser automation | Playwright (Python, async) | Full DOM access + persistent context for LinkedIn login |
+| LLM providers | OpenAI / Anthropic / Gemini (REST via `httpx`) **or** Claude Code CLI / Codex CLI (subprocess) — all behind `ProviderRegistry` | See D016 |
+| Agent harness | In-house ReAct loop in `src/agent/` — bounded steps, allow-listed `ToolRegistry`, file-backed HITL gate, JSON-on-disk trace store, fixture-driven eval | See D017 (no LangChain / LangGraph) |
+| Database (source of truth) | PostgreSQL + pgvector + alembic | Vector search for matching; alembic for schema migrations |
+| Cache / lock / queue (Phase 12+) | Redis 7+ | L2 cache, distributed lock primitive (`SET NX PX`), task queue substrate; see D018 |
+| Scheduler (Phase 14+) | APScheduler + Postgres `SQLAlchemyJobStore` + advisory lock | See D021 (not Celery, not SQLite, not OS cron) |
+| Document processing | python-docx + docx2pdf / LibreOffice | DOCX-first; PDF as derived output |
+| Config | YAML (`config/settings.yaml`, `config/filters.yaml`, `config/companies.yaml`) + `.env` overrides | Defaults → file → env, with credential URL encoding |
+| Target ATS platforms | Greenhouse / Lever / Ashby; LinkedIn for discovery | Direct-apply for the first three; LinkedIn auth via Playwright persistent context |
+
+## 4. Code Layout (actual, not aspirational)
+
+```
+src/
+├── core/                # Config loader, DB session, ORM models, state machine
+├── agent/               # In-house agent harness
+│   ├── tools/           #   tool ABC + builtin / browser / profile tools
+│   ├── core/            #   bounded ReAct loop + cost telemetry
+│   ├── gate/            #   file-backed HITL approval queue
+│   ├── trace/           #   JSON-on-disk trace store
+│   └── eval/            #   fixture-driven eval runner + scorers
+├── providers/           # LLM provider abstraction
+│   ├── base.py          #   LLMProvider ABC + ProviderKind + AuthType
+│   ├── openai.py / anthropic.py / gemini.py   # REST adapters via httpx
+│   ├── claude_cli.py / codex.py               # Subprocess adapters
+│   ├── api_base.py      #   shared REST helpers
+│   ├── store.py         #   credential storage (0600 file + OS keyring fallback)
+│   └── registry.py      #   primary / fallback dispatch into generate_text
+├── intake/              # Job scraping & schema
+│   ├── greenhouse.py / lever.py / linkedin.py # Adapters
+│   ├── schema.py        #   RawJob / JobRequirements / employment-type classifiers
+│   ├── jd_parser.py     #   LLM-assisted parsing + regex fallback
+│   ├── batch.py / search.py / storage.py
+│   ├── filters.py       #   YAML-driven filter profiles
+│   └── search_cache.py  #   File-backed JSON cache (slated for Phase 13.8 removal)
+├── matching/            # Filtering & scoring
+│   ├── rules.py         #   Hard rules (authorization, experience, education, ...)
+│   ├── semantic.py      #   Embedding + TF-similarity scoring
+│   └── scorer.py        #   Composite scorer + quality multiplier
+├── memory/              # Applicant memory
+│   ├── profile.py       #   Identity / education / skills / experiences / projects
+│   ├── bullet_pool.py   #   Tagged bullets with usage counters
+│   ├── story_bank.py    #   STAR stories with theme tags
+│   ├── qa_bank.py       #   Question patterns + canonical answers + variants
+│   └── resume_importer.py # PDF/DOCX → Claude CLI → structured YAML
+├── generation/          # Resume + cover letter + QA
+│   ├── ir.py            #   Resume / cover letter IR
+│   ├── resume_builder.py
+│   ├── cover_letter.py
+│   ├── fitting.py       #   Template capacity-aware fitting
+│   ├── validator.py     #   Artifact validation (page count, length)
+│   └── qa_responder.py  #   Classifier + cascading answer generator
+├── execution/           # Browser automation + form fill + submit
+│   ├── browser.py       #   Playwright wrapper
+│   ├── form_filler.py   #   Deterministic filler (default path)
+│   ├── agent_form_filler.py # Phase 9 agent orchestrator
+│   ├── file_uploader.py
+│   └── ats/             #   Per-ATS adapters (greenhouse / lever / ashby / generic / base)
+├── documents/           # DOCX + PDF + page-count + templates
+├── tracker/             # CRM: applications table + analytics + CSV export
+├── application/         # Shared application-layer services used by CLI + Web
+├── cli/                 # Click command tree (autoapply, init, search, apply, status, provider, web, eval, ...)
+├── web/                 # FastAPI app factory + JSON API routes + SPA static mount
+└── utils/               # llm.generate_text bridge, rate limiter, logger
 ```
 
-Advantages: No API key management (CLI handles auth), leverages CLI's context capabilities.
+Five top-level skeleton folders from the original plan still exist
+empty (`src/applicant/`, `src/cover_letter/`, `src/filter/`,
+`src/resume/`, `src/scraper/`). They are historical placeholders and
+should be deleted on the next housekeeping pass.
 
-## Project Structure
+## 5. Data Model (current)
 
-```
-AutoApply/
-├── src/
-│   ├── core/                    # Core Agent orchestration & state machine
-│   │   ├── agent.py             # Main Agent orchestrator
-│   │   ├── state_machine.py     # Application state machine
-│   │   └── config.py            # Global config loader
-│   ├── intake/                  # Layer 1: Job Intake
-│   │   ├── base.py              # Scraper base class
-│   │   ├── greenhouse.py        # Greenhouse ATS
-│   │   ├── lever.py             # Lever ATS
-│   │   ├── linkedin.py          # LinkedIn search and ATS redirect discovery
-│   │   └── schema.py            # Unified job schema
-│   ├── matching/                # Layer 2: Matching & Filtering
-│   │   ├── rules.py             # Hard rule filters
-│   │   ├── semantic.py          # Semantic matching (embedding)
-│   │   └── scorer.py            # Composite scorer
-│   ├── memory/                  # Layer 3: Applicant Memory
-│   │   ├── profile.py           # Identity/education/skills
-│   │   ├── story_bank.py        # Reusable story bank
-│   │   ├── qa_bank.py           # Q&A knowledge base
-│   │   └── bullet_pool.py       # Resume bullet pool
-│   ├── generation/              # Layer 4: Resume/CL Generation
-│   │   ├── ir.py                # Resume/Cover Letter structured IR
-│   │   ├── resume_builder.py    # Evidence-grounded resume assembly
-│   │   ├── cover_letter.py      # Constrained CL generation
-│   │   ├── fitting.py           # Template-aware capacity fitting
-│   │   ├── validator.py         # Artifact validation
-│   │   └── qa_responder.py      # Quick question answering
-│   ├── execution/               # Layer 5: Form Filling & Submission
-│   │   ├── browser.py           # Playwright browser management
-│   │   ├── form_filler.py       # Form field detection & filling
-│   │   ├── file_uploader.py     # File upload
-│   │   └── ats/                 # ATS adapters
-│   │       ├── base.py
-│   │       ├── ashby.py
-│   │       ├── greenhouse.py
-│   │       └── lever.py
-│   ├── documents/               # Layer 6: File Pipeline
-│   │   ├── docx_engine.py       # DOCX rendering from structured IR
-│   │   ├── pdf_converter.py     # Word -> PDF
-│   │   ├── page_count.py        # DOCX/PDF page count helpers
-│   │   └── templates.py         # Template package management
-│   ├── tracker/                 # Layer 7: Tracking & Analytics
-│   │   ├── database.py          # Database operations
-│   │   ├── analytics.py         # Statistical analysis
-│   │   └── export.py            # Report export
-│   └── utils/
-│       ├── llm.py               # LLM call wrapper
-│       ├── rate_limiter.py      # Rate limiting & anti-detection
-│       └── logger.py            # Logging & screenshots
-├── data/
-│   ├── profile/                 # Applicant profile YAML
-│   ├── templates/               # DOCX template packages
-│   └── output/                  # Generated resumes/CLs
-├── frontend/                     # Vue SPA source and Vite build config
-├── config/
-│   ├── settings.yaml            # Global settings
-│   ├── filters.yaml             # Filter rules
-│   └── .env.example             # Environment variable template
-├── migrations/                  # Database migrations
-├── tests/
-├── pyproject.toml
-└── README.md
-```
-
-## Data Model (PostgreSQL + pgvector)
-
-### Core Tables
+Current Postgres schema lives in `migrations/versions/` (alembic). The
+core tables are:
 
 ```sql
--- Unified job schema
-CREATE TABLE jobs (
-    id UUID PRIMARY KEY,
-    source TEXT,               -- greenhouse/lever/workday/company_site
-    company TEXT NOT NULL,
-    title TEXT NOT NULL,
-    location TEXT,
-    employment_type TEXT,      -- intern/fulltime/coop
-    seniority TEXT,
-    description TEXT,
-    description_embedding vector(1536),
-    requirements JSONB,        -- {must_have_skills, preferred_skills, education, experience_years}
-    visa_sponsorship BOOLEAN,
-    ats_type TEXT,
-    application_url TEXT,
-    raw_data JSONB,
-    discovered_at TIMESTAMPTZ DEFAULT NOW(),
-    expires_at TIMESTAMPTZ
+jobs (
+  id UUID PRIMARY KEY,
+  source TEXT,                       -- greenhouse / lever / ashby / linkedin
+  source_id TEXT,                    -- per-source job id; (source, company, source_id) is the dedup key
+  company TEXT NOT NULL,
+  title TEXT NOT NULL,
+  location TEXT,
+  employment_type TEXT,              -- intern / fulltime / coop
+  seniority TEXT,
+  description TEXT,
+  description_embedding vector(1536),
+  requirements JSONB,
+  visa_sponsorship BOOLEAN,
+  ats_type TEXT,
+  application_url TEXT,
+  raw_data JSONB,
+  discovered_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ
 );
 
--- Application records (state machine)
-CREATE TABLE applications (
-    id UUID PRIMARY KEY,
-    job_id UUID REFERENCES jobs(id),
-    status TEXT NOT NULL DEFAULT 'DISCOVERED',
-    -- DISCOVERED -> QUALIFIED -> MATERIALS_READY -> FORM_OPENED
-    -- -> FIELDS_MAPPED -> FILES_UPLOADED -> QUESTIONS_ANSWERED
-    -- -> REVIEW_REQUIRED -> SUBMITTED -> FAILED -> NEEDS_RETRY
-    match_score FLOAT,
-    resume_version TEXT,
-    cover_letter_version TEXT,
-    qa_responses JSONB,
-    screenshot_paths JSONB,
-    error_log TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    submitted_at TIMESTAMPTZ,
-    outcome TEXT               -- pending/rejected/oa/interview/offer
+applications (
+  id UUID PRIMARY KEY,
+  job_id UUID REFERENCES jobs(id),
+  status TEXT NOT NULL DEFAULT 'DISCOVERED',
+  match_score FLOAT,
+  resume_version TEXT,
+  cover_letter_version TEXT,
+  qa_responses JSONB,
+  screenshot_paths JSONB,
+  error_log TEXT,
+  state_history JSONB,
+  fields_filled INT, fields_total INT,
+  files_uploaded JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  submitted_at TIMESTAMPTZ,
+  outcome TEXT,                      -- pending / rejected / oa / interview / offer
+  outcome_updated_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
 );
 
--- Applicant profile (structured)
-CREATE TABLE applicant_profile (
-    id UUID PRIMARY KEY,
-    section TEXT NOT NULL,     -- identity/education/skills/experience/projects
-    content JSONB NOT NULL,
-    content_embedding vector(1536),
-    tags TEXT[],
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+applicant_profile (
+  id UUID PRIMARY KEY,
+  section TEXT NOT NULL,             -- identity / education / skills / experience / projects
+  content JSONB NOT NULL,
+  content_embedding vector(1536),
+  tags TEXT[],
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Bullet pool
-CREATE TABLE bullet_pool (
-    id UUID PRIMARY KEY,
-    category TEXT,             -- experience/project/achievement
-    source_entity TEXT,        -- Which company/project
-    text TEXT NOT NULL,
-    text_embedding vector(1536),
-    tags TEXT[],               -- backend/frontend/ml/leadership/etc
-    used_count INT DEFAULT 0
+bullet_pool (
+  id UUID PRIMARY KEY,
+  category TEXT,
+  source_entity TEXT,
+  text TEXT NOT NULL,
+  text_embedding vector(1536),
+  tags TEXT[],
+  used_count INT DEFAULT 0
 );
 
--- QA knowledge base
-CREATE TABLE qa_bank (
-    id UUID PRIMARY KEY,
-    question_pattern TEXT,
-    question_type TEXT,        -- authorization/sponsorship/experience_years/salary/why_company/why_role/custom
-    canonical_answer TEXT,
-    variants JSONB,            -- {by_geography, by_role_type}
-    confidence TEXT DEFAULT 'high',
-    needs_review BOOLEAN DEFAULT FALSE
+qa_bank (
+  id UUID PRIMARY KEY,
+  question_pattern TEXT,
+  question_type TEXT,
+  canonical_answer TEXT,
+  variants JSONB,
+  confidence TEXT DEFAULT 'high',
+  needs_review BOOLEAN DEFAULT FALSE
 );
 ```
 
-## Layered Architecture
-
-### Layer 1: Job Intake
-
-Responsible for scraping, aggregating, and standardizing JDs.
-
-- Input sources: Greenhouse / Lever / Ashby / LinkedIn / company careers pages
-- Unified output schema: company, title, location, employment_type, seniority, skills, visa, ATS type, application URL, quick questions, deadline
-
-Core principle: standardize first, don't "apply on sight."
-
-### Layer 2: Matching & Filtering
-
-Three-tier scoring:
-
-1. **Rules layer (hard filter)**: location, job type, visa, education, experience years
-2. **Semantic layer**: JD embedding vs profile embedding (courses/projects/tech stack/industry matching)
-3. **Risk layer**: staffing spam / fake job / repost / ghost job filtering
-
-Precise filtering is more valuable than mass-applying — don't waste 250 opportunities on wrong positions.
-
-### Layer 3: Applicant Memory
-
-A structured knowledge base, not just a resume dumped to an LLM:
-
-- `identity_profile` — basic identity info
-- `education_records` — education history
-- `course_records` — courses and grades
-- `work_experiences` — work history
-- `projects` — project details
-- `skills` — skill inventory
-- `story_bank` — reusable stories by theme (why this direction/company, technical challenges, conflict resolution, ownership/impact)
-- `qa_bank` — structured templates for common quick questions (canonical answer + variants + confidence + needs_review flag)
-
-### Layer 4: Resume / Cover Letter Generation
-
-**Resume**: Structured IR + block-based assembly, no full-text LLM rewrite
-- Each bullet is tagged and traceable to profile evidence
-- JD arrives → extract keywords → retrieve evidence → select best-matching bullets → optional light lexical rewrite → template-aware fitting → validation
-
-**Cover Letter**: Structure-constrained IR generation
-- Opening: role + reason
-- Middle: 2-3 best-matching evidence points
-- Company tie-in: why this company
-- Close: availability / interest
-
-**Quick Questions**: classify → qa_bank exact match → template variants → LLM generation (descending confidence), high-risk questions flagged for human review.
-
-### Layer 5: Form Filling & Submission (Application Execution)
-
-Each application modeled as a state machine:
+The application state machine has 11 states:
 
 ```
 DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
@@ -253,208 +215,343 @@ DISCOVERED → QUALIFIED → MATERIALS_READY → FORM_OPENED
 → REVIEW_REQUIRED → SUBMITTED → FAILED → NEEDS_RETRY
 ```
 
-Every step: screenshot, save DOM/field mapping, log errors, resumable from any state.
+Phase 13 will add a separate cluster of tables for the **Job Index &
+Freshness Engine**:
+
+```sql
+job_postings        -- entity identity (UNIQUE(source, source_job_id))
+job_snapshots       -- content version, content_hash, immutable
+search_queries      -- normalized search condition + freshness state
+search_results      -- search → posting many-to-many (per scrape)
+refresh_tasks       -- priority queue of pending scrapes
+```
+
+Plus a new `application_records.job_snapshot_id` FK that pins every
+generated artifact to the exact JD content it was produced against.
+Every Phase-12+ table carries a `tenant_id` column (default `"default"`
+until Phase 18) — see D020.
+
+## 6. Layered Architecture
+
+### Layer 1: Job Intake
+Greenhouse / Lever / Ashby / LinkedIn adapters; unified `RawJob` schema;
+LLM-assisted JD parsing with regex fallback; deduplication on `(source,
+company, source_id)`. Phase 13 will replace the file-backed search cache
+with the Job Index & Freshness Engine.
+
+### Layer 2: Matching & Filtering
+Three-tier scoring:
+1. **Hard rules** (work authorization, experience-year cap with 1-year
+   grace, education, employment type, spam / ghost-job detection)
+2. **Semantic** (embedding overlap on description / responsibilities /
+   requirements + TF-similarity fallback when embeddings unavailable)
+3. **Risk** (visa, ghost reposting, sparse JDs, missing apply URL)
+
+Composite scorer: weighted must-have (70%) / preferred (30%) skill
+overlap + keyword similarity + rule bonus × quality multiplier.
+
+Phase 16 adds a reason chain and an edge-case agent for borderline
+scores `[0.4, 0.6]`.
+
+### Layer 3: Applicant Memory
+Profile YAML → DB ingestion with per-section embeddings and tagged
+bullets. `qa_bank` includes geography + role-type variants and a
+`needs_review` flag for high-risk question types (authorization,
+sponsorship, salary, start date). Resume importer turns DOCX / PDF
+resumes into structured YAML via Claude CLI.
+
+### Layer 4: Resume / Cover Letter Generation
+Structured IR + block-based assembly. Bullets are selected from the
+pool by tag overlap, then optionally lexically rewritten under a
+fact-drift guard (rejects rewrites whose length ratio falls outside
+`[0.3, 2.0]`). Cover-letter generation is constrained to four
+sections (opening, evidence, company tie-in, close), 250-400 words,
+no fabrication. Quick-question answering cascades QA-bank → template →
+LLM → flag for review.
+
+Phase 15 promotes cover-letter generation to an agent (binding to a
+specific `job_snapshot_id`).
+
+### Layer 5: Form Filling & Submission
+Each application is an 11-state state machine. The deterministic
+`form_filler.py` is still the default; `agent_form_filler.py` (Phase
+9) is the agent path, gated on confidence and the HITL approval
+queue. ATS adapters live in `src/execution/ats/` (Greenhouse / Lever
+/ Ashby / generic). Rate limiter enforces random delays, hourly caps,
+and per-error cooldowns.
 
 ### Layer 6: File Pipeline
-
-- Template package: `template.docx` + `manifest.json` + `style.lock.json` + sample JSON asset
-- Block markers such as `{{resume.sections}}` and `{{cover_letter.body}}`
-- Named Word styles owned by the template manifest
-- DOCX-first rendering, unified PDF export
-- Artifact validation and page counting
-- File versioning: `resume_{company}_{role}_{date}.pdf`
-- Record which version was used for each application
+Template packages under `data/templates/<document_type>/<template_id>/`
+contain `template.docx`, `manifest.json`, `style.lock.json`, and a
+sample IR payload. DOCX rendering uses named Word styles from the
+manifest plus block markers (`{{resume.sections}}`,
+`{{cover_letter.body}}`). PDF export prefers Word + `docx2pdf` and
+falls back to LibreOffice. File naming is
+`{type}_{company}_{role}_{date}.{ext}`; every artifact is versioned.
 
 ### Layer 7: Analytics / CRM
+Tracking table records source, company, role, date, platform, resume
+version, match score, status, outcome, and outcome timestamp. Analytics
+dashboard surfaces pipeline / outcome / platform / company breakdowns.
+CSV export excludes `error_log` by default.
 
-Built from day one, not retrofitted:
-- Track: source, company, role, date, platform, resume version, match score, status, outcome
-- Analyze: which job types have highest hit rate, which platforms are highest quality, which keyword combos are most effective, which resume versions convert best
+## 7. Phased Implementation — what has shipped
 
-## Phased Implementation
+Test counts are snapshots at the close of each phase. Current
+baseline (post-Phase-10): **680 passed, 1 skipped** (`pytest -q`),
+`ruff check src/ tests/` clean, `npm run build` clean.
 
-### Phase 1: Infrastructure + Applicant Memory (Weeks 1-2)
+| Phase | Scope | Status | Test snapshot |
+|---|---|---|---|
+| 1 | Infrastructure + Applicant Memory + Document Pipeline | Complete | — |
+| 2 | Job Intake + Smart Filtering | Complete | 156 |
+| 3 | Resume / CL Tailoring + QA | Complete | — |
+| 4 | Browser Automation + Form Filling | Complete | 156 |
+| 5 | CLI + Tracking + Full Pipeline | Complete | 177 |
+| 6 | LinkedIn Integration | Complete | 207 |
+| 7 | Web GUI (FastAPI + Vue SPA) | Complete | 228 |
+| 8 | Materials Workspace + DOCX Template Packages + Hardening | Complete | 340 |
+| Agent 8 | Agent Harness (tools / loop / trace / eval / HITL gate) | Complete | — |
+| Agent 9 | Form-Filler Agent + cost telemetry + 5-fixture eval | Complete | 553 |
+| 10 | LLM Provider Abstraction (REST + subprocess + credential store + Settings UI) | Complete | 669 |
 
-**Goal**: Project skeleton running, applicant profile fully loaded into DB
+See `docs/CHANGELOG.md` for the per-sub-phase shipping log.
 
-1. Project initialization
-   - pyproject.toml + uv dependency management
-   - PostgreSQL + pgvector environment setup
-   - Database migrations (alembic)
-   - Config loading (YAML)
-   - LLM CLI wrapper (claude -p / codex)
-   - Logging system
+## 8. Roadmap (Phase 11 → 18) — v2, re-planned 2026-05-12
 
-2. Applicant Memory layer
-   - Define profile YAML schema
-   - **Resume importer**: parse existing Word/PDF resume → structured YAML → DB (Claude CLI-assisted parsing)
-   - Profile loading & DB ingestion
-   - Bullet pool management (with tags)
-   - Story bank and QA bank
-   - Embedding generation & storage
+The v2 re-plan reflects two corrections to the v1 draft:
 
-3. Document Processing layer
-   - Word template system (python-docx)
-   - Block-based resume assembly engine
-   - Word → PDF conversion
-   - File naming & version management
+1. **PostgreSQL is the source of truth**, not SQLite. The v1 draft
+   said "L2 SQLite cache" and "APScheduler + SQLite jobstore"; both
+   were errors. The app has always run on Postgres + pgvector +
+   alembic. (See D021.)
+2. **Redis is adopted from Phase 12** as the cache / lock / queue
+   substrate, preserving a commercial deployment path. (See D018.)
 
-### Phase 2: Job Intake + Smart Filtering (Weeks 3-4)
+The earlier "JD scrape caching" sub-phase has been promoted to a full
+phase (**Phase 13: Job Index & Freshness Engine**) because the
+problem is content versioning + freshness state machines + audit
+binding, not key-value eviction. (See D019.)
 
-**Goal**: Automated job scraping with precise scoring
+A new **Phase 18: Multi-Tenancy & Auth Hardening** closes the v1
+commercial-ready core; every Phase 12-17 table is built with
+`tenant_id` from day one. (See D020.)
 
-4. Job Intake layer
-   - Unified Job schema
-   - Greenhouse + Lever scrapers
-   - JD parsing & structuring (LLM-assisted)
-   - Deduplication & freshness management
+### Phase 11: Reliability & Cleanup (~1 week)
+Tighten the provider layer; ship the migration tool needed for users
+upgrading from earlier revisions.
+- **11.1** Provider fallback chain in `generate_text` (primary +
+  ordered fallbacks; quota / network / auth failure auto-failover;
+  attempt chain recorded in trace).
+- **11.2** `autoapply migrate` CLI: cleans stale credential
+  breadcrumbs, renames legacy settings keys, detects stale credentials.
+- **11.3** Docs sync — push everything up to Phase 10 complete state.
+- **11.4** Provider health monitor: `/api/providers/health` background
+  probe every 5 minutes; Settings page "Last verified" surfaces real
+  telemetry.
 
-5. Matching & Filtering layer
-   - Hard rule filters
-   - Semantic matching
-   - Composite scoring
-   - Low-quality job filtering
+### Phase 12: Cache Infrastructure (~1.5 weeks)
+**First introduction of Redis.** Scope is deliberately narrow — LLM
+and embedding responses only. JD / job content caching moves to
+Phase 13.
+- **12.1** `src/cache/` module — L1 in-process LRU + L2 Redis;
+  namespace TTL (`llm:7d`, `embedding:30d`, `response:5m`); unified
+  `get/set/invalidate` API; version-stamped keys.
+- **12.2** Redis infrastructure — connection pool, health check,
+  `REDIS_URL` env var, `docker-compose.yml` service, AOF persistence,
+  `autoapply redis ping/flush/info` CLI.
+- **12.3** Distributed lock primitive — `with cache.lock(key, ttl)`
+  built on Redis `SET NX PX`. Phase 13 force-refresh consumes it.
+- **12.4** LLM response caching — `generate_text(cache=True)`;
+  agent loops default `cache=False`, deterministic retrieval defaults
+  `cache=True`. Cost-saved counter on hit.
+- **12.5** Embedding cache — `embed_text(cache=True)` for
+  `src/matching/semantic.py` with 30-day TTL.
+- **12.6** Cache inspector UI at `/settings/cache`.
+- **12.7** Cost dashboard upgrade — Phase 9.4 aggregates split into
+  "cached vs fresh" with a $-saved line.
 
-### Phase 3: Resume/CL Tailoring + QA (Weeks 5-6)
+### Phase 13: Job Index & Freshness Engine (~2 weeks)
+Replaces the file-backed `src/intake/search_cache.py` with a proper
+Job Intelligence Database.
+- **13.1** Schema (alembic) — `job_postings`, `job_snapshots`,
+  `search_queries`, `search_results`, `refresh_tasks`; add
+  `application_records.job_snapshot_id` FK; every new table carries
+  `tenant_id`.
+- **13.2** Normalization layer — `normalize_search_key()`,
+  `normalize_job_content()`, `content_hash()` excluding unstable
+  fields.
+- **13.3** Freshness state machine in `src/jobs/state.py` —
+  `new → active → stale → unknown → expired → archived`.
+- **13.4** Search flow — cache-first by default; force-refresh wraps
+  scrape in a Phase 12 distributed lock; old cache preserved on
+  failure.
+- **13.5** Detail enrichment with content versioning — scrape →
+  normalize → hash → new `job_snapshot` if `content_hash` changed;
+  emit `job.content_changed` event.
+- **13.6** Context-aware freshness — `should_refresh(job, context)`
+  where context ∈ {`search_display: 72h`, `generate_materials: 24h`,
+  `before_submit: 6h`}.
+- **13.7** Web UI — "Last updated 18h ago · Refresh"; refresh-success
+  banner reports `N new / N expired / N updated`.
+- **13.8** Migrate legacy `data/cache/linkedin_search/*.json` into
+  `search_queries` + `search_results`; remove the file-cache module.
 
-**Goal**: Auto-generate tailored materials per position
+### Phase 14: Scheduled Task System (~1.5 weeks)
+- **14.1** APScheduler + Postgres `SQLAlchemyJobStore` (NOT SQLite,
+  see D021); FastAPI lifespan integration; auto-resume on restart.
+- **14.2** RefreshTask worker — consumes Phase 13 `refresh_tasks`;
+  priority levels `critical / high / normal / low`; per-source
+  concurrency limits.
+- **14.3** Built-in jobs — `daily_search`, `jd_health_check` (drives
+  the Phase 13 state machine), `application_status_sync`,
+  `linkedin_cookie_refresh`, `cache_eviction`.
+- **14.4** CLI — `autoapply schedule list / add / remove / pause /
+  run-now / logs`.
+- **14.5** Web UI `/schedule`.
+- **14.6** Multi-instance safety — Postgres advisory lock per job
+  prevents double-fire across `autoapply web` replicas.
+- **14.7** Trace integration — every scheduled run emits a trace
+  record (reuses Phase 8.3 store).
 
-6. Resume generation: JD keyword extraction → bullet selection → rewrite → fact check → docx + pdf
-7. Cover Letter generation: structure constraints + controlled LLM generation
-8. Quick Question answering: classify → match → generate → flag for human review
+### Phase 15: Cover-letter Agent (~2 weeks)
+The original "Phase 10" plan. Benefits from Phase 12 (LLM caching)
+and Phase 13 (snapshot binding).
+- **15.1** `jd_lookup` tool — reads JD by section from a specific
+  `job_snapshot_id`.
+- **15.2** `AgentCoverLetter` orchestrator — emits cover-letter IR
+  with evidence citations; existing fact-drift checker as post-guard;
+  deterministic fallback on agent failure.
+- **15.3** Pre-generation freshness gate — if
+  `should_refresh(job, "generate_materials")`, enrich first.
+- **15.4** Bind `CoverLetterVersion.job_snapshot_id`.
+- **15.5** Eval suite — 5 fixtures + `fact_drift_score`,
+  `keyword_coverage`, `length_compliance` scorers.
+- **15.6** HITL gate — fires only on bullet / story-bank mutation,
+  not on letter generation itself.
 
-### Phase 4: Browser Automation + Form Filling (Weeks 7-8)
+### Phase 16: Filter Agent + Explainability (~1.5 weeks)
+Not a replacement for the deterministic filter — an explainability
+layer + agent invocation for borderline jobs only.
+- **16.1** Filter reason chain in `src/matching/` — each reject
+  records `{rule_id, rule_name, reason, evidence_excerpt,
+  job_snapshot_id}`.
+- **16.2** Edge-case agent — invoked only for scores ∈ [0.4, 0.6];
+  uses Phase 8 harness + new `score_breakdown` tool.
+- **16.3** Web UI "Why was this filtered?" affordance.
+- **16.4** Eval suite — 10 human-annotated borderline jobs; agent
+  decision matches human ≥ 70%.
 
-**Goal**: Auto-fill forms, upload files, pause before submit for human confirmation
+### Phase 17: Daily Run Loop + Review Queue (~2 weeks)
+Integration phase. Threads Phase 14 (scheduler) + Phase 13
+(job-index / freshness) + Phase 12 (cache) + Phase 9 / 15 (agents)
+into the "sleep, wake to a review queue" end-to-end flow.
+- **17.1** `nightly_run` orchestrator — search (cache-first, refresh
+  stale) → filter (with 16's explainability) → top-N → form-filler
+  (Phase 9) + cover-letter (Phase 15) → enqueue. **Never auto-submits.**
+- **17.2** Review queue model — `review_queue(id, tenant_id, job_id,
+  job_snapshot_id, materials_path, status, ...)`; state machine
+  `pending → approved → submitted` or `pending → rejected`.
+- **17.3** `/review` kanban UI.
+- **17.4** Bulk operations — multi-select approve, bulk-reject by
+  company / keyword.
+- **17.5** Pre-submit hard gate — re-run
+  `should_refresh(job, "before_submit")`; refresh if > 6h stale;
+  block on expired jobs entirely.
+- **17.6** Morning digest at 08:00.
+- **17.7** `autoapply pause-nightly` kill switch.
 
-9. Playwright browser management + application state machine + ATS adapters
-10. Anti-detection: random intervals, concurrency limits, rate control, cooldown
+### Phase 18: Multi-Tenancy & Auth Hardening (~2 weeks)
+Activates the commercial-readiness work seeded across 12-17. SaaS
+business layer (billing, sign-up flow, marketing site) is NOT in
+scope — this phase only makes the existing system safe to host for
+multiple isolated users.
+- **18.1** `tenants` + `users` tables; migrate existing data to
+  `tenant_id="default"`.
+- **18.2** FastAPI auth middleware — derive `current_tenant_id` per
+  request; every query / Redis namespace / cache key / refresh-task
+  selector filters by it automatically.
+- **18.3** Postgres Row-Level Security policies (DB-level backstop).
+- **18.4** Per-tenant Redis namespace — `tenant:{id}:llm:...`.
+- **18.5** Per-tenant quotas (LLM tokens, scrape rate, storage).
+  Exceeding returns 429.
+- **18.6** Audit log table — `audit_events` (submission, settings
+  change, credential operation, manual schedule trigger). Append-only.
+- **18.7** Credential store per-tenant.
 
-### Phase 5: Tracking & Full Pipeline (Weeks 9-10)
+### Timeline summary
 
-**Goal**: Complete loop, semi-automated application workflow
+| Phase | Scope | Est. | Cumulative |
+|-------|-------|------|------------|
+| 11 | Reliability & Cleanup | 1w | 1w |
+| 12 | Cache Infrastructure (Redis) | 1.5w | 2.5w |
+| 13 | Job Index & Freshness Engine | 2w | 4.5w |
+| 14 | Scheduled Task System | 1.5w | 6w |
+| 15 | Cover-letter Agent | 2w | 8w |
+| 16 | Filter Agent + Explainability | 1.5w | 9.5w |
+| 17 | Daily Run Loop + Review Queue | 2w | 11.5w |
+| 18 | Multi-Tenancy & Auth Hardening | 2w | 13.5w |
 
-11. Application tracking & statistical analytics
-12. Agent main loop orchestration + CLI interactive interface
+~3 months to v1.0 commercial-ready core (no SaaS business layer).
 
-### Phase 6: LinkedIn Integration (Complete)
+## 9. Cross-cutting Quality Bars
 
-**Goal**: Discover LinkedIn jobs, enrich descriptions, and resolve external ATS links for the existing application pipeline.
+Enforced from Phase 11 onward:
 
-13. Authenticated LinkedIn session manager with Playwright persistent context
-14. LinkedIn search URL builder, pagination, job-card extraction, cache, and deduplication
-15. Detail enrichment and Apply-button redirect resolution for external ATS links
-16. CLI/web integration for `--source linkedin` and search profiles
+- **Tests** — no PR can drop the suite below the current 680 passing.
+- **Lint** — `ruff check src/ tests/` stays clean.
+- **Codex review per sub-phase** — `codex review --uncommitted` pass
+  before commit; P1 findings block merge.
+- **Cost ceiling** — any eval suite that pushes total cost above
+  $1.00 / 100 cases needs explicit justification.
+- **Docs sync** — `docs/PROJECT_MANAGEMENT.md` + `docs/CHANGELOG.md`
+  updated at the end of every Phase, not in a batch later.
+- **Multi-tenancy hygiene** (Phase 12+) — every new table carries
+  `tenant_id`; every new Redis key is prefixed; every new background
+  task accepts a tenant context. No exceptions, or Phase 18 turns
+  into a rewrite.
 
-### Phase 7: Web GUI (Complete)
+## 10. Verification Checklist (per-phase smoke)
 
-**Goal**: Provide a human-facing operator console over the existing application layer.
+| Phase | Smoke command / observable |
+|---|---|
+| 1 | Load profile YAML → ingest to DB → generate one tailored Word resume + PDF |
+| 2 | Scrape jobs from Greenhouse → score & rank → output top-N |
+| 3 | Given a JD → auto-select bullets → tailored resume + CL + answer quick questions |
+| 4 | For a Greenhouse job → auto-fill form → upload files → screenshot (no submit) |
+| 5 | Run pipeline on 10 jobs → view tracking dashboard → analytics report |
+| 6 | LinkedIn search → external ATS link resolution → existing apply / material pipeline |
+| 7 | `autoapply web` → Vue SPA search / tracking / settings workflow |
+| 8 | `/jobs` → `/materials?jobId=...` → DOCX/PDF generation, preview, validation, download |
+| Agent 8 | `autoapply eval --suite agent_smoke` → all cases pass |
+| Agent 9 | `autoapply eval --suite form_filler --min-pass-rate 0.85` → 5/5 pass, est. cost ≤ $0.25 |
+| 10 | Settings page → connect / test / disconnect each provider; `autoapply provider test <name>` reports auth state accurately |
+| 11 | Revoke primary provider mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` cleans legacy state |
+| 12 | Re-run same batch → LLM cache hit-rate > 80%, wall time < 20%, cost < 5%; Redis restart preserves L2 entries |
+| 13 | Second visit to same search condition < 2s (no HTTP); job content change produces a new `job_snapshot`; revoke LinkedIn cookie → cached results still served |
+| 14 | Register `daily_search` `* * * * *` → next tick fires; restart process, jobstore restored; two web replicas do not double-fire |
+| 15 | Cover-letter eval 5/5 pass; ≤ $0.08/letter cache-miss, ≤ $0.02 cache-hit |
+| 16 | Any rejected job in JobsView surfaces a reason chain in < 5s; agent cost < $0.50 per 100 jobs |
+| 17 | Schedule nightly run Monday 23:00 → wake Tuesday 08:00 to N pre-tailored applications in review queue, each approvable in < 30s |
+| 18 | Two tenants seeded with overlapping email / LinkedIn cookies → cannot read each other's jobs / snapshots / applications / credentials / Redis keys (verified by direct SQL and direct Redis CLI); quota exhaustion returns 429 |
 
-17. FastAPI JSON API + Vue 3 SPA served from `src/web/static/spa`
-18. Dashboard, Jobs, Applications, Profile, and Settings pages
-19. Search profiles, LLM provider settings, LinkedIn session management, search cache controls
+## 11. Risk & Open Questions
 
-### Phase 8: Materials Workspace + Template Packages (Complete)
-
-**Goal**: Make application material generation a first-class, reviewable product workflow.
-
-20. `/materials` workspace for search-result jobs or pasted JDs
-21. Applicant profile selection, resume/cover template selection, DOCX/PDF format selection
-22. Preview, validation status, generation versions, and artifact downloads
-23. Template Library uploads and package validation
-24. Security hardening for template IDs, artifact paths, upload sizes, profile IDs, LinkedIn cache/enrichment, and parser heuristics
-
-### Agent Phase 8 + 9: Agent Harness + Form-Filler Agent (Complete)
-
-**Goal**: Stand up a confined, evaluable, HITL-gated agent loop and convert the first business node (form-filling) onto it.
-
-25. Tool abstraction layer with allow-list registry; bounded ReAct loop (works on Claude and Codex CLIs); JSON-on-disk trace store + web viewer; fixture-driven eval harness; file-backed HITL approval queue.
-26. Browser tool layer (read-only inspect + propose-only fill); `AgentFormFiller` orchestrator with HITL gate on submit; 5-fixture eval suite; per-step cost / latency telemetry surfaced in eval output and trace viewer.
-
-### Phase 10: LLM Provider Abstraction (Complete)
-
-**Goal**: Break out of the "Claude CLI + Codex CLI subprocess" lock-in so every downstream agent phase can target any of the major LLM providers.
-
-27. `LLMProvider` ABC + `ProviderRegistry` + secure credential store; REST adapters for OpenAI / Anthropic / Gemini using `httpx`; subprocess providers for Claude CLI / Codex CLI (`auth_type=SUBPROCESS`).
-28. Deep `test_connection` for every provider (auth round-trip, not just key-present); `codex login status` probe for subprocess providers so installed-but-unauthenticated is reported correctly.
-29. `autoapply provider` CLI subcommands (`list / set-key / test / set-primary / set-fallback / disconnect`) and a `/settings` Web UI that exposes the same operations.
-
-### Phase 11: Reliability & Cleanup (Next)
-
-**Goal**: Make the provider layer production-grade and clean up upgrade paths.
-
-30. Provider fallback chain in `generate_text` -- primary + ordered fallbacks; auto-failover on quota / network / auth; attempt chain recorded in trace.
-31. `autoapply migrate` command to clean stale credential breadcrumbs and rename legacy settings keys on upgrade.
-32. Background provider health probe; "Last verified" in Settings becomes real telemetry.
-
-### Phase 12: Caching Foundation + Integration
-
-**Goal**: General-purpose tiered cache for the project's expensive operations; wire it into LLM, JD scraping, and embeddings.
-
-33. `src/cache/` -- L1 in-memory LRU + L2 SQLite-backed; per-namespace TTL; version-stamped keys; explicit invalidation API.
-34. Hook into Greenhouse / Lever / LinkedIn scrapers and into `generate_text()` (opt-in via `cache=True`); cache inspector + cost-saved dashboard in the Web UI.
-
-### Phase 13: Scheduled Task System
-
-**Goal**: First-class scheduler for nightly batches, periodic refreshes, and cookie maintenance.
-
-35. APScheduler + SQLite jobstore integrated into FastAPI lifespan; built-in jobs (`daily_search`, `jd_health_check`, `application_status_sync`, `linkedin_cookie_refresh`, `cache_eviction`).
-36. CLI + Web UI for managing schedules; trace records for every scheduled run reusing the Phase 8.3 store.
-
-### Phase 14: Cover-letter Agent
-
-**Goal**: The original "agent-mode cover letter" plan, now done after the provider + cache + scheduler foundations are in place.
-
-37. New `jd_lookup` tool; `AgentCoverLetter` orchestrator producing structured IR with evidence citations.
-38. Fact-drift checker as post-guard; HITL gate fires only on bullet/story-bank mutation, not on letter generation; eval suite with 5 fixtures; Phase 12 cache participation keeps per-letter cost bounded.
-
-### Phase 15: Filter Agent + Explainability
-
-**Goal**: Make every job-filter decision explainable; only invoke an agent for borderline cases.
-
-39. Filter reason chain in `src/matching/` -- every reject carries `{rule_id, reason, evidence_excerpt}`.
-40. Edge-case agent for jobs scoring [0.4, 0.6]; "Why was this filtered?" affordance in JobsView; eval suite against human-annotated borderline jobs.
-
-### Phase 16: Daily Run Loop + Review Queue
-
-**Goal**: Integration phase. Thread the scheduler + cache + agents into a "sleep, wake to a review queue" flow.
-
-41. `nightly_run` orchestrator: scheduled search → filter (with reasons) → top-N tailored via Phase 9 + Phase 14 agents → enqueue into review queue. Never auto-submits.
-42. `/review` kanban (Pending / Approved / Submitted / Rejected) with bulk operations; morning digest; `autoapply pause-nightly` kill switch.
-
-## Key Design Principles
-
-1. **State machine-driven**: Every application is a state machine — interruptible, resumable, auditable
-2. **Block-based resume**: No full-text LLM rewrite — select from bullet pool + light rewrite
-3. **DOCX-first rendering**: LLM/content planning creates structured IR; deterministic renderers own final DOCX/PDF output
-4. **Human confirmation points**: Default pause before submit; auto-submit only under validated conditions
-5. **Full audit trail**: Screenshots, DOM snapshots, file versions, QA responses all recorded
-
-## Risk Mitigation
-
-- Minimize indiscriminate mass submissions; retain human confirmation points
-- Prioritize ATS / company site structured form flows
-- Implement failure rollback, logging, rate limiting, and task scheduling
-- Focus automation on "organizing materials, tailoring content, filling forms, tracking" rather than maximizing submission count
-
-## Verification
-
-- Phase 1: Load profile YAML → ingest to DB → generate one tailored Word resume + PDF
-- Phase 2: Scrape jobs from Greenhouse → score & rank → output top-N recommendation list
-- Phase 3: Given a JD → auto-select bullets → generate tailored resume + CL + answer quick questions
-- Phase 4: For a Greenhouse job → auto-fill form → upload files → screenshot (no submit)
-- Phase 5: Run full pipeline on 10 jobs → view tracking dashboard → analytics report
-- Phase 6: LinkedIn search → external ATS link resolution → existing apply/material pipeline
-- Phase 7: `autoapply web` → Vue SPA search/tracking/settings workflow
-- Phase 8: `/jobs` → `/materials?jobId=...` → DOCX/PDF generation, preview, validation, download
-- Agent Phase 8: `autoapply eval --suite agent_smoke` → all cases pass
-- Agent Phase 9: `autoapply eval --suite form_filler --min-pass-rate 0.85` → 5/5 pass, est. cost ≤ $0.25
-- Phase 10: Settings page → connect/test/disconnect each provider; `autoapply provider test <name>` reports auth state accurately for both REST and CLI providers
-- Phase 11: revoke primary provider mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` cleans legacy state
-- Phase 12: re-run same batch → LLM cache hit-rate > 80%, wall time < 20%, cost < 5%
-- Phase 13: register a cron'd job → restart process → trace record appears at next tick
-- Phase 14: cover-letter eval 5/5 pass, ≤ $0.08/letter cache-miss, ≤ $0.02 cache-hit
-- Phase 15: any rejected job in JobsView surfaces a reason chain in < 5s
-- Phase 16: schedule nightly run Monday 23:00 → wake Tuesday 08:00 to N pre-tailored applications in review queue, each approvable in < 30s
-
-Current baseline at Phase 10 close: `uv run python -m pytest` passes with 669 tests and 1 skipped; `uv run ruff check src/ tests/` and `npm run build` pass.
+- **LinkedIn rate-limiting / detection.** Mitigated by persistent
+  context cookies, randomized delays, controlled concurrency, and
+  the Phase 13 distributed-lock-gated force-refresh. Still a real
+  risk for any aggressive nightly schedule.
+- **LLM cost drift.** Mitigated by the Phase 12 cache + the Phase 11
+  fallback chain (cheap models in the fallback slot) + the eval
+  $1 / 100 ceiling. Cost telemetry (Phase 9.4) is the early-warning.
+- **Single-instance assumption today.** Phase 14.6 + D018 plant the
+  multi-instance work. Phase 18 makes it real. Until then, do not
+  run two `autoapply web` processes against the same Postgres /
+  Redis — the data layer permits it but the absence of advisory
+  locks invites double-submission races.
+- **Auto-submit safety.** `--auto-submit` exists in `apply`, but
+  still routes through the HITL gate. We have not yet seen the eval
+  data that would justify removing the gate even per-vendor.
+- **No SaaS business layer.** Phase 18 is multi-tenant hosting
+  infra, not billing / signup / marketing. That work is out of
+  scope until / unless a commercial license customer signs.

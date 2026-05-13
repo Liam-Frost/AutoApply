@@ -8,7 +8,7 @@ llm:
   provider: claude-cli
   primary_provider: claude-cli
   fallback_provider: codex-cli
-  allow_fallback: true
+  allow_fallback: false
   timeout: 120
   max_retries: 2
 documents:
