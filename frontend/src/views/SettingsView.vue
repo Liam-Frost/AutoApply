@@ -67,6 +67,15 @@ const state = reactive({
   },
   providers: [],
   providerOps: reactive({}), // { [providerId]: { testing, connecting, disconnecting, using } }
+  // Phase 11.4: live health snapshot from the background monitor.
+  // Map of provider_id -> { ok, detail, latency_ms, checked_at }.
+  providerHealth: reactive({}),
+  providerHealthMeta: reactive({
+    last_run_finished_at: "",
+    interval_seconds: 300,
+    running: false,
+    refreshing: false,
+  }),
   data: {
     llm: {
       primary_provider: "claude-cli",
@@ -159,10 +168,44 @@ async function loadProviders() {
   }
 }
 
+async function loadProviderHealth() {
+  // Phase 11.4: pull the cached background-probe snapshot. Failures
+  // are swallowed -- the Settings page still works without health data,
+  // and the monitor might just not have run a tick yet.
+  try {
+    const snapshot = await api.providersHealth()
+    state.providerHealth = snapshot.records || {}
+    state.providerHealthMeta.last_run_finished_at = snapshot.last_run_finished_at || ""
+    state.providerHealthMeta.interval_seconds = snapshot.interval_seconds ?? 300
+    state.providerHealthMeta.running = Boolean(snapshot.running)
+  } catch (_error) {
+    // Non-fatal -- the credential timestamp still renders as a fallback.
+  }
+}
+
+async function refreshProviderHealth() {
+  if (state.providerHealthMeta.refreshing) return
+  state.providerHealthMeta.refreshing = true
+  try {
+    const snapshot = await api.refreshProvidersHealth()
+    state.providerHealth = snapshot.records || {}
+    state.providerHealthMeta.last_run_finished_at = snapshot.last_run_finished_at || ""
+    state.providerHealthMeta.running = Boolean(snapshot.running)
+  } catch (error) {
+    state.error = error.message
+  } finally {
+    state.providerHealthMeta.refreshing = false
+  }
+}
+
+function providerHealthFor(provider) {
+  return state.providerHealth?.[provider.id] || null
+}
+
 async function refreshAll() {
   state.loading = true
   state.error = ""
-  await Promise.all([loadSettings(), loadProviders()])
+  await Promise.all([loadSettings(), loadProviders(), loadProviderHealth()])
   state.loading = false
 }
 
@@ -490,11 +533,32 @@ function isPrimary(provider) {
                 <span v-if="provider.credentials?.connected_at">
                   Connected {{ new Date(provider.credentials.connected_at).toLocaleString() }}.
                 </span>
-                <span v-if="provider.credentials?.verified_at">
+                <!--
+                  Phase 11.4: prefer the live health-monitor timestamp
+                  over the credential's manual-test breadcrumb. Falls
+                  back to credentials.verified_at when the monitor
+                  hasn't probed yet (cold start or unconfigured).
+                -->
+                <span v-if="providerHealthFor(provider)">
+                  Last verified {{ new Date(providerHealthFor(provider).checked_at).toLocaleString() }}
+                  ({{ providerHealthFor(provider).ok ? "OK" : "FAIL" }}).
+                </span>
+                <span
+                  v-else-if="provider.credentials?.verified_at"
+                >
                   Last verified {{ new Date(provider.credentials.verified_at).toLocaleString() }}.
                 </span>
                 <span v-if="!provider.configured && provider.install_hint">{{ provider.install_hint }}</span>
-                <span v-if="provider.credentials?.last_test_error" class="text-destructive">
+                <span
+                  v-if="providerHealthFor(provider) && !providerHealthFor(provider).ok"
+                  class="text-destructive"
+                >
+                  Health: {{ providerHealthFor(provider).detail }}
+                </span>
+                <span
+                  v-else-if="provider.credentials?.last_test_error"
+                  class="text-destructive"
+                >
                   Last error: {{ provider.credentials.last_test_error }}
                 </span>
               </div>
