@@ -22,6 +22,7 @@ import {
 } from "lucide-vue-next"
 
 import AppSelect from "@/components/AppSelect.vue"
+import JobIndexBanner from "@/components/JobIndexBanner.vue"
 import TagInput from "@/components/TagInput.vue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -316,6 +317,28 @@ const emptyStateMessage = computed(() => {
   }
   return "No jobs"
 })
+
+const jobIndexFreshnessPayload = computed(() => ({
+  source: form.source === "all" ? "linkedin" : form.source,
+  keywords: [...form.keywords],
+  locations: [...form.locations],
+  time_filter: form.time_filter,
+  experience_levels: [...form.experience_levels],
+  employment_types: [...form.employment_types],
+  location_types: [...form.location_types],
+  education_levels: [...form.education_levels],
+  max_pages: Number(form.max_pages) || 20,
+}))
+
+async function forceRefreshSearch() {
+  // Force-refresh path -- bypass the canReuseFetchedResults shortcut so
+  // the next search() invocation actually hits the network. We clear
+  // the fetch signature so the existing code path treats the request
+  // as a fresh one without growing a new force_refresh flag through
+  // every layer.
+  state.lastFetchSignature = ""
+  await search()
+}
 
 async function search() {
   const signature = buildFetchSignature()
@@ -1283,6 +1306,13 @@ function buildPageButtons(total, current) {
       <AlertCircle class="h-4 w-4" />
       <AlertDescription>{{ state.error }}</AlertDescription>
     </Alert>
+
+    <JobIndexBanner
+      v-if="sourceUsesLinkedIn"
+      :visible="state.searched"
+      :payload="jobIndexFreshnessPayload"
+      @refresh="forceRefreshSearch"
+    />
 
     <Card class="jobs-results-shell">
       <div class="section-head jobs-results-head">
