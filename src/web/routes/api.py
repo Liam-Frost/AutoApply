@@ -711,26 +711,52 @@ class JobIndexFreshnessPayload(BaseModel):
 
     source: str = "linkedin"
     keywords: list[str] = Field(default_factory=list)
+    profile: str = ""
     locations: list[str] = Field(default_factory=list)
     time_filter: str = "week"
     experience_levels: list[str] = Field(default_factory=list)
     employment_types: list[str] = Field(default_factory=list)
     location_types: list[str] = Field(default_factory=list)
     education_levels: list[str] = Field(default_factory=list)
+    pay_operator: str = ""
+    experience_operator: str = ""
     max_pages: int | None = None
 
 
 def _freshness_params(payload: JobIndexFreshnessPayload) -> dict:
-    return {
-        "keywords": payload.keywords,
-        "locations": payload.locations,
-        "time_filter": payload.time_filter,
-        "experience_levels": payload.experience_levels,
-        "employment_types": payload.employment_types,
-        "location_types": payload.location_types,
-        "education_levels": payload.education_levels,
-        "max_pages": payload.max_pages,
-    }
+    from src.application.jobs import (  # noqa: PLC0415
+        _linkedin_job_index_params,
+        _linkedin_max_pages,
+        _map_linkedin_experience_levels,
+        _map_linkedin_job_types,
+        _normalize_time_filter,
+    )
+
+    location = (payload.locations or [""])[0]
+    max_pages = _linkedin_max_pages(
+        payload.max_pages or 20,
+        search_location=location,
+        experience_levels=payload.experience_levels,
+        employment_types=payload.employment_types,
+        location_types=payload.location_types,
+        locations=payload.locations,
+        pay_operator=payload.pay_operator or None,
+        experience_operator=payload.experience_operator or None,
+        education_levels=payload.education_levels,
+    )
+    return _linkedin_job_index_params(
+        {
+            "keywords": payload.keywords,
+            "location": location,
+            "time_filter": _normalize_time_filter(payload.time_filter),
+            "experience_levels": _map_linkedin_experience_levels(payload.experience_levels),
+            "job_types": _map_linkedin_job_types(payload.employment_types),
+            "max_pages": max_pages,
+            "enrich_details": True,
+            "filter_profile": payload.profile or None,
+            "allow_public_fallback": False,
+        }
+    )
 
 
 @router.post("/jobs/index/freshness")
