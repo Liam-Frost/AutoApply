@@ -106,6 +106,7 @@ class JobSearchPayload(BaseModel):
     experience_years: int | None = None
     education_levels: list[str] = Field(default_factory=list)
     max_pages: int = 20
+    force_refresh: bool = False
 
 
 class JobApplyPayload(BaseModel):
@@ -213,6 +214,8 @@ async def search_jobs(payload: JobSearchPayload) -> dict:
         experience_years=payload.experience_years,
         education_levels=payload.education_levels,
         max_pages=payload.max_pages,
+        force_refresh=payload.force_refresh,
+        use_job_index=True,
         headless=True,
         score=True,
         allow_public_linkedin_fallback=False,

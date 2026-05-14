@@ -87,7 +87,7 @@ defineExpose({ reload: load })
 
 <template>
   <div
-    v-if="visible && (freshness?.known || loading || error)"
+    v-if="visible && (freshness || loading || error)"
     class="job-index-banner"
     :data-tone="statusTone"
   >

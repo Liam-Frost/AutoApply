@@ -35,7 +35,9 @@ def upgrade() -> None:
     op.create_table(
         "job_postings",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT),
+        sa.Column(
+            "tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT
+        ),
         sa.Column("source", sa.String(length=50), nullable=False),
         sa.Column("source_id", sa.String(length=200), nullable=False),
         sa.Column("company", sa.String(length=200), nullable=False),
@@ -82,7 +84,9 @@ def upgrade() -> None:
     op.create_table(
         "job_snapshots",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT),
+        sa.Column(
+            "tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT
+        ),
         sa.Column(
             "posting_id",
             postgresql.UUID(as_uuid=True),
@@ -127,7 +131,9 @@ def upgrade() -> None:
     op.create_table(
         "search_queries",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT),
+        sa.Column(
+            "tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT
+        ),
         sa.Column("source", sa.String(length=50), nullable=False),
         sa.Column("normalized_key", sa.String(length=64), nullable=False),
         sa.Column("raw_params", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -162,7 +168,9 @@ def upgrade() -> None:
     op.create_table(
         "search_results",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT),
+        sa.Column(
+            "tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT
+        ),
         sa.Column(
             "query_id",
             postgresql.UUID(as_uuid=True),
@@ -202,7 +210,9 @@ def upgrade() -> None:
     op.create_table(
         "refresh_tasks",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT),
+        sa.Column(
+            "tenant_id", sa.String(length=64), nullable=False, server_default=_TENANT_DEFAULT
+        ),
         sa.Column("kind", sa.String(length=40), nullable=False),
         sa.Column(
             "priority",

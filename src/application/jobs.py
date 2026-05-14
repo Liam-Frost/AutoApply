@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
 from src.application.profile import get_active_profile_path, get_profile_path
-from src.core.config import PROJECT_ROOT
+from src.core.config import PROJECT_ROOT, load_config
 from src.core.state_machine import ApplicationState, AppStatus
 
 logger = logging.getLogger("autoapply.application.jobs")
@@ -83,6 +84,8 @@ async def search_jobs(
     warn_on_missing_profile: bool = False,
     allow_public_linkedin_fallback: bool = False,
     include_views: bool = False,
+    force_refresh: bool = False,
+    use_job_index: bool = False,
 ) -> dict:
     jobs = []
     ats_jobs: list = []
@@ -102,6 +105,8 @@ async def search_jobs(
         search_location=search_location,
         candidate_locations=locations,
     )
+    job_index_events: list[dict] = []
+    search_cache_policy = _search_cache_policy() if use_job_index else None
 
     if source in ("ats", "all"):
         try:
@@ -131,29 +136,40 @@ async def search_jobs(
                 linkedin_jobs = []
                 search_targets = linkedin_search_locations or [""]
                 for location_target in search_targets:
-                    location_jobs = await search_linkedin(
-                        keywords=linkedin_keywords,
-                        location=location_target,
-                        time_filter=_normalize_time_filter(time_filter),
-                        experience_levels=_map_linkedin_experience_levels(experience_levels),
-                        job_types=_map_linkedin_job_types(employment_types),
-                        max_pages=_linkedin_max_pages(
-                            max_pages,
-                            search_location=location_target,
-                            experience_levels=experience_levels,
-                            employment_types=employment_types,
-                            location_types=location_types,
-                            locations=locations,
-                            pay_operator=pay_operator,
-                            experience_operator=experience_operator,
-                            education_levels=education_levels,
-                        ),
-                        enrich_details=not no_enrich,
-                        headless=headless,
-                        filter_profile=profile,
-                        config_dir=config_dir,
-                        allow_public_fallback=allow_public_linkedin_fallback,
+                    linkedin_max_pages = _linkedin_max_pages(
+                        max_pages,
+                        search_location=location_target,
+                        experience_levels=experience_levels,
+                        employment_types=employment_types,
+                        location_types=location_types,
+                        locations=locations,
+                        pay_operator=pay_operator,
+                        experience_operator=experience_operator,
+                        education_levels=education_levels,
                     )
+                    search_kwargs = {
+                        "keywords": linkedin_keywords,
+                        "location": location_target,
+                        "time_filter": _normalize_time_filter(time_filter),
+                        "experience_levels": _map_linkedin_experience_levels(experience_levels),
+                        "job_types": _map_linkedin_job_types(employment_types),
+                        "max_pages": linkedin_max_pages,
+                        "enrich_details": not no_enrich,
+                        "headless": headless,
+                        "filter_profile": profile,
+                        "config_dir": config_dir,
+                        "allow_public_fallback": allow_public_linkedin_fallback,
+                    }
+                    if use_job_index:
+                        location_jobs, job_index_event = await _search_linkedin_with_job_index(
+                            search_kwargs=search_kwargs,
+                            force_refresh=force_refresh
+                            or not (search_cache_policy or {}).get("enabled", True),
+                            freshness_hours=(search_cache_policy or {}).get("ttl_hours", 24),
+                        )
+                        job_index_events.append(job_index_event)
+                    else:
+                        location_jobs = await search_linkedin(**search_kwargs)
                     linkedin_jobs.extend(location_jobs)
 
                 linkedin_jobs = _dedupe_jobs_by_signature(linkedin_jobs)
@@ -259,7 +275,210 @@ async def search_jobs(
             "total": len(jobs),
         },
         "scored": scored,
+        "job_index": {
+            "enabled": bool(use_job_index),
+            "policy": search_cache_policy,
+            "events": job_index_events,
+        },
     }
+
+
+async def _search_linkedin_with_job_index(
+    *,
+    search_kwargs: dict,
+    force_refresh: bool,
+    freshness_hours: int,
+) -> tuple[list, dict]:
+    """Run one LinkedIn search location through the Phase 13 Job Index.
+
+    Fresh fetches still return the full ``RawJob`` objects from the scraper,
+    then persist immutable snapshots so later cache hits can reconstruct the
+    same UI shape from ``job_postings.latest_snapshot_id``.
+    """
+    from src.cache import get_cache
+    from src.core.database import get_session_factory
+    from src.intake.search import search_linkedin
+    from src.jobs.enrich import enrich_posting
+    from src.jobs.search import cached_search
+    from src.jobs.store import JobIndexStore
+
+    scraped_jobs: list = []
+    params = _linkedin_job_index_params(search_kwargs)
+
+    async def fetch_and_capture() -> list:
+        result = await search_linkedin(**search_kwargs)
+        scraped_jobs[:] = list(result)
+        return scraped_jobs
+
+    try:
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session, session.begin():
+            store = JobIndexStore(session)
+            outcome = await cached_search(
+                store=store,
+                cache=get_cache(),
+                source="linkedin",
+                params=params,
+                fetch_fn=fetch_and_capture,
+                max_pages=search_kwargs.get("max_pages"),
+                force_refresh=force_refresh,
+                freshness_hours=freshness_hours,
+            )
+            if scraped_jobs:
+                for job in scraped_jobs:
+                    enrich_posting(
+                        store=store,
+                        source=job.source,
+                        source_id=job.source_id,
+                        company=job.company,
+                        content=_raw_job_content(job),
+                    )
+                jobs = scraped_jobs
+            else:
+                jobs = _raw_jobs_from_index_postings(session, outcome.postings)
+
+            if outcome.refresh_failed and not jobs:
+                raise RuntimeError(outcome.last_error or "LinkedIn refresh failed")
+
+            return jobs, {
+                "ok": True,
+                "cached": outcome.cached,
+                "stale": outcome.stale,
+                "force_refresh": force_refresh,
+                "query_id": str(outcome.query_id),
+                "last_run_at": _isoformat(outcome.last_run_at),
+                "last_success_at": _isoformat(outcome.last_success_at),
+                "last_error": outcome.last_error,
+                "counts": outcome.counts,
+                "location": search_kwargs.get("location") or "",
+            }
+    except Exception as exc:
+        # The Job Index should improve freshness, not make search unusable if
+        # the operator forgot a migration. Fall back to a direct live pull.
+        logger.warning("Job Index search path failed; falling back to live search: %s", exc)
+        jobs = list(await search_linkedin(**search_kwargs))
+        return jobs, {
+            "ok": False,
+            "cached": False,
+            "stale": False,
+            "force_refresh": True,
+            "fallback_live": True,
+            "error": str(exc),
+            "location": search_kwargs.get("location") or "",
+        }
+
+
+def _search_cache_policy() -> dict:
+    raw = load_config().get("search_cache", {})
+    try:
+        ttl_hours = max(int(raw.get("ttl_hours", 24)), 1)
+    except (TypeError, ValueError):
+        ttl_hours = 24
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "ttl_hours": ttl_hours,
+    }
+
+
+def _linkedin_job_index_params(search_kwargs: dict) -> dict:
+    return {
+        "keywords": search_kwargs.get("keywords") or [],
+        "location": search_kwargs.get("location") or "",
+        "time_filter": search_kwargs.get("time_filter") or "week",
+        "experience_levels": search_kwargs.get("experience_levels") or [],
+        "job_types": search_kwargs.get("job_types") or [],
+        "max_pages": search_kwargs.get("max_pages"),
+        "enrich_details": bool(search_kwargs.get("enrich_details", True)),
+        "filter_profile": search_kwargs.get("filter_profile") or "",
+        "allow_public_fallback": bool(search_kwargs.get("allow_public_fallback", False)),
+    }
+
+
+def _raw_job_content(job) -> dict:
+    requirements = (
+        job.requirements.model_dump()
+        if hasattr(job.requirements, "model_dump")
+        else job.requirements
+    )
+    raw_data = dict(job.raw_data or {})
+    raw_data.update(
+        {
+            "id": str(job.id),
+            "source": job.source,
+            "source_id": job.source_id,
+            "company": job.company,
+            "title": job.title,
+            "location": job.location,
+            "employment_type": job.employment_type,
+            "seniority": job.seniority,
+            "description": job.description,
+            "requirements": requirements,
+            "application_url": job.application_url,
+            "ats_type": job.ats_type,
+            "discovered_at": _isoformat(job.discovered_at),
+        }
+    )
+    return {
+        "title": job.title,
+        "location": job.location,
+        "employment_type": job.employment_type,
+        "seniority": job.seniority,
+        "description": job.description,
+        "requirements": requirements,
+        "application_url": job.application_url,
+        "raw_data": raw_data,
+    }
+
+
+def _raw_jobs_from_index_postings(session, postings: list) -> list:
+    from src.core.models import JobSnapshot
+
+    jobs = []
+    for posting in postings:
+        snapshot = None
+        if posting.latest_snapshot_id:
+            snapshot = session.get(JobSnapshot, posting.latest_snapshot_id)
+        jobs.append(_raw_job_from_index_posting(posting, snapshot))
+    return jobs
+
+
+def _raw_job_from_index_posting(posting, snapshot):
+    from src.intake.schema import JobRequirements, RawJob
+
+    raw = dict(getattr(snapshot, "raw_data", None) or {})
+    requirements_payload = getattr(snapshot, "requirements", None) or raw.get("requirements") or {}
+    try:
+        requirements = JobRequirements(**requirements_payload)
+    except TypeError:
+        requirements = JobRequirements()
+
+    employment_type = (
+        raw.get("employment_type") or getattr(snapshot, "employment_type", None) or "unknown"
+    )
+    seniority = raw.get("seniority") or getattr(snapshot, "seniority", None) or "unknown"
+    ats_type = raw.get("ats_type") or raw.get("source") or posting.source
+    source = posting.source if posting.source in ATS_TYPES else "linkedin"
+
+    return RawJob(
+        id=uuid.UUID(raw["id"]) if raw.get("id") else uuid.uuid4(),
+        source=source,
+        source_id=posting.source_id,
+        company=posting.company,
+        title=raw.get("title") or getattr(snapshot, "title", None) or "Unknown Role",
+        location=raw.get("location") or getattr(snapshot, "location", None),
+        employment_type=employment_type if employment_type in EMPLOYMENT_TYPES else "unknown",
+        seniority=seniority if seniority in SENIORITY_LEVELS else "unknown",
+        description=raw.get("description") or getattr(snapshot, "description", None),
+        requirements=requirements,
+        application_url=(
+            raw.get("application_url")
+            or getattr(snapshot, "application_url", None)
+            or posting.canonical_url
+        ),
+        ats_type=ats_type if ats_type in ATS_TYPES else "unknown",
+        raw_data=raw,
+        discovered_at=datetime.now(UTC),
+    )
 
 
 async def get_linkedin_session_status() -> dict:
