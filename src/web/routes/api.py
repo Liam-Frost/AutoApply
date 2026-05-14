@@ -713,12 +713,12 @@ async def cache_clear_namespace_endpoint(
                 "message": "Send {\"confirm\": true} to clear this namespace.",
             },
         )
-    from src.application.cache import clear_cache_namespace  # noqa: PLC0415
-
     # SCAN+DEL against a large namespace can take a moment; run off
     # the event loop so one operator click doesn't stall unrelated
     # API requests. Mirrors the GET /api/cache snapshot path.
     import asyncio  # noqa: PLC0415
+
+    from src.application.cache import clear_cache_namespace  # noqa: PLC0415
 
     result = await asyncio.to_thread(clear_cache_namespace, namespace)
     if not result["ok"]:
