@@ -4,6 +4,83 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Phase 12: Cache Infrastructure (Redis)
+
+First introduction of Redis as the L2 cache substrate. Builds the
+generic cache + lock + queue primitives that Phases 13, 14, 17, and
+18 will consume. Scope is deliberately narrow: LLM and embedding
+responses only -- JD content caching ships in Phase 13 because it
+needs content versioning, not TTL eviction.
+
+- **12.1+12.2 Cache infrastructure + Redis L2 backend** -- `src/cache/`
+  module (``CacheBackend`` ABC, ``LRUBackend`` for L1, ``RedisBackend``
+  for L2, ``Cache`` orchestrator with namespace TTLs `llm:7d`,
+  `embedding:30d`, `response:5m`, version-stamped keys), Redis
+  connection management with graceful degrade (malformed URLs, DNS
+  failures, transport errors all degrade to L1-only with a logged
+  warning), ``autoapply redis ping/info/flush`` CLI (all
+  ``--json``-friendly, exit-non-zero on failure, destructive ops
+  gated on ``--yes``, namespace validated against glob injection),
+  and a ``docker-compose.yml`` with Redis 7.2 + AOF + maxmemory cap.
+  The cache singleton retries L2 attachment every 30s so a
+  Redis-down-at-boot deployment recovers without a process restart.
+  +109 tests (836 total).
+
+- **12.3 Distributed lock primitive** -- ``cache.lock(key, ttl=600,
+  blocking=False)`` in ``src/cache/lock.py`` on Redis ``SET NX PX``
+  with WATCH/MULTI/EXEC compare-and-delete release (chosen over
+  Lua ``EVAL`` because fakeredis EVAL is unreliable across
+  platforms). Tokens are uuid4 + ``secrets.token_hex`` so a stale
+  process cannot release a successor's lock. Lock keys live in
+  their own ``lock:`` prefix to avoid colliding with cache value
+  keys. Process-local ``threading.Lock`` fallback when L2 is
+  unavailable OR when Redis raises mid-acquisition. +15 tests.
+
+- **12.4 Opt-in LLM response caching** -- ``generate_text(cache=True)``
+  wraps the call with an L1+L2 lookup. Cache key is SHA256 over
+  ``provider + model + base_url + system + prompt + output_format``;
+  the model + base URL come from the registered provider so an
+  API-key model swap or endpoint change invalidates the cache
+  automatically. Only the primary provider's successful responses
+  are cached -- caching a fallback would keep replaying the
+  fallback's answer after the primary recovered. Cache failures
+  swallow at debug level so the LLM call never breaks on a Redis
+  blip. +12 tests.
+
+- **12.5 Cache-wrapped OpenAI embeddings** -- ``embed_text(text)``
+  in ``src/matching/semantic.py``. Default ``cache=True`` (embeddings
+  are deterministic given ``model + base_url + text``); 30-day TTL.
+  ``ApiKeyProvider.get_api_key`` resolves the API key (credentials
+  > ``OPENAI_API_KEY`` env). Graceful degrade to ``None`` on any
+  failure (provider missing, HTTP error, malformed JSON shape) so
+  callers fall back to keyword matching. +20 tests.
+
+- **12.6 Cache inspector UI** -- New page at ``/settings/cache``
+  rendering Redis health, per-namespace entry counts, hit-rate,
+  $-saved estimate, and one-click namespace clear behind a modal
+  confirmation. New endpoints ``GET /api/cache`` (snapshot) and
+  ``DELETE /api/cache/{namespace}`` (requires ``{confirm: true}``).
+  Both run their SCAN+DEL paths off the FastAPI event loop via
+  ``asyncio.to_thread``. The clear path drives its own SCAN+DEL
+  rather than ``RedisBackend.clear_namespace`` so transport
+  failures surface as ``clear_failed`` instead of looking like a
+  successful 0-key clear. Frontend ``request()`` helper now
+  attaches the parsed body to thrown errors so structured FastAPI
+  ``detail`` objects don't render as ``[object Object]``. +19 tests.
+
+- **12.7 Cost dashboard upgrade** -- ``AgentStep.cached`` derived
+  from ``llm_attempts[0]``. ``AgentResult`` exposes
+  ``cached_step_count`` / ``fresh_step_count`` /
+  ``total_cost_usd_fresh`` / ``total_cost_saved_usd`` so the trace
+  viewer can render "N fresh + M cached" with a ``saved $X.XXXX``
+  pill. Legacy traces (pre-Phase-12.7) fold ``step_count`` /
+  ``total_cost_usd`` into the fresh totals so the partition
+  invariant (cached + fresh = step_count) holds. +12 tests.
+
+**Total**: +187 tests across the phase (727 -> 927, +200 including
+trace serialisation coverage). ruff clean. Frontend builds clean.
+Codex review ran on every sub-phase; final pass on each was clean.
+
 ### Phase 11: Reliability & Cleanup
 
 Tightens the Phase 10 provider layer and ships the upgrade migration

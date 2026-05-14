@@ -104,8 +104,9 @@ src/
 - **Agent Phase 9** (Form-Filler Agent with HITL review + eval suite + cost telemetry) — Complete
 - **Phase 10** (LLM Provider Abstraction: REST adapters for OpenAI / Anthropic / Gemini + subprocess providers for Claude CLI / Codex CLI; credential store; `autoapply provider` CLI; `/settings` provider management UI) — Complete
 - **Phase 11** (Reliability & Cleanup: ordered provider fallback chain with `ProviderErrorKind` classification, `autoapply migrate` upgrade CLI, background `/api/providers/health` monitor with live "Last verified" telemetry, writer-side list+scalar sync for `fallback_providers`) — Complete
+- **Phase 12** (Cache Infrastructure: `src/cache/` module with L1 LRU + L2 Redis, namespace TTL policy, version-stamped keys, distributed lock primitive, opt-in caching for `generate_text` / `embed_text`, cache inspector UI at `/settings/cache`, agent cost dashboard split into fresh vs cached + $-saved line, `autoapply redis ping/info/flush` CLI, docker-compose with AOF persistence) — Complete
 
-**727 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
+**927 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
 
 ### Roadmap (Phase 11 → 18)
 
@@ -114,7 +115,7 @@ Re-planned 2026-05-12 (v2). Redis is adopted from Phase 12 as cache / lock / que
 | Phase | Scope | Est. |
 |---|---|---|
 | 11 | Reliability & Cleanup — provider fallback chain, `autoapply migrate`, provider health monitor, docs sync — **Complete** | ~1 week |
-| 12 | Cache Infrastructure (Redis) — `src/cache/` L1 LRU + L2 Redis, distributed lock primitive, LLM + embedding response caching, inspector UI, cost-saved dashboard | ~1.5 weeks |
+| 12 | Cache Infrastructure (Redis) — `src/cache/` L1 LRU + L2 Redis, distributed lock primitive, LLM + embedding response caching, inspector UI, cost-saved dashboard — **Complete** | ~1.5 weeks |
 | 13 | Job Index & Freshness Engine — `job_postings` / `job_snapshots` / `search_queries` / `search_results` / `refresh_tasks` tables, content-hash versioning, freshness state machine, cache-first search + force-refresh UX, audit binding via `job_snapshot_id` | ~2 weeks |
 | 14 | Scheduled Task System — APScheduler + Postgres jobstore, RefreshTask worker, built-in jobs (`daily_search`, `jd_health_check`, `status_sync`, `cookie_refresh`, `cache_eviction`), multi-instance safe | ~1.5 weeks |
 | 15 | Cover-letter Agent — `jd_lookup` tool, `AgentCoverLetter` orchestrator, snapshot-bound generation, fact-drift guard, 5-fixture eval suite (was originally Phase 10) | ~2 weeks |
@@ -170,6 +171,12 @@ autoapply provider test openai                   # deep round-trip test, not jus
 autoapply provider set-primary anthropic         # which provider gets called by generate_text
 autoapply provider set-fallback openai           # provider chain (Phase 11.1 fail-over: transient errors advance, BAD_REQUEST/PARSE stop)
 autoapply migrate                                # Phase 11.2: one-shot upgrade tool; --apply writes a .bak before fixing legacy settings.yaml / credential rows
+
+# Phase 12 cache (Redis L2 + in-process L1)
+docker compose up -d redis                       # start the Redis container shipped at the repo root
+autoapply redis ping                             # round-trip PING against $REDIS_URL or cache.redis_url
+autoapply redis info                             # per-namespace entry counts + memory usage
+autoapply redis flush --namespace llm --yes      # clear one namespace; --yes confirms the destructive op
 autoapply provider disconnect openai             # remove stored credential
 ```
 
