@@ -666,3 +666,68 @@ async def providers_health_refresh() -> dict:
 
     await asyncio.to_thread(monitor.probe_all)
     return monitor.snapshot().to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Cache inspector (Phase 12.6)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/cache")
+async def cache_snapshot_endpoint() -> dict:
+    """Per-namespace cache snapshot consumed by ``/settings/cache``.
+
+    SCAN-based Redis counts run in a worker thread because, at worst,
+    they iterate the keyspace; we do not want the FastAPI event loop
+    blocked while that happens.
+    """
+    import asyncio  # noqa: PLC0415
+
+    from src.application.cache import cache_snapshot  # noqa: PLC0415
+
+    return await asyncio.to_thread(cache_snapshot)
+
+
+class ClearCachePayload(BaseModel):
+    """Phase 12.6 inspector UI -> ``DELETE /api/cache/{namespace}``.
+
+    The body carries a confirmation flag (the UI sets ``confirm=True``
+    after the operator clicks through the modal); without it the
+    endpoint refuses to act, mirroring the ``redis flush --yes``
+    posture on the CLI side."""
+
+    confirm: bool = Field(False, description="Operator confirmed the destructive op.")
+
+
+@router.delete("/cache/{namespace}")
+async def cache_clear_namespace_endpoint(
+    namespace: str, payload: ClearCachePayload | None = None
+) -> dict:
+    """Drop every entry in ``namespace``. Requires ``{"confirm": true}``
+    in the body so a mistyped curl can't wipe the cache."""
+    if payload is None or not payload.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "confirmation_required",
+                "message": "Send {\"confirm\": true} to clear this namespace.",
+            },
+        )
+    from src.application.cache import clear_cache_namespace  # noqa: PLC0415
+
+    # SCAN+DEL against a large namespace can take a moment; run off
+    # the event loop so one operator click doesn't stall unrelated
+    # API requests. Mirrors the GET /api/cache snapshot path.
+    import asyncio  # noqa: PLC0415
+
+    result = await asyncio.to_thread(clear_cache_namespace, namespace)
+    if not result["ok"]:
+        # 400 for client-side mistakes (bad namespace name); 500 for
+        # backend failures during the actual clear.
+        status = (
+            400
+            if result.get("error_code") == "invalid_namespace"
+            else 500
+        )
+        raise HTTPException(status_code=status, detail=result)
+    return result

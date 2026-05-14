@@ -6,11 +6,31 @@ async function request(path, options = {}) {
     : await response.text()
 
   if (!response.ok) {
-    const message =
-      (typeof payload === "object" && payload !== null && (payload.detail || payload.message)) ||
-      response.statusText ||
-      "Request failed"
-    throw new Error(message)
+    // FastAPI returns ``detail`` for HTTPException; some endpoints
+    // use plain ``message``. ``detail`` is often a STRUCTURED object
+    // (e.g. ``{"error": "invalid_namespace", "message": "..."}``);
+    // stringifying it via ``new Error({object})`` would yield
+    // "[object Object]" and hide the actual reason. Pick a string for
+    // ``message`` but attach the parsed body so callers that care
+    // about the structured shape can read it.
+    const detail = typeof payload === "object" && payload !== null ? payload.detail : null
+    let message
+    if (typeof detail === "string") {
+      message = detail
+    } else if (detail && typeof detail === "object") {
+      // Prefer human-readable fields when present.
+      message = detail.message || detail.error || JSON.stringify(detail)
+    } else if (typeof payload === "object" && payload !== null && payload.message) {
+      message = payload.message
+    } else if (typeof payload === "string" && payload) {
+      message = payload
+    } else {
+      message = response.statusText || "Request failed"
+    }
+    const err = new Error(message)
+    err.status = response.status
+    err.body = payload
+    throw err
   }
 
   return payload
@@ -245,6 +265,21 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fallback_provider: fallbackProvider }),
+    })
+  },
+  cacheSnapshot() {
+    // Phase 12.6 inspector. Server-side SCAN can take a moment under
+    // a large keyspace, so callers should drive a loading state.
+    return request("/api/cache")
+  },
+  clearCacheNamespace(namespace) {
+    // Mirrors `autoapply redis flush --namespace`: requires the
+    // operator to have confirmed via the UI. The body's `confirm: true`
+    // is what the API endpoint checks; without it the server refuses.
+    return request(`/api/cache/${encodeURIComponent(namespace)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
     })
   },
 }
