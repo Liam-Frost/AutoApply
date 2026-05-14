@@ -18,11 +18,13 @@ from __future__ import annotations
 from src.cache.base import CACHE_VERSION, NAMESPACE_TTLS, CacheBackend, validate_namespace
 from src.cache.cache import Cache, get_cache, reset_cache
 from src.cache.connection import get_redis_client, redis_health
+from src.cache.lock import AcquiredLock
 from src.cache.lru import LRUBackend
 from src.cache.redis_backend import RedisBackend
 
 __all__ = [
     "CACHE_VERSION",
+    "AcquiredLock",
     "Cache",
     "CacheBackend",
     "LRUBackend",

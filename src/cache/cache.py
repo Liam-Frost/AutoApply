@@ -41,6 +41,7 @@ from src.cache.base import (
     namespace_prefix,
 )
 from src.cache.connection import get_redis_client
+from src.cache.lock import AcquiredLock, acquire_lock
 from src.cache.lru import DEFAULT_MAX_ENTRIES, LRUBackend
 from src.cache.redis_backend import RedisBackend
 
@@ -155,6 +156,50 @@ class Cache:
         # L2 is authoritative for "how many entries existed"; L1 is
         # a strict subset, so report L2 when present.
         return l2_count if self._l2 is not None else l1_count
+
+    # ----- locks (Phase 12.3) -----
+
+    def lock(
+        self,
+        key: str,
+        *,
+        ttl: int = 600,
+        blocking: bool = False,
+        blocking_timeout: float = 10.0,
+    ) -> AcquiredLock:
+        """Distributed lock context manager. See :mod:`src.cache.lock`
+        for the full contract.
+
+        ``ttl`` is the auto-release window; pick a value larger than
+        the work the lock guards (default 10 min matches Phase 13's
+        force-refresh budget). If the holding process dies, the TTL
+        is what eventually frees the key.
+
+        ``blocking=True`` polls with exponential backoff up to
+        ``blocking_timeout`` seconds. Timeouts never raise -- the
+        caller checks ``acquired`` on the returned handle.
+
+        When L2 is unavailable, this degrades to a process-local
+        :class:`threading.Lock` keyed by ``key`` (``scope='process'``
+        instead of ``'redis'``). Single-process deployments keep
+        working; multi-process setups should monitor for that mode
+        because the lock no longer protects cross-process races.
+        """
+        # Extract the underlying redis client from the L2 backend if
+        # present. The lock implementation talks to redis directly
+        # because the lock primitives (SET NX PX, EVAL) don't fit the
+        # generic ``CacheBackend`` shape.
+        client = None
+        if self._l2 is not None:
+            client = getattr(self._l2, "_client", None)
+        result: AcquiredLock = acquire_lock(
+            client,
+            key,
+            ttl=ttl,
+            blocking=blocking,
+            blocking_timeout=blocking_timeout,
+        )
+        return result
 
     # ----- L2 attachment -----
 
