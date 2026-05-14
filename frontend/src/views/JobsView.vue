@@ -321,7 +321,7 @@ const emptyStateMessage = computed(() => {
 const jobIndexFreshnessPayload = computed(() => ({
   source: form.source === "all" ? "linkedin" : form.source,
   keywords: [...form.keywords],
-  profile: form.profile,
+  profile: "",
   locations: [...form.locations],
   time_filter: form.time_filter,
   experience_levels: [...form.experience_levels],
