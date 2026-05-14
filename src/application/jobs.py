@@ -403,7 +403,6 @@ def _raw_job_content(job) -> dict:
     raw_data = dict(job.raw_data or {})
     raw_data.update(
         {
-            "id": str(job.id),
             "source": job.source,
             "source_id": job.source_id,
             "company": job.company,
@@ -415,7 +414,6 @@ def _raw_job_content(job) -> dict:
             "requirements": requirements,
             "application_url": job.application_url,
             "ats_type": job.ats_type,
-            "discovered_at": _isoformat(job.discovered_at),
         }
     )
     return {

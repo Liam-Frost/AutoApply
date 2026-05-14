@@ -59,6 +59,9 @@ class _StubStore:
         self.results: dict[UUID, list[tuple[_StubPosting, int]]] = {}
         self.runs: list[tuple[UUID, str, str | None]] = []
 
+    def find_query(self, source: str, fingerprint: str) -> _StubQuery | None:
+        return self.queries.get((source, fingerprint))
+
     def upsert_query(
         self, *, source: str, fingerprint: str, raw_params: dict, max_pages: int | None
     ) -> _StubQuery:

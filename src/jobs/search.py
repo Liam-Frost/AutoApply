@@ -113,20 +113,11 @@ async def cached_search(
     now = now or datetime.now(UTC)
     normalized = normalize_search_key(params, source=source)
     fingerprint = search_query_fingerprint(params, source=source)
-    query = store.upsert_query(
-        source=source,
-        fingerprint=fingerprint,
-        raw_params=normalized,
-        max_pages=max_pages,
-    )
+    query = store.find_query(source, fingerprint)
 
-    cache_hit = _can_serve_from_cache(
-        query=query,
-        force_refresh=force_refresh,
-        freshness_hours=freshness_hours,
-        now=now,
-    )
-    if cache_hit:
+    if query is not None and _can_serve_from_cache(
+        query=query, force_refresh=force_refresh, freshness_hours=freshness_hours, now=now,
+    ):
         postings = store.get_results(query.id)
         logger.info(
             "Job index cache hit: source=%s key=%s n=%d", source, fingerprint[:12], len(postings),
@@ -152,18 +143,26 @@ async def cached_search(
             logger.info(
                 "Job index lock contention: returning previous results for %s", fingerprint[:12]
             )
-            postings = store.get_results(query.id)
+            query = query or store.find_query(source, fingerprint)
+            postings = store.get_results(query.id) if query is not None else []
             return SearchOutcome(
                 postings=postings,
                 cached=True,
                 stale=True,
-                query_id=query.id,
-                last_run_at=query.last_run_at,
-                last_success_at=query.last_success_at,
+                query_id=query.id if query is not None else None,
+                last_run_at=query.last_run_at if query is not None else None,
+                last_success_at=query.last_success_at if query is not None else None,
                 last_error="another worker is refreshing this query",
                 refresh_failed=False,
                 counts={"cached": len(postings)},
             )
+
+        query = store.upsert_query(
+            source=source,
+            fingerprint=fingerprint,
+            raw_params=normalized,
+            max_pages=max_pages,
+        )
 
         # Re-check inside the lock: a concurrent writer may have
         # populated fresh results while we were waiting.
