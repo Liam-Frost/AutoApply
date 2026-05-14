@@ -61,6 +61,20 @@ export const api = {
   filterProfiles() {
     return request("/api/jobs/filter-profiles")
   },
+  jobIndexFreshness(payload) {
+    return request("/api/jobs/index/freshness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  jobIndexRefresh(payload) {
+    return request("/api/jobs/index/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
   saveFilterProfile(profileId, payload) {
     return request(`/api/jobs/filter-profiles/${encodeURIComponent(profileId)}`, {
       method: "PUT",

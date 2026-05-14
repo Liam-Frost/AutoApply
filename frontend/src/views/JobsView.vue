@@ -22,6 +22,7 @@ import {
 } from "lucide-vue-next"
 
 import AppSelect from "@/components/AppSelect.vue"
+import JobIndexBanner from "@/components/JobIndexBanner.vue"
 import TagInput from "@/components/TagInput.vue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -317,9 +318,36 @@ const emptyStateMessage = computed(() => {
   return "No jobs"
 })
 
-async function search() {
+const jobIndexFreshnessPayload = computed(() => ({
+  source: form.source === "all" ? "linkedin" : form.source,
+  keywords: [...form.keywords],
+  profile: "",
+  locations: [...form.locations],
+  time_filter: form.time_filter,
+  experience_levels: [...form.experience_levels],
+  employment_types: [...form.employment_types],
+  location_types: [...form.location_types],
+  education_levels: [...form.education_levels],
+  pay_operator: form.pay_operator,
+  experience_operator: form.experience_operator,
+  max_pages: Number(form.max_pages) || 20,
+}))
+
+const canForceRefreshFetchedResults = computed(() => canReuseFetchedResults(buildFetchSignature()))
+
+async function forceRefreshSearch() {
+  // Force-refresh path -- bypass the canReuseFetchedResults shortcut so
+  // the next search() invocation actually hits the network. We clear
+  // the fetch signature so the existing code path treats the request
+  // as a fresh one without growing a new force_refresh flag through
+  // every layer.
+  state.lastFetchSignature = ""
+  await search({ forceRefresh: true })
+}
+
+async function search({ forceRefresh = false } = {}) {
   const signature = buildFetchSignature()
-  if (canReuseFetchedResults(signature)) {
+  if (!forceRefresh && canReuseFetchedResults(signature)) {
     state.searched = true
     state.error = ""
     state.message = "Updated results from the last fetched set."
@@ -348,6 +376,7 @@ async function search() {
       profile: "",
       location: "",
       max_pages: Number(form.max_pages) || 20,
+      force_refresh: forceRefresh,
       locations: [...form.locations],
       pay_amount: parseOptionalNumber(form.pay_amount),
       experience_years: parseOptionalNumber(form.experience_years),
@@ -1259,6 +1288,17 @@ function buildPageButtons(total, current) {
             <Button variant="ghost" size="icon" type="button" aria-label="Reset Filters" title="Reset Filters" @click="resetForm">
               <RefreshCw class="h-4 w-4" />
             </Button>
+            <Button
+              v-if="canForceRefreshFetchedResults"
+              variant="secondary"
+              type="button"
+              :disabled="state.searching"
+              title="Fetch fresh results"
+              @click="forceRefreshSearch"
+            >
+              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': state.searching }" />
+              Fetch Fresh
+            </Button>
             <Button variant="default" size="icon" type="submit" :disabled="state.searching" aria-label="Search Jobs" title="Search Jobs">
               <Search class="h-4 w-4" :class="{ 'animate-pulse': state.searching }" />
             </Button>
@@ -1283,6 +1323,13 @@ function buildPageButtons(total, current) {
       <AlertCircle class="h-4 w-4" />
       <AlertDescription>{{ state.error }}</AlertDescription>
     </Alert>
+
+    <JobIndexBanner
+      v-if="sourceUsesLinkedIn"
+      :visible="state.searched"
+      :payload="jobIndexFreshnessPayload"
+      @refresh="forceRefreshSearch"
+    />
 
     <Card class="jobs-results-shell">
       <div class="section-head jobs-results-head">

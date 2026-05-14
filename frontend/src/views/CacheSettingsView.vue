@@ -143,9 +143,9 @@ onMounted(loadSnapshot)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Cache</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Runtime Cache</h1>
         <p class="text-sm text-muted-foreground">
-          L1 in-process LRU + L2 Redis. Hit-rate, namespace counts, and one-click clear.
+          L1 in-process LRU + L2 Redis for LLM, embedding, and short response reuse.
         </p>
       </div>
       <div class="flex items-center gap-2">

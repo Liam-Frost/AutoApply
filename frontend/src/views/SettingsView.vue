@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref, watch } from "vue"
 import {
   AlertCircle,
   CheckCircle2,
-  Cpu,
   Database,
   KeyRound,
   Linkedin,
@@ -89,6 +88,14 @@ const state = reactive({
     search_cache: {
       enabled: true,
       ttl_hours: 24,
+    },
+    job_index: {
+      known: false,
+      search_queries: 0,
+      job_postings: 0,
+      job_snapshots: 0,
+      latest_success_at: null,
+      states: {},
     },
     config_path: "",
   },
@@ -420,6 +427,14 @@ function hasStoredCredential(provider) {
   return Boolean(provider.credentials && provider.credentials.has_secret)
 }
 
+function formatJobIndexDate(value) {
+  return value ? new Date(value).toLocaleString() : "Never"
+}
+
+function jobIndexStateCount(stateName) {
+  return state.data.job_index?.states?.[stateName] || 0
+}
+
 function disconnectLabel(provider) {
   if (isSubprocessProvider(provider) && hasStoredCredential(provider)) {
     return "Clear stored record"
@@ -638,59 +653,59 @@ function isPrimary(provider) {
     <Card>
       <CardHeader class="flex flex-row items-center justify-between space-y-0">
         <CardTitle class="flex items-center gap-2 text-sm">
-          <Cpu class="h-4 w-4 text-muted-foreground" />
-          Local CLI
-        </CardTitle>
-        <Badge variant="secondary" class="tabular-nums">
-          {{ state.loading ? "..." : "Ready" }}
-        </Badge>
-      </CardHeader>
-      <CardContent>
-        <p class="mb-4 text-xs text-muted-foreground">Detected CLI binaries and config path.</p>
-        <div class="space-y-2">
-          <div
-            class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-          >
-            <span>Claude Code CLI</span>
-            <Badge :variant="state.data.available_providers['claude-cli'] ? 'success' : 'secondary'">
-              {{ state.data.available_providers["claude-cli"] ? "Available" : "Missing" }}
-            </Badge>
-          </div>
-          <div
-            class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-          >
-            <span>Codex CLI</span>
-            <Badge :variant="state.data.available_providers['codex-cli'] ? 'success' : 'secondary'">
-              {{ state.data.available_providers["codex-cli"] ? "Available" : "Missing" }}
-            </Badge>
-          </div>
-          <div
-            class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-          >
-            <span>Config</span>
-            <code class="break-all rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              {{ state.data.config_path }}
-            </code>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader class="flex flex-row items-center justify-between space-y-0">
-        <CardTitle class="flex items-center gap-2 text-sm">
           <Database class="h-4 w-4 text-muted-foreground" />
-          Search Cache
+          LinkedIn Search Index
         </CardTitle>
         <Badge variant="secondary" class="tabular-nums">
           {{ state.saving ? "Saving..." : "Live" }}
         </Badge>
       </CardHeader>
       <CardContent class="space-y-4">
-        <p class="text-xs text-muted-foreground">Reuse recent LinkedIn search results to avoid repeat pulls.</p>
+        <p class="text-xs text-muted-foreground">
+          Controls whether normal Jobs searches reuse fresh Phase 13 indexed LinkedIn results. Fetch Fresh on the Jobs
+          page always bypasses this policy and updates the index.
+        </p>
+
+        <div class="grid gap-2 sm:grid-cols-4">
+          <div class="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div class="text-[11px] uppercase tracking-wide text-muted-foreground">Searches</div>
+            <div class="text-lg font-semibold tabular-nums">
+              {{ state.data.job_index?.known ? state.data.job_index.search_queries : "-" }}
+            </div>
+          </div>
+          <div class="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div class="text-[11px] uppercase tracking-wide text-muted-foreground">Postings</div>
+            <div class="text-lg font-semibold tabular-nums">
+              {{ state.data.job_index?.known ? state.data.job_index.job_postings : "-" }}
+            </div>
+          </div>
+          <div class="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div class="text-[11px] uppercase tracking-wide text-muted-foreground">Snapshots</div>
+            <div class="text-lg font-semibold tabular-nums">
+              {{ state.data.job_index?.known ? state.data.job_index.job_snapshots : "-" }}
+            </div>
+          </div>
+          <div class="rounded-md border border-border bg-muted/30 px-3 py-2">
+            <div class="text-[11px] uppercase tracking-wide text-muted-foreground">Latest refresh</div>
+            <div class="text-xs font-medium">
+              {{ formatJobIndexDate(state.data.job_index?.latest_success_at) }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="state.data.job_index?.known" class="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span class="chip subtle">Fresh {{ jobIndexStateCount("active") }}</span>
+          <span class="chip subtle">Stale {{ jobIndexStateCount("stale") }}</span>
+          <span class="chip subtle">Unknown {{ jobIndexStateCount("unknown") }}</span>
+          <span class="chip subtle">Expired {{ jobIndexStateCount("expired") }}</span>
+        </div>
+        <Alert v-else variant="warning">
+          <AlertCircle class="h-4 w-4" />
+          <AlertDescription>{{ state.data.job_index?.warning || "Job Index status is unavailable." }}</AlertDescription>
+        </Alert>
 
         <label class="grid max-w-xs gap-1.5">
-          <span class="text-xs font-medium text-muted-foreground">TTL hours</span>
+          <span class="text-xs font-medium text-muted-foreground">Freshness TTL hours</span>
           <Input v-model="state.form.cache_ttl_hours" type="number" min="1" step="1" />
         </label>
 
@@ -700,7 +715,7 @@ function isPrimary(provider) {
             type="checkbox"
             class="h-4 w-4 rounded border-input accent-primary"
           />
-          <span>Enable cache</span>
+          <span>Use indexed results by default</span>
         </label>
 
         <div>
@@ -713,19 +728,17 @@ function isPrimary(provider) {
             @click="clearSearchCache"
           >
             <Trash2 class="h-4 w-4" />
-            {{ state.cache.clearing ? "Clearing..." : "Clear search cache" }}
+            {{ state.cache.clearing ? "Clearing..." : "Clear indexed searches" }}
           </Button>
         </div>
 
-        <!-- Phase 12.6: pointer to the LLM/embedding cache inspector.
-             Search cache is the older, simpler file-backed cache; the
-             new Redis-backed L1+L2 cache lives at /settings/cache. -->
+        <!-- Phase 12.6: pointer to the runtime cache inspector. -->
         <div class="pt-2 border-t">
           <router-link
             to="/settings/cache"
             class="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
           >
-            LLM + embedding cache inspector
+            Open Runtime Cache inspector (LLM / embedding / response)
             <span aria-hidden="true">→</span>
           </router-link>
         </div>

@@ -40,6 +40,7 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 from src.cli.cmd_apply import apply_cmd  # noqa: E402
 from src.cli.cmd_eval import eval_cmd  # noqa: E402
 from src.cli.cmd_init import init_cmd  # noqa: E402
+from src.cli.cmd_jobs import jobs_cmd  # noqa: E402
 from src.cli.cmd_migrate import migrate_cmd  # noqa: E402
 from src.cli.cmd_provider import provider_cmd  # noqa: E402
 from src.cli.cmd_redis import redis_cmd  # noqa: E402
@@ -56,6 +57,7 @@ cli.add_command(eval_cmd, "eval")
 cli.add_command(provider_cmd, "provider")
 cli.add_command(migrate_cmd, "migrate")
 cli.add_command(redis_cmd, "redis")
+cli.add_command(jobs_cmd, "jobs")
 
 
 def main() -> None:

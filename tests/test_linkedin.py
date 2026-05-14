@@ -177,94 +177,11 @@ class TestLinkedInURLUtils:
         )
 
 
-class TestLinkedInSearchCache:
-    def test_cache_hits_when_requested_pages_are_within_cached_range(self, tmp_path):
-        from src.intake.schema import RawJob
-        from src.intake.search_cache import (
-            build_linkedin_search_cache_key,
-            load_cached_linkedin_search,
-            save_cached_linkedin_search,
-        )
-
-        job = RawJob(
-            source="linkedin",
-            source_id="1",
-            company="Example",
-            title="Software Engineer",
-            location="California",
-            ats_type="linkedin",
-        )
-        key = build_linkedin_search_cache_key(
-            keywords=["software"],
-            location="california",
-            time_filter="month",
-            experience_levels=None,
-            job_types=None,
-            enrich_details=False,
-            max_detail_fetches=8,
-            allow_public_fallback=False,
-        )
-
-        with patch("src.intake.search_cache.CACHE_DIR", tmp_path):
-            save_cached_linkedin_search(key, [job], max_pages=20)
-
-            cached = load_cached_linkedin_search(key, ttl_hours=24, requested_max_pages=10)
-            missed = load_cached_linkedin_search(key, ttl_hours=24, requested_max_pages=25)
-
-        assert cached is not None
-        assert len(cached) == 1
-        assert cached[0].title == "Software Engineer"
-        assert missed is None
-
-    def test_empty_results_are_not_cached(self, tmp_path):
-        from src.intake.search_cache import (
-            build_linkedin_search_cache_key,
-            load_cached_linkedin_search,
-            save_cached_linkedin_search,
-        )
-
-        key = build_linkedin_search_cache_key(
-            keywords=["software"],
-            location="toronto",
-            time_filter="month",
-            experience_levels=None,
-            job_types=["internship"],
-            enrich_details=True,
-            max_detail_fetches=8,
-            allow_public_fallback=False,
-        )
-
-        with patch("src.intake.search_cache.CACHE_DIR", tmp_path):
-            save_cached_linkedin_search(key, [], max_pages=20)
-            cached = load_cached_linkedin_search(key, ttl_hours=24, requested_max_pages=10)
-
-        assert cached is None
-
-    def test_cache_key_normalizes_order_insensitive_filters(self):
-        from src.intake.search_cache import build_linkedin_search_cache_key
-
-        first = build_linkedin_search_cache_key(
-            keywords=["python", "django"],
-            location="toronto",
-            time_filter="month",
-            experience_levels=["entry", "internship"],
-            job_types=["fulltime", "internship"],
-            enrich_details=True,
-            max_detail_fetches=8,
-            allow_public_fallback=False,
-        )
-        second = build_linkedin_search_cache_key(
-            keywords=["django", "python"],
-            location="toronto",
-            time_filter="month",
-            experience_levels=["internship", "entry"],
-            job_types=["internship", "fulltime"],
-            enrich_details=True,
-            max_detail_fetches=8,
-            allow_public_fallback=False,
-        )
-
-        assert first == second
+# Phase 13.8: TestLinkedInSearchCache removed -- the file-backed
+# src.intake.search_cache module has been retired. Equivalent coverage
+# lives in tests/test_jobs_normalize.py (search-key normalization,
+# order-insensitive filters) and tests/test_jobs_search.py (cache hits,
+# empty results not cached at the query level).
 
 
 # ──────────────────────────────────────────────
@@ -621,16 +538,12 @@ class TestLinkedInKeywordPrecision:
                     enriched.append(enriched_candidates.get(job.source_id, job))
                 return enriched
 
-        with patch(
-            "src.intake.search._search_cache_settings",
-            return_value={"enabled": False, "ttl_hours": 24},
-        ):
-            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
-                jobs = await search_linkedin(
-                    keywords="software",
-                    location="Toronto",
-                    enrich_details=True,
-                )
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="software",
+                location="Toronto",
+                enrich_details=True,
+            )
 
         assert [job.source_id for job in jobs] == ["1", "2"]
         assert enrich_calls == [["2", "3"], ["1"]]
@@ -692,17 +605,13 @@ class TestLinkedInKeywordPrecision:
                 enriched.extend(jobs[max_detail_fetches:])
                 return enriched
 
-        with patch(
-            "src.intake.search._search_cache_settings",
-            return_value={"enabled": False, "ttl_hours": 24},
-        ):
-            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
-                jobs = await search_linkedin(
-                    keywords="software",
-                    location="Toronto",
-                    enrich_details=True,
-                    max_detail_fetches=2,
-                )
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="software",
+                location="Toronto",
+                enrich_details=True,
+                max_detail_fetches=2,
+            )
 
         assert enrichment_limits == [2]
         assert [job.source_id for job in jobs] == ["1", "2"]
@@ -755,16 +664,12 @@ class TestLinkedInKeywordPrecision:
                         enriched.append(job)
                 return enriched
 
-        with patch(
-            "src.intake.search._search_cache_settings",
-            return_value={"enabled": False, "ttl_hours": 24},
-        ):
-            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
-                jobs = await search_linkedin(
-                    keywords="software",
-                    location="Toronto",
-                    enrich_details=True,
-                )
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="software",
+                location="Toronto",
+                enrich_details=True,
+            )
 
         assert [job.source_id for job in jobs] == ["2"]
 
@@ -833,17 +738,13 @@ class TestLinkedInKeywordPrecision:
                 )
                 return jobs
 
-        with patch(
-            "src.intake.search._search_cache_settings",
-            return_value={"enabled": False, "ttl_hours": 24},
-        ):
-            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
-                jobs = await search_linkedin(
-                    keywords="software",
-                    location="Toronto",
-                    enrich_details=True,
-                    max_detail_fetches=2,
-                )
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="software",
+                location="Toronto",
+                enrich_details=True,
+                max_detail_fetches=2,
+            )
 
         assert [job.source_id for job in jobs] == ["1", "2", "3"]
         assert final_enrichment_batches == [["1", "2"]]
@@ -885,16 +786,12 @@ class TestLinkedInKeywordPrecision:
             async def search_jobs(self, **kwargs):
                 return [job.model_copy(deep=True) for job in initial_jobs]
 
-        with patch(
-            "src.intake.search._search_cache_settings",
-            return_value={"enabled": False, "ttl_hours": 24},
-        ):
-            with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
-                jobs = await search_linkedin(
-                    keywords="",
-                    location="Toronto",
-                    enrich_details=False,
-                )
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="",
+                location="Toronto",
+                enrich_details=False,
+            )
 
         assert [job.source_id for job in jobs] == ["1"]
 

@@ -21,18 +21,20 @@ import logging
 import re
 from pathlib import Path
 
-from src.core.config import load_config
 from src.intake.base import ScraperError
 from src.intake.batch import enrich_requirements, load_company_list
 from src.intake.filters import load_filter_profiles
 from src.intake.greenhouse import GreenhouseScraper
 from src.intake.lever import LeverScraper
 from src.intake.schema import RawJob
-from src.intake.search_cache import (
-    build_linkedin_search_cache_key,
-    load_cached_linkedin_search,
-    save_cached_linkedin_search,
-)
+
+# Phase 13.8: the file-backed `src.intake.search_cache` module has been
+# retired. Per-search caching is now the Job Index (Phase 13.4
+# `src.jobs.search.cached_search`); end-to-end wiring of LinkedIn search
+# into the Job Index lands with the daily run loop in Phase 17. Until
+# then this function scrapes on every call (the previous file cache
+# remained on disk only for the legacy import path -- see
+# `src.jobs.legacy.import_legacy_file_cache`).
 
 logger = logging.getLogger("autoapply.intake.search")
 
@@ -167,28 +169,11 @@ async def search_linkedin(
 
     keyword_terms = _keyword_terms(keywords)
     linkedin_query = _linkedin_keyword_query(keyword_terms)
-    cache_settings = _search_cache_settings()
-    cache_key = build_linkedin_search_cache_key(
-        keywords=keyword_terms,
-        location=location,
-        time_filter=time_filter,
-        experience_levels=experience_levels,
-        job_types=job_types,
-        enrich_details=enrich_details,
-        max_detail_fetches=max_detail_fetches,
-        allow_public_fallback=allow_public_fallback,
-    )
 
+    # Phase 13.8: removed file-cache short-circuit. Every call now hits
+    # LinkedIn; the Job Index will absorb the cache responsibility once
+    # this function is wired into ``cached_search`` in Phase 17.
     jobs = None
-    if cache_settings["enabled"]:
-        jobs = load_cached_linkedin_search(
-            cache_key,
-            ttl_hours=cache_settings["ttl_hours"],
-            requested_max_pages=max_pages,
-        )
-        if jobs is not None:
-            logger.info("LinkedIn search cache hit: %d jobs", len(jobs))
-
     if jobs is None:
         async with LinkedInScraper(headless=headless) as scraper:
             jobs = await scraper.search_jobs(
@@ -272,8 +257,8 @@ async def search_linkedin(
 
             jobs = _dedupe_linkedin_results(jobs)
 
-        if cache_settings["enabled"]:
-            save_cached_linkedin_search(cache_key, jobs, max_pages=max_pages)
+        # Phase 13.8: file-cache save removed. The Job Index path takes
+        # over when `cached_search` wraps this function (Phase 17).
 
     # Apply filter if requested
     if filter_profile:
@@ -387,15 +372,6 @@ def _dedupe_linkedin_results(jobs: list[RawJob]) -> list[RawJob]:
     if len(deduped) != len(jobs):
         logger.info("LinkedIn duplicate collapse: %d/%d jobs kept", len(deduped), len(jobs))
     return deduped
-
-
-def _search_cache_settings() -> dict:
-    config = load_config()
-    cache_cfg = config.get("search_cache", {})
-    return {
-        "enabled": bool(cache_cfg.get("enabled", True)),
-        "ttl_hours": int(cache_cfg.get("ttl_hours", 24)),
-    }
 
 
 def search_linkedin_sync(

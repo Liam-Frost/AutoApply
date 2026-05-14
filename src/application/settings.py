@@ -9,7 +9,6 @@ from src.core.config import (
     save_config,
     update_llm_settings,
 )
-from src.intake.search_cache import clear_linkedin_search_cache
 from src.providers import get_registry
 from src.utils.llm import detect_available_providers, get_llm_settings
 
@@ -19,6 +18,7 @@ def load_llm_settings_data() -> dict:
     return {
         "llm": get_llm_settings(config),
         "search_cache": _search_cache_settings(config),
+        "job_index": _job_index_summary(),
         "available_providers": detect_available_providers(),
         # Phase 10 providers (API key / OAuth) the user has connected
         # via ``autoapply provider`` -- the Web UI uses this to render
@@ -78,9 +78,20 @@ def update_llm_settings_data(
 
 
 def clear_search_cache_data() -> dict:
+    """Phase 13.8: clears the Job Index search rows instead of the
+    legacy file cache. The file cache (`src.intake.search_cache`) was
+    removed when Phase 13 landed -- the Job Index is now the source of
+    truth for "have we run this search before?"."""
     try:
-        cleared = clear_linkedin_search_cache()
-    except Exception as exc:
+        from src.core.database import get_session_factory  # noqa: PLC0415
+        from src.jobs.legacy import clear_indexed_searches  # noqa: PLC0415
+        from src.jobs.store import JobIndexStore  # noqa: PLC0415
+
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session, session.begin():
+            store = JobIndexStore(session)
+            cleared = clear_indexed_searches(store=store)
+    except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "error": f"Failed to clear search cache: {exc}",
@@ -89,7 +100,7 @@ def clear_search_cache_data() -> dict:
 
     return {
         "ok": True,
-        "message": f"Cleared {cleared['cleared']} cached LinkedIn search entries.",
+        "message": f"Cleared {cleared} indexed LinkedIn search entries.",
         **load_llm_settings_data(),
     }
 
@@ -100,6 +111,42 @@ def _search_cache_settings(config: dict) -> dict:
         "enabled": bool(cache_cfg.get("enabled", True)),
         "ttl_hours": int(cache_cfg.get("ttl_hours", 24)),
     }
+
+
+def _job_index_summary() -> dict:
+    try:
+        from sqlalchemy import func, select  # noqa: PLC0415
+        from sqlalchemy.exc import ProgrammingError  # noqa: PLC0415
+
+        from src.core.database import get_session_factory  # noqa: PLC0415
+        from src.core.models import JobPosting, JobSnapshot, SearchQuery  # noqa: PLC0415
+
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session:
+            states = dict(
+                session.execute(
+                    select(JobPosting.state, func.count()).group_by(JobPosting.state)
+                ).all()
+            )
+            search_query_count = session.scalar(select(func.count()).select_from(SearchQuery)) or 0
+            return {
+                "known": True,
+                "search_queries": search_query_count,
+                "job_postings": session.scalar(select(func.count()).select_from(JobPosting)) or 0,
+                "job_snapshots": session.scalar(select(func.count()).select_from(JobSnapshot)) or 0,
+                "latest_success_at": _isoformat_or_none(
+                    session.scalar(select(func.max(SearchQuery.last_success_at)))
+                ),
+                "states": states,
+            }
+    except ProgrammingError:
+        return {"known": False, "warning": "job index tables not present; run alembic upgrade head"}
+    except Exception as exc:  # noqa: BLE001
+        return {"known": False, "warning": str(exc)}
+
+
+def _isoformat_or_none(value) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
 def _update_search_cache_settings(*, enabled: bool, ttl_hours: int) -> None:

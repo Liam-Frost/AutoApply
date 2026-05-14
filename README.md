@@ -105,8 +105,9 @@ src/
 - **Phase 10** (LLM Provider Abstraction: REST adapters for OpenAI / Anthropic / Gemini + subprocess providers for Claude CLI / Codex CLI; credential store; `autoapply provider` CLI; `/settings` provider management UI) — Complete
 - **Phase 11** (Reliability & Cleanup: ordered provider fallback chain with `ProviderErrorKind` classification, `autoapply migrate` upgrade CLI, background `/api/providers/health` monitor with live "Last verified" telemetry, writer-side list+scalar sync for `fallback_providers`) — Complete
 - **Phase 12** (Cache Infrastructure: `src/cache/` module with L1 LRU + L2 Redis, namespace TTL policy, version-stamped keys, distributed lock primitive, opt-in caching for `generate_text` / `embed_text`, cache inspector UI at `/settings/cache`, agent cost dashboard split into fresh vs cached + $-saved line, `autoapply redis ping/info/flush` CLI, docker-compose with AOF persistence) — Complete
+- **Phase 13** (Job Index & Freshness Engine: `job_postings` / `job_snapshots` / `search_queries` / `search_results` / `refresh_tasks` tables with content-hashed immutable snapshots, `applications.job_snapshot_id` audit binding, search-key + content-hash normalization that strips LinkedIn tracking params, `new → active → stale → unknown → expired → archived` state machine, cache-first `cached_search()` with Phase 12 distributed lock + post-refresh pruning, snapshot-versioned enrichment with `job.content_changed` listener hook, context-aware `should_refresh(posting, context)` predicate, Web UI freshness banner on `/jobs` with [Refresh] button, `autoapply jobs import-legacy-cache` to roll the old file cache into the Job Index, and removal of `src/intake/search_cache.py`) — Complete
 
-**927 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
+**1004 tests passing**, 1 skipped. `ruff` clean. Frontend builds clean. See [CHANGELOG](docs/CHANGELOG.md) and [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) for details.
 
 ### Roadmap (Phase 11 → 18)
 
@@ -116,7 +117,7 @@ Re-planned 2026-05-12 (v2). Redis is adopted from Phase 12 as cache / lock / que
 |---|---|---|
 | 11 | Reliability & Cleanup — provider fallback chain, `autoapply migrate`, provider health monitor, docs sync — **Complete** | ~1 week |
 | 12 | Cache Infrastructure (Redis) — `src/cache/` L1 LRU + L2 Redis, distributed lock primitive, LLM + embedding response caching, inspector UI, cost-saved dashboard — **Complete** | ~1.5 weeks |
-| 13 | Job Index & Freshness Engine — `job_postings` / `job_snapshots` / `search_queries` / `search_results` / `refresh_tasks` tables, content-hash versioning, freshness state machine, cache-first search + force-refresh UX, audit binding via `job_snapshot_id` | ~2 weeks |
+| 13 | Job Index & Freshness Engine — `job_postings` / `job_snapshots` / `search_queries` / `search_results` / `refresh_tasks` tables, content-hash versioning, freshness state machine, cache-first search + force-refresh UX, audit binding via `job_snapshot_id` — **Complete** | ~2 weeks |
 | 14 | Scheduled Task System — APScheduler + Postgres jobstore, RefreshTask worker, built-in jobs (`daily_search`, `jd_health_check`, `status_sync`, `cookie_refresh`, `cache_eviction`), multi-instance safe | ~1.5 weeks |
 | 15 | Cover-letter Agent — `jd_lookup` tool, `AgentCoverLetter` orchestrator, snapshot-bound generation, fact-drift guard, 5-fixture eval suite (was originally Phase 10) | ~2 weeks |
 | 16 | Filter Agent + Explainability — reason chain in `src/matching/`, edge-case agent for borderline scores, "Why was this filtered?" UI | ~1.5 weeks |

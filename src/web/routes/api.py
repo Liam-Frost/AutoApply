@@ -106,6 +106,7 @@ class JobSearchPayload(BaseModel):
     experience_years: int | None = None
     education_levels: list[str] = Field(default_factory=list)
     max_pages: int = 20
+    force_refresh: bool = False
 
 
 class JobApplyPayload(BaseModel):
@@ -213,6 +214,8 @@ async def search_jobs(payload: JobSearchPayload) -> dict:
         experience_years=payload.experience_years,
         education_levels=payload.education_levels,
         max_pages=payload.max_pages,
+        force_refresh=payload.force_refresh,
+        use_job_index=True,
         headless=True,
         score=True,
         allow_public_linkedin_fallback=False,
@@ -697,6 +700,105 @@ class ClearCachePayload(BaseModel):
     posture on the CLI side."""
 
     confirm: bool = Field(False, description="Operator confirmed the destructive op.")
+
+
+# --- Phase 13.7: Job Index freshness surface ---------------------------
+
+class JobIndexFreshnessPayload(BaseModel):
+    """Search-key inputs the Jobs page already has client-side. Mirrors
+    JobSearchPayload's freshness-relevant fields. The route normalizes +
+    fingerprints these to look up the SearchQuery row."""
+
+    source: str = "linkedin"
+    keywords: list[str] = Field(default_factory=list)
+    profile: str = ""
+    locations: list[str] = Field(default_factory=list)
+    time_filter: str = "week"
+    experience_levels: list[str] = Field(default_factory=list)
+    employment_types: list[str] = Field(default_factory=list)
+    location_types: list[str] = Field(default_factory=list)
+    education_levels: list[str] = Field(default_factory=list)
+    pay_operator: str = ""
+    experience_operator: str = ""
+    max_pages: int | None = None
+
+
+def _freshness_params(payload: JobIndexFreshnessPayload) -> dict:
+    from src.application.jobs import (  # noqa: PLC0415
+        _linkedin_job_index_params,
+        _linkedin_max_pages,
+        _map_linkedin_experience_levels,
+        _map_linkedin_job_types,
+        _normalize_time_filter,
+    )
+
+    location = (payload.locations or [""])[0]
+    max_pages = _linkedin_max_pages(
+        payload.max_pages or 20,
+        search_location=location,
+        experience_levels=payload.experience_levels,
+        employment_types=payload.employment_types,
+        location_types=payload.location_types,
+        locations=payload.locations,
+        pay_operator=payload.pay_operator or None,
+        experience_operator=payload.experience_operator or None,
+        education_levels=payload.education_levels,
+    )
+    return _linkedin_job_index_params(
+        {
+            "keywords": payload.keywords,
+            "location": location,
+            "time_filter": _normalize_time_filter(payload.time_filter),
+            "experience_levels": _map_linkedin_experience_levels(payload.experience_levels),
+            "job_types": _map_linkedin_job_types(payload.employment_types),
+            "max_pages": max_pages,
+            "enrich_details": True,
+            "filter_profile": payload.profile or None,
+            "allow_public_fallback": False,
+        }
+    )
+
+
+@router.post("/jobs/index/freshness")
+async def job_index_freshness(payload: JobIndexFreshnessPayload) -> dict:
+    """Return Job Index freshness metadata for a search condition.
+
+    The Jobs page renders "Last updated Xh ago" from this and decides
+    whether to highlight the [Refresh] button. Returns ``known=False``
+    when the search has never been indexed so the existing flow keeps
+    working without the index populated.
+    """
+    from src.application.job_index import get_search_freshness  # noqa: PLC0415
+
+    return get_search_freshness(source=payload.source, params=_freshness_params(payload))
+
+
+@router.post("/jobs/index/refresh")
+async def job_index_refresh(payload: JobIndexFreshnessPayload) -> dict:
+    """Enqueue a high-priority refresh task for a search condition.
+
+    The Phase 14 scheduler will pick this up. For now the response is
+    used by the Jobs page to flip the [Refresh] button into a spinner
+    state pending the actual re-scrape."""
+    from src.application.job_index import enqueue_search_refresh  # noqa: PLC0415
+
+    result = enqueue_search_refresh(source=payload.source, params=_freshness_params(payload))
+    if not result.get("ok"):
+        raise HTTPException(status_code=503, detail=result)
+    return result
+
+
+@router.get("/jobs/index/posting/{posting_id}")
+async def job_index_posting_freshness(
+    posting_id: str,
+    context: str = Query("search_display"),
+) -> dict:
+    """Per-posting freshness verdict (Phase 13.6 should_refresh)."""
+    from src.application.job_index import posting_freshness  # noqa: PLC0415
+
+    if context not in ("search_display", "generate_materials", "before_submit"):
+        raise HTTPException(status_code=400, detail={"error": "invalid_context"})
+    return posting_freshness(posting_id=posting_id, context=context)
 
 
 @router.delete("/cache/{namespace}")

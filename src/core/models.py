@@ -9,7 +9,17 @@ import uuid
 from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,6 +66,12 @@ class Application(Base):
         nullable=False,
         index=True,
     )
+    job_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_snapshots.id", name="fk_applications_job_snapshot"),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="DISCOVERED")
     match_score: Mapped[float | None] = mapped_column(Float)
     resume_version: Mapped[str | None] = mapped_column(Text)
@@ -97,6 +113,140 @@ class BulletPool(Base):
     text_embedding = mapped_column(Vector(1536), nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     used_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+TENANT_DEFAULT = "default"
+
+
+class JobPosting(Base):
+    """Stable job entity per (tenant, source, source_id). Phase 13."""
+
+    __tablename__ = "job_postings"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source", "source_id", name="uq_job_postings_tenant_source"),
+        Index("ix_job_postings_tenant_state", "tenant_id", "state"),
+        Index("ix_job_postings_company", "tenant_id", "company"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    company: Mapped[str] = mapped_column(String(200), nullable=False)
+    canonical_url: Mapped[str | None] = mapped_column(Text)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
+    latest_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class JobSnapshot(Base):
+    """Immutable content-versioned snapshot of a JobPosting. Phase 13."""
+
+    __tablename__ = "job_snapshots"
+    __table_args__ = (
+        UniqueConstraint("posting_id", "content_hash", name="uq_job_snapshots_posting_hash"),
+        Index("ix_job_snapshots_posting_scraped", "posting_id", "scraped_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    posting_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_postings.id", name="fk_job_snapshots_posting"),
+        nullable=False,
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(200))
+    employment_type: Mapped[str | None] = mapped_column(String(50))
+    seniority: Mapped[str | None] = mapped_column(String(50))
+    description: Mapped[str | None] = mapped_column(Text)
+    requirements: Mapped[dict | None] = mapped_column(JSONB)
+    application_url: Mapped[str | None] = mapped_column(Text)
+    raw_data: Mapped[dict | None] = mapped_column(JSONB)
+    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SearchQuery(Base):
+    """Normalized search condition. Phase 13."""
+
+    __tablename__ = "search_queries"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "source", "normalized_key", name="uq_search_queries_tenant_key"
+        ),
+        Index("ix_search_queries_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="fresh")
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    result_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_pages: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SearchResult(Base):
+    """Many-to-many link between SearchQuery and JobPosting. Phase 13."""
+
+    __tablename__ = "search_results"
+    __table_args__ = (
+        UniqueConstraint("query_id", "posting_id", name="uq_search_results_query_posting"),
+        Index("ix_search_results_query", "query_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    query_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("search_queries.id", name="fk_search_results_query", ondelete="CASCADE"),
+        nullable=False,
+    )
+    posting_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_postings.id", name="fk_search_results_posting", ondelete="CASCADE"),
+        nullable=False,
+    )
+    rank: Mapped[int | None] = mapped_column(Integer)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class RefreshTask(Base):
+    """Priority queue row for Phase 14 RefreshTask worker. Phase 13."""
+
+    __tablename__ = "refresh_tasks"
+    __table_args__ = (
+        Index(
+            "ix_refresh_tasks_pending",
+            "tenant_id",
+            "status",
+            "priority",
+            "scheduled_for",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    priority: Mapped[str] = mapped_column(String(10), nullable=False, default="normal")
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class QABank(Base):
