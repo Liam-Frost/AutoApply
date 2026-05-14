@@ -135,3 +135,49 @@ def get_db_url(config: dict[str, Any]) -> str:
     password = db.get("password", "")
     auth = f"{user}:{quote_plus(str(password))}" if password else user
     return f"postgresql+psycopg://{auth}@{db['host']}:{db['port']}/{db['name']}"
+
+
+def get_cache_settings(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return the normalised Phase 12 cache configuration.
+
+    Resolution order matches :mod:`src.cache.connection`:
+      1. ``REDIS_URL`` env var
+      2. ``cache.redis_url`` in ``settings.yaml``
+      3. ``redis://localhost:6379/0`` default
+
+    The ``l1_max_entries`` setting clamps the in-process LRU. Returning
+    a normalised dict here keeps the cache layer from each having its
+    own copy of the resolution rules.
+    """
+    import os
+
+    if config is None:
+        config = load_config()
+    raw = config.get("cache", {}) if isinstance(config, dict) else {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    env_url = os.environ.get("REDIS_URL")
+    yaml_url = raw.get("redis_url")
+    # Normalise to a string at the settings boundary so a YAML typo
+    # like ``redis_url: 123`` can't reach ``Redis.from_url()`` and
+    # raise a ``TypeError`` past the connection layer's defences.
+    if env_url and isinstance(env_url, str) and env_url.strip():
+        redis_url = env_url.strip()
+    elif isinstance(yaml_url, str) and yaml_url.strip():
+        redis_url = yaml_url.strip()
+    else:
+        redis_url = "redis://localhost:6379/0"
+
+    l1_raw = raw.get("l1_max_entries", 1024)
+    try:
+        l1_max_entries = int(l1_raw)
+    except (TypeError, ValueError):
+        l1_max_entries = 1024
+    if l1_max_entries <= 0:
+        l1_max_entries = 1024
+
+    return {
+        "redis_url": redis_url,
+        "l1_max_entries": l1_max_entries,
+    }
