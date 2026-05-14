@@ -30,6 +30,7 @@ Phase 11.1 extends the dispatch with:
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import logging
 import shutil
@@ -145,6 +146,92 @@ def get_llm_settings(config: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
+def _resolve_provider_fingerprint_inputs(
+    provider_id: str,
+) -> tuple[str | None, str | None]:
+    """Return ``(model, base_url)`` for the registered provider.
+
+    Both are semantic inputs to the LLM call: changing the model on
+    an API-key provider produces a different response; pointing the
+    same provider id at a different ``base_url`` (a compatible API
+    endpoint, an OpenAI-shaped proxy, etc.) also does. The cache
+    fingerprint must include both so a config change invalidates
+    cached entries cleanly.
+
+    Both return ``None`` for subprocess providers (where AutoApply
+    has no knob), as well as on any registry-side hiccup.
+    """
+    try:
+        from src.providers import get_registry  # noqa: PLC0415
+
+        instance = get_registry().maybe_get(provider_id)
+        if instance is None:
+            return None, None
+        getter = getattr(instance, "get_model", None)
+        if getter is not None:
+            model = getter() or None
+        else:
+            model = getattr(instance, "default_model", None) or None
+        base_url_getter = getattr(instance, "_base_url", None)
+        if callable(base_url_getter):
+            try:
+                base_url = base_url_getter() or None
+            except Exception:  # noqa: BLE001 -- never let provider quirks break LLM
+                base_url = None
+        else:
+            base_url = None
+        return model, base_url
+    except Exception:  # noqa: BLE001 -- registry hiccup must not break LLM call
+        return None, None
+
+
+def _cache_fingerprint(
+    *,
+    primary_provider: str,
+    system: str,
+    prompt: str,
+    output_format: str,
+    model: str | None,
+    base_url: str | None,
+) -> str:
+    """SHA256 fingerprint over the LLM inputs that determine the output.
+
+    The fingerprint deliberately excludes:
+      * ``timeout`` (a circuit-breaker, not a semantic parameter)
+      * ``fallback_providers`` (we never cache fallback responses
+        under the primary's key; see ``generate_text``)
+      * provider-side stochasticity (model temperature isn't surfaced
+        to ``generate_text`` today; if/when it is, add it here AND bump
+        ``CACHE_VERSION`` so existing entries are invalidated)
+
+    The fingerprint INCLUDES:
+      * ``model`` -- changing the model on an API-key provider is
+        a semantic input change (codex review P2).
+      * ``base_url`` -- the same provider id can point at different
+        compatible endpoints / proxies, which produce different
+        responses (also codex review P2).
+
+    Both are ``None`` for subprocess providers where AutoApply has
+    no model/URL knob.
+
+    JSON encoding with ``sort_keys`` keeps the digest stable across
+    dict-iteration orderings.
+    """
+    payload = json.dumps(
+        {
+            "provider": primary_provider,
+            "model": model,
+            "base_url": base_url,
+            "system": system,
+            "prompt": prompt,
+            "output_format": output_format,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def generate_text(
     prompt: str,
     *,
@@ -152,6 +239,7 @@ def generate_text(
     timeout: int | None = None,
     output_format: str = "text",
     config: dict[str, Any] | None = None,
+    cache: bool = False,
 ) -> str:
     """Generate text using the configured provider chain.
 
@@ -167,6 +255,17 @@ def generate_text(
     * The full attempt list is written to :data:`last_attempt_chain` and
       attached to the raised :class:`LLMError` so the agent loop / trace
       viewer can show what was tried.
+
+    Phase 12.4: ``cache=True`` consults the L1+L2 cache before
+    dispatching. The cache key is a SHA256 fingerprint over the
+    primary provider id + system + prompt + output_format; see
+    :func:`_cache_fingerprint`. ``cache`` defaults to ``False`` so
+    the agent loop (which makes one-shot reasoning calls where stale
+    answers would be wrong) is opt-in to caching; deterministic
+    retrieval call sites should pass ``cache=True`` to benefit from
+    Phase 12.6/12.7's hit-rate + $-saved telemetry. Only successful
+    responses are cached -- transient failures do not poison the
+    cache.
     """
     settings = get_llm_settings(config)
     timeout = timeout or settings["timeout"]
@@ -178,6 +277,44 @@ def generate_text(
     last_attempt_chain.set(attempts)
     fatal_kind = None
 
+    cache_key: str | None = None
+    if cache:
+        model, base_url = _resolve_provider_fingerprint_inputs(
+            settings["primary_provider"]
+        )
+        cache_key = _cache_fingerprint(
+            primary_provider=settings["primary_provider"],
+            system=system,
+            prompt=prompt,
+            output_format=output_format,
+            model=model,
+            base_url=base_url,
+        )
+        try:
+            from src.cache import get_cache  # noqa: PLC0415
+
+            cached_value = get_cache().get("llm", cache_key)
+        except Exception as exc:  # noqa: BLE001 -- cache must never break LLM calls
+            logger.debug("Cache lookup skipped (%s).", exc)
+            cached_value = None
+        if cached_value is not None:
+            # Record a synthetic attempt so the trace viewer / cost
+            # dashboard can see the call was served from cache rather
+            # than hitting a provider. ``kind='cache_hit'`` is a
+            # convention shared with the upcoming Phase 12.7 dashboard.
+            attempts.append(
+                {
+                    "provider": settings["primary_provider"],
+                    "ok": True,
+                    "kind": "cache_hit",
+                    "error": None,
+                    "latency_ms": 0,
+                    "cached": True,
+                }
+            )
+            return cached_value
+
+    primary_id = settings["primary_provider"]
     for provider in providers:
         start = time.monotonic()
         attempt: dict[str, Any] = {
@@ -210,6 +347,20 @@ def generate_text(
             continue
         attempt["latency_ms"] = int((time.monotonic() - start) * 1000)
         attempt["ok"] = True
+        attempt["cached"] = False
+        # Phase 12.4: only cache successful responses, only when the
+        # caller opted in, AND only when the primary itself answered.
+        # Caching a fallback response under the primary's key would
+        # keep replaying the fallback's answer even after the primary
+        # recovered, because future identical calls would short-
+        # circuit on the cache before retrying the primary.
+        if cache and cache_key is not None and provider == primary_id:
+            try:
+                from src.cache import get_cache  # noqa: PLC0415
+
+                get_cache().set("llm", cache_key, result)
+            except Exception as exc:  # noqa: BLE001 -- cache failures must not break the call
+                logger.debug("Cache write skipped (%s).", exc)
         return result
 
     error_lines = [
@@ -235,14 +386,23 @@ def generate_json(
     system: str = "",
     timeout: int | None = None,
     config: dict[str, Any] | None = None,
+    cache: bool = False,
 ) -> Any:
-    """Generate JSON-like output using the configured provider order."""
+    """Generate JSON-like output using the configured provider order.
+
+    Phase 12.4: ``cache=True`` opts in to the L1+L2 cache (see
+    :func:`generate_text`). The cache stores the raw text response;
+    the JSON parse happens on every call so a corrupted cache entry
+    is still caught by the parser rather than masquerading as the
+    parsed value.
+    """
     raw = generate_text(
         prompt,
         system=system,
         timeout=timeout,
         output_format="json",
         config=config,
+        cache=cache,
     )
     return _parse_json_response(raw)
 

@@ -1,0 +1,60 @@
+# Phase 12 introduces Redis as the L2 cache / lock / queue substrate
+# (Phases 13, 14, 17, 18 all build on it). This compose file is the
+# operator-facing way to run AutoApply's runtime dependencies
+# locally; nothing in the Python codebase requires Docker to be
+# present -- the cache layer degrades to L1-only if `REDIS_URL` is
+# unreachable.
+#
+# Usage:
+#   docker compose up -d redis       # bring just Redis up
+#   docker compose ps                # confirm health
+#   docker compose down              # stop, preserve `redis-data` volume
+#   docker compose down -v           # stop and delete the volume (loses cache)
+#
+# AOF (append-only file) is enabled with `everysec` fsync so cache
+# state survives a restart with at most ~1s of write loss. That is
+# the correct trade-off for a cache (vs. RDB-only) -- a stale entry
+# costs one re-fetch, not a correctness failure.
+
+services:
+  redis:
+    # 7.2 is the current stable line as of Phase 12; bumping the
+    # major version invalidates no client API we depend on. Pin a
+    # concrete minor so CI matches local.
+    image: redis:7.2-alpine
+    container_name: autoapply-redis
+    restart: unless-stopped
+    ports:
+      # Host port 6379 -> container 6379. Matches the default
+      # `redis://localhost:6379/0` URL the Python layer falls back
+      # to, so `autoapply redis ping` works without extra wiring.
+      - "127.0.0.1:6379:6379"
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - allkeys-lru
+      # Cap memory so a runaway cache write loop can't OOM the box.
+      # 256 MB is generous for Phase 12's LLM + embedding entries
+      # (typical payload ~5--20 KB). Operators with larger working
+      # sets can override this via `REDIS_MAXMEMORY`.
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  redis-data:
+    # AOF lives here. Named volume (not bind mount) so the container
+    # owns the file permissions; operators who want a host-readable
+    # path can override the driver_opts.
+    driver: local

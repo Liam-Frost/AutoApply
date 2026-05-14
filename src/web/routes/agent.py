@@ -186,15 +186,32 @@ async function loadList() {
     const status = t.finished
       ? '<span class=\"pill ok\">finished</span>'
       : `<span class=\"pill err\">${escapeHtml(t.stop_reason || 'failed')}</span>`;
+    // Phase 12.7: show cached/fresh split + $-saved when present.
+    // ``fresh_step_count`` of 0 is legitimate (all-cached run), so
+    // use a present-but-not-undefined check rather than ``||`` which
+    // would treat 0 as "missing" and substitute the total.
+    const cachedCount = Number(t.cached_step_count || 0);
+    const freshCount = Number(
+      t.fresh_step_count !== undefined && t.fresh_step_count !== null
+        ? t.fresh_step_count
+        : t.step_count
+    );
+    const stepsLabel = cachedCount > 0
+      ? `${freshCount} fresh + ${cachedCount} cached`
+      : `${escapeHtml(t.step_count)} steps`;
     const cost = t.total_cost_usd > 0
       ? `<span>$${Number(t.total_cost_usd).toFixed(4)}</span>`
+      : '';
+    const saved = Number(t.total_cost_saved_usd || 0) > 0
+      ? `<span class=\"pill ok\" title=\"Estimated provider \\$ avoided via cache hits\">` +
+        `saved $${Number(t.total_cost_saved_usd).toFixed(4)}</span>`
       : '';
     li.innerHTML = `
       <div class=\"goal\">${escapeHtml(t.goal || '(no goal)')}</div>
       <div class=\"meta\">${status}
-        <span>${escapeHtml(t.step_count)} steps</span>
+        <span>${stepsLabel}</span>
         <span>${escapeHtml(fmtMs(t.elapsed_ms))}</span>
-        ${cost}</div>`;
+        ${cost}${saved}</div>`;
     li.addEventListener('click', () => loadDetail(t.id));
     $list.appendChild(li);
   }
@@ -220,6 +237,13 @@ async function loadDetail(id) {
       ? `<span class=\"pill\">${escapeHtml(t.total_prompt_tokens)}+`
         + `${escapeHtml(t.total_output_tokens)} tok, `
         + `$${Number(t.total_cost_usd).toFixed(4)}</span>`
+      : ''}
+    ${Number(t.cached_step_count || 0) > 0
+      ? `<span class=\"pill\" title=\"Phase 12.7 cache split\">` +
+        `${Number(t.fresh_step_count || 0)} fresh / ` +
+        `${Number(t.cached_step_count)} cached, ` +
+        `fresh $${Number(t.total_cost_usd_fresh || 0).toFixed(4)}, ` +
+        `saved $${Number(t.total_cost_saved_usd || 0).toFixed(4)}</span>`
       : ''}
     </p>
     ${t.answer ? `<p><b>Answer:</b> ${escapeHtml(t.answer)}</p>` : ''}

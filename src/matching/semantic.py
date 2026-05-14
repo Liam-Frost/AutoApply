@@ -1,16 +1,22 @@
 """Semantic matching — embedding-based similarity between JD and applicant profile.
 
 Computes cosine similarity between job description text and applicant's
-skills, experiences, and project descriptions. Uses Claude CLI for embedding
-generation with a keyword-overlap fallback when embeddings are unavailable.
+skills, experiences, and project descriptions. Falls back to keyword
+overlap when embeddings are unavailable.
 
 Scores:
   0.0 — no overlap
   1.0 — perfect semantic match
+
+Phase 12.5 adds :func:`embed_text` -- a cache-wrapped OpenAI embeddings
+client that populates the L1+L2 cache under the ``embedding`` namespace
+with a 30-day TTL. Returns ``None`` gracefully if the OpenAI provider
+isn't configured so callers can fall back to the keyword path.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
@@ -18,6 +24,189 @@ from collections import Counter
 from typing import Any
 
 logger = logging.getLogger("autoapply.matching.semantic")
+
+# Default embedding model. text-embedding-3-small is 1536-dim, matching
+# the pgvector columns on ``BulletPool.text_embedding``,
+# ``StoryBank.content_embedding``, and ``RawJob.description_embedding``
+# (see ``src/core/models.py``). Bumping the default would invalidate
+# existing pgvector data, so it's a deliberate choice -- treat it as
+# part of the cache key.
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+
+# Cap on the input length sent to the embeddings endpoint. OpenAI's
+# 8k token limit is well above this character cap; the cap here is
+# defensive against pathological inputs that would blow up the cache
+# key size and the API bill.
+_MAX_EMBED_INPUT_CHARS = 32_000
+
+
+def _resolve_openai_provider() -> tuple[str, str] | None:
+    """Return ``(api_key, base_url)`` for the registered OpenAI provider.
+
+    ``api_key`` is resolved via :meth:`ApiKeyProvider.get_api_key`,
+    which checks credentials first, then ``OPENAI_API_KEY``. Returns
+    ``None`` on any miss (no registry, provider not registered, no
+    credentials AND no env var, or a registry hiccup) so callers can
+    degrade silently.
+
+    Resolved up-front (before cache lookup) so the cache key can
+    include the base URL -- a compatible proxy using the same model
+    name but a different embedding space must not share a key with
+    the public endpoint.
+    """
+    try:
+        from src.providers import get_registry  # noqa: PLC0415
+        from src.providers.base import ProviderError  # noqa: PLC0415
+
+        registry = get_registry()
+        provider = registry.maybe_get("openai")
+        if provider is None:
+            return None
+        try:
+            api_key = provider.get_api_key()  # type: ignore[attr-defined]
+        except ProviderError:
+            return None
+        if not api_key:
+            return None
+        base_url = (
+            provider._base_url() if hasattr(provider, "_base_url") else None
+        ) or "https://api.openai.com/v1"
+        return api_key, base_url
+    except Exception as exc:  # noqa: BLE001 -- registry hiccup -> no embedding
+        logger.debug("Embedding provider lookup failed (%s).", exc)
+        return None
+
+
+def embed_text(
+    text: str,
+    *,
+    model: str = DEFAULT_EMBEDDING_MODEL,
+    cache: bool = True,
+    timeout: int = 30,
+) -> list[float] | None:
+    """Return the embedding vector for ``text`` from OpenAI, or ``None``.
+
+    Phase 12.5: cache-wrapped. Default ``cache=True`` because
+    embeddings are deterministic given ``(model, base_url, text)`` --
+    repeat calls should never round-trip to the API. The 30-day TTL
+    is set by :data:`src.cache.base.NAMESPACE_TTLS`.
+
+    Returns ``None`` (not raises) when:
+      * ``text`` is empty / whitespace-only after stripping
+      * the OpenAI provider isn't registered or configured
+        (neither credential nor ``OPENAI_API_KEY`` env var)
+      * the HTTP call fails (transport, auth, quota, parse, etc.)
+
+    Callers (``src/matching/`` etc.) read ``None`` as "no embedding
+    available; fall back to the keyword path" so a misconfigured
+    deployment degrades to lower-quality matching instead of
+    raising. Only successful results are cached -- a failure does
+    not poison the namespace.
+    """
+    if not text or not text.strip():
+        return None
+    # Truncate before fingerprinting so the cache key matches what
+    # we'd actually send to the API.
+    text = text[:_MAX_EMBED_INPUT_CHARS]
+
+    resolved = _resolve_openai_provider()
+    if resolved is None:
+        return None
+    api_key, base_url = resolved
+
+    cache_key: str | None = None
+    if cache:
+        # Cache key is ``(model, base_url, text)``: a different base
+        # URL can mean a different embedding space (e.g. a proxy that
+        # routes ``text-embedding-3-small`` to a different backend),
+        # so vectors from different endpoints must NOT collide. The
+        # cache CACHE_VERSION already gates serialisation-format
+        # changes; bumping it is the escape hatch for any wider
+        # invalidation.
+        digest = hashlib.sha256(
+            f"{model}\x00{base_url}\x00{text}".encode()
+        ).hexdigest()
+        cache_key = digest
+        try:
+            from src.cache import get_cache  # noqa: PLC0415
+
+            cached = get_cache().get("embedding", cache_key)
+        except Exception as exc:  # noqa: BLE001 -- cache must never break embed
+            logger.debug("Embedding cache lookup skipped (%s).", exc)
+            cached = None
+        if cached is not None:
+            return cached
+
+    vector = _call_openai_embeddings(
+        text, model=model, api_key=api_key, base_url=base_url, timeout=timeout
+    )
+    if vector is None:
+        return None
+
+    if cache and cache_key is not None:
+        try:
+            from src.cache import get_cache  # noqa: PLC0415
+
+            get_cache().set("embedding", cache_key, vector)
+        except Exception as exc:  # noqa: BLE001 -- cache failures never block
+            logger.debug("Embedding cache write skipped (%s).", exc)
+    return vector
+
+
+def _call_openai_embeddings(
+    text: str, *, model: str, api_key: str, base_url: str, timeout: int
+) -> list[float] | None:
+    """POST to ``{base_url}/embeddings`` and return the first vector.
+
+    We deliberately do NOT depend on the openai SDK; the REST shape
+    is stable and tiny, and a hard SDK dep would conflict with the
+    project's "subprocess CLI first, REST second" provider philosophy.
+    """
+    try:
+        import httpx  # noqa: PLC0415
+
+        response = httpx.post(
+            f"{base_url}/embeddings",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": model, "input": text},
+            timeout=timeout,
+        )
+        if response.status_code != 200:
+            logger.warning(
+                "Embedding API returned %s: %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return None
+        payload = response.json()
+    except Exception as exc:  # noqa: BLE001 -- HTTP/JSON failure -> no embedding
+        logger.warning("Embedding API call failed: %s", exc)
+        return None
+
+    # Defensive shape validation: the embeddings endpoint shape is
+    # documented, but a misbehaving proxy or a non-200 path that
+    # still set status_code=200 could return a top-level array, a
+    # bare string, or a ``data`` list of non-objects. Any of those
+    # would AttributeError on the ``.get`` chain and propagate out
+    # of this function, breaking the documented graceful-fallback
+    # contract. Type-check each layer before reading from it.
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data")
+    if not isinstance(data, list) or not data:
+        return None
+    first = data[0]
+    if not isinstance(first, dict):
+        return None
+    vector = first.get("embedding")
+    if not isinstance(vector, list) or not all(
+        isinstance(v, int | float) for v in vector
+    ):
+        return None
+    return [float(v) for v in vector]
 
 
 def compute_skill_overlap(

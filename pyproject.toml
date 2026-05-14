@@ -41,6 +41,10 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "python-multipart>=0.0.20",
+    # Cache (Phase 12). redis-py 5.x has the unified sync + asyncio
+    # client; we use the sync client here because the cache layer
+    # is consumed from sync call sites (`generate_text`, `embed_text`).
+    "redis>=5.0",
 ]
 
 [project.scripts]
@@ -51,6 +55,8 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
+    # In-memory Redis double for cache tests (Phase 12).
+    "fakeredis>=2.21",
 ]
 
 [tool.ruff]
@@ -69,6 +75,11 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.8",
+    # Phase 12 cache tests need an in-memory Redis double; kept in
+    # both `[project.optional-dependencies].dev` (pip / wheel) and
+    # `[dependency-groups].dev` (uv) so neither workflow is missing
+    # the dep at test time.
+    "fakeredis>=2.21",
 ]
 
 [build-system]

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router"
 
 import ApplicationsView from "./views/ApplicationsView.vue"
+import CacheSettingsView from "./views/CacheSettingsView.vue"
 import DashboardView from "./views/DashboardView.vue"
 import JobsView from "./views/JobsView.vue"
 import MaterialsView from "./views/MaterialsView.vue"
@@ -28,6 +29,11 @@ const routes = [
   { path: "/profile", component: ProfileView, meta: { label: "Profile" } },
   { path: "/profile/:profileId", component: ProfileView, meta: { label: "Profile" } },
   { path: "/settings", component: SettingsView, meta: { label: "Settings" } },
+  {
+    path: "/settings/cache",
+    component: CacheSettingsView,
+    meta: { label: "Cache" },
+  },
 ]
 
 export default createRouter({

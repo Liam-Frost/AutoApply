@@ -233,11 +233,11 @@ provider kind.
 
 ## Current Session Context
 
-- **Active branch**: `feat/phase-11`
-- **Current phase**: Phase 11 complete -- 11.1 + 11.2 + 11.3 + 11.4 + 11.5 all landed; PR to `dev` next
-- **Last verification**: 727 passed, 1 skipped on `feat/phase-11` after 11.5; `ruff check` clean. (11 `test_memory.py` errors are environment-level `psycopg` missing -- not a Phase 11 regression.)
+- **Active branch**: `feat/phase-12`
+- **Current phase**: Phase 12 complete -- 12.1+12.2 / 12.3 / 12.4 / 12.5 / 12.6 / 12.7 all landed; PR to `dev` next
+- **Last verification**: 927 passed, 1 skipped on `feat/phase-12` after 12.7; `ruff check` clean; frontend builds clean. (11 `test_memory.py` errors remain environment-level `psycopg` missing -- not a Phase 12 regression.)
 - **Blockers**: None
-- **Next step**: Push `feat/phase-11` → open PR to `dev` → after merge, Phase 12 (Cache Infrastructure / Redis introduction) on a fresh `feat/phase-12` branch.
+- **Next step**: Push `feat/phase-12` → open PR to `dev` → after merge, Phase 13 (Job Index & Freshness Engine -- content-hashed JD snapshots + freshness state machine) on a fresh `feat/phase-13` branch.
 
 ## Roadmap: Phase 11 -- 18
 
@@ -278,17 +278,16 @@ deliberately narrow: **LLM and embedding responses only**. JD / job
 content caching moves to Phase 13 because it needs content
 versioning, not TTL eviction.
 
-| Sub | Scope |
-|-----|-------|
-| 12.1 | `src/cache/` module: L1 in-process LRU + L2 **Redis**. Namespace TTL (`llm:7d`, `embedding:30d`, `response:5m`). Unified `get/set/invalidate(namespace, key)` API. Version-stamped keys for safe rolling deploys. |
-| 12.2 | **Redis infrastructure**: connection pool, health check, `REDIS_URL` env var, `docker-compose.yml` service, AOF persistence on, `autoapply redis ping/flush/info` CLI. Single-node Redis is fine through Phase 17; Sentinel/Cluster is a Phase 18+ concern. |
-| 12.3 | **Distributed lock primitive**: `with cache.lock(key, ttl=10min, blocking=False)` built on Redis `SET NX PX`. Phase 13 force-refresh will use it. |
-| 12.4 | LLM response caching: `generate_text(cache=True)` -- key=`hash(provider+model+prompt+system+temperature)`; agent loops default `cache=False`, deterministic retrieval defaults `cache=True`. Cost-saved counter increments on hit. |
-| 12.5 | Embedding cache: `embed_text(cache=True)` for `src/matching/semantic.py` with 30-day TTL. |
-| 12.6 | Cache inspector UI at `/settings/cache`: per-namespace entry count / size / hit-rate / $ saved; one-click clear (with confirm). |
-| 12.7 | Cost dashboard upgrade: split Phase 9.4 aggregates into "cached vs fresh" with a $-saved line. |
+| Sub | Scope | Status |
+|-----|-------|--------|
+| 12.1+12.2 | `src/cache/` module (L1 LRU + L2 Redis, namespace TTL, version-stamped keys) **and** Redis infrastructure (connection pool, REDIS_URL, docker-compose w/ AOF, `autoapply redis ping/flush/info` CLI). Merged into a single sub-phase because the cache module's L2 needed real Redis end-to-end. | **Complete** (commit `f225508`) |
+| 12.3 | Distributed lock primitive: `with cache.lock(key, ttl=600, blocking=False)` on Redis `SET NX PX` with WATCH/MULTI/EXEC release. Process-local `threading.Lock` fallback when L2 unavailable. | **Complete** (commit `c327f48`) |
+| 12.4 | LLM response caching: `generate_text(cache=True)` -- SHA256 over `provider+model+base_url+system+prompt+output_format`; agent loops default `cache=False`, deterministic retrieval opts in. Only the primary's successful responses are cached. | **Complete** (commit `efe3b24`) |
+| 12.5 | Embedding cache: `embed_text(text, cache=True)` in `src/matching/semantic.py` -- OpenAI `/v1/embeddings` via httpx, 30-day TTL, graceful degrade to keyword fallback when not configured. | **Complete** (commit `47da9d1`) |
+| 12.6 | Cache inspector UI at `/settings/cache`: per-namespace counts, hit-rate, $-saved, one-click clear (confirm-gated). New `/api/cache` + `DELETE /api/cache/{namespace}` endpoints. | **Complete** (commit `52759b6`) |
+| 12.7 | Cost dashboard upgrade: `AgentStep.cached`, `AgentResult.cached_step_count` / `fresh_step_count` / `total_cost_usd_fresh` / `total_cost_saved_usd`. Trace viewer shows "N fresh + M cached" plus a saved-$ pill. | **Complete** (commit `a9e4138`) |
 
-**Verification**: same job batch run twice -- second run's LLM cache hit-rate > 80%, wall time < 20% of first run, total cost < 5% of first run. Redis restart preserves L2 entries (AOF replay). Lock acquired in process A blocks process B on the same key.
+**Verification**: cache layer ships with 230+ unit tests across `tests/test_cache_*.py`, `test_llm_cache.py`, `test_embedding_cache.py`, `test_application_cache.py`, `test_web_cache.py`, `test_agent_cost_split.py`. L1+L2 round-trip with fakeredis; transport / URL / type failures degrade gracefully; namespace glob injection rejected at the boundary; lock keys live in their own Redis prefix; cached responses never replay a fallback under the primary key; pre-Phase-12.7 traces load with the partition invariant preserved.
 
 ### Phase 13: Job Index & Freshness Engine (~2 weeks)
 

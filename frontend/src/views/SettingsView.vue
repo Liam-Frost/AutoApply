@@ -716,6 +716,19 @@ function isPrimary(provider) {
             {{ state.cache.clearing ? "Clearing..." : "Clear search cache" }}
           </Button>
         </div>
+
+        <!-- Phase 12.6: pointer to the LLM/embedding cache inspector.
+             Search cache is the older, simpler file-backed cache; the
+             new Redis-backed L1+L2 cache lives at /settings/cache. -->
+        <div class="pt-2 border-t">
+          <router-link
+            to="/settings/cache"
+            class="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          >
+            LLM + embedding cache inspector
+            <span aria-hidden="true">→</span>
+          </router-link>
+        </div>
       </CardContent>
     </Card>
 

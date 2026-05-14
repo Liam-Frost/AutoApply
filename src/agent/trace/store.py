@@ -49,6 +49,11 @@ class TraceRecord:
     total_prompt_tokens: int = 0
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
+    # Phase 12.7: cost-dashboard split (cached vs fresh).
+    cached_step_count: int = 0
+    fresh_step_count: int = 0
+    total_cost_usd_fresh: float = 0.0
+    total_cost_saved_usd: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,6 +72,11 @@ class TraceRecord:
             "total_prompt_tokens": self.total_prompt_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_cost_usd": self.total_cost_usd,
+            # Phase 12.7 cost split surfaces.
+            "cached_step_count": self.cached_step_count,
+            "fresh_step_count": self.fresh_step_count,
+            "total_cost_usd_fresh": self.total_cost_usd_fresh,
+            "total_cost_saved_usd": self.total_cost_saved_usd,
         }
 
 
@@ -148,6 +158,10 @@ def record_from_result(
         total_prompt_tokens=result.total_prompt_tokens,
         total_output_tokens=result.total_output_tokens,
         total_cost_usd=result.total_cost_usd,
+        cached_step_count=result.cached_step_count,
+        fresh_step_count=result.fresh_step_count,
+        total_cost_usd_fresh=result.total_cost_usd_fresh,
+        total_cost_saved_usd=result.total_cost_saved_usd,
     )
 
 
@@ -167,4 +181,21 @@ def _record_from_dict(data: dict[str, Any]) -> TraceRecord:
         total_prompt_tokens=int(data.get("total_prompt_tokens", 0)),
         total_output_tokens=int(data.get("total_output_tokens", 0)),
         total_cost_usd=float(data.get("total_cost_usd", 0.0)),
+        # Phase 12.7 fields: traces written before this change had
+        # no cache wiring, so every step was a fresh provider call.
+        # Fall back to ``step_count`` / ``total_cost_usd`` for the
+        # fresh totals so the partition invariant
+        # (cached + fresh = step_count) and the dashboard's "saved
+        # vs spent" math both stay meaningful on legacy records.
+        cached_step_count=int(data.get("cached_step_count", 0)),
+        fresh_step_count=int(
+            data.get(
+                "fresh_step_count",
+                int(data.get("step_count", 0)) - int(data.get("cached_step_count", 0)),
+            )
+        ),
+        total_cost_usd_fresh=float(
+            data.get("total_cost_usd_fresh", data.get("total_cost_usd", 0.0))
+        ),
+        total_cost_saved_usd=float(data.get("total_cost_saved_usd", 0.0)),
     )

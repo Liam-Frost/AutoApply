@@ -83,8 +83,29 @@ class AgentStep:
     # is empty when the LLM callable is a stub (e.g. eval fixtures).
     llm_attempts: list[dict[str, Any]] = field(default_factory=list)
 
+    @property
+    def cached(self) -> bool:
+        """Phase 12.7: True if this step's LLM call was served from
+        the L1/L2 cache rather than a provider round-trip.
+
+        ``generate_text`` appends a synthetic attempt with
+        ``cached=True`` / ``kind='cache_hit'`` when it short-circuits
+        on a cache hit. We treat the FIRST attempt as authoritative
+        because that's the entry the dispatcher generates before any
+        provider call.
+        """
+        if not self.llm_attempts:
+            return False
+        first = self.llm_attempts[0]
+        return bool(first.get("cached") or first.get("kind") == "cache_hit")
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # ``asdict`` doesn't pick up @property fields; surface
+        # ``cached`` explicitly so the trace viewer / dashboard JSON
+        # carry it. Avoids a second-pass computation on every read.
+        data = asdict(self)
+        data["cached"] = self.cached
+        return data
 
 
 @dataclass
@@ -110,6 +131,40 @@ class AgentResult:
     def total_cost_usd(self) -> float:
         return round(sum(s.cost_usd for s in self.steps), 6)
 
+    # Phase 12.7 -- cost dashboard split. ``cached_step_count`` and
+    # ``fresh_step_count`` partition ``len(self.steps)`` between
+    # cache hits and provider round-trips. ``total_cost_saved_usd``
+    # is the dollars-saved estimate: each cached step represents a
+    # provider call we DIDN'T make, so we credit the cost it would
+    # have incurred (using the same token estimate -- imperfect, but
+    # consistent with how ``total_cost_usd`` is computed).
+
+    @property
+    def cached_step_count(self) -> int:
+        return sum(1 for s in self.steps if s.cached)
+
+    @property
+    def fresh_step_count(self) -> int:
+        return sum(1 for s in self.steps if not s.cached)
+
+    @property
+    def total_cost_usd_fresh(self) -> float:
+        return round(sum(s.cost_usd for s in self.steps if not s.cached), 6)
+
+    @property
+    def total_cost_saved_usd(self) -> float:
+        """Estimate of provider $ avoided by cache hits.
+
+        Each cached step's ``cost_usd`` was computed via the same
+        token-count heuristic the fresh-path uses, so we re-use it as
+        the would-have-cost. The estimate is conservative because the
+        token counts on a cache hit are token estimates of the
+        cached value, not of the prompt that would have been sent --
+        but the orders of magnitude line up well enough for a
+        dashboard signal.
+        """
+        return round(sum(s.cost_usd for s in self.steps if s.cached), 6)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "goal": self.goal,
@@ -120,6 +175,11 @@ class AgentResult:
             "total_prompt_tokens": self.total_prompt_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_cost_usd": self.total_cost_usd,
+            # Phase 12.7 cost split.
+            "cached_step_count": self.cached_step_count,
+            "fresh_step_count": self.fresh_step_count,
+            "total_cost_usd_fresh": self.total_cost_usd_fresh,
+            "total_cost_saved_usd": self.total_cost_saved_usd,
             "steps": [s.to_dict() for s in self.steps],
         }
 

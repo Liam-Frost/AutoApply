@@ -27,3 +27,9 @@ rate_limit:
 search_cache:
   enabled: false
   ttl_hours: 24
+# Phase 12 L1+L2 cache (LLM and embedding responses). REDIS_URL env
+# var overrides `redis_url` here. Leave `redis_url` unset to use the
+# default `redis://localhost:6379/0` (matches docker-compose).
+cache:
+  # redis_url: redis://localhost:6379/0
+  l1_max_entries: 1024
