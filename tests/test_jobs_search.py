@@ -105,26 +105,44 @@ class _StubStore:
 
     def link_result(self, *, query_id: UUID, posting_id: UUID, rank: int | None):
         bucket = self.results.setdefault(query_id, [])
-        for existing, _ in bucket:
-            if existing.id == posting_id:
-                # treat first_seen == last_seen for new links only
+        now = datetime.now(UTC)
+        for row in bucket:
+            if row["posting_id"] == posting_id:
+                row["last_seen_at"] = now
+                if rank is not None:
+                    row["rank"] = rank
+
                 class _Link:
-                    first_seen_at = datetime(2000, 1, 1, tzinfo=UTC)
-                    last_seen_at = datetime.now(UTC)
+                    first_seen_at = row["first_seen_at"]
+                    last_seen_at = row["last_seen_at"]
 
                 return _Link()
-        # Find the posting
         posting = next(p for p in self.postings.values() if p.id == posting_id)
-        bucket.append((posting, rank or 0))
+        row = {
+            "posting": posting,
+            "posting_id": posting_id,
+            "rank": rank or 0,
+            "first_seen_at": now,
+            "last_seen_at": now,
+        }
+        bucket.append(row)
 
         class _Link:
-            first_seen_at = datetime.now(UTC)
-            last_seen_at = first_seen_at
+            first_seen_at = row["first_seen_at"]
+            last_seen_at = row["last_seen_at"]
 
         return _Link()
 
     def get_results(self, query_id: UUID) -> list[_StubPosting]:
-        return [p for p, _ in self.results.get(query_id, [])]
+        return [row["posting"] for row in self.results.get(query_id, [])]
+
+    def prune_results_not_seen_since(
+        self, *, query_id: UUID, threshold: datetime
+    ) -> int:
+        bucket = self.results.get(query_id, [])
+        removed = [r for r in bucket if r["last_seen_at"] < threshold]
+        self.results[query_id] = [r for r in bucket if r["last_seen_at"] >= threshold]
+        return len(removed)
 
     def mark_query_run(
         self,
@@ -169,7 +187,7 @@ async def test_first_run_scrapes_and_persists(store: _StubStore) -> None:
     assert outcome.cached is False
     assert outcome.stale is False
     assert len(outcome.postings) == 2
-    assert outcome.counts == {"scraped": 2, "new": 2}
+    assert outcome.counts == {"scraped": 2, "new": 2, "removed": 0}
     assert len(store.runs) == 1
     assert store.runs[0][1] == "fresh"
 
@@ -354,6 +372,45 @@ async def test_lock_contention_returns_cached_with_stale_flag(store: _StubStore)
     assert out.cached is True
     assert out.stale is True
     assert len(out.postings) == 1
+
+
+async def test_refresh_prunes_postings_no_longer_in_source(store: _StubStore) -> None:
+    """Codex P2: after a successful refresh, postings that disappeared
+    from the source must NOT replay on the next cache hit."""
+    import time as _time
+
+    # First run: 3 postings.
+    await cached_search(
+        store=store, cache=None, source="linkedin", params={"keywords": "swe"},
+        fetch_fn=lambda: [
+            _SimplePosting(source="linkedin", source_id="1", company="A"),
+            _SimplePosting(source="linkedin", source_id="2", company="B"),
+            _SimplePosting(source="linkedin", source_id="3", company="C"),
+        ],
+    )
+    # Force a wall-clock gap so run-2's run_started_at advances past
+    # the run-1 link timestamps. On Windows datetime.now(UTC) coalesces
+    # adjacent calls to the same tick; in production the gap between
+    # search runs is hours, so this only bites unit tests.
+    _time.sleep(0.02)
+
+    # Force a refresh that returns only 1 posting (the other 2 are gone).
+    out = await cached_search(
+        store=store, cache=None, source="linkedin", params={"keywords": "swe"},
+        fetch_fn=lambda: [_SimplePosting(source="linkedin", source_id="2", company="B")],
+        force_refresh=True,
+    )
+    assert out.counts == {"scraped": 1, "new": 0, "removed": 2}
+    assert [p.source_id for p in out.postings] == ["2"]
+
+    # Next cache hit must return ONLY the posting from the latest run,
+    # not the obsolete ones from the original fetch.
+    cache_hit = await cached_search(
+        store=store, cache=None, source="linkedin", params={"keywords": "swe"},
+        fetch_fn=lambda: (_ for _ in ()).throw(AssertionError("must hit cache")),
+    )
+    assert cache_hit.cached is True
+    assert [p.source_id for p in cache_hit.postings] == ["2"]
 
 
 def test_search_outcome_default_counts() -> None:

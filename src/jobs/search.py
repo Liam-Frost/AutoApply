@@ -185,6 +185,7 @@ async def cached_search(
                 counts={"cached": len(postings)},
             )
 
+        run_started_at = datetime.now(UTC)
         try:
             scraped = fetch_fn()
             if inspect.isawaitable(scraped):
@@ -206,11 +207,16 @@ async def cached_search(
                 counts={"cached": len(postings), "scraped": 0},
             )
 
-        # Persist scraped postings + (re-)link to this query. We do NOT
-        # delete old links here -- the search-results table is "every
-        # posting this query ever returned" so the UI can diff "new vs
-        # previously-seen". Phase 14's cache_eviction job is the only
-        # writer that prunes.
+        # Persist scraped postings + (re-)link to this query. Every
+        # ``link_result`` call stamps ``last_seen_at = now()`` on the
+        # link row; we then prune links whose ``last_seen_at`` is
+        # older than ``run_started_at`` so postings that disappeared
+        # from the source between runs don't keep replaying via the
+        # next cache hit (codex P2). The JobPosting row itself is
+        # kept -- other queries / applications may still reference
+        # it; only the link from this query is removed. The Phase 14
+        # ``cache_eviction`` job is what eventually archives an
+        # orphaned posting.
         new_count = 0
         kept_postings: list[Any] = []
         for rank, item in enumerate(scraped_list):
@@ -227,6 +233,9 @@ async def cached_search(
                 new_count += 1
             kept_postings.append(posting)
 
+        removed_count = store.prune_results_not_seen_since(
+            query_id=query.id, threshold=run_started_at
+        )
         store.mark_query_run(query, status="fresh", result_count=len(scraped_list))
         return SearchOutcome(
             postings=kept_postings,
@@ -237,7 +246,11 @@ async def cached_search(
             last_success_at=query.last_success_at,
             last_error=None,
             refresh_failed=False,
-            counts={"scraped": len(scraped_list), "new": new_count},
+            counts={
+                "scraped": len(scraped_list),
+                "new": new_count,
+                "removed": removed_count,
+            },
         )
 
 

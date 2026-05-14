@@ -191,6 +191,31 @@ class JobIndexStore:
         self.session.flush()
         return link
 
+    def prune_results_not_seen_since(
+        self,
+        *,
+        query_id: UUID,
+        threshold: datetime,
+    ) -> int:
+        """Delete ``search_results`` rows for ``query_id`` whose
+        ``last_seen_at`` is strictly older than ``threshold``.
+
+        Called after a successful refresh so the next cache hit doesn't
+        replay postings that disappeared from the source. Returns the
+        number of pruned rows. Note: the underlying ``JobPosting`` row
+        is kept (other queries / applications may still reference it);
+        only the link from this query is removed.
+        """
+        from sqlalchemy import delete  # noqa: PLC0415
+
+        stmt = (
+            delete(SearchResult)
+            .where(SearchResult.query_id == query_id)
+            .where(SearchResult.last_seen_at < threshold)
+        )
+        result = self.session.execute(stmt)
+        return result.rowcount or 0
+
     def get_results(self, query_id: UUID) -> list[JobPosting]:
         stmt = (
             select(JobPosting)
