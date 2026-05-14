@@ -40,7 +40,11 @@ def test_every_phase13_table_carries_tenant_id() -> None:
 
 
 def test_job_snapshot_unique_per_content_hash() -> None:
-    unique = {tuple(sorted(c.name for c in u.columns)) for u in models.JobSnapshot.__table__.constraints if hasattr(u, "columns") and (getattr(u, "name", None) or "").startswith("uq_")}
+    unique = {
+        tuple(sorted(c.name for c in u.columns))
+        for u in models.JobSnapshot.__table__.constraints
+        if hasattr(u, "columns") and (getattr(u, "name", None) or "").startswith("uq_")
+    }
     assert ("content_hash", "posting_id") in {tuple(sorted(k)) for k in unique}
 
 

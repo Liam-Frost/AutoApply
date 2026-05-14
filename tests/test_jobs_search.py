@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -235,7 +234,6 @@ async def test_scrape_failure_preserves_old_results(store: _StubStore) -> None:
     assert len(outcome.postings) == 1
     assert outcome.last_error == "auth bounce"
     # query is marked ``stale`` so the next read knows the cache is degraded
-    key = ("linkedin", outcome.query_id)
     query = next(q for q in store.queries.values() if q.id == outcome.query_id)
     assert query.status == "stale"
 

@@ -41,8 +41,12 @@ STALE_TO_UNKNOWN_HOURS = 72
 UNKNOWN_TO_EXPIRED_HOURS = 7 * 24
 
 
-class IllegalTransition(ValueError):
+class IllegalTransitionError(ValueError):
     """Raised when an event doesn't map to a valid transition from the current state."""
+
+
+# Backwards-compat alias for tests written before the N818 cleanup.
+IllegalTransition = IllegalTransitionError
 
 
 # Events that drive the machine. Kept as a closed enum because every
@@ -91,7 +95,7 @@ def next_state(current: JobState, event: Event) -> TransitionResult:
     if event == "tick":
         return _tick_only_reason(current)
     if key not in _TRANSITIONS:
-        raise IllegalTransition(
+        raise IllegalTransitionError(
             f"no transition from {current!r} on event {event!r}",
         )
     nxt = _TRANSITIONS[key]

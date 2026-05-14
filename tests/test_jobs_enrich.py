@@ -67,7 +67,9 @@ class _Store:
             if canonical_url and not p.canonical_url:
                 p.canonical_url = canonical_url
             return p
-        p = _Posting(source=source, source_id=source_id, company=company, canonical_url=canonical_url)
+        p = _Posting(
+            source=source, source_id=source_id, company=company, canonical_url=canonical_url,
+        )
         self.postings[key] = p
         return p
 
@@ -191,7 +193,9 @@ def test_recovery_after_expiry(store: _Store) -> None:
     mark_source_404(store=store, posting_id=posting.id)
     assert posting.state == "expired"
 
-    out = enrich_posting(store=store, source="linkedin", source_id="1", company="Acme", content=_jd())
+    out = enrich_posting(
+        store=store, source="linkedin", source_id="1", company="Acme", content=_jd(),
+    )
     # Expired -> active is a legal recovery transition.
     assert out.state == "active"
 
@@ -201,5 +205,7 @@ def test_listener_exception_does_not_break_flow(store: _Store) -> None:
         raise RuntimeError("listener exploded")
 
     on_content_changed(boom)
-    out = enrich_posting(store=store, source="linkedin", source_id="1", company="Acme", content=_jd())
+    out = enrich_posting(
+        store=store, source="linkedin", source_id="1", company="Acme", content=_jd(),
+    )
     assert out.content_changed is True  # the flow continued despite the bad listener

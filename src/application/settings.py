@@ -9,7 +9,6 @@ from src.core.config import (
     save_config,
     update_llm_settings,
 )
-from src.intake.search_cache import clear_linkedin_search_cache
 from src.providers import get_registry
 from src.utils.llm import detect_available_providers, get_llm_settings
 
@@ -78,9 +77,20 @@ def update_llm_settings_data(
 
 
 def clear_search_cache_data() -> dict:
+    """Phase 13.8: clears the Job Index search rows instead of the
+    legacy file cache. The file cache (`src.intake.search_cache`) was
+    removed when Phase 13 landed -- the Job Index is now the source of
+    truth for "have we run this search before?"."""
     try:
-        cleared = clear_linkedin_search_cache()
-    except Exception as exc:
+        from src.core.database import get_session_factory  # noqa: PLC0415
+        from src.jobs.legacy import clear_indexed_searches  # noqa: PLC0415
+        from src.jobs.store import JobIndexStore  # noqa: PLC0415
+
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session, session.begin():
+            store = JobIndexStore(session)
+            cleared = clear_indexed_searches(store=store)
+    except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "error": f"Failed to clear search cache: {exc}",
@@ -89,7 +99,7 @@ def clear_search_cache_data() -> dict:
 
     return {
         "ok": True,
-        "message": f"Cleared {cleared['cleared']} cached LinkedIn search entries.",
+        "message": f"Cleared {cleared} indexed LinkedIn search entries.",
         **load_llm_settings_data(),
     }
 

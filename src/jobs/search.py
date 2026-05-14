@@ -28,9 +28,10 @@ from __future__ import annotations
 
 import inspect
 import logging
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Awaitable, Callable, Iterable, Protocol
+from typing import Any, Protocol
 
 from src.cache import Cache
 from src.jobs.normalize import normalize_search_key, search_query_fingerprint

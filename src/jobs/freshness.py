@@ -22,9 +22,10 @@ across the call sites was exactly the drift we wanted to centralise.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 FreshnessContext = Literal["search_display", "generate_materials", "before_submit"]
 
