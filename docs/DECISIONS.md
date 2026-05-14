@@ -226,3 +226,16 @@ This log captures key decisions, their rationale, and alternatives considered. E
 3. **The earlier SQLite framing was based on the false assumption that the app is single-user.** Once D018 / D020 land, that framing is no longer self-consistent.
 
 **Trade-off**: One additional `apscheduler_jobs` table in the Postgres schema. Accepted -- it is small and managed entirely by APScheduler.
+
+
+---
+
+## D022 — Job Index `search_results` links are pruned after a successful refresh (2026-05-14)
+
+**Decision**: After a successful `cached_search` refresh, `search_results` rows for the affected `query_id` whose `last_seen_at < run_started_at` are deleted via `JobIndexStore.prune_results_not_seen_since(query_id, threshold)`. The `JobPosting` row itself is kept (other queries / applications may reference it); only the link from this query is removed. `SearchOutcome.counts` carries `"removed"` alongside `"scraped"` / `"new"` so the UI banner can render "N new · M removed · K updated".
+
+**Rationale**: The original Phase 13.4 design left obsolete links in place on the rationale that `search_results` should be "every posting this query ever returned" so the UI can diff "new vs previously-seen". `codex review --base dev` flagged this as a P2: the next `get_results(query.id)` call returns every link, so a query whose source returned fewer postings on the second run will resurface the missing ones on the next cache hit. That is exactly the kind of silent inconsistency D019's snapshot model was supposed to eliminate.
+
+**Trade-off**: Two compositional concerns get conflated -- "what did this query return today?" (now: the truth) versus "what has this query ever returned?" (now: lost). The latter has no current consumer; if a future feature needs the history (e.g. a "stop showing me jobs I've seen before" filter), it should be added as a dedicated `posting_history` table with its own retention policy, not by leaking stale links into the live search results.
+
+**Enforcement**: Regression test `tests/test_jobs_search.py::test_refresh_prunes_postings_no_longer_in_source` pins the invariant.

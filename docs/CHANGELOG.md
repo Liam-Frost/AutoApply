@@ -4,6 +4,147 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Phase 13: Job Index & Freshness Engine
+
+Replaces the file-backed ``src/intake/search_cache.py`` with a proper
+**Job Intelligence Database**: typed entities, content-hashed
+snapshots, search-query cache, freshness state machine, and audit
+binding from generated materials back to the exact JD snapshot they
+were produced from. Foundation for Phase 14 / 15 / 17.
+
+- **13.1 Job Index schema** -- alembic migration ``c7d3a91b4e2f``
+  adds ``job_postings``, ``job_snapshots`` (unique by
+  `(posting_id, content_hash)`), ``search_queries`` (unique by
+  `(tenant_id, source, normalized_key)`), ``search_results``
+  (CASCADE on parent delete), ``refresh_tasks`` (composite index on
+  `(tenant_id, status, priority, scheduled_for)`).
+  ``applications.job_snapshot_id`` FK + index added for audit
+  binding. ``latest_snapshot_id`` on the posting created with
+  ``use_alter`` to break the bootstrap cycle. Every new table carries
+  ``tenant_id`` with server_default 'default' per D020. ORM models
+  in ``src/core/models.py`` mirror the migration's uniques + indexes
+  via ``__table_args__``; smoke tests in
+  ``tests/test_job_index_models.py`` guard the invariants. +9 tests.
+  (commit ``c0f4ea4``)
+
+- **13.2 Search-key + content-hash normalization** -- pure-function
+  module ``src/jobs/normalize.py``. ``normalize_search_key()`` strips
+  LinkedIn / generic tracking params (``currentJobId``, ``origin``,
+  ``trk*``, ``lipi``, ``lici``, ``utm_*``, ``gclid``, ``fbclid``);
+  strings are stripped + collapsed + lowercased; lists are sorted and
+  de-duplicated (including lists of dicts via stable JSON form);
+  empty / None / [] are dropped. Keys preserved verbatim so
+  LinkedIn's camelCase ``geoId`` / ``sortBy`` survive. The blacklist
+  is authoritative, not the whitelist, so new ATS-specific filters
+  work without code changes. ``search_query_fingerprint()`` SHA256s
+  the normalized dict for the ``normalized_key`` column.
+  ``normalize_job_content()`` + ``content_hash()`` exclude
+  ``UNSTABLE_CONTENT_FIELDS`` (``applicant_count``, ``promoted``,
+  ``view_count``, scrape timestamps, ``current_job_id``). +15 tests.
+  (commit ``3f55c45``)
+
+- **13.3 Freshness state machine** -- ``src/jobs/state.py``
+  centralizes the ``new → active → stale → unknown → expired →
+  archived`` lifecycle. ``next_state(current, event)`` is the
+  caller-driven transition table; illegal transitions raise
+  ``IllegalTransitionError``. ``project_by_time()`` is the pure
+  time-decay projection used by the Phase 14 ``jd_health_check``
+  job (``active→stale @24h``, ``stale→unknown @72h``,
+  ``unknown→expired @7d``; ``new`` / ``expired`` / ``archived`` are
+  excluded from decay; missing ``last_checked_at`` is a no-op).
+  ``is_safe_to_apply(state)`` is the single Phase 17 pre-submit gate
+  -- only ``active`` qualifies. +18 tests. (commit ``86b8b2e``)
+
+- **13.4 Cache-first search flow with distributed lock** --
+  ``src/jobs/store.py`` (``JobIndexStore``) is the persistence facade
+  over the ORM models; methods take a live ``Session`` and never
+  commit. ``src/jobs/search.py`` (``cached_search()``) is the
+  orchestrator: normalize params → upsert ``SearchQuery`` → cache hit
+  if ``status="fresh"`` and within the freshness window → otherwise
+  acquire a Phase 12 distributed lock keyed
+  ``jobs:search:{source}:{fingerprint}`` → re-check inside the lock
+  → call ``fetch_fn`` (sync or async) → persist as ``search_results``
+  rows → mark query ``fresh``. Lock contention returns the cached
+  rows with ``stale=True``. On scrape failure the old cache is
+  preserved, the query flips to ``stale`` with ``last_error``, and
+  ``outcome.refresh_failed=True`` so the UI can flag the degraded
+  read. +10 tests including real Redis (fakeredis) lock contention.
+  (commit ``ce6bac9``)
+
+- **13.5 Snapshot-versioned enrichment** -- ``src/jobs/enrich.py``
+  implements ``scrape → normalize → content_hash → if hash matches
+  latest_snapshot: no-op, else insert new immutable JobSnapshot row``.
+  Existing snapshots are NEVER mutated; that immutability is what
+  makes the ``applications.job_snapshot_id`` audit binding
+  load-bearing. ``on_content_changed`` is the decorator-style listener
+  hook (Phase 14 will queue follow-up scrapes when must-haves shift;
+  Phase 17 will flag related applications for review). Listener
+  exceptions are logged and swallowed so a buggy subscriber can't
+  break enrichment. ``mark_refresh_failed`` / ``mark_source_404`` are
+  the documented transient / 404 transitions. +9 tests covering
+  expired→active recovery and listener fault-tolerance.
+  (commit ``8f2d0f9``)
+
+- **13.6 Context-aware freshness predicate** --
+  ``should_refresh(posting, context, now=)`` in
+  ``src/jobs/freshness.py`` returns a
+  ``FreshnessVerdict(should_refresh, reason, age_hours, budget_hours)``
+  so callers can both gate behaviour and surface "why" to the UI or
+  trace store. Three documented contexts: ``search_display=72h``,
+  ``generate_materials=24h``, ``before_submit=6h``. ``new`` (no
+  snapshot) and ``unknown`` / ``expired`` / ``archived`` (degraded /
+  terminal) always refresh. State governs lifecycle; this predicate
+  judges time; the two axes compose. +18 tests across each context's
+  window boundary and the state overrides. (commit ``6aaf3a4``)
+
+- **13.7 Web UI freshness banner** --
+  ``POST /api/jobs/index/freshness`` returns
+  ``{known, status, last_run_at, last_success_at, last_error,
+  result_count, age_hours, ...}`` (falls back to ``{known:false}``
+  when the migration hasn't been applied);
+  ``POST /api/jobs/index/refresh`` enqueues a high-priority
+  ``kind="search.refresh"`` task that the Phase 14 scheduler will
+  consume; ``GET /api/jobs/index/posting/{id}?context=...`` for the
+  per-posting verdict. Frontend
+  ``frontend/src/components/JobIndexBanner.vue`` renders
+  "Last updated 18h ago · N indexed" plus a [Refresh] button.
+  ``JobsView.forceRefreshSearch()`` clears ``lastFetchSignature`` so
+  the next search() bypasses the canReuseFetchedResults shortcut.
+  Application module ``src/application/job_index.py`` owns the
+  session lifecycle and degrades gracefully on ``ProgrammingError``.
+  +6 FastAPI tests. (commit ``eac302d``)
+
+- **13.8 Legacy file-cache import + removal** --
+  ``src/jobs/legacy.import_legacy_file_cache(store, legacy_dir,
+  delete_after_import)`` walks ``data/cache/linkedin_search/*.json``
+  and replays each file as one ``SearchQuery`` row (status='stale' so
+  the next real search re-scrapes -- we don't trust historical disk
+  data) plus one ``SearchResult`` link per contained job; idempotent
+  across re-runs. ``clear_indexed_searches()`` replaces the legacy
+  ``clear_linkedin_search_cache()`` (cascades ``search_results`` via
+  the FK). New CLI: ``autoapply jobs import-legacy-cache
+  --legacy-dir --delete``. ``src/intake/search_cache.py`` is deleted;
+  ``src/intake/search.py`` removes the file-cache short-circuit. The
+  ``TestLinkedInSearchCache`` class in ``tests/test_linkedin.py`` is
+  removed; equivalent coverage lives in ``test_jobs_normalize.py`` +
+  ``test_jobs_search.py``. End-to-end wiring of ``search_linkedin``
+  into ``cached_search`` is deferred to Phase 17's daily run loop
+  per the in-code comment. +6 tests. (commit ``99e2dea``)
+
+- **fix (codex P2)**:
+  ``JobIndexStore.prune_results_not_seen_since(query_id, threshold)``
+  deletes ``search_results`` rows whose ``last_seen_at < threshold``.
+  ``cached_search()`` captures ``run_started_at`` before ``fetch_fn``
+  and prunes immediately after persisting the fresh links, so
+  postings missing from the new scrape lose their link instead of
+  replaying on the next cache hit. ``outcome.counts`` carries
+  ``"removed"`` alongside ``"scraped"`` / ``"new"`` so the UI banner
+  can surface "N new · M removed · K updated". +1 regression test.
+  (commit ``aacde6d``)
+
+**Phase 13 close**: 1004 passed, 1 skipped on ``feat/phase-13`` after
+the codex fix; ``ruff check`` clean; frontend builds clean.
+
 ### Phase 12: Cache Infrastructure (Redis)
 
 First introduction of Redis as the L2 cache substrate. Builds the
