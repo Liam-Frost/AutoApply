@@ -1,0 +1,27 @@
+{
+  "id": "20260515T102926Z-dce33291",
+  "started_at": "2026-05-15T10:29:26.348280+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:maintenance.status_sync",
+  "answer": "stubbed",
+  "elapsed_ms": 75,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "maintenance.status_sync",
+    "celery_task_id": "b5267d43-4e8d-4262-a24d-47b956c57fee",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {}
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

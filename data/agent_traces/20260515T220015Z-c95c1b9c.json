@@ -1,0 +1,27 @@
+{
+  "id": "20260515T220015Z-c95c1b9c",
+  "started_at": "2026-05-15T22:00:15.855754+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:maintenance.gate_expire_sweep",
+  "answer": "stubbed",
+  "elapsed_ms": 75,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "maintenance.gate_expire_sweep",
+    "celery_task_id": "c5097cf3-e623-4c72-b8ee-659299bcf849",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {}
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

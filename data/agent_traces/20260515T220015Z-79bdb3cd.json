@@ -1,0 +1,30 @@
+{
+  "id": "20260515T220015Z-79bdb3cd",
+  "started_at": "2026-05-15T22:00:15.160847+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:search.refresh",
+  "answer": "scheduled",
+  "elapsed_ms": 125,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "search.refresh",
+    "celery_task_id": "44f5d65c-54e5-4299-84cc-ac484ab6e668",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {
+      "query_id": "q1",
+      "source": "greenhouse"
+    }
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

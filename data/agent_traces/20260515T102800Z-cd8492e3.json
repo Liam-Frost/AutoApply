@@ -1,0 +1,27 @@
+{
+  "id": "20260515T102800Z-cd8492e3",
+  "started_at": "2026-05-15T10:28:00.256753+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:maintenance.jd_health_check",
+  "answer": "stubbed",
+  "elapsed_ms": 81,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "maintenance.jd_health_check",
+    "celery_task_id": "e178edac-d6c5-4fc7-9b28-d4f5a6391770",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {}
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

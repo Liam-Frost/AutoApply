@@ -20,16 +20,14 @@ import json
 from typing import Any
 
 from src.agent.tools.score_breakdown import ScoreBreakdownTool
-from src.intake.schema import JobRequirements, RawJob
 from src.matching.edge_case_agent import (
     BORDERLINE_HIGH,
     BORDERLINE_LOW,
     EdgeCaseAgent,
     is_borderline,
 )
-from src.matching.rules import ApplicantContext, RuleResult, RuleVerdict
+from src.matching.rules import RuleResult, RuleVerdict
 from src.matching.scorer import ScoreBreakdown
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

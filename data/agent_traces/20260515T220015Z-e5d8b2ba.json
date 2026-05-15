@@ -1,0 +1,27 @@
+{
+  "id": "20260515T220015Z-e5d8b2ba",
+  "started_at": "2026-05-15T22:00:15.371973+00:00",
+  "finished": true,
+  "stop_reason": "done",
+  "goal": "celery:materials.generate",
+  "answer": null,
+  "elapsed_ms": 72,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "materials.generate",
+    "celery_task_id": "bc827ec9-ff6d-4fbc-a09c-bb7b00486469",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {}
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

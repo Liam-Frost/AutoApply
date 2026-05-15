@@ -1,0 +1,29 @@
+{
+  "id": "20260515T092534Z-de90b9c2",
+  "started_at": "2026-05-15T09:25:34.419132+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:application.submit",
+  "answer": "scheduled",
+  "elapsed_ms": 74,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "application.submit",
+    "celery_task_id": "25d4815e-6fdc-4b4b-a3af-95c81e424f77",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {
+      "application_id": "app-99"
+    }
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

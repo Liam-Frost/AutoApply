@@ -286,6 +286,16 @@ export const api = {
     // a large keyspace, so callers should drive a loading state.
     return request("/api/cache")
   },
+  matchingExplain(job) {
+    // Phase 16.3: "Why was this filtered?" explainability endpoint.
+    // Re-scores the job server-side against the active profile and
+    // returns the structured ScoreBreakdown.to_dict() shape.
+    return request("/api/matching/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job }),
+    })
+  },
   clearCacheNamespace(namespace) {
     // Mirrors `autoapply redis flush --namespace`: requires the
     // operator to have confirmed via the UI. The body's `confirm: true`

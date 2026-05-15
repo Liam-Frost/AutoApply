@@ -13,6 +13,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Filter as FilterIcon,
+  Info,
   Inbox,
   RefreshCw,
   Save,
@@ -154,6 +155,75 @@ const materialModal = reactive({
     resume: "",
     cover_letter: "",
   },
+})
+
+// Phase 16.3: "Why was this filtered?" popover state.
+//
+// We open it from the explicit info button on each job card. The
+// popover prefers the breakdown that came inline with the search
+// response (``job.raw_data.score_breakdown``); when that's absent
+// (legacy cached jobs, or jobs that arrived through a path that
+// didn't run scoring), it falls back to ``POST /api/matching/explain``
+// which re-scores against the active profile.
+const whyFilteredModal = reactive({
+  open: false,
+  job: null,
+  loading: false,
+  error: "",
+  breakdown: null,
+})
+
+function closeWhyFilteredModal() {
+  whyFilteredModal.open = false
+  whyFilteredModal.job = null
+  whyFilteredModal.error = ""
+  whyFilteredModal.breakdown = null
+  whyFilteredModal.loading = false
+}
+
+async function openWhyFilteredModal(job) {
+  whyFilteredModal.open = true
+  whyFilteredModal.job = job
+  whyFilteredModal.error = ""
+  whyFilteredModal.breakdown = null
+  whyFilteredModal.loading = false
+
+  const inline = job?.raw_data?.score_breakdown
+  if (inline && typeof inline === "object") {
+    whyFilteredModal.breakdown = inline
+    return
+  }
+
+  whyFilteredModal.loading = true
+  try {
+    const response = await api.matchingExplain(job)
+    if (response?.ok && response.score_breakdown) {
+      whyFilteredModal.breakdown = response.score_breakdown
+    } else {
+      whyFilteredModal.error =
+        (response?.warnings || []).join(" ") || "Could not load explanation."
+    }
+  } catch (err) {
+    whyFilteredModal.error = err?.message || "Could not load explanation."
+  } finally {
+    whyFilteredModal.loading = false
+  }
+}
+
+const whyFailingRules = computed(() => {
+  const bd = whyFilteredModal.breakdown
+  if (!bd) return []
+  // Prefer the structured 16.1 surface; fall back to legacy string list.
+  if (Array.isArray(bd.disqualify_results) && bd.disqualify_results.length) {
+    return bd.disqualify_results
+  }
+  return (bd.disqualify_reasons || []).map((reason, i) => ({
+    rule_id: `legacy_${i}`,
+    rule_name: "rule",
+    verdict: "fail",
+    reason,
+    evidence_excerpt: null,
+  }))
 })
 
 const modalMaterialState = computed(() => {
@@ -1403,6 +1473,16 @@ function buildPageButtons(total, current) {
                   <span v-if="chipLabel(job.location_type)" class="chip">{{ chipLabel(job.location_type) }}</span>
                   <span v-if="job.raw_data?.search_mode === 'public_guest'" class="chip subtle">Guest</span>
                   <span v-if="job.raw_data?.disqualified" class="chip danger">Review</span>
+                  <button
+                    v-if="job.raw_data?.disqualified"
+                    type="button"
+                    class="chip-button"
+                    title="Why was this filtered?"
+                    aria-label="Why was this filtered?"
+                    @click="openWhyFilteredModal(job)"
+                  >
+                    <Info class="h-3.5 w-3.5" />
+                  </button>
                 </div>
 
                 <h3>{{ job.title }}</h3>
@@ -1644,6 +1724,82 @@ function buildPageButtons(total, current) {
         </div>
         <div v-else class="material-preview-empty">
           Select Resume, Cover Letter, or both. Generated previews and download buttons appear here.
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Phase 16.3: "Why was this filtered?" popover -->
+    <Dialog
+      :open="whyFilteredModal.open"
+      @update:open="(value) => !value && closeWhyFilteredModal()"
+    >
+      <DialogContent class="max-w-2xl max-h-[calc(100vh-3.5rem)] overflow-y-auto">
+        <DialogHeader>
+          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Filter explanation
+          </p>
+          <DialogTitle class="text-xl">
+            Why was this filtered?
+          </DialogTitle>
+          <DialogDescription>
+            <span v-if="whyFilteredModal.job">
+              {{ whyFilteredModal.job.title }} ·
+              {{ whyFilteredModal.job.company }}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div v-if="whyFilteredModal.loading" class="py-6 text-sm text-muted-foreground">
+          Loading explanation…
+        </div>
+
+        <div v-else-if="whyFilteredModal.error" class="py-6">
+          <Alert variant="destructive">
+            <AlertDescription>{{ whyFilteredModal.error }}</AlertDescription>
+          </Alert>
+        </div>
+
+        <div v-else-if="whyFilteredModal.breakdown" class="space-y-4">
+          <div class="chip-row">
+            <span v-if="whyFilteredModal.breakdown.final_score !== undefined" class="chip subtle">
+              Final score
+              {{ formatPercent(whyFilteredModal.breakdown.final_score, "0%") }}
+            </span>
+            <span v-if="whyFilteredModal.breakdown.job_snapshot_id" class="chip subtle">
+              Snapshot {{ String(whyFilteredModal.breakdown.job_snapshot_id).slice(0, 8) }}
+            </span>
+            <span v-if="whyFilteredModal.breakdown.disqualified" class="chip danger">
+              Disqualified by hard rule
+            </span>
+          </div>
+
+          <div v-if="whyFailingRules.length" class="space-y-3">
+            <div
+              v-for="rule in whyFailingRules"
+              :key="rule.rule_id"
+              class="rounded-md border border-destructive/30 bg-destructive/5 p-3"
+            >
+              <div class="flex items-center gap-2 text-sm font-semibold">
+                <span>{{ rule.rule_name || rule.rule_id }}</span>
+                <span class="chip danger">{{ rule.verdict || "fail" }}</span>
+              </div>
+              <p class="mt-1 text-sm">{{ rule.reason }}</p>
+              <p
+                v-if="rule.evidence_excerpt"
+                class="mt-2 rounded bg-muted/50 p-2 text-xs italic text-muted-foreground"
+              >
+                JD excerpt: {{ rule.evidence_excerpt }}
+              </p>
+            </div>
+          </div>
+
+          <div v-else class="text-sm text-muted-foreground">
+            No structured rule failures recorded for this job.
+          </div>
+        </div>
+
+        <div v-else class="py-6 text-sm text-muted-foreground">
+          No explanation available for this job.
         </div>
       </DialogContent>
     </Dialog>

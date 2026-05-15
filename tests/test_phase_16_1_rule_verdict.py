@@ -23,7 +23,6 @@ from src.intake.schema import JobRequirements, RawJob
 from src.matching.rules import (
     ApplicantContext,
     RuleResult,
-    RuleVerdict,
     check_rules,
 )
 from src.matching.scorer import ScoreBreakdown, build_scoring_context, score_job, score_jobs
@@ -204,7 +203,10 @@ class TestEvidenceExtraction:
     def test_excerpt_bounded_to_max_length(self):
         """Long descriptions should produce truncated excerpts."""
         long_desc = (
-            "We are hiring. " + ("blah " * 200) + "5+ years of experience required " + ("blah " * 200)
+            "We are hiring. "
+            + ("blah " * 200)
+            + "5+ years of experience required "
+            + ("blah " * 200)
         )
         job = _make_job(description=long_desc)
         job.requirements = JobRequirements(experience_years_min=5)

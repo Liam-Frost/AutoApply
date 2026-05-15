@@ -1,0 +1,27 @@
+{
+  "id": "20260515T093112Z-9ce65c4f",
+  "started_at": "2026-05-15T09:31:12.137940+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:maintenance.linkedin_cookie_refresh",
+  "answer": "stubbed",
+  "elapsed_ms": 75,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "maintenance.linkedin_cookie_refresh",
+    "celery_task_id": "137d1869-92a1-4218-8182-3911c9296f32",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {}
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}

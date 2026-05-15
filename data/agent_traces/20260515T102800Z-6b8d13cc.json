@@ -1,0 +1,27 @@
+{
+  "id": "20260515T102800Z-6b8d13cc",
+  "started_at": "2026-05-15T10:28:00.425372+00:00",
+  "finished": true,
+  "stop_reason": "success",
+  "goal": "celery:maintenance.cache_eviction",
+  "answer": "stubbed",
+  "elapsed_ms": 77,
+  "step_count": 0,
+  "tools_allowed": [],
+  "metadata": {
+    "kind": "celery_task",
+    "task_name": "maintenance.cache_eviction",
+    "celery_task_id": "b84b14c9-d4d8-4cba-8eb9-8e716f5bf89c",
+    "parent_trace_id": null,
+    "error": null,
+    "kwargs": {}
+  },
+  "steps": [],
+  "total_prompt_tokens": 0,
+  "total_output_tokens": 0,
+  "total_cost_usd": 0.0,
+  "cached_step_count": 0,
+  "fresh_step_count": 0,
+  "total_cost_usd_fresh": 0.0,
+  "total_cost_saved_usd": 0.0
+}
