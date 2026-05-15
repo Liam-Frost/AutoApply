@@ -45,6 +45,13 @@ dependencies = [
     # client; we use the sync client here because the cache layer
     # is consumed from sync call sites (`generate_text`, `embed_text`).
     "redis>=5.0",
+    # Task queue (Phase 14). Celery owns task model + queue transport +
+    # worker runtime + beat scheduling; AutoApplyTask layers tenant
+    # context + idempotency + HITL + trace on top. See D025.
+    "celery>=5.4",
+    # Redis-backed Beat schedule store with leader election so multi-
+    # instance Beat does not double-fire scheduled triggers. See D025.
+    "celery-redbeat>=2.2",
 ]
 
 [project.scripts]

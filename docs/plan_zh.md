@@ -369,11 +369,19 @@ JD / 岗位内容缓存放到 Phase 13。
   `search_results`；删掉文件缓存模块。
 - **13.9** **tenant_id retrofit migration**（Phase 14 开工前必须落地，见 D026）——
   alembic 新 migration 给所有 Phase 11 及以前的遗留表（`jobs`、`applications`、
-  `applicant_profile`、`bullet_pool`、`story_bank`、`qa_bank`、`templates` /
-  `template_packages` 等）加 `tenant_id TEXT NOT NULL DEFAULT 'default'` 列 +
+  `applicant_profile`、`bullet_pool`、`qa_bank` —— `story_bank` 是 YAML，
+  `template_packages` 是文件系统模板）加 `tenant_id TEXT NOT NULL DEFAULT 'default'` 列 +
   backfill 现有行；ORM models 同步加字段；现有 query 路径不强制改（保留无过滤的
   全局行为），但 Phase 14 开始所有新代码必须显式带 tenant 上下文。Phase 18 的
-  auth middleware 上线后这层"默认 default"的兜底就被 RLS + 中间件取代。
+  auth middleware 上线后这层"默认 default"的兜底就被 RLS + 中间件取代。**已完成**
+  （migration `d8a5c2f1e9b3`，commit `ae46a39`）。
+
+### Phase 14: 任务队列 + 定时工作（~2.5 周，Celery） —— **已完成**
+
+10 个子阶段全部在 `feat/phase-14` 分支上线（commits `83de0db` → `707d94e`）+
+两轮 codex review 修复（`3de7084`）。验证基线：1161 passed / 1 skipped；
+`ruff check` 干净；前端构建干净；migrations `e1b4f72c8a05`（tasks audit table）
++ `f2c5d83a91b6`（gate_queue）已应用到 dev DB。
 
 改用 Celery 5.x（见 D025）。原计划自建的 task model + queue transport + worker
 runtime 全部由 Celery 接管；AutoApply 只在它上面薄薄加一层"agent 边界 + HITL +
