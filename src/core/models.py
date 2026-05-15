@@ -334,6 +334,43 @@ class GateRequest(Base):
     ttl_seconds: Mapped[int | None] = mapped_column(Integer)
 
 
+class SourceResume(Base):
+    """Phase 15.1: uploaded original resume as a first-class source.
+
+    Distinct from the user's profile YAML (evidence pool) and from
+    generated outputs (``resume_versions``). The materials router
+    (Phase 15.5) decides whether to ``patch_existing`` this row (DOCX
+    / LaTeX) or fall back to ``generate_from_template`` when the
+    source is not editable (PDF).
+    """
+
+    __tablename__ = "source_resumes"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "checksum", name="uq_source_resumes_tenant_checksum"),
+        Index(
+            "ix_source_resumes_tenant_type",
+            "tenant_id",
+            "source_type",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)  # docx / latex / pdf
+    editable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    original_filename: Mapped[str] = mapped_column(String(400), nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(400), nullable=False)
+    extracted_structure: Mapped[dict | None] = mapped_column(JSONB)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class QABank(Base):
     __tablename__ = "qa_bank"
 
