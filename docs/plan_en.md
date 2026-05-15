@@ -507,7 +507,29 @@ own bounded decisions") is preserved.
   election; Postgres advisory lock as a defense-in-depth backstop (D021's
   principle preserved).
 
-### Phase 15: Resume & Cover Letter Generation v2 (~3 weeks)
+### Phase 15: Resume & Cover Letter Generation v2 (~3 weeks) — **Complete**
+
+All 10 sub-phases shipped on `feat/phase-15` (commits `4e95e98` →
+`439d2d7`) + one codex-review P2 fix round (`9b813a3`). Verification
+baseline: 1332 passed / 1 skipped; `ruff check` clean; migration
+`a3b9d52e7c41` (`source_resumes`) applied to dev DB.
+
+Implementation highlights:
+
+* `src/generation/source_resume.py` -- upload ingest (DOCX / LaTeX / PDF)
+* `src/generation/docx_patch.py` -- DOCX patch with named-style preservation
+* `src/documents/latex_manifest.py` + `latex_renderer.py` -- manifest-adapter
+  rendering on top of the existing `latex_engine.py` (not from scratch)
+* `src/generation/materials_router.py` -- `patch_existing` vs
+  `generate_from_template` dispatch with provenance bindings
+* `src/agent/tools/jd.py` -- the `jd_lookup` agent tool
+* `src/generation/agent_cover_letter.py` + `fact_drift.py` -- five-tier
+  fallback ladder + numeric-drift blocking
+* `src/documents/template_adapter.py` -- propose manifests for
+  arbitrary user-uploaded LaTeX templates
+* Three eval suites + 7 fixtures
+* `src/generation/gate_triggers.py` -- HITL gate only for persistent
+  grounding mutations
 Benefits from Phase 12 (LLM caching), Phase 13 (snapshot binding), and
 Phase 14 (background material tasks).
 - **15.1** Source-resume model: uploaded originals stored with type, checksum,

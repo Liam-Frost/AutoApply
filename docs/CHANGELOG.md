@@ -188,6 +188,109 @@ clean; frontend build clean; migrations `e1b4f72c8a05` +
 `f2c5d83a91b6` applied; `codex review` returned no findings on second
 pass.
 
+### Phase 15: Resume & Cover Letter Generation v2
+
+Rebuilds materials generation around two explicit resume modes
+(D024): patching the user's original source when possible, and
+LaTeX-first generation when creating a new resume from a template.
+Cover-letter generation moves through a bounded agent with a
+fact-drift post-guard and a five-tier deterministic fallback ladder.
+HITL gates only fire for persistent grounding mutations -- one-shot
+generation never blocks.
+
+- **15.1 Source-resume table** -- migration `a3b9d52e7c41`;
+  `source_resumes` (tenant_id required per D026, source_type CHECK
+  IN docx/latex/pdf, editable BOOL, checksum SHA256 unique per
+  tenant, storage_path project-relative, extracted_structure JSONB,
+  size_bytes, notes). `src/generation/source_resume.py` ingests files
+  under `data/source_resumes/<tenant>/<checksum><ext>`, dedupes,
+  extracts shallow structure per type (DOCX paragraphs, LaTeX
+  sections, PDF headings via pymupdf), rejects traversal in
+  resolve_storage_path. +18 tests. (commit `4e95e98`)
+
+- **15.2 DOCX patch mode** -- `src/generation/docx_patch.py` mutates
+  runs in place to preserve font/size/bold/italic + named styles.
+  Operations: summary, skills, bullet (List Bullet swap with surplus
+  appended via XML clone + deficit blanked), section_drop (only
+  blanks IR-empty sections; populated IR sections always kept).
+  Top-level vs sub-heading distinction so bullets nested under
+  Heading 2 job entries are reachable. PatchFallback exception
+  signals route-to-template per D024. +9 tests. (commit `697bd3d`)
+
+- **15.3 LaTeX template package spec** -- TemplateManifest grows an
+  optional `latex: LatexConfig` sub-model. LatexFieldMapping declares
+  IR-field -> LaTeX command + arity. `src/documents/latex_manifest.py`
+  exposes the shared `escape_latex` / `resolve_field` /
+  `render_command` / `validate_assets` / `validate_field_coverage`
+  helpers. +37 tests. (commit `ef81afe`)
+
+- **15.4 Manifest-adapter LaTeX renderer** --
+  `src/documents/latex_renderer.py` renders user-uploaded LaTeX
+  with custom commands via the field_mappings table. Templates
+  declare `{{resume.commands}}`; missing fields skip their command
+  (no `\cmd{}` rendering visibly empty). `compile_via_manifest`
+  honors `compile_engine` and preserves asset subdirectories.
+  +13 tests. (commit `57de801`)
+
+- **15.5 Materials router** -- `src/generation/materials_router.py`
+  dispatches `patch_existing` vs `generate_from_template`. Every
+  outcome carries MaterialsBindings (job_snapshot_id,
+  source_resume_id, template_package_id, profile_version, trace_id,
+  tenant_id) for Phase 17 review queue + trace viewer audit binding.
+  SourceResumeView keeps the router decoupled from SQLAlchemy.
+  +15 tests. (commit `e86f15d`)
+
+- **15.6 `jd_lookup` agent tool** -- `src/agent/tools/jd.py`
+  read-only dotted-path access to a bound JobSnapshot. Empty path
+  returns a section index; nested paths drill into JSONB with
+  `_count`/keys summaries; missing paths report available keys.
+  +18 tests. (commit `95c8efb`)
+
+- **15.7 AgentCoverLetter + fact-drift post-guard** --
+  `src/generation/fact_drift.py` (number drift blocking with
+  10k<->10000 normalization; entity drift warning; length sanity)
+  and `src/generation/agent_cover_letter.py` orchestrator with
+  five-tier fallback ladder (deterministic_only / agent_ok /
+  agent_drift_fallback / agent_error_fallback). Bounded-agent loop
+  itself is wrapped by AutoApplyTask.call_agent in the materials
+  task body. +21 tests. (commit `983a5a5`)
+
+- **15.8 Template adapter assistant** -- `src/documents/template_adapter.py`
+  scans `\newcommand` declarations + `\foo{...}` usages, matches
+  against curated conventional name table, warns on unmatched,
+  errors on missing `{{resume.commands}}`, runs sample render.
+  finalize_proposal gates persistence on sample_render_ok + no
+  error notes + assets validating. +15 tests. (commit `98eacad`)
+
+- **15.9 Eval suites** -- three new suites
+  (materials_docx_patch / materials_latex_template / cover_letter)
+  with JSON fixtures + runners in `src/agent/eval/runner.py`. Two
+  new scorer types (json_field_equals, json_field_contains) walk
+  dotted paths into parsed envelopes. 7 fixtures + 7 verification
+  tests. (commit `488b23d`)
+
+- **15.10 HITL gate triggers** -- `src/generation/gate_triggers.py`.
+  is_gateworthy(kind) returns True only for persistent grounding
+  mutations (bullet_pool_mutation / story_bank_mutation /
+  template_manifest_persist); one-shot generation never gates.
+  propose_* helpers open Phase 14.4 gate_queue rows with
+  operator-friendly summaries; find_pending_for_task lists blocking
+  gates. +14 tests. (commit `439d2d7`)
+
+- **codex review fixes** (one round, P2): legacy LaTeX templates
+  without a Phase 15.3 latex block now fall back to the existing
+  placeholder renderer in `latex_engine` instead of returning
+  decision='unsupported'; PDF source-resume ingest captures
+  `len(doc)` inside the pymupdf `with` block so page_count survives
+  close; `compile_via_manifest` preserves manifest asset
+  subdirectories (`images/logo.png` -> `workdir/images/logo.png`,
+  not flattened). 5 new tests; existing 'unsupported' assertion
+  updated. (commit `9b813a3`)
+
+Verification: 1332 passed, 1 skipped on `feat/phase-15`; `ruff
+check` clean; alembic upgraded dev DB to revision `a3b9d52e7c41`;
+`codex review` returned no findings on second pass.
+
 ### Phase 13: Job Index & Freshness Engine
 
 Replaces the file-backed ``src/intake/search_cache.py`` with a proper

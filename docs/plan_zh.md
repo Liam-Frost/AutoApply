@@ -436,7 +436,26 @@ bounded 决策"的原则保留。
   用 redbeat 的 leader election；advisory lock 兜底（保留 D021 的多实例双触发
   防御原则）。
 
-### Phase 15: Resume & Cover Letter Generation v2（~3 周）
+### Phase 15: Resume & Cover Letter Generation v2（~3 周） —— **已完成**
+
+10 个子阶段全部在 `feat/phase-15` 分支上线（commits `4e95e98` → `439d2d7`）+
+一轮 codex review P2 修复（`9b813a3`）。验证基线：1332 passed / 1 skipped；
+`ruff check` 干净；migration `a3b9d52e7c41`（source_resumes）已应用到 dev DB。
+实现 highlights：
+
+* `src/generation/source_resume.py` —— 上传简历 ingest 管线（DOCX/LaTeX/PDF）
+* `src/generation/docx_patch.py` —— 命名样式保留的 DOCX patch 模式
+* `src/documents/latex_manifest.py` + `latex_renderer.py` —— manifest-adapter
+  LaTeX 渲染（基于已存在的 `latex_engine.py`，不是从零搭）
+* `src/generation/materials_router.py` —— patch_existing vs generate_from_template
+  调度，每个产物绑定 job_snapshot_id / source_resume_id / template_package_id /
+  trace_id
+* `src/agent/tools/jd.py` —— jd_lookup agent tool
+* `src/generation/agent_cover_letter.py` + `fact_drift.py` —— 五级 fallback
+  ladder + 数字漂移阻断
+* `src/documents/template_adapter.py` —— 任意 LaTeX 模板 manifest 提案
+* 三个 eval suite + 7 个 fixture
+* `src/generation/gate_triggers.py` —— 仅持久化 grounding 变更触发 HITL gate
 受益于 Phase 12（LLM 缓存）、Phase 13（snapshot 绑定）和 Phase 14（后台材料任务）。
 - **15.1** Source-resume model：上传原件按 type、checksum、抽取结构、editability
   flag 存储。PDF 只承诺用于事实抽取，不承诺保格式编辑。
