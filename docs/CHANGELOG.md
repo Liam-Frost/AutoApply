@@ -291,6 +291,113 @@ Verification: 1332 passed, 1 skipped on `feat/phase-15`; `ruff
 check` clean; alembic upgraded dev DB to revision `a3b9d52e7c41`;
 `codex review` returned no findings on second pass.
 
+### Phase 16: Filter Agent + Explainability
+
+Not a replacement for the deterministic scorer -- an explainability
+layer on top, plus a borderline-band edge-case agent. The hard rules
+stay binary pass/fail (visa, US auth, experience, education,
+employment type, spam). The agent only fires when the deterministic
+score lands in the genuinely-ambiguous middle, and even then it can
+only flag the job for human review -- it never overrides hard rules
+and it never auto-submits.
+
+- **16.1 `RuleVerdict` schema evolution** -- `RuleResult` grows
+  `rule_id` (machine-readable, defaults to `rule_name` when omitted
+  so old call sites still emit something useful), `verdict`
+  (`"pass"` / `"fail"` / `"warn"` -- hard rules only emit pass/fail;
+  `"warn"` reserved for 16.2 agent commentary), and `evidence_excerpt`
+  (a bounded JD snippet, ~200 chars with ~80 chars of context on each
+  side of the trigger phrase, whitespace collapsed, ellipsis on
+  truncation, or a structured marker like `"employment_type=fulltime"`
+  when the rule fires on a struct field rather than text, or `None`
+  when no JD evidence applies). Each rule has curated regex patterns
+  that prefer specific phrases (`"no visa sponsorship"`, `"5+ years
+  of experience"`, `"PhD"`) and fall back to broader matches.
+  `ScoreBreakdown` gains `job_snapshot_id` (Phase 13 binding) and
+  `disqualify_results: list[RuleResult]` alongside the legacy
+  `disqualify_reasons: list[str]`. `score_job(job, ctx,
+  job_snapshot_id=...)` + `score_jobs(snapshot_ids={...})`. Both
+  `RuleResult` and `ScoreBreakdown` gain `to_dict()` so the trace
+  store + 16.3 popover payload + Phase 14 task audit row share one
+  wire shape. The aggregate `RuleVerdict.fail_reasons: list[str]`
+  is preserved unchanged so existing tests pass without modification.
+  +26 tests. (commit `203becb`)
+
+- **16.2 Edge-case agent + `score_breakdown` tool** --
+  `src/agent/tools/score_breakdown.py` is bound to one
+  `ScoreBreakdown` at construction time (audit binding matches
+  `jd_lookup` from 15.6); paths `""` (summary with `rule_ids` +
+  `fail_rule_ids` + `n_fail` counters), scalar (`final_score` /
+  `skill_overlap` / ...), `rules` (list), `rules.<rule_id>` (one).
+  Unknown paths return helpful observations with `is_error=False` so
+  the agent self-corrects. `src/matching/edge_case_agent.py` ships
+  `EdgeCaseAgent` -- fires only when `0.4 <= final_score <= 0.6`
+  AND the job isn't hard-rule disqualified. Returns
+  `EdgeCaseDecision` with one of four `kind` values: `not_invoked`
+  (out-of-band / disqualified / `use_agent=False` / no `llm_fn`),
+  `agent_ok` (parsed JSON), `agent_error` (`llm_fn` raised),
+  `agent_malformed` (JSON missing / wrong shape / verdict not in
+  `{surface, reject, abstain}`). Confidence clamped to `[0, 1]`.
+  Trailing-JSON-after-thinking-text parsing supported. Hard rules
+  NEVER overridden -- the agent's scope is score-band ambiguity
+  only. D023: orchestrator is sync; Phase 17's `nightly_run` task
+  body will wrap `run()` inside `AutoApplyTask.call_agent`. +27
+  tests. (commit `bbc13b9`)
+
+- **16.3 "Why was this filtered?" UI** --
+  `src/application/matching.py` adds `explain_job()` that strips
+  `serialize_job()` flat fields before coercing into `RawJob`,
+  threads `raw_data.job_snapshot_id` into the breakdown when
+  present, returns `{ok, score_breakdown, warnings}`.
+  `POST /api/matching/explain` route is the thin wrapper.
+  `_score_jobs` + `_select_batch_jobs` now stash
+  `ScoreBreakdown.to_dict()` into `job.raw_data['score_breakdown']`
+  so the popover renders inline without a round-trip.
+  `frontend/src/views/JobsView.vue` adds an Info chip-button next
+  to the existing "Review" badge on disqualified job cards; the
+  Dialog popover renders `final_score` chip, `job_snapshot_id` chip
+  (truncated to 8 chars), per-rule cards with `rule_name` / verdict
+  chip / reason / `evidence_excerpt` block; falls back to
+  `api.matchingExplain(job)` when the inline breakdown is absent
+  (legacy cached results). `frontend/src/lib/api.js` gains
+  `matchingExplain(job)`. +10 tests including a UI-contract pin
+  that asserts every key the Vue template reads is present in
+  `ScoreBreakdown.to_dict()`. (commit `c57d108`)
+
+- **16.4 `filter_borderline` eval suite** -- 10 JSON fixtures
+  covering the full decision matrix: high-skill + low-keyword
+  surface (false negative driven by short JD); borderline-but-
+  wrong-role reject (Marketing Analyst with incidental shared
+  keyword); quality-multiplier-drag surface (decent components
+  dragged into band by 0.5 multiplier); hard-rule disqualified
+  short-circuit (verifies agent never overrides hard rules even
+  when the stubbed `llm_output` says "surface"); below-band
+  short-circuit; above-band short-circuit as surface; malformed
+  output fall-back; `llm_fn` raises fall-back; abstain on thin
+  signal; invalid verdict literal fall-back. `_filter_borderline_runner`
+  in `src/agent/eval/runner.py` builds a `ScoreBreakdown` from the
+  fixture's `breakdown` dict (with optional `rules` list of
+  `RuleResult`-shaped entries), instantiates `EdgeCaseAgent` with a
+  stub `llm_fn` (returns fixture's `llm_output` verbatim; raises on
+  `__raise__` sentinel; stays `None` when omitted), emits the
+  decision as a JSON envelope so the existing `json_field_equals` /
+  `json_field_contains` scorers can assert against it. The plan's
+  "agent decision matches human >= 70%" bar is a Phase 17 concern
+  (real LLM, real cost budget); this suite is the deterministic
+  offline harness it will measure against. +4 tests including a
+  coverage assertion that the 10 fixtures collectively touch every
+  `EdgeCaseDecisionKind` AND every `EdgeCaseVerdict`. (commit
+  `9198a3b`)
+
+- **codex review fixes** (one round, P2): removed 33 committed
+  runtime trace artifacts under `data/agent_traces/` that the
+  existing `TraceStore` + `/api/agent/traces` viewer was serving as
+  if they were real local history on fresh checkouts. Path now in
+  `.gitignore`. (commit `5702da7`)
+
+Verification: 1398 passed, 1 skipped on `feat/phase-16`;
+`ruff check` clean; frontend build clean (vite 6.00s, 126kB gzip JS).
+
 ### Phase 13: Job Index & Freshness Engine
 
 Replaces the file-backed ``src/intake/search_cache.py`` with a proper

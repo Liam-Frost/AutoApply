@@ -569,7 +569,32 @@ Phase 14 (background material tasks).
 - **15.10** HITL gate fires on bullet/story-bank mutation or persistent
   template-adapter creation, not on ordinary generation.
 
-### Phase 16: Filter Agent + Explainability (~1.5 weeks)
+### Phase 16: Filter Agent + Explainability (~1.5 weeks) — **Complete**
+
+All 4 sub-phases shipped on `feat/phase-16` (commits `203becb` →
+`9198a3b`) + one codex-review P2 fix (`5702da7`). Verification
+baseline: 1398 passed / 1 skipped; `ruff check` clean; frontend
+build clean.
+
+Implementation highlights:
+
+* `src/matching/rules.py` -- structured `RuleResult` fields with
+  bounded JD excerpt extraction per hard rule
+* `src/matching/scorer.py` -- `ScoreBreakdown.job_snapshot_id` +
+  `disqualify_results` + `to_dict()`
+* `src/agent/tools/score_breakdown.py` -- read-only dotted-path
+  tool bound to one breakdown
+* `src/matching/edge_case_agent.py` -- fires only on
+  `0.4 <= score <= 0.6` with fail-closed fallback ladder; never
+  overrides hard rules
+* `src/application/matching.py` + `POST /api/matching/explain` --
+  on-demand re-score endpoint for the popover
+* `frontend/src/views/JobsView.vue` -- "Why was this filtered?"
+  Dialog popover on every disqualified job card
+* `tests/agent_evals/fixtures/filter_borderline/` -- 10 fixtures
+  covering the full decision matrix
+
+(Original plan retained below for the design rationale.)
 Not a replacement for the deterministic filter — an explainability
 layer + agent invocation for borderline jobs only.
 - **16.1** **`RuleVerdict` schema evolution** (this is a schema change, not
