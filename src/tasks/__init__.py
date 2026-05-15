@@ -26,6 +26,7 @@ from __future__ import annotations
 # handlers are always wired.
 from src.tasks import audit  # noqa: F401 -- side-effect import for signal registration
 from src.tasks import beat as _beat
+from src.tasks import trace as _trace  # noqa: F401 -- Phase 14.9 trace signal handlers
 from src.tasks.app import celery_app
 
 # Phase 14.5: install the Beat schedule + redbeat scheduler at import
