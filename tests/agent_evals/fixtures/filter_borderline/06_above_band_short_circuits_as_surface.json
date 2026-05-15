@@ -1,0 +1,23 @@
+{
+  "id": "06_above_band_short_circuits_as_surface",
+  "description": "Phase 16.4 -- final_score 0.75 is above the band; agent doesn't fire, verdict is surface (already-good match retained).",
+  "input": {
+    "breakdown": {
+      "job_id": "j-high-1",
+      "company": "Z",
+      "title": "Backend Eng Intern",
+      "final_score": 0.75,
+      "skill_overlap": 0.85,
+      "keyword_similarity": 0.7,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-06"
+    },
+    "llm_output": "{\"verdict\": \"reject\", \"confidence\": 1.0, \"rationale\": \"would reject if invoked\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "not_invoked"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "surface"}
+  ]
+}

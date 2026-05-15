@@ -487,7 +487,36 @@ bounded 决策"的原则保留。
 - **15.10** HITL gate 只在 agent 改 bullet / story bank 或持久化 template adapter
   时触发，不在普通生成时触发。
 
-### Phase 16: Filter Agent + 可解释性（~1.5 周）
+### Phase 16: Filter Agent + 可解释性（~1.5 周） —— **已完成**
+
+4 个子阶段全部在 `feat/phase-16` 分支上线（commits `203becb` →
+`9198a3b`）+ 一轮 codex review P2 修复（`5702da7`）。验证基线：
+1398 passed / 1 skipped；`ruff check` 干净；前端 build 干净。
+
+实现 highlights：
+
+* `src/matching/rules.py` —— `RuleResult` 加入 `rule_id` / `verdict` /
+  `evidence_excerpt`；每个 hard rule 都从 JD 抽取一段有界
+  excerpt（~200 chars，trigger phrase 两侧各 ~80 chars 上下文，
+  whitespace 折叠，超长加 ellipsis）
+* `src/matching/scorer.py` —— `ScoreBreakdown.job_snapshot_id` +
+  `disqualify_results` + `to_dict()`
+* `src/agent/tools/score_breakdown.py` —— 只读 dotted-path tool，
+  在 agent 实例化时绑定到单个 breakdown
+* `src/matching/edge_case_agent.py` —— 只在 `0.4 <= score <= 0.6`
+  且非 hard-rule 拒绝时触发；失败一律 fail-closed 走 fallback
+  ladder（agent_error / agent_malformed / not_invoked）；
+  **永远不会覆盖 hard rules**
+* `src/application/matching.py` + `POST /api/matching/explain` ——
+  按需重新打分接口，供 popover 调用
+* `frontend/src/views/JobsView.vue` —— 每个被过滤掉的 job 卡片上
+  加 Info 按钮 + Dialog popover（显示 rule 名、verdict chip、
+  reason、evidence_excerpt、snapshot id）
+* `tests/agent_evals/fixtures/filter_borderline/` —— 10 个 fixture
+  覆盖完整决策矩阵（surface / reject / abstain × agent_ok /
+  agent_malformed / agent_error / not_invoked）
+
+（原 plan 保留在下方作为设计说明。）
 不替换确定性 filter —— 在其之上加可解释层 + 仅对边界岗位调用 agent。
 - **16.1** **`RuleVerdict` 数据结构演进**（这是 schema 改动，不是单纯"加一层"）。
   现状：`src/matching/scorer.py` 的 `ScoreBreakdown.disqualify_reasons` 只是

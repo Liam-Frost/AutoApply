@@ -1,0 +1,23 @@
+{
+  "id": "09_abstain_on_thin_signal",
+  "description": "Phase 16.4 -- agent reports abstain (low confidence + thin signal). Recorded for human auditing; not a third action upstream.",
+  "input": {
+    "breakdown": {
+      "job_id": "j-abstain-1",
+      "company": "MysteryCo",
+      "title": "Generalist Intern",
+      "final_score": 0.55,
+      "skill_overlap": 0.5,
+      "keyword_similarity": 0.55,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-09"
+    },
+    "llm_output": "{\"verdict\": \"abstain\", \"confidence\": 0.25, \"rationale\": \"JD too vague; cannot decide either way\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_ok"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "abstain"}
+  ]
+}

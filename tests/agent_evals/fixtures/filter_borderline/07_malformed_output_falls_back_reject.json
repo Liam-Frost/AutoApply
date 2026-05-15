@@ -1,0 +1,23 @@
+{
+  "id": "07_malformed_output_falls_back_reject",
+  "description": "Phase 16.4 -- agent returns prose with no JSON; orchestrator falls back to kind='agent_malformed' + verdict='reject' (fail-closed).",
+  "input": {
+    "breakdown": {
+      "job_id": "j-malformed-1",
+      "company": "X",
+      "title": "Y",
+      "final_score": 0.5,
+      "skill_overlap": 0.5,
+      "keyword_similarity": 0.5,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-07"
+    },
+    "llm_output": "this is just prose, no JSON at all"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_malformed"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "reject"}
+  ]
+}

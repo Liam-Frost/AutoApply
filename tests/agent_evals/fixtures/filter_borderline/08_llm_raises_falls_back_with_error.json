@@ -1,0 +1,24 @@
+{
+  "id": "08_llm_raises_falls_back_with_error",
+  "description": "Phase 16.4 -- llm_fn raises; orchestrator falls back to kind='agent_error', records the error string, defaults verdict='reject'.",
+  "input": {
+    "breakdown": {
+      "job_id": "j-error-1",
+      "company": "X",
+      "title": "Y",
+      "final_score": 0.5,
+      "skill_overlap": 0.5,
+      "keyword_similarity": 0.5,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-08"
+    },
+    "llm_output": "__raise__"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_error"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "reject"},
+    {"type": "json_field_contains", "path": "agent_error", "needle": "eval-injected"}
+  ]
+}

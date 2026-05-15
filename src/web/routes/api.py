@@ -50,6 +50,7 @@ from src.application.jobs import (
 from src.application.jobs import (
     validate_material_template as validate_material_template_usecase,
 )
+from src.application.matching import explain_job as explain_job_usecase
 from src.application.profile import (
     activate_profile_data,
     create_empty_profile,
@@ -186,6 +187,30 @@ class ProfileCreatePayload(BaseModel):
 
 class ProfileRenamePayload(BaseModel):
     new_profile_id: str
+
+
+class MatchingExplainPayload(BaseModel):
+    """Payload for ``POST /api/matching/explain``.
+
+    The frontend sends the same ``serialize_job()`` shape it already has
+    in memory; the route re-runs scoring server-side against the active
+    profile and returns the structured ``ScoreBreakdown`` for the
+    "Why was this filtered?" popover (Phase 16.3).
+    """
+
+    job: dict
+
+
+@router.post("/matching/explain")
+async def matching_explain(payload: MatchingExplainPayload) -> dict:
+    """Phase 16.3 explainability route.
+
+    Returns ``{ok, score_breakdown, warnings}``. The route does NOT
+    fetch from DB -- the frontend already has the job dict from a
+    prior search; we re-score on demand so the popover stays accurate
+    even when the user re-runs after a profile edit.
+    """
+    return explain_job_usecase(payload.job)
 
 
 @router.get("/dashboard")

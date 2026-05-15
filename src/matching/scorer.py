@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intake.schema import RawJob
-from src.matching.rules import ApplicantContext, RuleVerdict, check_rules
+from src.matching.rules import ApplicantContext, RuleResult, RuleVerdict, check_rules
 from src.matching.semantic import (
     build_applicant_text,
     collect_applicant_skills,
@@ -44,7 +44,20 @@ DEFAULT_WEIGHTS = {
 
 @dataclass
 class ScoreBreakdown:
-    """Detailed scoring breakdown for a single job."""
+    """Detailed scoring breakdown for a single job.
+
+    Phase 16.1: ``job_snapshot_id`` pins the breakdown to a specific
+    ``JobSnapshot`` row (Phase 13). The "Why was this filtered?"
+    UI (16.3) and the edge-case agent (16.2) both rely on this so the
+    audit trail is reproducible -- a rescore against a refreshed JD
+    that no longer says "no visa sponsorship" should not invalidate
+    the original explanation.
+
+    ``disqualify_results`` (Phase 16.1) surfaces the structured
+    per-rule failures (``rule_id`` / ``verdict`` / ``evidence_excerpt``).
+    ``disqualify_reasons`` is preserved as a plain ``list[str]`` so
+    existing CLI/log callers keep working.
+    """
 
     job_id: str
     company: str
@@ -57,6 +70,26 @@ class ScoreBreakdown:
     rule_verdict: RuleVerdict | None = None
     disqualified: bool = False
     disqualify_reasons: list[str] = field(default_factory=list)
+    disqualify_results: list[RuleResult] = field(default_factory=list)
+    job_snapshot_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for trace persistence + UI payloads (Phase 16.1)."""
+        return {
+            "job_id": self.job_id,
+            "job_snapshot_id": self.job_snapshot_id,
+            "company": self.company,
+            "title": self.title,
+            "final_score": self.final_score,
+            "skill_overlap": self.skill_overlap,
+            "keyword_similarity": self.keyword_similarity,
+            "rule_bonus": self.rule_bonus,
+            "quality_multiplier": self.quality_multiplier,
+            "disqualified": self.disqualified,
+            "disqualify_reasons": list(self.disqualify_reasons),
+            "disqualify_results": [r.to_dict() for r in self.disqualify_results],
+            "rule_verdict": self.rule_verdict.to_dict() if self.rule_verdict else None,
+        }
 
 
 @dataclass
@@ -91,8 +124,20 @@ def build_scoring_context(
     )
 
 
-def score_job(job: RawJob, ctx: ScoringContext) -> ScoreBreakdown:
+def score_job(
+    job: RawJob,
+    ctx: ScoringContext,
+    job_snapshot_id: str | None = None,
+) -> ScoreBreakdown:
     """Score a single job against the applicant profile.
+
+    Args:
+        job: The job posting to score.
+        ctx: Pre-computed scoring context.
+        job_snapshot_id: Optional Phase 13 ``JobSnapshot.id`` to pin the
+            breakdown to. When provided, the resulting breakdown can be
+            re-displayed weeks later even if the underlying JD changed
+            (the explanation reflects the snapshot, not the live JD).
 
     Returns a ScoreBreakdown with the final score and all component scores.
     """
@@ -100,6 +145,7 @@ def score_job(job: RawJob, ctx: ScoringContext) -> ScoreBreakdown:
         job_id=str(job.id),
         company=job.company,
         title=job.title,
+        job_snapshot_id=job_snapshot_id,
     )
 
     # 1. Hard rule check
@@ -109,6 +155,7 @@ def score_job(job: RawJob, ctx: ScoringContext) -> ScoreBreakdown:
     if not verdict.passed:
         breakdown.disqualified = True
         breakdown.disqualify_reasons = verdict.fail_reasons
+        breakdown.disqualify_results = verdict.fail_results
         breakdown.final_score = 0.0
         return breakdown
 
@@ -141,13 +188,22 @@ def score_job(job: RawJob, ctx: ScoringContext) -> ScoreBreakdown:
 def score_jobs(
     jobs: list[RawJob],
     ctx: ScoringContext,
+    snapshot_ids: dict[str, str] | None = None,
 ) -> list[ScoreBreakdown]:
     """Score and rank a batch of jobs.
+
+    Args:
+        jobs: jobs to score.
+        ctx: pre-computed scoring context.
+        snapshot_ids: optional mapping of ``str(job.id) -> JobSnapshot.id``
+            so each breakdown can record which JD version it scored. Jobs
+            without an entry get ``job_snapshot_id=None``.
 
     Returns list sorted by final_score descending. Disqualified jobs are
     included (at the bottom with score 0.0) for audit trail.
     """
-    results = [score_job(job, ctx) for job in jobs]
+    snapshot_ids = snapshot_ids or {}
+    results = [score_job(job, ctx, snapshot_ids.get(str(job.id))) for job in jobs]
     results.sort(key=lambda s: s.final_score, reverse=True)
 
     qualified = sum(1 for r in results if not r.disqualified)

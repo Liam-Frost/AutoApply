@@ -1,0 +1,26 @@
+{
+  "id": "04_disqualified_hard_rule_short_circuits",
+  "description": "Phase 16.4 -- a hard-rule rejection (no visa sponsorship) sits inside the score band, but the agent must NEVER override hard rules; short-circuit to kind='not_invoked' with verdict='reject'. The llm_output here would be 'surface' if invoked -- the test pins the short-circuit.",
+  "input": {
+    "breakdown": {
+      "job_id": "j-disqual-1",
+      "company": "BigCorp",
+      "title": "SWE Intern",
+      "final_score": 0.5,
+      "skill_overlap": 0.8,
+      "keyword_similarity": 0.65,
+      "rule_bonus": 0.0,
+      "quality_multiplier": 1.0,
+      "disqualified": true,
+      "job_snapshot_id": "snap-04",
+      "rules": [
+        {"rule_id": "work_authorization", "passed": false, "reason": "Job offers no visa sponsorship", "evidence_excerpt": "does not offer visa sponsorship at this time"}
+      ]
+    },
+    "llm_output": "{\"verdict\": \"surface\", \"confidence\": 1.0, \"rationale\": \"strong skill match\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "not_invoked"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "reject"}
+  ]
+}

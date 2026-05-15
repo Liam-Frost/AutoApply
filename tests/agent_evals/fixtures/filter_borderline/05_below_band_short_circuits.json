@@ -1,0 +1,24 @@
+{
+  "id": "05_below_band_short_circuits",
+  "description": "Phase 16.4 -- final_score 0.3 is well below the band; the agent must not fire and the verdict stays reject. Pins the lower-bound guard.",
+  "input": {
+    "breakdown": {
+      "job_id": "j-low-1",
+      "company": "X",
+      "title": "Y",
+      "final_score": 0.3,
+      "skill_overlap": 0.3,
+      "keyword_similarity": 0.3,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-05"
+    },
+    "llm_output": "{\"verdict\": \"surface\", \"confidence\": 1.0, \"rationale\": \"would surface if invoked\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "not_invoked"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "reject"},
+    {"type": "json_field_equals", "path": "is_borderline", "expected": false}
+  ]
+}

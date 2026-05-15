@@ -1,0 +1,23 @@
+{
+  "id": "10_invalid_verdict_value_falls_back",
+  "description": "Phase 16.4 -- well-formed JSON but verdict='maybe' is not in the literal set {surface, reject, abstain}; orchestrator treats this as agent_malformed and falls back to reject.",
+  "input": {
+    "breakdown": {
+      "job_id": "j-malformed-2",
+      "company": "X",
+      "title": "Y",
+      "final_score": 0.5,
+      "skill_overlap": 0.5,
+      "keyword_similarity": 0.5,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-10"
+    },
+    "llm_output": "{\"verdict\": \"maybe\", \"confidence\": 0.6, \"rationale\": \"unsure\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_malformed"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "reject"}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "03_quality_multiplier_drag_should_surface",
+  "description": "Phase 16.4 -- decent skill+keyword scores but a 0.5 quality multiplier (no apply URL + short JD) drags the final score into the borderline band. Human label: surface (the role itself looks good; the JD just has thin metadata).",
+  "input": {
+    "breakdown": {
+      "job_id": "j-surface-2",
+      "company": "StartupX",
+      "title": "SWE Intern",
+      "final_score": 0.5,
+      "skill_overlap": 0.85,
+      "keyword_similarity": 0.7,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 0.5,
+      "disqualified": false,
+      "job_snapshot_id": "snap-03"
+    },
+    "llm_output": "{\"verdict\": \"surface\", \"confidence\": 0.7, \"rationale\": \"quality multiplier is dragging final score; skill+keyword overlap is strong\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_ok"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "surface"}
+  ]
+}

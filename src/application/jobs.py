@@ -1710,6 +1710,11 @@ def _score_jobs(jobs, *, warn_on_missing_profile: bool) -> tuple[bool, list[str]
         if score is not None:
             job.raw_data["match_score"] = score.final_score
             job.raw_data["disqualified"] = score.disqualified
+            # Phase 16.3: stash the structured breakdown alongside the
+            # legacy scalar fields so the "Why was this filtered?"
+            # popover can render rule_id / verdict / reason /
+            # evidence_excerpt without re-scoring round-trip.
+            job.raw_data["score_breakdown"] = score.to_dict()
 
     jobs.sort(key=lambda item: item.raw_data.get("match_score", 0.0), reverse=True)
     return True, []
@@ -1739,6 +1744,8 @@ def _select_batch_jobs(filter_profile: str, top_n: int) -> tuple[list[tuple], li
             continue
         job.raw_data["match_score"] = score.final_score
         job.raw_data["disqualified"] = score.disqualified
+        # Phase 16.3 explainability hook.
+        job.raw_data["score_breakdown"] = score.to_dict()
         if score.disqualified:
             continue
         selected.append((job, score.final_score))

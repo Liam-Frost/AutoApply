@@ -5,12 +5,14 @@ database:
   user: autoapply
   password: ''
 llm:
-  provider: claude-cli
-  primary_provider: claude-cli
-  fallback_provider: codex-cli
+  provider: codex-cli
+  primary_provider: codex-cli
+  fallback_provider: claude-cli
   allow_fallback: true
   timeout: 120
   max_retries: 2
+  fallback_providers:
+  - claude-cli
 documents:
   output_dir: data/output
   template_dir: data/templates
@@ -25,11 +27,7 @@ rate_limit:
   cooldown_on_error: 60
   max_applications_per_hour: 15
 search_cache:
-  enabled: false
+  enabled: true
   ttl_hours: 24
-# Phase 12 L1+L2 cache (LLM and embedding responses). REDIS_URL env
-# var overrides `redis_url` here. Leave `redis_url` unset to use the
-# default `redis://localhost:6379/0` (matches docker-compose).
 cache:
-  # redis_url: redis://localhost:6379/0
   l1_max_entries: 1024
