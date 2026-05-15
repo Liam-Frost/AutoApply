@@ -169,24 +169,57 @@ To add a fixture: drop a JSON file under
 `field_mapping_match` and `no_proposal_for_label` scorers documented
 in `src/agent/eval/scorers.py`.
 
+## Agent + Task Queue Boundary
+
+Phase 14 adds a task queue so nightly runs and material generation do
+not live inside a long web request or one monolithic CLI command. The
+queue is outside the agent harness:
+
+```
+Scheduler / Web / CLI
+        |
+        v
+Postgres task record + Redis queue token
+        |
+        v
+Worker claims one task
+        |
+        v
+Bounded agent run, if that task needs judgment
+        |
+        v
+Worker updates task state + trace + audit
+```
+
+The split is intentional. Workers own scheduling, claim/ack/nack,
+timeouts, retries, heartbeats, and concurrency. Agents own only the
+bounded decision inside one task. An agent result is structured as one
+of: `success`, `failed_retryable`, `failed_terminal`, `needs_human`, or
+`needs_followup_task`.
+
+Agents do not write directly to Redis and do not mutate global task
+state. If an agent needs follow-up work, it calls an allow-listed tool
+that asks the task service to create a child task. If it needs human
+input, the worker parks the task in `waiting_human` and links it to the
+existing HITL gate/review item rather than retrying.
+
 ## What is *not* in scope (yet)
 
 * Multi-step / multi-page agents (we run one snapshot per page).
 * Provider-native tool use protocol (we still use a ReAct JSON
   protocol so both `claude` and `codex` CLIs work, and so the new
   Phase 10 REST adapters get the same loop for free).
-* Cover-letter generation as an agent -- **Phase 15** (the original
-  Phase 10 plan slid down once Phase 10 became the LLM provider
-  abstraction and Phases 11-14 inserted reliability / cache /
-  job-index / scheduler foundations).
+* Resume / cover-letter generation as agents -- **Phase 15** (expanded
+  from the original cover-letter-only plan to include original-resume
+  patching and LaTeX-first generation).
 * Matching / filter agent + explainability -- **Phase 16**.
 * Daily nightly run loop + review queue (the original
-  "multi-agent orchestrator" idea, descoped to a batch + queue
+  "multi-agent orchestrator" idea, descoped to a worker + queue
   pattern) -- **Phase 17**.
 
 See `docs/PROJECT_MANAGEMENT.md` for the full Phase 11-18 roadmap,
 including the cross-cutting infrastructure phases (cache, job index,
-scheduler) that unblock the agent work, and Phase 18 which plants
+task queue / scheduler) that unblock the agent work, and Phase 18 which plants
 multi-tenancy seeds for a future commercial deployment.
 
 ## Reading the code

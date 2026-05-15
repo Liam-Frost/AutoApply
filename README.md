@@ -21,13 +21,13 @@ An AI-powered agent that automates the entire job application process — from j
 - **Smart Filtering**: Three-tier scoring (hard rules + semantic matching + risk filtering) to only target high-fit positions
 - **Applicant Memory**: Structured knowledge base of your education, projects, skills, stories, and Q&A templates
 - **Materials Workspace**: Web workflow for selecting a job/JD, applicant profile, templates, formats, preview, and downloads
-- **Tailored Materials**: DOCX-first resume and cover letter generation from structured IR — no full-text LLM hallucination
+- **Tailored Materials**: Evidence-grounded resume and cover letter generation from structured IR — original editable resumes can be patched; new resumes move toward LaTeX-first template generation
 - **Quick Question Answering**: Auto-answer common application questions with confidence-based routing and human review flags
 - **Form Automation**: Playwright-driven form filling with state machine recovery, screenshots, and human confirmation before submit
-- **Document Pipeline**: Template packages (`template.docx` + manifest/style lock), deterministic rendering, PDF export, validation, and version tracking
+- **Document Pipeline**: Template packages (DOCX today; LaTeX manifest packages planned), deterministic rendering, PDF export, validation, and version tracking
 - **Application Tracking**: Full CRM with analytics on hit rates, platform quality, and resume version effectiveness
 - **Provider-Agnostic LLM Layer**: Plug in OpenAI / Anthropic / Gemini (REST) or Claude CLI / Codex CLI (subprocess) interchangeably. Credentials stored at `0600` with OS-keyring fallback; primary + fallback chain configurable per call site
-- **Agent Mode** (form-filler today, cover-letter & filter next): allow-listed tool registry, bounded ReAct loop, file-backed HITL approval gate, fixture-driven eval harness, per-step cost / latency telemetry
+- **Agent Mode** (form-filler today, resume/cover-letter & filter next): allow-listed tool registry, bounded ReAct loop, file-backed HITL approval gate, fixture-driven eval harness, per-step cost / latency telemetry
 
 ## Architecture
 
@@ -55,7 +55,7 @@ Layer 7: Analytics            — Tracking, statistics & optimization
 | Agent Harness | In-house ReAct loop with allow-listed `ToolRegistry`, file-backed HITL gate, JSON-on-disk trace store, fixture-driven eval runner |
 | Database | PostgreSQL + pgvector |
 | Cache / Lock / Queue | Redis (from Phase 12) — L2 cache, distributed locks, task substrate |
-| Document Processing | python-docx, docx2pdf / LibreOffice |
+| Document Processing | python-docx, LaTeX toolchain (planned), docx2pdf / LibreOffice |
 | Package Manager | uv + npm |
 | Target Platforms | Greenhouse, Lever, Ashby, LinkedIn discovery |
 
@@ -111,20 +111,20 @@ src/
 
 ### Roadmap (Phase 11 → 18)
 
-Re-planned 2026-05-12 (v2). Redis is adopted from Phase 12 as cache / lock / queue substrate; JD caching graduates into a dedicated Job Index & Freshness Engine (Phase 13) with content-hashed snapshots and audit binding from generated materials back to the exact JD version they were built from; a new Phase 18 plants the multi-tenancy seeds for a future commercial deployment. See [DECISIONS.md](docs/DECISIONS.md) D018-D021 for rationale.
+Re-planned 2026-05-14 (v3). Redis is adopted from Phase 12 as cache / lock / lightweight queue substrate; JD caching graduates into a dedicated Job Index & Freshness Engine (Phase 13); Phase 14 now makes background work explicit with a Redis-backed task queue plus Postgres task state; Phase 15 upgrades materials generation to support original-resume patching and LaTeX-first template generation. See [DECISIONS.md](docs/DECISIONS.md) D018-D024 for rationale.
 
 | Phase | Scope | Est. |
 |---|---|---|
 | 11 | Reliability & Cleanup — provider fallback chain, `autoapply migrate`, provider health monitor, docs sync — **Complete** | ~1 week |
 | 12 | Cache Infrastructure (Redis) — `src/cache/` L1 LRU + L2 Redis, distributed lock primitive, LLM + embedding response caching, inspector UI, cost-saved dashboard — **Complete** | ~1.5 weeks |
 | 13 | Job Index & Freshness Engine — `job_postings` / `job_snapshots` / `search_queries` / `search_results` / `refresh_tasks` tables, content-hash versioning, freshness state machine, cache-first search + force-refresh UX, audit binding via `job_snapshot_id` — **Complete** | ~2 weeks |
-| 14 | Scheduled Task System — APScheduler + Postgres jobstore, RefreshTask worker, built-in jobs (`daily_search`, `jd_health_check`, `status_sync`, `cookie_refresh`, `cache_eviction`), multi-instance safe | ~1.5 weeks |
-| 15 | Cover-letter Agent — `jd_lookup` tool, `AgentCoverLetter` orchestrator, snapshot-bound generation, fact-drift guard, 5-fixture eval suite (was originally Phase 10) | ~2 weeks |
+| 14 | Task Queue + Scheduled Work — Redis-backed queue transport, Postgres task state, worker lifecycle, retries/backoff, APScheduler triggers, agent/worker boundary | ~2 weeks |
+| 15 | Resume & Cover Letter Generation v2 — original DOCX/LaTeX patch mode, LaTeX-first template packages with manifests, snapshot-bound resume/cover-letter agents, validation/evals | ~3 weeks |
 | 16 | Filter Agent + Explainability — reason chain in `src/matching/`, edge-case agent for borderline scores, "Why was this filtered?" UI | ~1.5 weeks |
 | 17 | Daily Run Loop + Review Queue — `nightly_run` orchestrator, `/review` kanban, bulk operations, pre-submit freshness gate, morning digest, kill switch | ~2 weeks |
 | 18 | Multi-Tenancy & Auth Hardening — `tenants` / `users` tables, FastAPI auth middleware, Postgres RLS, per-tenant Redis namespace, quotas, audit log | ~2 weeks |
 
-~3 months to v1.0 commercial-ready core. See [PROJECT_MANAGEMENT.md](docs/PROJECT_MANAGEMENT.md) for the full sub-phase breakdown and per-phase verification commands.
+~3-3.5 months to v1.0 commercial-ready core. See [PROJECT_MANAGEMENT.md](docs/PROJECT_MANAGEMENT.md) for the full sub-phase breakdown and per-phase verification commands.
 
 ## CLI Usage
 
@@ -279,8 +279,8 @@ The committed repo includes built frontend assets under `src/web/static/spa`, so
 ## Design Principles
 
 1. **State machine-driven** — Every application is interruptible, resumable, auditable
-2. **Block-based resume** — Select from bullet pool + light rewrite, no full-text LLM hallucination
-3. **DOCX-first rendering** — LLM/content planning produces structured IR; deterministic renderers own final DOCX/PDF output
+2. **Evidence-grounded materials** — Select from profile facts, story bank, and bullet pool; no full-text LLM hallucination
+3. **Two resume paths** — Patch editable originals when preserving style matters; use LaTeX-first template packages for newly generated resumes
 4. **Human-in-the-loop** — Default pause before submit; auto-submit only under validated conditions
 5. **Full audit trail** — Screenshots, DOM snapshots, file versions, QA responses all recorded
 

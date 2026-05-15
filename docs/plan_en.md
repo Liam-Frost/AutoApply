@@ -16,7 +16,7 @@ documents disagree with this one, the source of truth is:
 | User-facing setup | `docs/DEPLOYMENT.md` |
 | This file | Strategy + history + roadmap summary |
 
-Last refreshed: **2026-05-12 (roadmap v2)**.
+Last refreshed: **2026-05-14 (roadmap v3)**.
 
 ---
 
@@ -27,20 +27,24 @@ capability layers: job intake & filtering, applicant memory, resume &
 cover-letter tailoring, quick-question response, document processing,
 form-filling automation, and tracking / analytics.
 
-Commercial ambition has been preserved since the 2026-05-12 v2 re-plan:
-multi-tenancy, Redis-backed cache, distributed locks, per-tenant quotas,
-and Postgres RLS are all in the roadmap, even though no SaaS business
-layer is on the table yet.
+Commercial ambition has been preserved since the 2026-05-12 v2 re-plan
+and sharpened in the 2026-05-14 v3 update: multi-tenancy, Redis-backed
+cache/queue transport, distributed locks, per-tenant quotas, Postgres
+RLS, and a background worker model are all in the roadmap, even though
+no SaaS business layer is on the table yet.
 
 ## 2. Design Principles
 
 1. **State machine-driven.** Every application is a state machine —
    interruptible, resumable, auditable.
-2. **Block-based resume generation.** No full-text LLM rewrite. Select from
-   a tagged bullet pool, optionally apply light lexical rewrite with a
-   fact-drift guard.
-3. **DOCX-first rendering.** LLMs produce structured IR; deterministic
-   renderers own the final DOCX/PDF.
+2. **Evidence-grounded materials.** No full-text LLM rewrite. Agents select
+   from profile facts, story bank, and tagged bullet pools, optionally apply
+   light lexical rewrite, and pass through fact-drift guards.
+3. **Two resume paths.** Patch the user's original editable source when the
+   goal is to preserve their existing style; use LaTeX-first template
+   packages when generating a new resume from scratch. In both paths, LLMs
+   produce structured IR or adapter proposals; deterministic renderers own
+   final files.
 4. **Human-in-the-loop on every submit.** Default pauses before submit;
    `--auto-submit` is an opt-in escape hatch that still passes through the
    gate queue.
@@ -50,8 +54,10 @@ layer is on the table yet.
    was generated against.
 6. **Provider-agnostic LLM.** No subprocess- or REST-specific code outside
    `src/providers/`. Every call site uses `generate_text()`.
-7. **No autonomous agent.** The agent loop is confined: it only sees tools
-   the orchestrator allow-listed, only proposes, never submits.
+7. **Queue-managed automation.** Background tasks own scheduling, retry,
+   idempotency, and worker lifecycle. Agents run inside one bounded task and
+   return structured outcomes; they do not own queue ack/nack or global
+   orchestration.
 
 ## 3. Tech Stack
 
@@ -65,8 +71,8 @@ layer is on the table yet.
 | Agent harness | In-house ReAct loop in `src/agent/` — bounded steps, allow-listed `ToolRegistry`, file-backed HITL gate, JSON-on-disk trace store, fixture-driven eval | See D017 (no LangChain / LangGraph) |
 | Database (source of truth) | PostgreSQL + pgvector + alembic | Vector search for matching; alembic for schema migrations |
 | Cache / lock / queue (Phase 12+) | Redis 7+ | L2 cache, distributed lock primitive (`SET NX PX`), task queue substrate; see D018 |
-| Scheduler (Phase 14+) | APScheduler + Postgres `SQLAlchemyJobStore` + advisory lock | See D021 (not Celery, not SQLite, not OS cron) |
-| Document processing | python-docx + docx2pdf / LibreOffice | DOCX-first; PDF as derived output |
+| Scheduler / task execution (Phase 14+) | APScheduler + Postgres `SQLAlchemyJobStore` + Redis queue transport + worker process | See D021 and D023 (not SQLite, not OS cron; Celery/RQ deferred) |
+| Document processing | python-docx + LaTeX toolchain + docx2pdf / LibreOffice | DOCX patching for original resumes; LaTeX-first for newly generated resumes; PDF as derived output |
 | Config | YAML (`config/settings.yaml`, `config/filters.yaml`, `config/companies.yaml`) + `.env` overrides | Defaults → file → env, with credential URL encoding |
 | Target ATS platforms | Greenhouse / Lever / Ashby; LinkedIn for discovery | Direct-apply for the first three; LinkedIn auth via Playwright persistent context |
 
@@ -317,9 +323,9 @@ baseline (post-Phase-10): **680 passed, 1 skipped** (`pytest -q`),
 
 See `docs/CHANGELOG.md` for the per-sub-phase shipping log.
 
-## 8. Roadmap (Phase 11 → 18) — v2, re-planned 2026-05-12
+## 8. Roadmap (Phase 11 → 18) — v3, re-planned 2026-05-14
 
-The v2 re-plan reflects two corrections to the v1 draft:
+The v2/v3 re-plan reflects four corrections to the v1 draft:
 
 1. **PostgreSQL is the source of truth**, not SQLite. The v1 draft
    said "L2 SQLite cache" and "APScheduler + SQLite jobstore"; both
@@ -327,6 +333,12 @@ The v2 re-plan reflects two corrections to the v1 draft:
    alembic. (See D021.)
 2. **Redis is adopted from Phase 12** as the cache / lock / queue
    substrate, preserving a commercial deployment path. (See D018.)
+3. **Task queues are required for automated runs.** Phase 14 now makes the
+   Redis queue + Postgres task-state + worker boundary explicit instead of
+   treating background work as a scheduler detail. (See D023.)
+4. **Materials generation needs two resume modes.** Phase 15 now covers
+   original-resume patching plus LaTeX-first generation rather than only the
+   cover-letter agent. (See D024.)
 
 The earlier "JD scrape caching" sub-phase has been promoted to a full
 phase (**Phase 13: Job Index & Freshness Engine**) because the
@@ -397,38 +409,57 @@ Job Intelligence Database.
 - **13.8** Migrate legacy `data/cache/linkedin_search/*.json` into
   `search_queries` + `search_results`; remove the file-cache module.
 
-### Phase 14: Scheduled Task System (~1.5 weeks)
-- **14.1** APScheduler + Postgres `SQLAlchemyJobStore` (NOT SQLite,
-  see D021); FastAPI lifespan integration; auto-resume on restart.
-- **14.2** RefreshTask worker — consumes Phase 13 `refresh_tasks`;
-  priority levels `critical / high / normal / low`; per-source
-  concurrency limits.
-- **14.3** Built-in jobs — `daily_search`, `jd_health_check` (drives
-  the Phase 13 state machine), `application_status_sync`,
-  `linkedin_cookie_refresh`, `cache_eviction`.
-- **14.4** CLI — `autoapply schedule list / add / remove / pause /
-  run-now / logs`.
-- **14.5** Web UI `/schedule`.
-- **14.6** Multi-instance safety — Postgres advisory lock per job
-  prevents double-fire across `autoapply web` replicas.
-- **14.7** Trace integration — every scheduled run emits a trace
-  record (reuses Phase 8.3 store).
+### Phase 14: Task Queue + Scheduled Work (~2 weeks)
+- **14.1** Durable task model in Postgres: status, tenant, payload schema,
+  idempotency key, attempts, heartbeat, parent/child links, next-run time.
+- **14.2** Redis-backed queue transport: ready task IDs by priority;
+  workers claim, heartbeat, ack/nack, and requeue abandoned work.
+- **14.3** Worker runtime: `autoapply worker`, per-kind concurrency limits,
+  graceful shutdown, timeout and retry/backoff policy.
+- **14.4** Agent boundary: workers call bounded agents for one task; agents
+  return structured outcomes and can enqueue child work only through an
+  allow-listed tool.
+- **14.5** APScheduler + Postgres `SQLAlchemyJobStore` (NOT SQLite, see
+  D021); scheduled jobs enqueue task records instead of running long work
+  inline.
+- **14.6** CLI: `autoapply schedule ...`, `autoapply tasks ...`, and
+  `autoapply worker --queues ...`.
+- **14.7** Web UI `/schedule` + `/tasks` with queue depth, workers, retries,
+  failure reasons, manual retry/cancel.
+- **14.8** Multi-instance safety via Postgres advisory locks for scheduled
+  triggers and task-claim invariants for workers.
+- **14.9** Trace integration: every task attempt emits a trace and child
+  tasks link back to the parent.
 
-### Phase 15: Cover-letter Agent (~2 weeks)
-The original "Phase 10" plan. Benefits from Phase 12 (LLM caching)
-and Phase 13 (snapshot binding).
-- **15.1** `jd_lookup` tool — reads JD by section from a specific
-  `job_snapshot_id`.
-- **15.2** `AgentCoverLetter` orchestrator — emits cover-letter IR
-  with evidence citations; existing fact-drift checker as post-guard;
-  deterministic fallback on agent failure.
-- **15.3** Pre-generation freshness gate — if
-  `should_refresh(job, "generate_materials")`, enrich first.
-- **15.4** Bind `CoverLetterVersion.job_snapshot_id`.
-- **15.5** Eval suite — 5 fixtures + `fact_drift_score`,
-  `keyword_coverage`, `length_compliance` scorers.
-- **15.6** HITL gate — fires only on bullet / story-bank mutation,
-  not on letter generation itself.
+### Phase 15: Resume & Cover Letter Generation v2 (~3 weeks)
+Benefits from Phase 12 (LLM caching), Phase 13 (snapshot binding), and
+Phase 14 (background material tasks).
+- **15.1** Source-resume model: uploaded originals stored with type, checksum,
+  extracted structure, and editability flag. PDF import feeds fact extraction
+  only; no format-preserving PDF edit promise.
+- **15.2** DOCX patch mode: localized edits to summary, bullets, skills order,
+  and section inclusion while preserving existing styles and layout structures
+  where DOCX permits.
+- **15.3** LaTeX template packages: `template.tex`, assets,
+  `template.manifest.yaml`, sample IR, compile engine, capacity/page rules,
+  and command/field mappings.
+- **15.4** LaTeX-first resume generator: agent emits structured resume IR;
+  deterministic renderer escapes content, maps through the manifest, compiles,
+  and validates page/capacity constraints.
+- **15.5** Materials router: `patch_existing` vs `generate_from_template`,
+  both running as `materials.generate` tasks and binding outputs to
+  `job_snapshot_id`, source/template ID, profile version, and trace ID.
+- **15.6** Shared `jd_lookup` tool for resume and cover-letter agents.
+- **15.7** `AgentCoverLetter` orchestrator emits cover-letter IR with evidence
+  citations; existing fact-drift checker as post-guard; deterministic fallback
+  on agent failure.
+- **15.8** Template adapter assistant: agent may propose a manifest for a new
+  arbitrary LaTeX template, but persistence requires sample compile + user
+  confirmation.
+- **15.9** Eval suite covers DOCX patch fixtures, LaTeX template fixtures, and
+  cover-letter fixtures.
+- **15.10** HITL gate fires on bullet/story-bank mutation or persistent
+  template-adapter creation, not on ordinary generation.
 
 ### Phase 16: Filter Agent + Explainability (~1.5 weeks)
 Not a replacement for the deterministic filter — an explainability
@@ -443,12 +474,13 @@ layer + agent invocation for borderline jobs only.
   decision matches human ≥ 70%.
 
 ### Phase 17: Daily Run Loop + Review Queue (~2 weeks)
-Integration phase. Threads Phase 14 (scheduler) + Phase 13
+Integration phase. Threads Phase 14 (task queue + scheduler) + Phase 13
 (job-index / freshness) + Phase 12 (cache) + Phase 9 / 15 (agents)
 into the "sleep, wake to a review queue" end-to-end flow.
 - **17.1** `nightly_run` orchestrator — search (cache-first, refresh
-  stale) → filter (with 16's explainability) → top-N → form-filler
-  (Phase 9) + cover-letter (Phase 15) → enqueue. **Never auto-submits.**
+  stale) → filter (with 16's explainability) → top-N → enqueue
+  `materials.generate` and `application.prepare`; workers run agents under
+  task-level retry/timeout policy. **Never auto-submits.**
 - **17.2** Review queue model — `review_queue(id, tenant_id, job_id,
   job_snapshot_id, materials_path, status, ...)`; state machine
   `pending → approved → submitted` or `pending → rejected`.
@@ -486,13 +518,13 @@ multiple isolated users.
 | 11 | Reliability & Cleanup | 1w | 1w |
 | 12 | Cache Infrastructure (Redis) | 1.5w | 2.5w |
 | 13 | Job Index & Freshness Engine | 2w | 4.5w |
-| 14 | Scheduled Task System | 1.5w | 6w |
-| 15 | Cover-letter Agent | 2w | 8w |
-| 16 | Filter Agent + Explainability | 1.5w | 9.5w |
-| 17 | Daily Run Loop + Review Queue | 2w | 11.5w |
-| 18 | Multi-Tenancy & Auth Hardening | 2w | 13.5w |
+| 14 | Task Queue + Scheduled Work | 2w | 6.5w |
+| 15 | Resume & Cover Letter Generation v2 | 3w | 9.5w |
+| 16 | Filter Agent + Explainability | 1.5w | 11w |
+| 17 | Daily Run Loop + Review Queue | 2w | 13w |
+| 18 | Multi-Tenancy & Auth Hardening | 2w | 15w |
 
-~3 months to v1.0 commercial-ready core (no SaaS business layer).
+~3-3.5 months to v1.0 commercial-ready core (no SaaS business layer).
 
 ## 9. Cross-cutting Quality Bars
 
@@ -529,8 +561,8 @@ Enforced from Phase 11 onward:
 | 11 | Revoke primary provider mid-run → fallback chain kicks in → eval still passes; `autoapply migrate` cleans legacy state |
 | 12 | Re-run same batch → LLM cache hit-rate > 80%, wall time < 20%, cost < 5%; Redis restart preserves L2 entries |
 | 13 | Second visit to same search condition < 2s (no HTTP); job content change produces a new `job_snapshot`; revoke LinkedIn cookie → cached results still served |
-| 14 | Register `daily_search` `* * * * *` → next tick fires; restart process, jobstore restored; two web replicas do not double-fire |
-| 15 | Cover-letter eval 5/5 pass; ≤ $0.08/letter cache-miss, ≤ $0.02 cache-hit |
+| 14 | Enqueue 100 mixed tasks → workers respect concurrency; kill a worker mid-task → heartbeat expiry requeues once; scheduler tick enqueues instead of blocking |
+| 15 | DOCX patch preserves named styles; three LaTeX templates compile from the same IR; cover-letter eval 5/5 pass; artifacts bind snapshot/source/template/trace IDs |
 | 16 | Any rejected job in JobsView surfaces a reason chain in < 5s; agent cost < $0.50 per 100 jobs |
 | 17 | Schedule nightly run Monday 23:00 → wake Tuesday 08:00 to N pre-tailored applications in review queue, each approvable in < 30s |
 | 18 | Two tenants seeded with overlapping email / LinkedIn cookies → cannot read each other's jobs / snapshots / applications / credentials / Redis keys (verified by direct SQL and direct Redis CLI); quota exhaustion returns 429 |
@@ -544,7 +576,13 @@ Enforced from Phase 11 onward:
 - **LLM cost drift.** Mitigated by the Phase 12 cache + the Phase 11
   fallback chain (cheap models in the fallback slot) + the eval
   $1 / 100 ceiling. Cost telemetry (Phase 9.4) is the early-warning.
-- **Single-instance assumption today.** Phase 14.6 + D018 plant the
+- **Task execution is still synchronous today.** Until Phase 14 lands,
+  long-running search, generation, and apply work can still block CLI/web
+  flows and manual retries remain operationally expensive.
+- **Arbitrary LaTeX is not zero-config.** Phase 15 will accept arbitrary
+  templates only after a manifest/adapter exists and sample compile passes.
+  A fully automatic import may still need user correction.
+- **Single-instance assumption today.** Phase 14 + D018/D023 plant the
   multi-instance work. Phase 18 makes it real. Until then, do not
   run two `autoapply web` processes against the same Postgres /
   Redis — the data layer permits it but the absence of advisory

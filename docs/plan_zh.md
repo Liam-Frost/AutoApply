@@ -14,7 +14,7 @@
 | 用户面向的部署 | `docs/DEPLOYMENT.md` |
 | 本文 | 战略 + 历史 + 路线图汇总 |
 
-最近更新：**2026-05-12（路线图 v2）**。
+最近更新：**2026-05-14（路线图 v3）**。
 
 ---
 
@@ -23,15 +23,19 @@
 构建端到端的求职自动化系统，覆盖七层能力：岗位获取与过滤、申请人记忆、
 简历与求职信定制、快速问题作答、文档处理、表单填写自动化、跟踪与分析。
 
-自 2026-05-12 v2 重规划起保留了商业化野心：多租户、Redis 缓存、分布式锁、
-按租户配额、Postgres RLS 全部已纳入路线图，即使目前还没有 SaaS 业务层规划。
+自 2026-05-12 v2 重规划起保留了商业化野心，并在 2026-05-14 v3 更新中
+进一步明确：多租户、Redis 缓存 / 队列传输、分布式锁、按租户配额、
+Postgres RLS、后台 worker 模型全部已纳入路线图，即使目前还没有 SaaS 业务层规划。
 
 ## 2. 设计原则
 
 1. **状态机驱动。** 每次申请都是一个状态机 —— 可中断、可恢复、可审计。
-2. **块状简历生成。** 不做整篇 LLM 重写。从打标签的 bullet pool 选条目，
-   可选地做轻量级 lexical rewrite，并由 fact-drift guard 兜底。
-3. **DOCX-first 渲染。** LLM 产出结构化 IR；最终 DOCX/PDF 由确定性渲染器负责。
+2. **基于证据的材料生成。** 不做整篇 LLM 重写。Agent 从 profile facts、
+   story bank、带标签的 bullet pool 中选择证据，可选地做轻量级 lexical rewrite，
+   并由 fact-drift guard 兜底。
+3. **两条简历路径。** 需要保留用户原始风格时，patch 用户上传的可编辑源文件；
+   从零生成新简历时，以 LaTeX-first 模板包为主。两条路径都要求 LLM 产出结构化
+   IR 或 adapter proposal；最终文件由确定性 renderer 负责。
 4. **每次提交都人工确认。** 默认在提交前暂停；`--auto-submit` 是可选的逃生口
    且仍要经过 gate queue。
 5. **完整审计轨迹。** 截图、DOM 快照、文件版本、QA 应答全部持久化。
@@ -39,8 +43,9 @@
    是基于哪个 JD 版本生成的。
 6. **LLM provider 抽象。** `src/providers/` 之外没有任何 subprocess- 或 REST-
    专属代码。所有调用点统一走 `generate_text()`。
-7. **不做自主 agent。** Agent loop 是受限的：只能看到 orchestrator 显式允许的
-   工具，只产出 proposal，不直接提交。
+7. **队列管理自动化。** 后台 task 负责调度、重试、幂等和 worker 生命周期。
+   Agent 只在单个有边界的 task 内运行并返回结构化结果，不负责 queue ack/nack
+   或全局编排。
 
 ## 3. 技术栈
 
@@ -54,8 +59,8 @@
 | Agent harness | 自研，位于 `src/agent/` —— bounded ReAct loop、allow-listed `ToolRegistry`、文件后端 HITL gate、JSON 磁盘 trace store、fixture-driven eval | 见 D017（不用 LangChain / LangGraph） |
 | 数据库（权威来源） | PostgreSQL + pgvector + alembic | 匹配用向量检索；alembic 管 schema migration |
 | 缓存 / 锁 / 队列（Phase 12+） | Redis 7+ | L2 缓存、分布式锁原语（`SET NX PX`）、任务队列基础设施；见 D018 |
-| 调度器（Phase 14+） | APScheduler + Postgres `SQLAlchemyJobStore` + advisory lock | 见 D021（不用 Celery、不用 SQLite、不用 OS cron） |
-| 文档处理 | python-docx + docx2pdf / LibreOffice | DOCX-first；PDF 为衍生物 |
+| 调度 / 任务执行（Phase 14+） | APScheduler + Postgres `SQLAlchemyJobStore` + Redis queue transport + worker process | 见 D021 和 D023（不用 SQLite、不用 OS cron；暂缓 Celery/RQ） |
+| 文档处理 | python-docx + LaTeX toolchain + docx2pdf / LibreOffice | 原始简历走 DOCX patch；新生成简历走 LaTeX-first；PDF 为衍生物 |
 | 配置 | YAML（`config/settings.yaml`、`config/filters.yaml`、`config/companies.yaml`）+ `.env` override | 默认 → 文件 → 环境变量；credential URL 编码 |
 | 目标 ATS 平台 | Greenhouse / Lever / Ashby；LinkedIn 用于发现 | 前三家直接 apply；LinkedIn 用 Playwright 持久化上下文做认证 |
 
@@ -287,15 +292,19 @@ platform / company 维度的拆分。CSV export 默认排除 `error_log`。
 
 每个子阶段的发布记录见 `docs/CHANGELOG.md`。
 
-## 8. 路线图（Phase 11 → 18） —— v2，重新规划于 2026-05-12
+## 8. 路线图（Phase 11 → 18） —— v3，重新规划于 2026-05-14
 
-v2 重规划修正了 v1 草案的两个错误：
+v2/v3 重规划修正了 v1 草案的四个问题：
 
 1. **PostgreSQL 是权威来源**，不是 SQLite。v1 草案写过 "L2 SQLite cache" 和
    "APScheduler + SQLite jobstore"，两处都错。本项目从来就跑在 Postgres +
    pgvector + alembic 上。（见 D021。）
 2. **从 Phase 12 起引入 Redis** 作为缓存 / 锁 / 队列基础设施，为商业化部署
    保留通路。（见 D018。）
+3. **自动化夜跑需要任务队列。** Phase 14 明确 Redis queue + Postgres task state +
+   worker 边界，而不是把后台工作藏在 scheduler 细节里。（见 D023。）
+4. **材料生成需要两种简历模式。** Phase 15 现在同时覆盖原始简历 patch 和
+   LaTeX-first 生成，而不只是 Cover-letter Agent。（见 D024。）
 
 原先的 "JD scrape caching" 子阶段被升级为完整阶段（**Phase 13: Job Index &
 Freshness Engine**），因为这个问题本质是内容版本化 + freshness 状态机 +
@@ -351,31 +360,48 @@ JD / 岗位内容缓存放到 Phase 13。
 - **13.8** 把历史 `data/cache/linkedin_search/*.json` 迁到 `search_queries` +
   `search_results`；删掉文件缓存模块。
 
-### Phase 14: 定时任务系统（~1.5 周）
-- **14.1** APScheduler + Postgres `SQLAlchemyJobStore`（不是 SQLite，见 D021）；
-  集成到 FastAPI lifespan；重启自动恢复。
-- **14.2** RefreshTask worker —— 消费 Phase 13 的 `refresh_tasks`；优先级
-  `critical / high / normal / low`；按源做并发限制。
-- **14.3** 内建任务 —— `daily_search`、`jd_health_check`（推动 Phase 13 状态机）、
-  `application_status_sync`、`linkedin_cookie_refresh`、`cache_eviction`。
-- **14.4** CLI —— `autoapply schedule list / add / remove / pause / run-now / logs`。
-- **14.5** Web UI `/schedule`。
-- **14.6** 多实例安全 —— 每个 job 用 Postgres advisory lock，防止两个
-  `autoapply web` 副本同一任务重复触发。
-- **14.7** Trace 集成 —— 每次调度运行写一条 trace（复用 Phase 8.3 store）。
+### Phase 14: 任务队列 + 定时工作（~2 周）
+- **14.1** Postgres 持久化 task model：status、tenant、payload schema、
+  idempotency key、attempts、heartbeat、parent/child links、next-run time。
+- **14.2** Redis-backed queue transport：按优先级存 ready task ID；worker claim、
+  heartbeat、ack/nack，并重新入队 abandoned work。
+- **14.3** Worker runtime：`autoapply worker`、按 task kind 控并发、优雅退出、
+  timeout 和 retry/backoff policy。
+- **14.4** Agent 边界：worker 针对单个 task 调用 bounded agent；agent 只返回
+  结构化结果，如需后续任务只能走 allow-listed enqueue tool。
+- **14.5** APScheduler + Postgres `SQLAlchemyJobStore`（不是 SQLite，见 D021）；
+  scheduled job 只创建 task record，不在线程里做长耗时工作。
+- **14.6** CLI：`autoapply schedule ...`、`autoapply tasks ...`、
+  `autoapply worker --queues ...`。
+- **14.7** Web UI `/schedule` + `/tasks`：queue depth、workers、retries、
+  failure reasons、手动 retry/cancel。
+- **14.8** 多实例安全：scheduler trigger 用 Postgres advisory lock；worker 通过
+  task claim invariant 防止同一个 task 被跑两次。
+- **14.9** Trace 集成：每次 task attempt 写 trace；child task 链回 parent。
 
-### Phase 15: Cover-letter Agent（~2 周）
-原 "Phase 10" 计划。受益于 Phase 12（LLM 缓存）和 Phase 13（snapshot 绑定）。
-- **15.1** `jd_lookup` 工具 —— 按 section 读取某个 `job_snapshot_id` 的 JD。
-- **15.2** `AgentCoverLetter` orchestrator —— 输出带 evidence 引用的求职信 IR；
-  现有 fact-drift checker 作为 post-guard；agent 失败时降级到确定性路径。
-- **15.3** 生成前 freshness gate —— 若 `should_refresh(job,
-  "generate_materials")`，先 enrich。
-- **15.4** 绑定 `CoverLetterVersion.job_snapshot_id`。
-- **15.5** Eval suite —— 5 个 fixture + `fact_drift_score`、`keyword_coverage`、
-  `length_compliance` 三个 scorer。
-- **15.6** HITL gate —— 只在 agent 改 bullet / story bank 时触发，不在
-  生成 letter 本身。
+### Phase 15: Resume & Cover Letter Generation v2（~3 周）
+受益于 Phase 12（LLM 缓存）、Phase 13（snapshot 绑定）和 Phase 14（后台材料任务）。
+- **15.1** Source-resume model：上传原件按 type、checksum、抽取结构、editability
+  flag 存储。PDF 只承诺用于事实抽取，不承诺保格式编辑。
+- **15.2** DOCX patch mode：局部修改 summary、bullets、skills 顺序、section 取舍，
+  尽量保留原有 styles 和 DOCX 允许保留的布局结构。
+- **15.3** LaTeX template packages：`template.tex`、assets、
+  `template.manifest.yaml`、sample IR、compile engine、容量 / 页数规则、
+  command / field mapping。
+- **15.4** LaTeX-first resume generator：agent 产出结构化 resume IR；确定性
+  renderer 负责 escape、按 manifest 映射、编译、校验页数 / 容量。
+- **15.5** Materials router：`patch_existing` vs `generate_from_template`，两者都以
+  `materials.generate` task 运行，并绑定 `job_snapshot_id`、source/template ID、
+  profile version、trace ID。
+- **15.6** 共享 `jd_lookup` 工具，供 resume 和 cover-letter agent 使用。
+- **15.7** `AgentCoverLetter` orchestrator 输出带 evidence 引用的求职信 IR；现有
+  fact-drift checker 作为 post-guard；agent 失败时降级到确定性路径。
+- **15.8** Template adapter assistant：agent 可为任意新 LaTeX 模板提议 manifest，
+  但持久化前必须 sample compile 通过并由用户确认。
+- **15.9** Eval suite 覆盖 DOCX patch fixture、LaTeX template fixture、
+  cover-letter fixture。
+- **15.10** HITL gate 只在 agent 改 bullet / story bank 或持久化 template adapter
+  时触发，不在普通生成时触发。
 
 ### Phase 16: Filter Agent + 可解释性（~1.5 周）
 不替换确定性 filter —— 在其之上加可解释层 + 仅对边界岗位调用 agent。
@@ -387,12 +413,13 @@ JD / 岗位内容缓存放到 Phase 13。
 - **16.4** Eval suite —— 10 个人工标注的边界岗位；agent 决策与人工一致率 ≥ 70%。
 
 ### Phase 17: 夜跑闭环 + Review Queue（~2 周）
-集成阶段。把 Phase 14（调度器）+ Phase 13（job-index / freshness）+
+集成阶段。把 Phase 14（任务队列 + 调度器）+ Phase 13（job-index / freshness）+
 Phase 12（缓存）+ Phase 9 / 15（agent）串成 "睡一觉，醒来看 review queue" 的
 完整流程。
 - **17.1** `nightly_run` orchestrator —— search（cache-first，stale 自动刷新）→
-  filter（带 16 的可解释性）→ top-N → form-filler（Phase 9）+ cover-letter
-  （Phase 15）→ 入队。**永不自动提交。**
+  filter（带 16 的可解释性）→ top-N → 入队 `materials.generate` 和
+  `application.prepare`；worker 在 task 级 retry/timeout policy 下运行 agent。
+  **永不自动提交。**
 - **17.2** Review queue 模型 —— `review_queue(id, tenant_id, job_id,
   job_snapshot_id, materials_path, status, ...)`；状态机
   `pending → approved → submitted` 或 `pending → rejected`。
@@ -423,13 +450,13 @@ Phase 12（缓存）+ Phase 9 / 15（agent）串成 "睡一觉，醒来看 revie
 | 11 | 可靠性 & 收尾 | 1 周 | 1 周 |
 | 12 | 缓存基础设施（Redis） | 1.5 周 | 2.5 周 |
 | 13 | Job Index & Freshness Engine | 2 周 | 4.5 周 |
-| 14 | 定时任务系统 | 1.5 周 | 6 周 |
-| 15 | Cover-letter Agent | 2 周 | 8 周 |
-| 16 | Filter Agent + 可解释性 | 1.5 周 | 9.5 周 |
-| 17 | 夜跑闭环 + Review Queue | 2 周 | 11.5 周 |
-| 18 | 多租户 & Auth 加固 | 2 周 | 13.5 周 |
+| 14 | 任务队列 + 定时工作 | 2 周 | 6.5 周 |
+| 15 | Resume & Cover Letter Generation v2 | 3 周 | 9.5 周 |
+| 16 | Filter Agent + 可解释性 | 1.5 周 | 11 周 |
+| 17 | 夜跑闭环 + Review Queue | 2 周 | 13 周 |
+| 18 | 多租户 & Auth 加固 | 2 周 | 15 周 |
 
-约 3 个月推到 v1.0 商业化就绪核心（不含 SaaS 业务层）。
+约 3-3.5 个月推到 v1.0 商业化就绪核心（不含 SaaS 业务层）。
 
 ## 9. 横切质量基线
 
@@ -464,8 +491,8 @@ Phase 11 起强制执行：
 | 11 | 中途 revoke primary provider → fallback 链生效 → eval 仍通过；`autoapply migrate` 清理遗留状态 |
 | 12 | 同 batch 跑第二次 → LLM cache hit-rate > 80%、wall time < 20%、cost < 5%；Redis 重启后 L2 entry 恢复 |
 | 13 | 同搜索条件二次访问 < 2s（无 HTTP）；岗位内容变了产生新 `job_snapshot`；revoke LinkedIn cookie → 旧缓存仍可展示 |
-| 14 | 注册 `daily_search` `* * * * *` → 下次 tick 触发；重启进程，jobstore 恢复；两个 web 副本不重复触发 |
-| 15 | Cover-letter eval 5/5 通过；cache-miss ≤ $0.08/封，cache-hit ≤ $0.02/封 |
+| 14 | 入队 100 个混合 task → worker 按配置控并发；中途杀 worker → heartbeat 过期后只重入队一次；scheduler tick 只入队不阻塞 |
+| 15 | DOCX patch 保留 named styles；三套 LaTeX 模板可从同一 IR 编译；cover-letter eval 5/5 通过；产物绑定 snapshot/source/template/trace ID |
 | 16 | JobsView 任意被过滤的岗位 5 秒内看到 reason chain；100 个岗位 agent 成本 < $0.50 |
 | 17 | 周一 23:00 调度夜跑 → 周二 08:00 review queue 已有 N 条预生成 application，每条 30 秒内可 approve |
 | 18 | 两个 tenant 设了重叠 email / LinkedIn cookie → 互相读不到对方的 job / snapshot / application / credential / Redis key（直 SQL + 直 Redis CLI 验证）；超配额返回 429 |
@@ -478,7 +505,11 @@ Phase 11 起强制执行：
 - **LLM 成本漂移。** 通过 Phase 12 缓存 + Phase 11 fallback 链（廉价模型作为
   fallback 槽）+ $1 / 100 case 的 eval 上限来缓解。Phase 9.4 的成本遥测是早期
   预警。
-- **当下仍是单实例假设。** Phase 14.6 + D018 铺了多实例工作；Phase 18 才真正
+- **当前任务执行仍偏同步。** Phase 14 落地前，耗时搜索、生成、申请任务仍可能
+  阻塞 CLI/Web 流程，失败后的人工重试成本较高。
+- **任意 LaTeX 不是零配置。** Phase 15 会接收任意模板，但必须先有
+  manifest/adapter 且 sample compile 通过；全自动导入仍可能需要用户修正。
+- **当下仍是单实例假设。** Phase 14 + D018/D023 铺了多实例工作；Phase 18 才真正
   做实。在此之前，**不要**对同一 Postgres / Redis 起两个 `autoapply web` 进程
   —— 数据层允许但没有 advisory lock，会引发重复提交。
 - **Auto-submit 安全性。** `apply` 里有 `--auto-submit`，但仍走 HITL gate。

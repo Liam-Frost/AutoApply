@@ -4,6 +4,20 @@ All notable changes to AutoApply are documented here, organized by Phase.
 
 ## [Unreleased]
 
+### Roadmap Update: Task Queue + Materials Generation v2
+
+- Re-planned Phase 14 from a scheduler-only phase into **Task Queue +
+  Scheduled Work**: Redis is queue transport, Postgres is durable task
+  state, workers own ack/nack/retry/heartbeat/concurrency, and agents
+  run inside one bounded task with structured outcomes.
+- Re-planned Phase 15 from cover-letter-only work into **Resume & Cover
+  Letter Generation v2**: original editable resumes get a patch mode;
+  newly generated resumes become LaTeX-first template packages with
+  manifests/adapters; cover letters stay snapshot-bound and
+  fact-checked.
+- Added architecture decisions D023 and D024 to pin the queue/agent
+  boundary and the materials-generation template contract.
+
 ### Phase 13: Job Index & Freshness Engine
 
 Replaces the file-backed ``src/intake/search_cache.py`` with a proper
@@ -373,17 +387,17 @@ can plug in any of OpenAI / Anthropic / Gemini (REST) or Claude CLI
 planned as "cover-letter agent". It was reordered after Phase 9
 because the LLM-provider abstraction unblocks every subsequent
 agent phase (no point writing a second agent against a hard-coded
-`subprocess.run(['claude', ...])`). The roadmap was re-planned a
-second time on 2026-05-12 (v2) once the project committed to a
-Redis-backed cache substrate and a commercial path: the original
-cover-letter-agent work is now Phase 15; filter-agent is Phase 16;
-daily run loop is Phase 17. Four new cross-cutting / infrastructure
-phases are inserted ahead of agent work: Phase 11 (reliability),
-Phase 12 (cache infrastructure with Redis), Phase 13 (Job Index &
-Freshness Engine), Phase 14 (scheduled task system). Phase 18
-(multi-tenancy & auth hardening) closes the v1 commercial-ready
-core. See `docs/PROJECT_MANAGEMENT.md` for the full sub-phase
-breakdown and `docs/DECISIONS.md` D018-D021 for the rationale.
+`subprocess.run(['claude', ...])`). The roadmap was re-planned again
+on 2026-05-12 (v2) around Redis + the commercial path, then tightened
+on 2026-05-14 (v3) so Phase 14 explicitly owns task queue / worker
+execution and Phase 15 owns resume + cover-letter generation v2. Four
+new cross-cutting / infrastructure phases are inserted ahead of agent
+work: Phase 11 (reliability), Phase 12 (cache infrastructure with
+Redis), Phase 13 (Job Index & Freshness Engine), Phase 14 (task queue
++ scheduled work). Phase 18 (multi-tenancy & auth hardening) closes
+the v1 commercial-ready core. See `docs/PROJECT_MANAGEMENT.md` for
+the full sub-phase breakdown and `docs/DECISIONS.md` D018-D024 for the
+rationale.
 
 Test baseline at Phase 10 close: 669 passed, 1 skipped.
 `ruff check src/ tests/` clean. Frontend rebuilds clean.

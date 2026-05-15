@@ -227,6 +227,7 @@ This log captures key decisions, their rationale, and alternatives considered. E
 
 **Trade-off**: One additional `apscheduler_jobs` table in the Postgres schema. Accepted -- it is small and managed entirely by APScheduler.
 
+**Superseded / extended by D023**: APScheduler remains the trigger store, but long-running work is now executed through the Phase 14 task queue + worker boundary rather than directly inside scheduled jobs.
 
 ---
 
@@ -239,3 +240,37 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Trade-off**: Two compositional concerns get conflated -- "what did this query return today?" (now: the truth) versus "what has this query ever returned?" (now: lost). The latter has no current consumer; if a future feature needs the history (e.g. a "stop showing me jobs I've seen before" filter), it should be added as a dedicated `posting_history` table with its own retention policy, not by leaking stale links into the live search results.
 
 **Enforcement**: Regression test `tests/test_jobs_search.py::test_refresh_prunes_postings_no_longer_in_source` pins the invariant.
+
+---
+
+## D023 — Queue owns execution reliability; agents own bounded decisions (2026-05-14)
+
+**Decision**: Phase 14 introduces an explicit task queue boundary. Redis is the queue transport for ready task IDs; Postgres is the durable source of truth for task status, payload, attempts, idempotency keys, heartbeats, parent/child links, and audit. Workers claim tasks, enforce concurrency/timeout/retry policy, call bounded agents when needed, and ack/nack based on structured agent results.
+
+**Rationale**:
+
+1. **Automated application runs are not web requests.** Search, JD refresh, material generation, LLM calls, browser fill, HITL waits, and status sync are long-running and failure-prone. Keeping them synchronous would cause timeouts and make retries ad hoc.
+2. **Agents should not manage infrastructure concerns.** An agent can decide what to do inside one task, but it should not own global scheduling, queue ack/nack, worker lifecycle, retry/backoff, cross-process locks, or task persistence.
+3. **HITL requires a paused state, not a retry loop.** When an agent returns `needs_human`, the task moves to `waiting_human` and links to the review/gate item. It is resumed by user action, not by an automatic retry.
+4. **Postgres keeps the audit trail durable.** Redis can lose or evict derived queue state; Postgres must be able to reconstruct which tasks existed, who created them, what they attempted, and what they produced.
+
+**Interaction contract**: A worker calls `agent.run(context)` for one bounded task with max steps, timeout, cost limit, and allow-listed tools. The agent returns `success`, `failed_retryable`, `failed_terminal`, `needs_human`, or `needs_followup_task`. Only the worker/task service updates task state. If an agent needs follow-up work, it must use an allow-listed enqueue tool that records a child task and audit event.
+
+**Alternatives considered**: Celery/RQ/Dramatiq were deferred because the project already needs Redis and a custom Postgres audit/task model for HITL, tenant scoping, and trace linking. Kafka/RabbitMQ are overkill until there is a real multi-service event-streaming requirement.
+
+---
+
+## D024 — Materials generation splits into original-source patching and LaTeX-first generation (2026-05-14)
+
+**Decision**: Phase 15 becomes **Resume & Cover Letter Generation v2**. The materials system supports two resume paths: (a) patch an uploaded original resume when the source is editable (`docx` or LaTeX source), preserving the user's style as much as the format allows; (b) generate a new resume through LaTeX-first template packages. Cover letters continue to use structured IR, JD snapshot binding, and fact-drift guards.
+
+**Rationale**:
+
+1. **Users expect their original resume to remain visually theirs.** For uploaded DOCX files, the correct operation is localized patching of summary, bullets, skills order, and section inclusion while preserving paragraph/run styles, tables, margins, and named styles. PDF import can extract facts, but it cannot reliably preserve editable layout.
+2. **LaTeX is the better fully-generated target.** For new resumes, LaTeX gives deterministic layout, cleaner diffs, tighter page control, and better automation than free-form DOCX construction.
+3. **IR is necessary but not sufficient for arbitrary templates.** Resume IR standardizes content. A template manifest/adapter is still required to map IR fields to arbitrary LaTeX commands, argument order, section commands, compile engine, assets, and capacity rules.
+4. **Agents should not freely write final documents.** Agents select evidence and produce structured IR or propose a one-time template adapter. Deterministic renderers escape content, fill templates, compile, validate page count, and report failures.
+
+**Template contract**: A LaTeX template package contains `template.tex`, optional assets, `template.manifest.yaml`, sample IR, compile engine (`pdflatex`, `xelatex`, or `lualatex`), capacity/page rules, and field mappings. Arbitrary LaTeX may be imported, but it is not considered active until a manifest exists and a sample compile passes. The adapter can be agent-assisted, but persistent reuse requires validation and user confirmation.
+
+**Trade-off**: This rejects a zero-config promise for arbitrary LaTeX templates. Accepted because reliable automation needs a contract between structured IR and template-specific commands; without it, the system would be guessing at every generation.
