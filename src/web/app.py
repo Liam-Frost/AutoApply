@@ -70,9 +70,11 @@ def create_app() -> FastAPI:
 
     from src.web.routes.agent import router as agent_router
     from src.web.routes.api import router as api_router
+    from src.web.routes.tasks import router as tasks_router  # Phase 14.8
 
     app.include_router(api_router)
     app.include_router(agent_router)
+    app.include_router(tasks_router)
 
     @app.get("/", include_in_schema=False)
     async def spa_root():

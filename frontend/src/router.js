@@ -7,6 +7,7 @@ import JobsView from "./views/JobsView.vue"
 import MaterialsView from "./views/MaterialsView.vue"
 import ProfileView from "./views/ProfileView.vue"
 import SettingsView from "./views/SettingsView.vue"
+import TasksView from "./views/TasksView.vue"
 import TemplateEditorView from "./views/TemplateEditorView.vue"
 import TemplateLibraryView from "./views/TemplateLibraryView.vue"
 
@@ -34,6 +35,8 @@ const routes = [
     component: CacheSettingsView,
     meta: { label: "Cache" },
   },
+  // Phase 14.8 -- task queue operator surface.
+  { path: "/tasks", component: TasksView, meta: { label: "Tasks" } },
 ]
 
 export default createRouter({
