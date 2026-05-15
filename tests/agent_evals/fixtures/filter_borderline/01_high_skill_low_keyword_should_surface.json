@@ -1,0 +1,31 @@
+{
+  "id": "01_high_skill_low_keyword_should_surface",
+  "description": "Phase 16.4 -- skill_overlap=0.8 but JD is 200 chars so keyword_similarity is dragged to 0.15. Human label: surface (false negative driven by short JD).",
+  "input": {
+    "breakdown": {
+      "job_id": "j-surface-1",
+      "company": "InitechBio",
+      "title": "Backend Python Intern",
+      "final_score": 0.45,
+      "skill_overlap": 0.8,
+      "keyword_similarity": 0.15,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-01",
+      "rules": [
+        {"rule_id": "work_authorization", "passed": true, "reason": "OK"},
+        {"rule_id": "experience", "passed": true, "reason": "OK"},
+        {"rule_id": "education", "passed": true, "reason": "OK"},
+        {"rule_id": "employment_type", "passed": true, "reason": "OK"},
+        {"rule_id": "spam_filter", "passed": true, "reason": "OK"}
+      ]
+    },
+    "llm_output": "Skill overlap is high (0.8); the low keyword similarity reflects a short JD, not a bad match.\n{\"verdict\": \"surface\", \"confidence\": 0.8, \"rationale\": \"high skill overlap; short JD dragged keyword similarity\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_ok"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "surface"},
+    {"type": "json_field_equals", "path": "is_borderline", "expected": true}
+  ]
+}

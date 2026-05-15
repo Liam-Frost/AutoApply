@@ -489,6 +489,118 @@ def _cover_letter_runner(case_input: dict[str, Any]) -> str:
     return _json.dumps(envelope, default=str)
 
 
+def _filter_borderline_runner(case_input: dict[str, Any]) -> str:
+    """Phase 16.4 runner for the borderline edge-case agent suite.
+
+    Fixture shape::
+
+        {
+          "input": {
+            "breakdown": {              # ScoreBreakdown-like dict, see below
+              "final_score": 0.45,
+              "skill_overlap": 0.7,
+              "keyword_similarity": 0.2,
+              "rule_bonus": 1.0,
+              "quality_multiplier": 1.0,
+              "disqualified": false,
+              "rules": [                # optional; each entry becomes a RuleResult
+                {"rule_id": "...", "passed": true,  "reason": "OK"},
+                {"rule_id": "...", "passed": false, "reason": "...",
+                 "evidence_excerpt": "..."}
+              ]
+            },
+            "llm_output": "..." | null  # raw agent string; null => no llm_fn
+                                        # "__raise__" => llm_fn raises
+            "use_agent": true           # optional, defaults true
+          }
+        }
+
+    Runner instantiates :class:`EdgeCaseAgent` with a stub ``llm_fn``
+    that returns the fixture's ``llm_output`` verbatim, runs the
+    agent, and emits the decision as a JSON envelope so the existing
+    ``json_field_equals`` / ``json_field_contains`` scorers (Phase
+    15.9) can assert against it.
+
+    The envelope shape::
+
+        {
+          "kind": "agent_ok" | "agent_malformed" | "agent_error" | "not_invoked",
+          "verdict": "surface" | "reject" | "abstain",
+          "confidence": <float>,
+          "rationale": "...",
+          "final_score": <float>,
+          "is_borderline": <bool>
+        }
+    """
+    import json as _json
+
+    from src.matching.edge_case_agent import EdgeCaseAgent, is_borderline
+    from src.matching.rules import RuleResult, RuleVerdict
+    from src.matching.scorer import ScoreBreakdown
+
+    bd_in = dict(case_input.get("breakdown") or {})
+    rules_in = list(bd_in.get("rules") or [])
+    rules = [
+        RuleResult(
+            rule_id=str(r.get("rule_id") or r.get("rule_name") or "rule"),
+            rule_name=str(r.get("rule_name") or r.get("rule_id") or "rule"),
+            passed=bool(r.get("passed", True)),
+            reason=str(r.get("reason") or ""),
+            verdict=("pass" if r.get("passed", True) else "fail"),
+            evidence_excerpt=r.get("evidence_excerpt"),
+        )
+        for r in rules_in
+    ]
+    disqualified = bool(bd_in.get("disqualified", False))
+    final_score = float(bd_in.get("final_score", 0.5))
+
+    breakdown = ScoreBreakdown(
+        job_id=str(bd_in.get("job_id") or "fixture-job"),
+        company=str(bd_in.get("company") or "FixtureCo"),
+        title=str(bd_in.get("title") or "Borderline Role"),
+        final_score=final_score,
+        skill_overlap=float(bd_in.get("skill_overlap", 0.0)),
+        keyword_similarity=float(bd_in.get("keyword_similarity", 0.0)),
+        rule_bonus=float(bd_in.get("rule_bonus", 0.0 if disqualified else 1.0)),
+        quality_multiplier=float(bd_in.get("quality_multiplier", 1.0)),
+        rule_verdict=RuleVerdict(
+            job_id=str(bd_in.get("job_id") or "fixture-job"),
+            passed=not disqualified,
+            results=rules,
+        ),
+        disqualified=disqualified,
+        disqualify_reasons=[r.reason for r in rules if not r.passed],
+        disqualify_results=[r for r in rules if not r.passed],
+        job_snapshot_id=bd_in.get("job_snapshot_id"),
+    )
+
+    llm_output = case_input.get("llm_output")
+    if llm_output is None:
+        llm_fn = None
+    elif llm_output == "__raise__":
+        def llm_fn(prompt: str, tools: dict[str, Any]) -> str:
+            raise RuntimeError("eval-injected llm failure")
+    else:
+        text = str(llm_output)
+
+        def llm_fn(prompt: str, tools: dict[str, Any]) -> str:  # type: ignore[misc]
+            return text
+
+    agent = EdgeCaseAgent(breakdown, llm_fn=llm_fn)
+    decision = agent.run(use_agent=bool(case_input.get("use_agent", True)))
+
+    envelope = {
+        "kind": decision.kind,
+        "verdict": decision.verdict,
+        "confidence": decision.confidence,
+        "rationale": decision.rationale,
+        "agent_error": decision.agent_error,
+        "final_score": breakdown.final_score,
+        "is_borderline": is_borderline(breakdown.final_score),
+    }
+    return _json.dumps(envelope, default=str)
+
+
 _BUILTIN_SUITES: dict[str, tuple[Path, RunnerFn]] = {
     "agent_smoke": (
         PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "agent_smoke",
@@ -510,6 +622,11 @@ _BUILTIN_SUITES: dict[str, tuple[Path, RunnerFn]] = {
     "cover_letter": (
         PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "cover_letter",
         _cover_letter_runner,
+    ),
+    # Phase 16.4 suite -- borderline filter edge-case agent.
+    "filter_borderline": (
+        PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "filter_borderline",
+        _filter_borderline_runner,
     ),
 }
 

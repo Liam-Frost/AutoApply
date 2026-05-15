@@ -1,0 +1,23 @@
+{
+  "id": "02_borderline_wrong_role_should_reject",
+  "description": "Phase 16.4 -- Marketing Analyst Intern role; applicant skill_overlap is borderline due to shared 'data analysis' keyword but the actual role isn't a fit. Human label: reject.",
+  "input": {
+    "breakdown": {
+      "job_id": "j-reject-1",
+      "company": "MarketingCo",
+      "title": "Marketing Analyst Intern",
+      "final_score": 0.42,
+      "skill_overlap": 0.35,
+      "keyword_similarity": 0.45,
+      "rule_bonus": 1.0,
+      "quality_multiplier": 1.0,
+      "disqualified": false,
+      "job_snapshot_id": "snap-02"
+    },
+    "llm_output": "{\"verdict\": \"reject\", \"confidence\": 0.75, \"rationale\": \"role is marketing, not engineering; shared keywords are incidental\"}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "kind", "expected": "agent_ok"},
+    {"type": "json_field_equals", "path": "verdict", "expected": "reject"}
+  ]
+}
