@@ -204,6 +204,18 @@ def cancel_task(
             status_code=409,
             detail=f"only queued tasks may be cancelled; got {row.status}",
         )
+    # P1 codex fix: revoke the broker message FIRST so a worker
+    # cannot still claim it. ``terminate=False`` is correct here --
+    # we only cancel queued (not running) tasks; ``terminate=True``
+    # would SIGKILL a running task, which is not what the operator
+    # asked for. If the revoke broadcast races a worker that already
+    # picked the message up, the prerun handler's status-guard
+    # (Phase 14.2) refuses to flip ``cancelled`` back to ``running``.
+    if row.celery_task_id:
+        try:
+            celery_app.control.revoke(row.celery_task_id, terminate=False)
+        except Exception:  # noqa: BLE001 -- audit must win even if broker is flaky
+            pass
     row.status = "cancelled"
     session.commit()
     return TaskRowDTO.from_row(row)
@@ -223,6 +235,11 @@ def retry_task(
             status_code=409,
             detail=f"only failed/cancelled tasks may be retried; got {row.status}",
         )
+    # The ``before_task_publish`` audit handler (Phase 14.2) creates a
+    # fresh ``TaskRecord`` for this new attempt because we deliberately
+    # do NOT set ``x-autoapply-audit-ok``. The previous row stays as
+    # historical record; the new dispatch shows up in ``/api/tasks``
+    # under its own row.
     celery_app.send_task(
         row.kind,
         kwargs=row.payload or {},

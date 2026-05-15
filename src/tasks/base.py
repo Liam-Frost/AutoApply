@@ -34,7 +34,11 @@ from typing import Any, Literal
 
 from celery import Task
 
-from src.tasks.audit import find_succeeded_for_idempotency, record_enqueue
+from src.tasks.audit import (
+    AUDIT_OK_HEADER,
+    find_succeeded_for_idempotency,
+    record_enqueue,
+)
 from src.tasks.context import (
     current_tenant_id,
     reset_tenant_id,
@@ -222,6 +226,12 @@ class AutoApplyTask(Task):
         tenant = spec.tenant_id or current_tenant_id()
         headers = dict(spec.headers)
         headers.setdefault(tenant_header_name(), tenant)
+        # Tell the ``before_task_publish`` audit handler (Phase 14.2)
+        # to skip this dispatch -- we are about to write the audit row
+        # ourselves (with idempotency_key + parent_task_id, which the
+        # publish handler does not see). Without this flag a duplicate
+        # row would land on every enqueue going through this helper.
+        headers[AUDIT_OK_HEADER] = "1"
         # Idempotency short-circuit pre-dispatch: if a successful run
         # already exists, we still write a "replayed" audit row but
         # do not dispatch.

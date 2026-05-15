@@ -106,14 +106,18 @@ def tasks_retry(task_id: str) -> None:
                 err=True,
             )
             raise SystemExit(2)
+        # The ``before_task_publish`` signal handler (Phase 14.2,
+        # codex-review P2 fix) writes a new audit row for this
+        # dispatch because we deliberately do NOT set the
+        # x-autoapply-audit-ok header. The old row stays as-is so the
+        # history is intact; the new attempt is visible in
+        # ``autoapply tasks list``.
         celery_app.send_task(
             row.kind,
             kwargs=row.payload or {},
             queue=row.queue,
             headers={"x-autoapply-tenant": row.tenant_id},
         )
-        # The new dispatch creates its own audit row via signals; the
-        # old row stays as-is so the history is intact.
         click.echo(f"retried {row.id} ({row.kind})")
     finally:
         session.close()
@@ -136,6 +140,15 @@ def tasks_cancel(task_id: str) -> None:
                 err=True,
             )
             raise SystemExit(2)
+        # P1 codex fix: revoke the broker message so a worker cannot
+        # still claim it (see /api/tasks/{id}/cancel for the rationale).
+        if row.celery_task_id:
+            try:
+                from src.tasks import celery_app
+
+                celery_app.control.revoke(row.celery_task_id, terminate=False)
+            except Exception:  # noqa: BLE001
+                pass
         row.status = "cancelled"
         row.updated_at = datetime.now(UTC)
         session.commit()
