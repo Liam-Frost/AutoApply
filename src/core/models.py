@@ -300,6 +300,40 @@ class TaskRecord(Base):
     )
 
 
+class GateRequest(Base):
+    """HITL approval row (Phase 14.4) -- replaces the file-backed gate.
+
+    A row is created when a task returns ``needs_human``; the worker
+    is released immediately. The user's approval / rejection at
+    ``/api/gate/{id}/{approve,reject}`` enqueues a follow-up task
+    that resumes work under the original idempotency key.
+    """
+
+    __tablename__ = "gate_queue"
+    __table_args__ = (
+        Index("ix_gate_queue_tenant_status", "tenant_id", "status", "requested_at"),
+        Index("ix_gate_queue_task", "task_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_gate_queue_task", ondelete="SET NULL"),
+        nullable=True,
+    )
+    kind: Mapped[str] = mapped_column(String(80), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(120))
+    decision: Mapped[str | None] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(Text)
+    ttl_seconds: Mapped[int | None] = mapped_column(Integer)
+
+
 class QABank(Base):
     __tablename__ = "qa_bank"
 
