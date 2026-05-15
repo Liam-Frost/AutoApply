@@ -20,6 +20,11 @@ owns the agent boundary, HITL state, audit trail, and tenant scoping.
 
 from __future__ import annotations
 
+# Importing :mod:`src.tasks.audit` registers the Celery signal handlers
+# that mirror task state into the Postgres ``tasks`` table (Phase 14.2).
+# Workers and the in-process CLI both import :mod:`src.tasks`, so the
+# handlers are always wired.
+from src.tasks import audit  # noqa: F401 -- side-effect import for signal registration
 from src.tasks.app import celery_app
 
 __all__ = ["celery_app"]
