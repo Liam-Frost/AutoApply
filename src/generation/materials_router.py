@@ -307,16 +307,42 @@ def _generate_latex(
     bindings: MaterialsBindings,
 ) -> MaterialsOutcome:
     manifest = template_package.manifest
-    if manifest.latex is None:
-        return MaterialsOutcome(
-            mode="generate_from_template",
-            decision="unsupported",
-            bindings=bindings,
-            failure="LaTeX template package missing `latex` manifest config (Phase 15.3)",
-        )
-
     tex_path = output_dir / "resume.tex"
     pdf_path = output_dir / "resume.pdf"
+
+    if manifest.latex is None:
+        # Codex P2 fix: a LaTeX package created by the legacy upload
+        # path (``create_latex_template_package``) has
+        # ``template_format='latex'`` but no Phase 15.3 ``latex``
+        # block. Fall back to the placeholder-based renderer in
+        # :mod:`src.documents.latex_engine` rather than rejecting it
+        # as "unsupported" -- that renderer's existing
+        # ``{{resume.sections}}`` template path still works.
+        try:
+            tex, pdf = _render_placeholder_latex(
+                template_package, document, tex_path, pdf_path
+            )
+        except ManifestRenderError as exc:
+            return MaterialsOutcome(
+                mode="generate_from_template",
+                decision="generate_latex",
+                bindings=bindings,
+                failure=f"placeholder latex render/compile failed: {exc}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return MaterialsOutcome(
+                mode="generate_from_template",
+                decision="generate_latex",
+                bindings=bindings,
+                failure=f"placeholder latex render/compile failed: {exc!r}",
+            )
+        return MaterialsOutcome(
+            mode="generate_from_template",
+            decision="generate_latex",
+            output_paths=[tex, pdf],
+            bindings=bindings,
+        )
+
     try:
         tex, pdf = render_and_compile(
             template_package.template_path,
@@ -340,6 +366,30 @@ def _generate_latex(
         output_paths=[tex, pdf],
         bindings=bindings,
     )
+
+
+def _render_placeholder_latex(
+    template_package: TemplatePackage,
+    document: ResumeDocument,
+    tex_output: Path,
+    pdf_output: Path,
+) -> tuple[Path, Path]:
+    """Codex P2 fallback path for legacy latex templates without a
+    Phase 15.3 ``latex`` manifest block. Delegates to the original
+    ``latex_engine`` helpers."""
+    from src.documents.latex_engine import (
+        build_resume_tex_from_ir,
+        compile_latex_to_pdf,
+    )
+
+    tex = build_resume_tex_from_ir(
+        template_package.template_path,
+        document,
+        tex_output,
+        manifest=template_package.manifest,
+    )
+    pdf = compile_latex_to_pdf(tex, pdf_output)
+    return tex, pdf
 
 
 def _generate_docx(

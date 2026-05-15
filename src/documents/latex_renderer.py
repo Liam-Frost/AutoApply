@@ -163,13 +163,17 @@ def compile_via_manifest(
         workdir = Path(temp_dir)
         work_tex = workdir / "main.tex"
         shutil.copy2(tex_path, work_tex)
-        # Copy assets next to the rendered .tex.
+        # Copy assets next to the rendered .tex, *preserving any
+        # relative subdirectories the manifest declared*. A template
+        # using ``\includegraphics{images/logo.png}`` would fail if we
+        # flattened ``images/logo.png`` to ``logo.png`` (codex P2).
         for asset_rel in manifest.latex.assets:
             cleaned = (asset_rel or "").strip().replace("\\", "/").lstrip("/")
             src = (package_dir / cleaned).resolve()
             if not src.exists():
                 continue  # validation already flagged this; soft-fail compile
-            dst = workdir / src.name
+            dst = workdir / cleaned
+            dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
 
         result = subprocess.run(

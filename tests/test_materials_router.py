@@ -329,34 +329,53 @@ def test_generate_from_template_latex_propagates_render_error(
     assert outcome.output_paths == []
 
 
-def test_generate_from_template_latex_without_manifest_latex_block(tmp_path: Path) -> None:
-    pkg_dir = tmp_path / "bad_pkg"
+def test_generate_from_template_latex_without_manifest_latex_block_falls_back_to_placeholder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex P2 fix: a LaTeX package with no Phase 15.3 ``latex``
+    block falls back to the placeholder-based engine instead of
+    returning 'unsupported'. We monkey-patch the placeholder helper
+    so the test stays decoupled from a real compiler."""
+    pkg_dir = tmp_path / "legacy_pkg"
     pkg_dir.mkdir()
     template_tex = pkg_dir / "template.tex"
-    template_tex.write_text("{{resume.commands}}", encoding="utf-8")
+    template_tex.write_text(
+        "\\documentclass{article}\\begin{document}{{resume.sections}}\\end{document}",
+        encoding="utf-8",
+    )
     manifest = TemplateManifest(
-        template_id="bad",
+        template_id="legacy",
         document_type="resume",
         template_format="latex",
         renderer="latex",
-        # no latex= block
+        # no latex= block -- legacy shape
     )
     pkg = TemplatePackage(
-        template_id="bad",
+        template_id="legacy",
         document_type="resume",
         directory=pkg_dir,
         template_path=template_tex,
         manifest_path=pkg_dir / "manifest.json",
         manifest=manifest,
     )
+
+    monkeypatch.setattr(
+        "src.generation.materials_router._render_placeholder_latex",
+        lambda tp, doc, tex_out, pdf_out: (
+            (tex_out.write_text("ok", encoding="utf-8") or tex_out),
+            (pdf_out.write_bytes(b"%PDF-1.4\n") or pdf_out),
+        ),
+    )
+
     outcome = generate_materials(
         document=_ir(),
         mode="generate_from_template",
         output_dir=tmp_path / "out",
         template_package=pkg,
     )
-    assert outcome.decision == "unsupported"
-    assert outcome.failure is not None and "Phase 15.3" in outcome.failure
+    assert outcome.decision == "generate_latex"
+    assert outcome.failure is None
+    assert len(outcome.output_paths) == 2
 
 
 # ---- Bindings carry through ------------------------------------------

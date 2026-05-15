@@ -265,7 +265,11 @@ def _extract_pdf_headings(path: Path) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         return {"format": "pdf", "headings": [], "extraction_supported": False}
     headings: list[str] = []
+    page_count = 0
     with pymupdf.open(str(path)) as doc:
+        # Capture page_count INSIDE the with block -- ``len(doc)`` after
+        # the context manager closes the Document raises (codex P2).
+        page_count = len(doc)
         for page in doc:
             for block in page.get_text("dict").get("blocks", []):
                 for line in block.get("lines", []):
@@ -284,7 +288,7 @@ def _extract_pdf_headings(path: Path) -> dict[str, Any]:
     return {
         "format": "pdf",
         "headings": uniq[:80],
-        "page_count": len(doc) if "doc" in locals() else 0,
+        "page_count": page_count,
         "extraction_supported": True,
     }
 
