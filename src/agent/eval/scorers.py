@@ -211,6 +211,100 @@ def _json_loads_lenient(text: str) -> Any:
     return _json.loads(candidate)
 
 
+def _json_field_equals(output: str, params: dict[str, Any]) -> ExpectationResult:
+    """Phase 15.9: assert ``json.loads(output)[path] == expected``.
+
+    ``path`` is a dotted path supporting integer indices; ``expected``
+    is the comparison value. Useful for asserting eval runners
+    returning structured envelopes like
+    ``{"decision": "agent_ok", "fact_drift": {...}}``.
+    """
+    path = str(params.get("path") or "")
+    expected = params.get("expected")
+    if not path:
+        return ExpectationResult("json_field_equals", False, "missing 'path'")
+    parsed = _json_loads_lenient(output)
+    if parsed is None:
+        return ExpectationResult(
+            "json_field_equals", False, "output is not parseable JSON"
+        )
+    actual = _walk_dotted(parsed, path)
+    if actual is _MISSING:
+        return ExpectationResult(
+            "json_field_equals", False, f"path {path!r} not found in output"
+        )
+    passed = actual == expected
+    detail = (
+        f"{path}={actual!r} == {expected!r}"
+        if passed
+        else f"{path}={actual!r} != expected {expected!r}"
+    )
+    return ExpectationResult("json_field_equals", passed, detail)
+
+
+def _json_field_contains(output: str, params: dict[str, Any]) -> ExpectationResult:
+    """Phase 15.9: assert a substring / element membership inside a
+    nested JSON value.
+
+    For string fields, ``needle`` must be a substring. For list
+    fields, ``needle`` must be a member.
+    """
+    path = str(params.get("path") or "")
+    needle = params.get("needle")
+    if not path or needle is None:
+        return ExpectationResult(
+            "json_field_contains", False, "missing 'path' or 'needle'"
+        )
+    parsed = _json_loads_lenient(output)
+    if parsed is None:
+        return ExpectationResult(
+            "json_field_contains", False, "output is not parseable JSON"
+        )
+    actual = _walk_dotted(parsed, path)
+    if actual is _MISSING:
+        return ExpectationResult(
+            "json_field_contains", False, f"path {path!r} not found in output"
+        )
+    if isinstance(actual, str):
+        passed = str(needle) in actual
+    elif isinstance(actual, list):
+        passed = needle in actual
+    else:
+        return ExpectationResult(
+            "json_field_contains",
+            False,
+            f"path {path!r} is {type(actual).__name__}, not str or list",
+        )
+    return ExpectationResult(
+        "json_field_contains",
+        passed,
+        f"{path}={actual!r}; needle={needle!r}",
+    )
+
+
+_MISSING = object()
+
+
+def _walk_dotted(parsed: Any, path: str) -> Any:
+    cursor: Any = parsed
+    for token in path.split("."):
+        if cursor is None:
+            return _MISSING
+        if token.isdigit() and isinstance(cursor, list):
+            idx = int(token)
+            if 0 <= idx < len(cursor):
+                cursor = cursor[idx]
+                continue
+            return _MISSING
+        if isinstance(cursor, dict):
+            if token not in cursor:
+                return _MISSING
+            cursor = cursor[token]
+            continue
+        return _MISSING
+    return cursor
+
+
 SCORERS: dict[str, Scorer] = {
     "contains_all": _contains_all,
     "contains_any": _contains_any,
@@ -219,6 +313,10 @@ SCORERS: dict[str, Scorer] = {
     "length_between": _length_between,
     "field_mapping_match": _field_mapping_match,
     "no_proposal_for_label": _no_proposal_for_label,
+    # Phase 15.9: structured-output scorers used by the materials /
+    # cover-letter eval suites.
+    "json_field_equals": _json_field_equals,
+    "json_field_contains": _json_field_contains,
 }
 
 

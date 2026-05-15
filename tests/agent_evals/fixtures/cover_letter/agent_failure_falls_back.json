@@ -1,0 +1,18 @@
+{
+  "id": "agent_failure_falls_back",
+  "description": "Phase 15.9 -- an exception inside llm_fn must produce agent_error_fallback with a non-empty agent_error string and a deterministic document.",
+  "input": {
+    "snapshot_title": "Backend Intern",
+    "evidence": ["Reduced API latency by 40%."],
+    "profile": {
+      "identity": {"full_name": "Alice Smith"},
+      "work_experiences": []
+    },
+    "llm_output": "__raise__"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "decision", "expected": "agent_error_fallback"},
+    {"type": "json_field_equals", "path": "has_document", "expected": true},
+    {"type": "json_field_contains", "path": "agent_error", "needle": "eval-injected llm failure"}
+  ]
+}
