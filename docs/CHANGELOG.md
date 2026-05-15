@@ -18,6 +18,176 @@ All notable changes to AutoApply are documented here, organized by Phase.
 - Added architecture decisions D023 and D024 to pin the queue/agent
   boundary and the materials-generation template contract.
 
+### Roadmap v3.1 calibration (2026-05-14)
+
+- **Phase 14 is now Celery 5.x-based** (D025). The originally-planned
+  self-built task model + queue transport + worker runtime is dropped
+  in favor of Celery 5.x + Redis broker + Celery Beat. AutoApply
+  layers a thin AutoApplyTask base class on top for agent boundary +
+  HITL + trace + tenant context. APScheduler is retired (D021 is
+  superseded by D025).
+- **Phase 13.9** (D026) lands a one-shot `tenant_id` retrofit
+  migration on every legacy table before Phase 14 begins so D020's
+  discipline becomes schema-enforced rather than just review-enforced.
+- **HITL gate backend** moves from the single-process file backend in
+  `src/agent/gate/queue.py` to a Postgres `gate_queue` table folded
+  into Phase 14, so Phase 17's review queue does not have to reinvent
+  it.
+- **Phase 15.3 LaTeX scope** clarified — `src/documents/latex_engine.py`
+  already exists, so Phase 15 is "template package spec + manifest +
+  adapter conventions on top of an existing engine," not "build LaTeX
+  from scratch."
+- **Phase 18** plan call-out: 18.2 auth middleware, 18.4 Redis
+  namespace refactor, and 18.7 credential store are honestly net-new
+  construction rather than "activate existing work."
+
+### Phase 13.9: `tenant_id` retrofit migration
+
+Per D026: lands one alembic migration giving every legacy table from
+Phase 11 and earlier a `tenant_id TEXT NOT NULL DEFAULT 'default'`
+column with backfill, so D020's discipline ("every new table from
+Phase 12 onward carries `tenant_id`") becomes a schema-level guarantee
+before Phase 14 begins.
+
+- **Migration `d8a5c2f1e9b3`** adds `tenant_id` to `jobs`,
+  `applications`, `applicant_profile`, `bullet_pool`, `qa_bank` and
+  backfills existing rows. ORM models in `src/core/models.py` add the
+  field; `TENANT_DEFAULT` is moved to module-top for reuse. Existing
+  query paths are intentionally not forced to filter — they keep
+  today's global-read behavior — but every new Phase 14+ code path
+  must thread an explicit tenant context. The "default tenant"
+  fallback persists until Phase 18 auth middleware + RLS take over.
+- 7 new tests in `test_phase_13_9_tenant_id_retrofit.py`: per-table
+  invariants + a `Base.metadata` catch-all that fails if any future
+  table lands without the column + migration-file metadata check.
+- Verification: 1022 passed, 1 skipped on dev (`pytest -q`); `ruff
+  check` clean; `codex review --uncommitted` returned no findings;
+  `alembic upgrade head` moved dev DB to revision `d8a5c2f1e9b3`.
+  (commits `ae46a39` + roadmap docs `0c8ec95`)
+
+### Phase 14: Task Queue + Scheduled Work (Celery 5.x)
+
+Production-grade task execution substrate built on Celery 5.x.
+AutoApply layers an "agent boundary + HITL + trace + tenant context"
+wrapper on top; D023's principle ("queue owns execution reliability;
+agents own bounded decisions") is preserved.
+
+- **14.1 Celery wiring + skeleton** -- `celery_app = Celery(
+  "autoapply", broker=REDIS_URL, backend=REDIS_URL)` with the D025
+  reliability commitments: `task_acks_late=True`,
+  `task_reject_on_worker_lost=True`, `worker_prefetch_multiplier=1`
+  (long-task model — do not prefetch). Four queues (`search`,
+  `materials`, `application`, `maintenance`) with a router that maps
+  task-name prefix → queue; unknown prefixes fall back to
+  `maintenance`. JSON-only serialization. `redbeat_redis_url` +
+  namespace pre-configured for 14.5/14.10. +15 tests. (commit
+  `83de0db`)
+
+- **14.2 Durable `tasks` audit table** -- migration `e1b4f72c8a05`.
+  Postgres is the source of truth; Celery's result backend is
+  transient. Lifecycle signals (`task_prerun` / `task_postrun` /
+  `task_failure` / `task_retry` / `task_revoked`) plumb state into
+  this table; handlers tolerate missing rows and swallow exceptions
+  so an audit bug never poisons a worker. +11 tests. (commit
+  `259c892`)
+
+- **14.3 `AutoApplyTask` base class** + tenant ContextVar in
+  `src/tasks/context.py`. `call_agent(fn, *args, **kwargs)` runs a
+  bounded agent and normalises any return shape into `AgentDispatch`
+  with one of five outcomes (`success` / `failed_retryable` /
+  `failed_terminal` / `needs_human` / `needs_followup_task`).
+  `short_circuit_if_already_succeeded` handles idempotency-key
+  replay. Static `enqueue(celery_task, session, EnqueueSpec)`
+  atomically writes the audit row and dispatches. +17 tests. (commit
+  `8b5fb4c`)
+
+- **14.4 HITL gate moved to Postgres `gate_queue`** -- migration
+  `f2c5d83a91b6`. Replaces the single-process file backend in
+  `src/agent/gate/queue.py` (kept as compat for one release per
+  D026). `open_request` flips the linked task to `waiting_human` and
+  the worker is released immediately — no thread parking.
+  Double-approve returns the existing decision (UI double-click is
+  not a 409); approve-then-reject is a real conflict. +10 tests.
+  (commit `880887a`)
+
+- **14.5 Celery Beat schedule** retires APScheduler. Six entries in
+  `src/tasks/beat.py`: `daily_search` (02:00 UTC) → `search` queue;
+  `jd_health_check` (hourly), `application_status_sync` (every 6h @
+  :15), `linkedin_cookie_refresh` (03:00 UTC daily), `cache_eviction`
+  (hourly @ :30), `gate_expire_sweep` (every 15min) → `maintenance`.
+  `install(celery_app)` wires `RedBeatScheduler` for multi-instance
+  leader election. +7 tests. (commit `12e3b21`)
+
+- **14.6 12 concrete task kinds** in `src/tasks/tasks.py`. Each is an
+  `AutoApplyTask` wrapper with a Pydantic payload model; malformed
+  payload raises `TypeError` which Celery treats as terminal (no
+  retry storm). Worker-driven: `search.refresh`, `jobs.enrich`,
+  `materials.generate`, `application.{prepare,fill,submit}`.
+  Beat-driven: `search.daily_fanout`, `maintenance.{status_sync,
+  jd_health_check,linkedin_cookie_refresh,cache_eviction,
+  gate_expire_sweep}`. Bodies log-and-return-stub today; Phase 15 /
+  17 swap bodies without changing task name or payload contract.
+  +32 tests under Celery eager mode. (commit `f01cab5`)
+
+- **14.7 CLI command groups** -- `autoapply worker -Q queues -c N`
+  validates `-Q` against the four-queue allowlist (a typo errors
+  immediately); `--check` prints the resolved Celery invocation
+  without starting anything. `autoapply beat` selects
+  `RedBeatScheduler`. `autoapply tasks list/inspect/retry/cancel/
+  kinds` reads the 14.2 audit table; retry refuses non-failed/
+  cancelled rows; cancel refuses non-queued rows. `autoapply
+  schedule list/run-now` reads/dispatches Beat entries. +10 tests.
+  (commit `ef59570`)
+
+- **14.8 Web JSON API + minimal SPA view** -- `src/web/routes/
+  tasks.py` adds `GET/POST /api/tasks`, `GET /api/tasks/{id}`,
+  `POST /api/tasks/{id}/{cancel,retry}`, `GET /api/schedule`, `POST
+  /api/schedule/{name}/run-now`, `GET /api/gate?status=...`, `GET
+  /api/gate/{id}`, `POST /api/gate/{id}/{approve,reject}`. Every
+  route scoped by `x-autoapply-tenant`; cross-tenant queries return
+  404. `frontend/src/views/TasksView.vue` adds the `/tasks` page
+  with three sections (gate awaiting human, recent tasks, Beat
+  schedule). Frontend rebuilt clean (vite 5.73s, 125kB gzip). +14
+  tests. (commit `edb8661`)
+
+- **14.9 Task-shape trace integration** -- `src/tasks/trace.py`
+  hooks `task_prerun` / `task_postrun` / `task_failure` /
+  `task_retry` to write a `TraceRecord` per attempt and stamp the
+  `trace_id` onto the audit row at prerun. Child tasks dispatched
+  with `x-autoapply-parent-trace` inherit `parent_trace_id` for the
+  viewer chain. Persistence is best-effort: a failed `save()` logs
+  and swallows. +8 tests. (commit `b7ecb57`)
+
+- **14.10 Postgres advisory-lock backstop** -- `src/tasks/locks.py`
+  adds `with advisory_lock(session, key)`, a non-blocking
+  `pg_try_advisory_xact_lock` wrapper for deployment-wide critical
+  sections. Auto-releases on commit/rollback/connection drop. Key
+  is a SHA256-derived 63-bit signed int. +4 tests. (commit `707d94e`)
+
+- **codex review fixes** (two rounds, P1 + P2):
+  - **P1 cancel-revoke**: cancel routes (web + CLI) now call
+    `celery_app.control.revoke(celery_task_id, terminate=False)`
+    before flipping the row, so a worker cannot still claim the
+    queued message.
+  - **P2 universal audit**: a new `before_task_publish_handler` in
+    `src/tasks/audit.py` writes a `queued` row for every Celery
+    dispatch (Beat ticks, raw `send_task`, retries) so they all show
+    up in `/api/tasks` and `autoapply tasks list`. `AutoApplyTask.
+    enqueue` opts out via the `AUDIT_OK_HEADER` because it has
+    already written the row with `idempotency_key` +
+    `parent_task_id`.
+  - **P2 cancelled-terminal**: all four lifecycle handlers
+    (`prerun` / `postrun` / `failure` / `retry`) respect `cancelled`
+    as terminal so the audit row preserves operator intent even in
+    the revoke-vs-claim race.
+  - 11 new tests in `test_tasks_codex_review_fixes.py`. (commit
+    `3de7084`)
+
+Verification: 1161 passed, 1 skipped on `feat/phase-14`; `ruff check`
+clean; frontend build clean; migrations `e1b4f72c8a05` +
+`f2c5d83a91b6` applied; `codex review` returned no findings on second
+pass.
+
 ### Phase 13: Job Index & Freshness Engine
 
 Replaces the file-backed ``src/intake/search_cache.py`` with a proper

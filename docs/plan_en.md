@@ -437,7 +437,13 @@ Job Intelligence Database.
   every new Phase-14 code path must thread an explicit tenant context. The
   "default tenant" fallback is replaced by Phase 18 auth middleware + RLS.
 
-### Phase 14: Task Queue + Scheduled Work (~2.5 weeks, Celery-based)
+### Phase 14: Task Queue + Scheduled Work (~2.5 weeks, Celery-based) — **Complete**
+
+All 10 sub-phases shipped on `feat/phase-14` (commits `83de0db` →
+`707d94e`) + two rounds of codex-review fixes folded in (`3de7084`).
+Verification baseline: 1161 passed, 1 skipped; `ruff check` clean;
+frontend build clean; migrations `e1b4f72c8a05` (tasks audit table) +
+`f2c5d83a91b6` (gate_queue) applied to dev DB.
 
 Switches to Celery 5.x (see D025). The originally-planned self-built task
 model + queue transport + worker runtime is dropped — Celery owns those.
