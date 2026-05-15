@@ -1,0 +1,27 @@
+{
+  "id": "grounded_output_passes",
+  "description": "Phase 15.9 -- a cover-letter agent output whose numbers all appear in the evidence is dispatched as agent_ok with no blocking drift.",
+  "input": {
+    "snapshot_title": "Backend Intern",
+    "snapshot_description": "Python and FastAPI backend role.",
+    "evidence": [
+      "Reduced API latency by 40% using Redis caching at Initech."
+    ],
+    "profile": {
+      "identity": {"full_name": "Alice Smith", "email": "a@x.com"},
+      "work_experiences": [
+        {
+          "company": "Initech",
+          "title": "Software Engineer Intern",
+          "bullets": [{"text": "Reduced API latency by 40% using Redis caching."}]
+        }
+      ]
+    },
+    "llm_output": "{\"paragraphs\": [{\"type\": \"opening\", \"text\": \"I am applying for the Backend Intern role.\", \"source_ids\": [\"e1\"]}, {\"type\": \"experience_evidence\", \"text\": \"At Initech I reduced API latency by 40% using Redis caching.\", \"source_ids\": [\"e1\"]}]}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "decision", "expected": "agent_ok"},
+    {"type": "json_field_equals", "path": "has_document", "expected": true},
+    {"type": "json_field_equals", "path": "fact_drift.blocking", "expected": false}
+  ]
+}

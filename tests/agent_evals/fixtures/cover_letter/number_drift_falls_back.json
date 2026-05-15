@@ -1,0 +1,27 @@
+{
+  "id": "number_drift_falls_back",
+  "description": "Phase 15.9 -- a fabricated number routes the orchestrator to the deterministic fallback, with the drift report recording the offending token.",
+  "input": {
+    "snapshot_title": "Backend Intern",
+    "evidence": [
+      "Reduced API latency by 40% using Redis caching."
+    ],
+    "profile": {
+      "identity": {"full_name": "Alice Smith"},
+      "work_experiences": [
+        {
+          "company": "Initech",
+          "title": "SWE",
+          "bullets": [{"text": "Reduced latency by 40%."}]
+        }
+      ]
+    },
+    "llm_output": "{\"paragraphs\": [{\"type\": \"experience_evidence\", \"text\": \"I reduced latency by 99% which is fabricated.\", \"source_ids\": [\"e1\"]}]}"
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "decision", "expected": "agent_drift_fallback"},
+    {"type": "json_field_equals", "path": "has_document", "expected": true},
+    {"type": "json_field_equals", "path": "fact_drift.blocking", "expected": true},
+    {"type": "json_field_contains", "path": "fact_drift.number_drift", "needle": "99%"}
+  ]
+}

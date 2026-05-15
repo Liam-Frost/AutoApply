@@ -1,0 +1,16 @@
+{
+  "id": "fallback_when_source_missing",
+  "description": "Phase 15.9 -- a source DOCX that python-docx cannot parse must surface PatchFallback so the materials router can route to generate_from_template per D024.",
+  "input": {
+    "source_paragraphs": [],
+    "resume_ir": {
+      "target_role": "SWE",
+      "company": "Acme",
+      "summary": ["x"],
+      "experiences": [{"name": "Role", "bullets": [{"text": "y"}]}]
+    }
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "patched", "expected": true}
+  ]
+}

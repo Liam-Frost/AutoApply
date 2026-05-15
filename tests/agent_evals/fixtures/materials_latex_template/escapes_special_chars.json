@@ -1,0 +1,19 @@
+{
+  "id": "escapes_special_chars",
+  "description": "Phase 15.9 -- LaTeX special characters in IR values are escaped before substitution.",
+  "input": {
+    "template": "{{resume.commands}}",
+    "field_mappings": [
+      {"ir_field": "header.name", "command": "resumeheadername", "arity": 1}
+    ],
+    "resume_ir": {
+      "target_role": "x",
+      "company": "y",
+      "header": {"name": "A & B Co. (100%)"}
+    }
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "rendered", "expected": true},
+    {"type": "json_field_contains", "path": "body", "needle": "A \\& B Co. (100\\%)"}
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "bullet_swap_preserves_styles",
+  "description": "Phase 15.9 -- swapping bullets under Experience must preserve the List Bullet named style and replace text in place.",
+  "input": {
+    "source_paragraphs": [
+      {"kind": "heading", "level": 1, "text": "Summary"},
+      {"style": "Normal", "text": "Old summary."},
+      {"kind": "heading", "level": 1, "text": "Experience"},
+      {"style": "Heading 2", "text": "Initech - SWE"},
+      {"style": "List Bullet", "text": "Old bullet 1"},
+      {"style": "List Bullet", "text": "Old bullet 2"}
+    ],
+    "resume_ir": {
+      "target_role": "SWE Intern",
+      "company": "Acme",
+      "summary": ["NEW: focused on Python and FastAPI."],
+      "skills": {"must_have": ["python", "fastapi"]},
+      "experiences": [
+        {
+          "name": "Initech - SWE",
+          "bullets": [
+            {"text": "NEW: reduced API latency by 40% via Redis cache."},
+            {"text": "NEW: shipped a payments integration end-to-end."}
+          ]
+        }
+      ]
+    }
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "patched", "expected": true},
+    {"type": "json_field_contains", "path": "operations", "needle": "bullet"},
+    {"type": "json_field_contains", "path": "operations", "needle": "summary"},
+    {"type": "regex", "pattern": "List Bullet"},
+    {"type": "regex", "pattern": "NEW: reduced API latency"}
+  ]
+}

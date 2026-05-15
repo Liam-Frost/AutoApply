@@ -60,6 +60,79 @@ class TemplateCapacity(BaseModel):
     max_skill_lines: int | None = None
 
 
+LatexEngine = Literal["pdflatex", "xelatex", "lualatex"]
+
+
+class LatexFieldMapping(BaseModel):
+    """Phase 15.3: maps a resume / cover-letter IR field to a LaTeX
+    command in a template. Consumed by the 15.4 manifest-adapter
+    dispatcher so the renderer never has to bake template-specific
+    commands into Python.
+
+    Example::
+
+        LatexFieldMapping(
+            ir_field="header.name",
+            command="resumeheadername",
+            arity=1,
+            wrap_with_braces=True,
+        )
+
+    Renders to ``\\resumeheadername{Alice Smith}``.
+    """
+
+    ir_field: str  # dotted path into the IR (header.name, summary, ...)
+    command: str  # bare LaTeX command name (no leading backslash)
+    arity: Literal[0, 1, 2] = 1
+    wrap_with_braces: bool = True
+    # For arity-2 commands like ``\experienceitem{Title}{Dates}`` --
+    # the second slot reads from this IR field.
+    second_ir_field: str | None = None
+
+
+class LatexConfig(BaseModel):
+    """Phase 15.3: LaTeX-specific template package configuration.
+
+    Optional on the manifest -- DOCX-only packages do not populate
+    this. The 15.4 renderer reads ``compile_engine`` to choose between
+    ``pdflatex``, ``xelatex``, and ``lualatex``; the
+    ``escape_allowlist`` lets a template opt out of escaping for
+    characters it wants to pass through (e.g. a template that prints
+    raw URLs with ``\\url{}`` does not need ``%`` escaped inside).
+    ``required_packages`` is purely advisory -- listed at validation
+    time but never auto-installed.
+
+    Per D024: arbitrary LaTeX may be imported, but it is not active
+    until a manifest exists and a sample compile passes."""
+
+    compile_engine: LatexEngine = "pdflatex"
+    # Files (relative to the template package dir) that should be
+    # copied next to the rendered ``.tex`` so ``\\input`` /
+    # ``\\includegraphics`` succeed. Validated to stay inside the
+    # package dir at template-install time (D013 mirror).
+    assets: list[str] = Field(default_factory=list)
+    # Characters whose default LaTeX escaping is suppressed for this
+    # template (e.g. a template that escapes ``&`` itself via a custom
+    # column macro can put ``"&"`` here).
+    escape_allowlist: list[str] = Field(default_factory=list)
+    # Required LaTeX packages, listed for the operator to install --
+    # not auto-installed. Maps package name -> minimum version, or
+    # empty string for "any".
+    required_packages: dict[str, str] = Field(default_factory=dict)
+    # IR-field -> LaTeX-command mapping for templates that use custom
+    # commands (the default ``latex_engine.py`` resume_template uses
+    # placeholder substitution; custom templates use the mapping
+    # approach so the agent / renderer never hard-codes commands).
+    field_mappings: list[LatexFieldMapping] = Field(default_factory=list)
+    # Sample IR file relative to the package dir (used by 15.8
+    # adapter assistant to validate a manifest via a real compile).
+    sample_ir: str | None = None
+    # Strict mode: if True, the renderer refuses to render an IR that
+    # has fields not declared in ``field_mappings``. Defaults False
+    # so existing placeholder-style templates keep working.
+    strict_field_coverage: bool = False
+
+
 class TemplateManifest(BaseModel):
     template_id: str
     document_type: DocumentType
@@ -74,6 +147,9 @@ class TemplateManifest(BaseModel):
     section_order: list[str] = Field(default_factory=list)
     capacity: TemplateCapacity = Field(default_factory=TemplateCapacity)
     blocks: dict[str, str] = Field(default_factory=dict)
+    # Phase 15.3: LaTeX-specific options live in their own sub-model
+    # so DOCX-only packages do not need to know about it.
+    latex: LatexConfig | None = None
 
 
 class TemplatePackage(BaseModel):

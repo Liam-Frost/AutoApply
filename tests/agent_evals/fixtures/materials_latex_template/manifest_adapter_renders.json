@@ -1,0 +1,24 @@
+{
+  "id": "manifest_adapter_renders",
+  "description": "Phase 15.9 -- manifest-adapter renderer emits \\command{value} for every mapped IR field and skips empty mappings.",
+  "input": {
+    "template": "\\documentclass{article}\n\\begin{document}\n{{resume.commands}}\n\\end{document}",
+    "field_mappings": [
+      {"ir_field": "header.name", "command": "resumeheadername", "arity": 1},
+      {"ir_field": "target_role", "command": "targetrole", "arity": 1},
+      {"ir_field": "header.does_not_exist", "command": "optional", "arity": 1}
+    ],
+    "resume_ir": {
+      "target_role": "Software Engineer Intern",
+      "company": "Acme",
+      "header": {"name": "Alice Smith"},
+      "summary": ["sum"],
+      "experiences": [{"name": "Role", "bullets": [{"text": "b"}]}]
+    }
+  },
+  "expectations": [
+    {"type": "json_field_equals", "path": "rendered", "expected": true},
+    {"type": "json_field_contains", "path": "body", "needle": "\\resumeheadername{Alice Smith}"},
+    {"type": "json_field_contains", "path": "body", "needle": "\\targetrole{Software Engineer Intern}"}
+  ]
+}

@@ -249,6 +249,246 @@ def _form_filler_runner(case_input: dict[str, Any]) -> str:
     )
 
 
+def _materials_docx_patch_runner(case_input: dict[str, Any]) -> str:
+    """Phase 15.9 runner for the docx patch suite.
+
+    Each fixture supplies an IR payload + an inline DOCX description
+    (``source_paragraphs``: list of {style, text}); the runner builds
+    the DOCX in a temp dir, runs the Phase 15.2 patcher, and returns a
+    JSON envelope summarising the result paragraphs so scorers can
+    assert against named-style preservation and bullet swap.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    from docx import Document
+
+    from src.generation.docx_patch import PatchFallback, patch_resume_docx
+    from src.generation.ir import ResumeBullet, ResumeDocument, ResumeItem
+
+    source_paragraphs = list(case_input.get("source_paragraphs") or [])
+    ir_payload = dict(case_input.get("resume_ir") or {})
+
+    # Build the source DOCX in a temp dir.
+    with tempfile.TemporaryDirectory(prefix="eval_docx_patch_") as tmp:
+        tmp_path = _Path(tmp)
+        src = tmp_path / "source.docx"
+        out = tmp_path / "out.docx"
+        doc = Document()
+        for spec in source_paragraphs:
+            style = (spec or {}).get("style") or "Normal"
+            text = (spec or {}).get("text") or ""
+            kind = (spec or {}).get("kind") or "paragraph"
+            if kind == "heading":
+                doc.add_heading(text, level=int(spec.get("level") or 1))
+            else:
+                doc.add_paragraph(text, style=style)
+        doc.save(str(src))
+
+        # Build IR (use defaults for required fields the case omits).
+        experiences = [
+            ResumeItem(
+                source_id=f"exp-{i}",
+                source_type="experience",
+                name=item.get("name", f"Role {i}"),
+                bullets=[
+                    ResumeBullet(
+                        text=b.get("text", ""),
+                        source_id=f"exp-{i}",
+                        source_type="experience",
+                        source_entity=item.get("name", "Org"),
+                    )
+                    for b in (item.get("bullets") or [])
+                ],
+            )
+            for i, item in enumerate(ir_payload.get("experiences") or [])
+        ]
+        document = ResumeDocument(
+            target_role=ir_payload.get("target_role", "SWE"),
+            company=ir_payload.get("company", "Co"),
+            summary=list(ir_payload.get("summary") or []),
+            skills=dict(ir_payload.get("skills") or {}),
+            experiences=experiences,
+        )
+
+        envelope: dict[str, Any] = {"patched": False, "fallback": False}
+        try:
+            report = patch_resume_docx(src, document, output_path=out)
+            envelope["patched"] = True
+            envelope["operations"] = [op.kind for op in report.operations]
+            patched = Document(str(out))
+            envelope["paragraphs"] = [
+                {"style": p.style.name, "text": p.text}
+                for p in patched.paragraphs
+            ]
+        except PatchFallback as exc:
+            envelope["fallback"] = True
+            envelope["failure"] = str(exc)
+
+    return _json.dumps(envelope, default=str)
+
+
+def _materials_latex_template_runner(case_input: dict[str, Any]) -> str:
+    """Phase 15.9 runner for the LaTeX manifest-adapter suite.
+
+    Each fixture supplies a tex template body + a list of field
+    mappings + an IR payload. The runner renders the .tex (no
+    compile -- compile is a separate manual-smoke item) and returns
+    the rendered body so the scorer can assert commands present /
+    absent / escaped.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    from src.documents.latex_renderer import (
+        ManifestRenderError,
+        render_resume_tex,
+    )
+    from src.documents.templates import (
+        LatexConfig,
+        LatexFieldMapping,
+        TemplateManifest,
+    )
+    from src.generation.ir import ResumeBullet, ResumeDocument, ResumeItem
+
+    template_text = str(case_input.get("template") or "{{resume.commands}}")
+    mappings = [
+        LatexFieldMapping(
+            ir_field=str(m.get("ir_field") or ""),
+            command=str(m.get("command") or ""),
+            arity=int(m.get("arity") or 1),  # type: ignore[arg-type]
+            wrap_with_braces=bool(m.get("wrap_with_braces", True)),
+            second_ir_field=m.get("second_ir_field"),
+        )
+        for m in case_input.get("field_mappings") or []
+    ]
+    ir_payload = dict(case_input.get("resume_ir") or {})
+    document = ResumeDocument(
+        target_role=ir_payload.get("target_role", "SWE"),
+        company=ir_payload.get("company", "Co"),
+        header=dict(ir_payload.get("header") or {}),
+        summary=list(ir_payload.get("summary") or []),
+        skills=dict(ir_payload.get("skills") or {}),
+        experiences=[
+            ResumeItem(
+                source_id=f"exp-{i}",
+                source_type="experience",
+                name=e.get("name", f"R{i}"),
+                bullets=[
+                    ResumeBullet(
+                        text=b.get("text", ""),
+                        source_id=f"exp-{i}",
+                        source_type="experience",
+                        source_entity=e.get("name", "Org"),
+                    )
+                    for b in (e.get("bullets") or [])
+                ],
+            )
+            for i, e in enumerate(ir_payload.get("experiences") or [])
+        ],
+    )
+    manifest = TemplateManifest(
+        template_id="eval-latex",
+        document_type="resume",
+        template_format="latex",
+        renderer="latex",
+        latex=LatexConfig(
+            compile_engine="pdflatex",
+            field_mappings=mappings,
+            strict_field_coverage=bool(case_input.get("strict_field_coverage", False)),
+        ),
+    )
+
+    with tempfile.TemporaryDirectory(prefix="eval_latex_tpl_") as tmp:
+        tmp_path = _Path(tmp)
+        tex_in = tmp_path / "template.tex"
+        tex_in.write_text(template_text, encoding="utf-8")
+        tex_out = tmp_path / "out.tex"
+        envelope: dict[str, Any] = {"rendered": False}
+        try:
+            render_resume_tex(tex_in, document, tex_out, manifest)
+            envelope["rendered"] = True
+            envelope["body"] = tex_out.read_text(encoding="utf-8")
+        except ManifestRenderError as exc:
+            envelope["rendered"] = False
+            envelope["error"] = str(exc)
+
+    return _json.dumps(envelope, default=str)
+
+
+def _cover_letter_runner(case_input: dict[str, Any]) -> str:
+    """Phase 15.9 runner for the cover-letter suite.
+
+    The fixture supplies a snapshot stub, evidence bullets, a fake
+    LLM output, and an expected decision. The runner instantiates
+    :class:`AgentCoverLetter` with a stub ``llm_fn`` and returns a
+    JSON envelope describing the dispatch decision + drift report.
+    """
+    import json as _json
+    import uuid as _uuid
+    from dataclasses import dataclass as _dc
+
+    from src.generation.agent_cover_letter import AgentCoverLetter
+
+    @_dc
+    class _Snap:
+        id: _uuid.UUID = _uuid.uuid4()
+        title: str = case_input.get("snapshot_title", "Backend Intern")
+        description: str = case_input.get("snapshot_description", "")
+        location: str = case_input.get("snapshot_location", "Remote")
+        employment_type: str = "intern"
+        requirements: dict[str, Any] = None  # type: ignore[assignment]
+        raw_data: dict[str, Any] = None  # type: ignore[assignment]
+
+        def __post_init__(self) -> None:
+            if self.requirements is None:
+                self.requirements = dict(case_input.get("requirements") or {})
+            if self.raw_data is None:
+                self.raw_data = dict(case_input.get("raw_data") or {})
+
+    profile = dict(case_input.get("profile") or {})
+    evidence = list(case_input.get("evidence") or [])
+    llm_output = case_input.get("llm_output")
+
+    if llm_output is None:
+        llm_fn = None
+    elif llm_output == "__raise__":
+        def llm_fn(prompt: str, system: str = "") -> str:
+            raise RuntimeError("eval-injected llm failure")
+    else:
+        text = str(llm_output)
+
+        def llm_fn(prompt: str, system: str = "") -> str:  # type: ignore[misc]
+            return text
+
+    orchestrator = AgentCoverLetter(
+        job_snapshot=_Snap(),
+        profile_data=profile,
+        llm_fn=llm_fn,
+    )
+    result = orchestrator.run(
+        evidence_bullets=evidence or None,
+        use_agent=bool(case_input.get("use_agent", True)),
+    )
+    envelope: dict[str, Any] = {
+        "decision": result.decision,
+        "has_document": result.document is not None,
+        "fact_drift": (
+            {
+                "blocking": result.fact_drift.has_blocking_drift,
+                "number_drift": result.fact_drift.number_drift,
+                "entity_drift": result.fact_drift.entity_drift,
+            }
+            if result.fact_drift is not None
+            else None
+        ),
+        "agent_error": result.agent_error,
+    }
+    return _json.dumps(envelope, default=str)
+
+
 _BUILTIN_SUITES: dict[str, tuple[Path, RunnerFn]] = {
     "agent_smoke": (
         PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "agent_smoke",
@@ -257,6 +497,19 @@ _BUILTIN_SUITES: dict[str, tuple[Path, RunnerFn]] = {
     "form_filler": (
         PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "form_filler",
         _form_filler_runner,
+    ),
+    # Phase 15.9 suites.
+    "materials_docx_patch": (
+        PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "materials_docx_patch",
+        _materials_docx_patch_runner,
+    ),
+    "materials_latex_template": (
+        PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "materials_latex_template",
+        _materials_latex_template_runner,
+    ),
+    "cover_letter": (
+        PROJECT_ROOT / "tests" / "agent_evals" / "fixtures" / "cover_letter",
+        _cover_letter_runner,
     ),
 }
 
