@@ -34,10 +34,14 @@ def _new_uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+TENANT_DEFAULT = "default"
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
     source: Mapped[str | None] = mapped_column(String(50))
     source_id: Mapped[str | None] = mapped_column(String(200), index=True)
     company: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -60,6 +64,7 @@ class Application(Base):
     __tablename__ = "applications"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
     job_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("jobs.id", name="fk_applications_job_id"),
@@ -96,6 +101,7 @@ class ApplicantProfile(Base):
     __tablename__ = "applicant_profile"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
     section: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[dict] = mapped_column(JSONB, nullable=False)
     content_embedding = mapped_column(Vector(1536), nullable=True)
@@ -107,6 +113,7 @@ class BulletPool(Base):
     __tablename__ = "bullet_pool"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
     category: Mapped[str | None] = mapped_column(String(50))
     source_entity: Mapped[str | None] = mapped_column(String(200))
     text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -253,6 +260,7 @@ class QABank(Base):
     __tablename__ = "qa_bank"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
     question_pattern: Mapped[str | None] = mapped_column(Text)
     question_type: Mapped[str | None] = mapped_column(String(50))
     canonical_answer: Mapped[str | None] = mapped_column(Text)
