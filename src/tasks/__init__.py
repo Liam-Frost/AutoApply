@@ -25,6 +25,12 @@ from __future__ import annotations
 # Workers and the in-process CLI both import :mod:`src.tasks`, so the
 # handlers are always wired.
 from src.tasks import audit  # noqa: F401 -- side-effect import for signal registration
+from src.tasks import beat as _beat
 from src.tasks.app import celery_app
+
+# Phase 14.5: install the Beat schedule + redbeat scheduler at import
+# time. Workers never act on this (they only consume the queue); the
+# ``celery beat`` process reads ``app.conf.beat_schedule``.
+_beat.install(celery_app)
 
 __all__ = ["celery_app"]
