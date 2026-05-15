@@ -14,7 +14,11 @@
 | 用户面向的部署 | `docs/DEPLOYMENT.md` |
 | 本文 | 战略 + 历史 + 路线图汇总 |
 
-最近更新：**2026-05-14（路线图 v3）**。
+最近更新：**2026-05-14（路线图 v3.1）**。v3.1 在 v3 基础上做了四处校准：
+(a) Phase 14 任务队列改用 Celery（不再自建 task model + queue transport + worker runtime；见 D025），APScheduler 也随之退场，由 Celery Beat 承担 cron trigger；
+(b) Phase 14 前插入 13.9 子阶段，给所有 Phase 11 及以前的遗留表做一次性 `tenant_id` retrofit migration，把 D020 的"纪律"变成 schema 强制（见 D026）；
+(c) HITL gate 后端从单进程文件 JSON 迁到 Celery 任务态 / Postgres 持久化层，避免 Phase 14 多 worker 与 Phase 17 review queue 各自再造（并入 14.x，见 D026）；
+(d) Phase 15.3 LaTeX 范围澄清：`src/documents/latex_engine.py` 已存在，Phase 15 不是"从零搭 LaTeX"，而是"加模板包规范 + manifest + adapter"。
 
 ---
 
@@ -59,7 +63,7 @@ Postgres RLS、后台 worker 模型全部已纳入路线图，即使目前还没
 | Agent harness | 自研，位于 `src/agent/` —— bounded ReAct loop、allow-listed `ToolRegistry`、文件后端 HITL gate、JSON 磁盘 trace store、fixture-driven eval | 见 D017（不用 LangChain / LangGraph） |
 | 数据库（权威来源） | PostgreSQL + pgvector + alembic | 匹配用向量检索；alembic 管 schema migration |
 | 缓存 / 锁 / 队列（Phase 12+） | Redis 7+ | L2 缓存、分布式锁原语（`SET NX PX`）、任务队列基础设施；见 D018 |
-| 调度 / 任务执行（Phase 14+） | APScheduler + Postgres `SQLAlchemyJobStore` + Redis queue transport + worker process | 见 D021 和 D023（不用 SQLite、不用 OS cron；暂缓 Celery/RQ） |
+| 任务队列 / 调度（Phase 14+） | Celery 5.x + Redis broker + Redis result backend + Celery Beat（cron trigger） | 见 D025（替换原计划的"自建 queue + APScheduler"），D023 关于 agent/queue 职责切分的原则保留 |
 | 文档处理 | python-docx + LaTeX toolchain + docx2pdf / LibreOffice | 原始简历走 DOCX patch；新生成简历走 LaTeX-first；PDF 为衍生物 |
 | 配置 | YAML（`config/settings.yaml`、`config/filters.yaml`、`config/companies.yaml`）+ `.env` override | 默认 → 文件 → 环境变量；credential URL 编码 |
 | 目标 ATS 平台 | Greenhouse / Lever / Ashby；LinkedIn 用于发现 | 前三家直接 apply；LinkedIn 用 Playwright 持久化上下文做认证 |
@@ -216,9 +220,10 @@ search_results      -- search → posting 多对多（每次抓取）
 refresh_tasks       -- 待抓取的优先级队列
 ```
 
-再加 `application_records.job_snapshot_id` 外键，把每个生成产物钉到具体
+再加 `applications.job_snapshot_id` 外键，把每个生成产物钉到具体
 JD 版本上。Phase 12+ 所有新表都带 `tenant_id`（Phase 18 之前默认 `"default"`），
-见 D020。
+Phase 13.9 还会给所有遗留表（`jobs`、`applications`、`applicant_profile`、
+`bullet_pool`、`story_bank`、`qa_bank` 等）回填同样的列，见 D020 / D026。
 
 ## 6. 分层架构
 
@@ -292,7 +297,10 @@ platform / company 维度的拆分。CSV export 默认排除 `error_log`。
 
 每个子阶段的发布记录见 `docs/CHANGELOG.md`。
 
-## 8. 路线图（Phase 11 → 18） —— v3，重新规划于 2026-05-14
+## 8. 路线图（Phase 11 → 18） —— v3.1，2026-05-14 校准
+
+v3 在 v1/v2 上修正了四个问题（保留如下）；v3.1 又对 v3 做了四处校准（见本节
+开头版本说明）。
 
 v2/v3 重规划修正了 v1 草案的四个问题：
 
@@ -359,37 +367,86 @@ JD / 岗位内容缓存放到 Phase 13。
   `N new / N expired / N updated`。
 - **13.8** 把历史 `data/cache/linkedin_search/*.json` 迁到 `search_queries` +
   `search_results`；删掉文件缓存模块。
+- **13.9** **tenant_id retrofit migration**（Phase 14 开工前必须落地，见 D026）——
+  alembic 新 migration 给所有 Phase 11 及以前的遗留表（`jobs`、`applications`、
+  `applicant_profile`、`bullet_pool`、`story_bank`、`qa_bank`、`templates` /
+  `template_packages` 等）加 `tenant_id TEXT NOT NULL DEFAULT 'default'` 列 +
+  backfill 现有行；ORM models 同步加字段；现有 query 路径不强制改（保留无过滤的
+  全局行为），但 Phase 14 开始所有新代码必须显式带 tenant 上下文。Phase 18 的
+  auth middleware 上线后这层"默认 default"的兜底就被 RLS + 中间件取代。
 
-### Phase 14: 任务队列 + 定时工作（~2 周）
-- **14.1** Postgres 持久化 task model：status、tenant、payload schema、
-  idempotency key、attempts、heartbeat、parent/child links、next-run time。
-- **14.2** Redis-backed queue transport：按优先级存 ready task ID；worker claim、
-  heartbeat、ack/nack，并重新入队 abandoned work。
-- **14.3** Worker runtime：`autoapply worker`、按 task kind 控并发、优雅退出、
-  timeout 和 retry/backoff policy。
-- **14.4** Agent 边界：worker 针对单个 task 调用 bounded agent；agent 只返回
-  结构化结果，如需后续任务只能走 allow-listed enqueue tool。
-- **14.5** APScheduler + Postgres `SQLAlchemyJobStore`（不是 SQLite，见 D021）；
-  scheduled job 只创建 task record，不在线程里做长耗时工作。
-- **14.6** CLI：`autoapply schedule ...`、`autoapply tasks ...`、
-  `autoapply worker --queues ...`。
-- **14.7** Web UI `/schedule` + `/tasks`：queue depth、workers、retries、
-  failure reasons、手动 retry/cancel。
-- **14.8** 多实例安全：scheduler trigger 用 Postgres advisory lock；worker 通过
-  task claim invariant 防止同一个 task 被跑两次。
-- **14.9** Trace 集成：每次 task attempt 写 trace；child task 链回 parent。
+改用 Celery 5.x（见 D025）。原计划自建的 task model + queue transport + worker
+runtime 全部由 Celery 接管；AutoApply 只在它上面薄薄加一层"agent 边界 + HITL +
+trace + tenant 上下文"的 wrapper。D023 关于"queue 拥有执行可靠性、agent 拥有
+bounded 决策"的原则保留。
+
+- **14.1** **Celery 接入 + 项目基础**。`celery_app = Celery("autoapply",
+  broker=REDIS_URL, backend=REDIS_URL)`、`autoapplyCfg.task_acks_late = True`、
+  `task_reject_on_worker_lost = True`、`worker_prefetch_multiplier = 1`（长任务模型，
+  不要 prefetch）。task 路由：`search.*` / `materials.*` / `application.*` /
+  `maintenance.*` 四个 queue。
+- **14.2** **持久化 audit table**（Postgres，权威源）。Celery 的 result backend
+  只是 transient，AutoApply 自己维护 `tasks` 表：`id`、`celery_task_id`、`tenant_id`、
+  `kind`、`payload`、`idempotency_key`、`status`（`queued/running/waiting_human/
+  succeeded/failed/cancelled`）、`attempts`、`parent_task_id`、`trace_id`、
+  `created_at`、`finished_at`。Celery signals (`task_prerun` / `task_postrun` /
+  `task_failure` / `task_retry`) 自动更新这张表。
+- **14.3** **Custom `AutoApplyTask` base class**（Celery `Task` 子类）—— 提供：
+  (a) 从 task headers 取 `tenant_id` 注入到 DB session 和 Redis namespace；
+  (b) idempotency key 入口检查（已存在 succeeded 记录直接返回）；
+  (c) `self.call_agent(...)` 包装：单次 task 内调一次 bounded agent，按结构化
+  返回值 (`success` / `failed_retryable` / `failed_terminal` / `needs_human` /
+  `needs_followup_task`) 决定 `raise self.retry()` 还是入 gate 还是 enqueue 子
+  task；(d) 写 trace 记录。
+- **14.4** **HITL gate 后端迁到 DB**（取代单进程文件 JSON，见 D026）。新表
+  `gate_queue(id, tenant_id, task_id, kind, payload, status, requested_at,
+  decided_at, decision, reason)`；状态 `pending → approved → rejected`。
+  Celery task 返回 `needs_human` 时只是把当前 task 状态转 `waiting_human`，
+  *不* 阻塞 worker；用户审批后调 `/api/gate/{id}/approve` enqueue 一个 `resume`
+  task 重新跑（用同一 idempotency key）。`src/agent/gate/queue.py` 旧 file-backend
+  作为兼容层保留一个发布期，然后删除。
+- **14.5** **Celery Beat 接入**（取代 APScheduler，APScheduler 完全退场）。
+  Beat schedule 在 `src/tasks/beat.py` 声明：`daily_search`、`jd_health_check`
+  （驱动 13.3 freshness 时间衰减）、`application_status_sync`、
+  `linkedin_cookie_refresh`、`cache_eviction`。Beat 只 enqueue，永远不在 Beat 进程
+  里跑业务。多实例 Beat 用 `celery-redbeat` 或 Postgres advisory lock 防双触发。
+- **14.6** **Task kinds 实现**：`search.refresh`、`jobs.enrich`、
+  `materials.generate`、`application.prepare`、`application.fill`、
+  `application.submit`、`status.sync` 各自一个 Celery task；每个走 14.3 的
+  `AutoApplyTask` 基类；payload schema 用 Pydantic 模型校验。
+- **14.7** **CLI**：`autoapply worker --queues search,materials,apply --concurrency 4`
+  （内部 `celery -A src.tasks worker ...`）；`autoapply beat`（启 Beat）；
+  `autoapply tasks list/retry/cancel/inspect`（读 14.2 的 audit 表）；
+  `autoapply schedule list/pause/run-now`（读 Beat schedule + enqueue 一次性 task）。
+- **14.8** **Web UI** `/schedule` + `/tasks` + `/gate`：从 audit 表读 queue depth、
+  在跑的 worker（通过 Celery inspect API）、失败原因、手动 retry/cancel；
+  `/gate` 取代旧的 agent gate viewer。
+- **14.9** **Trace 集成**：`AutoApplyTask.on_success/on_failure/on_retry` 自动写
+  trace；child task header 带 `parent_trace_id`，trace viewer 可以从一个 task
+  跳到它的 parent/children 链路。
+- **14.10** **多实例安全**：Celery 自身保证 task 只被一个 worker 拿到；Beat 多实例
+  用 redbeat 的 leader election；advisory lock 兜底（保留 D021 的多实例双触发
+  防御原则）。
 
 ### Phase 15: Resume & Cover Letter Generation v2（~3 周）
 受益于 Phase 12（LLM 缓存）、Phase 13（snapshot 绑定）和 Phase 14（后台材料任务）。
 - **15.1** Source-resume model：上传原件按 type、checksum、抽取结构、editability
   flag 存储。PDF 只承诺用于事实抽取，不承诺保格式编辑。
 - **15.2** DOCX patch mode：局部修改 summary、bullets、skills 顺序、section 取舍，
-  尽量保留原有 styles 和 DOCX 允许保留的布局结构。
-- **15.3** LaTeX template packages：`template.tex`、assets、
-  `template.manifest.yaml`、sample IR、compile engine、容量 / 页数规则、
-  command / field mapping。
+  尽量保留原有 styles 和 DOCX 允许保留的布局结构。**降级路径**：当 patch 失败
+  （style 找不到、IR 字段映射不上、修改后页数爆掉），自动降级到
+  `generate_from_template` 路径，并在 UI / task 结果里告知用户原因，不要让用户
+  以为 DOCX 100% 保真。
+- **15.3** LaTeX template package 规范。注意 `src/documents/latex_engine.py`
+  里编译/渲染原语已存在（Phase 8 期间随 DOCX 模板包一起做的），本子阶段做的是
+  *规范化模板包结构*：`template.tex`、assets、`template.manifest.yaml`、sample IR、
+  compile engine 选择（`pdflatex` / `xelatex` / `lualatex`）、容量 / 页数规则、
+  command / field mapping、escape 规则白名单。重点不是写 renderer，是定义
+  manifest schema + 适配器约定。
 - **15.4** LaTeX-first resume generator：agent 产出结构化 resume IR；确定性
-  renderer 负责 escape、按 manifest 映射、编译、校验页数 / 容量。
+  renderer（复用已有 `latex_engine.py`）负责 escape、按 manifest 映射、编译、
+  校验页数 / 容量。把 `resume_builder.py` 的 LaTeX 分支从"自定义 IR 直转"重构成
+  "走 manifest 适配器"。
 - **15.5** Materials router：`patch_existing` vs `generate_from_template`，两者都以
   `materials.generate` task 运行，并绑定 `job_snapshot_id`、source/template ID、
   profile version、trace ID。
@@ -405,8 +462,14 @@ JD / 岗位内容缓存放到 Phase 13。
 
 ### Phase 16: Filter Agent + 可解释性（~1.5 周）
 不替换确定性 filter —— 在其之上加可解释层 + 仅对边界岗位调用 agent。
-- **16.1** Filter reason chain 在 `src/matching/` —— 每个 reject 记
-  `{rule_id, rule_name, reason, evidence_excerpt, job_snapshot_id}`。
+- **16.1** **`RuleVerdict` 数据结构演进**（这是 schema 改动，不是单纯"加一层"）。
+  现状：`src/matching/scorer.py` 的 `ScoreBreakdown.disqualify_reasons` 只是
+  `list[str]`，`RuleVerdict` 不带 `evidence_excerpt` / `rule_id` 结构。本子阶段
+  要：(a) 把 `RuleVerdict` 改成 `{rule_id, rule_name, verdict, reason,
+  evidence_excerpt}` 结构化；(b) 每条规则在 `src/matching/rules.py` 实现里返回
+  时主动抽取相关 JD 片段当 `evidence_excerpt`；(c) `ScoreBreakdown` 顶层加
+  `job_snapshot_id`，整个打分结果可以钉到具体 JD 版本上。16.3 的 UI 直接消费这
+  份结构化输出。
 - **16.2** Edge-case agent —— 只对 [0.4, 0.6] 分段调用；用 Phase 8 harness +
   新工具 `score_breakdown`。
 - **16.3** Web UI "Why was this filtered?" 按钮。
@@ -430,33 +493,52 @@ Phase 12（缓存）+ Phase 9 / 15（agent）串成 "睡一觉，醒来看 revie
 - **17.6** 早间 digest（08:00）。
 - **17.7** `autoapply pause-nightly` kill switch。
 
-### Phase 18: 多租户 & Auth 加固（~2 周）
+### Phase 18: 多租户 & Auth 加固（~2.5 周）
 激活 Phase 12-17 散布的商业化就绪工作。SaaS 业务层（计费、注册流、营销页）
 **不在范围内** —— 本阶段只让现有系统能安全托管多个隔离用户。
-- **18.1** `tenants` + `users` 表；现有数据迁到 `tenant_id="default"`。
-- **18.2** FastAPI auth 中间件 —— 每个请求推导 `current_tenant_id`；所有 query /
-  Redis namespace / cache key / refresh-task selector 自动按它过滤。
-- **18.3** Postgres Row-Level Security policy（DB 层兜底）。
-- **18.4** 按租户的 Redis namespace —— `tenant:{id}:llm:...`。
+
+**诚实的范围说明**：13.9 已经把 schema 层的 `tenant_id` 列补齐了，所以
+"加列 + backfill" 的部分确实不是重写。但下面这几块**实质是新建**，不是
+"激活已有工作"：18.2 auth middleware（`src/web/` 目前完全没有 auth 层）、
+18.4 Redis namespace 重构（现在 key 是 `{version}:{namespace}:{key}`，没有
+tenant 前缀，需要全局改 wrapper）、18.7 凭据存储（`src/providers/store.py`
+目前是单文件全局 JSON，需要按租户切目录 + keyring entry 重命名）。
+真正"激活"的只有 18.1 / 18.3 / 18.5 / 18.6。
+
+- **18.1** `tenants` + `users` 表；把 13.9 留下的 `tenant_id='default'` 行接到
+  真实租户上。
+- **18.2** **从零做** FastAPI auth middleware —— session/token 解析、
+  `current_tenant_id` 注入到 `ContextVar`；ORM session 通过 SQLAlchemy event 自动
+  在 query 上拼 `tenant_id = :current_tenant`；Celery task headers 自动带租户上
+  下文（14.3 已经预留接口）。
+- **18.3** Postgres Row-Level Security policy —— DB 层兜底，防 ORM 漏过滤。
+- **18.4** **重构** Redis key 命名 —— 所有 namespace 前面加 `tenant:{id}:` 前缀；
+  `src/cache/base.py` 的 key 构造改为强制注入租户上下文（无上下文则抛错而不是
+  fall back 到 default）。
 - **18.5** 按租户的配额（LLM token、scrape 速率、存储）。超限返回 429。
 - **18.6** Audit log 表 —— `audit_events`（提交、设置变更、凭据操作、手动调度
   触发）。append-only。
-- **18.7** 按租户的凭据存储。
+- **18.7** **重构** 凭据存储 —— `src/providers/store.py` 从单文件全局 JSON 切到
+  `data/tenants/{id}/credentials/`，keyring entry 命名加租户前缀；migrate 现有
+  `data/providers/credentials.json` 到 `default` 租户。
 
 ### 时间表
 
 | Phase | 范围 | 工时 | 累计 |
 |---|---|---|---|
-| 11 | 可靠性 & 收尾 | 1 周 | 1 周 |
-| 12 | 缓存基础设施（Redis） | 1.5 周 | 2.5 周 |
-| 13 | Job Index & Freshness Engine | 2 周 | 4.5 周 |
-| 14 | 任务队列 + 定时工作 | 2 周 | 6.5 周 |
-| 15 | Resume & Cover Letter Generation v2 | 3 周 | 9.5 周 |
-| 16 | Filter Agent + 可解释性 | 1.5 周 | 11 周 |
-| 17 | 夜跑闭环 + Review Queue | 2 周 | 13 周 |
-| 18 | 多租户 & Auth 加固 | 2 周 | 15 周 |
+| 11 | 可靠性 & 收尾 | 1 周 | 1 周（已完成） |
+| 12 | 缓存基础设施（Redis） | 1.5 周 | 2.5 周（已完成） |
+| 13 | Job Index & Freshness Engine | 2 周 | 4.5 周（13.1-13.8 已完成） |
+| 13.9 | tenant_id retrofit migration | 0.3 周 | 4.8 周 |
+| 14 | 任务队列 + 定时工作（Celery） | 2.5 周 | 7.3 周 |
+| 15 | Resume & Cover Letter Generation v2 | 3 周 | 10.3 周 |
+| 16 | Filter Agent + 可解释性 | 1.5 周 | 11.8 周 |
+| 17 | 夜跑闭环 + Review Queue | 2 周 | 13.8 周 |
+| 18 | 多租户 & Auth 加固 | 2.5 周 | 16.3 周 |
 
-约 3-3.5 个月推到 v1.0 商业化就绪核心（不含 SaaS 业务层）。
+约 3.5-4 个月推到 v1.0 商业化就绪核心（不含 SaaS 业务层）。Phase 14 比 v3 多
+0.5 周用于 HITL gate 后端迁移；Phase 18 多 0.5 周承认 auth middleware / Redis
+namespace / 凭据存储是新建而非"激活"。
 
 ## 9. 横切质量基线
 
@@ -491,7 +573,8 @@ Phase 11 起强制执行：
 | 11 | 中途 revoke primary provider → fallback 链生效 → eval 仍通过；`autoapply migrate` 清理遗留状态 |
 | 12 | 同 batch 跑第二次 → LLM cache hit-rate > 80%、wall time < 20%、cost < 5%；Redis 重启后 L2 entry 恢复 |
 | 13 | 同搜索条件二次访问 < 2s（无 HTTP）；岗位内容变了产生新 `job_snapshot`；revoke LinkedIn cookie → 旧缓存仍可展示 |
-| 14 | 入队 100 个混合 task → worker 按配置控并发；中途杀 worker → heartbeat 过期后只重入队一次；scheduler tick 只入队不阻塞 |
+| 13.9 | alembic upgrade → 所有遗留表带 `tenant_id='default'` 列；现有 query 路径不变（无回归） |
+| 14 | `autoapply worker -Q materials` 起 Celery worker；入队 100 个混合 task → 按 queue 路由分发；杀 worker → `task_acks_late + task_reject_on_worker_lost` 自动重入队一次；Celery Beat 触发 `daily_search` 只 enqueue 不阻塞；agent 返回 `needs_human` 时 task 转 `waiting_human` 状态，worker 立即释放去拿下一个 task |
 | 15 | DOCX patch 保留 named styles；三套 LaTeX 模板可从同一 IR 编译；cover-letter eval 5/5 通过；产物绑定 snapshot/source/template/trace ID |
 | 16 | JobsView 任意被过滤的岗位 5 秒内看到 reason chain；100 个岗位 agent 成本 < $0.50 |
 | 17 | 周一 23:00 调度夜跑 → 周二 08:00 review queue 已有 N 条预生成 application，每条 30 秒内可 approve |

@@ -229,6 +229,8 @@ This log captures key decisions, their rationale, and alternatives considered. E
 
 **Superseded / extended by D023**: APScheduler remains the trigger store, but long-running work is now executed through the Phase 14 task queue + worker boundary rather than directly inside scheduled jobs.
 
+**Superseded by D025 (2026-05-14)**: APScheduler is retired entirely in favor of Celery Beat. The original concern this decision addressed (no SQLite, multi-instance double-fire prevention) remains valid and is now satisfied by `celery-redbeat` leader election + Postgres advisory lock as defense-in-depth.
+
 ---
 
 ## D022 — Job Index `search_results` links are pruned after a successful refresh (2026-05-14)
@@ -258,6 +260,8 @@ This log captures key decisions, their rationale, and alternatives considered. E
 
 **Alternatives considered**: Celery/RQ/Dramatiq were deferred because the project already needs Redis and a custom Postgres audit/task model for HITL, tenant scoping, and trace linking. Kafka/RabbitMQ are overkill until there is a real multi-service event-streaming requirement.
 
+**Partially superseded by D025 (2026-05-14)**: The framework choice has reversed -- Celery 5.x now owns task model + queue transport + worker runtime + Beat scheduling. The principles in this decision (queue owns execution reliability; agents own bounded decisions; HITL is a paused state, not a retry loop; Postgres remains the durable audit source) are *all preserved* and now sit as a thin wrapper on top of Celery. Read D023 + D025 together: D023 is the contract, D025 is the implementation.
+
 ---
 
 ## D024 — Materials generation splits into original-source patching and LaTeX-first generation (2026-05-14)
@@ -274,3 +278,65 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Template contract**: A LaTeX template package contains `template.tex`, optional assets, `template.manifest.yaml`, sample IR, compile engine (`pdflatex`, `xelatex`, or `lualatex`), capacity/page rules, and field mappings. Arbitrary LaTeX may be imported, but it is not considered active until a manifest exists and a sample compile passes. The adapter can be agent-assisted, but persistent reuse requires validation and user confirmation.
 
 **Trade-off**: This rejects a zero-config promise for arbitrary LaTeX templates. Accepted because reliable automation needs a contract between structured IR and template-specific commands; without it, the system would be guessing at every generation.
+
+---
+
+## D025 — Adopt Celery 5.x as the Phase 14 task queue framework (2026-05-14)
+
+**Decision**: Phase 14 reverses D023's "build it ourselves" stance on the task model + queue transport + worker runtime. Celery 5.x with Redis as both broker and result backend owns these. AutoApply layers a thin custom `AutoApplyTask` base class on top to handle: tenant context propagation through task headers, idempotency-key short-circuiting, agent-boundary dispatch (mapping `success` / `failed_retryable` / `failed_terminal` / `needs_human` / `needs_followup_task` to Celery primitives), trace writes, and per-tenant Redis namespacing. APScheduler is retired in favor of Celery Beat (with `celery-redbeat` for multi-instance leader election). The Phase-14 audit table in Postgres remains the durable source of truth; Celery's result backend stays transient.
+
+**Rationale**:
+
+1. **Scope reduction.** The originally-planned self-built queue would have required: durable task state model, Redis-backed transport with priority queues, worker runtime with per-kind concurrency, heartbeat + claim invariants, ack/nack with requeue-on-worker-loss, retry/backoff policy, abandoned-task reaper, graceful shutdown, multi-instance safety. Every one of these is a solved problem in Celery. Building them from scratch for a single-developer project is a year of yak-shaving that adds zero user value over an off-the-shelf framework with the same primitives.
+2. **D023's principles are preserved, not abandoned.** "Queue owns execution reliability; agents own bounded decisions" maps cleanly onto Celery: the framework owns the queue layer, the custom `AutoApplyTask` base class owns the agent boundary. "HITL is a paused state, not a retry loop" is implemented by transitioning the audit-table row to `waiting_human` (worker immediately released, no `time.sleep`) and enqueuing a `resume` task on user approval under the same idempotency key. "Postgres keeps the audit trail durable" is unchanged — the `tasks` audit table is owned by AutoApply, not Celery's result backend.
+3. **async/sync impedance is manageable.** Celery is sync-first but supports async task bodies via `asyncio.run(coro)` inside the task wrapper. For AutoApply's workload (minutes-long search / generate / apply tasks, not high-throughput event handling) this is fine — the cost of one `asyncio.run` per task is negligible relative to the actual work. The alternative (Arq, TaskIQ) would be cleaner async-wise but trade community size and proven multi-instance Beat behavior.
+4. **Celery Beat replaces APScheduler.** D021 chose APScheduler to avoid SQLite. Celery Beat with redbeat does the same job, runs in the same process tree as workers (less ops surface), and supports the same Postgres-advisory-lock backstop. Eliminating APScheduler from the dependency list removes one moving part.
+5. **Operational maturity.** Celery has been in production at scale for over a decade. Bug surface is well-understood; failure modes (broker disconnect, worker OOM, prefetch deadlock) are documented. A self-built queue would discover these failure modes one at a time, in production.
+
+**Configuration commitments** (these are not free defaults — they matter for AutoApply's workload):
+- `task_acks_late=True`: ack only after task completes. With `task_reject_on_worker_lost=True`, killing a worker mid-task auto-requeues the task exactly once.
+- `worker_prefetch_multiplier=1`: long-task model. Default (4) would have a worker hoard four `materials.generate` tasks while running one, starving other workers.
+- Four named queues (`search.*` / `materials.*` / `application.*` / `maintenance.*`) so concurrency can be tuned per kind.
+- Pydantic-validated task payloads, because Celery serializes anything.
+
+**Trade-offs**:
+- Adds Celery + redbeat as Python deps. Acceptable.
+- `celery -A src.tasks worker` is the canonical invocation; the `autoapply worker` CLI wraps it but the underlying tool is Celery. Documentation must teach Celery basics, not paper over them.
+- Celery Flower (the web monitoring UI) is available but not adopted — Phase 14.8 builds a tenant-aware `/tasks` UI on the audit table, which Flower cannot do.
+
+**Re-evaluation trigger**: If the project ever needs sub-100ms task dispatch latency (e.g. user-facing synchronous-feeling actions backed by workers), Celery's poll-based queue becomes a bottleneck and Arq or a custom transport may be reconsidered. Current workload (nightly batch + on-demand minutes-long jobs) is nowhere near that regime.
+
+**Supersedes**: D021 (APScheduler retired). **Partially supersedes**: D023 on the framework choice; D023's contract (queue/agent boundary, HITL state, audit durability) is preserved.
+
+---
+
+## D026 — Phase 13.9 tenant_id retrofit + Phase 14 HITL gate consolidation (2026-05-14)
+
+**Decision**: Two interrelated commitments made during the v3.1 roadmap calibration.
+
+**(a) Phase 13.9 tenant_id retrofit migration**: Before Phase 14 starts, one alembic migration adds `tenant_id TEXT NOT NULL DEFAULT 'default'` to every legacy table from Phase 11 and earlier — `jobs`, `applications`, `applicant_profile`, `bullet_pool`, `story_bank`, `qa_bank`, `templates` / `template_packages`, plus any other table without the column today. Existing rows are backfilled to `'default'`. ORM models in `src/core/models.py` add the field. Existing query paths are NOT forced to filter (they keep their current global-read behavior), but every new Phase-14 code path must thread an explicit tenant context.
+
+**(b) Phase 14 HITL gate backend consolidation**: The single-process file-backed HITL queue in `src/agent/gate/queue.py` is replaced by a Postgres `gate_queue` table that lives alongside the Phase 14 `tasks` audit table. When a Celery task returns `needs_human`, its audit row transitions to `waiting_human` and the worker is immediately released; user approval at `/api/gate/{id}/approve` enqueues a `resume` task under the original idempotency key. The old file backend is kept as a compat layer for one release, then deleted.
+
+**Rationale (a)**:
+
+1. **D020's "tenant_id from day one" promise was only kept for Phase 12-13 tables.** Phase 11 and earlier tables (`jobs`, `applications`, `applicant_profile`, etc.) ship today without the column. If Phase 14-17 builds new code on these tables under the existing single-tenant assumption, Phase 18 either has to rewrite the new code or fail to ever truly enforce tenancy. Doing the retrofit now — when the legacy tables hold one developer's data, not production user data — is a 0.3-week migration. Doing it at Phase 18 is days of careful production-data backfill.
+2. **Schema enforcement beats code discipline.** D020 said "review treats a missing `tenant_id` on a new table as a P1 blocker." That works for new tables. It does not work for "a new query path that touches a legacy table without filtering by tenant" — reviewers will miss those. With the column physically present and the new-code convention to require explicit tenant context, schema is what enforces the rule.
+3. **It is a no-op for existing behavior.** Default value `'default'`, no NOT-NULL violations on backfill, no query path needs to change. The full test suite must pass unchanged after the migration. This is a deliberately small commitment, not a Phase 18 preview.
+
+**Rationale (b)**:
+
+1. **File-backed JSON in `data/agent_gate/` is single-process by design.** Phase 14 introduces a Celery worker pool. Two workers reading/writing the same gate JSON file is a race condition waiting to happen. The Phase 17 review queue (D023, Phase 17.2) is a separate table; without consolidation we end up with two gate-like backends.
+2. **"Needs human" should not block a worker.** The old file-backed gate parks a Python thread waiting for approval. In a Celery pool, that thread is one of N concurrent slots — parking it deadlocks the worker. The DB-backed gate transitions task state and *releases* the worker; approval enqueues a fresh `resume` task that runs on whichever worker is next idle.
+3. **Audit + tenant + trace integration come for free.** The DB-backed gate joins to the Phase 14 audit table on `task_id` and to the trace store via `trace_id`. Phase 18 tenant filtering applies via the same `tenant_id` column the audit table uses. Phase 17's review queue can be thought of as a specialization of the gate queue (specifically, the `application.submit` gate items) — they share schema.
+
+**Trade-offs**:
+- Phase 13.9 adds one alembic migration to ship before Phase 14 PRs open. Cost: one focused session, plus a manual `alembic upgrade` on the developer's working DB. Accepted.
+- Phase 14.4 has a one-release compat layer keeping the old file-backed gate readable. After that release, `src/agent/gate/queue.py` is deleted and any external integrations (none today) must migrate. Accepted.
+- The "default tenant" fallback persists from Phase 13.9 through Phase 18.2. During this window a misconfigured client can read other tenants' data (because the legacy query paths are not filtered). This is the same exposure as today's single-tenant deployment — no regression — but the doc must call it out so it does not surprise anyone running a multi-tenant pilot before Phase 18 lands.
+
+**Enforcement**:
+- Phase 13.9 verification: `alembic upgrade head` is idempotent, full test suite passes unchanged, every table reachable from `Base.metadata` has a `tenant_id` column.
+- Phase 14.4 verification: file-backed gate `data/agent_gate/` exists empty (nothing writes there), all gate flow goes through `/api/gate/...` against the DB table, killing a worker during a `waiting_human` task does not lose the gate row.
+
+**Supersedes / extends**: D020 (now schema-enforced, not just convention-enforced).

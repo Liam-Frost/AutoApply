@@ -237,7 +237,7 @@ provider kind.
 - **Current phase**: Phase 13 complete -- 13.1 / 13.2 / 13.3 / 13.4 / 13.5 / 13.6 / 13.7 / 13.8 all landed + one codex P2 fix folded in. Roadmap v3 docs update captured the Phase 14 task queue boundary and Phase 15 Resume/Cover Letter Generation v2 plan before Phase 14 implementation starts.
 - **Last verification**: 1004 passed, 1 skipped on `feat/phase-13` after the codex fix; `ruff check` clean; frontend builds clean. (`test_memory.py` errors remain environment-level `psycopg` missing -- not a Phase 13 regression.)
 - **Blockers**: None
-- **Next step**: Start Phase 14 (Task Queue + Scheduled Work -- Redis queue transport + Postgres task state + worker boundary) on a fresh `feat/phase-14` branch.
+- **Next step**: Land **Phase 13.9** (one-shot `tenant_id` retrofit migration for all legacy tables; see D026) on `feat/phase-13` before opening the PR, then start **Phase 14 (Celery-based)** on a fresh `feat/phase-14` branch. Phase 14 now uses Celery 5.x as the task queue (see D025) instead of the originally-planned self-built queue. APScheduler is dropped in favor of Celery Beat. HITL gate backend moves from single-process file JSON to a Postgres `gate_queue` table folded into Phase 14.
 
 ## Roadmap: Phase 11 -- 18
 
@@ -313,28 +313,35 @@ forever.
 | 13.7 | Web UI freshness banner on the Jobs page. `POST /api/jobs/index/freshness` and `POST /api/jobs/index/refresh` (enqueues a `kind="search.refresh"` task on `refresh_tasks` for Phase 14 to consume); `GET /api/jobs/index/posting/{id}?context=...` for per-posting verdicts. Frontend: `frontend/src/components/JobIndexBanner.vue` renders "Last updated 18h ago · N indexed" plus a [Refresh] button; the banner emits `refresh` which `JobsView.forceRefreshSearch()` translates into a force-refresh by clearing `lastFetchSignature`. Application layer (`src/application/job_index.py`) owns the session lifecycle and degrades gracefully (`ProgrammingError → known=false`) when the migration hasn't been applied. | **Complete** (commit `eac302d`) |
 | 13.8 | Legacy file-cache migration + removal. `src/jobs/legacy.py` walks `data/cache/linkedin_search/*.json` and replays each file as one `SearchQuery` (status='stale' so the next real search re-scrapes -- we don't trust historical disk data) plus one `SearchResult` link per contained job; idempotent across re-runs. `clear_indexed_searches()` replaces the old `clear_linkedin_search_cache()` (cascades `search_results` via the FK). `autoapply jobs import-legacy-cache --legacy-dir --delete` is the new CLI surface. `src/intake/search_cache.py` is deleted; `src/intake/search.py` removes the file-cache short-circuit (end-to-end wiring of `search_linkedin` into `cached_search` lands with Phase 17's daily run loop). | **Complete** (commit `99e2dea`) |
 | **fix** | **codex review P2**: `JobIndexStore.prune_results_not_seen_since(query_id, threshold)` + `cached_search()` capture of `run_started_at` before `fetch_fn` -- postings missing from the new scrape lose their `search_results` link instead of replaying on the next cache hit. `outcome.counts` now carries `"removed"` so the UI can surface "N new / M removed / K updated". | **Complete** (commit `aacde6d`) |
+| 13.9 | **tenant_id retrofit migration** (see D026). One alembic migration adds `tenant_id TEXT NOT NULL DEFAULT 'default'` to every legacy table from Phase 11 and earlier (`jobs`, `applications`, `applicant_profile`, `bullet_pool`, `story_bank`, `qa_bank`, `templates` / `template_packages`, plus any other table without the column today). Backfills existing rows. ORM models in `src/core/models.py` add the field. Existing query paths are not changed -- they keep their current global-read behavior -- but every new Phase-14 code path **must** thread an explicit tenant context. Verification: `alembic upgrade head` is idempotent, the full test suite still passes, every table reachable from `Base.metadata` has a `tenant_id` column. | **Pending** |
 
 **Verification**: 1004 passed, 1 skipped on `feat/phase-13`; `ruff check` clean; frontend builds clean. Specifically: tracking-param collisions land on the same `normalized_key` (test_jobs_normalize.py); identical JD content does not spawn a second snapshot row, edited content does (test_jobs_enrich.py); cache hits return < 2 ms in the stub-store path; lock contention returns `stale=True` against real Redis (fakeredis); scrape failure preserves the previous run's rows + flips the query to `stale`; postings removed between runs are pruned on the next refresh (test_refresh_prunes_postings_no_longer_in_source). End-to-end LinkedIn integration via `cached_search` is deferred to Phase 17 per the in-code comment in `src/intake/search.py`. `tenant_id="default"` on every new row.
 
-### Phase 14: Task Queue + Scheduled Work (~2 weeks)
+### Phase 14: Task Queue + Scheduled Work (~2.5 weeks, Celery-based)
 
 Production-grade task execution substrate. Lays the foundation Phase
 17 needs to run nightly batches without the user being at the keyboard
-or a web request staying open.
+or a web request staying open. **Switched to Celery 5.x** as of roadmap
+v3.1 (see D025): the originally-planned self-built task model + queue
+transport + worker runtime is dropped. AutoApply layers an "agent
+boundary + HITL + trace + tenant context" wrapper on top of Celery.
+D023's principle ("queue owns execution reliability; agents own bounded
+decisions") is preserved.
 
 | Sub | Scope |
 |-----|-------|
-| 14.1 | Task state model: Postgres table for durable tasks (`queued / running / waiting_human / waiting_dependency / retrying / succeeded / failed / cancelled`), idempotency keys, attempt counters, payload schema version, tenant_id, heartbeat, and next-run timestamps. Redis is transport only; Postgres is the source of truth. |
-| 14.2 | Redis-backed queue transport: enqueue ready task IDs by priority; workers atomically claim, heartbeat, ack/nack, and requeue abandoned tasks. Backoff and max-attempt policy live in the task service, not inside agents. |
-| 14.3 | Worker runtime: `autoapply worker` process with per-kind concurrency limits (`search.refresh`, `job.enrich`, `materials.generate`, `application.prepare`, `application.fill`, `application.submit`, `status.sync`) and graceful shutdown that returns unacked work to the queue. |
-| 14.4 | Agent boundary: workers call bounded agents for one task at a time. Agents never own queue ack/nack, global retry, or worker lifecycle; if an agent needs follow-up work it must call an allow-listed enqueue tool that records a child task and audit event. |
-| 14.5 | Scheduler: APScheduler + **Postgres SQLAlchemyJobStore** (corrects the earlier SQLite draft -- the app already runs on Postgres). Scheduled jobs enqueue task records (`daily_search`, `jd_health_check`, `application_status_sync`, `linkedin_cookie_refresh`, `cache_eviction`) instead of doing long work inline. |
-| 14.6 | CLI: `autoapply schedule list / add / remove / pause / run-now / logs`; `autoapply tasks list / retry / cancel / inspect`; `autoapply worker --queues default,materials,apply`. |
-| 14.7 | Web UI at `/schedule` + `/tasks`: scheduled trigger table, task queue depth, running workers, retries, failure reasons, manual retry/cancel. |
-| 14.8 | **Multi-instance safety**: APScheduler job wrapper uses Postgres advisory lock; workers claim via task state transitions + Redis queue tokens so two processes do not run the same task. Foundation for horizontal scaling in the commercial path. |
-| 14.9 | Trace integration: every task attempt emits a trace record (reuses Phase 8.3 store); failures carry stacktrace and retry metadata; child tasks link back to parent trace/task. |
+| 14.1 | **Celery wiring + skeleton.** `celery_app = Celery("autoapply", broker=REDIS_URL, backend=REDIS_URL)`; `task_acks_late=True`, `task_reject_on_worker_lost=True`, `worker_prefetch_multiplier=1` (long-task model — do not prefetch). Four queues: `search.*`, `materials.*`, `application.*`, `maintenance.*`. Project layout adds `src/tasks/` with `__init__.py` (Celery app), `tasks.py` (task definitions), `beat.py` (Celery Beat schedule). |
+| 14.2 | **Durable audit table** (Postgres source of truth; Celery's result backend is transient). New `tasks` table: `id, celery_task_id, tenant_id, kind, payload, idempotency_key, status (queued/running/waiting_human/succeeded/failed/cancelled), attempts, parent_task_id, trace_id, created_at, finished_at`. Celery signals (`task_prerun` / `task_postrun` / `task_failure` / `task_retry`) keep it in sync. |
+| 14.3 | **Custom `AutoApplyTask` base class** (subclass of Celery `Task`): (a) reads `tenant_id` from task headers, injects into DB session + Redis namespace; (b) idempotency-key short-circuit on entry; (c) `self.call_agent(...)` helper that runs one bounded agent per task and dispatches its structured return (`success` / `failed_retryable` / `failed_terminal` / `needs_human` / `needs_followup_task`) to `raise self.retry()`, gate enqueue, or child-task enqueue; (d) writes trace records via the Phase 8.3 store. |
+| 14.4 | **HITL gate moved to Postgres** (replaces single-process file JSON; see D026). New `gate_queue` table (`id, tenant_id, task_id, kind, payload, status, requested_at, decided_at, decision, reason`). When a task returns `needs_human`, its row transitions to `waiting_human` and the worker is **released immediately** — no thread blocking. User approval at `/api/gate/{id}/approve` enqueues a `resume` task under the original idempotency key. Old `src/agent/gate/queue.py` file backend kept as a compat layer for one release, then removed. |
+| 14.5 | **Celery Beat for cron triggers** (APScheduler retired). Beat schedule in `src/tasks/beat.py`: `daily_search`, `jd_health_check` (drives 13.3 freshness time decay), `application_status_sync`, `linkedin_cookie_refresh`, `cache_eviction`. Beat only enqueues; business logic never runs in the Beat process. Multi-instance Beat uses `celery-redbeat` (Redis-backed schedule lock) or a Postgres advisory lock as backstop. |
+| 14.6 | **Task kinds**: `search.refresh`, `jobs.enrich`, `materials.generate`, `application.prepare`, `application.fill`, `application.submit`, `status.sync` — each a Celery task built on 14.3's base class. Payload schemas validated via Pydantic models so workers can't be tricked by malformed enqueues. |
+| 14.7 | **CLI**: `autoapply worker --queues search,materials,apply --concurrency 4` (wraps `celery -A src.tasks worker ...`); `autoapply beat` (starts Celery Beat); `autoapply tasks list/retry/cancel/inspect` (reads 14.2 audit table); `autoapply schedule list/pause/run-now` (reads Beat schedule, enqueues one-shot tasks). |
+| 14.8 | **Web UI** `/schedule` + `/tasks` + `/gate`: queue depth and live workers via Celery inspect API; manual retry/cancel from the audit table; `/gate` replaces the legacy agent gate viewer. |
+| 14.9 | **Trace integration**: `AutoApplyTask.on_success` / `on_failure` / `on_retry` auto-write trace records; child task headers carry `parent_trace_id` so the trace viewer can walk the chain. |
+| 14.10 | **Multi-instance safety**: Celery itself guarantees a single worker picks up each task; Beat uses redbeat leader election; Postgres advisory lock as defense-in-depth on schedule triggers (D021's principle preserved). |
 
-**Verification**: enqueue 100 mixed tasks → workers process with configured concurrency; kill a worker mid-task → heartbeat expiry requeues once; register `daily_search` with `* * * * *` → next tick enqueues a task instead of blocking the scheduler; start two web processes + two workers -- each task attempt runs once; an agent returning `needs_human` parks the task without retry churn.
+**Verification**: `autoapply worker -Q materials` starts a Celery worker; enqueue 100 mixed tasks → routed by queue; kill a worker mid-task → `task_acks_late + task_reject_on_worker_lost` auto-requeues exactly once; Celery Beat fires `daily_search` and only enqueues (Beat process never blocks); two-worker setup never runs the same task twice; agent returning `needs_human` transitions the task to `waiting_human` and the worker immediately picks up the next task (no thread parking).
 
 ### Phase 15: Resume & Cover Letter Generation v2 (~3 weeks)
 
@@ -366,7 +373,7 @@ layer on top, plus agent invocation for borderline jobs only.
 
 | Sub | Scope |
 |-----|-------|
-| 16.1 | Filter reason chain: every reject in `src/matching/` records `{rule_id, rule_name, reason, evidence_excerpt, job_snapshot_id}` instead of just a score. |
+| 16.1 | **`RuleVerdict` schema evolution** (this is a schema change, not a thin layer). Today, `ScoreBreakdown.disqualify_reasons` is `list[str]` and `RuleVerdict` carries no structured fields. This sub-phase: (a) restructures `RuleVerdict` to `{rule_id, rule_name, verdict, reason, evidence_excerpt}`; (b) every rule in `src/matching/rules.py` actively extracts the relevant JD excerpt; (c) `ScoreBreakdown` gains `job_snapshot_id` so the full result binds to a specific JD version. |
 | 16.2 | Edge-case agent: invoked only for jobs with score ∈ [0.4, 0.6]; explains why borderline and whether to surface for human review. Uses Phase 8 harness + new `score_breakdown` tool. |
 | 16.3 | Web UI "Why was this filtered?": ⓘ button on every rejected job; popover shows rule-based reasons + agent commentary if present + which snapshot the decision was made on. |
 | 16.4 | Eval suite: 10 human-annotated borderline jobs; agent decision matches human ≥ 70%. |
@@ -391,22 +398,29 @@ the "sleep, wake up to a review queue" end-to-end flow.
 
 **Verification**: schedule a nightly run at 23:00 Monday → wake Tuesday 08:00 → N pre-tailored applications in the review queue, each approvable in < 30s, submit triggers HITL gate as expected; expired-job pre-submit gate blocks correctly; no manual CLI invocation needed between Mon evening and Tue morning.
 
-### Phase 18: Multi-Tenancy & Auth Hardening (~2 weeks)
+### Phase 18: Multi-Tenancy & Auth Hardening (~2.5 weeks)
 
 Activates the commercial-readiness work seeded across Phases 12-17.
 SaaS business layer (billing, sign-up flow, marketing site) is NOT
 in scope -- this phase only makes the existing system safe to host
 for multiple isolated users.
 
+**Honest scope note**: Phase 13.9 already landed `tenant_id` on every
+table, so the schema retrofit is genuinely "activate existing work."
+But 18.2 / 18.4 / 18.7 are **net-new construction**, not retrofit:
+`src/web/` has no auth layer today, Redis keys have no tenant prefix
+today, and `src/providers/store.py` is a single global JSON file
+today. 18.1 / 18.3 / 18.5 / 18.6 are the only true "activations."
+
 | Sub | Scope |
 |-----|-------|
-| 18.1 | `tenants` + `users` tables; migration of existing data to `tenant_id="default"` (the value all Phase 12-17 tables already carry). |
-| 18.2 | FastAPI auth middleware: derive `current_tenant_id` from session / token; every query layer (SQLAlchemy session, Redis namespace, cache key prefix, refresh-task selector) automatically filters by it. |
+| 18.1 | `tenants` + `users` tables; bind the `tenant_id='default'` rows left behind by 13.9 to real tenants. |
+| 18.2 | **Build from scratch** the FastAPI auth middleware: session/token parsing, `current_tenant_id` injected into a `ContextVar`, ORM sessions filter via SQLAlchemy event listeners, Celery task headers carry tenant context (14.3 reserves the hook). |
 | 18.3 | Postgres Row-Level Security policies as DB-level backstop -- even a query that forgets the `tenant_id` filter cannot leak rows. |
-| 18.4 | Per-tenant Redis namespace: `tenant:{id}:llm:...`, `tenant:{id}:lock:...`. Inspector UI shows current tenant only. |
+| 18.4 | **Refactor** Redis key naming: every namespace prefixed `tenant:{id}:`; `src/cache/base.py` key construction *requires* tenant context (raises rather than falling back to a default). Inspector UI shows current tenant only. |
 | 18.5 | Per-tenant quotas: LLM token budget / scrape rate / storage. Exceeding returns 429 with a structured retry-after. |
 | 18.6 | Audit log table (`audit_events`): submission, settings change, credential operation, manual schedule trigger. Append-only. |
-| 18.7 | Credential store per-tenant: keyring entries namespaced; file-backed entries moved under `data/tenants/{id}/credentials/`. |
+| 18.7 | **Refactor** the credential store: `src/providers/store.py` moves from one global JSON file to `data/tenants/{id}/credentials/`; keyring entries get tenant prefixes; migrate `data/providers/credentials.json` into the `default` tenant. |
 
 **Verification**: two tenants seeded with overlapping email / LinkedIn cookies → tenant A's session cannot read tenant B's jobs / snapshots / applications / credentials / Redis keys, verified by direct SQL and direct Redis CLI; quota exhaustion returns 429; RLS policy in place even if the ORM layer is bypassed.
 
@@ -414,16 +428,20 @@ for multiple isolated users.
 
 | Phase | Scope | Est. | Cumulative |
 |-------|-------|------|------------|
-| 11 | Reliability & Cleanup | 1w | 1w |
-| 12 | Cache Infrastructure (Redis) | 1.5w | 2.5w |
-| 13 | Job Index & Freshness Engine | 2w | 4.5w |
-| 14 | Task Queue + Scheduled Work | 2w | 6.5w |
-| 15 | Resume & Cover Letter Generation v2 | 3w | 9.5w |
-| 16 | Filter Agent + Explainability | 1.5w | 11w |
-| 17 | Daily Run Loop + Review Queue | 2w | 13w |
-| 18 | Multi-Tenancy & Auth Hardening | 2w | 15w |
+| 11 | Reliability & Cleanup | 1w | 1w (done) |
+| 12 | Cache Infrastructure (Redis) | 1.5w | 2.5w (done) |
+| 13 | Job Index & Freshness Engine | 2w | 4.5w (13.1-13.8 done) |
+| 13.9 | tenant_id retrofit migration | 0.3w | 4.8w |
+| 14 | Task Queue + Scheduled Work (Celery) | 2.5w | 7.3w |
+| 15 | Resume & Cover Letter Generation v2 | 3w | 10.3w |
+| 16 | Filter Agent + Explainability | 1.5w | 11.8w |
+| 17 | Daily Run Loop + Review Queue | 2w | 13.8w |
+| 18 | Multi-Tenancy & Auth Hardening | 2.5w | 16.3w |
 
-~3-3.5 months to v1.0 commercial-ready core (no SaaS business layer).
+~3.5-4 months to v1.0 commercial-ready core (no SaaS business layer).
+Phase 14 grows 0.5w over v3 to absorb the HITL gate backend migration;
+Phase 18 grows 0.5w to honestly reflect that auth middleware / Redis
+namespace refactor / credential store are net-new builds, not "activations."
 
 ## Cross-cutting Concerns
 
