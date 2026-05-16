@@ -294,6 +294,21 @@ class TestMapFieldsToProfile:
         mappings = map_fields_to_profile(fields, {"identity": {}, "education": []})
         assert mappings[0].value == ""
 
+    @pytest.mark.asyncio
+    async def test_build_selector_uses_attribute_selector_for_ids_with_dots(self):
+        from src.execution.form_filler import _build_selector
+
+        element = MagicMock()
+
+        async def get_attribute(name):
+            return "input-candidate.name-3" if name == "id" else None
+
+        element.get_attribute = AsyncMock(side_effect=get_attribute)
+
+        selector = await _build_selector(element)
+
+        assert selector == "[id='input-candidate.name-3']"
+
 
 # ──────────────────────────────────────────────
 # Rate Limiter Tests

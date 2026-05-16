@@ -554,6 +554,39 @@ class TestApplicationUseCases:
         )
         assert mock_run.await_count == 1
 
+    def test_load_job_for_application_uses_job_index_snapshot_for_company_site(self):
+        from src.application.jobs import _load_job_for_application
+
+        stored_job = SimpleNamespace(
+            id=uuid.uuid4(),
+            source="linkedin",
+            source_id="4413751106",
+            company="Huawei Canada",
+            title="Co-op Software Engineer - AI System & Infrastructure",
+            location="Markham, ON",
+            employment_type="coop",
+            seniority="internship",
+            description="Build AI system infrastructure.",
+            application_url=(
+                "https://huaweicanada.recruitee.com/o/"
+                "co-opsoftware-engineer-ai-system-infrastructure-2-3?source=LinkedIn"
+            ),
+            ats_type="company_site",
+            raw_data={},
+            discovered_at=None,
+        )
+
+        with (
+            patch("src.application.jobs._find_db_job_by_url", return_value=None),
+            patch("src.application.jobs._find_index_job_by_url", return_value=stored_job),
+            patch("src.application.jobs._fetch_job_from_ats") as mock_fetch,
+        ):
+            job, hydrated = _load_job_for_application(stored_job.application_url, "company_site")
+
+        assert hydrated is True
+        assert job is stored_job
+        mock_fetch.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_apply_to_url_refuses_company_site_without_real_job_context(self):
         # When _load_job_for_application falls back to a synthesized stub

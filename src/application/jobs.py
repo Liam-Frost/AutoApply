@@ -2312,6 +2312,10 @@ def _load_job_for_application(url: str, ats_type: str) -> tuple:
     if db_job is not None:
         return _job_to_raw_job(db_job), True
 
+    index_job = _find_index_job_by_url(url)
+    if index_job is not None:
+        return index_job, True
+
     fetched_job = _fetch_job_from_ats(url, ats_type)
     if fetched_job is not None:
         return fetched_job, True
@@ -2330,6 +2334,38 @@ def _find_db_job_by_url(url: str):
             return session.query(Job).filter(Job.application_url == url).first()
     except Exception as exc:
         logger.debug("DB lookup skipped for %s: %s", url, exc)
+        return None
+
+
+def _find_index_job_by_url(url: str):
+    try:
+        from sqlalchemy import or_, select
+
+        from src.core.config import load_config
+        from src.core.database import get_session_factory
+        from src.core.models import JobPosting, JobSnapshot
+
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session:
+            stmt = (
+                select(JobPosting, JobSnapshot)
+                .join(JobSnapshot, JobSnapshot.id == JobPosting.latest_snapshot_id)
+                .where(
+                    or_(
+                        JobPosting.canonical_url == url,
+                        JobSnapshot.application_url == url,
+                    )
+                )
+                .order_by(JobSnapshot.scraped_at.desc())
+                .limit(1)
+            )
+            row = session.execute(stmt).first()
+            if row is None:
+                return None
+            posting, snapshot = row
+            return _raw_job_from_index_posting(posting, snapshot)
+    except Exception as exc:
+        logger.debug("Job Index lookup skipped for %s: %s", url, exc)
         return None
 
 

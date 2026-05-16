@@ -482,12 +482,22 @@ async def apply_job(payload: JobApplyPayload) -> dict:
 
     if result["ok"]:
         if result["status"] == "SUBMITTED":
-            return {"status": "submitted", "message": "Submitted", "job": result["job"]}
+            return {
+                "status": "submitted",
+                "message": "Submitted",
+                "job": result["job"],
+                "application_id": result.get("tracking_id"),
+                "result": result.get("result"),
+                "artifacts": result.get("artifacts"),
+            }
         if result["status"] == "REVIEW_REQUIRED":
             return {
                 "status": "review",
                 "message": "Filled to review stage",
                 "job": result["job"],
+                "application_id": result.get("tracking_id"),
+                "result": result.get("result"),
+                "artifacts": result.get("artifacts"),
             }
 
     status_code = 400 if result["error_code"] in {"unsupported_ats", "profile_missing"} else 500
