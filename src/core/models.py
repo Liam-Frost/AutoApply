@@ -371,6 +371,86 @@ class SourceResume(Base):
     )
 
 
+class ReviewQueueEntry(Base):
+    """Phase 17.2: pending applications awaiting human approval.
+
+    Created by the ``application.prepare`` task body when materials
+    generation completes; transitioned through the state machine
+    ``pending → approved → submitted`` (or ``pending → rejected``) by
+    the operator via the Phase 17.3 ``/review`` UI. The Phase 17.5
+    pre-submit hard gate re-runs ``should_refresh(..., "before_submit")``
+    at the ``approved → submitted`` edge -- if the snapshot is now
+    expired, the transition fails and the entry rolls back to
+    ``pending`` (or to a new ``stale`` status the UI surfaces).
+
+    Bindings
+    --------
+    * ``job_id`` / ``job_snapshot_id`` -- Phase 13 audit binding so the
+      review-queue card always renders the JD the materials were
+      generated against (even if the live JD has drifted).
+    * ``materials_path`` -- where the resume+cover-letter artifacts
+      were written. Phase 17.3 popover serves previews from this path.
+    * ``score_breakdown`` -- snapshot of the Phase 16.1 breakdown so
+      "Why was this surfaced?" works without re-scoring.
+
+    Indexes target the kanban board's usual query: "give me all
+    pending entries for tenant X ordered by created_at" / "all
+    approved entries for tenant X" -- one composite index covers
+    both. The unique constraint prevents the orchestrator from
+    creating two pending entries for the same job snapshot in a
+    single night (idempotency).
+    """
+
+    __tablename__ = "review_queue"
+    __table_args__ = (
+        Index(
+            "ix_review_queue_tenant_status_created",
+            "tenant_id",
+            "status",
+            "created_at",
+        ),
+        Index("ix_review_queue_job", "job_id"),
+        Index("ix_review_queue_run_id", "run_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "job_id",
+            "job_snapshot_id",
+            "status",
+            name="uq_review_queue_pending_per_snapshot",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    # Nullable so the orchestrator can create an entry for a job that
+    # hasn't yet been persisted (search-only mode). The Phase 17.5
+    # pre-submit gate requires job_id be set before "approve and
+    # submit" succeeds. Intentionally NOT a FK -- we want the entry
+    # to survive retention sweeps that purge the jobs / job_snapshots
+    # rows it pointed at (the kanban renders from the denormalised
+    # ``company`` + ``title`` columns).
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    job_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    # Free-form so legacy paths can populate strings, but the column
+    # stays narrow enough for an index to be cheap.
+    run_id: Mapped[str | None] = mapped_column(String(64))
+    materials_path: Mapped[str | None] = mapped_column(String(400))
+    score_breakdown: Mapped[dict | None] = mapped_column(JSONB)
+    company: Mapped[str | None] = mapped_column(String(200))
+    title: Mapped[str | None] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    decision: Mapped[str | None] = mapped_column(String(40))
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewer: Mapped[str | None] = mapped_column(String(120))
+
+
 class QABank(Base):
     __tablename__ = "qa_bank"
 
