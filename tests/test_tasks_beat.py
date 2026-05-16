@@ -23,6 +23,8 @@ EXPECTED_ENTRIES: set[str] = {
     "linkedin_cookie_refresh",
     "cache_eviction",
     "gate_expire_sweep",
+    # Phase 17.1: end-to-end nightly orchestrator
+    "nightly_run",
 }
 
 

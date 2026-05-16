@@ -62,6 +62,21 @@ class ApplicationSubmitPayload(BaseModel):
     application_id: str
 
 
+class OrchestrationNightlyRunPayload(BaseModel):
+    """Phase 17.1 nightly_run task payload.
+
+    Mirrors :func:`src.orchestration.nightly_run.run_nightly` -- all
+    fields default-friendly so a Beat tick can fire the task with no
+    kwargs and still produce a useful run for the active applicant
+    profile.
+    """
+
+    profile_id: str = "default"
+    search_profile_id: str | None = None
+    top_n: int = 10
+    dry_run: bool = False
+
+
 class StatusSyncPayload(BaseModel):
     """Empty by default -- the scheduled status_sync sweeps every
     in-flight application; a one-off CLI invocation can pass
@@ -109,6 +124,53 @@ def search_daily_fanout(self: AutoApplyTask) -> dict[str, Any]:
     per-source ``search.refresh`` children."""
     logger.info("search.daily_fanout tick")
     return {"task": "search.daily_fanout", "status": "stubbed"}
+
+
+# ---- Tasks: orchestration --------------------------------------------
+
+
+@celery_app.task(name="orchestration.nightly_run", base=AutoApplyTask, bind=True)
+def orchestration_nightly_run(
+    self: AutoApplyTask, **payload: Any
+) -> dict[str, Any]:
+    """Phase 17.1: the 'sleep, wake to a review queue' top-level task.
+
+    Search → score → enqueue ``materials.generate`` +
+    ``application.prepare`` for the top-N qualified jobs. Never enqueues
+    ``application.submit`` -- approval happens in the Phase 17.3 review
+    queue UI and the Phase 17.5 pre-submit gate runs at that point.
+
+    The real work lives in :func:`src.orchestration.nightly_run.run_nightly`;
+    this wrapper is the AutoApplyTask boundary: payload validation +
+    tenant context (via ``before_start``) + the return dict that lands
+    on the audit row.
+    """
+    args = _coerce(OrchestrationNightlyRunPayload, payload)
+    # Lazy import + asyncio.run keep this task body light when the
+    # orchestrator package isn't loaded (e.g. in unrelated tests).
+    import asyncio  # noqa: PLC0415
+
+    from src.orchestration.nightly_run import run_nightly  # noqa: PLC0415
+    from src.tasks.context import current_tenant_id  # noqa: PLC0415
+
+    tenant_id = current_tenant_id() or "default"
+    logger.info(
+        "orchestration.nightly_run starting tenant=%s profile=%s top_n=%d dry_run=%s",
+        tenant_id,
+        args.profile_id,
+        args.top_n,
+        args.dry_run,
+    )
+    report = asyncio.run(
+        run_nightly(
+            tenant_id=tenant_id,
+            profile_id=args.profile_id,
+            search_profile_id=args.search_profile_id,
+            top_n=args.top_n,
+            dry_run=args.dry_run,
+        )
+    )
+    return report.to_dict()
 
 
 # ---- Tasks: jobs -----------------------------------------------------
@@ -238,6 +300,7 @@ KNOWN_TASK_NAMES: tuple[str, ...] = (
     "application.prepare",
     "application.fill",
     "application.submit",
+    "orchestration.nightly_run",
     "maintenance.status_sync",
     "maintenance.jd_health_check",
     "maintenance.linkedin_cookie_refresh",

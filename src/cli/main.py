@@ -42,6 +42,11 @@ from src.cli.cmd_eval import eval_cmd  # noqa: E402
 from src.cli.cmd_init import init_cmd  # noqa: E402
 from src.cli.cmd_jobs import jobs_cmd  # noqa: E402
 from src.cli.cmd_migrate import migrate_cmd  # noqa: E402
+from src.cli.cmd_nightly import (  # noqa: E402  (Phase 17.1 / 17.7)
+    nightly_cmd,
+    pause_nightly_cmd,
+    resume_nightly_cmd,
+)
 from src.cli.cmd_provider import provider_cmd  # noqa: E402
 from src.cli.cmd_redis import redis_cmd  # noqa: E402
 from src.cli.cmd_schedule import schedule_cmd  # noqa: E402  (Phase 14.7)
@@ -66,6 +71,10 @@ cli.add_command(worker_cmd, "worker")
 cli.add_command(beat_cmd, "beat")
 cli.add_command(tasks_cmd, "tasks")
 cli.add_command(schedule_cmd, "schedule")
+# Phase 17.1 / 17.7 nightly orchestrator commands.
+cli.add_command(nightly_cmd, "nightly")
+cli.add_command(pause_nightly_cmd, "pause-nightly")
+cli.add_command(resume_nightly_cmd, "resume-nightly")
 
 
 def main() -> None:
