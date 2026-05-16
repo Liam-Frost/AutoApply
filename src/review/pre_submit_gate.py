@@ -237,6 +237,45 @@ def run_pre_submit_gate(
             freshness=freshness,
         )
 
+    # Codex P1: even when last_checked_at is fresh, the posting may
+    # have been *re-scraped* since materials were generated. In that
+    # case posting.latest_snapshot_id is now a different uuid than
+    # entry.job_snapshot_id, which means the resume + cover letter
+    # quote a JD version the operator is no longer about to submit
+    # against. Block and mark stale -- the operator clicks Refresh,
+    # which re-enqueues materials against the current snapshot.
+    if (
+        entry.job_snapshot_id is not None
+        and posting.latest_snapshot_id is not None
+        and entry.job_snapshot_id != posting.latest_snapshot_id
+    ):
+        if auto_mutate:
+            mark_stale(
+                session,
+                entry.id,
+                reason=(
+                    f"snapshot mismatch: materials bound to "
+                    f"{entry.job_snapshot_id} but posting now points at "
+                    f"{posting.latest_snapshot_id}"
+                ),
+            )
+        return PreSubmitGateResult(
+            allowed=False,
+            action="refresh",
+            reason=(
+                "JD was re-scraped after materials were generated; "
+                "regenerate against the current snapshot before submitting"
+            ),
+            entry_id=str(entry.id),
+            job_id=str(entry.job_id),
+            job_snapshot_id=str(entry.job_snapshot_id),
+            freshness=freshness,
+            notes=[
+                f"entry.snapshot_id={entry.job_snapshot_id}",
+                f"posting.latest_snapshot_id={posting.latest_snapshot_id}",
+            ],
+        )
+
     # All checks cleared.
     return PreSubmitGateResult(
         allowed=True,

@@ -411,12 +411,17 @@ class ReviewQueueEntry(Base):
         ),
         Index("ix_review_queue_job", "job_id"),
         Index("ix_review_queue_run_id", "run_id"),
-        UniqueConstraint(
+        # Phase 17.2 codex fix: partial unique index for pending-only.
+        # Prevents the orchestrator from inserting duplicate pending
+        # rows for the same snapshot AND lets the same snapshot pass
+        # through the lifecycle multiple times (re-run weeks later).
+        Index(
+            "ux_review_queue_pending_per_snapshot",
             "tenant_id",
             "job_id",
             "job_snapshot_id",
-            "status",
-            name="uq_review_queue_pending_per_snapshot",
+            unique=True,
+            postgresql_where="status = 'pending'",
         ),
     )
 

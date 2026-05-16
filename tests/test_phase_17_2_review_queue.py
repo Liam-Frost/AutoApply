@@ -397,6 +397,43 @@ class TestBulkOps:
 # --------------------------------------------------------------------------- #
 
 
+class TestPartialUniqueOnPending:
+    """Codex round-3 P2 -- the unique index applies only when
+    status='pending' so the same snapshot can pass through the lifecycle
+    multiple times across nightly runs."""
+
+    def test_can_resurface_same_snapshot_after_terminal(
+        self, db_session: Session
+    ):
+        tenant = _tenant()
+        job_id = uuid.uuid4()
+        snap_id = uuid.uuid4()
+        a = create_entry(
+            db_session,
+            _make_args(tenant, job_id=job_id, snapshot_id=snap_id),
+        )
+        db_session.commit()
+        review_app.reject(db_session, a.id)
+        db_session.commit()
+
+        # Run two of the orchestrator picks up the same snapshot.
+        # Under the old full-row UNIQUE this would already collide on
+        # ('pending') vs ('rejected') because the old constraint
+        # included ``status``; with the partial-on-pending index, the
+        # second insert succeeds because no pending row exists for
+        # (tenant, job, snapshot).
+        b = create_entry(
+            db_session,
+            _make_args(tenant, job_id=job_id, snapshot_id=snap_id),
+        )
+        db_session.commit()
+        assert b.id != a.id
+        # And we can transition this one independently of the old.
+        review_app.approve(db_session, b.id)
+        db_session.commit()
+        assert db_session.get(ReviewQueueEntry, b.id).status == "approved"
+
+
 def test_review_queue_table_exists(engine):
     """If the migration didn't run, the dev DB won't have the table.
     This is the only test that talks to the DB directly without going

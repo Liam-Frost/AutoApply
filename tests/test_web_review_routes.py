@@ -162,8 +162,27 @@ class TestSingleItemTransitions:
         assert "rejected" in response.json().get("detail", "")
 
     def test_refresh_route_stale_to_pending(
-        self, db_session: Session, client: TestClient
+        self, db_session: Session, client: TestClient, monkeypatch
     ):
+        # Codex round-3 P2: refresh must also enqueue the upstream
+        # tasks that actually re-scrape + regenerate. Patch celery to
+        # avoid hitting Redis in unit tests.
+        class _StubResult:
+            def __init__(self, name):
+                self.id = f"stub-{name}"
+
+        captured = []
+
+        class _StubCelery:
+            @staticmethod
+            def send_task(name, **kwargs):
+                captured.append((name, kwargs))
+                return _StubResult(name)
+
+        import src.tasks.app as celery_mod
+
+        monkeypatch.setattr(celery_mod, "celery_app", _StubCelery())
+
         entry = _seed(db_session)
         entry.status = "stale"
         db_session.commit()
@@ -171,7 +190,13 @@ class TestSingleItemTransitions:
             f"/api/review/{entry.id}/refresh", json={"reviewer": "alice"}
         )
         assert response.status_code == 200
-        assert response.json()["entry"]["status"] == "pending"
+        body = response.json()
+        assert body["entry"]["status"] == "pending"
+        # The route enqueued both the re-scrape and the regeneration.
+        assert body["enrich_task_id"] == "stub-jobs.enrich"
+        assert body["materials_task_id"] == "stub-materials.generate"
+        names = {c[0] for c in captured}
+        assert names == {"jobs.enrich", "materials.generate"}
 
     def test_missing_entry_returns_404(self, client: TestClient):
         response = client.post(

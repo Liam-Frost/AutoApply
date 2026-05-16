@@ -189,7 +189,12 @@ async def search_linkedin(
                 allow_public_fallback=allow_public_fallback,
             )
 
-            description_match_ids: set[str] = set()
+            # Codex round-3 P2: the final redirect-enrichment pass now
+            # covers EVERY kept job (title + description matches alike)
+            # so the previous description_match_ids exclusion set has
+            # been dropped. Description-only matches need apply-target
+            # resolution too -- otherwise the downstream application
+            # pipeline can't reach them.
             if keyword_terms:
                 title_matches, detail_candidates = _partition_jobs_by_title_keywords(
                     jobs,
@@ -232,7 +237,6 @@ async def search_linkedin(
                         include_title=False,
                         log_label="LinkedIn description keyword filter",
                     )
-                    description_match_ids = {job.source_id for job in description_matches}
                 elif detail_candidates:
                     reason = (
                         "public guest search results"
@@ -256,15 +260,21 @@ async def search_linkedin(
                 )
 
             if enrich_details and jobs and scraper.last_search_mode == "authenticated":
-                jobs_to_enrich = [
-                    job for job in jobs if job.source_id not in description_match_ids
-                ]
+                # Codex P2 (round 3): description-only matches had
+                # ``include_apply_target=False`` on their description-
+                # fetch step (which is correct -- we don't want to pay
+                # the apply-target click while screening). Excluding
+                # them from the final redirect enrichment leaves their
+                # external ATS URL unresolved, which breaks the
+                # downstream apply pipeline. Enrich ALL kept jobs;
+                # title matches that were already enriched will hit
+                # LinkedIn's HTTP cache and cost ~nothing.
+                jobs_to_enrich = list(jobs)
                 if jobs_to_enrich:
                     logger.info(
-                        "LinkedIn final redirect enrichment fetching details for %d/%d "
-                        "already-kept title matches",
+                        "LinkedIn final redirect enrichment fetching details for %d "
+                        "kept jobs (title + description matches)",
                         len(jobs_to_enrich),
-                        len(jobs),
                     )
                     enriched_jobs = await scraper.enrich_jobs_with_details(
                         jobs_to_enrich,

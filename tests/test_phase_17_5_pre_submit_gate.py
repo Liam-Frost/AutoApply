@@ -35,7 +35,7 @@ from src.application.review import (
     approve as approve_entry,
 )
 from src.core.config import get_db_url, load_config
-from src.core.models import JobPosting, ReviewQueueEntry
+from src.core.models import JobPosting, JobSnapshot, ReviewQueueEntry
 from src.review.pre_submit_gate import (
     PreSubmitGateResult,
     run_pre_submit_gate,
@@ -58,6 +58,25 @@ def db_session(engine) -> Session:
     s.execute(
         sa_delete(ReviewQueueEntry).where(
             ReviewQueueEntry.tenant_id.like(f"{_TENANT_PREFIX}%")
+        )
+    )
+    # Cleanup order matters under the FK constraints:
+    #   posting.latest_snapshot_id -> snapshots.id (would block snapshot
+    #     deletion if we tried snapshots first)
+    #   snapshots.posting_id -> postings.id (would block posting
+    #     deletion if snapshots still reference it)
+    # So: drop postings first (clears the latest_snapshot_id FK), then
+    # snapshots (which can now go).
+    from sqlalchemy import update as sa_update  # noqa: PLC0415
+
+    s.execute(
+        sa_update(JobPosting)
+        .where(JobPosting.tenant_id.like(f"{_TENANT_PREFIX}%"))
+        .values(latest_snapshot_id=None)
+    )
+    s.execute(
+        sa_delete(JobSnapshot).where(
+            JobSnapshot.tenant_id.like(f"{_TENANT_PREFIX}%")
         )
     )
     s.execute(
@@ -309,6 +328,109 @@ class TestFreshness:
 # --------------------------------------------------------------------------- #
 # Result shape                                                                #
 # --------------------------------------------------------------------------- #
+
+
+def _make_snapshot(
+    session: Session, *, tenant: str, posting: JobPosting, label: str
+) -> JobSnapshot:
+    snap = JobSnapshot(
+        id=uuid.uuid4(),
+        tenant_id=tenant,
+        posting_id=posting.id,
+        content_hash=f"hash-{label}-{uuid.uuid4().hex[:8]}",
+        title=posting.company,
+    )
+    session.add(snap)
+    session.flush()
+    return snap
+
+
+class TestSnapshotMismatch:
+    """Codex round-3 P1: even when last_checked_at is fresh, the gate
+    must block when entry.job_snapshot_id != posting.latest_snapshot_id
+    -- the materials were generated against an older JD version."""
+
+    def test_snapshot_mismatch_marks_stale(self, db_session: Session):
+        tenant = _tenant()
+        now = datetime.now(UTC)
+        posting = _make_posting(
+            db_session,
+            tenant=tenant,
+            state="active",
+            last_checked_at=now - timedelta(minutes=10),
+        )
+        # Real snapshot rows so the FK to job_snapshots is satisfied.
+        old_snap_row = _make_snapshot(
+            db_session, tenant=tenant, posting=posting, label="old"
+        )
+        new_snap_row = _make_snapshot(
+            db_session, tenant=tenant, posting=posting, label="new"
+        )
+        # Posting now points at the new snapshot; the review entry was
+        # bound to the old one when materials were generated.
+        posting.latest_snapshot_id = new_snap_row.id
+        db_session.commit()
+
+        entry = _seed_approved_entry(db_session, tenant=tenant, posting=posting)
+        entry.job_snapshot_id = old_snap_row.id
+        db_session.commit()
+
+        result = run_pre_submit_gate(db_session, entry.id, now=now)
+        db_session.commit()
+
+        assert result.allowed is False
+        assert result.action == "refresh"
+        assert "re-scraped" in result.reason
+        # Auto-mutated to stale.
+        assert db_session.get(ReviewQueueEntry, entry.id).status == "stale"
+
+    def test_matching_snapshot_passes(self, db_session: Session):
+        tenant = _tenant()
+        now = datetime.now(UTC)
+        posting = _make_posting(
+            db_session,
+            tenant=tenant,
+            state="active",
+            last_checked_at=now - timedelta(minutes=10),
+        )
+        snap_row = _make_snapshot(
+            db_session, tenant=tenant, posting=posting, label="only"
+        )
+        posting.latest_snapshot_id = snap_row.id
+        db_session.commit()
+
+        entry = _seed_approved_entry(db_session, tenant=tenant, posting=posting)
+        entry.job_snapshot_id = snap_row.id
+        db_session.commit()
+
+        result = run_pre_submit_gate(db_session, entry.id, now=now)
+        assert result.allowed is True
+        assert result.action == "allow"
+
+    def test_null_entry_snapshot_id_does_not_block(self, db_session: Session):
+        """Review entries created in search-only mode have no snapshot
+        binding -- don't force-block them on that alone (the freshness
+        check still fires)."""
+        tenant = _tenant()
+        now = datetime.now(UTC)
+        posting = _make_posting(
+            db_session,
+            tenant=tenant,
+            state="active",
+            last_checked_at=now - timedelta(minutes=10),
+        )
+        snap_row = _make_snapshot(
+            db_session, tenant=tenant, posting=posting, label="latest"
+        )
+        posting.latest_snapshot_id = snap_row.id
+        db_session.commit()
+
+        entry = _seed_approved_entry(db_session, tenant=tenant, posting=posting)
+        entry.job_snapshot_id = None  # search-only
+        db_session.commit()
+
+        result = run_pre_submit_gate(db_session, entry.id, now=now)
+        assert result.allowed is True
 
 
 class TestResultShape:

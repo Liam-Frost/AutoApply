@@ -297,20 +297,75 @@ async def reject_route(
 async def refresh_route(
     entry_id: str, payload: ReviewActionPayload
 ) -> dict[str, Any]:
-    """``stale → pending``. The UI surfaces this as 'Refresh materials'
-    so the operator can re-run materials generation after the Phase
-    17.5 pre-submit gate flagged staleness."""
+    """``stale → pending`` + re-enqueue the upstream tasks that actually
+    refresh the bound JD snapshot and materials.
+
+    Codex P2 (round 3): without the task fan-out, the next approve+
+    submit would re-evaluate the gate against unchanged data and
+    bounce right back to ``stale`` -- there's no path forward. We now
+    enqueue:
+
+      * ``jobs.enrich`` -- re-scrape the JD into a fresh snapshot
+        (Phase 13.4 already handles the snapshot creation + posting
+        pointer update).
+      * ``materials.generate`` -- regenerate the resume + cover letter
+        against whatever snapshot ``jobs.enrich`` produces.
+
+    Both task ids are surfaced so the kanban can render
+    "Refresh queued: materials task X, scrape task Y" while the
+    operator waits. The state machine transition still happens
+    synchronously so the UI moves the card immediately.
+    """
     factory = get_session_factory()
     with factory() as session, session.begin():
         entry = get_entry_db(session, entry_id)
         if entry is None or entry.tenant_id != _tenant():
             raise HTTPException(404, "review entry not found")
-        return _wrap_transition(
-            refresh_stale,
-            session,
-            entry_id,
-            reviewer=payload.reviewer,
-        )
+
+        try:
+            refreshed = refresh_stale(
+                session, entry_id, reviewer=payload.reviewer
+            )
+        except InvalidTransitionError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+        # Enqueue the upstream tasks. Broker hiccups land in the
+        # response as null task ids; the operator can retry via a
+        # second click. Logging the failure keeps the audit trail.
+        enrich_task_id: str | None = None
+        materials_task_id: str | None = None
+        if entry.job_id is not None:
+            try:
+                from src.tasks.app import celery_app  # noqa: PLC0415
+
+                enrich = celery_app.send_task(
+                    "jobs.enrich",
+                    kwargs={"posting_id": str(entry.job_id)},
+                )
+                enrich_task_id = str(enrich.id)
+                materials = celery_app.send_task(
+                    "materials.generate",
+                    kwargs={
+                        "job_id": str(entry.job_id),
+                        "document_types": ["resume", "cover_letter"],
+                    },
+                )
+                materials_task_id = str(materials.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "review refresh_route: enqueue failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+        return {
+            "ok": True,
+            "entry": serialize_entry(refreshed),
+            "enrich_task_id": enrich_task_id,
+            "materials_task_id": materials_task_id,
+        }
 
 
 @router.post("/{entry_id}/submit")

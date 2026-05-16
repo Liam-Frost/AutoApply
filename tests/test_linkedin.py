@@ -547,9 +547,17 @@ class TestLinkedInKeywordPrecision:
                 enrich_details=True,
             )
 
+        # Phase 17 codex round-3 P2: the final redirect enrichment now
+        # covers ALL kept jobs (title + description matches alike), so
+        # description-only matches get their apply target resolved.
+        # Title matches that were already enriched hit LinkedIn's
+        # HTTP cache on the second fetch.
         assert [job.source_id for job in jobs] == ["1", "2"]
-        assert enrich_calls == [["2", "3"], ["1"]]
+        assert enrich_calls == [["2", "3"], ["1", "2"]]
         assert enrich_kwargs[0]["include_apply_target"] is False
+        # The second call is the redirect-enrichment pass; it must
+        # include apply-target resolution.
+        assert enrich_kwargs[1].get("include_apply_target", True) is True
 
     @pytest.mark.asyncio
     async def test_search_linkedin_checks_all_non_title_matches_by_default(self):
@@ -600,7 +608,11 @@ class TestLinkedInKeywordPrecision:
                 enrich_details=True,
             )
 
-        assert enrichment_limits == [10]
+        # Phase 17 codex round-3 P2: every kept job now gets the
+        # final redirect-enrichment pass (second call), not only the
+        # title matches. enrichment_limits[0] is the description
+        # filter cap (10), [1] is the redirect-enrichment cap.
+        assert enrichment_limits[0] == 10
         assert [job.source_id for job in jobs] == [str(i) for i in range(1, 11)]
 
     @pytest.mark.asyncio
@@ -668,7 +680,10 @@ class TestLinkedInKeywordPrecision:
                 max_keyword_detail_fetches=2,
             )
 
-        assert enrichment_limits == [2]
+        # Phase 17 codex round-3 P2: 2 description fetches (capped by
+        # max_keyword_detail_fetches), then a second redirect-enrichment
+        # pass over both kept jobs.
+        assert enrichment_limits[0] == 2
         assert [job.source_id for job in jobs] == ["1", "2"]
 
     @pytest.mark.asyncio
