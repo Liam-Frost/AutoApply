@@ -683,6 +683,119 @@ class TestCodexFixes:
         assert report.review_entry_ids == []
 
 
+class TestCodexFixesRound2:
+    """Pin the second round of codex findings:
+      * P1: review entries bind to JobPosting.id (not RawJob.id) so
+        approve+submit can find the row via run_pre_submit_gate.
+      * The default score_fn looks up posting/snapshot ids and patches
+        breakdowns in place.
+    """
+
+    def test_resolve_and_patch_posting_ids_overwrites_rawjob_ids(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """The default score path looks up JobPosting by (source,
+        source_id) and rewrites breakdown.job_id to the persisted
+        posting id so the pre-submit gate can resolve it."""
+        import uuid as _uuid
+
+        from sqlalchemy import create_engine
+        from sqlalchemy import delete as sa_delete
+        from sqlalchemy.orm import sessionmaker
+
+        from src.core.config import get_db_url, load_config
+        from src.core.models import JobPosting
+        from src.intake.schema import RawJob
+        from src.matching.scorer import ScoreBreakdown
+        from src.orchestration.nightly_run import (
+            _resolve_and_patch_posting_ids,
+        )
+
+        tenant = f"test-pid-{_uuid.uuid4().hex[:6]}"
+        engine = create_engine(get_db_url(load_config()))
+        session_local = sessionmaker(bind=engine)
+        posting_id = _uuid.uuid4()
+        # ``latest_snapshot_id`` has a FK to job_snapshots; leave it
+        # None here -- the patching helper handles the null case
+        # gracefully (no overwrite of bd.job_snapshot_id) and the
+        # posting-id rewrite is what we're actually pinning.
+
+        with session_local() as s:
+            s.add(
+                JobPosting(
+                    id=posting_id,
+                    tenant_id=tenant,
+                    source="greenhouse",
+                    source_id="src-resolved",
+                    company="Acme",
+                    state="active",
+                    latest_snapshot_id=None,
+                )
+            )
+            s.commit()
+
+        try:
+            raw = RawJob(
+                source="greenhouse",
+                source_id="src-resolved",
+                company="Acme",
+                title="SWE",
+            )
+            bd = ScoreBreakdown(
+                job_id=str(raw.id),  # RawJob.id, NOT posting.id
+                company="Acme",
+                title="SWE",
+            )
+            _resolve_and_patch_posting_ids([bd], [raw], tenant)
+            assert bd.job_id == str(posting_id)
+            # snapshot stays None because the posting row has none.
+            assert bd.job_snapshot_id is None
+        finally:
+            with session_local() as cleanup:
+                cleanup.execute(
+                    sa_delete(JobPosting).where(JobPosting.id == posting_id)
+                )
+                cleanup.commit()
+
+    def test_resolve_skips_missing_postings(self, tmp_path: Path):
+        """If the scorer scored a job that's not in JobPosting (e.g.
+        search bypassed the job index), the breakdown stays unchanged
+        instead of crashing -- the review row will still be inserted
+        and the pre-submit gate will produce a 'missing_binding'
+        verdict at submit time, which is informative rather than fatal.
+        """
+        from src.intake.schema import RawJob
+        from src.matching.scorer import ScoreBreakdown
+        from src.orchestration.nightly_run import (
+            _resolve_and_patch_posting_ids,
+        )
+
+        raw = RawJob(
+            source="greenhouse",
+            source_id="src-doesnotexist",
+            company="X",
+            title="Y",
+        )
+        original_id = str(raw.id)
+        bd = ScoreBreakdown(job_id=original_id, company="X", title="Y")
+        # Tenant has no JobPosting rows -- lookup returns nothing.
+        _resolve_and_patch_posting_ids([bd], [raw], "tenant-with-no-postings")
+        assert bd.job_id == original_id
+
+    def test_default_score_fn_signature_accepts_tenant_id_kw(self):
+        """The 2-arg ScoreFn type stays unchanged so existing test
+        stubs keep working; production wiring uses functools.partial
+        to bind tenant_id."""
+        import inspect
+
+        from src.orchestration.nightly_run import _default_score_fn
+
+        sig = inspect.signature(_default_score_fn)
+        assert "tenant_id" in sig.parameters
+        # tenant_id is keyword-only
+        assert sig.parameters["tenant_id"].kind == inspect.Parameter.KEYWORD_ONLY
+
+
 class TestNowInjection:
     def test_duration_uses_injected_clock(self, tmp_path: Path):
         ticks = iter(

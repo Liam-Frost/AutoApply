@@ -365,7 +365,16 @@ onMounted(refresh)
             </div>
 
             <div v-if="col.id === 'pending'" class="flex gap-1">
+              <!--
+                Codex P2: stale entries only allow Refresh / Reject per
+                the state machine (stale -> pending | rejected). The
+                'Approve' button would always 409 with InvalidTransition
+                so we hide it. The operator clicks Refresh first; once
+                the entry transitions back to pending the standard
+                approve flow works.
+              -->
               <Button
+                v-if="entry.status !== 'stale'"
                 size="sm"
                 :disabled="state.pendingAction"
                 @click="approveOne(entry)"
@@ -374,22 +383,21 @@ onMounted(refresh)
                 Approve
               </Button>
               <Button
+                v-if="entry.status === 'stale'"
+                size="sm"
+                :disabled="state.pendingAction"
+                @click="refreshOne(entry)"
+              >
+                <RefreshCw class="h-4 w-4" />
+                Refresh
+              </Button>
+              <Button
                 size="sm"
                 variant="outline"
                 :disabled="state.pendingAction"
                 @click="rejectOne(entry)"
               >
                 Reject
-              </Button>
-              <Button
-                v-if="entry.status === 'stale'"
-                size="sm"
-                variant="outline"
-                :disabled="state.pendingAction"
-                @click="refreshOne(entry)"
-              >
-                <RefreshCw class="h-4 w-4" />
-                Refresh
               </Button>
             </div>
             <div v-else-if="col.id === 'approved'" class="flex flex-wrap gap-1">

@@ -43,6 +43,7 @@ back without ORM access.
 
 from __future__ import annotations
 
+import functools
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -277,7 +278,12 @@ async def run_nightly(
         )
 
     # ----- 2. Score + filter ---------------------------------------
-    score_fn = score_fn or _default_score_fn
+    # Production wiring needs ``tenant_id`` so it can resolve
+    # ``RawJob.id`` -> ``JobPosting.id`` for the review queue rows
+    # (codex P1 fix). The 2-arg ``ScoreFn`` contract stays unchanged
+    # so existing test stubs are untouched.
+    if score_fn is None:
+        score_fn = functools.partial(_default_score_fn, tenant_id=tenant_id)
     try:
         breakdowns = score_fn(jobs, profile_id)
     except Exception as exc:  # noqa: BLE001
@@ -449,12 +455,26 @@ def _coerce_job_to_rawjob(job: Any) -> Any | None:
     return job
 
 
-def _default_score_fn(jobs: list[Any], profile_id: str) -> list[Any]:
+def _default_score_fn(
+    jobs: list[Any], profile_id: str, *, tenant_id: str = ""
+) -> list[Any]:
     """Default wiring: load YAML, build scoring context, score the batch.
 
     Coerces serialized-dict jobs back to :class:`RawJob` first (see
     :func:`_coerce_job_to_rawjob`) so the production search path is
     actually scoreable.
+
+    Then (codex P1 fix) resolves the persistent ``JobPosting.id`` +
+    ``latest_snapshot_id`` for each scored job and overwrites
+    ``breakdown.job_id`` / ``breakdown.job_snapshot_id`` so the
+    pre-submit gate (which queries ``JobPosting`` by id) can find the
+    row. Without this, every nightly-created review entry would land
+    with ``RawJob.id`` (a fresh UUID per scrape) and approve+submit
+    would always 404 with ``missing_binding``.
+
+    ``tenant_id`` is captured via ``functools.partial`` in
+    :func:`run_nightly`; the public ``ScoreFn`` contract stays 2-arg so
+    test stubs are unaffected.
     """
     from src.application.profile import get_profile_path  # noqa: PLC0415
     from src.matching.scorer import build_scoring_context  # noqa: PLC0415
@@ -469,7 +489,112 @@ def _default_score_fn(jobs: list[Any], profile_id: str) -> list[Any]:
 
     raw_jobs = [_coerce_job_to_rawjob(j) for j in jobs]
     raw_jobs = [j for j in raw_jobs if j is not None]
-    return score_ranked(raw_jobs, ctx)
+    breakdowns = score_ranked(raw_jobs, ctx)
+
+    if tenant_id:
+        try:
+            _resolve_and_patch_posting_ids(breakdowns, raw_jobs, tenant_id)
+        except Exception:  # noqa: BLE001 - non-fatal; logged
+            logger.exception(
+                "nightly_run: posting-id resolution failed; review entries "
+                "will land with RawJob.id and pre-submit may fail"
+            )
+
+    return breakdowns
+
+
+def _resolve_and_patch_posting_ids(
+    breakdowns: list[Any],
+    raw_jobs: list[Any],
+    tenant_id: str,
+) -> None:
+    """Look up ``JobPosting`` by ``(tenant_id, source, source_id)`` and
+    rewrite each breakdown's ``job_id`` / ``job_snapshot_id`` to the
+    persisted ids.
+
+    Operates in-place because :class:`ScoreBreakdown` is a dataclass we
+    own. RawJob.id → posting.id mapping is keyed on (source, source_id)
+    which is the Phase 13 ``uq_job_postings_tenant_source`` constraint.
+
+    Misses (a posting the scorer scored but the job index never saw)
+    leave the breakdown unchanged; the review entry will still be
+    inserted but the pre-submit gate will report ``missing_binding``
+    until the next refresh fills in the posting row. That's strictly
+    better than the current behaviour (silent failure on every entry).
+    """
+    if not breakdowns or not raw_jobs:
+        return
+
+    from sqlalchemy import and_, or_, select  # noqa: PLC0415
+
+    from src.core.database import get_session_factory  # noqa: PLC0415
+    from src.core.models import JobPosting  # noqa: PLC0415
+
+    # Build (source, source_id) keys from raw_jobs and index them by
+    # the RawJob.id so we can map breakdown.job_id (RawJob.id as str) ->
+    # source key after the DB lookup.
+    rawjob_id_to_key: dict[str, tuple[str, str]] = {}
+    keys: set[tuple[str, str]] = set()
+    for rj in raw_jobs:
+        source = getattr(rj, "source", None)
+        source_id = getattr(rj, "source_id", None)
+        rj_id = getattr(rj, "id", None)
+        if source and source_id and rj_id is not None:
+            key = (str(source), str(source_id))
+            keys.add(key)
+            rawjob_id_to_key[str(rj_id)] = key
+
+    if not keys:
+        return
+
+    factory = get_session_factory()
+    with factory() as session:
+        rows = (
+            session.execute(
+                select(
+                    JobPosting.id,
+                    JobPosting.latest_snapshot_id,
+                    JobPosting.source,
+                    JobPosting.source_id,
+                ).where(
+                    JobPosting.tenant_id == tenant_id,
+                    or_(
+                        *[
+                            and_(
+                                JobPosting.source == s,
+                                JobPosting.source_id == sid,
+                            )
+                            for s, sid in keys
+                        ]
+                    ),
+                )
+            )
+            .all()
+        )
+    key_to_ids: dict[tuple[str, str], tuple[Any, Any]] = {
+        (row.source, row.source_id): (row.id, row.latest_snapshot_id)
+        for row in rows
+    }
+
+    for bd in breakdowns:
+        rj_id = str(getattr(bd, "job_id", "") or "")
+        key = rawjob_id_to_key.get(rj_id)
+        if key is None:
+            continue
+        persisted = key_to_ids.get(key)
+        if persisted is None:
+            # Scored a job that was never persisted (search bypassed the
+            # job index, or the row was retention-purged between scrape
+            # and score). Leave the breakdown alone -- the review row
+            # will still write but pre-submit will fail informatively.
+            continue
+        posting_id, snapshot_id = persisted
+        # Mutate in place. ScoreBreakdown is a dataclass; both fields
+        # are typed as ``str | None`` for job_snapshot_id (Phase 16.1)
+        # and ``str`` for job_id.
+        bd.job_id = str(posting_id)
+        if snapshot_id is not None:
+            bd.job_snapshot_id = str(snapshot_id)
 
 
 def _create_review_entries(
