@@ -519,6 +519,170 @@ class TestCliCommands:
         assert path.exists()
 
 
+class TestCodexFixes:
+    """Pin the three codex review findings:
+      * P1: dict -> RawJob coercion before scoring.
+      * P1: review_queue rows are persisted from the orchestrator.
+      * P2: top_n=0 or negative selects nothing.
+    """
+
+    def test_top_n_zero_selects_nothing(self, tmp_path: Path):
+        bds = [_Breakdown(job_id=f"j{i}", final_score=0.7) for i in range(5)]
+        enq = _Enqueuer()
+        report = _async(
+            run_nightly(
+                tenant_id="t1",
+                pause_root=tmp_path,
+                top_n=0,
+                search_fn=_SearchRecorder(
+                    return_jobs=[{"id": b.job_id} for b in bds]
+                ),
+                score_fn=lambda jobs, _pid: bds,
+                enqueue_fn=enq,
+            )
+        )
+        # Codex P2: top_n=0 must mean "select none", not "no cap".
+        assert report.selected == 0
+        assert enq.calls == []
+
+    def test_top_n_negative_selects_nothing(self, tmp_path: Path):
+        bds = [_Breakdown(job_id="j", final_score=0.7)]
+        enq = _Enqueuer()
+        report = _async(
+            run_nightly(
+                tenant_id="t1",
+                pause_root=tmp_path,
+                top_n=-1,
+                search_fn=_SearchRecorder(return_jobs=[{"id": "j"}]),
+                score_fn=lambda jobs, _pid: bds,
+                enqueue_fn=enq,
+            )
+        )
+        assert report.selected == 0
+        assert enq.calls == []
+
+    def test_coerce_job_to_rawjob_handles_dict(self):
+        """Codex P1: dicts coming back from search_jobs (serialize_job
+        output) must be convertible into RawJob before scoring."""
+        from src.intake.schema import RawJob
+        from src.orchestration.nightly_run import _coerce_job_to_rawjob
+
+        payload = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "source": "greenhouse",
+            "source_id": "j1",
+            "company": "Acme",
+            "title": "SWE Intern",
+            "employment_type": "internship",
+            "seniority": "internship",
+            "description": "...",
+            "ats_type": "greenhouse",
+            "match_score": 0.5,  # serialize_job flat field RawJob rejects
+            "disqualified": False,
+            "raw_data": {},
+        }
+        out = _coerce_job_to_rawjob(payload)
+        assert isinstance(out, RawJob)
+
+    def test_coerce_job_to_rawjob_passes_through_rawjob(self):
+        from src.intake.schema import RawJob
+        from src.orchestration.nightly_run import _coerce_job_to_rawjob
+
+        raw = RawJob(
+            source="greenhouse",
+            source_id="j1",
+            company="Acme",
+            title="SWE",
+        )
+        assert _coerce_job_to_rawjob(raw) is raw
+
+    def test_coerce_job_to_rawjob_drops_malformed(self):
+        from src.orchestration.nightly_run import _coerce_job_to_rawjob
+
+        # Missing required ``source_id`` -> RawJob construction fails ->
+        # helper returns None so scoring just skips this row.
+        assert _coerce_job_to_rawjob({"company": "X"}) is None
+
+    def test_review_entries_persisted_for_selected_jobs(self, tmp_path: Path):
+        """Codex P1: the orchestrator must populate review_queue so the
+        kanban shows last night's matches even though
+        application.prepare is a stub."""
+        import uuid as _uuid
+
+        from sqlalchemy import create_engine
+        from sqlalchemy import delete as sa_delete
+        from sqlalchemy.orm import sessionmaker
+
+        from src.core.config import get_db_url, load_config
+        from src.core.models import ReviewQueueEntry
+
+        tenant = f"test-nr-{_uuid.uuid4().hex[:6]}"
+
+        @dataclass
+        class _BDWithTitle:
+            job_id: str
+            final_score: float = 0.6
+            disqualified: bool = False
+            company: str = "Acme"
+            title: str = "SWE Intern"
+
+            def to_dict(self):
+                return {"final_score": self.final_score}
+
+        engine = create_engine(get_db_url(load_config()))
+        session_local = sessionmaker(bind=engine)
+
+        try:
+            job_uuid = _uuid.uuid4()
+            bds = [_BDWithTitle(job_id=str(job_uuid), final_score=0.7)]
+            report = _async(
+                run_nightly(
+                    tenant_id=tenant,
+                    pause_root=tmp_path,
+                    top_n=5,
+                    search_fn=_SearchRecorder(return_jobs=[{"id": str(job_uuid)}]),
+                    score_fn=lambda jobs, _pid: bds,
+                    enqueue_fn=_Enqueuer(),
+                )
+            )
+            assert report.status == "ok"
+            assert len(report.review_entry_ids) == 1
+            with session_local() as session:
+                rows = session.query(ReviewQueueEntry).filter(
+                    ReviewQueueEntry.tenant_id == tenant
+                ).all()
+                assert len(rows) == 1
+                assert rows[0].status == "pending"
+                assert rows[0].company == "Acme"
+                assert rows[0].title == "SWE Intern"
+                assert rows[0].run_id == report.run_id
+        finally:
+            with session_local() as cleanup:
+                cleanup.execute(
+                    sa_delete(ReviewQueueEntry).where(
+                        ReviewQueueEntry.tenant_id == tenant
+                    )
+                )
+                cleanup.commit()
+
+    def test_dry_run_does_not_persist_review_entries(self, tmp_path: Path):
+        """Even though we now persist from the orchestrator, dry_run
+        stays a true rehearsal -- no DB writes, no enqueue."""
+        bds = [_Breakdown(job_id="x", final_score=0.7)]
+        report = _async(
+            run_nightly(
+                tenant_id="t1",
+                pause_root=tmp_path,
+                top_n=1,
+                dry_run=True,
+                search_fn=_SearchRecorder(return_jobs=[{"id": "x"}]),
+                score_fn=lambda jobs, _pid: bds,
+                enqueue_fn=_Enqueuer(),
+            )
+        )
+        assert report.review_entry_ids == []
+
+
 class TestNowInjection:
     def test_duration_uses_injected_clock(self, tmp_path: Path):
         ticks = iter(
