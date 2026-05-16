@@ -18,11 +18,11 @@
 import { computed, onMounted, reactive } from "vue"
 import {
   Check,
-  ChevronDown,
   CircleCheck,
   CircleX,
   Inbox,
   RefreshCw,
+  Send,
 } from "lucide-vue-next"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -120,6 +120,29 @@ async function rejectOne(entry) {
 
 async function refreshOne(entry) {
   await runAction(() => api.reviewRefresh(entry.id, { reviewer: "operator" }))
+}
+
+async function submitOne(entry) {
+  // Phase 17.5: approve-and-submit. The server runs the pre-submit
+  // hard gate; if blocked we surface the gate's verdict inline so the
+  // operator sees "refresh required" / "posting expired" without a
+  // page reload.
+  state.pendingAction = true
+  state.message = ""
+  try {
+    const result = await api.reviewSubmit(entry.id, { reviewer: "operator" })
+    if (result.ok) {
+      state.message = `Submitted (task ${result.submit_task_id || "queued"}).`
+    } else {
+      const action = result.gate?.action || "blocked"
+      state.message = `Submit blocked: ${action}. ${result.gate?.reason || ""}`
+    }
+    await refresh()
+  } catch (err) {
+    state.message = err?.message || "Submit failed"
+  } finally {
+    state.pendingAction = false
+  }
 }
 
 async function bulkApprove() {
@@ -369,7 +392,15 @@ onMounted(refresh)
                 Refresh
               </Button>
             </div>
-            <div v-else-if="col.id === 'approved'" class="flex gap-1">
+            <div v-else-if="col.id === 'approved'" class="flex flex-wrap gap-1">
+              <Button
+                size="sm"
+                :disabled="state.pendingAction"
+                @click="submitOne(entry)"
+              >
+                <Send class="h-4 w-4" />
+                Submit
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -378,8 +409,8 @@ onMounted(refresh)
               >
                 Reject
               </Button>
-              <span class="text-xs text-muted-foreground self-center">
-                Submission goes through the Phase 17.5 pre-submit gate.
+              <span class="basis-full text-xs text-muted-foreground">
+                Submit runs the Phase 17.5 pre-submit gate first.
               </span>
             </div>
           </article>

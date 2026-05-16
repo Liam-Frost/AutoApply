@@ -315,6 +315,16 @@ export const api = {
       body: JSON.stringify(payload),
     })
   },
+  reviewSubmit(entryId, payload = {}) {
+    // Phase 17.5: approve-and-submit via the pre-submit hard gate.
+    // The server runs the gate; if blocked, the response body has
+    // ok=false + a structured gate verdict the UI renders inline.
+    return request(`/api/review/${encodeURIComponent(entryId)}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
   reviewBulkApprove(entryIds, payload = {}) {
     return request("/api/review/bulk/approve", {
       method: "POST",

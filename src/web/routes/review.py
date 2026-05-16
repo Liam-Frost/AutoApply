@@ -24,6 +24,7 @@ this to the session; today the helper falls back to ``"default"``).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -49,6 +50,8 @@ from src.application.review import (
 )
 from src.core.database import get_session_factory
 from src.review.state_machine import InvalidTransitionError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -308,3 +311,88 @@ async def refresh_route(
             entry_id,
             reviewer=payload.reviewer,
         )
+
+
+@router.post("/{entry_id}/submit")
+async def submit_route(
+    entry_id: str, payload: ReviewActionPayload
+) -> dict[str, Any]:
+    """Phase 17.5: approve-and-submit via the pre-submit hard gate.
+
+    Flow:
+      1. Load the entry (tenant-scoped).
+      2. Run the pre-submit gate (freshness + lifecycle). The gate
+         may mutate the entry's status to ``stale`` or ``rejected``.
+      3. If the gate cleared, flip the entry to ``submitted`` and
+         enqueue ``application.submit``.
+      4. Return the structured gate verdict so the UI can render
+         "Submitted" / "Refresh required" / "Posting expired"
+         deterministically.
+
+    Returns 409 when the entry is not in ``approved`` state -- the
+    caller must approve first.
+    """
+    from src.application.review import mark_submitted  # noqa: PLC0415
+    from src.review.pre_submit_gate import run_pre_submit_gate  # noqa: PLC0415
+
+    factory = get_session_factory()
+    with factory() as session, session.begin():
+        entry = get_entry_db(session, entry_id)
+        if entry is None or entry.tenant_id != _tenant():
+            raise HTTPException(404, "review entry not found")
+        if entry.status != "approved":
+            raise HTTPException(
+                409,
+                f"entry status is {entry.status!r}; approve first",
+            )
+
+        gate_result = run_pre_submit_gate(session, entry_id, auto_mutate=True)
+        if not gate_result.allowed:
+            # The gate has already mutated the entry to stale /
+            # rejected as needed; surface the verdict.
+            return {
+                "ok": False,
+                "gate": gate_result.to_dict(),
+                "entry": serialize_entry(
+                    get_entry_db(session, entry_id) or entry
+                ),
+            }
+
+        try:
+            mark_submitted(
+                session, entry_id, reviewer=payload.reviewer, reason=payload.reason
+            )
+        except InvalidTransitionError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+        # Enqueue the application.submit task. Lazy import keeps this
+        # route fast in unit tests that don't have a Celery broker --
+        # the import lives behind the gate so a missing Redis only
+        # surfaces when we actually try to submit.
+        try:
+            from src.tasks.app import celery_app  # noqa: PLC0415
+
+            async_result = celery_app.send_task(
+                "application.submit",
+                kwargs={"application_id": str(entry.job_id)},
+            )
+            submit_task_id = str(async_result.id)
+        except Exception as exc:  # noqa: BLE001
+            # Don't roll back -- the entry is in ``submitted`` state
+            # and the operator's decision is recorded. Worker queue
+            # health is a separate concern.
+            logger.warning(
+                "review submit_route: enqueue failed: %s",
+                exc,
+                exc_info=True,
+            )
+            submit_task_id = None
+
+        return {
+            "ok": True,
+            "gate": gate_result.to_dict(),
+            "entry": serialize_entry(
+                get_entry_db(session, entry_id) or entry
+            ),
+            "submit_task_id": submit_task_id,
+        }
