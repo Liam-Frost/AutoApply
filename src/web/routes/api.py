@@ -201,6 +201,34 @@ class MatchingExplainPayload(BaseModel):
     job: dict
 
 
+@router.get("/digest")
+async def get_morning_digest(window_hours: int = 24) -> dict:
+    """Phase 17.6 morning digest payload for the dashboard banner.
+
+    Aggregates the last ``window_hours`` of nightly_run reports +
+    the current review queue snapshot. The route re-computes on every
+    call (the input is tiny: a directory scan + one ``count(*)``
+    grouped by status), so callers don't need to worry about staleness
+    after an approve/reject action.
+    """
+    from src.core.database import get_session_factory
+    from src.orchestration.digest import compute_digest
+
+    factory = get_session_factory()
+    with factory() as session:
+        # Tenant resolution mirrors the review routes' helper.
+        try:
+            from src.tasks.context import current_tenant_id
+
+            tenant_id = current_tenant_id() or "default"
+        except Exception:
+            tenant_id = "default"
+        payload = compute_digest(
+            session, tenant_id=tenant_id, window_hours=max(1, min(window_hours, 168))
+        )
+    return {"ok": True, "digest": payload.to_dict()}
+
+
 @router.post("/matching/explain")
 async def matching_explain(payload: MatchingExplainPayload) -> dict:
     """Phase 16.3 explainability route.

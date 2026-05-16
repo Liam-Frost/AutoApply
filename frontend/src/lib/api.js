@@ -286,6 +286,10 @@ export const api = {
     // a large keyspace, so callers should drive a loading state.
     return request("/api/cache")
   },
+  morningDigest(windowHours = 24) {
+    // Phase 17.6: dashboard banner payload.
+    return request(`/api/digest?window_hours=${encodeURIComponent(windowHours)}`)
+  },
   // Phase 17.3 + 17.4: review queue.
   reviewList(status = null) {
     const suffix = status ? `?status=${encodeURIComponent(status)}` : ""

@@ -66,6 +66,15 @@ def get_schedule() -> dict[str, dict[str, object]]:
             "schedule": crontab(hour=23, minute=0),
             "options": _ORCHESTRATION_OPTS,
         },
+        # Phase 17.6: morning digest at 08:00 UTC. Produces the
+        # dashboard banner payload + (future hook) desktop
+        # notification. Routed to the maintenance queue since it's
+        # cheap (one DB query + a directory scan).
+        "morning_digest": {
+            "task": "notifications.morning_digest",
+            "schedule": crontab(hour=8, minute=0),
+            "options": _MAINTENANCE_OPTS,
+        },
         "jd_health_check": {
             "task": "maintenance.jd_health_check",
             "schedule": crontab(minute=0),  # every hour, on the hour

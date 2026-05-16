@@ -25,6 +25,8 @@ EXPECTED_ENTRIES: set[str] = {
     "gate_expire_sweep",
     # Phase 17.1: end-to-end nightly orchestrator
     "nightly_run",
+    # Phase 17.6: morning digest banner producer
+    "morning_digest",
 }
 
 

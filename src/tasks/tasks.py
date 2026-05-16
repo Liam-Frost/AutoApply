@@ -129,6 +129,34 @@ def search_daily_fanout(self: AutoApplyTask) -> dict[str, Any]:
 # ---- Tasks: orchestration --------------------------------------------
 
 
+@celery_app.task(name="notifications.morning_digest", base=AutoApplyTask, bind=True)
+def notifications_morning_digest(self: AutoApplyTask) -> dict[str, Any]:
+    """Phase 17.6: 08:00 morning digest tick.
+
+    Computes the structured digest payload + (Phase 17.6 hook) emits
+    it. The desktop-notification side is out of scope here; what the
+    Beat tick produces is the same JSON the dashboard banner pulls
+    via ``GET /api/digest``, so the only effect of this task in this
+    sub-phase is to log the headline + return the payload (lands on
+    the audit row so an operator can grep the task history for
+    historical digests).
+    """
+    import asyncio  # noqa: PLC0415
+
+    from src.core.database import get_session_factory  # noqa: PLC0415
+    from src.orchestration.digest import compute_digest  # noqa: PLC0415
+    from src.tasks.context import current_tenant_id  # noqa: PLC0415
+
+    del asyncio  # not currently needed; placeholder if we go async
+
+    tenant_id = current_tenant_id() or "default"
+    factory = get_session_factory()
+    with factory() as session:
+        payload = compute_digest(session, tenant_id=tenant_id)
+    logger.info("morning_digest tenant=%s: %s", tenant_id, payload.headline)
+    return payload.to_dict()
+
+
 @celery_app.task(name="orchestration.nightly_run", base=AutoApplyTask, bind=True)
 def orchestration_nightly_run(
     self: AutoApplyTask, **payload: Any
@@ -170,6 +198,18 @@ def orchestration_nightly_run(
             dry_run=args.dry_run,
         )
     )
+    # Phase 17.6: persist the report under data/nightly_runs/ so the
+    # 08:00 morning digest can aggregate over it. Failure here is
+    # non-fatal -- a missing report file just means the digest will
+    # under-count for this run, which is preferable to the task
+    # itself failing and re-queueing.
+    try:
+        from src.orchestration.digest import persist_nightly_report  # noqa: PLC0415
+
+        persist_nightly_report(report)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nightly_run: report persistence failed: %s", exc)
+
     return report.to_dict()
 
 
@@ -301,6 +341,7 @@ KNOWN_TASK_NAMES: tuple[str, ...] = (
     "application.fill",
     "application.submit",
     "orchestration.nightly_run",
+    "notifications.morning_digest",
     "maintenance.status_sync",
     "maintenance.jd_health_check",
     "maintenance.linkedin_cookie_refresh",
