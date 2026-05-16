@@ -57,6 +57,9 @@ _NO_SPONSOR_RE = re.compile(
     r"must\s+be\s+authorized|legally\s+authorized",
     re.IGNORECASE,
 )
+_NON_REQUIREMENT_EXPERIENCE_RE = re.compile(
+    r"\b(track record|history|founded|established)\b", re.IGNORECASE
+)
 _TECH_KEYWORDS = {
     "python",
     "java",
@@ -134,7 +137,7 @@ def _parse_with_regex(text: str) -> JobRequirements:
     reqs = JobRequirements()
 
     # Experience years
-    m = _EXPERIENCE_RE.search(text)
+    m = _first_requirement_experience_match(text)
     if m:
         g = m.groups()
         if g[0] and g[1]:
@@ -157,13 +160,7 @@ def _parse_with_regex(text: str) -> JobRequirements:
     if "on-site" in t or "onsite" in t or "in-office" in t:
         reqs.remote_ok = False
 
-    # Education
-    if "phd" in t or "doctorate" in t:
-        reqs.education_level = "PhD"
-    elif "master" in t:
-        reqs.education_level = "Master's"
-    elif "bachelor" in t or "b.s." in t or "b.a." in t:
-        reqs.education_level = "Bachelor's"
+    reqs.education_level = infer_education_requirement(text)
 
     reqs.keywords = _extract_keyword_hits(t)
     reqs.soft_skills = [skill for skill in sorted(_SOFT_SKILLS) if skill in t]
@@ -173,6 +170,110 @@ def _parse_with_regex(text: str) -> JobRequirements:
     reqs.role_family = _infer_role_family(t)
 
     return reqs
+
+
+def _first_requirement_experience_match(text: str) -> re.Match[str] | None:
+    for match in _EXPERIENCE_RE.finditer(text):
+        context = text[max(0, match.start() - 120) : match.end() + 120]
+        if _NON_REQUIREMENT_EXPERIENCE_RE.search(context):
+            continue
+        return match
+    return None
+
+
+_EDUCATION_RANK = {"Bachelor's": 1, "Master's": 2, "PhD": 3}
+_DEGREE_ABBREVIATION_GUARD = r"(?<![-.@])"
+_DEGREE_ABBREVIATION_END = r"(?![-.@a-z0-9])"
+_EDUCATION_PATTERNS = {
+    "Bachelor's": re.compile(
+        r"\b(bachelor'?s?|baccalaureate|baccalaur.?at)\b|"
+        + _DEGREE_ABBREVIATION_GUARD
+        + r"\bb\.\s?[as]\."
+        + _DEGREE_ABBREVIATION_END
+        + r"|(?<![-.@a-z0-9])b[as](?=/m[as](?![-.@a-z0-9]))"
+        + r"|(?<=\bb[as]/m[as]/)b[as](?![-.@a-z0-9])"
+        + r"|(?<![-.@a-z0-9])b[as](?=/m[as]/phd\b)"
+        + _DEGREE_ABBREVIATION_END,
+        re.IGNORECASE,
+    ),
+    "Master's": re.compile(
+        r"\bmaster'?s\b|\bmasters?\s+(?:degree|program|student|in|of)\b|"
+        r"\bmaster\s+(?:degree|program|student|of)\b|\bma.trise\b|"
+        + _DEGREE_ABBREVIATION_GUARD
+        + r"\bm\.\s?[as]\."
+        + _DEGREE_ABBREVIATION_END
+        + r"|(?<=\bb[as]/)m[as](?![-.@a-z0-9])"
+        + r"|(?<=\bb[as]/m[as]/)m[as](?![-.@a-z0-9])"
+        + r"|(?<=\bb[as]/)m[as](?=/phd\b)"
+        + _DEGREE_ABBREVIATION_END,
+        re.IGNORECASE,
+    ),
+    "PhD": re.compile(r"\b(ph\.?\s*d\.?(?:\s*degree)?|doctorate|doctorat)\b", re.IGNORECASE),
+}
+_PREFERRED_ONLY_RE = re.compile(
+    r"\b(preferred|nice to have|asset|plus|bonus|advantage)\b", re.IGNORECASE
+)
+_REQUIREMENT_CUE_RE = re.compile(
+    r"\b(required|requirement|must|minimum|eligibility|eligible|qualification|enrolled|graduate[ds]?)\b",
+    re.IGNORECASE,
+)
+_EDUCATION_CONTEXT_RE = re.compile(
+    r"\b(degree|diploma|student|pursuing|education|major(?:ing)?|program|field|discipline|"
+    r"computer science|engineering|baccalaur.?at|doctorat)\b",
+    re.IGNORECASE,
+)
+_ALTERNATIVE_RE = re.compile(r"\b(or|and/or)\b|/|,", re.IGNORECASE)
+
+
+def infer_education_requirement(text: str | None) -> str | None:
+    """Infer the minimum hard education requirement from JD text.
+
+    Conservative rule: if a sentence lists alternatives (for example
+    "associate, bachelor's, master's or JD/PhD program"), the lowest
+    degree that satisfies the list is the requirement. Higher degrees in
+    preferred-only snippets must not disqualify a bachelor's applicant.
+    """
+    normalized = _normalise_degree_text(text or "")
+    if not normalized:
+        return None
+
+    candidates: list[str] = []
+    for snippet in _education_snippets(normalized):
+        levels = _levels_in_text(snippet)
+        if not levels:
+            continue
+        if _PREFERRED_ONLY_RE.search(snippet) and not _REQUIREMENT_CUE_RE.search(snippet):
+            continue
+        if not _REQUIREMENT_CUE_RE.search(snippet) and not _EDUCATION_CONTEXT_RE.search(snippet):
+            continue
+        if _ALTERNATIVE_RE.search(snippet):
+            candidates.append(min(levels, key=_EDUCATION_RANK.__getitem__))
+        elif _REQUIREMENT_CUE_RE.search(snippet) or len(levels) == 1:
+            candidates.append(max(levels, key=_EDUCATION_RANK.__getitem__))
+
+    if not candidates:
+        return None
+    return max(candidates, key=_EDUCATION_RANK.__getitem__)
+
+
+def _normalise_degree_text(text: str) -> str:
+    return (
+        text.replace("\u2019", "'")
+        .replace("\ufffd", "'")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .lower()
+    )
+
+
+def _education_snippets(text: str) -> list[str]:
+    text = " ".join(text.split())
+    snippets = re.split(r"(?<=[.!?])\s+", text)
+    return [snippet.strip() for snippet in snippets if _levels_in_text(snippet)]
+
+
+def _levels_in_text(text: str) -> set[str]:
+    return {level for level, pattern in _EDUCATION_PATTERNS.items() if pattern.search(text)}
 
 
 def _extract_keyword_hits(text: str) -> list[str]:

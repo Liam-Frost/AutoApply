@@ -73,7 +73,8 @@ _KNOWN_SEARCH_PARAMS = frozenset(
         "location_types",
         "max_pages",
         "enrich_details",
-        "max_detail_fetches",
+        "max_keyword_detail_fetches",
+        "max_redirect_detail_fetches",
         "allow_public_fallback",
     }
 )

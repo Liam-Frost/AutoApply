@@ -531,7 +531,38 @@ bounded 决策"的原则保留。
 - **16.3** Web UI "Why was this filtered?" 按钮。
 - **16.4** Eval suite —— 10 个人工标注的边界岗位；agent 决策与人工一致率 ≥ 70%。
 
-### Phase 17: 夜跑闭环 + Review Queue（~2 周）
+### Phase 17: 夜跑闭环 + Review Queue（~2 周） —— **已完成**
+
+7 个子阶段全部在 `feat/phase-17` 分支上线（commits `771b6da` → `208db10`）
++ 三轮 codex review 修复（`2d694e9`, `fe11907`, `62c4314`，共 3 个 P1 + 6 个 P2）。
+验证基线：1530 passed / 1 skipped；`ruff check` 干净；前端 build 干净；
+alembic 升级 dev DB 到 `c9e1f3a7b8d4`。
+
+实现 highlights：
+
+* `src/orchestration/nightly_run.py` —— async `run_nightly(...)` 编排器，
+  依赖注入便于测试。流程：search（cache-first via Phase 13.4）→ score
+  （Phase 16 结构化 breakdown）→ top-N qualified → 持久化 review_queue 行
+  + 入队 materials.generate + application.prepare。**永不入队
+  application.submit**。Pause sentinel 在 search 之前短路。
+* 迁移 `b7d9a1e4f3c2` + `c9e1f3a7b8d4` —— `review_queue` 表 + 五态机
+  + pending-only partial unique index（同一 snapshot 可以多次走完
+  生命周期）。
+* `src/application/review.py` —— 单条 + 批量操作 + 状态机守卫。
+* `src/web/routes/review.py` —— `/api/review` 路由，tenant 隔离，错误
+  映射 (409 / 404)。
+* `frontend/src/views/ReviewQueueView.vue` —— 4 列 kanban，stale 行
+  在 Pending 列展示 Refresh 按钮（Approve 隐藏），Approved 列有
+  Submit + Reject，多选 + 批量操作 + 按公司/标题批量拒绝。
+* `src/review/pre_submit_gate.py` —— 6h freshness + snapshot id
+  mismatch 检查 + 生命周期态检查；自动 flip 到 stale / rejected。
+* `src/orchestration/digest.py` —— 早 8 点 digest，聚合
+  `data/nightly_runs/*.json` + review_queue 实时计数；dashboard
+  banner 渲染 headline。
+* `autoapply pause-nightly [--clear-pending]` —— sentinel + 度假
+  时批量清空 pending。
+
+（原 plan 保留在下方作为设计说明。）
 集成阶段。把 Phase 14（任务队列 + 调度器）+ Phase 13（job-index / freshness）+
 Phase 12（缓存）+ Phase 9 / 15（agent）串成 "睡一觉，醒来看 review queue" 的
 完整流程。

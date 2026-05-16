@@ -613,7 +613,44 @@ layer + agent invocation for borderline jobs only.
 - **16.4** Eval suite — 10 human-annotated borderline jobs; agent
   decision matches human ≥ 70%.
 
-### Phase 17: Daily Run Loop + Review Queue (~2 weeks)
+### Phase 17: Daily Run Loop + Review Queue (~2 weeks) — **Complete**
+
+All 7 sub-phases shipped on `feat/phase-17` (commits `771b6da` →
+`208db10`) + three rounds of codex-review fixes (`2d694e9`,
+`fe11907`, `62c4314`; 3 P1 + 6 P2 across the rounds).
+Verification baseline: 1530 passed / 1 skipped; `ruff check` clean;
+frontend build clean; alembic head at `c9e1f3a7b8d4`.
+
+Implementation highlights:
+
+* `src/orchestration/nightly_run.py` -- async `run_nightly(...)`
+  orchestrator, dependency-injected for testability. Flow: search
+  (cache-first via Phase 13.4) -> score (Phase 16-aware structured
+  breakdowns) -> top-N qualified -> persist review_queue rows +
+  enqueue materials.generate + application.prepare. **Never
+  enqueues application.submit.** Pause sentinel short-circuits
+  BEFORE search.
+* Migrations `b7d9a1e4f3c2` + `c9e1f3a7b8d4` -- `review_queue` table
+  + five-state machine + pending-only partial unique index (the
+  same snapshot can re-pass through the lifecycle in later runs).
+* `src/application/review.py` -- single-item + bulk ops + state
+  machine guards.
+* `src/web/routes/review.py` -- `/api/review` routes, tenant-
+  isolated, error mapping (409 / 404).
+* `frontend/src/views/ReviewQueueView.vue` -- 4-column kanban; stale
+  rows in Pending column with Refresh affordance (Approve hidden);
+  Approved column has Submit + Reject; multi-select + bulk actions
+  + by-filter rejection.
+* `src/review/pre_submit_gate.py` -- 6h freshness budget +
+  snapshot-id mismatch detection + lifecycle state check; auto-flips
+  to stale / rejected.
+* `src/orchestration/digest.py` -- 08:00 morning digest aggregating
+  `data/nightly_runs/*.json` + live review_queue counts;
+  dashboard banner renders the headline + per-status chips.
+* `autoapply pause-nightly [--clear-pending]` -- sentinel + the
+  vacation affordance for bulk-clearing pending entries.
+
+(Original plan retained below for design rationale.)
 Integration phase. Threads Phase 14 (task queue + scheduler) + Phase 13
 (job-index / freshness) + Phase 12 (cache) + Phase 9 / 15 (agents)
 into the "sleep, wake to a review queue" end-to-end flow.

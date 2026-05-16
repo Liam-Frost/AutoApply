@@ -6,6 +6,7 @@ import DashboardView from "./views/DashboardView.vue"
 import JobsView from "./views/JobsView.vue"
 import MaterialsView from "./views/MaterialsView.vue"
 import ProfileView from "./views/ProfileView.vue"
+import ReviewQueueView from "./views/ReviewQueueView.vue"
 import SettingsView from "./views/SettingsView.vue"
 import TasksView from "./views/TasksView.vue"
 import TemplateEditorView from "./views/TemplateEditorView.vue"
@@ -37,6 +38,8 @@ const routes = [
   },
   // Phase 14.8 -- task queue operator surface.
   { path: "/tasks", component: TasksView, meta: { label: "Tasks" } },
+  // Phase 17.3 -- nightly_run review queue kanban.
+  { path: "/review", component: ReviewQueueView, meta: { label: "Review" } },
 ]
 
 export default createRouter({

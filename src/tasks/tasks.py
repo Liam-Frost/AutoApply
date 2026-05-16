@@ -62,6 +62,21 @@ class ApplicationSubmitPayload(BaseModel):
     application_id: str
 
 
+class OrchestrationNightlyRunPayload(BaseModel):
+    """Phase 17.1 nightly_run task payload.
+
+    Mirrors :func:`src.orchestration.nightly_run.run_nightly` -- all
+    fields default-friendly so a Beat tick can fire the task with no
+    kwargs and still produce a useful run for the active applicant
+    profile.
+    """
+
+    profile_id: str = "default"
+    search_profile_id: str | None = None
+    top_n: int = 10
+    dry_run: bool = False
+
+
 class StatusSyncPayload(BaseModel):
     """Empty by default -- the scheduled status_sync sweeps every
     in-flight application; a one-off CLI invocation can pass
@@ -109,6 +124,93 @@ def search_daily_fanout(self: AutoApplyTask) -> dict[str, Any]:
     per-source ``search.refresh`` children."""
     logger.info("search.daily_fanout tick")
     return {"task": "search.daily_fanout", "status": "stubbed"}
+
+
+# ---- Tasks: orchestration --------------------------------------------
+
+
+@celery_app.task(name="notifications.morning_digest", base=AutoApplyTask, bind=True)
+def notifications_morning_digest(self: AutoApplyTask) -> dict[str, Any]:
+    """Phase 17.6: 08:00 morning digest tick.
+
+    Computes the structured digest payload + (Phase 17.6 hook) emits
+    it. The desktop-notification side is out of scope here; what the
+    Beat tick produces is the same JSON the dashboard banner pulls
+    via ``GET /api/digest``, so the only effect of this task in this
+    sub-phase is to log the headline + return the payload (lands on
+    the audit row so an operator can grep the task history for
+    historical digests).
+    """
+    import asyncio  # noqa: PLC0415
+
+    from src.core.database import get_session_factory  # noqa: PLC0415
+    from src.orchestration.digest import compute_digest  # noqa: PLC0415
+    from src.tasks.context import current_tenant_id  # noqa: PLC0415
+
+    del asyncio  # not currently needed; placeholder if we go async
+
+    tenant_id = current_tenant_id() or "default"
+    factory = get_session_factory()
+    with factory() as session:
+        payload = compute_digest(session, tenant_id=tenant_id)
+    logger.info("morning_digest tenant=%s: %s", tenant_id, payload.headline)
+    return payload.to_dict()
+
+
+@celery_app.task(name="orchestration.nightly_run", base=AutoApplyTask, bind=True)
+def orchestration_nightly_run(
+    self: AutoApplyTask, **payload: Any
+) -> dict[str, Any]:
+    """Phase 17.1: the 'sleep, wake to a review queue' top-level task.
+
+    Search → score → enqueue ``materials.generate`` +
+    ``application.prepare`` for the top-N qualified jobs. Never enqueues
+    ``application.submit`` -- approval happens in the Phase 17.3 review
+    queue UI and the Phase 17.5 pre-submit gate runs at that point.
+
+    The real work lives in :func:`src.orchestration.nightly_run.run_nightly`;
+    this wrapper is the AutoApplyTask boundary: payload validation +
+    tenant context (via ``before_start``) + the return dict that lands
+    on the audit row.
+    """
+    args = _coerce(OrchestrationNightlyRunPayload, payload)
+    # Lazy import + asyncio.run keep this task body light when the
+    # orchestrator package isn't loaded (e.g. in unrelated tests).
+    import asyncio  # noqa: PLC0415
+
+    from src.orchestration.nightly_run import run_nightly  # noqa: PLC0415
+    from src.tasks.context import current_tenant_id  # noqa: PLC0415
+
+    tenant_id = current_tenant_id() or "default"
+    logger.info(
+        "orchestration.nightly_run starting tenant=%s profile=%s top_n=%d dry_run=%s",
+        tenant_id,
+        args.profile_id,
+        args.top_n,
+        args.dry_run,
+    )
+    report = asyncio.run(
+        run_nightly(
+            tenant_id=tenant_id,
+            profile_id=args.profile_id,
+            search_profile_id=args.search_profile_id,
+            top_n=args.top_n,
+            dry_run=args.dry_run,
+        )
+    )
+    # Phase 17.6: persist the report under data/nightly_runs/ so the
+    # 08:00 morning digest can aggregate over it. Failure here is
+    # non-fatal -- a missing report file just means the digest will
+    # under-count for this run, which is preferable to the task
+    # itself failing and re-queueing.
+    try:
+        from src.orchestration.digest import persist_nightly_report  # noqa: PLC0415
+
+        persist_nightly_report(report)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nightly_run: report persistence failed: %s", exc)
+
+    return report.to_dict()
 
 
 # ---- Tasks: jobs -----------------------------------------------------
@@ -238,6 +340,8 @@ KNOWN_TASK_NAMES: tuple[str, ...] = (
     "application.prepare",
     "application.fill",
     "application.submit",
+    "orchestration.nightly_run",
+    "notifications.morning_digest",
     "maintenance.status_sync",
     "maintenance.jd_health_check",
     "maintenance.linkedin_cookie_refresh",

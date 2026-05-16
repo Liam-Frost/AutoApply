@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive } from "vue"
+import { useRoute } from "vue-router"
 import {
   Activity,
   AlertCircle,
@@ -39,13 +40,18 @@ const outcomeOptions = [
 ]
 
 const outcomeEditOptions = outcomeOptions.filter((option) => option.value !== "")
+const route = useRoute()
 
 const filters = reactive({
-  status: "",
+  status: typeof route.query.status === "string" ? route.query.status : "",
   outcome: "",
   company: "",
   limit: 50,
 })
+
+const highlightedApplicationId = computed(() =>
+  typeof route.query.application === "string" ? route.query.application : "",
+)
 
 const state = reactive({
   loading: true,
@@ -107,6 +113,15 @@ async function updateOutcome(application, outcome) {
 
 function prettify(status) {
   return status.replaceAll("_", " ")
+}
+
+function artifactUrl(path) {
+  return api.artifactDownloadUrl(path)
+}
+
+function fillSummary(application) {
+  if (!application.fields_total) return "-"
+  return `${application.fields_filled || 0}/${application.fields_total}`
 }
 
 onMounted(load)
@@ -215,13 +230,19 @@ onMounted(load)
                 <tr>
                   <th>Role</th>
                   <th>Status</th>
+                  <th>Fields</th>
                   <th>Score</th>
                   <th>Outcome</th>
+                  <th>Review</th>
                   <th>Date</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="application in state.data.applications" :key="application.id">
+                <tr
+                  v-for="application in state.data.applications"
+                  :key="application.id"
+                  :class="{ 'bg-primary/5': application.id === highlightedApplicationId }"
+                >
                   <td>
                     <div class="font-medium text-foreground">{{ application.job.company }}</div>
                     <div class="text-xs text-muted-foreground">{{ application.job.title }}</div>
@@ -230,6 +251,9 @@ onMounted(load)
                     <Badge :variant="application.status === 'FAILED' ? 'destructive' : application.status === 'SUBMITTED' ? 'success' : 'secondary'">
                       {{ prettify(application.status) }}
                     </Badge>
+                  </td>
+                  <td class="tabular-nums">
+                    {{ fillSummary(application) }}
                   </td>
                   <td class="tabular-nums">
                     {{ application.match_score === null ? "-" : formatPercent(application.match_score, "0%") }}
@@ -243,6 +267,32 @@ onMounted(load)
                       aria-label="Update outcome"
                       @update:model-value="updateOutcome(application, $event)"
                     />
+                  </td>
+                  <td>
+                    <div class="flex flex-wrap gap-2 text-xs">
+                      <a
+                        v-if="application.resume_version"
+                        class="text-primary underline-offset-4 hover:underline"
+                        :href="artifactUrl(application.resume_version)"
+                        target="_blank"
+                        rel="noopener"
+                      >Resume</a>
+                      <a
+                        v-if="application.cover_letter_version"
+                        class="text-primary underline-offset-4 hover:underline"
+                        :href="artifactUrl(application.cover_letter_version)"
+                        target="_blank"
+                        rel="noopener"
+                      >Cover</a>
+                      <a
+                        v-for="(screenshot, index) in application.screenshot_paths"
+                        :key="screenshot"
+                        class="text-primary underline-offset-4 hover:underline"
+                        :href="artifactUrl(screenshot)"
+                        target="_blank"
+                        rel="noopener"
+                      >Shot {{ index + 1 }}</a>
+                    </div>
                   </td>
                   <td class="tabular-nums text-muted-foreground">{{ formatDate(application.created_at) }}</td>
                 </tr>

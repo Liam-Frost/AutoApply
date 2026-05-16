@@ -286,6 +286,70 @@ export const api = {
     // a large keyspace, so callers should drive a loading state.
     return request("/api/cache")
   },
+  morningDigest(windowHours = 24) {
+    // Phase 17.6: dashboard banner payload.
+    return request(`/api/digest?window_hours=${encodeURIComponent(windowHours)}`)
+  },
+  // Phase 17.3 + 17.4: review queue.
+  reviewList(status = null) {
+    const suffix = status ? `?status=${encodeURIComponent(status)}` : ""
+    return request(`/api/review${suffix}`)
+  },
+  reviewDetail(entryId) {
+    return request(`/api/review/${encodeURIComponent(entryId)}`)
+  },
+  reviewApprove(entryId, payload = {}) {
+    return request(`/api/review/${encodeURIComponent(entryId)}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  reviewReject(entryId, payload = {}) {
+    return request(`/api/review/${encodeURIComponent(entryId)}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  reviewRefresh(entryId, payload = {}) {
+    return request(`/api/review/${encodeURIComponent(entryId)}/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  reviewSubmit(entryId, payload = {}) {
+    // Phase 17.5: approve-and-submit via the pre-submit hard gate.
+    // The server runs the gate; if blocked, the response body has
+    // ok=false + a structured gate verdict the UI renders inline.
+    return request(`/api/review/${encodeURIComponent(entryId)}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  reviewBulkApprove(entryIds, payload = {}) {
+    return request("/api/review/bulk/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entry_ids: entryIds, ...payload }),
+    })
+  },
+  reviewBulkReject(entryIds, payload = {}) {
+    return request("/api/review/bulk/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entry_ids: entryIds, ...payload }),
+    })
+  },
+  reviewBulkRejectByFilter(payload) {
+    return request("/api/review/bulk/reject-by-filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
   matchingExplain(job) {
     // Phase 16.3: "Why was this filtered?" explainability endpoint.
     // Re-scores the job server-side against the active profile and

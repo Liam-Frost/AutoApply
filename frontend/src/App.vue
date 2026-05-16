@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute } from "vue-router"
 import { ConfigProvider } from "reka-ui"
 import {
   Briefcase,
+  ClipboardCheck,
   FileText,
   LayoutDashboard,
   Monitor,
@@ -35,6 +36,8 @@ const items = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/jobs", label: "Jobs", icon: Briefcase },
   { to: "/materials", label: "Materials", icon: FileText },
+  // Phase 17.3: nightly_run review queue kanban
+  { to: "/review", label: "Review", icon: ClipboardCheck },
   { to: "/applications", label: "Applications", icon: Send },
   { to: "/profile", label: "Profile", icon: UserCircle },
   { to: "/settings", label: "Settings", icon: SettingsIcon },

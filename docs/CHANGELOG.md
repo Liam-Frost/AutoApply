@@ -398,6 +398,106 @@ and it never auto-submits.
 Verification: 1398 passed, 1 skipped on `feat/phase-16`;
 `ruff check` clean; frontend build clean (vite 6.00s, 126kB gzip JS).
 
+### Phase 17: Daily Run Loop + Review Queue
+
+The "sleep, wake to a review queue" integration phase. Threads
+Phase 14 (task queue + scheduler) + Phase 13 (job index + freshness)
++ Phase 12 (cache) + Phase 15/16 (agents) into the end-to-end flow.
+**Never auto-submits.**
+
+Implementation highlights:
+
+- **17.1 nightly_run orchestrator** -- `src/orchestration/nightly_run.py`.
+  Async `run_nightly(...)` dependency-injected for testability. Flow:
+  search → score → top-N → persist review_queue rows + enqueue
+  materials.generate + application.prepare. Pause sentinel
+  short-circuits BEFORE search. Returns a JSON-serializable
+  `NightlyRunReport` with run_id, status, per-stage counts,
+  borderline counter, materials/application/review entry id lists,
+  errors, cost. Celery task wrapper `orchestration.nightly_run` +
+  Beat entry at 23:00 UTC. CLI: `autoapply nightly run/enqueue/status`.
+  +33 tests. (commits `771b6da`, `2d694e9`, `fe11907`)
+
+- **17.2 review_queue model + state machine** -- migration
+  `b7d9a1e4f3c2` + `c9e1f3a7b8d4` (partial unique on pending).
+  `review_queue` table with denormalised company/title (kanban
+  renders without joining jobs), `job_id` / `job_snapshot_id`
+  intentionally NOT FK so rows survive retention sweeps, JSONB
+  `score_breakdown` snapshot for the popover. State machine:
+  `pending → approved → submitted | rejected | stale`;
+  `approved → rejected | stale`; `stale → pending | rejected`;
+  `submitted`/`rejected` terminal. `src/application/review.py` use
+  cases: `create_entry` (idempotent on pending), `approve`,
+  `reject`, `mark_submitted`, `mark_stale`, `refresh_stale`,
+  `list_entries`, `bulk_approve`, `bulk_reject`,
+  `bulk_reject_by_filter`. +30 tests. (commits `1fe3960`, `62c4314`)
+
+- **17.3 + 17.4 /review kanban + bulk ops** -- `src/web/routes/review.py`
+  exposes GET (list + detail) + single-item POST (approve / reject
+  / refresh / submit) + bulk POST (approve / reject /
+  reject-by-filter). Tenant-isolated (cross-tenant → 404).
+  `InvalidTransitionError → 409`, `LookupError → 404`. Bulk
+  envelope `{succeeded, failed}` so the UI renders "8 of 12
+  approved -- 4 failed". `frontend/src/views/ReviewQueueView.vue`
+  four-column kanban; stale rows live in the Pending column with
+  Refresh (Approve hidden for stale -- codex round-2 P2 fix);
+  Approved column has Submit + Reject; multi-select + bulk action
+  card + by-filter card. +16 route tests. (commit `46e8834`)
+
+- **17.5 Pre-submit hard gate** -- `src/review/pre_submit_gate.py`.
+  Runs `should_refresh(posting, "before_submit")` (6h budget) AND
+  compares `entry.job_snapshot_id` vs `posting.latest_snapshot_id`
+  (codex round-3 P1 catches the case where the posting was
+  re-scraped after materials were generated). Four
+  `PreSubmitAction` values: `allow`, `refresh` (stale snapshot
+  or snapshot mismatch -- flips to stale), `expired` (posting
+  expired/archived -- flips to rejected), `missing_binding` (not
+  approved / no job_id / posting purged). Route `POST
+  /api/review/{id}/submit` wraps the flow. +18 tests. (commits
+  `4956f5c`, `62c4314`)
+
+- **17.6 Morning digest at 08:00** -- `src/orchestration/digest.py`.
+  Aggregates per-run JSON reports under `data/nightly_runs/<ts>-
+  <run_id>.json` (gitignored; filename-prefix windowing) +
+  `count(*)` over review_queue grouped by status. Returns
+  `DigestPayload` with headline + per-status review queue chips +
+  windowed totals + errors/paused-runs counters. Beat task
+  `notifications.morning_digest` at 08:00 UTC. `GET /api/digest`.
+  Dashboard banner renders inline above the KPI cards. +17 tests.
+  (commit `b005fcb`)
+
+- **17.7 Kill switch** -- `autoapply pause-nightly
+  [--clear-pending]` + `autoapply resume-nightly`. Pause sentinel
+  `data/nightly_paused` is checked by `run_nightly` BEFORE search.
+  `--clear-pending` bulk-rejects pending review_queue rows with
+  reason="paused for vacation"; approved/submitted/rejected/stale
+  rows survive. +2 tests. (commit `208db10`)
+
+- **codex review fixes** (three rounds, all P1/P2 folded in):
+  * Round 1: dict-to-RawJob coercion in scoring path
+    (production search returned serialised dicts but scorer
+    needed RawJob); orchestrator persists review_queue rows
+    directly (the `application.prepare` stub never would have);
+    `top_n <= 0` now selects none, not all. (commit `2d694e9`)
+  * Round 2: review entries were bound to `RawJob.id` not
+    `JobPosting.id` so pre-submit gate always returned
+    `missing_binding` at submit time -- added DB lookup +
+    in-place breakdown patching via
+    `_resolve_and_patch_posting_ids`; stale-row Approve button
+    hidden (always 409'd). (commit `fe11907`)
+  * Round 3: pre-submit gate compares snapshot ids;
+    `/api/review/{id}/refresh` now enqueues `jobs.enrich` +
+    `materials.generate` (was only flipping status); LinkedIn
+    description-only matches now get the redirect-enrichment
+    pass too (apply URL was never resolved); `review_queue`
+    UNIQUE narrowed to a PostgreSQL partial unique index on
+    `status='pending'` so the same snapshot can re-pass through
+    the lifecycle in later nightly runs. (commit `62c4314`)
+
+Verification: 1530 passed, 1 skipped on `feat/phase-17`;
+`ruff check` clean; frontend build clean (vite 6.29s, 129kB gzip
+JS); alembic head at `c9e1f3a7b8d4`.
+
 ### Phase 13: Job Index & Freshness Engine
 
 Replaces the file-backed ``src/intake/search_cache.py`` with a proper

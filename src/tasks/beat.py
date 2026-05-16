@@ -40,6 +40,10 @@ from celery.schedules import crontab
 # Per-task options to route Beat-enqueued task to the right queue.
 _SEARCH_OPTS: dict[str, object] = {"queue": "search"}
 _MAINTENANCE_OPTS: dict[str, object] = {"queue": "maintenance"}
+# Phase 17.1: the nightly_run orchestrator is heavy (it fans out into
+# materials/application tasks) and belongs on the search queue so
+# materials workers don't block on it.
+_ORCHESTRATION_OPTS: dict[str, object] = {"queue": "search"}
 
 
 def get_schedule() -> dict[str, dict[str, object]]:
@@ -50,6 +54,26 @@ def get_schedule() -> dict[str, dict[str, object]]:
             "task": "search.daily_fanout",
             "schedule": crontab(hour=2, minute=0),  # 02:00 UTC every day
             "options": _SEARCH_OPTS,
+        },
+        # Phase 17.1: end-to-end nightly run. Fires at 23:00 UTC so the
+        # full pipeline (search → score → materials.generate →
+        # application.prepare) completes overnight and the user finds
+        # a populated review queue at the 08:00 digest (Phase 17.6).
+        # All kwargs default-friendly so a fresh install with no
+        # search_profile_id still produces a report.
+        "nightly_run": {
+            "task": "orchestration.nightly_run",
+            "schedule": crontab(hour=23, minute=0),
+            "options": _ORCHESTRATION_OPTS,
+        },
+        # Phase 17.6: morning digest at 08:00 UTC. Produces the
+        # dashboard banner payload + (future hook) desktop
+        # notification. Routed to the maintenance queue since it's
+        # cheap (one DB query + a directory scan).
+        "morning_digest": {
+            "task": "notifications.morning_digest",
+            "schedule": crontab(hour=8, minute=0),
+            "options": _MAINTENANCE_OPTS,
         },
         "jd_health_check": {
             "task": "maintenance.jd_health_check",

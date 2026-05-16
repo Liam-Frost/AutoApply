@@ -612,7 +612,13 @@ async function applyToJob(job) {
 
   try {
     const response = await api.applyJob(job.application_url)
-    state.applyState[job.id] = { loading: false, message: response.message, status: response.status }
+    state.applyState[job.id] = {
+      loading: false,
+      message: response.message,
+      status: response.status,
+      applicationId: response.application_id || "",
+      result: response.result || null,
+    }
   } catch (error) {
     state.applyState[job.id] = { loading: false, message: error.message, status: "error" }
   }
@@ -1533,7 +1539,14 @@ function buildPageButtons(total, current) {
             </div>
 
             <div v-if="state.applyState[job.id]?.message" class="inline-feedback" :class="state.applyState[job.id]?.status">
-              {{ state.applyState[job.id].message }}
+              <span>{{ state.applyState[job.id].message }}</span>
+              <RouterLink
+                v-if="state.applyState[job.id]?.applicationId"
+                class="link-inline"
+                :to="`/applications?status=REVIEW_REQUIRED&application=${state.applyState[job.id].applicationId}`"
+              >
+                Open review
+              </RouterLink>
             </div>
           </div>
         </article>

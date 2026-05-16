@@ -179,13 +179,11 @@ async def fill_fields(
             el = page.locator(field.selector)
 
             if field.field_type in ("text", "email", "tel", "url", "number"):
-                await el.clear()
-                await el.type(mapping.value, delay=delay_ms)
+                await _fill_text_locator(el, mapping.value, delay_ms)
                 mapping.filled = True
 
             elif field.field_type == "textarea":
-                await el.clear()
-                await el.type(mapping.value, delay=delay_ms)
+                await _fill_text_locator(el, mapping.value, delay_ms)
                 mapping.filled = True
 
             elif field.field_type == "select":
@@ -215,6 +213,15 @@ async def fill_fields(
     filled_count = sum(1 for m in mappings if m.filled)
     logger.info("Filled %d/%d fields", filled_count, len(mappings))
     return mappings
+
+
+async def _fill_text_locator(locator, value: str, delay_ms: int) -> None:
+    fill = getattr(locator, "fill", None)
+    if fill is not None:
+        await fill(value, timeout=5000)
+        return
+    await locator.clear()
+    await locator.type(value, delay=delay_ms)
 
 
 def map_fields_to_profile(
@@ -333,7 +340,7 @@ async def _build_selector(element) -> str:
     # Prefer id (globally unique)
     el_id = await element.get_attribute("id")
     if el_id:
-        return f"#{_css_escape(el_id)}"
+        return f"[id='{_css_escape(el_id)}']"
 
     # Prefer name + tag (usually unique within a form)
     name = await element.get_attribute("name")

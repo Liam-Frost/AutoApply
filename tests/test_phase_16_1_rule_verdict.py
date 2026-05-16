@@ -174,6 +174,20 @@ class TestEvidenceExtraction:
         assert edu.evidence_excerpt is not None
         assert "phd" in edu.evidence_excerpt.lower()
 
+    def test_education_alternative_list_does_not_fail_bachelor_applicant(self):
+        job = _make_job(
+            description=(
+                "Eligibility: Must be currently enrolled, or recently graduated from a "
+                "coding academy/bootcamp, apprenticeship, associate, bachelor's, "
+                "master's or JD/PhD program."
+            )
+        )
+        # Guard against stale/cached parser output that over-inferred PhD
+        # from the alternative list above.
+        job.requirements = JobRequirements(education_level="PhD")
+        verdict = check_rules(job, _make_ctx(education_level="Bachelor's"))
+        assert verdict.passed
+
     def test_employment_type_excerpt_is_structured_field(self):
         """For employment_type, evidence is the structured field, not a JD snippet."""
         job = _make_job(employment_type="fulltime")

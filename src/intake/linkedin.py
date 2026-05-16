@@ -123,6 +123,13 @@ SELECTORS = {
     ),
     "external_apply_link": "a[data-tracking-control-name*='apply'], a.jobs-apply-button--top-card",
 }
+JOB_DESCRIPTION_SELECTORS = [
+    "div.jobs-description__content",
+    "div.jobs-description-content__text",
+    "div.show-more-less-html__markup",
+    "article.jobs-description",
+    "section.jobs-description",
+]
 
 PUBLIC_JOB_CARD_RE = re.compile(
     r'<li>\s*<div[^>]*class="base-card[^"]*base-search-card[^"]*job-search-card[^"]*"'
@@ -634,11 +641,12 @@ class LinkedInScraper:
             job.raw_data["detail_url"] = detail_url
 
             await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
+            description = await self._wait_for_job_description(page)
             if pause_after_load:
                 await self._random_delay()
 
             # Extract full description
-            job.description = await self._extract_job_description_text(page)
+            job.description = description or await self._extract_job_description_text(page)
 
             if not include_apply_target:
                 return job
@@ -671,14 +679,21 @@ class LinkedInScraper:
 
         return job
 
-    async def _extract_job_description_text(self, page: Page) -> str | None:
-        selectors = [
-            "div.jobs-description__content",
-            "div.show-more-less-html__markup",
-            "article.jobs-description",
-        ]
+    async def _wait_for_job_description(self, page: Page, timeout_ms: int = 5000) -> str | None:
+        deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+        while True:
+            try:
+                text = await self._extract_job_description_text(page)
+            except Exception:
+                text = None
+            if text and len(text) >= 80:
+                return text
+            if asyncio.get_running_loop().time() >= deadline:
+                return text
+            await page.wait_for_timeout(250)
 
-        for selector in selectors:
+    async def _extract_job_description_text(self, page: Page) -> str | None:
+        for selector in JOB_DESCRIPTION_SELECTORS:
             elements = await page.query_selector_all(selector)
             candidates: list[str] = []
             for element in elements:

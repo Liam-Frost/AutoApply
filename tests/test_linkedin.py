@@ -517,6 +517,7 @@ class TestLinkedInKeywordPrecision:
         }
 
         enrich_calls: list[list[str]] = []
+        enrich_kwargs: list[dict] = []
 
         class FakeScraper:
             def __init__(self, *args, **kwargs):
@@ -533,6 +534,7 @@ class TestLinkedInKeywordPrecision:
 
             async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
                 enrich_calls.append([job.source_id for job in jobs])
+                enrich_kwargs.append(kwargs)
                 enriched = []
                 for job in jobs:
                     enriched.append(enriched_candidates.get(job.source_id, job))
@@ -545,11 +547,76 @@ class TestLinkedInKeywordPrecision:
                 enrich_details=True,
             )
 
+        # Phase 17 codex round-3 P2: the final redirect enrichment now
+        # covers ALL kept jobs (title + description matches alike), so
+        # description-only matches get their apply target resolved.
+        # Title matches that were already enriched hit LinkedIn's
+        # HTTP cache on the second fetch.
         assert [job.source_id for job in jobs] == ["1", "2"]
-        assert enrich_calls == [["2", "3"], ["1"]]
+        assert enrich_calls == [["2", "3"], ["1", "2"]]
+        assert enrich_kwargs[0]["include_apply_target"] is False
+        # The second call is the redirect-enrichment pass; it must
+        # include apply-target resolution.
+        assert enrich_kwargs[1].get("include_apply_target", True) is True
 
     @pytest.mark.asyncio
-    async def test_search_linkedin_limits_description_enrichment_to_max_detail_fetches(self):
+    async def test_search_linkedin_checks_all_non_title_matches_by_default(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import search_linkedin
+
+        initial_jobs = [
+            RawJob(
+                source="linkedin",
+                source_id=str(i),
+                company="Example",
+                title=f"Platform Intern {i}",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            )
+            for i in range(1, 11)
+        ]
+
+        enrichment_limits: list[int] = []
+
+        class FakeScraper:
+            def __init__(self, *args, **kwargs):
+                self.last_search_mode = "authenticated"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def search_jobs(self, **kwargs):
+                return [job.model_copy(deep=True) for job in initial_jobs]
+
+            async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
+                enrichment_limits.append(max_detail_fetches)
+                enriched = []
+                for job in jobs[:max_detail_fetches]:
+                    enriched.append(
+                        job.model_copy(update={"description": "software platform engineering"})
+                    )
+                enriched.extend(jobs[max_detail_fetches:])
+                return enriched
+
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="software",
+                location="Toronto",
+                enrich_details=True,
+            )
+
+        # Phase 17 codex round-3 P2: every kept job now gets the
+        # final redirect-enrichment pass (second call), not only the
+        # title matches. enrichment_limits[0] is the description
+        # filter cap (10), [1] is the redirect-enrichment cap.
+        assert enrichment_limits[0] == 10
+        assert [job.source_id for job in jobs] == [str(i) for i in range(1, 11)]
+
+    @pytest.mark.asyncio
+    async def test_search_linkedin_limits_description_enrichment_to_keyword_detail_fetches(self):
         from src.intake.schema import RawJob
         from src.intake.search import search_linkedin
 
@@ -610,10 +677,13 @@ class TestLinkedInKeywordPrecision:
                 keywords="software",
                 location="Toronto",
                 enrich_details=True,
-                max_detail_fetches=2,
+                max_keyword_detail_fetches=2,
             )
 
-        assert enrichment_limits == [2]
+        # Phase 17 codex round-3 P2: 2 description fetches (capped by
+        # max_keyword_detail_fetches), then a second redirect-enrichment
+        # pass over both kept jobs.
+        assert enrichment_limits[0] == 2
         assert [job.source_id for job in jobs] == ["1", "2"]
 
     @pytest.mark.asyncio
@@ -674,6 +744,50 @@ class TestLinkedInKeywordPrecision:
         assert [job.source_id for job in jobs] == ["2"]
 
     @pytest.mark.asyncio
+    async def test_search_linkedin_matches_developer_description_for_software_keyword(self):
+        from src.intake.schema import RawJob
+        from src.intake.search import search_linkedin
+
+        initial_jobs = [
+            RawJob(
+                source="linkedin",
+                source_id="1",
+                company="Example",
+                title="Platform Intern",
+                location="Toronto, ON",
+                ats_type="linkedin",
+            )
+        ]
+
+        class FakeScraper:
+            def __init__(self, *args, **kwargs):
+                self.last_search_mode = "authenticated"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def search_jobs(self, **kwargs):
+                return [job.model_copy(deep=True) for job in initial_jobs]
+
+            async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
+                return [
+                    job.model_copy(update={"description": "Build backend developer tools."})
+                    for job in jobs
+                ]
+
+        with patch("src.intake.linkedin.LinkedInScraper", FakeScraper):
+            jobs = await search_linkedin(
+                keywords="software",
+                location="Toronto",
+                enrich_details=True,
+            )
+
+        assert [job.source_id for job in jobs] == ["1"]
+
+    @pytest.mark.asyncio
     async def test_search_linkedin_keeps_final_enrichment_order_for_title_matches(self):
         from src.intake.schema import RawJob
         from src.intake.search import search_linkedin
@@ -721,7 +835,7 @@ class TestLinkedInKeywordPrecision:
                 return [job.model_copy(deep=True) for job in initial_jobs]
 
             async def enrich_jobs_with_details(self, jobs, max_detail_fetches=20, **kwargs):
-                if kwargs.get("delay_between_jobs") is False:
+                if kwargs.get("include_apply_target") is False:
                     enriched = []
                     for job in jobs[:max_detail_fetches]:
                         if job.source_id == "3":
@@ -743,7 +857,7 @@ class TestLinkedInKeywordPrecision:
                 keywords="software",
                 location="Toronto",
                 enrich_details=True,
-                max_detail_fetches=2,
+                max_redirect_detail_fetches=2,
             )
 
         assert [job.source_id for job in jobs] == ["1", "2", "3"]
@@ -974,6 +1088,33 @@ class TestLinkedInScraperMocked:
 
         job = asyncio.run(scraper._parse_job_card(card))
         assert job is None
+
+    @pytest.mark.asyncio
+    async def test_get_job_detail_waits_for_description_even_without_random_delay(self):
+        from src.intake.linkedin import LinkedInScraper
+        from src.intake.schema import RawJob
+
+        scraper = LinkedInScraper.__new__(LinkedInScraper)
+        scraper._resolve_apply_target = AsyncMock(return_value={})
+        scraper._extract_job_description_text = AsyncMock(
+            return_value="Full loaded description " * 5
+        )
+
+        page = AsyncMock()
+        job = RawJob(
+            source="linkedin",
+            source_id="123",
+            title="Software Developer Intern",
+            company="Example",
+            location="Toronto",
+            application_url="https://www.linkedin.com/jobs/view/123/",
+            raw_data={},
+        )
+
+        enriched = await scraper.get_job_detail(page, job, pause_after_load=False)
+
+        page.wait_for_timeout.assert_not_awaited()
+        assert enriched.description == "Full loaded description " * 5
 
     def test_search_linkedin_sync_wrapper(self):
         """Test that the sync wrapper correctly invokes the async function."""

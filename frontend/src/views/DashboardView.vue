@@ -50,6 +50,11 @@ const state = reactive({
     companies: [],
     db_connected: false,
   },
+  // Phase 17.6: morning digest banner. Loaded lazily after the
+  // dashboard payload arrives so a slow /api/digest call doesn't
+  // block the primary numbers.
+  digest: null,
+  digestError: "",
 })
 
 const cards = computed(() => [
@@ -117,6 +122,17 @@ async function load() {
   } finally {
     state.loading = false
   }
+
+  // Phase 17.6: load the digest banner. Independent of the main
+  // dashboard request -- a digest error doesn't blank out the cards.
+  try {
+    const digestResponse = await api.morningDigest()
+    state.digest = digestResponse?.digest || null
+    state.digestError = ""
+  } catch (err) {
+    state.digest = null
+    state.digestError = err?.message || "Could not load digest."
+  }
 }
 
 function delay(ms) {
@@ -132,6 +148,30 @@ onMounted(load)
 
 <template>
   <div class="space-y-6">
+    <!-- Phase 17.6: morning digest banner. -->
+    <Alert v-if="state.digest" class="border-primary/40 bg-primary/5">
+      <Activity class="h-4 w-4" />
+      <AlertDescription>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-sm font-medium">{{ state.digest.headline }}</span>
+          <div class="flex flex-wrap items-center gap-1 text-xs">
+            <Badge variant="secondary">
+              Pending {{ state.digest.review_queue_status?.pending || 0 }}
+            </Badge>
+            <Badge variant="secondary">
+              Approved {{ state.digest.review_queue_status?.approved || 0 }}
+            </Badge>
+            <Badge variant="secondary">
+              Stale {{ state.digest.review_queue_status?.stale || 0 }}
+            </Badge>
+            <Badge v-if="state.digest.errors" variant="destructive">
+              {{ state.digest.errors }} run errors
+            </Badge>
+          </div>
+        </div>
+      </AlertDescription>
+    </Alert>
+
     <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
       <Card v-for="card in cards" :key="card.label" class="overflow-hidden">
         <CardContent class="flex items-start justify-between gap-3 p-5">

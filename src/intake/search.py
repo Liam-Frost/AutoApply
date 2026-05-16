@@ -139,7 +139,8 @@ async def search_linkedin(
     job_types: list[str] | None = None,
     max_pages: int = 20,
     enrich_details: bool = True,
-    max_detail_fetches: int = 8,
+    max_keyword_detail_fetches: int = 5000,
+    max_redirect_detail_fetches: int = 5000,
     headless: bool = False,
     filter_profile: str | None = None,
     config_dir: Path = DEFAULT_CONFIG_DIR,
@@ -155,7 +156,8 @@ async def search_linkedin(
         job_types: Job types: "fulltime", "internship", etc.
         max_pages: Max result pages to scrape.
         enrich_details: If True, fetch detail pages for ATS redirect detection.
-        max_detail_fetches: Max number of jobs to enrich with detail pages.
+        max_keyword_detail_fetches: Max non-title matches to fetch and screen by JD text.
+        max_redirect_detail_fetches: Max kept jobs to enrich for ATS redirect detection.
         headless: Run browser headless (first run requires non-headless for login).
         filter_profile: Optional filter profile name to apply after scraping.
         config_dir: Config directory for filter profiles.
@@ -168,6 +170,7 @@ async def search_linkedin(
     from src.intake.linkedin import LinkedInScraper
 
     keyword_terms = _keyword_terms(keywords)
+    precision_terms = _keyword_precision_terms(keyword_terms)
     linkedin_query = _linkedin_keyword_query(keyword_terms)
 
     # Phase 13.8: removed file-cache short-circuit. Every call now hits
@@ -186,11 +189,16 @@ async def search_linkedin(
                 allow_public_fallback=allow_public_fallback,
             )
 
-            description_match_ids: set[str] = set()
+            # Codex round-3 P2: the final redirect-enrichment pass now
+            # covers EVERY kept job (title + description matches alike)
+            # so the previous description_match_ids exclusion set has
+            # been dropped. Description-only matches need apply-target
+            # resolution too -- otherwise the downstream application
+            # pipeline can't reach them.
             if keyword_terms:
                 title_matches, detail_candidates = _partition_jobs_by_title_keywords(
                     jobs,
-                    keyword_terms,
+                    precision_terms,
                 )
                 description_matches: list[RawJob] = []
 
@@ -199,7 +207,16 @@ async def search_linkedin(
                     and enrich_details
                     and scraper.last_search_mode == "authenticated"
                 ):
-                    keyword_detail_fetches = min(max_detail_fetches, len(detail_candidates))
+                    keyword_detail_fetches = min(
+                        _normalise_detail_fetch_limit(max_keyword_detail_fetches),
+                        len(detail_candidates),
+                    )
+                    logger.info(
+                        "LinkedIn description keyword filter fetching details for %d/%d "
+                        "non-title matches",
+                        keyword_detail_fetches,
+                        len(detail_candidates),
+                    )
                     if keyword_detail_fetches < len(detail_candidates):
                         logger.info(
                             "LinkedIn description keyword filter limited to %d/%d "
@@ -210,15 +227,16 @@ async def search_linkedin(
                     enriched_candidates = await scraper.enrich_jobs_with_details(
                         detail_candidates,
                         max_detail_fetches=keyword_detail_fetches,
+                        include_apply_target=False,
                         delay_between_jobs=False,
                     )
+                    _log_description_filter_coverage(enriched_candidates)
                     description_matches = _apply_keyword_precision_filter(
                         enriched_candidates,
-                        keyword_terms,
+                        precision_terms,
                         include_title=False,
                         log_label="LinkedIn description keyword filter",
                     )
-                    description_match_ids = {job.source_id for job in description_matches}
                 elif detail_candidates:
                     reason = (
                         "public guest search results"
@@ -242,13 +260,28 @@ async def search_linkedin(
                 )
 
             if enrich_details and jobs and scraper.last_search_mode == "authenticated":
-                jobs_to_enrich = [
-                    job for job in jobs if job.source_id not in description_match_ids
-                ]
+                # Codex P2 (round 3): description-only matches had
+                # ``include_apply_target=False`` on their description-
+                # fetch step (which is correct -- we don't want to pay
+                # the apply-target click while screening). Excluding
+                # them from the final redirect enrichment leaves their
+                # external ATS URL unresolved, which breaks the
+                # downstream apply pipeline. Enrich ALL kept jobs;
+                # title matches that were already enriched will hit
+                # LinkedIn's HTTP cache and cost ~nothing.
+                jobs_to_enrich = list(jobs)
                 if jobs_to_enrich:
+                    logger.info(
+                        "LinkedIn final redirect enrichment fetching details for %d "
+                        "kept jobs (title + description matches)",
+                        len(jobs_to_enrich),
+                    )
                     enriched_jobs = await scraper.enrich_jobs_with_details(
                         jobs_to_enrich,
-                        max_detail_fetches=max_detail_fetches,
+                        max_detail_fetches=_normalise_detail_fetch_limit(
+                            max_redirect_detail_fetches
+                        ),
+                        delay_between_jobs=False,
                     )
                     enriched_by_id = {job.source_id: job for job in enriched_jobs}
                     jobs = [enriched_by_id.get(job.source_id, job) for job in jobs]
@@ -297,6 +330,14 @@ def _apply_keyword_precision_filter(
     return matched
 
 
+def _normalise_detail_fetch_limit(value: int | None) -> int:
+    try:
+        limit = int(value) if value is not None else 5000
+    except (TypeError, ValueError):
+        return 5000
+    return max(limit, 0)
+
+
 def _partition_jobs_by_title_keywords(
     jobs: list[RawJob],
     keywords: str | list[str],
@@ -325,10 +366,24 @@ def _job_matches_keywords(
     job_title = (job.title or "").lower()
     job_description = (job.description or "").lower()
     return any(
-        (include_title and keyword in job_title)
-        or (include_description and keyword in job_description)
+        (include_title and _text_contains_keyword(job_title, keyword))
+        or (include_description and _text_contains_keyword(job_description, keyword))
         for keyword in keywords
     )
+
+
+def _text_contains_keyword(text: str, keyword: str) -> bool:
+    keyword = keyword.strip().lower()
+    if not keyword:
+        return False
+    if not re.fullmatch(r"[a-z0-9][a-z0-9\s-]*", keyword):
+        return keyword in text
+    pattern = (
+        r"(?<![a-z0-9])"
+        + re.escape(keyword).replace(r"\ ", r"[\s-]+")
+        + r"(?![a-z0-9])"
+    )
+    return re.search(pattern, text) is not None
 
 
 def _keyword_terms(keywords: str | list[str]) -> list[str]:
@@ -346,6 +401,36 @@ def _keyword_terms(keywords: str | list[str]) -> list[str]:
             continue
         terms.append(value)
     return terms
+
+
+def _keyword_precision_terms(keywords: list[str]) -> list[str]:
+    expansions = {
+        "software": ["software", "developer", "programmer", "programming", "coding", "code"],
+        "sde": ["sde", "software developer", "software engineer"],
+        "fullstack": ["fullstack", "full stack", "full-stack"],
+        "frontend": ["frontend", "front end", "front-end"],
+        "backend": ["backend", "back end", "back-end"],
+    }
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        for term in expansions.get(keyword, [keyword]):
+            if term not in seen:
+                seen.add(term)
+                expanded.append(term)
+    return expanded
+
+
+def _log_description_filter_coverage(jobs: list[RawJob]) -> None:
+    if not jobs:
+        return
+    with_description = sum(1 for job in jobs if job.description)
+    if with_description < len(jobs):
+        logger.info(
+            "LinkedIn description keyword filter inspected %d/%d non-empty descriptions",
+            with_description,
+            len(jobs),
+        )
 
 
 def _linkedin_keyword_query(keywords: list[str]) -> str:
