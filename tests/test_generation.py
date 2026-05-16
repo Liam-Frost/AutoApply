@@ -405,6 +405,107 @@ class TestJDParserExtendedFields:
 
         assert requirements.role_family is None
 
+    def test_regex_parser_uses_lowest_eligible_degree_in_alternative_list(self):
+        requirements = parse_requirements(
+            """
+            Eligibility: Must be currently enrolled, or recently graduated from a
+            coding academy/bootcamp, apprenticeship, associate, bachelor's,
+            master's or JD/PhD program.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.education_level == "Bachelor's"
+
+    def test_regex_parser_ignores_preferred_higher_degree(self):
+        requirements = parse_requirements(
+            """
+            Required qualifications include a bachelor's degree in Computer Science.
+            Master's or PhD preferred.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.education_level == "Bachelor's"
+
+    def test_regex_parser_does_not_infer_ms_from_company_email_domain(self):
+        requirements = parse_requirements(
+            """
+            Essential Qualifications: Currently pursuing a Bachelor's degree or
+            College Diploma in Engineering or Computer Science.
+            If you require accommodation, contact recruitment@gd-ms.ca.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.education_level == "Bachelor's"
+
+    def test_regex_parser_supports_bs_ms_abbreviation_alternatives(self):
+        requirements = parse_requirements(
+            "Student Researcher, BS/MS, Winter/Summer 2026", use_llm=False
+        )
+
+        assert requirements.education_level == "Bachelor's"
+
+    def test_regex_parser_does_not_infer_ms_from_ms_sql(self):
+        requirements = parse_requirements(
+            """
+            Required education: Computer Science or Engineering student.
+            Experience with databases such as MS SQL, MySQL, and PostgreSQL.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.education_level is None
+
+    def test_regex_parser_does_not_infer_degree_from_language_mastery(self):
+        requirements = parse_requirements(
+            "La maitrise de l'anglais est necessaire pour ce poste.", use_llm=False
+        )
+
+        assert requirements.education_level is None
+
+    def test_regex_parser_does_not_infer_phd_from_social_footer(self):
+        requirements = parse_requirements(
+            "More reactions and comments from Jane Doe, Ph.D.", use_llm=False
+        )
+
+        assert requirements.education_level is None
+
+    def test_regex_parser_handles_french_degree_alternatives(self):
+        requirements = parse_requirements(
+            """
+            Qualifications: baccalaureat, maitrise ou etudiant au doctorat;
+            majeure en informatique ou dans d'autres domaines connexes.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.education_level == "Bachelor's"
+
+    def test_regex_parser_does_not_infer_master_from_master_builders(self):
+        requirements = parse_requirements(
+            """
+            We are master builders for the 21st century. Non-negotiable:
+            enrollment in or completion of a Bachelor of Computer Science,
+            Software Engineering, or related field.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.education_level == "Bachelor's"
+
+    def test_regex_parser_ignores_company_track_record_as_experience_requirement(self):
+        requirements = parse_requirements(
+            """
+            Tower has a 25+ year track record of innovation. Qualifications:
+            bachelor's, master's, or PhD student majoring in Computer Science.
+            """,
+            use_llm=False,
+        )
+
+        assert requirements.experience_years_min is None
+
 
 # ===========================================================================
 # Cover letter tests

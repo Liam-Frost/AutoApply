@@ -107,6 +107,7 @@ async def search_jobs(
     )
     job_index_events: list[dict] = []
     search_cache_policy = _search_cache_policy() if use_job_index else None
+    linkedin_detail_limits = _linkedin_detail_fetch_limits()
 
     if source in ("ats", "all"):
         try:
@@ -155,6 +156,12 @@ async def search_jobs(
                         "job_types": _map_linkedin_job_types(employment_types),
                         "max_pages": linkedin_max_pages,
                         "enrich_details": not no_enrich,
+                        "max_keyword_detail_fetches": linkedin_detail_limits[
+                            "max_keyword_detail_fetches"
+                        ],
+                        "max_redirect_detail_fetches": linkedin_detail_limits[
+                            "max_redirect_detail_fetches"
+                        ],
                         "headless": headless,
                         "filter_profile": profile,
                         "config_dir": config_dir,
@@ -380,6 +387,28 @@ def _search_cache_policy() -> dict:
     }
 
 
+def _linkedin_detail_fetch_limits() -> dict[str, int]:
+    raw = load_config().get("linkedin", {})
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "max_keyword_detail_fetches": _positive_int_setting(
+            raw.get("max_keyword_detail_fetches"), 5000
+        ),
+        "max_redirect_detail_fetches": _positive_int_setting(
+            raw.get("max_redirect_detail_fetches"), 5000
+        ),
+    }
+
+
+def _positive_int_setting(value, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(parsed, 0)
+
+
 def _linkedin_job_index_params(search_kwargs: dict) -> dict:
     return {
         "keywords": search_kwargs.get("keywords") or [],
@@ -389,6 +418,8 @@ def _linkedin_job_index_params(search_kwargs: dict) -> dict:
         "job_types": search_kwargs.get("job_types") or [],
         "max_pages": search_kwargs.get("max_pages"),
         "enrich_details": bool(search_kwargs.get("enrich_details", True)),
+        "max_keyword_detail_fetches": search_kwargs.get("max_keyword_detail_fetches"),
+        "max_redirect_detail_fetches": search_kwargs.get("max_redirect_detail_fetches"),
         "filter_profile": search_kwargs.get("filter_profile") or "",
         "allow_public_fallback": bool(search_kwargs.get("allow_public_fallback", False)),
     }
@@ -1489,7 +1520,16 @@ def _classify_location_type(job) -> str:
 
 
 def _normalize_education_level(level: str | None, description: str | None = None) -> str:
-    text = f"{level or ''} {description or ''}".lower()
+    try:
+        from src.intake.jd_parser import infer_education_requirement
+
+        inferred = infer_education_requirement(description)
+        if inferred:
+            level = inferred
+    except Exception:  # noqa: BLE001 - metadata classification should not break search
+        pass
+
+    text = f"{level or ''}".lower()
     if any(token in text for token in ("juris doctor", " j.d", " jd")):
         return "jd"
     if any(token in text for token in ("doctor of medicine", " md", "m.d")):

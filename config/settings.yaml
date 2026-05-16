@@ -29,5 +29,8 @@ rate_limit:
 search_cache:
   enabled: true
   ttl_hours: 24
+linkedin:
+  max_keyword_detail_fetches: 5000
+  max_redirect_detail_fetches: 5000
 cache:
   l1_max_entries: 1024

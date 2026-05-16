@@ -350,6 +350,16 @@ def _check_education(job: RawJob, ctx: ApplicantContext) -> RuleResult:
 
     if req_rank > 0 and app_rank < req_rank:
         jd_text = (job.description or "") + " " + (job.title or "")
+        inferred_from_text = _infer_minimum_education_from_text(jd_text)
+        inferred_rank = _EDUCATION_RANK.get(inferred_from_text or "", 0)
+        if inferred_rank > 0 and app_rank >= inferred_rank:
+            return RuleResult(
+                rule_id="education",
+                rule_name="education",
+                passed=True,
+                verdict="pass",
+                reason="OK",
+            )
         match = _first_match(jd_text, _EDUCATION_EXCERPT_PATTERNS)
         return RuleResult(
             rule_id="education",
@@ -367,6 +377,15 @@ def _check_education(job: RawJob, ctx: ApplicantContext) -> RuleResult:
         verdict="pass",
         reason="OK",
     )
+
+
+def _infer_minimum_education_from_text(text: str) -> str | None:
+    try:
+        from src.intake.jd_parser import infer_education_requirement
+
+        return infer_education_requirement(text)
+    except Exception:  # noqa: BLE001 - rule evaluation must remain best-effort
+        return None
 
 
 def _check_employment_type(job: RawJob, ctx: ApplicantContext) -> RuleResult:
