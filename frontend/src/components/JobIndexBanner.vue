@@ -113,10 +113,11 @@ defineExpose({ reload: load })
       size="sm"
       :disabled="refreshing || loading"
       class="ml-auto"
+      :title="'Re-fetch from LinkedIn and rebuild the index'"
       @click="refresh"
     >
       <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': refreshing }" />
-      {{ refreshing ? "Refreshing..." : "Refresh" }}
+      {{ refreshing ? "Re-fetching..." : "Re-fetch from LinkedIn" }}
     </Button>
   </div>
 </template>

@@ -114,7 +114,7 @@ def create_entry(session: Session, args: CreateEntryArgs) -> ReviewQueueEntry:
     Idempotent on ``(tenant_id, job_id, job_snapshot_id, status='pending')``
     via the table's UNIQUE constraint -- a second call for the same
     job + snapshot returns the existing pending row instead of
-    raising. This matters because the nightly orchestrator can
+    raising. This matters because the plan-run orchestrator can
     legitimately re-fire for the same job across re-runs (e.g. after a
     transient broker hiccup).
     """
@@ -175,7 +175,7 @@ def list_entries(
 
     ``status=None`` returns all rows for the tenant (the UI groups
     them client-side). The implicit ordering is ``created_at DESC``
-    so the most recent nightly run shows at the top.
+    so the most recent plan run shows at the top.
     """
     stmt = select(ReviewQueueEntry).where(ReviewQueueEntry.tenant_id == tenant_id)
     if status is not None:

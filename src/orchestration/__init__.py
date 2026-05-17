@@ -3,9 +3,10 @@
 The Phase 14 task queue ships individual task kinds (``search.refresh``,
 ``materials.generate``, ``application.prepare``, ...). This package
 threads them into end-to-end flows -- the canonical example is the
-nightly run that produces a fresh review queue overnight.
+plan run that produces a fresh review queue every time a user's Plan
+ticks.
 
 Modules:
-    nightly_run -- the 'sleep, wake to a pre-tailored queue' use case
-                   (Phase 17.1). Never auto-submits.
+    plan_run -- the 'one Plan tick produces a fresh review queue' use
+                case (Phase 17.1). Never auto-submits.
 """

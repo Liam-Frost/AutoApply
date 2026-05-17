@@ -144,7 +144,7 @@ def generate_materials(
       * ``generate_from_template``: ``template_package`` MUST be set.
 
     The function does not commit anything to the DB. Phase 17's
-    nightly_run task wraps it inside an :class:`AutoApplyTask` body
+    plan_run task wraps it inside an :class:`AutoApplyTask` body
     that owns the audit row.
     """
     bindings = bindings or MaterialsBindings(tenant_id=current_tenant_id())

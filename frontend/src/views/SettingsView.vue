@@ -4,11 +4,13 @@ import {
   AlertCircle,
   CheckCircle2,
   Database,
+  FileText,
   KeyRound,
   Linkedin,
   Loader2,
   Plug,
   RefreshCw,
+  Save,
   Sparkles,
   Trash2,
   Unplug,
@@ -105,6 +107,19 @@ const state = reactive({
     allow_fallback: false,
     cache_enabled: true,
     cache_ttl_hours: 24,
+  },
+  // Phase 17.8: per-document-type material strategy defaults.
+  materialDefaults: {
+    loading: true,
+    saving: false,
+    error: "",
+    message: "",
+    templates: { resume: [], cover_letter: [] },
+    documents: { resume: [], cover_letter: [] },
+    form: {
+      resume: { strategy: "regenerate", default_template_id: "", default_document_id: "" },
+      cover_letter: { strategy: "regenerate", default_template_id: "", default_document_id: "" },
+    },
   },
 })
 
@@ -212,8 +227,99 @@ function providerHealthFor(provider) {
 async function refreshAll() {
   state.loading = true
   state.error = ""
-  await Promise.all([loadSettings(), loadProviders(), loadProviderHealth()])
+  await Promise.all([
+    loadSettings(),
+    loadProviders(),
+    loadProviderHealth(),
+    loadMaterialDefaults(),
+  ])
   state.loading = false
+}
+
+const MATERIAL_STRATEGY_OPTIONS = [
+  { value: "regenerate", label: "Regenerate from a template" },
+  { value: "patch_existing", label: "Patch a document from my library" },
+]
+
+function materialTemplateOptions(docType) {
+  return [
+    { value: "", label: "System default" },
+    ...((state.materialDefaults.templates[docType] || []).map((tpl) => ({
+      value: tpl.template_id,
+      label: tpl.name || tpl.template_id,
+    }))),
+  ]
+}
+
+function materialDocumentOptions(docType) {
+  const docs = state.materialDefaults.documents[docType] || []
+  return [
+    {
+      value: "",
+      label: docs.length
+        ? "Pick a document from your library"
+        : "No editable documents in your library",
+    },
+    ...docs.map((doc) => ({
+      value: doc.id,
+      label: `${doc.display_name} · ${doc.source_type.toUpperCase()}`,
+    })),
+  ]
+}
+
+function materialDocTypeLabel(docType) {
+  return docType === "resume" ? "Resume" : "Cover Letter"
+}
+
+async function loadMaterialDefaults() {
+  state.materialDefaults.loading = true
+  state.materialDefaults.error = ""
+  try {
+    const [defaults, templates, documents] = await Promise.all([
+      api.materialDefaults(),
+      api.templates(),
+      api.documents(),
+    ])
+    state.materialDefaults.templates = {
+      resume: templates?.templates?.resume || [],
+      cover_letter: templates?.templates?.cover_letter || [],
+    }
+    const docs = documents?.documents || []
+    state.materialDefaults.documents = {
+      resume: docs.filter((d) => d.document_type === "resume" && d.editable),
+      cover_letter: docs.filter((d) => d.document_type === "cover_letter" && d.editable),
+    }
+    const loaded = defaults?.defaults || {}
+    for (const docType of ["resume", "cover_letter"]) {
+      const entry = loaded[docType] || {}
+      state.materialDefaults.form[docType] = {
+        strategy: entry.strategy || "regenerate",
+        default_template_id: entry.default_template_id || "",
+        default_document_id: entry.default_document_id || "",
+      }
+    }
+  } catch (err) {
+    state.materialDefaults.error = err?.message || "Couldn't load material defaults."
+  } finally {
+    state.materialDefaults.loading = false
+  }
+}
+
+async function saveMaterialDefaults() {
+  state.materialDefaults.saving = true
+  state.materialDefaults.error = ""
+  state.materialDefaults.message = ""
+  try {
+    await api.updateMaterialDefaults({
+      resume: state.materialDefaults.form.resume,
+      cover_letter: state.materialDefaults.form.cover_letter,
+    })
+    state.materialDefaults.message = "Saved."
+  } catch (err) {
+    state.materialDefaults.error = err?.message || "Couldn't save material defaults."
+  } finally {
+    state.materialDefaults.saving = false
+  }
 }
 
 async function persistSettings({ keepMessage = false } = {}) {
@@ -462,190 +568,238 @@ function isPrimary(provider) {
       <CardHeader class="flex flex-row items-center justify-between space-y-0">
         <CardTitle class="flex items-center gap-2 text-sm">
           <Sparkles class="h-4 w-4 text-muted-foreground" />
-          LLM routing
+          AI Providers
         </CardTitle>
         <Badge variant="secondary" class="tabular-nums">
-          {{ state.saving ? "Saving..." : "Live" }}
+          {{ state.providers.filter((p) => p.configured).length }}/{{ state.providers.length }} connected
+          <span v-if="state.saving" class="ml-2 text-[10px] uppercase tracking-wide">Saving…</span>
         </Badge>
       </CardHeader>
-      <CardContent class="space-y-4">
+      <CardContent class="space-y-6">
         <p class="text-xs text-muted-foreground">
-          Choose which provider runs resume tailoring, cover letters, and form filling. Only connected providers can be
-          selected.
+          Connect API keys (OpenAI / Anthropic / Gemini) or use the local Claude / Codex CLI, then pick which provider AutoApply uses for resume tailoring, cover letters, and form filling.
         </p>
 
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="space-y-1.5">
-            <span class="text-xs font-medium text-muted-foreground">Primary</span>
-            <AppSelect
-              v-model="state.form.primary_provider"
-              :options="primaryOptions"
-              aria-label="Primary provider"
-            />
-          </label>
+        <!-- Sub-section: Routing -->
+        <section class="space-y-3">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Routing
+          </h3>
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="space-y-1.5">
+              <span class="text-xs font-medium text-muted-foreground">Primary</span>
+              <AppSelect
+                v-model="state.form.primary_provider"
+                :options="primaryOptions"
+                aria-label="Primary provider"
+              />
+            </label>
 
-          <label class="space-y-1.5">
-            <span class="text-xs font-medium text-muted-foreground">Fallback</span>
-            <AppSelect
-              v-model="state.form.fallback_provider"
-              :options="fallbackOptions"
-              aria-label="Fallback provider"
-            />
-          </label>
-        </div>
+            <label class="space-y-1.5">
+              <span class="text-xs font-medium text-muted-foreground">Fallback</span>
+              <AppSelect
+                v-model="state.form.fallback_provider"
+                :options="fallbackOptions"
+                aria-label="Fallback provider"
+              />
+            </label>
+          </div>
 
-        <label class="flex items-center gap-2 text-sm text-foreground">
-          <input
-            v-model="state.form.allow_fallback"
-            type="checkbox"
-            class="h-4 w-4 rounded border-input accent-primary"
-          />
-          <span>Auto fallback when the primary provider fails</span>
-        </label>
+          <label class="flex items-center gap-2 text-sm text-foreground">
+            <input
+              v-model="state.form.allow_fallback"
+              type="checkbox"
+              class="h-4 w-4 rounded border-input accent-primary"
+            />
+            <span>Auto fallback when the primary provider fails</span>
+          </label>
+        </section>
+
+        <div class="border-t border-border"></div>
+
+        <!-- Sub-section: Connected providers -->
+        <section class="space-y-3">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Connected Providers
+          </h3>
+
+          <div v-if="state.loading && state.providers.length === 0" class="text-sm text-muted-foreground">
+            Loading providers…
+          </div>
+
+          <div v-else class="space-y-2">
+            <div
+              v-for="provider in state.providers"
+              :key="provider.id"
+              class="flex flex-col gap-3 rounded-md border border-border bg-card px-3 py-3 text-sm transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div class="min-w-0 flex-1 space-y-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-medium text-foreground">{{ provider.display_name }}</span>
+                  <Badge variant="outline" class="text-[10px] uppercase tracking-wide">
+                    {{ authTypeLabel(provider.auth_type) }}
+                  </Badge>
+                  <Badge v-if="isPrimary(provider)" variant="default" class="text-[10px] uppercase tracking-wide">
+                    Primary
+                  </Badge>
+                  <Badge :variant="providerStatusVariant(provider)" class="text-[10px] uppercase tracking-wide">
+                    {{ providerStatusLabel(provider) }}
+                  </Badge>
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  <span v-if="provider.credentials?.connected_at">
+                    Connected {{ new Date(provider.credentials.connected_at).toLocaleString() }}.
+                  </span>
+                  <span v-if="providerHealthFor(provider)">
+                    Last verified {{ new Date(providerHealthFor(provider).checked_at).toLocaleString() }}
+                    ({{ providerHealthFor(provider).ok ? "OK" : "FAIL" }}).
+                  </span>
+                  <span
+                    v-else-if="provider.credentials?.verified_at"
+                  >
+                    Last verified {{ new Date(provider.credentials.verified_at).toLocaleString() }}.
+                  </span>
+                  <span v-if="!provider.configured && provider.install_hint">{{ provider.install_hint }}</span>
+                  <span
+                    v-if="providerHealthFor(provider) && !providerHealthFor(provider).ok"
+                    class="text-destructive"
+                  >
+                    Health: {{ providerHealthFor(provider).detail }}
+                  </span>
+                  <span
+                    v-else-if="provider.credentials?.last_test_error"
+                    class="text-destructive"
+                  >
+                    Last error: {{ provider.credentials.last_test_error }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-1.5">
+                <Button
+                  v-if="provider.configured"
+                  variant="ghost"
+                  size="sm"
+                  :disabled="providerOp(provider.id).testing"
+                  @click="testProvider(provider)"
+                >
+                  <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': providerOp(provider.id).testing }" />
+                  {{ providerOp(provider.id).testing ? "Testing…" : "Test" }}
+                </Button>
+
+                <Button
+                  v-if="provider.configured && !isPrimary(provider)"
+                  variant="ghost"
+                  size="sm"
+                  :disabled="providerOp(provider.id).using"
+                  @click="useProvider(provider)"
+                >
+                  <CheckCircle2 class="h-4 w-4" />
+                  {{ providerOp(provider.id).using ? "…" : "Use as primary" }}
+                </Button>
+
+                <Button
+                  v-if="provider.auth_type === 'api_key'"
+                  :variant="provider.configured ? 'ghost' : 'default'"
+                  size="sm"
+                  @click="openConnectDialog(provider)"
+                >
+                  <KeyRound class="h-4 w-4" />
+                  {{ provider.configured ? "Update key" : "Connect" }}
+                </Button>
+
+                <Button
+                  v-if="(!isSubprocessProvider(provider) && provider.configured) || hasStoredCredential(provider)"
+                  variant="ghost"
+                  size="sm"
+                  class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  :disabled="providerOp(provider.id).disconnecting"
+                  @click="disconnectProvider(provider)"
+                >
+                  <Unplug class="h-4 w-4" />
+                  {{ providerOp(provider.id).disconnecting ? "…" : disconnectLabel(provider) }}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
       </CardContent>
     </Card>
 
     <Card>
       <CardHeader class="flex flex-row items-center justify-between space-y-0">
         <CardTitle class="flex items-center gap-2 text-sm">
-          <Plug class="h-4 w-4 text-muted-foreground" />
-          Providers
+          <FileText class="h-4 w-4 text-muted-foreground" />
+          Default Material Strategy
         </CardTitle>
         <Badge variant="secondary" class="tabular-nums">
-          {{ state.providers.filter((p) => p.configured).length }}/{{ state.providers.length }} connected
+          {{ state.materialDefaults.saving ? "Saving…" : "Live" }}
         </Badge>
       </CardHeader>
-      <CardContent>
-        <p class="mb-4 text-xs text-muted-foreground">
-          Connect API keys (OpenAI / Anthropic / Gemini), or use the local Claude / Codex CLI. AutoApply only stores the
-          key; tokens for the OAuth CLI stay in ~/.codex/.
+      <CardContent class="space-y-5">
+        <p class="text-xs text-muted-foreground">
+          What AutoApply should do every time it builds a resume or cover letter. Per-job picks on the Jobs page and per-plan picks in Plans always win over these defaults.
         </p>
 
-        <div v-if="state.loading && state.providers.length === 0" class="text-sm text-muted-foreground">
-          Loading providers...
+        <Alert v-if="state.materialDefaults.error" variant="destructive">
+          <AlertCircle class="h-4 w-4" />
+          <AlertDescription>{{ state.materialDefaults.error }}</AlertDescription>
+        </Alert>
+        <Alert v-if="state.materialDefaults.message" class="border-primary/40 bg-primary/5">
+          <CheckCircle2 class="h-4 w-4" />
+          <AlertDescription>{{ state.materialDefaults.message }}</AlertDescription>
+        </Alert>
+
+        <div v-for="docType in ['resume', 'cover_letter']" :key="docType" class="space-y-3 rounded-md border bg-muted/20 p-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {{ materialDocTypeLabel(docType) }}
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="space-y-1.5">
+              <span class="text-xs font-medium text-muted-foreground">Strategy</span>
+              <AppSelect
+                v-model="state.materialDefaults.form[docType].strategy"
+                :options="MATERIAL_STRATEGY_OPTIONS"
+                :aria-label="`${materialDocTypeLabel(docType)} strategy`"
+              />
+            </label>
+            <label
+              v-if="state.materialDefaults.form[docType].strategy === 'regenerate'"
+              class="space-y-1.5"
+            >
+              <span class="text-xs font-medium text-muted-foreground">Default template</span>
+              <AppSelect
+                v-model="state.materialDefaults.form[docType].default_template_id"
+                :options="materialTemplateOptions(docType)"
+                :aria-label="`${materialDocTypeLabel(docType)} default template`"
+              />
+            </label>
+            <label
+              v-else
+              class="space-y-1.5"
+            >
+              <span class="text-xs font-medium text-muted-foreground">Document to patch</span>
+              <AppSelect
+                v-model="state.materialDefaults.form[docType].default_document_id"
+                :options="materialDocumentOptions(docType)"
+                :aria-label="`${materialDocTypeLabel(docType)} library document`"
+              />
+              <span class="text-xs text-muted-foreground">
+                Patching is supported for DOCX resumes today; LaTeX and PDF documents fall back to regenerate with a warning.
+              </span>
+            </label>
+          </div>
         </div>
 
-        <div v-else class="space-y-2">
-          <div
-            v-for="provider in state.providers"
-            :key="provider.id"
-            class="flex flex-col gap-3 rounded-md border border-border bg-card px-3 py-3 text-sm transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between"
+        <div class="flex items-center justify-end">
+          <Button
+            size="sm"
+            :disabled="state.materialDefaults.loading || state.materialDefaults.saving"
+            @click="saveMaterialDefaults"
           >
-            <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="font-medium text-foreground">{{ provider.display_name }}</span>
-                <Badge variant="outline" class="text-[10px] uppercase tracking-wide">
-                  {{ authTypeLabel(provider.auth_type) }}
-                </Badge>
-                <Badge v-if="isPrimary(provider)" variant="default" class="text-[10px] uppercase tracking-wide">
-                  Primary
-                </Badge>
-                <Badge :variant="providerStatusVariant(provider)" class="text-[10px] uppercase tracking-wide">
-                  {{ providerStatusLabel(provider) }}
-                </Badge>
-              </div>
-              <div class="text-xs text-muted-foreground">
-                <span v-if="provider.credentials?.connected_at">
-                  Connected {{ new Date(provider.credentials.connected_at).toLocaleString() }}.
-                </span>
-                <!--
-                  Phase 11.4: prefer the live health-monitor timestamp
-                  over the credential's manual-test breadcrumb. Falls
-                  back to credentials.verified_at when the monitor
-                  hasn't probed yet (cold start or unconfigured).
-                -->
-                <span v-if="providerHealthFor(provider)">
-                  Last verified {{ new Date(providerHealthFor(provider).checked_at).toLocaleString() }}
-                  ({{ providerHealthFor(provider).ok ? "OK" : "FAIL" }}).
-                </span>
-                <span
-                  v-else-if="provider.credentials?.verified_at"
-                >
-                  Last verified {{ new Date(provider.credentials.verified_at).toLocaleString() }}.
-                </span>
-                <span v-if="!provider.configured && provider.install_hint">{{ provider.install_hint }}</span>
-                <span
-                  v-if="providerHealthFor(provider) && !providerHealthFor(provider).ok"
-                  class="text-destructive"
-                >
-                  Health: {{ providerHealthFor(provider).detail }}
-                </span>
-                <span
-                  v-else-if="provider.credentials?.last_test_error"
-                  class="text-destructive"
-                >
-                  Last error: {{ provider.credentials.last_test_error }}
-                </span>
-              </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-1.5">
-              <Button
-                v-if="provider.configured"
-                variant="ghost"
-                size="sm"
-                :disabled="providerOp(provider.id).testing"
-                @click="testProvider(provider)"
-              >
-                <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': providerOp(provider.id).testing }" />
-                {{ providerOp(provider.id).testing ? "Testing..." : "Test" }}
-              </Button>
-
-              <Button
-                v-if="provider.configured && !isPrimary(provider)"
-                variant="ghost"
-                size="sm"
-                :disabled="providerOp(provider.id).using"
-                @click="useProvider(provider)"
-              >
-                <CheckCircle2 class="h-4 w-4" />
-                {{ providerOp(provider.id).using ? "..." : "Use as primary" }}
-              </Button>
-
-              <!--
-                API_KEY providers expose a Connect dialog where the
-                user pastes their key. Subprocess providers (Claude /
-                Codex CLI) deliberately have NO Connect button -- they
-                are orchestrated agent CLIs that own their own auth
-                (run `claude login` / `codex login` in your shell).
-                A future native OAuth provider would reintroduce its
-                own Connect affordance here.
-              -->
-              <Button
-                v-if="provider.auth_type === 'api_key'"
-                :variant="provider.configured ? 'ghost' : 'default'"
-                size="sm"
-                @click="openConnectDialog(provider)"
-              >
-                <KeyRound class="h-4 w-4" />
-                {{ provider.configured ? "Update key" : "Connect" }}
-              </Button>
-
-              <!--
-                Disconnect is shown for:
-                  * API-key providers (the normal connect/disconnect flow)
-                  * Subprocess providers ONLY when AutoApply has a
-                    stored credential record for them. The current
-                    subprocess providers never write a record, but
-                    users upgrading from the Phase-10 OAuth-wrapper
-                    revision may have a stale "managed_by: codex-cli"
-                    breadcrumb. Letting them clear it from the UI
-                    avoids the misleading "Last verified ..." line
-                    sticking around forever.
-              -->
-              <Button
-                v-if="(!isSubprocessProvider(provider) && provider.configured) || hasStoredCredential(provider)"
-                variant="ghost"
-                size="sm"
-                class="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                :disabled="providerOp(provider.id).disconnecting"
-                @click="disconnectProvider(provider)"
-              >
-                <Unplug class="h-4 w-4" />
-                {{ providerOp(provider.id).disconnecting ? "..." : disconnectLabel(provider) }}
-              </Button>
-            </div>
-          </div>
+            <Save class="size-4" />
+            {{ state.materialDefaults.saving ? "Saving…" : "Save defaults" }}
+          </Button>
         </div>
       </CardContent>
     </Card>

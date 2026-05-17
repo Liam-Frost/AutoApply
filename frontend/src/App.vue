@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   FileText,
   LayoutDashboard,
+  ListChecks,
   Monitor,
   Moon,
   Send,
@@ -36,8 +37,8 @@ const items = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/jobs", label: "Jobs", icon: Briefcase },
   { to: "/materials", label: "Materials", icon: FileText },
-  // Phase 17.3: nightly_run review queue kanban
-  { to: "/review", label: "Review", icon: ClipboardCheck },
+  { to: "/review", label: "Awaiting Review", icon: ClipboardCheck },
+  { to: "/tasks", label: "Plans", icon: ListChecks },
   { to: "/applications", label: "Applications", icon: Send },
   { to: "/profile", label: "Profile", icon: UserCircle },
   { to: "/settings", label: "Settings", icon: SettingsIcon },

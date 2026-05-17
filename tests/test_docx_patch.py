@@ -4,7 +4,8 @@ We build small in-memory DOCX fixtures with python-docx, run the
 patcher against a representative ResumeDocument IR, and read the
 output back to verify:
 
-* Summary text is replaced (named-style preservation).
+* The Summary section is stripped from the source DOCX entirely --
+  generated resumes never include one regardless of source content.
 * Skills section is rewritten in-place under its heading.
 * Bullets are swapped run-by-run; surplus bullets are appended; deficit
   bullets are blanked (not physically deleted).
@@ -60,7 +61,6 @@ def _ir(experience_bullets: list[str], project_bullets: list[str] | None = None)
         target_role="Software Engineer Intern",
         company="Test Co",
         header={"name": "Test"},
-        summary=["New summary that mentions FastAPI and Postgres."],
         skills={
             "must_have": ["python", "fastapi"],
             "preferred": ["postgres", "redis"],
@@ -84,10 +84,12 @@ def _ir(experience_bullets: list[str], project_bullets: list[str] | None = None)
     )
 
 
-# ---- Summary ---------------------------------------------------------
+# ---- Summary stripping -----------------------------------------------
 
 
-def test_summary_is_replaced(tmp_path: Path) -> None:
+def test_summary_section_is_stripped(tmp_path: Path) -> None:
+    """Generated resumes never include a Summary, regardless of what
+    the user-uploaded source DOCX contained."""
     src = tmp_path / "source.docx"
     out = tmp_path / "out.docx"
     _build_source(src)
@@ -95,20 +97,11 @@ def test_summary_is_replaced(tmp_path: Path) -> None:
     report = patch_resume_docx(src, document, output_path=out)
     assert report.success is True
     doc = Document(str(out))
-    summary_para = doc.paragraphs[1]
-    assert "FastAPI" in summary_para.text
-
-
-def test_summary_named_style_is_preserved(tmp_path: Path) -> None:
-    src = tmp_path / "source.docx"
-    out = tmp_path / "out.docx"
-    _build_source(src)
-    document = _ir(experience_bullets=["x"])
-    patch_resume_docx(src, document, output_path=out)
-    doc = Document(str(out))
-    style_name = doc.paragraphs[1].style.name
-    # Original style was 'Normal'; the patcher must not have changed it.
-    assert style_name == "Normal"
+    paragraph_texts = [p.text for p in doc.paragraphs]
+    # No paragraph should contain the original summary copy or a
+    # "Summary" heading anywhere in the output.
+    assert all("Old summary about the candidate" not in t for t in paragraph_texts)
+    assert all(t.strip().lower() != "summary" for t in paragraph_texts)
 
 
 # ---- Skills ---------------------------------------------------------
@@ -227,5 +220,7 @@ def test_report_records_what_was_changed(tmp_path: Path) -> None:
     document = _ir(experience_bullets=["new b1", "new b2"])
     report = patch_resume_docx(src, document, output_path=out)
     kinds = {op.kind for op in report.operations}
-    assert {"summary", "skills", "bullet"} <= kinds
+    # ``section_drop`` covers the summary strip; ``skills`` and
+    # ``bullet`` cover the in-place rewrites.
+    assert {"section_drop", "skills", "bullet"} <= kinds
     assert report.output_path == out

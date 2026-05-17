@@ -15,7 +15,7 @@ Why bound to ``job_snapshot_id`` rather than a live JD scrape:
   submitting.
 * Cache-friendliness -- the snapshot is content-hashed and immutable,
   so caching JD lookups is safe across an agent run.
-* Phase 17 nightly_run pre-fetches the snapshot once; every downstream
+* Phase 17 plan_run pre-fetches the snapshot once; every downstream
   agent reuses the same row.
 
 The tool exposes a small surface:

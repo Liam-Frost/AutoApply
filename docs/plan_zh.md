@@ -1,20 +1,20 @@
 # AutoApply — 完整项目计划
 
-本文档是端到端的权威项目计划：AutoApply 是什么、用什么搭的、已经完成了什么、
-还有什么要做到 Phase 18（v1 商业化就绪核心）。
+本文档是 AutoApply 的长文规划参考，用来保留战略、历史路线图背景和阶段设计
+理由。它不再承担快速上手或当前验收状态的职责。
 
-它和 `README.md`、`docs/PROJECT_MANAGEMENT.md`、`docs/AGENT_ARCHITECTURE.md`、
-`docs/DECISIONS.md` 有意存在重叠。当几份文档相互冲突时，权威来源如下：
+为减少重复，文档职责拆分如下：
 
 | 主题 | 权威来源 |
 |---|---|
-| 每个子阶段的范围、ETA、验收 | `docs/PROJECT_MANAGEMENT.md` |
+| 当前状态、下一步路线图、验收基线 | `docs/PROJECT_MANAGEMENT.md` |
+| 已完成阶段归档 | `docs/PHASE_HISTORY.md` |
 | 每个设计选择 / 否决的原因 | `docs/DECISIONS.md` |
 | Agent harness 内部细节 | `docs/AGENT_ARCHITECTURE.md` |
 | 用户面向的部署 | `docs/DEPLOYMENT.md` |
-| 本文 | 战略 + 历史 + 路线图汇总 |
+| 本文 | 战略、历史路线图背景、长文规划说明 |
 
-最近更新：**2026-05-14（路线图 v3.1）**。v3.1 在 v3 基础上做了四处校准：
+最近更新：**2026-05-16（文档整理）**。v3.1 在 v3 基础上做了四处校准：
 (a) Phase 14 任务队列改用 Celery（不再自建 task model + queue transport + worker runtime；见 D025），APScheduler 也随之退场，由 Celery Beat 承担 cron trigger；
 (b) Phase 14 前插入 13.9 子阶段，给所有 Phase 11 及以前的遗留表做一次性 `tenant_id` retrofit migration，把 D020 的"纪律"变成 schema 强制（见 D026）；
 (c) HITL gate 后端从单进程文件 JSON 迁到 Celery 任务态 / Postgres 持久化层，避免 Phase 14 多 worker 与 Phase 17 review queue 各自再造（并入 14.x，见 D026）；
@@ -309,7 +309,7 @@ v2/v3 重规划修正了 v1 草案的四个问题：
    pgvector + alembic 上。（见 D021。）
 2. **从 Phase 12 起引入 Redis** 作为缓存 / 锁 / 队列基础设施，为商业化部署
    保留通路。（见 D018。）
-3. **自动化夜跑需要任务队列。** Phase 14 明确 Redis queue + Postgres task state +
+3. **自动化批处理需要任务队列。** Phase 14 明确 Redis queue + Postgres task state +
    worker 边界，而不是把后台工作藏在 scheduler 细节里。（见 D023。）
 4. **材料生成需要两种简历模式。** Phase 15 现在同时覆盖原始简历 patch 和
    LaTeX-first 生成，而不只是 Cover-letter Agent。（见 D024。）
@@ -531,7 +531,7 @@ bounded 决策"的原则保留。
 - **16.3** Web UI "Why was this filtered?" 按钮。
 - **16.4** Eval suite —— 10 个人工标注的边界岗位；agent 决策与人工一致率 ≥ 70%。
 
-### Phase 17: 夜跑闭环 + Review Queue（~2 周） —— **已完成**
+### Phase 17: Plan Run Loop + Review Queue（~2 周） —— **已完成**
 
 7 个子阶段全部在 `feat/phase-17` 分支上线（commits `771b6da` → `208db10`）
 + 三轮 codex review 修复（`2d694e9`, `fe11907`, `62c4314`，共 3 个 P1 + 6 个 P2）。
@@ -540,7 +540,7 @@ alembic 升级 dev DB 到 `c9e1f3a7b8d4`。
 
 实现 highlights：
 
-* `src/orchestration/nightly_run.py` —— async `run_nightly(...)` 编排器，
+* `src/orchestration/plan_run.py` —— async `run_plan(...)` 编排器，
   依赖注入便于测试。流程：search（cache-first via Phase 13.4）→ score
   （Phase 16 结构化 breakdown）→ top-N qualified → 持久化 review_queue 行
   + 入队 materials.generate + application.prepare。**永不入队
@@ -557,16 +557,16 @@ alembic 升级 dev DB 到 `c9e1f3a7b8d4`。
 * `src/review/pre_submit_gate.py` —— 6h freshness + snapshot id
   mismatch 检查 + 生命周期态检查；自动 flip 到 stale / rejected。
 * `src/orchestration/digest.py` —— 早 8 点 digest，聚合
-  `data/nightly_runs/*.json` + review_queue 实时计数；dashboard
+  `data/plan_runs/*.json` + review_queue 实时计数；dashboard
   banner 渲染 headline。
-* `autoapply pause-nightly [--clear-pending]` —— sentinel + 度假
+* `autoapply pause-plan-runs [--clear-pending]` —— sentinel + 暂停
   时批量清空 pending。
 
 （原 plan 保留在下方作为设计说明。）
 集成阶段。把 Phase 14（任务队列 + 调度器）+ Phase 13（job-index / freshness）+
 Phase 12（缓存）+ Phase 9 / 15（agent）串成 "睡一觉，醒来看 review queue" 的
 完整流程。
-- **17.1** `nightly_run` orchestrator —— search（cache-first，stale 自动刷新）→
+- **17.1** `plan_run` orchestrator —— search（cache-first，stale 自动刷新）→
   filter（带 16 的可解释性）→ top-N → 入队 `materials.generate` 和
   `application.prepare`；worker 在 task 级 retry/timeout policy 下运行 agent。
   **永不自动提交。**
@@ -578,7 +578,7 @@ Phase 12（缓存）+ Phase 9 / 15（agent）串成 "睡一觉，醒来看 revie
 - **17.5** 提交前硬 gate —— 重跑 `should_refresh(job, "before_submit")`；
   > 6h stale 则先刷新；岗位已 expired 完全阻止提交。
 - **17.6** 早间 digest（08:00）。
-- **17.7** `autoapply pause-nightly` kill switch。
+- **17.7** `autoapply pause-plan-runs` kill switch。
 
 ### Phase 18: 多租户 & Auth 加固（~2.5 周）
 激活 Phase 12-17 散布的商业化就绪工作。SaaS 业务层（计费、注册流、营销页）
@@ -620,7 +620,7 @@ tenant 前缀，需要全局改 wrapper）、18.7 凭据存储（`src/providers/
 | 14 | 任务队列 + 定时工作（Celery） | 2.5 周 | 7.3 周 |
 | 15 | Resume & Cover Letter Generation v2 | 3 周 | 10.3 周 |
 | 16 | Filter Agent + 可解释性 | 1.5 周 | 11.8 周 |
-| 17 | 夜跑闭环 + Review Queue | 2 周 | 13.8 周 |
+| 17 | Plan Run Loop + Review Queue | 2 周 | 13.8 周 |
 | 18 | 多租户 & Auth 加固 | 2.5 周 | 16.3 周 |
 
 约 3.5-4 个月推到 v1.0 商业化就绪核心（不含 SaaS 业务层）。Phase 14 比 v3 多
@@ -664,13 +664,13 @@ Phase 11 起强制执行：
 | 14 | `autoapply worker -Q materials` 起 Celery worker；入队 100 个混合 task → 按 queue 路由分发；杀 worker → `task_acks_late + task_reject_on_worker_lost` 自动重入队一次；Celery Beat 触发 `daily_search` 只 enqueue 不阻塞；agent 返回 `needs_human` 时 task 转 `waiting_human` 状态，worker 立即释放去拿下一个 task |
 | 15 | DOCX patch 保留 named styles；三套 LaTeX 模板可从同一 IR 编译；cover-letter eval 5/5 通过；产物绑定 snapshot/source/template/trace ID |
 | 16 | JobsView 任意被过滤的岗位 5 秒内看到 reason chain；100 个岗位 agent 成本 < $0.50 |
-| 17 | 周一 23:00 调度夜跑 → 周二 08:00 review queue 已有 N 条预生成 application，每条 30 秒内可 approve |
+| 17 | 调度或手动触发 plan run → review queue 出现 N 条预生成 application，每条 30 秒内可 approve |
 | 18 | 两个 tenant 设了重叠 email / LinkedIn cookie → 互相读不到对方的 job / snapshot / application / credential / Redis key（直 SQL + 直 Redis CLI 验证）；超配额返回 429 |
 
 ## 11. 风险与未决问题
 
 - **LinkedIn 限流 / 检测。** 通过持久化 context cookie、随机延时、控并发、
-  以及 Phase 13 由分布式锁把关的 force-refresh 来缓解。激进的夜跑调度仍有实际
+  以及 Phase 13 由分布式锁把关的 force-refresh 来缓解。激进的批处理调度仍有实际
   风险。
 - **LLM 成本漂移。** 通过 Phase 12 缓存 + Phase 11 fallback 链（廉价模型作为
   fallback 槽）+ $1 / 100 case 的 eval 上限来缓解。Phase 9.4 的成本遥测是早期

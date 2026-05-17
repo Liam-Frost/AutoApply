@@ -45,6 +45,8 @@ def test_task_registered_in_celery_app(name: str) -> None:
         ("application.prepare", "application"),
         ("application.fill", "application"),
         ("application.submit", "application"),
+        ("orchestration.plan_run", "search"),
+        ("notifications.morning_digest", "maintenance"),
         ("maintenance.status_sync", "maintenance"),
         ("maintenance.cache_eviction", "maintenance"),
     ],

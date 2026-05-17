@@ -2,7 +2,7 @@
 
 The original ``uq_review_queue_pending_per_snapshot`` constraint
 applied to ALL statuses, not just pending. That caused a benign-
-looking issue to ferment across multiple nightly runs:
+looking issue to ferment across multiple plan runs:
 
   Run 1: insert (t, j, s, status='pending') → approve → submit → row
          is now (t, j, s, 'submitted').

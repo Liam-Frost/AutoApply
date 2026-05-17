@@ -312,7 +312,6 @@ def _keyword_coverage(document: ResumeDocument, jd_tags: list[str]) -> dict:
         return {"covered_keywords": [], "missing_keywords": [], "coverage_ratio": 0.0}
 
     text_parts = []
-    text_parts.extend(document.summary)
     for values in document.skills.values():
         text_parts.extend(values)
     for item in [*document.experiences, *document.projects]:

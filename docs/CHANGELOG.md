@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to AutoApply are documented here, organized by Phase.
+All notable implementation changes to AutoApply are documented here, organized by phase. This is the detailed engineering log; keep product overview and quick-start content in the README, and keep current operating state in PROJECT_MANAGEMENT.
 
 ## [Unreleased]
 
@@ -340,7 +340,7 @@ and it never auto-submits.
   `{surface, reject, abstain}`). Confidence clamped to `[0, 1]`.
   Trailing-JSON-after-thinking-text parsing supported. Hard rules
   NEVER overridden -- the agent's scope is score-band ambiguity
-  only. D023: orchestrator is sync; Phase 17's `nightly_run` task
+  only. D023: orchestrator is sync; Phase 17's `plan_run` task
   body will wrap `run()` inside `AutoApplyTask.call_agent`. +27
   tests. (commit `bbc13b9`)
 
@@ -398,24 +398,93 @@ and it never auto-submits.
 Verification: 1398 passed, 1 skipped on `feat/phase-16`;
 `ruff check` clean; frontend build clean (vite 6.00s, 126kB gzip JS).
 
-### Phase 17: Daily Run Loop + Review Queue
+### Phase 17.8: Material Strategy & Document Library
 
-The "sleep, wake to a review queue" integration phase. Threads
-Phase 14 (task queue + scheduler) + Phase 13 (job index + freshness)
-+ Phase 12 (cache) + Phase 15/16 (agents) into the end-to-end flow.
-**Never auto-submits.**
+User-curated document library + per-doc-type generation strategy +
+plan-level overrides + paused-review "Replace materials" surface.
+Closes the gap where the user could neither see what resumes/cover
+letters AutoApply had on file nor steer how new drafts get made.
 
 Implementation highlights:
 
-- **17.1 nightly_run orchestrator** -- `src/orchestration/nightly_run.py`.
-  Async `run_nightly(...)` dependency-injected for testability. Flow:
+- **17.8.1 user_documents table** — `migrations/.../e7c3a5b91f48_phase_17_8_user_documents.py`,
+  `src/core/models.py:UserDocument`. Per-tenant, deduped by
+  `(tenant_id, document_type, checksum)`. Storage at
+  `data/user_documents/<tenant>/<document_type>/<checksum><suffix>`.
+  Origin enum: `uploaded` / `profile_import` / `generated_promoted`
+  with optional `source_application_id` provenance. `src/documents/
+  user_documents.py` owns ingest/list/delete/path resolution + a
+  `to_source_resume_view()` adapter so the existing Phase 15.5
+  materials router doesn't need to learn a new type.
+- **17.8.1 documents API** — `/api/documents` (GET list, POST upload,
+  PATCH rename, DELETE, GET `/{id}/download`), `/api/documents/promote`
+  (copy a generated artifact into the library with provenance back to
+  the application that produced it).
+- **17.8.1 profile-creation hook** — `import_resume_file()` now stashes
+  the original bytes in `user_documents` as `origin='profile_import'`
+  before parsing. New `import_resume_from_library()` +
+  `POST /api/profile/from-library` let a user seed a profile from a
+  doc already in the library without re-uploading.
+- **17.8.2 material_defaults.yaml** — `src/application/material_defaults.py`
+  + `GET/PUT /api/settings/material-defaults`. Per-doc-type
+  `{strategy, default_template_id, default_document_id}` with a
+  `resolve_material_choice()` cascade (override → saved default →
+  system default). `/api/jobs/generate-material` accepts per-call
+  `strategy` + `source_document_id`. When `patch_existing` lands on a
+  DOCX library doc, `patch_resume_docx` runs after IR generation and
+  swaps the artifact path; failure modes downgrade to regenerate and
+  surface `strategy_notes` back to the UI.
+- **17.8.3 AutomationPlan overrides** —
+  `src/application/automation_plans.py:_normalize_plan` gains
+  `resume_strategy / resume_template_id / resume_source_document_id`
+  and the same for cover letters. Empty strings inherit the user's
+  Settings default. `run_plan` forwards these to the
+  `materials.generate` payload; `MaterialsGeneratePayload` widened to
+  keep them through Celery boundary.
+- **17.8.4 Paused-review actions** —
+  `src/application/regenerate_materials.py` +
+  `POST /api/applications/{id}/regenerate-material`. The kanban's
+  paused card grows a Replace materials dialog (material × strategy
+  × template-or-library-doc) plus Save-to-library buttons on every
+  downloadable artifact (`/review` and `/applications`). Promotion
+  re-enters the same `user_documents` ingest path with
+  `origin='generated_promoted'` so the artifact remains in its
+  Application home AND in the library.
+
+UI: `/materials` got a tab strip (`Generate` / `Library` / `Templates`)
+with a new `MaterialsLibraryView`; Settings got the
+"Default material strategy" card; Plans form got a collapsible
+"Materials (override Settings defaults)" section; Profile create
+gained a third mode "Pick From Library".
+
+Decision: generated outputs do NOT auto-populate the library
+(Option C). The library stays user-curated; every generation
+artifact ships with a single-click "Save to library" affordance so
+nothing is lost. Rationale: the library's value is a short list of
+intentional bases (3-10 entries), not a flood of one-off variants.
+
+Verification: `vite build` clean; `uv run python` smoke-tests of the
+new routes pass; alembic migration head moves from `c9e1f3a7b8d4` to
+`e7c3a5b91f48`.
+
+### Phase 17: Plan Run Loop + Review Queue
+
+Integration phase for scheduled and user-defined application batches.
+Threads Phase 14 (task queue + scheduler) + Phase 13 (job index +
+freshness) + Phase 12 (cache) + Phase 15/16 (agents) into the
+end-to-end review flow. Submit actions remain explicitly gated.
+
+Implementation highlights:
+
+- **17.1 plan_run orchestrator** -- `src/orchestration/plan_run.py`.
+  Async `run_plan(...)` dependency-injected for testability. Flow:
   search → score → top-N → persist review_queue rows + enqueue
   materials.generate + application.prepare. Pause sentinel
   short-circuits BEFORE search. Returns a JSON-serializable
-  `NightlyRunReport` with run_id, status, per-stage counts,
+  `PlanRunReport` with run_id, status, per-stage counts,
   borderline counter, materials/application/review entry id lists,
-  errors, cost. Celery task wrapper `orchestration.nightly_run` +
-  Beat entry at 23:00 UTC. CLI: `autoapply nightly run/enqueue/status`.
+  errors, cost. Celery task wrapper `orchestration.plan_run` +
+  Beat entry for scheduled plan runs. CLI: `autoapply plan-runs run/enqueue/status`.
   +33 tests. (commits `771b6da`, `2d694e9`, `fe11907`)
 
 - **17.2 review_queue model + state machine** -- migration
@@ -457,7 +526,7 @@ Implementation highlights:
   `4956f5c`, `62c4314`)
 
 - **17.6 Morning digest at 08:00** -- `src/orchestration/digest.py`.
-  Aggregates per-run JSON reports under `data/nightly_runs/<ts>-
+  Aggregates per-run JSON reports under `data/plan_runs/<ts>-
   <run_id>.json` (gitignored; filename-prefix windowing) +
   `count(*)` over review_queue grouped by status. Returns
   `DigestPayload` with headline + per-status review queue chips +
@@ -466,9 +535,9 @@ Implementation highlights:
   Dashboard banner renders inline above the KPI cards. +17 tests.
   (commit `b005fcb`)
 
-- **17.7 Kill switch** -- `autoapply pause-nightly
-  [--clear-pending]` + `autoapply resume-nightly`. Pause sentinel
-  `data/nightly_paused` is checked by `run_nightly` BEFORE search.
+- **17.7 Kill switch** -- `autoapply pause-plan-runs
+  [--clear-pending]` + `autoapply resume-plan-runs`. Pause sentinel
+  `data/plan_runs_paused` is checked by `run_plan` BEFORE search.
   `--clear-pending` bulk-rejects pending review_queue rows with
   reason="paused for vacation"; approved/submitted/rejected/stale
   rows survive. +2 tests. (commit `208db10`)
@@ -492,7 +561,7 @@ Implementation highlights:
     pass too (apply URL was never resolved); `review_queue`
     UNIQUE narrowed to a PostgreSQL partial unique index on
     `status='pending'` so the same snapshot can re-pass through
-    the lifecycle in later nightly runs. (commit `62c4314`)
+    the lifecycle in later plan runs. (commit `62c4314`)
 
 Verification: 1530 passed, 1 skipped on `feat/phase-17`;
 `ruff check` clean; frontend build clean (vite 6.29s, 129kB gzip
@@ -622,7 +691,7 @@ were produced from. Foundation for Phase 14 / 15 / 17.
   ``TestLinkedInSearchCache`` class in ``tests/test_linkedin.py`` is
   removed; equivalent coverage lives in ``test_jobs_normalize.py`` +
   ``test_jobs_search.py``. End-to-end wiring of ``search_linkedin``
-  into ``cached_search`` is deferred to Phase 17's daily run loop
+  into ``cached_search`` is deferred to Phase 17's plan-run loop
   per the in-code comment. +6 tests. (commit ``99e2dea``)
 
 - **fix (codex P2)**:

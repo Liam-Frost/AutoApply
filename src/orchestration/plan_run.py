@@ -1,7 +1,7 @@
-"""Phase 17.1: ``nightly_run`` orchestrator.
+"""Phase 17.1: ``plan_run`` orchestrator.
 
-The "sleep, wake to a review queue" flow. One invocation per night per
-saved search profile:
+One invocation per scheduled Plan tick — could be hourly, daily, weekly,
+or a manual "Run now". The name no longer implies a specific time of day.
 
 * **Search** -- ``application.jobs.search_jobs`` with
   ``use_job_index=True``, which routes through Phase 13.4
@@ -25,18 +25,18 @@ Boundaries
   review queue, and even then the Phase 17.5 pre-submit hard gate
   re-runs ``should_refresh(..., "before_submit")``.
 * **Per-tenant.** The Phase 14 ``tenant_id`` ContextVar must be set
-  before ``run_nightly`` is invoked (the Celery task wrapper handles
+  before ``run_plan`` is invoked (the Celery task wrapper handles
   this via ``AutoApplyTask.before_start``; CLI/test callers pass the
   tenant explicitly).
-* **Pause-aware.** When ``data/nightly_paused`` exists (Phase 17.7
-  kill switch), ``run_nightly`` short-circuits with
-  ``status="paused"`` so a scheduled tick doesn't generate cost on
-  vacation.
+* **Pause-aware.** When the kill-switch sentinel
+  (``data/plan_runs_paused``) exists, ``run_plan`` short-circuits
+  with ``status="paused"`` so a scheduled tick doesn't generate cost
+  on vacation.
 * **Idempotent dry-run.** ``dry_run=True`` runs the search + filter
   but skips enqueue. Useful for the Phase 17.6 morning digest
   rehearsal and for CI.
 
-Returned :class:`NightlyRunReport` is JSON-serializable so the Phase 14
+Returned :class:`PlanRunReport` is JSON-serializable so the Phase 14
 audit row can store it verbatim and the Phase 17.6 digest can read it
 back without ORM access.
 """
@@ -58,11 +58,11 @@ logger = logging.getLogger(__name__)
 # Where the Phase 17.7 kill switch lives. A tenant-aware version would
 # nest by tenant; we keep one global sentinel for now since multi-
 # tenancy hardening is Phase 18.
-NIGHTLY_PAUSE_SENTINEL_NAME = "nightly_paused"
+PLAN_RUN_PAUSE_SENTINEL_NAME = "plan_runs_paused"
 
 
 @dataclass
-class NightlyRunReport:
+class PlanRunReport:
     """Per-invocation summary persisted to the Phase 14 task audit row.
 
     All fields are intentionally JSON-serializable scalars / lists so
@@ -86,6 +86,7 @@ class NightlyRunReport:
     selected: int = 0  # jobs that actually reached the enqueue step
     materials_task_ids: list[str] = field(default_factory=list)
     application_prepare_task_ids: list[str] = field(default_factory=list)
+    application_submit_task_ids: list[str] = field(default_factory=list)
     review_entry_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     estimated_cost_usd: float = 0.0  # Phase 17.6 fills this with real telemetry
@@ -104,14 +105,14 @@ ScoreFn = Callable[[list[Any], Any], list[Any]]
 EnqueueFn = Callable[[str, dict[str, Any]], str]
 
 
-class NightlyRunError(Exception):
+class PlanRunError(Exception):
     """Raised on programmer error (missing tenant, etc.). Worker
-    failures are captured into :class:`NightlyRunReport.errors`
-    instead -- a partial run should still produce a report so the
-    digest has something to show."""
+    failures are captured into :class:`PlanRunReport.errors` instead --
+    a partial run should still produce a report so the digest has
+    something to show."""
 
 
-def nightly_pause_sentinel_path(root: Path | None = None) -> Path:
+def plan_run_pause_sentinel_path(root: Path | None = None) -> Path:
     """The well-known sentinel path the kill switch (17.7) creates.
 
     Centralised here so the orchestrator + CLI + tests agree on it.
@@ -119,16 +120,16 @@ def nightly_pause_sentinel_path(root: Path | None = None) -> Path:
     from src.core.config import PROJECT_ROOT  # local import; avoid cycle
 
     base = root if root is not None else PROJECT_ROOT
-    return base / "data" / NIGHTLY_PAUSE_SENTINEL_NAME
+    return base / "data" / PLAN_RUN_PAUSE_SENTINEL_NAME
 
 
-def nightly_run_is_paused(root: Path | None = None) -> bool:
+def plan_runs_paused(root: Path | None = None) -> bool:
     """Return True iff the sentinel exists.
 
     A symlink with no target counts as paused; that lets ops scripts
     park the sentinel however they like (touch / ln -s / mv).
     """
-    return nightly_pause_sentinel_path(root).exists()
+    return plan_run_pause_sentinel_path(root).exists()
 
 
 def _now_utc() -> datetime:
@@ -157,20 +158,32 @@ def _borderline_count(breakdowns: list[Any]) -> int:
     )
 
 
-async def run_nightly(
+async def run_plan(
     *,
     tenant_id: str,
     profile_id: str = "default",
     search_profile_id: str | None = None,
     top_n: int = 10,
     dry_run: bool = False,
+    auto_submit: bool = False,
+    skip_previously_applied: bool = True,
+    scrape_enabled: bool = True,
+    # Phase 17.8: optional per-plan material strategy overrides. ``None``
+    # for any of these means "let the materials.generate task fall back
+    # to the user's Settings → Default material strategy".
+    resume_strategy: str | None = None,
+    resume_template_id: str | None = None,
+    resume_source_document_id: str | None = None,
+    cover_letter_strategy: str | None = None,
+    cover_letter_template_id: str | None = None,
+    cover_letter_source_document_id: str | None = None,
     search_fn: SearchFn | None = None,
     score_fn: ScoreFn | None = None,
     enqueue_fn: EnqueueFn | None = None,
     pause_root: Path | None = None,
     now: Callable[[], datetime] | None = None,
-) -> NightlyRunReport:
-    """Execute one nightly pass and return a structured report.
+) -> PlanRunReport:
+    """Execute one plan run and return a structured report.
 
     Args:
         tenant_id: Required. Phase 14 tenant context.
@@ -196,12 +209,12 @@ async def run_nightly(
         now: Clock injection for tests.
 
     Returns:
-        :class:`NightlyRunReport` -- never raises for runtime failures
+        :class:`PlanRunReport` -- never raises for runtime failures
         (those are folded into ``errors``); raises
-        :class:`NightlyRunError` only on programmer errors.
+        :class:`PlanRunError` only on programmer errors.
     """
     if not tenant_id:
-        raise NightlyRunError("tenant_id is required")
+        raise PlanRunError("tenant_id is required")
 
     now_fn = now or _now_utc
     started_at = now_fn()
@@ -209,10 +222,10 @@ async def run_nightly(
     errors: list[str] = []
 
     # ----- 0. Kill switch (17.7) ------------------------------------
-    if nightly_run_is_paused(pause_root):
+    if plan_runs_paused(pause_root):
         finished_at = now_fn()
-        logger.info("nightly_run paused via sentinel; run_id=%s", run_id)
-        return NightlyRunReport(
+        logger.info("plan_run paused via sentinel; run_id=%s", run_id)
+        return PlanRunReport(
             run_id=run_id,
             tenant_id=tenant_id,
             profile_id=profile_id,
@@ -226,6 +239,7 @@ async def run_nightly(
         )
 
     # ----- 1. Search ------------------------------------------------
+    del scrape_enabled  # Search currently always refreshes through search_jobs.
     search_fn = search_fn or _default_search_fn
     try:
         search_result = await search_fn(
@@ -237,10 +251,10 @@ async def run_nightly(
             include_views=True,
         )
     except Exception as exc:  # noqa: BLE001 -- worker must keep going
-        logger.exception("nightly_run search failed; run_id=%s", run_id)
+        logger.exception("plan_run search failed; run_id=%s", run_id)
         finished_at = now_fn()
         errors.append(f"search: {type(exc).__name__}: {exc}")
-        return NightlyRunReport(
+        return PlanRunReport(
             run_id=run_id,
             tenant_id=tenant_id,
             profile_id=profile_id,
@@ -258,12 +272,12 @@ async def run_nightly(
     total_jobs_seen = len(jobs)
 
     # No results is a *legitimate* outcome (LinkedIn returned nothing
-    # for the profile last night). Still produce a report so the
+    # for the profile during this run). Still produce a report so the
     # digest reads "0 new jobs" rather than "missing".
     if not jobs:
         finished_at = now_fn()
-        logger.info("nightly_run found no jobs; run_id=%s", run_id)
-        return NightlyRunReport(
+        logger.info("plan_run found no jobs; run_id=%s", run_id)
+        return PlanRunReport(
             run_id=run_id,
             tenant_id=tenant_id,
             profile_id=profile_id,
@@ -287,10 +301,10 @@ async def run_nightly(
     try:
         breakdowns = score_fn(jobs, profile_id)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("nightly_run scoring failed; run_id=%s", run_id)
+        logger.exception("plan_run scoring failed; run_id=%s", run_id)
         finished_at = now_fn()
         errors.append(f"score: {type(exc).__name__}: {exc}")
-        return NightlyRunReport(
+        return PlanRunReport(
             run_id=run_id,
             tenant_id=tenant_id,
             profile_id=profile_id,
@@ -315,6 +329,8 @@ async def run_nightly(
     # for the entire qualified pool when the operator intended to
     # enqueue nothing.
     selected = qualified[:top_n] if top_n > 0 else []
+    if skip_previously_applied:
+        selected = _drop_previously_applied(tenant_id=tenant_id, selected=selected)
 
     # ----- 3. Persist review-queue rows + enqueue (skipped on dry_run)
     #
@@ -325,9 +341,10 @@ async def run_nightly(
     # is still a stub (Phase 18 / later will fill it in with the
     # form-filler agent's prepare step); leaving the review_queue
     # population to it would mean the kanban stays empty even after a
-    # successful nightly run.
+    # successful plan run.
     materials_ids: list[str] = []
     application_prepare_ids: list[str] = []
+    application_submit_ids: list[str] = []
     review_entry_ids: list[str] = []
 
     if not dry_run:
@@ -342,7 +359,7 @@ async def run_nightly(
                 selected=selected,
             )
         except Exception as exc:  # noqa: BLE001 -- non-fatal; record + continue
-            logger.exception("nightly_run: review_queue insert failed")
+            logger.exception("plan_run: review_queue insert failed")
             errors.append(f"review_queue: {type(exc).__name__}: {exc}")
 
         for breakdown in selected:
@@ -351,13 +368,33 @@ async def run_nightly(
                 errors.append("score breakdown missing job_id; skipping enqueue")
                 continue
             try:
+                materials_payload: dict[str, Any] = {
+                    "job_id": str(job_id),
+                    "profile_id": profile_id,
+                    "document_types": ["resume", "cover_letter"],
+                }
+                # Only include override keys when the plan actually
+                # provided them, so the consuming task can distinguish
+                # "user didn't say" (fall back to Settings default)
+                # from "user explicitly chose this".
+                if resume_strategy:
+                    materials_payload["resume_strategy"] = resume_strategy
+                if resume_template_id:
+                    materials_payload["resume_template_id"] = resume_template_id
+                if resume_source_document_id:
+                    materials_payload["resume_source_document_id"] = resume_source_document_id
+                if cover_letter_strategy:
+                    materials_payload["cover_letter_strategy"] = cover_letter_strategy
+                if cover_letter_template_id:
+                    materials_payload["cover_letter_template_id"] = cover_letter_template_id
+                if cover_letter_source_document_id:
+                    materials_payload["cover_letter_source_document_id"] = (
+                        cover_letter_source_document_id
+                    )
+
                 mat_id = enqueue_fn(
                     "materials.generate",
-                    {
-                        "job_id": str(job_id),
-                        "profile_id": profile_id,
-                        "document_types": ["resume", "cover_letter"],
-                    },
+                    materials_payload,
                 )
                 materials_ids.append(mat_id)
             except Exception as exc:  # noqa: BLE001
@@ -371,7 +408,6 @@ async def run_nightly(
                 # above; application.prepare still gets enqueued so the
                 # future form-filler agent has its work item, but the
                 # kanban is no longer waiting on that stub to populate.
-                # itself isn't materialised until 17.2.
                 prep_id = enqueue_fn(
                     "application.prepare",
                     {"application_id": str(job_id)},
@@ -382,9 +418,21 @@ async def run_nightly(
                     f"application.prepare enqueue: {type(exc).__name__}: {exc}"
                 )
 
+            if auto_submit:
+                try:
+                    submit_id = enqueue_fn(
+                        "application.submit",
+                        {"application_id": str(job_id)},
+                    )
+                    application_submit_ids.append(submit_id)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(
+                        f"application.submit enqueue: {type(exc).__name__}: {exc}"
+                    )
+
     finished_at = now_fn()
     status = "ok" if not errors else "error"
-    return NightlyRunReport(
+    return PlanRunReport(
         run_id=run_id,
         tenant_id=tenant_id,
         profile_id=profile_id,
@@ -401,6 +449,7 @@ async def run_nightly(
         selected=len(selected),
         materials_task_ids=materials_ids,
         application_prepare_task_ids=application_prepare_ids,
+        application_submit_task_ids=application_submit_ids,
         review_entry_ids=review_entry_ids,
         errors=errors,
         dry_run=dry_run,
@@ -410,7 +459,7 @@ async def run_nightly(
 # --------------------------------------------------------------------------- #
 # Default dependency wiring                                                   #
 # --------------------------------------------------------------------------- #
-# These are the production wires. ``run_nightly`` accepts overrides so the
+# These are the production wires. ``run_plan`` accepts overrides so the
 # Celery task wrapper, the CLI, and the test suite can each substitute
 # what they need without re-importing the orchestrator.
 
@@ -428,7 +477,7 @@ def _coerce_job_to_rawjob(job: Any) -> Any | None:
     Codex P1 fix: ``application.jobs.search_jobs`` returns a list of
     serialized dicts (the same shape the SPA consumes), but
     ``matching.scorer.score_jobs`` expects ``RawJob`` Pydantic objects.
-    Without this conversion every real nightly run would crash inside
+    Without this conversion every real plan run would crash inside
     scoring and the report would land with ``status="error"``.
 
     Items that are already ``RawJob`` pass through (so test stubs that
@@ -445,7 +494,7 @@ def _coerce_job_to_rawjob(job: Any) -> Any | None:
         coerced = _coerce_to_raw_job(job)
         if coerced is None:
             logger.warning(
-                "nightly_run: dropping unscoreable job: id=%s company=%s",
+                "plan_run: dropping unscoreable job: id=%s company=%s",
                 job.get("id"),
                 job.get("company"),
             )
@@ -468,12 +517,12 @@ def _default_score_fn(
     ``latest_snapshot_id`` for each scored job and overwrites
     ``breakdown.job_id`` / ``breakdown.job_snapshot_id`` so the
     pre-submit gate (which queries ``JobPosting`` by id) can find the
-    row. Without this, every nightly-created review entry would land
-    with ``RawJob.id`` (a fresh UUID per scrape) and approve+submit
+    row. Without this, every review entry created by a plan run would
+    land with ``RawJob.id`` (a fresh UUID per scrape) and approve+submit
     would always 404 with ``missing_binding``.
 
     ``tenant_id`` is captured via ``functools.partial`` in
-    :func:`run_nightly`; the public ``ScoreFn`` contract stays 2-arg so
+    :func:`run_plan`; the public ``ScoreFn`` contract stays 2-arg so
     test stubs are unaffected.
     """
     from src.application.profile import get_profile_path  # noqa: PLC0415
@@ -483,7 +532,7 @@ def _default_score_fn(
 
     path = get_profile_path(profile_id)
     if path is None or not path.exists():
-        raise NightlyRunError(f"profile {profile_id!r} not found at {path}")
+        raise PlanRunError(f"profile {profile_id!r} not found at {path}")
     profile_data = load_profile_yaml(path)
     ctx = build_scoring_context(profile_data)
 
@@ -496,7 +545,7 @@ def _default_score_fn(
             _resolve_and_patch_posting_ids(breakdowns, raw_jobs, tenant_id)
         except Exception:  # noqa: BLE001 - non-fatal; logged
             logger.exception(
-                "nightly_run: posting-id resolution failed; review entries "
+                "plan_run: posting-id resolution failed; review entries "
                 "will land with RawJob.id and pre-submit may fail"
             )
 
@@ -606,15 +655,15 @@ def _create_review_entries(
     """Insert one ``pending`` review_queue row per selected breakdown.
 
     Codex P1 fix: the Phase 17.2 promise is "the operator wakes up to
-    /api/review populated with last night's matches". Persisting from
-    the orchestrator keeps that promise true even though the
+    /api/review populated with the previous run's matches". Persisting
+    from the orchestrator keeps that promise true even though the
     downstream ``application.prepare`` task body is still a stub
     (Phase 18+ will wire the form-filler agent into it).
 
     Each entry is bound to:
       * ``job_id`` from the breakdown (Phase 13 audit link)
       * ``job_snapshot_id`` from the breakdown
-      * ``run_id`` from this nightly_run (so the digest groups them)
+      * ``run_id`` from this plan run (so the digest groups them)
       * the structured ``score_breakdown`` so the popover renders
         without re-scoring
       * denormalised ``company`` / ``title`` so the kanban renders
@@ -657,6 +706,44 @@ def _create_review_entries(
     return inserted
 
 
+def _drop_previously_applied(*, tenant_id: str, selected: list[Any]) -> list[Any]:
+    """Remove jobs that already have an application record for this tenant."""
+    if not selected:
+        return []
+
+    import uuid as uuid_mod  # noqa: PLC0415
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from src.core.database import get_session_factory  # noqa: PLC0415
+    from src.core.models import Application  # noqa: PLC0415
+
+    job_ids: list[uuid_mod.UUID] = []
+    by_uuid: dict[uuid_mod.UUID, Any] = {}
+    for breakdown in selected:
+        try:
+            job_uuid = uuid_mod.UUID(str(getattr(breakdown, "job_id", "")))
+        except ValueError:
+            continue
+        job_ids.append(job_uuid)
+        by_uuid[job_uuid] = breakdown
+    if not job_ids:
+        return selected
+
+    factory = get_session_factory()
+    with factory() as session:
+        existing = set(
+            session.execute(
+                select(Application.job_id).where(
+                    Application.tenant_id == tenant_id,
+                    Application.job_id.in_(job_ids),
+                    Application.status != "FAILED",
+                )
+            ).scalars()
+        )
+    return [bd for job_id, bd in by_uuid.items() if job_id not in existing]
+
+
 def _default_enqueue_fn(task_name: str, payload: dict[str, Any]) -> str:
     """Default wiring: hand off to the Phase 14 Celery app."""
     from src.tasks.app import celery_app  # noqa: PLC0415
@@ -666,10 +753,10 @@ def _default_enqueue_fn(task_name: str, payload: dict[str, Any]) -> str:
 
 
 __all__ = [
-    "NIGHTLY_PAUSE_SENTINEL_NAME",
-    "NightlyRunError",
-    "NightlyRunReport",
-    "nightly_pause_sentinel_path",
-    "nightly_run_is_paused",
-    "run_nightly",
+    "PLAN_RUN_PAUSE_SENTINEL_NAME",
+    "PlanRunError",
+    "PlanRunReport",
+    "plan_run_pause_sentinel_path",
+    "plan_runs_paused",
+    "run_plan",
 ]

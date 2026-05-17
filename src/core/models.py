@@ -371,6 +371,65 @@ class SourceResume(Base):
     )
 
 
+class UserDocument(Base):
+    """Phase 17.8: user-curated document library.
+
+    Distinct from :class:`SourceResume` (which is an internal Phase
+    15.1 artifact used only by the materials router). ``UserDocument``
+    is the first-class, user-facing library: every row was either
+    (a) uploaded explicitly via the /documents API,
+    (b) ingested as the side-effect of a profile-creation upload, or
+    (c) promoted into the library from a generated material the user
+    liked.
+
+    The materials router can patch from any editable row here in the
+    same way it patches from a SourceResume; see
+    ``user_documents.to_source_resume_view`` for the adapter.
+    """
+
+    __tablename__ = "user_documents"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "document_type",
+            "checksum",
+            name="uq_user_documents_tenant_type_checksum",
+        ),
+        Index(
+            "ix_user_documents_tenant_type_created",
+            "tenant_id",
+            "document_type",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default=TENANT_DEFAULT)
+    document_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    editable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    origin: Mapped[str] = mapped_column(String(30), nullable=False, default="uploaded")
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(400), nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(400), nullable=False)
+    extracted_structure: Mapped[dict | None] = mapped_column(JSONB)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_application_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("applications.id", name="fk_user_documents_application", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_job_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class ReviewQueueEntry(Base):
     """Phase 17.2: pending applications awaiting human approval.
 

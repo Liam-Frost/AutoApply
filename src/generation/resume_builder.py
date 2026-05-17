@@ -268,7 +268,6 @@ def build_resume_document(
         target_role=job.title,
         company=job.company,
         header=profile_data.get("identity", {}),
-        summary=_build_summary(job, profile_data, jd_tags),
         skills=_prioritize_skills(profile_data.get("skills", {}), jd_tags),
         education=profile_data.get("education", []),
         experiences=_build_experience_items(profile_data, grouped),
@@ -458,19 +457,9 @@ def _prioritize_skills(skills: dict[str, Any], jd_tags: list[str]) -> dict[str, 
     return prioritized
 
 
-def _build_summary(job: RawJob, profile_data: dict[str, Any], jd_tags: list[str]) -> list[str]:
-    education = profile_data.get("education", [])
-    field = ""
-    if education and isinstance(education[0], dict):
-        field = education[0].get("field") or education[0].get("degree") or ""
-    strongest = ", ".join(jd_tags[:4])
-    if not field and not strongest:
-        return []
-    focus = f" with experience in {strongest}" if strongest else ""
-    return [f"{field or 'Candidate'} targeting {job.title} roles{focus}.".strip()]
-
-
 def _plan_section_order(job: RawJob, profile_data: dict[str, Any]) -> list[str]:
+    # Summary is intentionally absent in every branch -- see ResumeDocument
+    # in src/generation/ir.py.
     title = job.title.lower()
     seniority = (job.seniority or "").lower()
     is_student = bool(profile_data.get("education")) and any(
@@ -478,7 +467,7 @@ def _plan_section_order(job: RawJob, profile_data: dict[str, Any]) -> list[str]:
     )
     if is_student:
         return ["header", "education", "skills", "projects", "experience"]
-    return ["header", "summary", "skills", "experience", "projects", "education"]
+    return ["header", "skills", "experience", "projects", "education"]
 
 
 def _matched_keywords(text: str, tags: list[str], tag_set: set[str]) -> list[str]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -163,6 +163,39 @@ class TestAgentRoutes:
         client = self._client(tmp_path, monkeypatch)
         assert client.get("/api/agent/traces?limit=0").status_code == 400
         assert client.get("/api/agent/traces?limit=600").status_code == 400
+
+    def test_cost_trend_buckets_by_day(self, tmp_path, monkeypatch):
+        store = TraceStore(base_dir=tmp_path)
+        now = datetime.now(UTC)
+        today = record_from_result(_result(), tools_allowed=["finish"], started_at=now)
+        today.total_cost_usd = 0.25
+        today.total_cost_saved_usd = 0.10
+        store.save(today)
+
+        older = record_from_result(
+            _result(),
+            tools_allowed=["finish"],
+            started_at=now - timedelta(days=2),
+        )
+        older.total_cost_usd = 0.50
+        store.save(older)
+
+        client = self._client(tmp_path, monkeypatch)
+        body = client.get("/api/agent/costs/trend?bucket=day&periods=5").json()
+        assert body["bucket"] == "day"
+        assert len(body["buckets"]) == 5
+        # Buckets returned oldest -> newest; today is the last one.
+        assert body["buckets"][-1]["cost_usd"] == pytest.approx(0.25)
+        assert body["buckets"][-1]["cost_usd_saved"] == pytest.approx(0.10)
+        assert body["buckets"][-3]["cost_usd"] == pytest.approx(0.50)
+        assert body["totals"]["cost_usd"] == pytest.approx(0.75)
+        assert body["totals"]["trace_count"] == 2
+
+    def test_cost_trend_validates_inputs(self, tmp_path, monkeypatch):
+        client = self._client(tmp_path, monkeypatch)
+        assert client.get("/api/agent/costs/trend?bucket=hour").status_code == 400
+        assert client.get("/api/agent/costs/trend?periods=0").status_code == 400
+        assert client.get("/api/agent/costs/trend?periods=100").status_code == 400
 
 
 class TestRecorder:

@@ -13,7 +13,6 @@
     "resume_ir": {
       "target_role": "SWE Intern",
       "company": "Acme",
-      "summary": ["NEW: focused on Python and FastAPI."],
       "skills": {"must_have": ["python", "fastapi"]},
       "experiences": [
         {
@@ -29,7 +28,7 @@
   "expectations": [
     {"type": "json_field_equals", "path": "patched", "expected": true},
     {"type": "json_field_contains", "path": "operations", "needle": "bullet"},
-    {"type": "json_field_contains", "path": "operations", "needle": "summary"},
+    {"type": "json_field_contains", "path": "operations", "needle": "section_drop"},
     {"type": "regex", "pattern": "List Bullet"},
     {"type": "regex", "pattern": "NEW: reduced API latency"}
   ]

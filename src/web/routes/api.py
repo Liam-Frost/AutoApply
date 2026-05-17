@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from src.application.documents import (
+    delete_document,
+    list_documents_data,
+    promote_artifact_to_library,
+    resolve_document_for_download,
+    update_document,
+    upload_document,
+)
 from src.application.jobs import (
     apply_to_url,
 )
@@ -51,11 +60,18 @@ from src.application.jobs import (
     validate_material_template as validate_material_template_usecase,
 )
 from src.application.matching import explain_job as explain_job_usecase
+from src.application.material_defaults import (
+    SUPPORTED_DOCUMENT_TYPES,
+    SUPPORTED_STRATEGIES,
+    load_material_defaults_data,
+    save_material_defaults,
+)
 from src.application.profile import (
     activate_profile_data,
     create_empty_profile,
     delete_profile_data,
     import_resume_file,
+    import_resume_from_library,
     load_profile_data,
     rename_profile_data,
     save_profile_data,
@@ -67,6 +83,7 @@ from src.application.providers import (
     test_provider_connection,
     use_provider_as_primary,
 )
+from src.application.regenerate_materials import regenerate_application_material
 from src.application.search_profiles import (
     delete_search_profile_data,
     load_search_profiles_data,
@@ -78,8 +95,10 @@ from src.application.settings import (
     update_llm_settings_data,
 )
 from src.application.tracking import (
+    discard_paused_application,
     load_applications_data,
     load_dashboard_data,
+    submit_paused_application,
     update_application_outcome,
 )
 from src.core.config import PROJECT_ROOT
@@ -120,6 +139,9 @@ class JobMaterialPayload(BaseModel):
     use_llm: bool = False
     template_id: str | None = None
     profile_id: str | None = None
+    # Phase 17.8: caller may override the user's saved defaults.
+    strategy: str | None = None  # "regenerate" | "patch_existing"
+    source_document_id: str | None = None  # UserDocument id
 
 
 class TemplateCreatePayload(BaseModel):
@@ -154,6 +176,49 @@ class SearchProfilePayload(BaseModel):
 
 class OutcomePayload(BaseModel):
     outcome: str
+
+
+class DiscardPayload(BaseModel):
+    reason: str | None = None
+
+
+class DocumentUpdatePayload(BaseModel):
+    display_name: str | None = None
+    notes: str | None = None
+
+
+class DocumentPromotePayload(BaseModel):
+    artifact_path: str
+    document_type: str
+    display_name: str
+    application_id: str | None = None
+    job_snapshot_id: str | None = None
+    notes: str | None = None
+
+
+class ProfileFromLibraryPayload(BaseModel):
+    document_id: str
+    profile_id: str | None = None
+    overwrite: bool = False
+    set_active: bool = True
+
+
+class MaterialDefaultEntryPayload(BaseModel):
+    strategy: str = "regenerate"
+    default_template_id: str | None = ""
+    default_document_id: str | None = ""
+
+
+class MaterialDefaultsPayload(BaseModel):
+    resume: MaterialDefaultEntryPayload | None = None
+    cover_letter: MaterialDefaultEntryPayload | None = None
+
+
+class RegenerateMaterialPayload(BaseModel):
+    material_type: str
+    strategy: str | None = None
+    template_id: str | None = None
+    source_document_id: str | None = None
 
 
 class LLMSettingsPayload(BaseModel):
@@ -205,7 +270,7 @@ class MatchingExplainPayload(BaseModel):
 async def get_morning_digest(window_hours: int = 24) -> dict:
     """Phase 17.6 morning digest payload for the dashboard banner.
 
-    Aggregates the last ``window_hours`` of nightly_run reports +
+    Aggregates the last ``window_hours`` of plan-run reports +
     the current review queue snapshot. The route re-computes on every
     call (the input is tiny: a directory scan + one ``count(*)``
     grouped by status), so callers don't need to worry about staleness
@@ -307,6 +372,8 @@ async def generate_job_material(payload: JobMaterialPayload) -> dict:
         use_llm=payload.use_llm,
         template_id=payload.template_id,
         profile_id=payload.profile_id,
+        strategy=payload.strategy,
+        source_document_id=payload.source_document_id,
     )
     if result["ok"]:
         return result
@@ -413,6 +480,131 @@ async def delete_material_template(document_type: str, template_id: str) -> dict
     }
     status_code = status_code_map.get(result["error_code"], 400)
     raise HTTPException(status_code=status_code, detail=result["error"])
+
+
+# ---------------------------------------------------------------------------
+# Document library (Phase 17.8)
+# ---------------------------------------------------------------------------
+
+
+def _parse_document_id(raw: str) -> UUID:
+    try:
+        return UUID(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid document ID") from exc
+
+
+def _parse_optional_uuid(raw: str | None) -> UUID | None:
+    if not raw:
+        return None
+    try:
+        return UUID(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid UUID: {raw!r}"
+        ) from exc
+
+
+@router.get("/documents")
+async def list_documents(
+    document_type: str = Query("", description="Filter: resume | cover_letter"),
+) -> dict:
+    return list_documents_data(document_type=document_type or None)
+
+
+@router.post("/documents/upload")
+async def upload_document_route(
+    document: UploadFile = File(...),
+    document_type: str = Form(...),
+    display_name: str = Form(""),
+    notes: str = Form(""),
+) -> dict:
+    content = await _read_upload_limited(document)
+    result = upload_document(
+        document_type=document_type,
+        filename=document.filename or "",
+        content=content,
+        display_name=display_name or None,
+        notes=notes or None,
+    )
+    if result["ok"]:
+        return result
+    status_code_map = {
+        "invalid_document": 400,
+        "document_upload_failed": 500,
+    }
+    raise HTTPException(
+        status_code=status_code_map.get(result["error_code"], 400),
+        detail=result["error"],
+    )
+
+
+@router.patch("/documents/{document_id}")
+async def patch_document(document_id: str, payload: DocumentUpdatePayload) -> dict:
+    document_uuid = _parse_document_id(document_id)
+    result = update_document(
+        document_id=document_uuid,
+        display_name=payload.display_name,
+        notes=payload.notes,
+    )
+    if result["ok"]:
+        return result
+    if result["error_code"] == "document_not_found":
+        raise HTTPException(status_code=404, detail=result["error"])
+    if result["error_code"] == "invalid_document":
+        raise HTTPException(status_code=400, detail=result["error"])
+    raise HTTPException(status_code=500, detail=result["error"])
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document_route(document_id: str) -> dict:
+    document_uuid = _parse_document_id(document_id)
+    result = delete_document(document_id=document_uuid)
+    if result["ok"]:
+        return result
+    if result["error_code"] == "document_not_found":
+        raise HTTPException(status_code=404, detail=result["error"])
+    raise HTTPException(status_code=500, detail=result["error"])
+
+
+@router.get("/documents/{document_id}/download")
+async def download_document_route(document_id: str):
+    document_uuid = _parse_document_id(document_id)
+    result = resolve_document_for_download(document_id=document_uuid)
+    if not result["ok"]:
+        if result["error_code"] == "document_not_found":
+            raise HTTPException(status_code=404, detail=result["error"])
+        if result["error_code"] == "document_file_missing":
+            raise HTTPException(status_code=410, detail=result["error"])
+        raise HTTPException(status_code=500, detail=result["error"])
+    return FileResponse(result["path"], filename=result["filename"])
+
+
+@router.post("/documents/promote")
+async def promote_document_route(payload: DocumentPromotePayload) -> dict:
+    application_uuid = _parse_optional_uuid(payload.application_id)
+    snapshot_uuid = _parse_optional_uuid(payload.job_snapshot_id)
+    result = promote_artifact_to_library(
+        artifact_path=payload.artifact_path,
+        document_type=payload.document_type,
+        display_name=payload.display_name,
+        application_id=application_uuid,
+        job_snapshot_id=snapshot_uuid,
+        notes=payload.notes,
+    )
+    if result["ok"]:
+        return result
+    status_code_map = {
+        "artifact_missing": 404,
+        "artifact_outside_root": 400,
+        "artifact_read_failed": 500,
+        "invalid_document": 400,
+        "document_upload_failed": 500,
+    }
+    raise HTTPException(
+        status_code=status_code_map.get(result["error_code"], 400),
+        detail=result["error"],
+    )
 
 
 @router.get("/artifacts/download")
@@ -533,6 +725,83 @@ async def update_outcome(application_id: str, payload: OutcomePayload) -> dict:
     return result
 
 
+@router.post("/applications/{application_id}/submit")
+async def submit_application(application_id: str) -> dict:
+    try:
+        from uuid import UUID
+
+        application_uuid = UUID(application_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid application ID") from exc
+
+    result = submit_paused_application(application_id=application_uuid)
+    if not result["ok"]:
+        if result["error_code"] == "application_not_found":
+            raise HTTPException(status_code=404, detail=result["error"])
+        if result["error_code"] == "invalid_status":
+            raise HTTPException(status_code=409, detail=result["error"])
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@router.post("/applications/{application_id}/regenerate-material")
+async def regenerate_application_material_route(
+    application_id: str, payload: RegenerateMaterialPayload
+) -> dict:
+    try:
+        from uuid import UUID
+
+        application_uuid = UUID(application_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid application ID") from exc
+
+    result = await regenerate_application_material(
+        application_id=application_uuid,
+        material_type=payload.material_type,
+        strategy=payload.strategy,
+        template_id=payload.template_id,
+        source_document_id=payload.source_document_id,
+    )
+    if result["ok"]:
+        return result
+    status_code_map = {
+        "invalid_material_type": 400,
+        "application_not_found": 404,
+        "job_not_found": 404,
+        "database_unavailable": 503,
+        "missing_artifact": 500,
+        "generation_failed": 500,
+        "load_failed": 500,
+        "application_update_failed": 500,
+    }
+    raise HTTPException(
+        status_code=status_code_map.get(result["error_code"], 400),
+        detail=result["error"],
+    )
+
+
+@router.post("/applications/{application_id}/discard")
+async def discard_application(application_id: str, payload: DiscardPayload) -> dict:
+    try:
+        from uuid import UUID
+
+        application_uuid = UUID(application_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid application ID") from exc
+
+    result = discard_paused_application(
+        application_id=application_uuid,
+        reason=payload.reason,
+    )
+    if not result["ok"]:
+        if result["error_code"] == "application_not_found":
+            raise HTTPException(status_code=404, detail=result["error"])
+        if result["error_code"] == "invalid_status":
+            raise HTTPException(status_code=409, detail=result["error"])
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
 @router.get("/profile")
 async def profile_data(profile_id: str = Query("", description="Optional profile id")) -> dict:
     return load_profile_data(profile_id or None)
@@ -613,9 +882,62 @@ async def upload_resume(
     return result
 
 
+@router.post("/profile/from-library")
+async def create_profile_from_library(payload: ProfileFromLibraryPayload) -> dict:
+    result = import_resume_from_library(
+        document_id=payload.document_id,
+        profile_id=payload.profile_id or None,
+        overwrite=payload.overwrite,
+        set_active=payload.set_active,
+    )
+    if not result["ok"]:
+        status_code_map = {
+            "invalid_document_id": 400,
+            "document_not_found": 404,
+            "invalid_document_type": 400,
+            "document_file_missing": 410,
+            "profile_exists": 409,
+            "unsupported_file_type": 400,
+            "resume_parse_failed": 500,
+            "document_load_failed": 500,
+        }
+        raise HTTPException(
+            status_code=status_code_map.get(result["error_code"], 400),
+            detail=result["error"],
+        )
+    return result
+
+
 @router.get("/settings/llm")
 async def settings_data() -> dict:
     return load_llm_settings_data()
+
+
+@router.get("/settings/material-defaults")
+async def material_defaults_data() -> dict:
+    return load_material_defaults_data()
+
+
+@router.put("/settings/material-defaults")
+async def update_material_defaults(payload: MaterialDefaultsPayload) -> dict:
+    raw = payload.model_dump()
+    # Validate strategy values up front so we return a tidy 400 with a
+    # specific message rather than letting the normalizer silently fix
+    # them and the user wonder why the save "worked" but didn't.
+    for doc_type in SUPPORTED_DOCUMENT_TYPES:
+        entry = raw.get(doc_type)
+        if entry and entry.get("strategy") not in SUPPORTED_STRATEGIES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unsupported strategy {entry['strategy']!r} for {doc_type}; "
+                    f"expected one of {SUPPORTED_STRATEGIES}"
+                ),
+            )
+    result = save_material_defaults(raw)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 @router.put("/settings/llm")

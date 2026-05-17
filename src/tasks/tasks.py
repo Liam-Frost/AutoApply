@@ -48,6 +48,15 @@ class MaterialsGeneratePayload(BaseModel):
     profile_id: str | None = None
     template_id: str | None = None
     document_types: list[str] = Field(default_factory=lambda: ["resume", "cover_letter"])
+    # Phase 17.8: per-call overrides for the materials router. Empty /
+    # None means "let resolve_material_choice fall back to the user's
+    # Settings → Default material strategy".
+    resume_strategy: str | None = None
+    resume_template_id: str | None = None
+    resume_source_document_id: str | None = None
+    cover_letter_strategy: str | None = None
+    cover_letter_template_id: str | None = None
+    cover_letter_source_document_id: str | None = None
 
 
 class ApplicationPreparePayload(BaseModel):
@@ -62,10 +71,10 @@ class ApplicationSubmitPayload(BaseModel):
     application_id: str
 
 
-class OrchestrationNightlyRunPayload(BaseModel):
-    """Phase 17.1 nightly_run task payload.
+class OrchestrationPlanRunPayload(BaseModel):
+    """Phase 17.1 plan_run task payload.
 
-    Mirrors :func:`src.orchestration.nightly_run.run_nightly` -- all
+    Mirrors :func:`src.orchestration.plan_run.run_plan` -- all
     fields default-friendly so a Beat tick can fire the task with no
     kwargs and still produce a useful run for the active applicant
     profile.
@@ -75,6 +84,15 @@ class OrchestrationNightlyRunPayload(BaseModel):
     search_profile_id: str | None = None
     top_n: int = 10
     dry_run: bool = False
+    auto_submit: bool = False
+    skip_previously_applied: bool = True
+    scrape_enabled: bool = True
+    resume_strategy: str | None = None
+    resume_template_id: str | None = None
+    resume_source_document_id: str | None = None
+    cover_letter_strategy: str | None = None
+    cover_letter_template_id: str | None = None
+    cover_letter_source_document_id: str | None = None
 
 
 class StatusSyncPayload(BaseModel):
@@ -120,7 +138,7 @@ def search_refresh(self: AutoApplyTask, **payload: Any) -> dict[str, Any]:
 
 @celery_app.task(name="search.daily_fanout", base=AutoApplyTask, bind=True)
 def search_daily_fanout(self: AutoApplyTask) -> dict[str, Any]:
-    """Beat-driven nightly search fan-out. Phase 17 explodes this into
+    """Beat-driven saved-search fan-out. Phase 17 explodes this into
     per-source ``search.refresh`` children."""
     logger.info("search.daily_fanout tick")
     return {"task": "search.daily_fanout", "status": "stubbed"}
@@ -157,58 +175,67 @@ def notifications_morning_digest(self: AutoApplyTask) -> dict[str, Any]:
     return payload.to_dict()
 
 
-@celery_app.task(name="orchestration.nightly_run", base=AutoApplyTask, bind=True)
-def orchestration_nightly_run(
+@celery_app.task(name="orchestration.plan_run", base=AutoApplyTask, bind=True)
+def orchestration_plan_run(
     self: AutoApplyTask, **payload: Any
 ) -> dict[str, Any]:
-    """Phase 17.1: the 'sleep, wake to a review queue' top-level task.
+    """Phase 17.1: top-level batch application automation task.
 
     Search → score → enqueue ``materials.generate`` +
     ``application.prepare`` for the top-N qualified jobs. Never enqueues
     ``application.submit`` -- approval happens in the Phase 17.3 review
     queue UI and the Phase 17.5 pre-submit gate runs at that point.
 
-    The real work lives in :func:`src.orchestration.nightly_run.run_nightly`;
+    The real work lives in :func:`src.orchestration.plan_run.run_plan`;
     this wrapper is the AutoApplyTask boundary: payload validation +
     tenant context (via ``before_start``) + the return dict that lands
     on the audit row.
     """
-    args = _coerce(OrchestrationNightlyRunPayload, payload)
+    args = _coerce(OrchestrationPlanRunPayload, payload)
     # Lazy import + asyncio.run keep this task body light when the
     # orchestrator package isn't loaded (e.g. in unrelated tests).
     import asyncio  # noqa: PLC0415
 
-    from src.orchestration.nightly_run import run_nightly  # noqa: PLC0415
+    from src.orchestration.plan_run import run_plan  # noqa: PLC0415
     from src.tasks.context import current_tenant_id  # noqa: PLC0415
 
     tenant_id = current_tenant_id() or "default"
     logger.info(
-        "orchestration.nightly_run starting tenant=%s profile=%s top_n=%d dry_run=%s",
+        "orchestration.plan_run starting tenant=%s profile=%s top_n=%d dry_run=%s",
         tenant_id,
         args.profile_id,
         args.top_n,
         args.dry_run,
     )
     report = asyncio.run(
-        run_nightly(
+        run_plan(
             tenant_id=tenant_id,
             profile_id=args.profile_id,
             search_profile_id=args.search_profile_id,
             top_n=args.top_n,
             dry_run=args.dry_run,
+            auto_submit=args.auto_submit,
+            skip_previously_applied=args.skip_previously_applied,
+            scrape_enabled=args.scrape_enabled,
+            resume_strategy=args.resume_strategy,
+            resume_template_id=args.resume_template_id,
+            resume_source_document_id=args.resume_source_document_id,
+            cover_letter_strategy=args.cover_letter_strategy,
+            cover_letter_template_id=args.cover_letter_template_id,
+            cover_letter_source_document_id=args.cover_letter_source_document_id,
         )
     )
-    # Phase 17.6: persist the report under data/nightly_runs/ so the
+    # Phase 17.6: persist the report under data/plan_runs/ so the
     # 08:00 morning digest can aggregate over it. Failure here is
     # non-fatal -- a missing report file just means the digest will
     # under-count for this run, which is preferable to the task
     # itself failing and re-queueing.
     try:
-        from src.orchestration.digest import persist_nightly_report  # noqa: PLC0415
+        from src.orchestration.digest import persist_plan_run_report  # noqa: PLC0415
 
-        persist_nightly_report(report)
+        persist_plan_run_report(report)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("nightly_run: report persistence failed: %s", exc)
+        logger.warning("plan_run: report persistence failed: %s", exc)
 
     return report.to_dict()
 
@@ -340,7 +367,7 @@ KNOWN_TASK_NAMES: tuple[str, ...] = (
     "application.prepare",
     "application.fill",
     "application.submit",
-    "orchestration.nightly_run",
+    "orchestration.plan_run",
     "notifications.morning_digest",
     "maintenance.status_sync",
     "maintenance.jd_health_check",
@@ -357,6 +384,7 @@ __all__ = [
     "JobEnrichPayload",
     "KNOWN_TASK_NAMES",
     "MaterialsGeneratePayload",
+    "OrchestrationPlanRunPayload",
     "SearchRefreshPayload",
     "StatusSyncPayload",
     "application_fill",
@@ -368,6 +396,7 @@ __all__ = [
     "jobs_enrich",
     "linkedin_cookie_refresh",
     "materials_generate",
+    "orchestration_plan_run",
     "search_daily_fanout",
     "search_refresh",
     "status_sync",

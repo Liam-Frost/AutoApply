@@ -143,9 +143,9 @@ onMounted(loadSnapshot)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Runtime Cache</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Cache</h1>
         <p class="text-sm text-muted-foreground">
-          L1 in-process LRU + L2 Redis for LLM, embedding, and short response reuse.
+          What AutoApply has remembered so it doesn't have to recompute it.
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -187,30 +187,26 @@ onMounted(loadSnapshot)
     </div>
 
     <template v-else-if="state.snapshot">
-      <!-- Redis health -->
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2 text-base">
             <Database class="h-4 w-4" />
-            Redis
+            Shared cache
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div class="flex flex-wrap items-center gap-3">
             <Badge :variant="state.snapshot.redis.ok ? 'success' : 'destructive'">
-              {{ state.snapshot.redis.ok ? "PONG" : "Unreachable" }}
+              {{ state.snapshot.redis.ok ? "Connected" : "Disconnected" }}
             </Badge>
-            <span class="text-sm text-muted-foreground font-mono">
-              {{ state.snapshot.redis.url }}
-            </span>
             <span
               v-if="state.snapshot.redis.latency_ms !== null"
               class="text-sm text-muted-foreground tabular-nums"
             >
-              {{ state.snapshot.redis.latency_ms }} ms
+              {{ state.snapshot.redis.latency_ms }} ms ping
             </span>
             <Badge variant="secondary" class="ml-auto">
-              cache_version: {{ state.snapshot.cache_version }}
+              version {{ state.snapshot.cache_version }}
             </Badge>
           </div>
           <p
@@ -223,8 +219,7 @@ onMounted(loadSnapshot)
             v-if="!state.snapshot.l2_available"
             class="text-sm text-muted-foreground mt-2"
           >
-            L2 unavailable - running L1-only. The orchestrator retries the L2
-            attachment every 30 s.
+            The shared cache is offline — AutoApply is falling back to in-memory caching and will reconnect automatically.
           </p>
         </CardContent>
       </Card>
@@ -233,27 +228,29 @@ onMounted(loadSnapshot)
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <Card>
           <CardHeader class="pb-2">
-            <CardTitle class="text-sm text-muted-foreground">L1 hits</CardTitle>
+            <CardTitle class="text-sm text-muted-foreground">Fast hits</CardTitle>
           </CardHeader>
           <CardContent class="pt-0">
             <div class="text-2xl font-semibold tabular-nums">
               {{ state.snapshot.stats.hits_l1.toLocaleString() }}
             </div>
+            <p class="text-xs text-muted-foreground">Served from local memory.</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader class="pb-2">
-            <CardTitle class="text-sm text-muted-foreground">L2 hits</CardTitle>
+            <CardTitle class="text-sm text-muted-foreground">Shared hits</CardTitle>
           </CardHeader>
           <CardContent class="pt-0">
             <div class="text-2xl font-semibold tabular-nums">
               {{ state.snapshot.stats.hits_l2.toLocaleString() }}
             </div>
+            <p class="text-xs text-muted-foreground">Served from the shared cache.</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader class="pb-2">
-            <CardTitle class="text-sm text-muted-foreground">Misses</CardTitle>
+            <CardTitle class="text-sm text-muted-foreground">Recomputed</CardTitle>
           </CardHeader>
           <CardContent class="pt-0">
             <div class="text-2xl font-semibold tabular-nums">
@@ -263,21 +260,21 @@ onMounted(loadSnapshot)
               v-if="hitRate !== null"
               class="text-xs text-muted-foreground"
             >
-              {{ (hitRate * 100).toFixed(1) }}% hit rate over
+              {{ (hitRate * 100).toFixed(1) }}% reused over
               {{ totalRequests.toLocaleString() }} calls
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader class="pb-2">
-            <CardTitle class="text-sm text-muted-foreground">Saved</CardTitle>
+            <CardTitle class="text-sm text-muted-foreground">Estimated saved</CardTitle>
           </CardHeader>
           <CardContent class="pt-0">
             <div class="text-2xl font-semibold tabular-nums">
               {{ formatDollars(state.snapshot.estimated_dollars_saved) }}
             </div>
             <p class="text-xs text-muted-foreground">
-              estimate (Phase 12.7 refines per-provider)
+              Approximate LLM cost avoided by reusing cached answers.
             </p>
           </CardContent>
         </Card>

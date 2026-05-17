@@ -1,7 +1,7 @@
-"""Phase 17.7 -- pause-nightly --clear-pending behaviour.
+"""Phase 17.7 -- pause-plan-runs --clear-pending behaviour.
 
 The pause sentinel + resume CLI round-trip is already covered in
-``tests/test_phase_17_1_nightly_run.py::TestCliCommands``; this file
+``tests/test_phase_17_1_plan_run.py::TestCliCommands``; this file
 adds the 'clear pending queue (for vacation)' affordance the plan
 calls for.
 
@@ -73,17 +73,17 @@ class TestPauseClearPending:
 
         # Route the sentinel under tmp_path so we don't touch real
         # data/ between test runs.
-        import src.cli.cmd_nightly as cli_mod
+        import src.cli.cmd_plan_runs as cli_mod
 
         monkeypatch.setattr(
             cli_mod,
-            "nightly_pause_sentinel_path",
-            lambda: tmp_path / "data" / "nightly_paused",
+            "plan_run_pause_sentinel_path",
+            lambda: tmp_path / "data" / "plan_runs_paused",
         )
 
         runner = CliRunner()
         result = runner.invoke(
-            cli_mod.pause_nightly_cmd,
+            cli_mod.pause_plan_runs_cmd,
             ["--clear-pending", "--tenant", tenant],
         )
         assert result.exit_code == 0
@@ -111,16 +111,16 @@ class TestPauseClearPending:
         tenant = f"test-pn-{uuid.uuid4().hex[:6]}"
         pending = _seed(db_session, tenant=tenant)
 
-        import src.cli.cmd_nightly as cli_mod
+        import src.cli.cmd_plan_runs as cli_mod
 
         monkeypatch.setattr(
             cli_mod,
-            "nightly_pause_sentinel_path",
-            lambda: tmp_path / "data" / "nightly_paused",
+            "plan_run_pause_sentinel_path",
+            lambda: tmp_path / "data" / "plan_runs_paused",
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli_mod.pause_nightly_cmd, [])
+        result = runner.invoke(cli_mod.pause_plan_runs_cmd, [])
         assert result.exit_code == 0
         body = json.loads(result.output)
         assert body["paused"] is True

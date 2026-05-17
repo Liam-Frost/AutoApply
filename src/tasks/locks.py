@@ -10,7 +10,7 @@ This module is the *defense-in-depth* layer for the edge cases those
 two do not cover -- chiefly, code that wants to run a critical section
 across the entire deployment, regardless of who started it (a long
 materials.generate that must not run twice for the same job, a
-nightly_run orchestrator entry point, a maintenance task that mutates
+    plan_run orchestrator entry point, a maintenance task that mutates
 shared state).
 
 Postgres ``pg_try_advisory_xact_lock`` is the right primitive: it is
@@ -21,7 +21,7 @@ integer derived from a stable string hash.
 
 Usage::
 
-    with advisory_lock(session, "nightly_run:default") as acquired:
+    with advisory_lock(session, "plan_run:default") as acquired:
         if not acquired:
             return  # somebody else is doing it
         ...

@@ -16,6 +16,7 @@ import {
   Info,
   Inbox,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Sparkles,
@@ -1208,13 +1209,13 @@ function buildPageButtons(total, current) {
             </div>
 
             <div class="jobs-profile-actions">
-              <Button variant="ghost" size="icon" type="button" :disabled="state.filterProfilesLoading" aria-label="Refresh Profiles" title="Refresh Profiles" @click="loadFilterProfiles">
+              <Button variant="ghost" size="icon" type="button" :disabled="state.filterProfilesLoading" aria-label="Reload saved profile list" title="Reload saved profile list" @click="loadFilterProfiles">
                 <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': state.filterProfilesLoading }" />
               </Button>
-              <Button variant="default" size="icon" type="button" aria-label="Save Profile" title="Save Profile" @click="saveCurrentFilterProfile">
+              <Button variant="default" size="icon" type="button" aria-label="Save current filters as this profile" title="Save current filters as this profile" @click="saveCurrentFilterProfile">
                 <Save class="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete Profile" title="Delete Profile" @click="deleteCurrentFilterProfile">
+              <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete this saved profile" title="Delete this saved profile" @click="deleteCurrentFilterProfile">
                 <Trash2 class="h-4 w-4" />
               </Button>
             </div>
@@ -1361,22 +1362,24 @@ function buildPageButtons(total, current) {
             <span v-for="label in activeFilterLabels" :key="label" class="chip subtle">{{ label }}</span>
           </div>
           <div class="actions-row">
-            <Button variant="ghost" size="icon" type="button" aria-label="Reset Filters" title="Reset Filters" @click="resetForm">
-              <RefreshCw class="h-4 w-4" />
+            <Button variant="ghost" type="button" :disabled="!activeFilterLabels.length" aria-label="Clear all filters" title="Clear all filters" @click="resetForm">
+              <RotateCcw class="h-4 w-4" />
+              Clear filters
             </Button>
             <Button
-              v-if="canForceRefreshFetchedResults"
+              v-if="canForceRefreshFetchedResults && !sourceUsesLinkedIn"
               variant="secondary"
               type="button"
               :disabled="state.searching"
-              title="Fetch fresh results"
+              title="Search again, bypassing cached results"
               @click="forceRefreshSearch"
             >
               <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': state.searching }" />
-              Fetch Fresh
+              Re-fetch from source
             </Button>
-            <Button variant="default" size="icon" type="submit" :disabled="state.searching" aria-label="Search Jobs" title="Search Jobs">
+            <Button variant="default" type="submit" :disabled="state.searching" aria-label="Search jobs" title="Search jobs">
               <Search class="h-4 w-4" :class="{ 'animate-pulse': state.searching }" />
+              Search
             </Button>
           </div>
         </div>

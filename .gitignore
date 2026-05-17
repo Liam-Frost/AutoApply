@@ -56,5 +56,5 @@ hello.py
 
 # Agent run trace artifacts -- generated at runtime
 data/agent_traces/
-# Phase 17.6 morning digest source -- one JSON per nightly_run
-data/nightly_runs/
+# Phase 17.6 morning digest source -- one JSON per plan_run
+data/plan_runs/

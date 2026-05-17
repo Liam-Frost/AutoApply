@@ -120,7 +120,7 @@ async def list_review_entries(
 
     ``status=None`` returns every status for the current tenant; the
     UI groups them client-side. The implicit ordering is ``created_at
-    DESC`` so the most recent nightly run is on top.
+    DESC`` so the most recent plan run is on top.
     """
     factory = get_session_factory()
     with factory() as session:

@@ -1,28 +1,25 @@
 # Agent Architecture
 
-This document describes the agent harness introduced in Phase 8 and
-extended for the form-filler in Phase 9. It is the source of truth
-for how AutoApply confines an LLM-driven loop, and *should* answer
-the question "could the agent click submit on my behalf?" before you
-even open the code.
+This document describes AutoApply's bounded agent harness. It is the
+source of truth for how LLM-driven loops are confined, audited, and
+connected to human review.
 
 ## Why we have this
 
-Form pages are infinitely varied. The deterministic `form_filler.py`
-covers the 80% case (label-keyword matching), but every new vendor
-or custom question breaks it slightly differently. We want a layer
-that can read a page, decide what to fill, and ask for help when
-unsure -- without ever actually submitting on our behalf.
+Job applications involve varied forms, job descriptions, templates,
+and edge-case judgments. Deterministic code handles the stable parts;
+agents are used only where bounded judgment helps: form-fill proposals,
+cover-letter drafting, template-adapter suggestions, and borderline fit
+review.
 
 The harness is **not** an autonomous agent. It is a confined ReAct
 loop with strict guard rails:
 
 * The agent only sees the tools we register, never the open
   internet, the database, or the live `Page`.
-* All side-effecting actions (filling, clicking, submitting, file
-  writes outside the data dir) are performed by the orchestrator
-  *after* the agent finishes -- and submission requires the human
-  to approve the action through the gate.
+* All side-effecting actions are performed by an orchestrator after the
+  agent returns a structured proposal. Submission requires explicit
+  approval through the review/gate flow.
 * Every step is recorded into a JSON trace.
 
 ## Three-layer architecture
@@ -64,49 +61,52 @@ the confinement story believable.
 
 ## What runs in agent mode vs deterministic mode
 
-Phase 9 only converts one node -- form filling -- to agent mode. The
-rest of the pipeline (intake, matching, generation, document
-rendering, submit clicks) is unchanged.
+Agents are narrow helpers, not the pipeline owner. Intake, job-index
+state, task scheduling, document rendering, application state changes,
+and submit clicks remain deterministic/orchestrator-owned.
 
 ```
 intake → matching → generation → execution
-                                  │
-                                  ├── form_filler.py        (deterministic, default)
-                                  └── agent_form_filler.py  (Phase 9 agent)
-                                  
-                                  Both feed → submit gate → click submit
+          │           │             │
+          │           │             ├── form_filler.py / agent_form_filler.py
+          │           │             └── submit gate → approved submit
+          │           ├── AgentCoverLetter for bounded drafting
+          │           └── template adapter assistant for reusable manifests
+          └── EdgeCaseAgent for borderline fit explanations
 ```
 
-Selection is currently per-call. The orchestrator entry point lives
-in `src/execution/agent_form_filler.py`; the deterministic path
-remains in `src/execution/form_filler.py`. Either one can fall back
-to the other (the agent orchestrator drops to rules when the agent
-crashes or produces no proposals).
+Selection is per call site. Each orchestrator decides whether to invoke
+an agent, validates the response, and falls back to deterministic logic
+when the agent errors, returns malformed output, or exceeds its scope.
 
 ## The HITL contract
 
-Two gate kinds exist. Both are file-backed under
-`data/agent_gate/<id>.json` and surfaced in the web GUI viewer:
+Operational task flows use Postgres-backed review/gate state so workers
+do not park while waiting for a person. The legacy file-backed gate
+helpers remain for standalone/local harness compatibility, but product
+flows should go through Postgres-backed routes.
 
-| Kind                | When parked                                         |
-|---------------------|-----------------------------------------------------|
-| `form_fill_review`  | Any agent proposal scored below `min_confidence`.   |
-| `submit_form`       | Always before any submit click.                     |
+Core gate kinds:
+
+| Kind | When parked |
+|---|---|
+| `form_fill_review` | Agent form-fill proposal needs operator review. |
+| `submit_form` | Submit action requires explicit approval. |
+| `review_queue` entry | Plan-run prepared an application for approve/submit/discard. |
+| `materials.*` gate | Persistent grounding mutation needs approval. |
 
 `form_fill_review` is a soft gate: the orchestrator returns the
 review request id without applying anything; the caller polls the
 gate, and once approved calls `apply_after_review(...)`.
 
-`submit_form` is a hard gate: `AgentFormFiller.submit()` raises
-`PermissionError` unless the request status is `APPROVED`. There is
-no override, no "force" flag.
+Submit gates are hard gates: submit actions must observe an approved
+state before the click/task is allowed to continue. There is no hidden
+"force submit" path for agents.
 
 Default thresholds (configurable via `AgentFormFillerConfig`):
 
-* `min_confidence = 0.7` -- below this any proposal triggers review
-* `always_review = True`  -- any successful run still goes through
-  review (this can be disabled per-vendor once the eval suite shows
-  stable behaviour)
+* `min_confidence = 0.7` -- below this a form-fill proposal triggers review
+* `always_review = True` -- successful form-fill proposals still go through review unless a caller explicitly narrows this policy
 * `submit_gate_ttl_seconds = 600`
 
 ## How profile data reaches the agent
@@ -171,7 +171,7 @@ in `src/agent/eval/scorers.py`.
 
 ## Agent + Task Queue Boundary
 
-Phase 14 adds a task queue so nightly runs and material generation do
+Phase 14 adds a task queue so plan runs and material generation do
 not live inside a long web request or one monolithic CLI command. The
 queue is outside the agent harness:
 
@@ -203,24 +203,21 @@ that asks the task service to create a child task. If it needs human
 input, the worker parks the task in `waiting_human` and links it to the
 existing HITL gate/review item rather than retrying.
 
-## What is *not* in scope (yet)
+## What is not in scope
 
 * Multi-step / multi-page agents (we run one snapshot per page).
 * Provider-native tool use protocol (we still use a ReAct JSON
   protocol so both `claude` and `codex` CLIs work, and so the new
   Phase 10 REST adapters get the same loop for free).
-* Resume / cover-letter generation as agents -- **Phase 15** (expanded
-  from the original cover-letter-only plan to include original-resume
-  patching and LaTeX-first generation).
-* Matching / filter agent + explainability -- **Phase 16**.
-* Daily nightly run loop + review queue (the original
-  "multi-agent orchestrator" idea, descoped to a worker + queue
-  pattern) -- **Phase 17**.
+* Unreviewed autonomous submission.
+* Agents owning task queue state, database writes, Redis keys, or global
+  scheduling.
+* Hosted multi-tenant identity and policy enforcement; that is Phase 18
+  product hardening rather than an agent-harness responsibility.
 
-See `docs/PROJECT_MANAGEMENT.md` for the full Phase 11-18 roadmap,
-including the cross-cutting infrastructure phases (cache, job index,
-task queue / scheduler) that unblock the agent work, and Phase 18 which plants
-multi-tenancy seeds for a future commercial deployment.
+See `docs/PROJECT_MANAGEMENT.md` for the current roadmap and
+verification baseline. See `docs/PHASE_HISTORY.md` for shipped phase
+history.
 
 ## Reading the code
 
@@ -233,10 +230,12 @@ multi-tenancy seeds for a future commercial deployment.
 | `src/agent/tools/profile.py`                      | `profile_lookup` |
 | `src/agent/core/loop.py`                          | Bounded ReAct loop, telemetry plumbing |
 | `src/agent/core/cost.py`                          | Token / cost estimation |
-| `src/agent/gate/queue.py`                         | File-backed approval queue |
+| `src/agent/gate/queue.py`                         | Legacy local approval queue helpers |
 | `src/agent/trace/store.py`                        | JSON-on-disk trace store |
 | `src/agent/eval/runner.py`                        | Fixture-driven eval harness |
 | `src/agent/eval/scorers.py`                       | Built-in scorers (incl. `field_mapping_match`) |
 | `src/execution/agent_form_filler.py`              | Phase 9 orchestrator |
 | `src/execution/form_filler.py`                    | Deterministic Playwright filler (still default) |
 | `src/web/routes/agent.py`                         | `/api/agent/...` viewer + gate routes |
+| `src/tasks/tasks.py`                              | Celery task wrappers around bounded work |
+| `src/application/review.py`                       | Review queue state machine and use cases |

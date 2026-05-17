@@ -202,18 +202,11 @@ def test_retry_only_works_on_failed_or_cancelled(
 # ---- /api/schedule ----------------------------------------------------
 
 
-def test_list_schedule_includes_all_six_entries(client: TestClient) -> None:
+def test_list_schedule_returns_only_user_facing_entries(client: TestClient) -> None:
     r = client.get("/api/schedule")
     assert r.status_code == 200
     names = {entry["name"] for entry in r.json()}
-    assert {
-        "daily_search",
-        "jd_health_check",
-        "application_status_sync",
-        "linkedin_cookie_refresh",
-        "cache_eviction",
-        "gate_expire_sweep",
-    } <= names
+    assert names == {"daily_search", "plan_run", "morning_digest"}
 
 
 def test_schedule_run_now_dispatches(
@@ -227,9 +220,14 @@ def test_schedule_run_now_dispatches(
         "send_task",
         lambda name, **kw: captured.append({"name": name, **kw}),
     )
-    r = client.post("/api/schedule/cache_eviction/run-now")
+    r = client.post("/api/schedule/plan_run/run-now")
     assert r.status_code == 200
-    assert captured[0]["name"] == "maintenance.cache_eviction"
+    assert captured[0]["name"] == "orchestration.plan_run"
+
+
+def test_schedule_run_now_hides_system_entries(client: TestClient) -> None:
+    r = client.post("/api/schedule/cache_eviction/run-now")
+    assert r.status_code == 404
 
 
 def test_schedule_run_now_404_on_unknown_entry(client: TestClient) -> None:

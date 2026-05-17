@@ -61,7 +61,10 @@ def test_proposal_matches_conventional_commands(tmp_path: Path) -> None:
     mapped_commands = {m.command for m in proposal.manifest.latex.field_mappings}  # type: ignore[union-attr]
     assert "resumeheadername" in mapped_commands
     assert "headeremail" in mapped_commands
-    assert "summary" in mapped_commands
+    # ``\summary`` is intentionally unmapped -- generated resumes never
+    # include a Summary section, so the adapter leaves the command for
+    # the operator to remove from their template.
+    assert "summary" not in mapped_commands
     assert "experienceitem" in mapped_commands
 
 

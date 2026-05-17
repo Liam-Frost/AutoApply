@@ -81,7 +81,7 @@ class LatexFieldMapping(BaseModel):
     Renders to ``\\resumeheadername{Alice Smith}``.
     """
 
-    ir_field: str  # dotted path into the IR (header.name, summary, ...)
+    ir_field: str  # dotted path into the IR (header.name, skills.must_have, ...)
     command: str  # bare LaTeX command name (no leading backslash)
     arity: Literal[0, 1, 2] = 1
     wrap_with_braces: bool = True
@@ -644,7 +644,6 @@ def _default_manifest(document_type: str, template_id: str) -> dict:
             "skill_line": "Resume.SkillLine",
         },
         "sections": {
-            "summary": {"enabled": True, "max_items": 1},
             "education": {"enabled": True, "max_items": 2},
             "experience": {
                 "enabled": True,

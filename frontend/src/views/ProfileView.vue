@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-vue-next"
 
+import AppSelect from "@/components/AppSelect.vue"
 import TagInput from "@/components/TagInput.vue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -40,6 +41,7 @@ const state = reactive({
   ready: false,
   saving: false,
   uploading: false,
+  importingFromLibrary: false,
   deleting: false,
   renaming: false,
   error: "",
@@ -49,6 +51,11 @@ const state = reactive({
   createProfileId: "",
   uploadProfileId: "",
   overwriteUpload: false,
+  libraryDocuments: [],
+  libraryDocumentsLoading: false,
+  selectedLibraryDocumentId: "",
+  libraryTargetProfileId: "",
+  overwriteFromLibrary: false,
   renameTargetId: "",
   renameValue: "",
   data: {
@@ -132,10 +139,16 @@ function openCreateMenu(mode = "") {
   if (!state.createMenuOpen) {
     state.createMenuOpen = true
     state.createMode = mode || "template"
+    if (state.createMode === "library") {
+      void loadLibraryDocuments()
+    }
     return
   }
 
   state.createMode = mode || state.createMode || "template"
+  if (state.createMode === "library") {
+    void loadLibraryDocuments()
+  }
 }
 
 function closeCreateMenu() {
@@ -144,8 +157,66 @@ function closeCreateMenu() {
   state.createProfileId = ""
   state.uploadProfileId = currentProfileId.value || ""
   state.overwriteUpload = false
+  state.selectedLibraryDocumentId = ""
+  state.libraryTargetProfileId = ""
+  state.overwriteFromLibrary = false
   if (fileInput.value) {
     fileInput.value.value = ""
+  }
+}
+
+const libraryDocumentOptions = computed(() => {
+  const placeholder = state.libraryDocumentsLoading
+    ? "Loading…"
+    : state.libraryDocuments.length
+      ? "Pick a resume"
+      : "No resumes in your library yet"
+  return [
+    { value: "", label: placeholder },
+    ...state.libraryDocuments.map((doc) => ({
+      value: doc.id,
+      label: `${doc.display_name} · ${doc.source_type.toUpperCase()}`,
+    })),
+  ]
+})
+
+async function loadLibraryDocuments() {
+  state.libraryDocumentsLoading = true
+  try {
+    const response = await api.documents("resume")
+    state.libraryDocuments = response.documents || []
+  } catch (err) {
+    state.error = err?.message || "Couldn't load your document library."
+  } finally {
+    state.libraryDocumentsLoading = false
+  }
+}
+
+async function importProfileFromLibrary() {
+  if (!state.selectedLibraryDocumentId) {
+    state.error = "Pick a resume from your library first."
+    return
+  }
+  if (isEditingView.value && !confirmDiscardChanges("Importing a resume from library")) {
+    return
+  }
+  state.importingFromLibrary = true
+  state.error = ""
+  state.message = ""
+  try {
+    state.data = await api.createProfileFromLibrary({
+      documentId: state.selectedLibraryDocumentId,
+      profileId: state.libraryTargetProfileId.trim() || undefined,
+      overwrite: state.overwriteFromLibrary,
+      setActive: true,
+    })
+    state.message = state.data.message || "Profile created from library."
+    closeCreateMenu()
+    await router.push(`/profile/${state.data.selected_profile_id}`)
+  } catch (err) {
+    state.error = err?.message || "Couldn't create profile from that document."
+  } finally {
+    state.importingFromLibrary = false
   }
 }
 
@@ -904,7 +975,8 @@ function makeId(prefix) {
 
           <div class="chip-row mode-toggle-row">
             <button class="button ghost compact" :class="{ 'is-active': state.createMode === 'template' }" type="button" @click="openCreateMenu('template')">Blank Template</button>
-            <button class="button ghost compact" :class="{ 'is-active': state.createMode === 'import' }" type="button" @click="openCreateMenu('import')">Import From File</button>
+            <button class="button ghost compact" :class="{ 'is-active': state.createMode === 'import' }" type="button" @click="openCreateMenu('import')">Upload Resume</button>
+            <button class="button ghost compact" :class="{ 'is-active': state.createMode === 'library' }" type="button" @click="openCreateMenu('library')">Pick From Library</button>
           </div>
 
           <div v-if="state.createMode === 'template'" class="form-grid profile-create-grid">
@@ -938,6 +1010,43 @@ function makeId(prefix) {
 
             <div class="actions-row align-end">
               <button class="icon-button primary" type="button" :disabled="state.uploading" aria-label="Import Profile" title="Import Profile" @click="uploadProfileFromFile">
+                <Upload class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div v-if="state.createMode === 'library'" class="form-grid profile-create-grid">
+            <label class="field">
+              <span>Target Profile ID</span>
+              <input v-model="state.libraryTargetProfileId" class="input" type="text" placeholder="Optional Profile Name" />
+            </label>
+
+            <label class="field">
+              <span>Resume in your library</span>
+              <AppSelect
+                v-model="state.selectedLibraryDocumentId"
+                :options="libraryDocumentOptions"
+                aria-label="Resume in your library"
+              />
+              <div class="muted-inline">
+                Drop one into your library on the <RouterLink to="/materials/library" class="link-inline">Materials → Library</RouterLink> tab.
+              </div>
+            </label>
+
+            <label class="checkbox-row">
+              <input v-model="state.overwriteFromLibrary" type="checkbox" />
+              <span>Overwrite If Profile Already Exists</span>
+            </label>
+
+            <div class="actions-row align-end">
+              <button
+                class="icon-button primary"
+                type="button"
+                :disabled="state.importingFromLibrary || !state.selectedLibraryDocumentId"
+                aria-label="Import Profile From Library"
+                title="Import Profile From Library"
+                @click="importProfileFromLibrary"
+              >
                 <Upload class="h-4 w-4" />
               </button>
             </div>

@@ -31,9 +31,13 @@ from src.cache.connection import DEFAULT_REDIS_URL
 #: sync, cookie refresh).
 QUEUES: tuple[str, ...] = ("search", "materials", "application", "maintenance")
 
-#: Default routing map: tasks named ``<queue>.<verb>`` land on ``<queue>``.
+#: Default routing map: tasks named ``<prefix>.<verb>`` land on the mapped queue.
 #: Unrouted task names fall back to the ``maintenance`` queue.
-DEFAULT_ROUTE_PREFIX_QUEUE: dict[str, str] = {q: q for q in QUEUES}
+DEFAULT_ROUTE_PREFIX_QUEUE: dict[str, str] = {
+    **{q: q for q in QUEUES},
+    "orchestration": "search",
+    "notifications": "maintenance",
+}
 
 
 def _resolve_broker_url() -> str:

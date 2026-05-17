@@ -61,8 +61,10 @@ _CONVENTIONAL_MAPPINGS: dict[str, tuple[str, int]] = {
     "email": ("header.email", 1),
     "headerphone": ("header.phone", 1),
     "phone": ("header.phone", 1),
-    "summary": ("summary", 1),
-    "professionalsummary": ("summary", 1),
+    # Summary mappings are intentionally absent. Generated resumes
+    # never include a Summary section; any \summary command in a
+    # user-uploaded template surfaces as 'unmatched' so the adapter
+    # warns and the operator removes it.
     "targetrole": ("target_role", 1),
     "roleheader": ("target_role", 1),
     "skillsline": ("skills.must_have", 1),
@@ -314,7 +316,6 @@ def _sample_resume_ir() -> Any:
         target_role="Sample Engineer",
         company="Sample Co",
         header={"name": "Sample Candidate", "email": "sample@example.com"},
-        summary=["Sample summary for adapter validation."],
         skills={"must_have": ["python"]},
         experiences=[
             ResumeItem(

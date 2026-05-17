@@ -235,8 +235,6 @@ def _render_resume_sections(document) -> str:
 
 
 def _render_resume_section(section: str, document) -> str:
-    if section == "summary":
-        return _render_summary(document.summary)
     if section == "education":
         return _render_education(document.education)
     if section == "skills":
@@ -246,13 +244,6 @@ def _render_resume_section(section: str, document) -> str:
     if section == "projects":
         return _render_items("Projects", document.projects)
     return ""
-
-
-def _render_summary(summary: list[str]) -> str:
-    lines = [latex_escape(line) for line in summary if line]
-    if not lines:
-        return ""
-    return "\n\n".join([_section_heading("Summary"), *lines])
 
 
 def _render_education(education: list[dict]) -> str:
@@ -338,10 +329,16 @@ def _itemize(items: list[str]) -> str:
 
 
 def _resolved_section_order(document) -> list[str]:
-    default_order = ["header", "summary", "education", "skills", "experience", "projects"]
-    order = [section for section in document.section_order if section in default_order]
-    order.extend(section for section in default_order if section not in order)
-    return order
+    # See src/documents/docx_engine.py::_resolved_section_order. ``summary``
+    # is filtered out unconditionally -- this system never renders a
+    # Summary section.
+    default_order = ["header", "education", "skills", "experience", "projects"]
+    explicit = [
+        section
+        for section in document.section_order
+        if section in default_order and section != "summary"
+    ]
+    return explicit or default_order
 
 
 def _format_date_range(start: str, end: str) -> str:

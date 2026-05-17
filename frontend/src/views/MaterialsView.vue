@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, watch } from "vue"
-import { RouterLink, useRoute } from "vue-router"
+import { useRoute } from "vue-router"
 import {
   AlertCircle,
   Briefcase,
@@ -9,13 +9,13 @@ import {
   ChevronRight,
   FileText,
   Info,
-  Library,
   Sparkles,
   UserCircle,
   Wand2,
 } from "lucide-vue-next"
 
 import AppSelect from "@/components/AppSelect.vue"
+import MaterialsTabsNav from "@/components/MaterialsTabsNav.vue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -469,27 +469,17 @@ function jobSummaryParts(job) {
 
 <template>
   <div class="space-y-6">
-    <Card>
-      <CardContent class="flex flex-col items-start justify-between gap-3 p-5 md:flex-row md:items-center">
-        <div class="space-y-1">
-          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">AutoApply</p>
-          <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <Wand2 class="h-4 w-4 text-muted-foreground" />
-            Materials Workspace
-          </h2>
-          <p class="text-sm text-muted-foreground">
-            Generate tailored resumes and cover letters from a saved profile and a job posting.
-          </p>
-        </div>
-        <RouterLink
-          to="/materials/templates"
-          class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium text-foreground ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <Library class="h-4 w-4" />
-          Manage templates
-        </RouterLink>
-      </CardContent>
-    </Card>
+    <MaterialsTabsNav />
+
+    <div class="space-y-1">
+      <h2 class="flex items-center gap-2 text-xl font-semibold">
+        <Wand2 class="h-5 w-5 text-muted-foreground" />
+        Generate Materials
+      </h2>
+      <p class="max-w-2xl text-sm text-muted-foreground">
+        Generate tailored resumes and cover letters from a saved profile and a job posting.
+      </p>
+    </div>
 
     <Alert v-if="state.error" variant="destructive">
       <AlertCircle class="h-4 w-4" />

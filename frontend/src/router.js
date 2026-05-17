@@ -4,6 +4,7 @@ import ApplicationsView from "./views/ApplicationsView.vue"
 import CacheSettingsView from "./views/CacheSettingsView.vue"
 import DashboardView from "./views/DashboardView.vue"
 import JobsView from "./views/JobsView.vue"
+import MaterialsLibraryView from "./views/MaterialsLibraryView.vue"
 import MaterialsView from "./views/MaterialsView.vue"
 import ProfileView from "./views/ProfileView.vue"
 import ReviewQueueView from "./views/ReviewQueueView.vue"
@@ -16,6 +17,11 @@ const routes = [
   { path: "/", component: DashboardView, meta: { label: "Dashboard" } },
   { path: "/jobs", component: JobsView, meta: { label: "Jobs" } },
   { path: "/materials", component: MaterialsView, meta: { label: "Materials" } },
+  {
+    path: "/materials/library",
+    component: MaterialsLibraryView,
+    meta: { label: "Document Library" },
+  },
   {
     path: "/materials/templates",
     component: TemplateLibraryView,
@@ -36,10 +42,8 @@ const routes = [
     component: CacheSettingsView,
     meta: { label: "Cache" },
   },
-  // Phase 14.8 -- task queue operator surface.
-  { path: "/tasks", component: TasksView, meta: { label: "Tasks" } },
-  // Phase 17.3 -- nightly_run review queue kanban.
-  { path: "/review", component: ReviewQueueView, meta: { label: "Review" } },
+  { path: "/tasks", component: TasksView, meta: { label: "Plans" } },
+  { path: "/review", component: ReviewQueueView, meta: { label: "Awaiting Review" } },
 ]
 
 export default createRouter({

@@ -145,7 +145,7 @@ This log captures key decisions, their rationale, and alternatives considered. E
 
 **Decision**: Reorder the roadmap so that Phase 10 is "LLM Provider Abstraction" (REST adapters for OpenAI / Anthropic / Gemini + subprocess providers for Claude CLI / Codex CLI behind a `ProviderRegistry`), and the original "cover-letter agent" plan slides to Phase 14. Insert two new infrastructure phases between them: Phase 12 (caching) and Phase 13 (scheduled tasks). The "multi-agent orchestrator" idea is descoped to a batch + review-queue pattern as Phase 16.
 
-**Rationale**: After Agent Phase 9 (form-filler) shipped, every subsequent agent phase would have been written against a hard-coded `subprocess.run(['claude', ...])` or `codex exec` call. That blocked: (a) users without the CLI tools installed; (b) future cost-control via OpenAI batch APIs or Anthropic prompt caching; (c) provider-level fallback chains. Doing the provider abstraction first means the cover-letter agent, the matching agent, and the nightly run loop all inherit the same provider plumbing for free.
+**Rationale**: After Agent Phase 9 (form-filler) shipped, every subsequent agent phase would have been written against a hard-coded `subprocess.run(['claude', ...])` or `codex exec` call. That blocked: (a) users without the CLI tools installed; (b) future cost-control via OpenAI batch APIs or Anthropic prompt caching; (c) provider-level fallback chains. Doing the provider abstraction first means the cover-letter agent, the matching agent, and the plan-run loop all inherit the same provider plumbing for free.
 
 **Trade-off**: pushes user-visible agent features (cover letter, filter explainability) ~5 weeks later than the original plan. Accepted because the alternative was rewriting all three agents once provider support landed anyway.
 
@@ -222,7 +222,7 @@ This log captures key decisions, their rationale, and alternatives considered. E
 **Rationale**:
 
 1. **Match the actual stack.** The project already depends on Postgres + alembic + pgvector. Adding a separate SQLite file for the scheduler would create a second migration story and a second backup story for no gain.
-2. **Multi-instance safety is required by the commercial path** (D018). APScheduler's built-in jobstore on Postgres + an advisory lock is the documented pattern; it avoids the "two web replicas fire the same nightly job twice" failure mode.
+2. **Multi-instance safety is required by the commercial path** (D018). APScheduler's built-in jobstore on Postgres + an advisory lock is the documented pattern; it avoids the "two web replicas fire the same scheduled job twice" failure mode.
 3. **The earlier SQLite framing was based on the false assumption that the app is single-user.** Once D018 / D020 land, that framing is no longer self-consistent.
 
 **Trade-off**: One additional `apscheduler_jobs` table in the Postgres schema. Accepted -- it is small and managed entirely by APScheduler.
@@ -304,7 +304,7 @@ This log captures key decisions, their rationale, and alternatives considered. E
 - `celery -A src.tasks worker` is the canonical invocation; the `autoapply worker` CLI wraps it but the underlying tool is Celery. Documentation must teach Celery basics, not paper over them.
 - Celery Flower (the web monitoring UI) is available but not adopted — Phase 14.8 builds a tenant-aware `/tasks` UI on the audit table, which Flower cannot do.
 
-**Re-evaluation trigger**: If the project ever needs sub-100ms task dispatch latency (e.g. user-facing synchronous-feeling actions backed by workers), Celery's poll-based queue becomes a bottleneck and Arq or a custom transport may be reconsidered. Current workload (nightly batch + on-demand minutes-long jobs) is nowhere near that regime.
+**Re-evaluation trigger**: If the project ever needs sub-100ms task dispatch latency (e.g. user-facing synchronous-feeling actions backed by workers), Celery's poll-based queue becomes a bottleneck and Arq or a custom transport may be reconsidered. Current workload (scheduled batches + on-demand minutes-long jobs) is nowhere near that regime.
 
 **Supersedes**: D021 (APScheduler retired). **Partially supersedes**: D023 on the framework choice; D023's contract (queue/agent boundary, HITL state, audit durability) is preserved.
 
@@ -340,3 +340,21 @@ This log captures key decisions, their rationale, and alternatives considered. E
 - Phase 14.4 verification: file-backed gate `data/agent_gate/` exists empty (nothing writes there), all gate flow goes through `/api/gate/...` against the DB table, killing a worker during a `waiting_human` task does not lose the gate row.
 
 **Supersedes / extends**: D020 (now schema-enforced, not just convention-enforced).
+
+## D027 — Document library is user-curated; generated artifacts are promoted on demand (2026-05-17)
+
+**Decision**: Phase 17.8 introduces `user_documents`, a per-tenant table the user explicitly owns. Three insertion paths: (a) `POST /api/documents/upload`, (b) profile-creation upload (`/api/profile/upload-resume` now sets `origin='profile_import'` in addition to parsing into the evidence pool), and (c) explicit `POST /api/documents/promote` from a generated artifact. AutoApply's automatic generation outputs do NOT auto-insert into `user_documents`; they remain attached to their `Application` row exactly as before.
+
+**Rationale**:
+
+1. **Library value is curation, not capture.** The user's goal in having a library is "AutoApply has 3-5 trusted resumes to use as bases." Auto-inserting every generated draft (typically 1-2 per application, often dozens per week) inverts the value: the library becomes a flood of one-off variants the user has to filter through to find the 3-5 they care about. Promote-on-demand keeps the library short and intentional.
+2. **No information is lost either way.** Generated artifacts stay on disk under `data/output/<application_id>/` (existing layout) and remain reachable via `application.resume_version` / `application.cover_letter_version` for the full lifetime of the application. The library is a *separate, curated* surface; not having something in the library never means "the file was deleted."
+3. **Promote is a one-click escape hatch on every download.** Every artifact link in `/review` and `/applications` ships with a "Save to library" affordance backed by `/api/documents/promote`. The promoted row carries `source_application_id` provenance so we can later walk "where did this library doc come from."
+
+**Trade-offs**:
+- A user who fails to promote a generated draft they liked, then later wants to use it as a base, has to navigate to the application and click "Save to library" (one extra click). Accepted — the alternative (auto-insert everything, force users to delete what they don't want) is materially worse for the median user.
+- The library and the application surface both render artifact bytes from disk. If a user deletes an application but had promoted its resume to the library, the library copy survives (good); if they delete the library copy, the application's reference still points to the on-disk file (which is the same bytes, since `promote` hashes and dedupes via `compute_checksum`). Accepted — provenance via `source_application_id` makes the relationship discoverable in either direction.
+
+**Enforcement**:
+- `src/documents/user_documents.py:ingest` is the single write path; it always sets `origin`, dedupes on `(tenant_id, document_type, checksum)`, and stores under `data/user_documents/<tenant>/<document_type>/`. Generated artifacts call this with `origin='generated_promoted'` only via the explicit promote endpoint.
+- `src/generation/materials_router.py` continues to consume `SourceResume` for its internal `patch_existing` mode; `user_documents.to_source_resume_view()` is the adapter when a UserDocument drives that mode from a user-initiated request.

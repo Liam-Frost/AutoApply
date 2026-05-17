@@ -1,11 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive } from "vue"
+import { useRouter } from "vue-router"
 import {
   Activity,
   AlertCircle,
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronRight,
+  DollarSign,
   Inbox,
   Percent,
   RefreshCw,
@@ -18,6 +21,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
@@ -56,6 +66,95 @@ const state = reactive({
   digest: null,
   digestError: "",
 })
+
+const cost = reactive({
+  loading: true,
+  error: "",
+  bucket: "day", // "day" | "week"
+  trend: { buckets: [], totals: { cost_usd: 0, cost_usd_saved: 0, trace_count: 0 } },
+  detailsOpen: false,
+  detailsLoading: false,
+  detailsError: "",
+  traces: [],
+})
+
+const COST_PERIODS = { day: 14, week: 12 }
+
+const costBars = computed(() => {
+  const buckets = cost.trend.buckets || []
+  const max = Math.max(0.000001, ...buckets.map((b) => b.cost_usd || 0))
+  return buckets.map((b) => ({
+    key: b.key,
+    cost: b.cost_usd || 0,
+    saved: b.cost_usd_saved || 0,
+    count: b.trace_count || 0,
+    heightPct: ((b.cost_usd || 0) / max) * 100,
+  }))
+})
+
+function formatUsd(v) {
+  const n = Number(v || 0)
+  if (n === 0) return "$0"
+  if (n < 0.01) return `$${n.toFixed(4)}`
+  if (n < 1) return `$${n.toFixed(3)}`
+  return `$${n.toFixed(2)}`
+}
+
+function formatBucketLabel(key) {
+  if (cost.bucket === "day") {
+    // "2026-05-16" -> "05/16"
+    const [, m, d] = key.split("-")
+    return `${m}/${d}`
+  }
+  // "2026-W20" -> "W20"
+  const idx = key.indexOf("-W")
+  return idx >= 0 ? key.slice(idx + 1) : key
+}
+
+function formatTimestamp(iso) {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+async function loadCostTrend() {
+  cost.loading = true
+  cost.error = ""
+  try {
+    cost.trend = await api.costTrend(cost.bucket, COST_PERIODS[cost.bucket])
+  } catch (err) {
+    cost.error = err?.message || "Could not load cost trend."
+  } finally {
+    cost.loading = false
+  }
+}
+
+async function setCostBucket(bucket) {
+  if (cost.bucket === bucket) return
+  cost.bucket = bucket
+  await loadCostTrend()
+}
+
+async function openCostDetails() {
+  cost.detailsOpen = true
+  cost.detailsLoading = true
+  cost.detailsError = ""
+  try {
+    const payload = await api.recentTraces(50)
+    cost.traces = payload?.traces || []
+  } catch (err) {
+    cost.detailsError = err?.message || "Could not load recent traces."
+    cost.traces = []
+  } finally {
+    cost.detailsLoading = false
+  }
+}
 
 const cards = computed(() => [
   { label: "Tracked", value: state.data.summary.total_discovered, icon: Inbox },
@@ -139,11 +238,44 @@ function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function prettify(status) {
-  return status.replaceAll("_", " ")
+const router = useRouter()
+
+const PIPELINE_LABELS = {
+  DISCOVERED: "Discovered",
+  QUALIFIED: "Qualified",
+  MATERIALS_READY: "Materials ready",
+  FORM_OPENED: "Form opened",
+  FIELDS_MAPPED: "Fields mapped",
+  FILES_UPLOADED: "Files uploaded",
+  QUESTIONS_ANSWERED: "Questions answered",
+  REVIEW_REQUIRED: "Awaiting your review",
+  SUBMITTED: "Submitted",
+  FAILED: "Failed",
+  NEEDS_RETRY: "Needs retry",
 }
 
-onMounted(load)
+function prettify(status) {
+  return PIPELINE_LABELS[status] || status.replaceAll("_", " ")
+}
+
+function pipelineDestination(status) {
+  if (status === "REVIEW_REQUIRED") {
+    return { path: "/review" }
+  }
+  if (status === "SUBMITTED" || status === "FAILED") {
+    return { path: "/applications", query: { status } }
+  }
+  return { path: "/applications" }
+}
+
+function goToPipeline(status) {
+  router.push(pipelineDestination(status))
+}
+
+onMounted(() => {
+  load()
+  loadCostTrend()
+})
 </script>
 
 <template>
@@ -201,6 +333,153 @@ onMounted(load)
       <AlertDescription>Database not connected.</AlertDescription>
     </Alert>
 
+    <Card
+      role="button"
+      tabindex="0"
+      class="cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      @click="openCostDetails"
+      @keydown.enter.prevent="openCostDetails"
+      @keydown.space.prevent="openCostDetails"
+    >
+      <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle class="flex items-center gap-2 text-sm">
+          <DollarSign class="h-4 w-4 text-muted-foreground" />
+          LLM cost trend
+        </CardTitle>
+        <div class="flex items-center gap-1" @click.stop>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 px-2 text-xs"
+            :class="cost.bucket === 'day' ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+            @click="setCostBucket('day')"
+          >
+            Day
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 px-2 text-xs"
+            :class="cost.bucket === 'week' ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+            @click="setCostBucket('week')"
+          >
+            Week
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-3">
+        <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <div class="text-2xl font-bold tabular-nums tracking-tight">
+            <Skeleton v-if="cost.loading" class="h-7 w-24" />
+            <template v-else>{{ formatUsd(cost.trend.totals?.cost_usd) }}</template>
+          </div>
+          <span class="text-xs text-muted-foreground">
+            spent across {{ cost.trend.totals?.trace_count || 0 }} traces
+            <span v-if="Number(cost.trend.totals?.cost_usd_saved || 0) > 0" class="text-emerald-600 dark:text-emerald-400">
+              · saved {{ formatUsd(cost.trend.totals?.cost_usd_saved) }} via cache
+            </span>
+          </span>
+        </div>
+
+        <Alert v-if="cost.error" variant="destructive" class="py-2">
+          <AlertCircle class="h-4 w-4" />
+          <AlertDescription>{{ cost.error }}</AlertDescription>
+        </Alert>
+
+        <div v-else-if="cost.loading" class="flex h-20 items-end gap-1">
+          <Skeleton
+            v-for="n in COST_PERIODS[cost.bucket]"
+            :key="n"
+            class="h-full flex-1"
+            :style="{ height: `${30 + ((n * 13) % 60)}%` }"
+          />
+        </div>
+
+        <div v-else-if="!costBars.length || cost.trend.totals?.cost_usd === 0" class="flex h-20 items-center justify-center text-xs text-muted-foreground">
+          No spend recorded in this window yet.
+        </div>
+
+        <div v-else class="flex h-20 items-end gap-1">
+          <div
+            v-for="bar in costBars"
+            :key="bar.key"
+            class="group relative flex flex-1 flex-col items-center justify-end"
+            :title="`${bar.key} · ${formatUsd(bar.cost)} · ${bar.count} traces`"
+          >
+            <div
+              class="w-full rounded-sm bg-primary/60 transition-colors group-hover:bg-primary"
+              :style="{ height: `${Math.max(bar.heightPct, bar.cost > 0 ? 4 : 0)}%` }"
+            ></div>
+            <span class="mt-1 truncate text-[10px] tabular-nums text-muted-foreground">
+              {{ formatBucketLabel(bar.key) }}
+            </span>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-muted-foreground">Click for per-run breakdown.</p>
+      </CardContent>
+    </Card>
+
+    <Dialog v-model:open="cost.detailsOpen">
+      <DialogContent class="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Recent agent runs</DialogTitle>
+          <DialogDescription>
+            Last 50 agent traces sorted newest first. Cost is a best-effort
+            estimate from the provider's token accounting.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div v-if="cost.detailsLoading" class="space-y-2">
+          <Skeleton v-for="n in 5" :key="n" class="h-12 w-full" />
+        </div>
+
+        <Alert v-else-if="cost.detailsError" variant="destructive">
+          <AlertCircle class="h-4 w-4" />
+          <AlertDescription>{{ cost.detailsError }}</AlertDescription>
+        </Alert>
+
+        <div v-else-if="!cost.traces.length" class="py-6 text-center text-sm text-muted-foreground">
+          No agent traces recorded yet.
+        </div>
+
+        <div v-else class="max-h-[60vh] space-y-1 overflow-y-auto pr-1">
+          <div
+            v-for="trace in cost.traces"
+            :key="trace.id"
+            class="rounded-md border border-border bg-card px-3 py-2 text-sm"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="truncate font-medium">{{ trace.goal || "(no goal)" }}</div>
+                <div class="text-xs text-muted-foreground">
+                  {{ formatTimestamp(trace.started_at) }} ·
+                  {{ trace.step_count }} steps
+                  <span v-if="Number(trace.cached_step_count || 0) > 0">
+                    ({{ trace.fresh_step_count }} fresh / {{ trace.cached_step_count }} cached)
+                  </span>
+                </div>
+              </div>
+              <div class="flex flex-col items-end gap-1 text-xs tabular-nums">
+                <span class="font-medium">{{ formatUsd(trace.total_cost_usd) }}</span>
+                <span v-if="Number(trace.total_cost_saved_usd || 0) > 0" class="text-emerald-600 dark:text-emerald-400">
+                  saved {{ formatUsd(trace.total_cost_saved_usd) }}
+                </span>
+              </div>
+            </div>
+            <div class="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+              <Badge variant="secondary" class="px-1.5 py-0">
+                {{ trace.total_prompt_tokens || 0 }}+{{ trace.total_output_tokens || 0 }} tok
+              </Badge>
+              <Badge :variant="trace.finished ? 'secondary' : 'destructive'" class="px-1.5 py-0">
+                {{ trace.finished ? "finished" : (trace.stop_reason || "failed") }}
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
     <section class="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
       <Card>
         <CardHeader class="flex flex-row items-center justify-between space-y-0">
@@ -226,14 +505,25 @@ onMounted(load)
             v-else-if="Object.keys(state.data.pipeline).length"
             class="space-y-2"
           >
-            <div
+            <button
               v-for="(count, status) in state.data.pipeline"
               :key="status"
-              class="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm capitalize transition-colors hover:bg-muted/50"
+              type="button"
+              class="group flex w-full items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              @click="goToPipeline(status)"
             >
-              <span>{{ prettify(status) }}</span>
-              <Badge variant="secondary" class="tabular-nums">{{ count }}</Badge>
-            </div>
+              <span class="flex items-center gap-2">
+                {{ prettify(status) }}
+                <span
+                  v-if="status === 'REVIEW_REQUIRED' && count > 0"
+                  class="text-xs text-primary"
+                >· needs you</span>
+              </span>
+              <span class="flex items-center gap-1">
+                <Badge variant="secondary" class="tabular-nums">{{ count }}</Badge>
+                <ChevronRight class="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+              </span>
+            </button>
           </div>
           <EmptyState v-else title="No pipeline data" description="Run a search to start tracking jobs.">
             <template #icon><Inbox /></template>

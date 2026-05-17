@@ -9,12 +9,18 @@ import pytest
 from docx import Document
 
 from src.documents.docx_engine import (
+    _resolved_section_order as _resolved_section_order_docx,
+)
+from src.documents.docx_engine import (
     build_resume,
     build_resume_from_ir,
     create_default_template,
     substitute_placeholders,
 )
 from src.documents.file_manager import get_output_paths, make_filename
+from src.documents.latex_engine import (
+    _resolved_section_order as _resolved_section_order_latex,
+)
 from src.documents.latex_engine import (
     build_resume_tex_from_ir,
     compile_latex_to_pdf,
@@ -222,6 +228,51 @@ class TestDocxEngine:
         assert styles_by_text["Jane Doe"] == "Resume.Name"
         assert styles_by_text["Skills"] == "Resume.SectionHeading"
         assert "{{resume.sections}}" not in " ".join(p.text for p in doc.paragraphs)
+
+
+class TestSectionOrderResolution:
+    """Regression guard: `_resolved_section_order` must respect the
+    caller's explicit ordering. Earlier behavior appended any default
+    section missing from the order, which silently tacked Summary onto
+    the end of student/intern resumes whose order deliberately
+    excluded it."""
+
+    def _doc(self, order):
+        return ResumeDocument(
+            target_role="Backend Intern",
+            company="Stripe",
+            header=SAMPLE_IDENTITY,
+            section_order=order,
+        )
+
+    def test_docx_omitted_section_stays_omitted(self):
+        # Student-style order with no "summary".
+        order = ["header", "education", "skills", "projects", "experience"]
+        resolved = _resolved_section_order_docx(self._doc(order))
+        assert "summary" not in resolved
+        assert resolved == order
+
+    def test_latex_omitted_section_stays_omitted(self):
+        order = ["header", "education", "skills", "projects", "experience"]
+        resolved = _resolved_section_order_latex(self._doc(order))
+        assert "summary" not in resolved
+        assert resolved == order
+
+    def test_empty_order_falls_back_to_default(self):
+        # An empty list is the documented "use defaults" signal.
+        # The default order never includes "summary".
+        resolved = _resolved_section_order_docx(self._doc([]))
+        assert "summary" not in resolved
+        assert resolved[0] == "header"
+
+    def test_summary_in_explicit_order_is_filtered(self):
+        # Even if a legacy caller / manifest asks for summary, it must
+        # be filtered out -- the system never renders a Summary section.
+        order = ["header", "summary", "skills", "experience"]
+        resolved_docx = _resolved_section_order_docx(self._doc(order))
+        resolved_tex = _resolved_section_order_latex(self._doc(order))
+        assert "summary" not in resolved_docx
+        assert "summary" not in resolved_tex
 
 
 class TestFileManager:

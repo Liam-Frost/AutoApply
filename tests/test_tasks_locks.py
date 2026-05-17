@@ -36,7 +36,7 @@ def session_b(engine) -> Session:
 
 
 def test_hash_is_stable_per_key() -> None:
-    assert hash_for_key("nightly_run:default") == hash_for_key("nightly_run:default")
+    assert hash_for_key("plan_run:default") == hash_for_key("plan_run:default")
     assert hash_for_key("a") != hash_for_key("b")
     # Fits in a signed 64-bit slot (the column type for advisory locks).
     assert 0 <= hash_for_key("anything") < (1 << 63)

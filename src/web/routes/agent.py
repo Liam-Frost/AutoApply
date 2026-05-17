@@ -8,6 +8,8 @@ without re-running ``npm run build``.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -43,6 +45,89 @@ def get_trace(trace_id: str) -> dict:
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     return record.to_dict()
+
+
+@router.get("/costs/trend")
+def cost_trend(bucket: str = "day", periods: int = 14) -> dict:
+    """Aggregate agent-trace cost into time buckets for the dashboard card.
+
+    Walks ``TraceStore.list`` once (capped at 1000 traces -- file-backed
+    store, no SQL aggregation available yet) and bins each record into
+    UTC day or ISO-week buckets. Returns ordered buckets oldest -> newest
+    with zero-filled gaps so the bar chart never collapses.
+    """
+    if bucket not in ("day", "week"):
+        raise HTTPException(400, "bucket must be 'day' or 'week'.")
+    if periods < 1 or periods > 90:
+        raise HTTPException(400, "periods must be between 1 and 90.")
+
+    now = datetime.now(UTC)
+    if bucket == "day":
+        anchor = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        keys = [
+            (anchor - timedelta(days=i)).date().isoformat()
+            for i in range(periods)
+        ]
+        cutoff = anchor - timedelta(days=periods - 1)
+
+        def key_for(dt: datetime) -> str:
+            return dt.date().isoformat()
+    else:  # week
+        anchor = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # ISO week starts Monday.
+        monday = anchor - timedelta(days=anchor.weekday())
+        keys = []
+        for i in range(periods):
+            week_start = monday - timedelta(weeks=i)
+            iso = week_start.isocalendar()
+            keys.append(f"{iso.year}-W{iso.week:02d}")
+        cutoff = monday - timedelta(weeks=periods - 1)
+
+        def key_for(dt: datetime) -> str:
+            iso = dt.isocalendar()
+            return f"{iso[0]}-W{iso[1]:02d}"
+
+    buckets: dict[str, dict[str, float]] = {
+        k: {
+            "key": k,
+            "cost_usd": 0.0,
+            "cost_usd_saved": 0.0,
+            "trace_count": 0,
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+        }
+        for k in keys
+    }
+
+    store = TraceStore()
+    for record in store.list(limit=1000):
+        try:
+            started = datetime.fromisoformat(record.started_at)
+        except (TypeError, ValueError):
+            continue
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if started < cutoff:
+            continue
+        k = key_for(started.astimezone(UTC))
+        slot = buckets.get(k)
+        if slot is None:
+            continue
+        slot["cost_usd"] += float(record.total_cost_usd or 0.0)
+        slot["cost_usd_saved"] += float(record.total_cost_saved_usd or 0.0)
+        slot["trace_count"] += 1
+        slot["prompt_tokens"] += int(record.total_prompt_tokens or 0)
+        slot["output_tokens"] += int(record.total_output_tokens or 0)
+
+    ordered = [buckets[k] for k in reversed(keys)]
+    totals = {
+        "cost_usd": sum(b["cost_usd"] for b in ordered),
+        "cost_usd_saved": sum(b["cost_usd_saved"] for b in ordered),
+        "trace_count": sum(b["trace_count"] for b in ordered),
+        "prompt_tokens": sum(b["prompt_tokens"] for b in ordered),
+        "output_tokens": sum(b["output_tokens"] for b in ordered),
+    }
+    return {"bucket": bucket, "periods": periods, "buckets": ordered, "totals": totals}
 
 
 @router.get("/gate/requests")

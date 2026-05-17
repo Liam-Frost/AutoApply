@@ -400,7 +400,7 @@ class TestBulkOps:
 class TestPartialUniqueOnPending:
     """Codex round-3 P2 -- the unique index applies only when
     status='pending' so the same snapshot can pass through the lifecycle
-    multiple times across nightly runs."""
+    multiple times across plan runs."""
 
     def test_can_resurface_same_snapshot_after_terminal(
         self, db_session: Session

@@ -1,7 +1,7 @@
 """Phase 17.6 -- morning digest tests.
 
 The digest is purely a read-side aggregation -- it consumes
-``data/nightly_runs/*.json`` produced by the Phase 17.1 orchestrator
+``data/plan_runs/*.json`` produced by the Phase 17.1 orchestrator
 + a ``count(*)`` group-by-status over the Phase 17.2 review_queue.
 
 Test split:
@@ -9,7 +9,7 @@ Test split:
 * Persistence / filename helpers (pure Python on tmp_path).
 * Window filtering (filename prefix + tenant guard).
 * ``compute_digest`` aggregation (with real Postgres for the queue
-  counts; nightly run reports via tmp_path).
+  counts; plan run reports via tmp_path).
 * Headline string generation.
 * Beat schedule + KNOWN_TASK_NAMES + ``/api/digest`` route smoke.
 """
@@ -33,10 +33,10 @@ from src.orchestration.digest import (
     DigestPayload,
     compute_digest,
     load_reports_in_window,
-    nightly_runs_dir,
-    persist_nightly_report,
+    persist_plan_run_report,
+    plan_runs_dir,
 )
-from src.orchestration.nightly_run import NightlyRunReport
+from src.orchestration.plan_run import PlanRunReport
 
 _TENANT_PREFIX = "test-dg-"
 
@@ -76,8 +76,8 @@ def _make_report(
     materials_task_ids: list[str] | None = None,
     estimated_cost_usd: float = 0.0,
     errors: list[str] | None = None,
-) -> NightlyRunReport:
-    return NightlyRunReport(
+) -> PlanRunReport:
+    return PlanRunReport(
         run_id=str(uuid.uuid4()),
         tenant_id=tenant_id,
         profile_id="default",
@@ -105,24 +105,24 @@ def _make_report(
 
 
 class TestPersistence:
-    def test_persist_writes_under_nightly_runs(self, tmp_path: Path):
+    def test_persist_writes_under_plan_runs(self, tmp_path: Path):
         report = _make_report(
             tenant_id="t1",
             started_at=datetime(2026, 5, 16, 23, 0, 0, tzinfo=UTC),
         )
-        path = persist_nightly_report(report, root=tmp_path)
+        path = persist_plan_run_report(report, root=tmp_path)
         assert path.exists()
         # Filename starts with the iso timestamp.
         assert path.name.startswith("20260516T230000Z-")
-        assert path.parent == nightly_runs_dir(tmp_path)
+        assert path.parent == plan_runs_dir(tmp_path)
 
     def test_persist_idempotent_on_same_run_id(self, tmp_path: Path):
         ts = datetime(2026, 5, 16, 23, 0, 0, tzinfo=UTC)
         report = _make_report(tenant_id="t1", started_at=ts)
-        a = persist_nightly_report(report, root=tmp_path)
-        b = persist_nightly_report(report, root=tmp_path)
+        a = persist_plan_run_report(report, root=tmp_path)
+        b = persist_plan_run_report(report, root=tmp_path)
         assert a == b
-        assert sum(1 for _ in nightly_runs_dir(tmp_path).iterdir()) == 1
+        assert sum(1 for _ in plan_runs_dir(tmp_path).iterdir()) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -143,7 +143,7 @@ class TestWindowLoading:
             tenant_id="t1", started_at=now + timedelta(hours=1)
         )
         for r in (in_window, out_window_old, out_window_future):
-            persist_nightly_report(r, root=tmp_path)
+            persist_plan_run_report(r, root=tmp_path)
 
         loaded = load_reports_in_window(
             since=now - timedelta(hours=24), until=now, root=tmp_path
@@ -159,7 +159,7 @@ class TestWindowLoading:
         assert loaded == []
 
     def test_skips_unparseable_filenames(self, tmp_path: Path):
-        d = nightly_runs_dir(tmp_path)
+        d = plan_runs_dir(tmp_path)
         d.mkdir(parents=True)
         (d / "garbage.json").write_text("{}")
         loaded = load_reports_in_window(
@@ -170,7 +170,7 @@ class TestWindowLoading:
         assert loaded == []
 
     def test_skips_corrupt_json(self, tmp_path: Path):
-        d = nightly_runs_dir(tmp_path)
+        d = plan_runs_dir(tmp_path)
         d.mkdir(parents=True)
         (d / "20260516T230000Z-deadbeef.json").write_text("not json")
         loaded = load_reports_in_window(
@@ -197,7 +197,7 @@ class TestComputeDigest:
         assert isinstance(payload, DigestPayload)
         assert payload.runs == 0
         assert payload.total_jobs_seen == 0
-        assert "No nightly runs" in payload.headline
+        assert "No plan runs" in payload.headline
 
     def test_aggregates_reports_in_window(
         self, db_session: Session, tmp_path: Path
@@ -205,7 +205,7 @@ class TestComputeDigest:
         tenant = _tenant()
         now = datetime.now(UTC)
         # Two in-window successful runs.
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=8),
@@ -218,7 +218,7 @@ class TestComputeDigest:
             ),
             root=tmp_path,
         )
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=2),
@@ -232,7 +232,7 @@ class TestComputeDigest:
             root=tmp_path,
         )
         # Out-of-window report -- must not contribute.
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=30),
@@ -255,7 +255,7 @@ class TestComputeDigest:
         tenant = _tenant()
         other = _tenant()
         now = datetime.now(UTC)
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=2),
@@ -263,7 +263,7 @@ class TestComputeDigest:
             ),
             root=tmp_path,
         )
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=other,
                 started_at=now - timedelta(hours=2),
@@ -282,7 +282,7 @@ class TestComputeDigest:
     ):
         tenant = _tenant()
         now = datetime.now(UTC)
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=1),
@@ -291,7 +291,7 @@ class TestComputeDigest:
             ),
             root=tmp_path,
         )
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=2),
@@ -356,7 +356,7 @@ class TestHeadline:
     ):
         tenant = _tenant()
         now = datetime.now(UTC)
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=2),
@@ -377,7 +377,7 @@ class TestHeadline:
     ):
         tenant = _tenant()
         now = datetime.now(UTC)
-        persist_nightly_report(
+        persist_plan_run_report(
             _make_report(
                 tenant_id=tenant,
                 started_at=now - timedelta(hours=2),

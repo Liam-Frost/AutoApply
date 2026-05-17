@@ -1,7 +1,7 @@
 """Phase 17.2: review_queue table.
 
-The 'sleep, wake to a review queue' end of the nightly run. Phase 17.1's
-``nightly_run`` orchestrator generates materials and queues the
+The batch run that prepares reviewable applications. Phase 17.1's
+``plan_run`` orchestrator generates materials and queues the
 ``application.prepare`` task; the prepare task's body (wired in 17.3 +
 later) creates one row here per ready-to-review job. The operator's
 approve / reject decision moves the row through the state machine:
@@ -20,7 +20,7 @@ Columns:
   after the underlying ``jobs`` / ``job_snapshots`` rows are purged
   by retention. ``company`` + ``title`` are denormalised on the row
   itself so the kanban renders without joining.
-* ``run_id``            -- groups entries from the same nightly_run for
+* ``run_id``            -- groups entries from the same plan_run for
   the 17.6 morning digest. Free-form to avoid yet-another FK; the
   orchestrator emits UUID4 strings.
 * ``materials_path``    -- where the resume / cover-letter artifacts

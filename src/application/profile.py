@@ -52,7 +52,17 @@ def import_resume_file(
     profile_id: str | None = None,
     overwrite: bool = False,
     set_active: bool = True,
+    add_to_library: bool = True,
 ) -> dict:
+    """Parse an uploaded resume into a profile.
+
+    Phase 17.8: as a side effect, also stash the original file into
+    the user's document library (``add_to_library=True`` by default)
+    so the same bytes can later be used as a ``patch_existing`` base
+    by the materials router. Library insertion failures are logged
+    but do not fail the profile import — the user's primary intent
+    here is to get a profile.
+    """
     suffix = Path(filename).suffix.lower()
     if suffix not in (".pdf", ".docx"):
         return {
@@ -75,6 +85,14 @@ def import_resume_file(
     tmp_path = PROFILE_DIR / f"_upload_{uuid4().hex}{suffix}"
     tmp_path.write_bytes(content)
 
+    library_document_id: str | None = None
+    if add_to_library:
+        library_document_id = _stash_in_library(
+            filename=filename,
+            content=content,
+            display_name=Path(filename).stem,
+        )
+
     try:
         from src.memory.resume_importer import import_resume
 
@@ -89,6 +107,7 @@ def import_resume_file(
             "ok": True,
             "status": "parsed",
             "message": f"Resume parsed into profile '{target_profile_id}'.",
+            "library_document_id": library_document_id,
             **payload,
         }
     except Exception as exc:
@@ -100,6 +119,111 @@ def import_resume_file(
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+def import_resume_from_library(
+    *,
+    document_id: str,
+    profile_id: str | None = None,
+    overwrite: bool = False,
+    set_active: bool = True,
+) -> dict:
+    """Parse a UserDocument already in the library into a new profile.
+
+    Counterpart to :func:`import_resume_file` for the "pick from
+    library" creation path. The library row stays in place; we just
+    read the bytes off disk and run the same parser.
+    """
+    from uuid import UUID
+
+    try:
+        doc_uuid = UUID(document_id)
+    except (TypeError, ValueError):
+        return {
+            "ok": False,
+            "error": "Invalid library document id.",
+            "error_code": "invalid_document_id",
+        }
+
+    from src.core.config import load_config
+    from src.core.database import get_session_factory
+    from src.documents.user_documents import get_document, resolve_storage_path
+
+    try:
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session:
+            row = get_document(session, doc_uuid)
+            if row is None:
+                return {
+                    "ok": False,
+                    "error": "Document not found in library.",
+                    "error_code": "document_not_found",
+                }
+            if row.document_type != "resume":
+                return {
+                    "ok": False,
+                    "error": "Only resume documents can seed a profile.",
+                    "error_code": "invalid_document_type",
+                }
+            path = resolve_storage_path(row)
+            if not path.exists():
+                return {
+                    "ok": False,
+                    "error": "Library file is missing on disk.",
+                    "error_code": "document_file_missing",
+                }
+            content = path.read_bytes()
+            original_filename = row.original_filename
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": f"Failed to read library document: {exc}",
+            "error_code": "document_load_failed",
+        }
+
+    # Reuse the upload path with add_to_library=False so we don't
+    # double-insert the same row.
+    result = import_resume_file(
+        filename=original_filename,
+        content=content,
+        profile_id=profile_id,
+        overwrite=overwrite,
+        set_active=set_active,
+        add_to_library=False,
+    )
+    if result.get("ok"):
+        result["library_document_id"] = document_id
+    return result
+
+
+def _stash_in_library(
+    *,
+    filename: str,
+    content: bytes,
+    display_name: str | None,
+) -> str | None:
+    """Ingest the bytes into the user_documents library. Best-effort:
+    failure is logged and ``None`` returned — the caller continues
+    with profile parsing regardless."""
+    try:
+        from src.application.documents import upload_document
+
+        result = upload_document(
+            document_type="resume",
+            filename=filename,
+            content=content,
+            display_name=display_name,
+            origin="profile_import",
+        )
+        if result.get("ok") and result.get("document"):
+            return result["document"]["id"]
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "stash_in_library failed; profile import will continue"
+        )
+    return None
 
 
 def save_profile_data(

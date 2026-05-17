@@ -48,6 +48,20 @@ function toQuery(params) {
 }
 
 export const api = {
+  // Generic escape hatches for views that talk to routes without a
+  // dedicated wrapper (e.g. TasksView hitting /api/tasks and
+  // /api/schedule). Keep the named methods below for everything that
+  // needs param encoding / structured payloads.
+  get(path) {
+    return request(path)
+  },
+  post(path, body = {}) {
+    return request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  },
   dashboard() {
     return request("/api/dashboard")
   },
@@ -117,6 +131,72 @@ export const api = {
   templates() {
     return request("/api/templates")
   },
+  documents(documentType = "") {
+    const suffix = documentType ? `?document_type=${encodeURIComponent(documentType)}` : ""
+    return request(`/api/documents${suffix}`)
+  },
+  uploadDocument(documentType, file, { displayName = "", notes = "" } = {}) {
+    const form = new FormData()
+    form.append("document", file)
+    form.append("document_type", documentType)
+    if (displayName) form.append("display_name", displayName)
+    if (notes) form.append("notes", notes)
+    return request("/api/documents/upload", { method: "POST", body: form })
+  },
+  updateDocument(documentId, { displayName, notes } = {}) {
+    const body = {}
+    if (displayName !== undefined) body.display_name = displayName
+    if (notes !== undefined) body.notes = notes
+    return request(`/api/documents/${encodeURIComponent(documentId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  },
+  deleteDocument(documentId) {
+    return request(`/api/documents/${encodeURIComponent(documentId)}`, {
+      method: "DELETE",
+    })
+  },
+  documentDownloadUrl(documentId) {
+    return `/api/documents/${encodeURIComponent(documentId)}/download`
+  },
+  promoteArtifactToLibrary({ artifactPath, documentType, displayName, applicationId = "", jobSnapshotId = "", notes = "" } = {}) {
+    return request("/api/documents/promote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        artifact_path: artifactPath,
+        document_type: documentType,
+        display_name: displayName,
+        application_id: applicationId || null,
+        job_snapshot_id: jobSnapshotId || null,
+        notes: notes || null,
+      }),
+    })
+  },
+  createProfileFromLibrary({ documentId, profileId = "", overwrite = false, setActive = true } = {}) {
+    return request("/api/profile/from-library", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_id: documentId,
+        profile_id: profileId || null,
+        overwrite,
+        set_active: setActive,
+      }),
+    })
+  },
+  materialDefaults() {
+    return request("/api/settings/material-defaults")
+  },
+  updateMaterialDefaults(payload) {
+    return request("/api/settings/material-defaults", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
   uploadTemplate(documentType, file, templateName = "") {
     const form = new FormData()
     form.append("document_type", documentType)
@@ -183,6 +263,32 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ outcome }),
+    })
+  },
+  submitApplication(applicationId) {
+    return request(`/api/applications/${applicationId}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+  },
+  discardApplication(applicationId, reason = "") {
+    return request(`/api/applications/${applicationId}/discard`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason || null }),
+    })
+  },
+  regenerateApplicationMaterial(applicationId, { materialType, strategy = null, templateId = null, sourceDocumentId = null } = {}) {
+    return request(`/api/applications/${applicationId}/regenerate-material`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        material_type: materialType,
+        strategy,
+        template_id: templateId,
+        source_document_id: sourceDocumentId,
+      }),
     })
   },
   profile(profileId = "") {
@@ -285,6 +391,44 @@ export const api = {
     // Phase 12.6 inspector. Server-side SCAN can take a moment under
     // a large keyspace, so callers should drive a loading state.
     return request("/api/cache")
+  },
+  costTrend(bucket = "day", periods = 14) {
+    // Phase 17 dashboard card -- aggregated LLM spend per day/week.
+    return request(
+      `/api/agent/costs/trend?bucket=${encodeURIComponent(bucket)}&periods=${encodeURIComponent(periods)}`,
+    )
+  },
+  recentTraces(limit = 20) {
+    return request(`/api/agent/traces?limit=${encodeURIComponent(limit)}`)
+  },
+  automationPlans() {
+    return request("/api/automation-plans")
+  },
+  createAutomationPlan(payload) {
+    return request("/api/automation-plans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  updateAutomationPlan(planId, payload) {
+    return request(`/api/automation-plans/${encodeURIComponent(planId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteAutomationPlan(planId) {
+    return request(`/api/automation-plans/${encodeURIComponent(planId)}`, {
+      method: "DELETE",
+    })
+  },
+  runAutomationPlan(planId) {
+    return request(`/api/automation-plans/${encodeURIComponent(planId)}/run-now`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
   },
   morningDigest(windowHours = 24) {
     // Phase 17.6: dashboard banner payload.

@@ -1,23 +1,21 @@
 # AutoApply — Full Project Plan
 
-This document is the authoritative end-to-end project plan: what AutoApply
-is, what it is built from, what is shipped, and what remains to ship through
-Phase 18 (v1 commercial-ready core).
+This document is the long-form planning reference for AutoApply. It preserves
+strategy, historical roadmap context, and phase rationale. It is not the best
+place for quick-start instructions or current verification status.
 
-It is intentionally redundant with parts of `README.md`, `docs/PROJECT_MANAGEMENT.md`,
-`docs/AGENT_ARCHITECTURE.md`, and `docs/DECISIONS.md`. Where any of those
-documents disagree with this one, the source of truth is:
+To reduce duplication, use the following source-of-truth split:
 
 | Topic | Authoritative source |
 |---|---|
-| Per-sub-phase scope, ETAs, verification | `docs/PROJECT_MANAGEMENT.md` |
+| Current status, next roadmap, verification | `docs/PROJECT_MANAGEMENT.md` |
+| Shipped phase archive | `docs/PHASE_HISTORY.md` |
 | Why we chose / rejected each design | `docs/DECISIONS.md` |
 | Agent harness internals | `docs/AGENT_ARCHITECTURE.md` |
 | User-facing setup | `docs/DEPLOYMENT.md` |
-| This file | Strategy + history + roadmap summary |
+| This file | Strategy, historical roadmap context, long-form planning notes |
 
-Last refreshed: **2026-05-14 (roadmap v3.1)**. v3.1 calibrates v3 in four
-places:
+Last refreshed: **2026-05-16 (documentation cleanup)**. v3.1 calibrated the roadmap in four places:
 (a) Phase 14 task queue switches to Celery (the original "self-built task model +
 queue transport + worker runtime" plan is dropped; see D025). APScheduler is
 retired in favor of Celery Beat for cron triggers.
@@ -82,7 +80,7 @@ no SaaS business layer is on the table yet.
 | Frontend | Vue 3 + Vue Router + Vite + Tailwind v3 + shadcn-vue + reka-ui | See D015 |
 | Browser automation | Playwright (Python, async) | Full DOM access + persistent context for LinkedIn login |
 | LLM providers | OpenAI / Anthropic / Gemini (REST via `httpx`) **or** Claude Code CLI / Codex CLI (subprocess) — all behind `ProviderRegistry` | See D016 |
-| Agent harness | In-house ReAct loop in `src/agent/` — bounded steps, allow-listed `ToolRegistry`, file-backed HITL gate, JSON-on-disk trace store, fixture-driven eval | See D017 (no LangChain / LangGraph) |
+| Agent harness | In-house ReAct loop in `src/agent/` — bounded steps, allow-listed `ToolRegistry`, Postgres-backed HITL for task flows, JSON-on-disk trace store, fixture-driven eval | See D017 (no LangChain / LangGraph) |
 | Database (source of truth) | PostgreSQL + pgvector + alembic | Vector search for matching; alembic for schema migrations |
 | Cache / lock / queue (Phase 12+) | Redis 7+ | L2 cache, distributed lock primitive (`SET NX PX`), task queue substrate; see D018 |
 | Task queue / scheduler (Phase 14+) | Celery 5.x + Redis broker + Redis result backend + Celery Beat (cron trigger) | See D025 (replaces the original "self-built queue + APScheduler" plan); D023's agent/queue boundary principle is retained |
@@ -98,7 +96,7 @@ src/
 ├── agent/               # In-house agent harness
 │   ├── tools/           #   tool ABC + builtin / browser / profile tools
 │   ├── core/            #   bounded ReAct loop + cost telemetry
-│   ├── gate/            #   file-backed HITL approval queue
+│   ├── gate/            #   legacy local gate helpers; task flows use Postgres gate_queue
 │   ├── trace/           #   JSON-on-disk trace store
 │   └── eval/            #   fixture-driven eval runner + scorers
 ├── providers/           # LLM provider abstraction
@@ -613,7 +611,7 @@ layer + agent invocation for borderline jobs only.
 - **16.4** Eval suite — 10 human-annotated borderline jobs; agent
   decision matches human ≥ 70%.
 
-### Phase 17: Daily Run Loop + Review Queue (~2 weeks) — **Complete**
+### Phase 17: Plan Run Loop + Review Queue (~2 weeks) — **Complete**
 
 All 7 sub-phases shipped on `feat/phase-17` (commits `771b6da` →
 `208db10`) + three rounds of codex-review fixes (`2d694e9`,
@@ -623,7 +621,7 @@ frontend build clean; alembic head at `c9e1f3a7b8d4`.
 
 Implementation highlights:
 
-* `src/orchestration/nightly_run.py` -- async `run_nightly(...)`
+* `src/orchestration/plan_run.py` -- async `run_plan(...)`
   orchestrator, dependency-injected for testability. Flow: search
   (cache-first via Phase 13.4) -> score (Phase 16-aware structured
   breakdowns) -> top-N qualified -> persist review_queue rows +
@@ -645,16 +643,16 @@ Implementation highlights:
   snapshot-id mismatch detection + lifecycle state check; auto-flips
   to stale / rejected.
 * `src/orchestration/digest.py` -- 08:00 morning digest aggregating
-  `data/nightly_runs/*.json` + live review_queue counts;
+  `data/plan_runs/*.json` + live review_queue counts;
   dashboard banner renders the headline + per-status chips.
-* `autoapply pause-nightly [--clear-pending]` -- sentinel + the
+* `autoapply pause-plan-runs [--clear-pending]` -- sentinel + the
   vacation affordance for bulk-clearing pending entries.
 
 (Original plan retained below for design rationale.)
 Integration phase. Threads Phase 14 (task queue + scheduler) + Phase 13
 (job-index / freshness) + Phase 12 (cache) + Phase 9 / 15 (agents)
-into the "sleep, wake to a review queue" end-to-end flow.
-- **17.1** `nightly_run` orchestrator — search (cache-first, refresh
+into customizable application batch runs with review before submit.
+- **17.1** `plan_run` orchestrator — search (cache-first, refresh
   stale) → filter (with 16's explainability) → top-N → enqueue
   `materials.generate` and `application.prepare`; workers run agents under
   task-level retry/timeout policy. **Never auto-submits.**
@@ -668,7 +666,61 @@ into the "sleep, wake to a review queue" end-to-end flow.
   `should_refresh(job, "before_submit")`; refresh if > 6h stale;
   block on expired jobs entirely.
 - **17.6** Morning digest at 08:00.
-- **17.7** `autoapply pause-nightly` kill switch.
+- **17.7** `autoapply pause-plan-runs` kill switch.
+
+### Phase 17.8: Material Strategy & Document Library (~1 week) — **Complete**
+Closes the loop on "AutoApply made me a draft I don't love." Three
+gaps before this phase:
+
+1. The user had no first-class way to see / curate the resumes and
+   cover letters they'd given the system (the Phase 15.1
+   `source_resumes` table existed but was internal-only).
+2. There was no per-document-type strategy setting — every
+   generation defaulted to "regenerate from system template."
+3. Once a paused review entry sat in the kanban, the only verbs
+   were Approve & Submit or Discard; the user couldn't say
+   "regenerate with a different template" or "use my real resume
+   as the base."
+
+Sub-phases:
+
+- **17.8.1** New `user_documents` table (per-tenant, deduped, structural
+  index). Distinct from `source_resumes` (which stays an internal
+  Phase 15.1 artifact). REST: `GET/POST/PATCH/DELETE /api/documents`,
+  `GET /api/documents/{id}/download`, `POST /api/documents/promote`.
+  Profile upload (`POST /api/profile/upload-resume`) now also stashes
+  the original file in the library; new `POST /api/profile/from-library`
+  lets a user seed a profile from an already-uploaded library doc.
+- **17.8.2** `config/material_defaults.yaml` + `GET/PUT
+  /api/settings/material-defaults`. Per-doc-type defaults:
+  `{strategy: regenerate|patch_existing, default_template_id,
+  default_document_id}`. `resolve_material_choice()` does the
+  override → saved-default → system-default cascade.
+  `/api/jobs/generate-material` accepts per-call `strategy` and
+  `source_document_id` overrides; when patch_existing fires on a
+  DOCX library doc, `patch_resume_docx` runs after IR generation
+  and swaps the artifact path.
+- **17.8.3** `AutomationPlan` schema gains per-plan overrides:
+  `resume_strategy`, `resume_template_id`, `resume_source_document_id`,
+  and the same trio for cover letters. `plan_run` carries these
+  through to the `materials.generate` payload; `MaterialsGeneratePayload`
+  was widened to keep them.
+- **17.8.4** Paused-review card in `/review` grows a Replace materials
+  dialog (pick material × strategy × template-or-library-doc) backed
+  by `POST /api/applications/{id}/regenerate-material`, plus a
+  Save-to-library button on every downloadable resume / cover letter
+  in `/review` and `/applications` that calls
+  `POST /api/documents/promote`.
+
+UI: `/materials` got a Library / Templates / Generate tab strip;
+Settings got a Default material strategy card; Plans form got a
+collapsible Materials override section; Profile create gained a
+"Pick From Library" mode.
+
+Open questions deferred: cover-letter patching (we currently fall
+back to regenerate with a warning), LaTeX source patching (same).
+Picked up by Phase 18+ when the materials generation worker body
+actually consumes `MaterialsGeneratePayload`.
 
 ### Phase 18: Multi-Tenancy & Auth Hardening (~2.5 weeks)
 Activates the commercial-readiness work seeded across 12-17. SaaS
@@ -719,7 +771,7 @@ keyring entry renaming). 18.1 / 18.3 / 18.5 / 18.6 are the only true
 | 14 | Task Queue + Scheduled Work (Celery) | 2.5w | 7.3w |
 | 15 | Resume & Cover Letter Generation v2 | 3w | 10.3w |
 | 16 | Filter Agent + Explainability | 1.5w | 11.8w |
-| 17 | Daily Run Loop + Review Queue | 2w | 13.8w |
+| 17 | Plan Run Loop + Review Queue | 2w | 13.8w |
 | 18 | Multi-Tenancy & Auth Hardening | 2.5w | 16.3w |
 
 ~3.5-4 months to v1.0 commercial-ready core (no SaaS business layer).
@@ -766,7 +818,7 @@ Enforced from Phase 11 onward:
 | 14 | `autoapply worker -Q materials` starts a Celery worker; 100 mixed tasks enqueue → routed by queue; kill a worker → `task_acks_late + task_reject_on_worker_lost` auto-requeues once; Celery Beat fires `daily_search` and only enqueues; agent returning `needs_human` transitions the task to `waiting_human` and the worker immediately picks up the next task |
 | 15 | DOCX patch preserves named styles; three LaTeX templates compile from the same IR; cover-letter eval 5/5 pass; artifacts bind snapshot/source/template/trace IDs |
 | 16 | Any rejected job in JobsView surfaces a reason chain in < 5s; agent cost < $0.50 per 100 jobs |
-| 17 | Schedule nightly run Monday 23:00 → wake Tuesday 08:00 to N pre-tailored applications in review queue, each approvable in < 30s |
+| 17 | Schedule custom batch tasks that produce N pre-tailored applications in review queue, each approvable in < 30s |
 | 18 | Two tenants seeded with overlapping email / LinkedIn cookies → cannot read each other's jobs / snapshots / applications / credentials / Redis keys (verified by direct SQL and direct Redis CLI); quota exhaustion returns 429 |
 
 ## 11. Risk & Open Questions
@@ -774,7 +826,7 @@ Enforced from Phase 11 onward:
 - **LinkedIn rate-limiting / detection.** Mitigated by persistent
   context cookies, randomized delays, controlled concurrency, and
   the Phase 13 distributed-lock-gated force-refresh. Still a real
-  risk for any aggressive nightly schedule.
+  risk for any aggressive custom schedule.
 - **LLM cost drift.** Mitigated by the Phase 12 cache + the Phase 11
   fallback chain (cheap models in the fallback slot) + the eval
   $1 / 100 ceiling. Cost telemetry (Phase 9.4) is the early-warning.

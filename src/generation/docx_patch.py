@@ -3,9 +3,9 @@
 Applies localized edits to a user-uploaded DOCX without re-rendering
 the document from scratch:
 
-* Replace the *summary* paragraph (first paragraph after a "Summary"-
-  style heading, or the first non-empty Normal paragraph if no
-  heading is detected).
+* Strip the Summary section entirely. The heading + body are blanked
+  even if the user-uploaded source resume contained a Summary --
+  generated resumes never include one.
 * Replace bullet text in-place. Bullets are identified by the
   paragraph's named style starting with ``List``, or by leading "•"/
   "-" markers. The text-run's font / size / colour / bold / italic
@@ -48,15 +48,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PatchOperation:
-    kind: str  # 'summary' | 'bullet' | 'skills' | 'section_drop'
-    detail: str  # human-readable summary, e.g. 'bullets@experience[0]: 3 -> 4'
+    kind: str  # 'bullet' | 'skills' | 'section_drop'
+    detail: str  # human-readable, e.g. 'bullets@experience[0]: 3 -> 4'
 
 
 @dataclass
 class PatchReport:
     """Per-document outcome. ``success`` is False whenever any operation
-    raises or a hard guarantee fails (e.g. summary block not found in
-    a resume that has bullets the IR wants to patch)."""
+    raises or a hard guarantee fails."""
 
     success: bool
     output_path: Path
@@ -74,7 +73,7 @@ class PatchFallback(Exception):  # noqa: N818 -- "Fallback" is the operative nou
 
 
 _BULLET_PREFIX_RE = re.compile(r"^\s*[•●◦\-*]\s*")
-_SUMMARY_STYLES = {"heading 1", "summary", "title"}
+_TOP_HEADING_STYLES = {"heading 1", "summary", "title"}
 _SKILLS_STYLES = {"skills"}
 
 
@@ -101,7 +100,9 @@ def patch_resume_docx(
     report = PatchReport(success=True, output_path=output_path)
 
     try:
-        _patch_summary(doc, document, report)
+        # Summary section is intentionally never patched and is actively
+        # stripped from any source DOCX (see _strip_summary_section).
+        _strip_summary_section(doc, report)
         _patch_skills(doc, document, report)
         _patch_bullets(doc, document, report)
         _patch_section_visibility(doc, document, report)
@@ -126,7 +127,7 @@ def _is_heading(paragraph: Any) -> bool:
     """True for any heading-styled paragraph (used by section
     visibility, which treats every heading as a potential boundary)."""
     style = (_style_name(paragraph) or "").lower()
-    return style.startswith("heading") or style in _SUMMARY_STYLES | _SKILLS_STYLES
+    return style.startswith("heading") or style in _TOP_HEADING_STYLES | _SKILLS_STYLES
 
 
 def _is_top_level_heading(paragraph: Any) -> bool:
@@ -139,7 +140,7 @@ def _is_top_level_heading(paragraph: Any) -> bool:
     style = (_style_name(paragraph) or "").lower()
     if style in {"heading 1", "title"}:
         return True
-    if style in _SUMMARY_STYLES | _SKILLS_STYLES:
+    if style in _TOP_HEADING_STYLES | _SKILLS_STYLES:
         return True
     return False
 
@@ -226,43 +227,27 @@ def _clone_paragraph_after(template_para: Any, text: str) -> Any:
 # ---- Patch operations -----------------------------------------------
 
 
-def _patch_summary(doc: Any, document: ResumeDocument, report: PatchReport) -> None:
-    summary_lines = document.summary or []
-    if not summary_lines:
-        return
-    joined = " ".join(line.strip() for line in summary_lines if line.strip())
-    if not joined:
-        return
+def _strip_summary_section(doc: Any, report: PatchReport) -> None:
+    """Remove the Summary heading + body from the source DOCX in place.
 
+    Per product decision: the generated resume must never contain a
+    Summary section, even if the user-uploaded source resume had one.
+    The heading paragraph and every paragraph in its body range are
+    blanked (text emptied, run formatting preserved -- python-docx
+    cannot reliably delete paragraph elements without breaking lists
+    so we leave empty paragraphs in place). Word renders empty
+    paragraphs as roughly nothing.
+    """
     heading_idx = _section_index(doc, "Summary")
-    if heading_idx is not None:
-        start, end = _section_body_range(doc, heading_idx)
-        if end > start:
-            target = doc.paragraphs[start]
-            _replace_paragraph_text(target, joined)
-            report.operations.append(
-                PatchOperation(kind="summary", detail=f"summary[{start}] replaced")
-            )
-            return
-        report.warnings.append("Summary heading found but body empty; appending paragraph")
-        _clone_paragraph_after(doc.paragraphs[heading_idx], joined)
-        report.operations.append(
-            PatchOperation(kind="summary", detail="summary appended after heading")
-        )
+    if heading_idx is None:
         return
-
-    # No explicit Summary heading -- replace the first non-empty
-    # paragraph that is not a heading.
-    for idx, para in enumerate(doc.paragraphs):
-        if _is_heading(para):
-            continue
-        if (para.text or "").strip():
-            _replace_paragraph_text(para, joined)
-            report.operations.append(
-                PatchOperation(kind="summary", detail=f"fallback summary at idx={idx}")
-            )
-            return
-    report.warnings.append("could not locate a summary paragraph to replace")
+    start, end = _section_body_range(doc, heading_idx)
+    _replace_paragraph_text(doc.paragraphs[heading_idx], "")
+    for j in range(start, end):
+        _replace_paragraph_text(doc.paragraphs[j], "")
+    report.operations.append(
+        PatchOperation(kind="section_drop", detail="summary heading + body stripped")
+    )
 
 
 def _patch_skills(doc: Any, document: ResumeDocument, report: PatchReport) -> None:
@@ -378,8 +363,10 @@ def _patch_section_visibility(
     if not document.section_order:
         return
     keep = {name.lower() for name in document.section_order}
+    # ``summary`` is intentionally not in has_content -- the ResumeDocument
+    # IR no longer has a summary field, and _strip_summary_section above
+    # already removed the source-doc Summary block before this runs.
     has_content = {
-        "summary": bool(document.summary),
         "skills": bool(document.skills),
         "experience": bool(document.experiences),
         "experiences": bool(document.experiences),

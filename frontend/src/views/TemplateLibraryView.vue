@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref } from "vue"
 import { RouterLink, useRouter } from "vue-router"
 import {
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   FileText,
   Library,
@@ -14,6 +13,7 @@ import {
   Upload,
 } from "lucide-vue-next"
 
+import MaterialsTabsNav from "@/components/MaterialsTabsNav.vue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -189,30 +189,17 @@ const isLoading = computed(() => templatesState.loading && !templatesState.loade
 
 <template>
   <div class="space-y-6">
-    <Card>
-      <CardContent class="flex flex-col items-start justify-between gap-3 p-5 md:flex-row md:items-center">
-        <div class="flex items-center gap-3">
-          <RouterLink
-            to="/materials"
-            class="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="Back to Materials"
-            title="Back to Materials"
-          >
-            <ArrowLeft class="h-4 w-4" />
-          </RouterLink>
-          <div class="space-y-1">
-            <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Materials</p>
-            <h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-              <Library class="h-4 w-4 text-muted-foreground" />
-              Template Library
-            </h2>
-            <p class="text-sm text-muted-foreground">
-              Manage Resume and Cover Letter templates. Upload DOCX or create editable LaTeX templates.
-            </p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <MaterialsTabsNav />
+
+    <div class="space-y-1">
+      <h2 class="flex items-center gap-2 text-xl font-semibold">
+        <Library class="h-5 w-5 text-muted-foreground" />
+        Template Library
+      </h2>
+      <p class="max-w-2xl text-sm text-muted-foreground">
+        Manage Resume and Cover Letter templates. Upload DOCX or create editable LaTeX templates.
+      </p>
+    </div>
 
     <Alert v-if="pageError" variant="destructive">
       <AlertCircle class="h-4 w-4" />
@@ -229,7 +216,7 @@ const isLoading = computed(() => templatesState.loading && !templatesState.loade
           <div class="space-y-1">
             <CardTitle class="flex items-center gap-2 text-sm">
               <FileText class="h-4 w-4 text-muted-foreground" />
-              {{ target.label }} templates
+              {{ target.label }} Templates
             </CardTitle>
             <p class="text-xs text-muted-foreground">
               {{ templatesFor(target.documentType).length }} available
@@ -300,7 +287,7 @@ const isLoading = computed(() => templatesState.loading && !templatesState.loade
           </div>
           <EmptyState
             v-else
-            :title="`No ${target.label.toLowerCase()} templates yet`"
+            :title="`No ${target.label} Templates yet`"
             :description="`Upload a DOCX template or create a LaTeX template below.`"
           >
             <template #icon><FileText /></template>
@@ -309,7 +296,7 @@ const isLoading = computed(() => templatesState.loading && !templatesState.loade
           <details class="rounded-md border border-border bg-muted/30">
             <summary class="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium text-foreground">
               <Upload class="h-4 w-4 text-muted-foreground" />
-              Upload {{ target.label.toLowerCase() }} template (DOCX / TEX)
+              Upload {{ target.label }} Template (DOCX / TEX)
             </summary>
             <div class="space-y-3 px-4 pb-4">
               <label class="grid gap-1.5 text-sm">

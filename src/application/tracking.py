@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -129,6 +130,146 @@ def update_application_outcome(*, application_id: UUID, outcome: str) -> dict:
         "outcome": app.outcome,
         "updated_at": _isoformat(app.outcome_updated_at),
     }
+
+
+def submit_paused_application(*, application_id: UUID) -> dict:
+    """Approve a paused application and enqueue the submit task."""
+    try:
+        from src.core.database import get_session_factory
+        from src.core.state_machine import AppStatus
+        from src.tasks.app import celery_app
+
+        session_factory = get_session_factory(load_config())
+        submit_task_id = None
+        with session_factory() as session:
+            from src.core.models import Application
+
+            app = session.get(Application, application_id)
+            if app is None:
+                return {
+                    "ok": False,
+                    "error": "Application not found",
+                    "error_code": "application_not_found",
+                }
+            if app.status != AppStatus.REVIEW_REQUIRED:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Application status is {app.status}; only paused applications "
+                        "can be submitted."
+                    ),
+                    "error_code": "invalid_status",
+                }
+
+            try:
+                async_result = celery_app.send_task(
+                    "application.submit",
+                    kwargs={"application_id": str(app.id)},
+                )
+                submit_task_id = str(async_result.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to enqueue application.submit: %s", exc, exc_info=True)
+
+            now = datetime.now(UTC)
+            app.status = str(AppStatus.SUBMITTED)
+            app.submitted_at = app.submitted_at or now
+            app.outcome = app.outcome or "pending"
+            history = list(app.state_history or [])
+            history.append(
+                {
+                    "timestamp": now.isoformat(),
+                    "event": "USER_APPROVED_SUBMIT",
+                    "from": str(AppStatus.REVIEW_REQUIRED),
+                    "to": str(AppStatus.SUBMITTED),
+                    "meta": {"submit_task_id": submit_task_id},
+                }
+            )
+            app.state_history = history
+            session.commit()
+
+            return {
+                "ok": True,
+                "status": "submitted",
+                "message": "Application submitted.",
+                "application_id": str(app.id),
+                "submit_task_id": submit_task_id,
+                "submitted_at": _isoformat(app.submitted_at),
+            }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"Failed to submit application: {exc}",
+            "error_code": "submit_failed",
+        }
+
+
+def discard_paused_application(
+    *,
+    application_id: UUID,
+    reason: str | None = None,
+) -> dict:
+    """Abandon a paused application: REVIEW_REQUIRED → FAILED.
+
+    The state machine treats FAILED as a terminal error state that any
+    active state can reach, so this is a valid transition. We record the
+    user-supplied reason (if any) in ``state_history`` so the discard
+    intent isn't conflated with a system failure.
+    """
+    try:
+        from src.core.database import get_session_factory
+        from src.core.state_machine import AppStatus
+
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session:
+            from src.core.models import Application
+
+            app = session.get(Application, application_id)
+            if app is None:
+                return {
+                    "ok": False,
+                    "error": "Application not found",
+                    "error_code": "application_not_found",
+                }
+            if app.status != AppStatus.REVIEW_REQUIRED:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Application status is {app.status}; only paused "
+                        "applications can be discarded."
+                    ),
+                    "error_code": "invalid_status",
+                }
+
+            now = datetime.now(UTC)
+            app.status = str(AppStatus.FAILED)
+            history = list(app.state_history or [])
+            history.append(
+                {
+                    "timestamp": now.isoformat(),
+                    "event": "USER_DISCARDED",
+                    "from": str(AppStatus.REVIEW_REQUIRED),
+                    "to": str(AppStatus.FAILED),
+                    "meta": {
+                        "reason": (reason or "").strip() or None,
+                        "discarded_by": "user",
+                    },
+                }
+            )
+            app.state_history = history
+            session.commit()
+
+            return {
+                "ok": True,
+                "status": "discarded",
+                "message": "Application discarded.",
+                "application_id": str(app.id),
+            }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"Failed to discard application: {exc}",
+            "error_code": "discard_failed",
+        }
 
 
 def load_status_data(
