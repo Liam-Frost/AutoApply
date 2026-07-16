@@ -112,13 +112,29 @@ async def search_jobs(
         try:
             from src.intake.search import search_jobs as search_ats_jobs
 
-            ats_jobs = search_ats_jobs(
-                profile=profile,
-                config_dir=config_dir,
-                companies=_build_companies_filter(config_dir, ats, company),
-                parse_jds=not no_parse,
-                use_llm=use_llm,
-            )
+            companies_filter = _build_companies_filter(config_dir, ats, company)
+            if use_job_index:
+                ats_jobs, ats_job_index_event = await _search_ats_with_job_index(
+                    profile=profile,
+                    config_dir=config_dir,
+                    companies=companies_filter,
+                    parse_jds=not no_parse,
+                    use_llm=use_llm,
+                    ats=ats,
+                    company=company,
+                    force_refresh=force_refresh
+                    or not (search_cache_policy or {}).get("enabled", True),
+                    freshness_hours=(search_cache_policy or {}).get("ttl_hours", 24),
+                )
+                job_index_events.append(ats_job_index_event)
+            else:
+                ats_jobs = search_ats_jobs(
+                    profile=profile,
+                    config_dir=config_dir,
+                    companies=companies_filter,
+                    parse_jds=not no_parse,
+                    use_llm=use_llm,
+                )
             counts["ats"] = len(ats_jobs)
             jobs.extend(ats_jobs)
         except Exception as exc:
@@ -372,6 +388,127 @@ async def _search_linkedin_with_job_index(
             "error": str(exc),
             "location": search_kwargs.get("location") or "",
         }
+
+
+async def _search_ats_with_job_index(
+    *,
+    profile: str | None,
+    config_dir: Path,
+    companies: dict | None,
+    parse_jds: bool,
+    use_llm: bool,
+    ats: str | None,
+    company: str | None,
+    force_refresh: bool,
+    freshness_hours: int,
+) -> tuple[list, dict]:
+    """ATS analog of :func:`_search_linkedin_with_job_index`.
+
+    Before this fix, the ATS branch above called ``src.intake.search.search_jobs``
+    directly and never persisted results to the Job Index. Every plan_run
+    scoring pass then produced review entries the pre-submit gate could never
+    bind to a real ``JobPosting`` row (``missing_binding``), so scheduled
+    automation plans — including ``apply_mode: auto_apply`` ones — could
+    reach ``review_queue``/materials but never a real submission. This routes
+    ATS results through the same cache-first + snapshot-persist path
+    LinkedIn already uses.
+    """
+    from src.cache import get_cache
+    from src.core.database import get_session_factory
+    from src.intake.search import search_jobs as search_ats_jobs
+    from src.jobs.enrich import enrich_posting
+    from src.jobs.search import cached_search
+    from src.jobs.store import JobIndexStore
+
+    scraped_jobs: list = []
+    params = _ats_job_index_params(
+        profile=profile, ats=ats, company=company, parse_jds=parse_jds, use_llm=use_llm
+    )
+
+    async def fetch_and_capture() -> list:
+        result = search_ats_jobs(
+            profile=profile,
+            config_dir=config_dir,
+            companies=companies,
+            parse_jds=parse_jds,
+            use_llm=use_llm,
+        )
+        scraped_jobs[:] = list(result)
+        return scraped_jobs
+
+    try:
+        session_factory = get_session_factory(load_config())
+        with session_factory() as session, session.begin():
+            store = JobIndexStore(session)
+            outcome = await cached_search(
+                store=store,
+                cache=get_cache(),
+                source="ats",
+                params=params,
+                fetch_fn=fetch_and_capture,
+                force_refresh=force_refresh,
+                freshness_hours=freshness_hours,
+            )
+            if scraped_jobs:
+                for job in scraped_jobs:
+                    enrich_posting(
+                        store=store,
+                        source=job.source,
+                        source_id=job.source_id,
+                        company=job.company,
+                        content=_raw_job_content(job),
+                    )
+                jobs = scraped_jobs
+            else:
+                jobs = _raw_jobs_from_index_postings(session, outcome.postings)
+
+            if outcome.refresh_failed and not jobs:
+                raise RuntimeError(outcome.last_error or "ATS refresh failed")
+
+            return jobs, {
+                "ok": True,
+                "cached": outcome.cached,
+                "stale": outcome.stale,
+                "force_refresh": force_refresh,
+                "query_id": str(outcome.query_id),
+                "last_run_at": _isoformat(outcome.last_run_at),
+                "last_success_at": _isoformat(outcome.last_success_at),
+                "last_error": outcome.last_error,
+                "counts": outcome.counts,
+            }
+    except Exception as exc:
+        # Same fallback contract as the LinkedIn path: the Job Index should
+        # improve freshness/binding, not make search unusable.
+        logger.warning("Job Index ATS search path failed; falling back to live search: %s", exc)
+        jobs = list(
+            search_ats_jobs(
+                profile=profile,
+                config_dir=config_dir,
+                companies=companies,
+                parse_jds=parse_jds,
+                use_llm=use_llm,
+            )
+        )
+        return jobs, {
+            "ok": False,
+            "cached": False,
+            "stale": False,
+            "force_refresh": True,
+            "fallback_live": True,
+            "error": str(exc),
+        }
+
+
+def _ats_job_index_params(
+    *, profile: str | None, ats: str | None, company: str | None, parse_jds: bool, use_llm: bool
+) -> dict:
+    return {
+        "profile": profile or "",
+        "ats": ats or "",
+        "company": company or "",
+        "parse_jds": bool(parse_jds),
+        "use_llm": bool(use_llm),
+    }
 
 
 def _search_cache_policy() -> dict:

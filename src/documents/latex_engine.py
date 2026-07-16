@@ -175,6 +175,11 @@ def compile_latex_to_pdf(
                 cwd=workdir,
                 capture_output=True,
                 text=True,
+                # pdflatex logs echo raw template bytes (e.g. a latin-1
+                # middle dot in a contact line); strict utf-8 decoding
+                # turns a successful compile into a spurious crash.
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 check=False,
             )
