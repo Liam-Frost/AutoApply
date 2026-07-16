@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger("autoapply.documents.pdf_converter")
@@ -32,15 +33,31 @@ def convert_to_pdf(docx_path: Path, output_path: Path | None = None) -> Path:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Try docx2pdf first (uses Word COM on Windows, LibreOffice on Linux/Mac)
-    try:
-        from docx2pdf import convert
+    # Try docx2pdf first (Word COM on Windows; on macOS it drives Microsoft
+    # Word via AppleScript). Skip it outright on macOS when Word isn't
+    # installed: a missing-Word AppleEvent doesn't raise a catchable Python
+    # exception here, it kills the whole worker process
+    # (``osascript``/AppleEvent "Message not understood" -> WorkerLostError),
+    # so the `except Exception` below never gets a chance to fall through to
+    # LibreOffice. Checking for Word.app first avoids the crash entirely.
+    _MACOS_WORD_PATHS = (
+        "/Applications/Microsoft Word.app",
+        "/Applications/Microsoft Office/Microsoft Word.app",
+    )
+    word_available = sys.platform != "darwin" or any(
+        Path(p).exists() for p in _MACOS_WORD_PATHS
+    )
+    if word_available:
+        try:
+            from docx2pdf import convert
 
-        convert(str(docx_path), str(output_path))
-        logger.info("Converted %s → %s (docx2pdf)", docx_path.name, output_path.name)
-        return output_path
-    except Exception as e:
-        logger.warning("docx2pdf failed (%s), trying LibreOffice CLI", e)
+            convert(str(docx_path), str(output_path))
+            logger.info("Converted %s → %s (docx2pdf)", docx_path.name, output_path.name)
+            return output_path
+        except Exception as e:
+            logger.warning("docx2pdf failed (%s), trying LibreOffice CLI", e)
+    else:
+        logger.info("Microsoft Word not found on macOS; using LibreOffice CLI directly")
 
     # Fall back to LibreOffice CLI
     libreoffice = _find_libreoffice()

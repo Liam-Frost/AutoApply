@@ -489,9 +489,25 @@ def materials_generate(self: AutoApplyTask, **payload: Any) -> dict[str, Any]:
     artifacts: dict[str, dict[str, Any]] = {}
     errors: list[dict[str, str]] = []
 
+    def _material_format(doc_type: str, template_id: str | None) -> str:
+        """DOCX templates render docx; LaTeX templates render pdf. The
+        material_type suffix must match the template's renderer or
+        ``_ensure_template_supports_material`` rejects the request."""
+        if template_id:
+            try:
+                from src.documents.templates import load_template_package  # noqa: PLC0415
+
+                package = load_template_package(doc_type, template_id)
+                if package.manifest.renderer == "latex":
+                    return "pdf"
+            except Exception:  # noqa: BLE001 - fall back to docx on any load issue
+                pass
+        return "docx"
+
     def _resolve_overrides(doc_type: str) -> tuple[str, dict[str, Any]] | None:
         if doc_type.startswith("resume"):
-            return "resume_docx", {
+            fmt = _material_format("resume", args.resume_template_id)
+            return f"resume_{fmt}", {
                 "strategy": args.resume_strategy,
                 "template_id": args.resume_template_id,
                 "source_document_id": args.resume_source_document_id,
@@ -500,7 +516,8 @@ def materials_generate(self: AutoApplyTask, **payload: Any) -> dict[str, Any]:
                 "patch_allow_add_remove_bullets": args.resume_patch_allow_add_remove_bullets,
             }
         if doc_type.startswith("cover_letter"):
-            return "cover_letter_docx", {
+            fmt = _material_format("cover_letter", args.cover_letter_template_id)
+            return f"cover_letter_{fmt}", {
                 "strategy": args.cover_letter_strategy,
                 "template_id": args.cover_letter_template_id,
                 "source_document_id": args.cover_letter_source_document_id,

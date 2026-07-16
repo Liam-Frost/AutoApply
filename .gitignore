@@ -61,8 +61,6 @@ config/material_defaults.yaml
 data/profile/active_profile.txt
 data/profile/profiles/*.yaml
 
-# Alembic (may contain DB credentials)
-alembic.ini
 
 # UV
 .python-version

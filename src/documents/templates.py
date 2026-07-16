@@ -243,6 +243,22 @@ def ensure_template_package(
     manifest_path = package_dir / "manifest.json"
 
     if manifest_path.exists():
+        # The repo ships default packages as manifest + samples only; the
+        # binary template file is generated on first use. Recreate it when
+        # missing so a fresh clone doesn't crash template listing.
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        renderer = manifest_payload.get("renderer", "docx")
+        docx_path = package_dir / "template.docx"
+        if renderer == "docx" and not docx_path.exists():
+            if document_type == "resume":
+                _create_default_resume_template(docx_path)
+            else:
+                _create_default_cover_letter_template(docx_path)
+        tex_path = package_dir / "template.tex"
+        if renderer == "latex" and not tex_path.exists():
+            tex_path.write_text(
+                _default_latex_template(document_type), encoding="utf-8", newline="\n"
+            )
         package = load_template_package(document_type, template_id, template_root=template_root)
         _ensure_required_markers(package)
         _write_sample_assets(package)
@@ -282,6 +298,21 @@ def list_template_packages(
             template_id = manifest_path.parent.name
             try:
                 package = load_template_package(kind, template_id, template_root=template_root)
+            except FileNotFoundError:
+                # Manifest without its binary template file — the shape the
+                # repo's shipped example packages arrive in. Regenerate the
+                # default template file instead of hiding the package.
+                try:
+                    package = ensure_template_package(
+                        kind, template_id, template_root=template_root
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Skipping invalid template package %s: %s",
+                        manifest_path.parent,
+                        exc,
+                    )
+                    continue
             except Exception as exc:
                 logger.warning(
                     "Skipping invalid template package %s: %s",
