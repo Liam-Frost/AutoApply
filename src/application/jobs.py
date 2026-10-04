@@ -35,6 +35,9 @@ ATS_TYPES = {
 }
 EMPLOYMENT_TYPES = {"internship", "fulltime", "parttime", "contract", "coop", "unknown"}
 SENIORITY_LEVELS = {"internship", "entry", "mid", "senior", "staff", "unknown"}
+_SHARED_RESUME_ENTITY_LIMIT = 8
+_SHARED_COVER_EVIDENCE_LIMIT = 3
+_SHARED_MAX_BULLETS_PER_ENTITY = 4
 
 PAY_RANGE_RE = re.compile(
     r"(?:\$|usd\s*)(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?\s*"
@@ -2134,6 +2137,92 @@ def _coerce_web_payload_value(value, allowed: set[str], default: str) -> str:
     return default
 
 
+def _build_shared_material_evidence(profile_data: dict, job) -> dict:
+    """Choose one evidence / entity pool for resume and cover letter.
+
+    The cover letter gets the strongest examples from this pool; the resume
+    gets the same entities plus additional ranked entities when space allows.
+    """
+    from src.generation.evidence import evidence_by_entity, select_relevant_evidence
+    from src.generation.resume_builder import (
+        _job_query_embedding,
+        _optional_generation_session,
+        extract_jd_tags,
+    )
+
+    try:
+        jd_tags = extract_jd_tags(job)
+    except Exception:
+        return {}
+    db_session = _optional_generation_session()
+    try:
+        evidence = select_relevant_evidence(
+            jd_tags,
+            profile_data,
+            max_bullets_per_entity=_SHARED_MAX_BULLETS_PER_ENTITY,
+            query_text=f"{getattr(job, 'title', '')}\n{getattr(job, 'description', '') or ''}",
+            db_session=db_session,
+            query_embedding=_job_query_embedding(job),
+        )
+    finally:
+        if db_session is not None:
+            db_session.close()
+
+    grouped = evidence_by_entity(evidence)
+    ranked_entities = sorted(
+        grouped.items(),
+        key=lambda pair: _shared_entity_relevance_key(pair[1]),
+        reverse=True,
+    )[:_SHARED_RESUME_ENTITY_LIMIT]
+    resume_evidence = [item for _entity, items in ranked_entities for item in items]
+
+    return {
+        "entities": [entity for entity, _items in ranked_entities],
+        "resume_evidence": resume_evidence,
+        "cover_evidence": _cover_evidence_from_shared_entities(ranked_entities),
+    }
+
+
+def _shared_entity_relevance_key(items: list) -> tuple[float, float, int]:
+    scores = [
+        item.score + item.semantic_score + item.vector_score
+        for item in items
+    ]
+    return (max(scores, default=0.0), sum(scores), len(items))
+
+
+def _cover_evidence_from_shared_entities(
+    ranked_entities: list[tuple[str, list]],
+) -> list[str]:
+    selected: list[str] = []
+    for _entity, items in ranked_entities:
+        if not items:
+            continue
+        selected.append(_format_shared_cover_evidence(items[0]))
+        if len(selected) >= _SHARED_COVER_EVIDENCE_LIMIT:
+            return selected
+
+    seen = set(selected)
+    for _entity, items in ranked_entities:
+        for item in items[1:]:
+            formatted = _format_shared_cover_evidence(item)
+            if formatted in seen:
+                continue
+            selected.append(formatted)
+            seen.add(formatted)
+            if len(selected) >= _SHARED_COVER_EVIDENCE_LIMIT:
+                return selected
+    return selected
+
+
+def _format_shared_cover_evidence(item) -> str:
+    return (
+        f"At {item.source_entity}, {item.text}"
+        if item.source_entity
+        else item.text
+    )
+
+
 def _generate_selected_material(
     profile_data: dict,
     job,
@@ -2145,6 +2234,8 @@ def _generate_selected_material(
     patch_aggressiveness: str = "balanced",
     patch_allow_reorder_sections: bool = True,
     patch_allow_add_remove_bullets: bool = True,
+    shared_resume_evidence: list | None = None,
+    shared_cover_evidence: list[str] | None = None,
 ) -> dict:
     from src.documents.templates import ensure_template_package, serialize_template_package
     from src.generation.cover_letter import generate_cover_letter, generate_cover_letter_latex
@@ -2192,6 +2283,7 @@ def _generate_selected_material(
             resume_files = generate_resume_latex(
                 job=job,
                 profile_data=profile_data,
+                selected_evidence=shared_resume_evidence,
                 output_dir=output_dir,
                 template_id=template_package.template_id,
             )
@@ -2213,6 +2305,7 @@ def _generate_selected_material(
         resume_files = generate_resume(
             job=job,
             profile_data=profile_data,
+            selected_evidence=shared_resume_evidence,
             output_dir=output_dir,
             template_id=template_package.template_id,
             # ``patch_aggressiveness`` is a property of the
@@ -2296,6 +2389,7 @@ def _generate_selected_material(
         cover_files = generate_cover_letter_latex(
             job=job,
             profile_data=profile_data,
+            evidence_bullets=shared_cover_evidence,
             output_dir=output_dir,
             template_id=template_package.template_id,
         )
@@ -2312,6 +2406,7 @@ def _generate_selected_material(
     cover_files = generate_cover_letter(
         job=job,
         profile_data=profile_data,
+        evidence_bullets=shared_cover_evidence,
         output_dir=output_dir,
         template_id=template_package.template_id,
         use_llm=True,
@@ -2817,6 +2912,16 @@ async def _generate_materials(
 
     resume_choice = resolve_material_choice(document_type="resume")
     resume_material_type = _application_material_type("resume", resume_choice)
+    cover_choice = resolve_material_choice(document_type="cover_letter")
+    cover_material_type = _application_material_type("cover_letter", cover_choice)
+    shared_evidence = (
+        _build_shared_material_evidence(profile_data, job)
+        if (
+            resume_choice["strategy"] != "use_library"
+            or cover_choice["strategy"] != "use_library"
+        )
+        else {}
+    )
     resume_files = _generate_selected_material(
         profile_data,
         job,
@@ -2827,13 +2932,16 @@ async def _generate_materials(
         patch_aggressiveness=resume_choice["patch_aggressiveness"],
         patch_allow_reorder_sections=resume_choice["patch_allow_reorder_sections"],
         patch_allow_add_remove_bullets=resume_choice["patch_allow_add_remove_bullets"],
+        shared_resume_evidence=(
+            shared_evidence.get("resume_evidence") or None
+            if resume_choice["strategy"] != "use_library"
+            else None
+        ),
     )
     resume_path = _pick_application_artifact(
         resume_files.get("artifacts") or {}, "resume", resume_choice["strategy"]
     )
 
-    cover_choice = resolve_material_choice(document_type="cover_letter")
-    cover_material_type = _application_material_type("cover_letter", cover_choice)
     cover_files = _generate_selected_material(
         profile_data,
         job,
@@ -2844,6 +2952,11 @@ async def _generate_materials(
         patch_aggressiveness=cover_choice["patch_aggressiveness"],
         patch_allow_reorder_sections=cover_choice["patch_allow_reorder_sections"],
         patch_allow_add_remove_bullets=cover_choice["patch_allow_add_remove_bullets"],
+        shared_cover_evidence=(
+            shared_evidence.get("cover_evidence") or None
+            if cover_choice["strategy"] != "use_library"
+            else None
+        ),
     )
     cover_letter_path = _pick_application_artifact(
         cover_files.get("artifacts") or {}, "cover_letter", cover_choice["strategy"]

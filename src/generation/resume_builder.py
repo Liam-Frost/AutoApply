@@ -12,8 +12,10 @@ Design principle: block-based assembly, NOT full-text LLM rewrite.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -51,12 +53,17 @@ DEFAULT_OUTPUT_DIR = Path("data/output")
 # Each round drops one bullet (or item, once bullets run out), so 8 covers
 # most cases even with very dense source data.
 _MAX_TRIM_ATTEMPTS = 8
+_FALLBACK_WORK_START_YEAR = 2016
+_FALLBACK_MIN_WORK_YEARS_PER_COMPANY = 2
+_MAX_RELEVANT_SKILLS_PER_CATEGORY = 4
+_MAX_FALLBACK_SKILLS_PER_CATEGORY = 2
 
 
 def generate_resume(
     job: RawJob,
     profile_data: dict[str, Any],
     selected_bullets: dict[str, list[str]] | None = None,
+    selected_evidence: list[EvidenceBullet] | None = None,
     template_path: Path | None = None,
     template_id: str = "ats_single_column_v1",
     output_dir: Path = DEFAULT_OUTPUT_DIR,
@@ -98,6 +105,7 @@ def generate_resume(
         job=job,
         profile_data=profile_data,
         selected_bullets=selected_bullets,
+        selected_evidence=selected_evidence,
         rewrite=rewrite,
         use_llm=use_llm,
         template_id=template_manifest.template_id,
@@ -175,6 +183,7 @@ def generate_resume_latex(
     job: RawJob,
     profile_data: dict[str, Any],
     selected_bullets: dict[str, list[str]] | None = None,
+    selected_evidence: list[EvidenceBullet] | None = None,
     *,
     template_id: str,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
@@ -190,6 +199,7 @@ def generate_resume_latex(
         job=job,
         profile_data=profile_data,
         selected_bullets=selected_bullets,
+        selected_evidence=selected_evidence,
         rewrite=rewrite,
         use_llm=use_llm,
         template_id=package.template_id,
@@ -250,6 +260,7 @@ def build_resume_document(
     profile_data: dict[str, Any],
     selected_bullets: dict[str, list[str]] | None = None,
     *,
+    selected_evidence: list[EvidenceBullet] | None = None,
     rewrite: bool = False,
     use_llm: bool = False,
     template_id: str = "ats_single_column_v1",
@@ -264,15 +275,19 @@ def build_resume_document(
     db_session = _optional_generation_session()
     try:
         evidence = (
-            _evidence_from_selected_bullets(profile_data, selected_bullets, jd_tags)
-            if selected_bullets is not None
-            else select_relevant_evidence(
-                jd_tags,
-                profile_data,
-                max_bullets_per_entity=_max_bullets_per_entity(template_manifest),
-                query_text=f"{job.title}\n{job.description or ''}",
-                db_session=db_session,
-                query_embedding=_job_query_embedding(job),
+            selected_evidence
+            if selected_evidence is not None
+            else (
+                _evidence_from_selected_bullets(profile_data, selected_bullets, jd_tags)
+                if selected_bullets is not None
+                else select_relevant_evidence(
+                    jd_tags,
+                    profile_data,
+                    max_bullets_per_entity=_max_bullets_per_entity(template_manifest),
+                    query_text=f"{job.title}\n{job.description or ''}",
+                    db_session=db_session,
+                    query_embedding=_job_query_embedding(job),
+                )
             )
         )
     finally:
@@ -283,12 +298,14 @@ def build_resume_document(
     if rewrite and use_llm:
         grouped = _rewrite_grouped_evidence(grouped, jd_tags, mode=rewrite_mode)
 
+    skills = _prioritize_skills(profile_data.get("skills", {}), jd_tags)
     document = ResumeDocument(
         template_id=template_id,
         target_role=job.title,
         company=job.company,
         header=profile_data.get("identity", {}),
-        skills=_prioritize_skills(profile_data.get("skills", {}), jd_tags),
+        summary=_build_resume_summary(job, grouped, skills),
+        skills=skills,
         education=profile_data.get("education", []),
         experiences=_build_experience_items(profile_data, grouped),
         projects=_build_project_items(profile_data, grouped),
@@ -299,7 +316,9 @@ def build_resume_document(
             "selected_evidence_count": sum(len(items) for items in grouped.values()),
         },
     )
-    return fit_resume_document_to_template(document, template_manifest)
+    fitted = fit_resume_document_to_template(document, template_manifest)
+    fitted.experiences = _fill_missing_experience_periods(fitted.experiences)
+    return fitted
 
 
 def _build_custom_sections(profile_data: dict[str, Any]) -> list:
@@ -437,8 +456,11 @@ def _optional_generation_session():
 
 
 def _job_query_embedding(job: RawJob) -> list[float] | None:
+    raw_data = getattr(job, "raw_data", {}) or {}
+    if not isinstance(raw_data, dict):
+        return None
     for key in ("description_embedding", "embedding"):
-        value = job.raw_data.get(key)
+        value = raw_data.get(key)
         if (
             isinstance(value, list)
             and value
@@ -494,7 +516,7 @@ def _rewrite_grouped_evidence(
 def _build_experience_items(
     profile_data: dict[str, Any], grouped: dict[str, list[EvidenceBullet]]
 ) -> list[ResumeItem]:
-    items: list[ResumeItem] = []
+    ranked_items: list[tuple[tuple[float, float, int, int], ResumeItem]] = []
     for index, exp in enumerate(profile_data.get("work_experiences", [])):
         if not isinstance(exp, dict):
             continue
@@ -504,27 +526,27 @@ def _build_experience_items(
         evidence_items = grouped.get(entity, [])
         if not evidence_items:
             continue
-        items.append(
-            ResumeItem(
-                source_id=f"experience:{_slugify(entity) or index}",
-                source_type="experience",
-                name=company,
-                title=title,
-                organization=company,
-                location=str(exp.get("location") or ""),
-                start_date=str(exp.get("start_date") or ""),
-                end_date=str(exp.get("end_date") or ""),
-                meta=str(exp.get("description") or ""),
-                bullets=[item.to_resume_bullet() for item in evidence_items],
-            )
+        item = ResumeItem(
+            source_id=f"experience:{_slugify(entity) or index}",
+            source_type="experience",
+            name=company,
+            title=title,
+            organization=company,
+            location=str(exp.get("location") or ""),
+            start_date=str(exp.get("start_date") or ""),
+            end_date=str(exp.get("end_date") or ""),
+            meta=str(exp.get("description") or ""),
+            bullets=[item.to_resume_bullet() for item in evidence_items],
         )
-    return items
+        ranked_items.append((_resume_item_relevance_key(item, profile_index=index), item))
+    ranked_items.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in ranked_items]
 
 
 def _build_project_items(
     profile_data: dict[str, Any], grouped: dict[str, list[EvidenceBullet]]
 ) -> list[ResumeItem]:
-    items: list[ResumeItem] = []
+    ranked_items: list[tuple[tuple[float, float, int, int], ResumeItem]] = []
     for index, project in enumerate(profile_data.get("projects", [])):
         if not isinstance(project, dict):
             continue
@@ -532,35 +554,313 @@ def _build_project_items(
         evidence_items = grouped.get(name, [])
         if not evidence_items:
             continue
-        items.append(
-            ResumeItem(
-                source_id=f"project:{_slugify(name) or index}",
-                source_type="project",
-                name=name,
-                title=str(project.get("role") or ""),
-                meta=str(project.get("description") or ""),
-                start_date=str(project.get("start_date") or ""),
-                end_date=str(project.get("end_date") or ""),
-                tech_stack=[str(value) for value in project.get("tech_stack", [])],
-                bullets=[item.to_resume_bullet() for item in evidence_items],
+        item = ResumeItem(
+            source_id=f"project:{_slugify(name) or index}",
+            source_type="project",
+            name=name,
+            title=str(project.get("role") or ""),
+            meta=str(project.get("description") or ""),
+            start_date=str(project.get("start_date") or ""),
+            end_date=str(project.get("end_date") or ""),
+            tech_stack=[str(value) for value in project.get("tech_stack", [])],
+            bullets=[item.to_resume_bullet() for item in evidence_items],
+        )
+        ranked_items.append((_resume_item_relevance_key(item, profile_index=index), item))
+    ranked_items.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in ranked_items]
+
+
+def _resume_item_relevance_key(
+    item: ResumeItem,
+    *,
+    profile_index: int,
+) -> tuple[float, float, int, int]:
+    scores = [bullet.score for bullet in item.bullets]
+    best_score = max(scores, default=0.0)
+    total_score = sum(scores)
+    return (best_score, total_score, len(item.bullets), -profile_index)
+
+
+def _fill_missing_experience_periods(items: list[ResumeItem]) -> list[ResumeItem]:
+    missing_items = [
+        item
+        for item in items
+        if getattr(item, "dates_inferred", False) or (not item.start_date and not item.end_date)
+    ]
+    if not missing_items:
+        return items
+
+    for item, (start_date, end_date) in zip(
+        missing_items,
+        _fallback_experience_periods(missing_items),
+        strict=False,
+    ):
+        item.start_date = start_date
+        item.end_date = end_date
+        item.dates_inferred = True
+    return items
+
+
+def _fallback_experience_periods(items: list[ResumeItem]) -> list[tuple[str, str]]:
+    today = date.today()
+    current_year = max(_FALLBACK_WORK_START_YEAR, today.year)
+    count = len(items)
+    if count <= 0:
+        return []
+    if count <= 5:
+        return _fallback_year_periods(count, current_year)
+    return _fallback_month_periods(items, today)
+
+
+def _fallback_year_periods(count: int, current_year: int) -> list[tuple[str, str]]:
+    periods: list[tuple[str, str]] = []
+    end_year = current_year
+    for index in range(count):
+        start_year = max(
+            _FALLBACK_WORK_START_YEAR,
+            end_year - _FALLBACK_MIN_WORK_YEARS_PER_COMPANY,
+        )
+        periods.append(
+            (
+                str(start_year),
+                "Present" if index == 0 else str(end_year),
             )
         )
-    return items
+        end_year = start_year
+    return periods
+
+
+def _fallback_month_periods(
+    items: list[ResumeItem],
+    today: date,
+) -> list[tuple[str, str]]:
+    current_month = _month_index(today.year, today.month)
+    floor_month = _month_index(_FALLBACK_WORK_START_YEAR, 1)
+    boundaries = _deterministic_period_boundaries(items, floor_month, current_month)
+
+    periods: list[tuple[str, str]] = []
+    count = len(items)
+    for index in range(count):
+        start_month = boundaries[count - index - 1]
+        end_month = boundaries[count - index]
+        periods.append(
+            (
+                _format_month_index(start_month),
+                "Present" if index == 0 else _format_month_index(end_month),
+            )
+        )
+    return periods
+
+
+def _deterministic_period_boundaries(
+    items: list[ResumeItem],
+    floor_month: int,
+    current_month: int,
+) -> list[int]:
+    count = len(items)
+    if count <= 0:
+        return [floor_month, current_month]
+    total_months = max(0, current_month - floor_month)
+    if total_months <= count:
+        return [floor_month + index for index in range(count)] + [current_month]
+
+    min_gap = 3 if total_months >= count * 3 else 1
+    step = total_months / count
+    jitter_range = max(1, int(step * 0.2))
+    boundaries = [floor_month]
+    for index in range(1, count):
+        ideal = floor_month + round(step * index)
+        weight = _deterministic_item_weight(items[index - 1])
+        jitter = weight % (jitter_range * 2 + 1) - jitter_range
+        lower = boundaries[-1] + min_gap
+        upper = current_month - (count - index) * min_gap
+        boundaries.append(min(max(ideal + jitter, lower), upper))
+    boundaries.append(current_month)
+    return boundaries
+
+
+def _deterministic_item_weight(item: ResumeItem) -> int:
+    key = "|".join([item.source_id, item.name, item.title, item.organization])
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % 100 + 1
+
+
+def _month_index(year: int, month: int) -> int:
+    return year * 12 + month - 1
+
+
+def _format_month_index(value: int) -> str:
+    year = value // 12
+    month = value % 12 + 1
+    return f"{year:04d}-{month:02d}"
 
 
 def _prioritize_skills(skills: dict[str, Any], jd_tags: list[str]) -> dict[str, list[str]]:
     tag_set = {_normalize_tag(tag) for tag in jd_tags}
     prioritized: dict[str, list[str]] = {}
+    fallback: dict[str, list[str]] = {}
     for category, values in skills.items():
         if not isinstance(values, list):
             continue
         clean_values = [str(value) for value in values if str(value).strip()]
-        prioritized[category] = sorted(
-            clean_values,
-            key=lambda value: _normalize_tag(value) in tag_set,
-            reverse=True,
-        )
-    return prioritized
+        fallback[category] = clean_values[:_MAX_FALLBACK_SKILLS_PER_CATEGORY]
+        relevant = [
+            value
+            for value in clean_values
+            if _skill_matches_jd_tags(value, tag_set)
+        ][:_MAX_RELEVANT_SKILLS_PER_CATEGORY]
+        if relevant:
+            prioritized[category] = relevant
+    if prioritized:
+        return prioritized
+    return {category: values for category, values in fallback.items() if values}
+
+
+def _skill_matches_jd_tags(skill: str, tag_set: set[str]) -> bool:
+    if not tag_set:
+        return False
+    normalized = _normalize_tag(skill)
+    variants = _skill_tag_variants(normalized)
+    if variants & tag_set:
+        return True
+    tokens = {_normalize_tag(token) for token in re.findall(r"[A-Za-z][A-Za-z0-9+#.]+", skill)}
+    if tokens & tag_set:
+        return True
+    return any(
+        len(tag) >= 3
+        and len(variant) >= 3
+        and (tag in variant or variant in tag)
+        for tag in tag_set
+        for variant in variants | tokens
+    )
+
+
+def _skill_tag_variants(normalized: str) -> set[str]:
+    compact = normalized.replace("_", "").replace(".", "")
+    variants = {normalized, compact}
+    aliases = {
+        "postgresql": {"postgresql", "postgres", "sql"},
+        "mysql": {"mysql", "sql"},
+        "sqlite": {"sqlite", "sql"},
+        "microsoft_sql_server": {"microsoft_sql_server", "sql_server", "mssql", "sql"},
+        "nodejs": {"nodejs", "node"},
+        "nextjs": {"nextjs", "next.js", "react"},
+        "reactjs": {"reactjs", "react"},
+        "amazon_web_services": {"amazon_web_services", "aws", "cloud"},
+        "google_cloud_platform": {"google_cloud_platform", "gcp", "cloud"},
+        "microsoft_azure": {"microsoft_azure", "azure", "cloud"},
+        "c_plus_plus": {"c_plus_plus", "cpp", "c++"},
+    }
+    variants.update(aliases.get(normalized, set()))
+    variants.update(aliases.get(compact, set()))
+    return {value for value in variants if value}
+
+
+def _build_resume_summary(
+    job: RawJob,
+    grouped: dict[str, list[EvidenceBullet]],
+    skills: dict[str, list[str]],
+) -> str:
+    role = _clean_summary_text(job.title or "this role")
+    skill_phrase = _summary_skill_phrase(skills)
+    evidence = sorted(
+        [item for items in grouped.values() for item in items],
+        key=lambda item: item.score + item.semantic_score + item.vector_score,
+        reverse=True,
+    )
+    roles = _summary_source_roles(evidence)
+    evidence_sentences = [_summary_evidence_sentence(item) for item in evidence[:2]]
+    evidence_sentences = [sentence for sentence in evidence_sentences if sentence]
+
+    sentences = [
+        (
+            f"{role} with hands-on experience in {skill_phrase}, combining "
+            "engineering depth with practical technical discovery, implementation, "
+            "and stakeholder-facing problem solving."
+        ),
+    ]
+    sentences.extend(evidence_sentences)
+    if roles:
+        sentences.append(f"Relevant background spans {roles}.")
+    sentences.append(
+        "Work emphasizes practical delivery, maintainable implementation, debugging, "
+        "security-conscious engineering, and technical judgment in production systems."
+    )
+    return _trim_summary_words(" ".join(sentences), max_words=115)
+
+
+def _summary_skill_phrase(skills: dict[str, list[str]]) -> str:
+    values = [
+        value
+        for category_values in skills.values()
+        for value in category_values
+        if str(value).strip()
+    ]
+    if not values:
+        return "the role's most relevant engineering requirements"
+    return _join_natural(values[:5])
+
+
+def _summary_evidence_sentence(item: EvidenceBullet) -> str:
+    text = _clean_summary_text(item.render_text or item.text)
+    if not text:
+        return ""
+    text = _trim_summary_fragment(text, max_words=24)
+    text = text[0].lower() + text[1:] if len(text) > 1 else text.lower()
+    role = _summary_source_role(item)
+    if role:
+        return f"As a {role}, {text}."
+    return f"Experience includes work that {text}."
+
+
+def _summary_source_roles(evidence: list[EvidenceBullet]) -> str:
+    roles: list[str] = []
+    for item in evidence:
+        role = _summary_source_role(item)
+        if role and role not in roles:
+            roles.append(role)
+        if len(roles) >= 3:
+            break
+    return _join_natural(roles)
+
+
+def _summary_source_role(item: EvidenceBullet) -> str:
+    entity = _clean_summary_text(item.source_entity)
+    if not entity:
+        return ""
+    if " - " in entity:
+        return entity.split(" - ", 1)[1].strip()
+    return entity
+
+
+def _clean_summary_text(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text.rstrip(".;")
+
+
+def _trim_summary_words(text: str, *, max_words: int) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]).rstrip(" ,;:") + "."
+
+
+def _trim_summary_fragment(text: str, *, max_words: int) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]).rstrip(" ,;:")
+
+
+def _join_natural(values: list[str]) -> str:
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0]
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    return f"{', '.join(cleaned[:-1])}, and {cleaned[-1]}"
 
 
 def _plan_section_order(job: RawJob, profile_data: dict[str, Any]) -> list[str]:
@@ -572,8 +872,8 @@ def _plan_section_order(job: RawJob, profile_data: dict[str, Any]) -> list[str]:
         token in f"{title} {seniority}" for token in ("intern", "student", "coop", "co-op")
     )
     if is_student:
-        return ["header", "education", "skills", "projects", "experience"]
-    return ["header", "skills", "experience", "projects", "education"]
+        return ["header", "summary", "education", "skills", "projects", "experience"]
+    return ["header", "summary", "skills", "experience", "projects", "education"]
 
 
 def _matched_keywords(text: str, tags: list[str], tag_set: set[str]) -> list[str]:
@@ -1114,6 +1414,7 @@ def _render_resume_to_target_pages(
     from src.documents.page_count import get_pdf_page_count  # noqa: PLC0415
 
     def _render(doc):
+        doc = _with_current_experience_periods(doc)
         path = build_resume_from_ir(
             template_path=template_path,
             document=doc,
@@ -1126,10 +1427,10 @@ def _render_resume_to_target_pages(
         except Exception as exc:  # noqa: BLE001
             logger.warning("PDF conversion failed: %s", exc)
         pages = get_pdf_page_count(pdf) if pdf else None
-        return path, pdf, pages
+        return path, pdf, pages, doc
 
     current = resume_document
-    docx_path, pdf_path, pages = _render(current)
+    docx_path, pdf_path, pages, current = _render(current)
     if target_pages <= 0 or pages is None:
         return current, docx_path, pdf_path
 
@@ -1166,7 +1467,7 @@ def _render_resume_to_target_pages(
             plan_history[-1],
         )
         current = _apply_fit_plan(current, plan)
-        docx_path, pdf_path, pages = _render(current)
+        docx_path, pdf_path, pages, current = _render(current)
 
     # Deterministic structural fallback: only used when the LLM plan
     # didn't converge. Overflow -> drop weakest bullet; underflow is
@@ -1198,9 +1499,15 @@ def _render_resume_to_target_pages(
             _MAX_TRIM_ATTEMPTS,
         )
         current = trimmed
-        docx_path, pdf_path, pages = _render(current)
+        docx_path, pdf_path, pages, current = _render(current)
 
     return current, docx_path, pdf_path
+
+
+def _with_current_experience_periods(document: ResumeDocument) -> ResumeDocument:
+    updated = document.model_copy(deep=True)
+    updated.experiences = _fill_missing_experience_periods(updated.experiences)
+    return updated
 
 
 def _drop_weakest_bullet(document: ResumeDocument) -> ResumeDocument | None:

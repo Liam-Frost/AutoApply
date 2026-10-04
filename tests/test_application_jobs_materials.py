@@ -123,6 +123,68 @@ async def test_application_materials_honor_patch_default_strategy(
     ]
 
 
+async def test_application_materials_share_evidence_between_resume_and_cover(
+    monkeypatch, tmp_path: Path
+) -> None:
+    resume_pdf = tmp_path / "resume.pdf"
+    cover_pdf = tmp_path / "cover.pdf"
+    resume_pdf.write_bytes(b"%PDF-1.7\n")
+    cover_pdf.write_bytes(b"%PDF-1.7\n")
+    shared_resume_evidence = [object()]
+    shared_cover_evidence = ["At RelevantCo - Backend Intern, Built FastAPI services"]
+    calls: list[tuple[str, list | None, list[str] | None]] = []
+
+    monkeypatch.setattr(
+        "src.application.material_defaults.resolve_material_choice",
+        lambda *, document_type, **_kwargs: {
+            "strategy": "regenerate",
+            "template_id": None,
+            "document_id": None,
+            "patch_aggressiveness": "balanced",
+            "patch_allow_reorder_sections": True,
+            "patch_allow_add_remove_bullets": True,
+            "source": "test-default",
+        },
+    )
+    monkeypatch.setattr(
+        jobs_app,
+        "_build_shared_material_evidence",
+        lambda _profile, _job: {
+            "entities": ["RelevantCo - Backend Intern"],
+            "resume_evidence": shared_resume_evidence,
+            "cover_evidence": shared_cover_evidence,
+        },
+    )
+
+    def fake_generate(_profile_data, _job, material_type, **kwargs):
+        calls.append(
+            (
+                material_type,
+                kwargs.get("shared_resume_evidence"),
+                kwargs.get("shared_cover_evidence"),
+            )
+        )
+        artifacts = jobs_app._empty_material_artifacts()
+        if material_type == "resume_pdf":
+            artifacts["resume_pdf"] = str(resume_pdf)
+        elif material_type == "cover_letter_pdf":
+            artifacts["cover_letter_pdf"] = str(cover_pdf)
+        return {"artifacts": artifacts, "strategy_notes": []}
+
+    monkeypatch.setattr(jobs_app, "_generate_selected_material", fake_generate)
+
+    resume_path, cover_letter_path, _qa = await jobs_app._generate_materials(
+        {"qa_bank": []}, SimpleNamespace(company="Acme", title="Engineer")
+    )
+
+    assert resume_path == resume_pdf
+    assert cover_letter_path == cover_pdf
+    assert calls == [
+        ("resume_pdf", shared_resume_evidence, None),
+        ("cover_letter_pdf", None, shared_cover_evidence),
+    ]
+
+
 async def test_application_materials_use_library_preserves_pdf_format(
     monkeypatch, tmp_path: Path
 ) -> None:

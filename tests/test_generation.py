@@ -1,5 +1,7 @@
 """Tests for src.generation — resume builder, cover letter, QA responder."""
 
+from copy import deepcopy
+from datetime import date
 from pathlib import Path
 
 from src.documents.templates import default_manifest
@@ -241,9 +243,115 @@ class TestResumeIR:
         assert document.document_type == "resume"
         assert document.target_role == "Backend Engineering Intern"
         assert document.section_order[0] == "header"
+        assert document.section_order[1] == "summary"
+        assert document.summary
+        assert "\n" not in document.summary
+        assert document.summary.startswith("Backend Engineering Intern")
+        assert "TestCo" not in document.summary
+        assert "tailored" not in document.summary.lower()
+        assert "selected bullets" not in document.summary.lower()
         assert any(bullet.source_id.startswith("experience:") for bullet in bullets)
         assert any("fastapi" in bullet.matched_keywords for bullet in bullets)
         assert all(bullet.original_text for bullet in bullets)
+
+    def test_resume_prioritizes_relevant_experience_before_capacity_fit(self):
+        profile = deepcopy(_PROFILE)
+        profile["projects"] = []
+        profile["work_experiences"] = [
+            {
+                "company": "ArchiveCo",
+                "title": "General Assistant",
+                "bullets": [{"text": "Handled office coordination", "tags": ["operations"]}],
+            },
+            {
+                "company": "RelevantCo",
+                "title": "Backend Intern",
+                "bullets": [
+                    {
+                        "text": "Built FastAPI services with Python",
+                        "tags": ["python", "fastapi", "backend"],
+                    }
+                ],
+            },
+        ]
+        manifest = default_manifest("resume")
+        manifest.capacity.max_experience_items = 1
+        manifest.sections["experience"].max_items = 1
+
+        document = build_resume_document(_make_job(), profile, template_manifest=manifest)
+
+        assert [item.name for item in document.experiences] == ["RelevantCo"]
+
+    def test_resume_keeps_only_jd_relevant_skills(self):
+        job = _make_job()
+        job.requirements = JobRequirements(
+            must_have_skills=["Python", "FastAPI", "PostgreSQL"],
+            preferred_skills=["Docker"],
+        )
+
+        document = build_resume_document(job, _PROFILE)
+
+        assert document.skills == {
+            "languages": ["Python"],
+            "frameworks": ["FastAPI"],
+            "databases": ["PostgreSQL"],
+            "tools": ["Docker"],
+        }
+
+    def test_resume_fills_missing_work_dates_newest_to_oldest(self):
+        profile = deepcopy(_PROFILE)
+        profile["projects"] = []
+        profile["work_experiences"] = [
+            {
+                "company": "FirstCo",
+                "title": "Backend Developer",
+                "bullets": [{"text": "Built Python APIs", "tags": ["python", "backend"]}],
+            },
+            {
+                "company": "SecondCo",
+                "title": "Backend Developer",
+                "bullets": [{"text": "Maintained FastAPI services", "tags": ["fastapi"]}],
+            },
+        ]
+
+        document = build_resume_document(_make_job(), profile)
+        current_year = max(2016, date.today().year)
+        first_start = max(2016, current_year - 2)
+        second_start = max(2016, first_start - 2)
+
+        assert [(item.start_date, item.end_date) for item in document.experiences] == [
+            (str(first_start), "Present"),
+            (str(second_start), str(first_start)),
+        ]
+
+    def test_resume_uses_variable_missing_work_dates_for_many_positions(self):
+        profile = deepcopy(_PROFILE)
+        profile["projects"] = []
+        profile["work_experiences"] = [
+            {
+                "company": f"Company {index}",
+                "title": "Backend Developer",
+                "bullets": [{"text": f"Built Python service {index}", "tags": ["python"]}],
+            }
+            for index in range(7)
+        ]
+        manifest = default_manifest("resume")
+        manifest.capacity.max_experience_items = 10
+        manifest.capacity.max_bullets_total = 20
+        manifest.sections["experience"].max_items = 10
+
+        document = build_resume_document(_make_job(), profile, template_manifest=manifest)
+        periods = [(item.start_date, item.end_date) for item in document.experiences]
+        current_year = date.today().year
+
+        assert periods[0][1] == "Present"
+        assert any("-" in start for start, _end in periods)
+        assert len({start for start, _end in periods}) > 1
+        assert periods[-1][0] == "2016-01"
+        for start, end in periods:
+            assert int(start[:4]) <= current_year
+            if end != "Present":
+                assert int(end[:4]) <= current_year
 
     def test_resume_validator_flags_added_numbers(self):
         job = _make_job()

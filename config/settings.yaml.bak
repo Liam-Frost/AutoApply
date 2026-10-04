@@ -1,0 +1,104 @@
+database:
+  host: localhost
+  port: 5432
+  name: autoapply
+  user: autoapply
+  password: 'vn8we3thpw87ywfhseouhj'
+llm:
+  provider: codex-cli
+  primary_provider: codex-cli
+  fallback_provider: claude-cli
+  allow_fallback: true
+  timeout: 120
+  max_retries: 2
+  fallback_providers:
+  - claude-cli
+  # Phase 17.9.5: optional cheap-model tier. Pure-extraction LLM calls
+  # (job-description parsing, resume import) route here when set;
+  # creative paths stay on the primary chain. Leave commented out to
+  # keep all calls on the primary chain.
+  # small_provider: groq
+  # small_model: llama-3.3-70b-versatile
+  #
+  # Phase 17.9.6: user-defined OpenAI-compatible providers. Each entry
+  # spawns a registered provider at startup. base_url and default_model
+  # are required; everything else is optional. Use this for third-party
+  # proxies, private vLLM/LM Studio endpoints, or any not-yet-bundled
+  # OpenAI-compatible upstream.
+  # custom_providers:
+  #   - id: my-vllm
+  #     display_name: Internal vLLM cluster
+  #     base_url: https://vllm.internal.example/v1
+  #     default_model: Qwen/Qwen2.5-32B-Instruct
+  #     api_key_env: VLLM_API_KEY      # omit for keyless endpoints
+  #     allow_empty_key: true          # set when the endpoint has no auth
+  #     models:
+  #       - id: Qwen/Qwen2.5-32B-Instruct
+  #         display_name: Qwen 2.5 32B
+  #         context_window: 32768
+  #       - meta-llama/Llama-3.3-70B-Instruct
+documents:
+  output_dir: data/output
+  template_dir: data/templates
+  naming_pattern: '{type}_{company}_{role}_{date}'
+logging:
+  level: INFO
+  file: logs/autoapply.log
+  format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+rate_limit:
+  min_delay: 3
+  max_delay: 8
+  cooldown_on_error: 60
+  max_applications_per_hour: 15
+search_cache:
+  enabled: true
+  ttl_hours: 24
+linkedin:
+  max_keyword_detail_fetches: 5000
+  max_redirect_detail_fetches: 5000
+cache:
+  l1_max_entries: 1024
+# Phase 18.4: artifact cleanup + quarantine pipeline.
+# ``maintenance.cache_eviction`` (Beat: hourly on :30) and the manual
+# ``autoapply cleanup ...`` CLI share these knobs. The flow is:
+# scan -> move eligible files to data/quarantine/<run_id>/ -> purge
+# from quarantine after ``quarantine_days``. DB-referenced artifacts
+# (Application.resume_version, UserDocument.storage_path, etc.) are
+# always protected regardless of age.
+cleanup:
+  # Half-written ``*.tmp`` siblings dropped by atomic_write. 24h is
+  # long enough that a still-running write isn't mistaken for a
+  # corpse, short enough that a real ghost doesn't linger.
+  tmp_hours: 24
+  # Zero-byte DOCX/PDF on disk -- typically crashed patch attempts.
+  failed_artifact_hours: 48
+  # ``data/output`` files NOT referenced by any DB row.
+  output_retention_days: 30
+  # ``Application.deleted_at`` window: once an application has been
+  # soft-deleted for this many days, its artifacts stop being
+  # protected and cleanup can harvest them.
+  soft_deleted_retention_days: 14
+  # ``data/output/screenshots``: keep the newest N per application
+  # prefix; older ones quarantine.
+  screenshot_keep_per_application: 5
+  # How long quarantined files live before ``purge_quarantine``
+  # permanently deletes them.
+  quarantine_days: 7
+# Phase 18.5: process-wide LLM concurrency caps. ``llm.max_concurrent_global``
+# is the ceiling that every dispatch acquires; per-provider entries override
+# the cap for that provider. ``bullet_rewrites.max_concurrent_per_task`` caps
+# the asyncio.gather fan-out inside one ``rewrite_bullets`` call but the
+# global gate still bounds provider load across concurrent workers.
+parallelism:
+  llm:
+    max_concurrent_global: 10
+  bullet_rewrites:
+    max_concurrent_per_task: 5
+  # Per-provider overrides. Add an entry like:
+  #   provider:
+  #     openai:
+  #       max_concurrent: 6
+  #     anthropic:
+  #       max_concurrent: 4
+  # Missing entries inherit the global cap.
+  provider: {}

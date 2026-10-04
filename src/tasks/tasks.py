@@ -545,12 +545,29 @@ def materials_generate(self: AutoApplyTask, **payload: Any) -> dict[str, Any]:
         return (
             doc_type,
             {
+                "ok": True,
+                "job": result.get("job"),
                 "material_type": result.get("material_type"),
+                "artifact": artifact,
                 "path": artifact.get("path"),
                 "filename": artifact.get("filename"),
                 "artifacts": result.get("artifacts"),
+                "document": result.get("document"),
+                "validation": result.get("validation"),
+                "template": result.get("template"),
+                "requirements": result.get("requirements"),
+                "version": result.get("version"),
                 "strategy": result.get("strategy"),
+                "strategy_source": result.get("strategy_source"),
                 "strategy_notes": result.get("strategy_notes"),
+                "source_document_id": result.get("source_document_id"),
+                "patch_aggressiveness": result.get("patch_aggressiveness"),
+                "patch_allow_reorder_sections": result.get(
+                    "patch_allow_reorder_sections"
+                ),
+                "patch_allow_add_remove_bullets": result.get(
+                    "patch_allow_add_remove_bullets"
+                ),
             },
             None,
         )
@@ -628,6 +645,24 @@ def materials_generate(self: AutoApplyTask, **payload: Any) -> dict[str, Any]:
                     if cover_letter_path:
                         app_row.cover_letter_version = cover_letter_path
                         application_updates["cover_letter_version"] = cover_letter_path
+                    if (resume_path or cover_letter_path) and app_row.status in {
+                        "DISCOVERED",
+                        "QUALIFIED",
+                    }:
+                        previous_status = app_row.status
+                        app_row.status = "MATERIALS_READY"
+                        history = list(app_row.state_history or [])
+                        history.append(
+                            {
+                                "event": "MATERIALS_GENERATED",
+                                "from_status": previous_status,
+                                "to_status": "MATERIALS_READY",
+                                "resume_version": resume_path,
+                                "cover_letter_version": cover_letter_path,
+                            }
+                        )
+                        app_row.state_history = history
+                        application_updates["status"] = "MATERIALS_READY"
         except (ValueError, Exception) as exc:  # noqa: BLE001
             logger.warning(
                 "materials.generate: application writeback failed: %s", exc

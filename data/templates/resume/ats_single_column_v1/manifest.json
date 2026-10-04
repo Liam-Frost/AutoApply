@@ -8,10 +8,10 @@
     "pdf"
   ],
   "name": "ATS Single Column",
-  "description": "One-page ATS-friendly resume with named Word styles and tab-stop dates.",
+  "description": "Two-page ATS-friendly resume with named Word styles and tab-stop dates.",
   "page": {
     "size": "letter",
-    "max_pages": 1
+    "max_pages": 3
   },
   "styles": {
     "name": "Resume.Name",
@@ -27,31 +27,31 @@
   },
   "sections": {
     "summary": {
-      "enabled": false,
+      "enabled": true,
       "max_items": 1,
       "max_bullets_per_item": null,
       "max_words_per_bullet": null,
-      "max_lines": null
+      "max_lines": 5
     },
     "education": {
       "enabled": true,
-      "max_items": 2,
+      "max_items": 3,
       "max_bullets_per_item": null,
       "max_words_per_bullet": null,
       "max_lines": null
     },
     "experience": {
       "enabled": true,
-      "max_items": 3,
-      "max_bullets_per_item": 4,
-      "max_words_per_bullet": 24,
+      "max_items": 10,
+      "max_bullets_per_item": 5,
+      "max_words_per_bullet": 32,
       "max_lines": null
     },
     "projects": {
-      "enabled": true,
-      "max_items": 3,
-      "max_bullets_per_item": 3,
-      "max_words_per_bullet": 22,
+      "enabled": false,
+      "max_items": 4,
+      "max_bullets_per_item": 4,
+      "max_words_per_bullet": 32,
       "max_lines": null
     },
     "skills": {
@@ -59,31 +59,32 @@
       "max_items": null,
       "max_bullets_per_item": null,
       "max_words_per_bullet": null,
-      "max_lines": 4
+      "max_lines": 25
     }
   },
   "section_order": [
     "header",
-    "education",
-    "skills",
+    "summary",
     "projects",
-    "experience"
+    "experience",
+    "education",
+    "skills"
   ],
   "capacity": {
-    "max_pages": 1,
-    "max_sections": 5,
-    "max_experience_items": 3,
-    "max_project_items": 3,
-    "max_bullets_total": 13,
-    "max_words_per_bullet": 24,
-    "max_skill_lines": 4
+    "max_pages": 4,
+    "max_sections": 9,
+    "max_experience_items": 6,
+    "max_project_items": 4,
+    "max_bullets_total": 36,
+    "max_words_per_bullet": 32,
+    "max_skill_lines": 8
   },
   "blocks": {
     "sections": "{{resume.sections}}"
   },
   "latex": null,
   "style_overrides": {},
-  "target_pages": 1,
+  "target_pages": 2,
   "filename_pattern": "company_role_date",
   "filename_custom_label": ""
 }

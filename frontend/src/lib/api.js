@@ -86,16 +86,41 @@ function _materialEnvelopeFromTaskRow(row, materialType, extras = {}) {
     err.errors = errors
     throw err
   }
+  const normalizedArtifact =
+    documentArtifact && typeof documentArtifact === "object"
+      ? documentArtifact
+      : documentArtifact
+        ? { path: documentArtifact }
+        : null
+  const nestedArtifacts =
+    normalizedArtifact?.artifacts && typeof normalizedArtifact.artifacts === "object"
+      ? normalizedArtifact.artifacts
+      : null
+  const flatArtifacts = nestedArtifacts
+    ? Object.fromEntries(
+        Object.entries(nestedArtifacts).map(([k, v]) => [k, v?.path || v]),
+      )
+    : Object.fromEntries(
+        Object.entries(artifacts).map(([k, v]) => [k, v?.path || v]),
+      )
   return {
     ok: true,
     task_id: row.id,
     material_type: materialType,
-    artifact: documentArtifact || null,
-    artifacts: Object.fromEntries(
-      Object.entries(artifacts).map(([k, v]) => [k, v?.path || v]),
-    ),
-    strategy: documentArtifact?.strategy ?? null,
-    strategy_notes: documentArtifact?.strategy_notes ?? [],
+    artifact: normalizedArtifact,
+    artifacts: flatArtifacts,
+    job: normalizedArtifact?.job || result.job || null,
+    document: normalizedArtifact?.document || null,
+    validation: normalizedArtifact?.validation || null,
+    template: normalizedArtifact?.template || null,
+    requirements: normalizedArtifact?.requirements || null,
+    version: normalizedArtifact?.version || null,
+    strategy: normalizedArtifact?.strategy ?? null,
+    strategy_source: normalizedArtifact?.strategy_source ?? null,
+    strategy_notes: normalizedArtifact?.strategy_notes ?? [],
+    source_document_id: normalizedArtifact?.source_document_id ?? null,
+    application_id: result.application_id || extras.applicationId || null,
+    application_updates: result.application_updates || {},
     ...extras,
   }
 }
@@ -122,6 +147,16 @@ export const api = {
   // setInterval loop.
   getTask(taskId) {
     return request(`/api/tasks/${encodeURIComponent(taskId)}`)
+  },
+  createMaterialsApplication(job, profileId = "") {
+    return request("/api/jobs/materials-application", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        job,
+        profile_id: profileId || null,
+      }),
+    })
   },
   /**
    * Poll ``/api/tasks/{taskId}`` until the row reaches a terminal
@@ -374,6 +409,7 @@ export const api = {
     const {
       strategy = null,
       sourceDocumentId = null,
+      applicationId = null,
       patchAggressiveness = null,
       patchAllowReorderSections = null,
       patchAllowAddRemoveBullets = null,
@@ -390,6 +426,7 @@ export const api = {
         material_type: materialType,
         template_id: templateId || null,
         profile_id: profileId || null,
+        application_id: applicationId || null,
         strategy,
         source_document_id: sourceDocumentId,
         patch_aggressiveness: patchAggressiveness,

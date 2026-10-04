@@ -11,12 +11,21 @@ from pathlib import Path
 from typing import Any
 
 from src.documents._shared import (
-    clean_cover_letter_location as _clean_cover_letter_location,
     clean_field as _clean_field,
+)
+from src.documents._shared import (
     cover_letter_contact_lines as _cover_letter_contact_lines,
+)
+from src.documents._shared import (
     cover_letter_date as _cover_letter_date,
+)
+from src.documents._shared import (
     cover_letter_recipient_lines as _cover_letter_recipient_lines,
+)
+from src.documents._shared import (
     normalise_divider_set as _normalise_divider_set,
+)
+from src.documents._shared import (
     section_wants_divider as _section_wants_divider,
 )
 from src.documents.templates import TemplateManifest, default_manifest
@@ -318,6 +327,8 @@ def _render_resume_sections(document) -> str:
 
 
 def _render_resume_section(section: str, document) -> str:
+    if section == "summary":
+        return _render_summary(getattr(document, "summary", ""))
     if section == "education":
         return _render_education(document.education)
     if section == "skills":
@@ -339,6 +350,13 @@ def _render_resume_section(section: str, document) -> str:
                 return _render_custom_section(custom)
         return ""
     return ""
+
+
+def _render_summary(summary: str) -> str:
+    summary = str(summary or "").strip()
+    if not summary:
+        return ""
+    return "\n\n".join([_section_heading("Summary"), latex_inline(summary)])
 
 
 def _render_custom_section(custom) -> str:
@@ -472,14 +490,12 @@ def _itemize(items: list[str]) -> str:
 
 
 def _resolved_section_order(document) -> list[str]:
-    # See src/documents/docx_engine.py::_resolved_section_order. ``summary``
-    # is filtered out unconditionally -- this system never renders a
-    # Summary section.
-    default_order = ["header", "education", "skills", "experience", "projects"]
+    # See src/documents/docx_engine.py::_resolved_section_order.
+    default_order = ["header", "summary", "education", "skills", "experience", "projects"]
     explicit = [
         section
         for section in document.section_order
-        if section in default_order and section != "summary"
+        if section in default_order
     ]
     return explicit or default_order
 

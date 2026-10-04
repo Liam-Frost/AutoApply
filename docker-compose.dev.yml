@@ -1,0 +1,112 @@
+services:
+  autoapply:
+    build:
+      context: .
+    image: autoapply-vnc:dev
+    container_name: autoapply-dev
+    init: true
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    environment:
+      VNC_PASSWD: "${VNC_PASSWD:?VNC_PASSWD must be set in .env or the shell}"
+      DISPLAY: ":0"
+      DISPLAY_WIDTH: "${DISPLAY_WIDTH:-1920}"
+      DISPLAY_HEIGHT: "${DISPLAY_HEIGHT:-1200}"
+      TZ: "${TZ:-Europe/Madrid}"
+
+      AUTOAPPLY_START_ARGS: "--skip-docker --host 0.0.0.0 --port 8000"
+
+      # PostgreSQL внутри compose network
+      AUTOAPPLY_DB_HOST: "postgres"
+      AUTOAPPLY_DB_PORT: "5432"
+      AUTOAPPLY_DB_NAME: "${AUTOAPPLY_DB_NAME:-autoapply}"
+      AUTOAPPLY_DB_USER: "${AUTOAPPLY_DB_USER:-autoapply}"
+      AUTOAPPLY_DB_PASSWORD: "${AUTOAPPLY_DB_PASSWORD:?AUTOAPPLY_DB_PASSWORD must be set in .env or the shell}"
+
+      # Redis внутри compose network
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+
+      OMP_NUM_THREADS: "${OMP_NUM_THREADS:-4}"
+      OPENBLAS_NUM_THREADS: "${OPENBLAS_NUM_THREADS:-4}"
+      MKL_NUM_THREADS: "${MKL_NUM_THREADS:-4}"
+      NUMEXPR_NUM_THREADS: "${NUMEXPR_NUM_THREADS:-4}"
+
+    ports:
+      - "8000:8000"
+      - "6080:6080"
+
+    volumes:
+      - ./:/app
+
+    restart: unless-stopped
+    shm_size: "2gb"
+    mem_limit: "8g"
+    mem_reservation: "3g"
+    cpus: "4.0"
+
+    security_opt:
+      - no-new-privileges:true
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: autoapply-postgres-dev
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: "${AUTOAPPLY_DB_USER:-autoapply}"
+      POSTGRES_DB: "${AUTOAPPLY_DB_NAME:-autoapply}"
+      POSTGRES_PASSWORD: "${AUTOAPPLY_DB_PASSWORD:?AUTOAPPLY_DB_PASSWORD must be set in .env or the shell}"
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${AUTOAPPLY_DB_USER:-autoapply} -d ${AUTOAPPLY_DB_NAME:-autoapply}"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: autoapply-redis-dev
+    restart: unless-stopped
+
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - allkeys-lru
+      - --maxmemory
+      - "${REDIS_MAXMEMORY:-1gb}"
+
+    volumes:
+      - redis-dev-data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres-dev-data:
+    driver: local
+  redis-dev-data:
+    driver: local

@@ -97,6 +97,7 @@ const state = reactive({
     application_url: "",
     description: "",
   },
+  currentApplicationId: "",
   activePreviewTab: "resume",
   previewExpanded: {},
   results: {},
@@ -357,6 +358,17 @@ async function generateMaterials() {
   }
 
   state.generating = true
+  let applicationId = ""
+  try {
+    const application = await api.createMaterialsApplication(job, state.profileId)
+    applicationId = application?.application_id || ""
+    state.currentApplicationId = applicationId
+  } catch (error) {
+    state.generating = false
+    state.error = error?.message || "Couldn't create an application record for these materials."
+    return
+  }
+
   const settled = await Promise.allSettled(
     selectedTargets.value.map((target) => {
       const docType = target.templateType
@@ -387,7 +399,7 @@ async function generateMaterials() {
           primaryMaterialType(target),
           state.templateIds[target.templateType],
           state.profileId,
-          overrides,
+          { ...overrides, applicationId },
         )
         .then((response) => ({ target, response }))
     }),
@@ -410,6 +422,9 @@ async function generateMaterials() {
     ? selectedTargets.value.find((target) => state.results[target.id])?.id || state.activePreviewTab
     : state.activePreviewTab
   state.message = successes.length ? `Generated ${successes.join(" and ")}.` : ""
+  if (successes.length && applicationId) {
+    state.message += " Saved to Applications."
+  }
   state.error = failures.join("; ")
 }
 
@@ -1091,6 +1106,7 @@ function jobSummaryParts(job) {
                 v-for="line in activePreviewEntry.result.document.summary"
                 :key="line"
                 class="text-sm text-muted-foreground"
+                style="display: inline-block;"
               >
                 {{ line }}
               </p>

@@ -178,9 +178,10 @@ class TestDocxEngine:
             target_role="Backend Intern",
             company="Stripe",
             header=SAMPLE_IDENTITY,
+            summary="Backend engineer with Stripe-relevant payment systems experience.",
             education=SAMPLE_EDUCATION,
             skills=SAMPLE_SKILLS,
-            section_order=["header", "projects", "skills", "experience", "education"],
+            section_order=["header", "summary", "projects", "skills", "experience", "education"],
             experiences=[
                 ResumeItem(
                     source_id="experience:stripe",
@@ -210,9 +211,11 @@ class TestDocxEngine:
         doc = Document(str(result))
         full_text = " ".join(p.text for p in doc.paragraphs)
         assert "Jane Doe" in full_text
+        assert "Stripe-relevant payment systems experience" in full_text
         assert "Stripe" in full_text
         assert "payment retry" in full_text
         paragraph_text = [p.text for p in doc.paragraphs]
+        assert paragraph_text.index("Summary") < paragraph_text.index("Skills")
         assert paragraph_text.index("Skills") < paragraph_text.index("Experience")
         assert paragraph_text.index("Experience") < paragraph_text.index("Education")
 
@@ -472,6 +475,79 @@ class TestDocxEngine:
         assert "AWARDS" in full_text
         assert "Dean's List" in full_text
 
+    def test_build_resume_with_individual_markers_renders_custom_sections(self, tmp_path):
+        """DOCX templates that place each canonical section with its
+        own marker still need a catch-all for free-form profile
+        sections such as Languages and Certifications."""
+        from src.documents.templates import default_manifest
+        from src.generation.ir import CustomSection, CustomSectionEntry
+
+        template_path = tmp_path / "template_individual_markers.docx"
+        doc = Document()
+        for marker in (
+            "{{resume.header}}",
+            "{{resume.summary}}",
+            "{{resume.education}}",
+            "{{resume.skills}}",
+            "{{resume.experience}}",
+            "{{resume.projects}}",
+        ):
+            doc.add_paragraph(marker)
+        doc.save(str(template_path))
+
+        output_path = tmp_path / "resume_individual_markers.docx"
+        manifest = default_manifest("resume").model_copy(
+            update={
+                "blocks": {
+                    "header": "{{resume.header}}",
+                    "summary": "{{resume.summary}}",
+                    "education": "{{resume.education}}",
+                    "skills": "{{resume.skills}}",
+                    "experience": "{{resume.experience}}",
+                    "projects": "{{resume.projects}}",
+                }
+            }
+        )
+        document = ResumeDocument(
+            target_role="SWE",
+            company="Acme",
+            header=SAMPLE_IDENTITY,
+            education=SAMPLE_EDUCATION,
+            skills=SAMPLE_SKILLS,
+            section_order=["header", "education", "skills"],
+            experiences=[],
+            projects=[],
+            custom_sections=[
+                CustomSection(
+                    title="Certifications & Courses",
+                    entries=[
+                        CustomSectionEntry(
+                            title="AWS Certified Developer",
+                            details="Amazon Web Services",
+                        )
+                    ],
+                ),
+                CustomSection(
+                    title="Languages",
+                    entries=[CustomSectionEntry(details="English, Spanish, Russian")],
+                ),
+            ],
+        )
+
+        result = build_resume_from_ir(
+            template_path,
+            document,
+            output_path,
+            manifest=manifest,
+        )
+
+        rendered = Document(str(result))
+        full_text = " ".join(p.text for p in rendered.paragraphs)
+        assert "Certifications & Courses" in full_text
+        assert "AWS Certified Developer" in full_text
+        assert "Languages" in full_text
+        assert "English, Spanish, Russian" in full_text
+
     def test_template_package_renderer_uses_named_styles(self, tmp_path):
         package = ensure_template_package("resume", template_root=tmp_path)
         output_path = tmp_path / "resume_named_styles.docx"
@@ -502,10 +578,7 @@ class TestDocxEngine:
 
 class TestSectionOrderResolution:
     """Regression guard: `_resolved_section_order` must respect the
-    caller's explicit ordering. Earlier behavior appended any default
-    section missing from the order, which silently tacked Summary onto
-    the end of student/intern resumes whose order deliberately
-    excluded it."""
+    caller's explicit ordering."""
 
     def _doc(self, order):
         return ResumeDocument(
@@ -516,7 +589,6 @@ class TestSectionOrderResolution:
         )
 
     def test_docx_omitted_section_stays_omitted(self):
-        # Student-style order with no "summary".
         order = ["header", "education", "skills", "projects", "experience"]
         resolved = _resolved_section_order_docx(self._doc(order))
         assert "summary" not in resolved
@@ -530,19 +602,16 @@ class TestSectionOrderResolution:
 
     def test_empty_order_falls_back_to_default(self):
         # An empty list is the documented "use defaults" signal.
-        # The default order never includes "summary".
         resolved = _resolved_section_order_docx(self._doc([]))
-        assert "summary" not in resolved
+        assert "summary" in resolved
         assert resolved[0] == "header"
 
-    def test_summary_in_explicit_order_is_filtered(self):
-        # Even if a legacy caller / manifest asks for summary, it must
-        # be filtered out -- the system never renders a Summary section.
+    def test_summary_in_explicit_order_is_preserved(self):
         order = ["header", "summary", "skills", "experience"]
         resolved_docx = _resolved_section_order_docx(self._doc(order))
         resolved_tex = _resolved_section_order_latex(self._doc(order))
-        assert "summary" not in resolved_docx
-        assert "summary" not in resolved_tex
+        assert "summary" in resolved_docx
+        assert "summary" in resolved_tex
 
 
 class TestFileManager:
@@ -977,9 +1046,10 @@ class TestLatexTemplates:
             target_role="Backend Intern",
             company="Stripe",
             header={**SAMPLE_IDENTITY, "full_name": "Jane & Doe"},
+            summary="Backend engineer focused on Stripe payment reliability.",
             education=SAMPLE_EDUCATION,
             skills=SAMPLE_SKILLS,
-            section_order=["header", "skills", "experience", "education"],
+            section_order=["header", "summary", "skills", "experience", "education"],
             experiences=[
                 ResumeItem(
                     source_id="experience:stripe",
@@ -1009,6 +1079,8 @@ class TestLatexTemplates:
 
         text = result.read_text(encoding="utf-8")
         assert r"Jane \& Doe" in text
+        assert r"\section*{Summary}" in text
+        assert "Stripe payment reliability" in text
         assert r"\section*{Skills}" in text
         assert r"R\&D tooling with C\# and 50\% less toil" in text
         assert "{{resume.sections}}" not in text

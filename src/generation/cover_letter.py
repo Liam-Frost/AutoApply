@@ -1440,10 +1440,26 @@ def _select_evidence(
 
     Picks bullets with highest tag overlap with JD requirements.
     """
-    from src.generation.resume_builder import extract_jd_tags
+    from src.generation.resume_builder import (
+        _job_query_embedding,
+        _optional_generation_session,
+        extract_jd_tags,
+    )
 
     jd_tags = extract_jd_tags(job)
-    evidence = select_relevant_evidence(jd_tags, profile_data, max_total=max_points)
+    db_session = _optional_generation_session()
+    try:
+        evidence = select_relevant_evidence(
+            jd_tags,
+            profile_data,
+            max_total=max_points,
+            query_text=f"{getattr(job, 'title', '')}\n{getattr(job, 'description', '') or ''}",
+            db_session=db_session,
+            query_embedding=_job_query_embedding(job),
+        )
+    finally:
+        if db_session is not None:
+            db_session.close()
     return [
         f"At {item.source_entity}, {item.text}" if item.source_entity else item.text
         for item in evidence[:max_points]

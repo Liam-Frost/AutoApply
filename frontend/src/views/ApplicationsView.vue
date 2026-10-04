@@ -39,13 +39,21 @@ import { formatDate, formatPercent } from "@/lib/format"
 
 const statusOptions = [
   { value: "", label: "All" },
+  { value: "DISCOVERED", label: "Draft" },
+  { value: "MATERIALS_READY", label: "Materials ready" },
+  { value: "REVIEW_REQUIRED", label: "Awaiting review" },
   { value: "SUBMITTED", label: "Submitted" },
   { value: "FAILED", label: "Failed" },
 ]
 
 const STATUS_LABEL = {
+  DISCOVERED: "Draft",
+  QUALIFIED: "Qualified",
+  MATERIALS_READY: "Materials ready",
+  REVIEW_REQUIRED: "Awaiting review",
   SUBMITTED: "Submitted",
   FAILED: "Failed",
+  NEEDS_RETRY: "Needs retry",
 }
 
 const outcomeOptions = [
@@ -95,7 +103,7 @@ const state = reactive({
 })
 
 const visibleApplications = computed(() =>
-  state.data.applications.filter((app) => app.status !== "REVIEW_REQUIRED"),
+  state.data.applications,
 )
 
 const awaitingReviewCount = computed(
@@ -152,6 +160,8 @@ function statusLabel(status) {
 function statusVariant(status) {
   if (status === "FAILED") return "destructive"
   if (status === "SUBMITTED") return "success"
+  if (status === "MATERIALS_READY") return "secondary"
+  if (status === "REVIEW_REQUIRED") return "warning"
   return "secondary"
 }
 
@@ -367,12 +377,12 @@ onMounted(load)
 
     <Card>
       <CardHeader>
-        <CardTitle class="text-sm">Filter submitted applications</CardTitle>
+        <CardTitle class="text-sm">Filter applications</CardTitle>
       </CardHeader>
       <CardContent>
         <form class="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_1fr_auto]" @submit.prevent="load">
           <label class="space-y-1.5">
-            <span class="text-xs font-medium text-muted-foreground">Result</span>
+            <span class="text-xs font-medium text-muted-foreground">Status</span>
             <AppSelect v-model="filters.status" :options="statusOptions" aria-label="Submission result filter" />
           </label>
 
@@ -406,8 +416,8 @@ onMounted(load)
             <thead>
               <tr>
                 <th>Role</th>
-                <th>Submitted</th>
-                <th>Result</th>
+                <th>Created</th>
+                <th>Status</th>
                 <th>Match</th>
                 <th>Outcome</th>
                 <th>Materials</th>
@@ -544,7 +554,7 @@ onMounted(load)
         <div v-else class="p-10">
           <EmptyState
             title="No submitted applications yet"
-            description="Applications you've submitted will show up here so you can track outcomes."
+            description="Generated materials and submitted applications will show up here so you can track outcomes."
           >
             <template #icon><Send /></template>
           </EmptyState>

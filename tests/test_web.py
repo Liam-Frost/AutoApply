@@ -38,6 +38,7 @@ class TestAppFactory:
         assert "/api/jobs/linkedin/session/connect" in paths
         assert "/api/jobs/manual-apply-target" in paths
         assert "/api/jobs/generate-material" in paths
+        assert "/api/jobs/materials-application" in paths
         assert "/api/templates" in paths
         assert "/api/templates/upload" in paths
         assert "/api/templates/latex" in paths
@@ -554,6 +555,7 @@ class TestJobsApi:
                 "/api/jobs/generate-material",
                 json={
                     "material_type": "resume_docx",
+                    "application_id": "00000000-0000-0000-0000-000000000099",
                     "job": {"id": "abc123", "company": "ACME", "title": "Engineer"},
                 },
             )
@@ -563,9 +565,11 @@ class TestJobsApi:
         body = response.json()
         assert body["status"] == "queued"
         assert body["task_id"]
+        assert body["application_id"] == "00000000-0000-0000-0000-000000000099"
         assert body["poll_url"].startswith("/api/tasks/")
         assert captured["kind"] == "materials.generate"
         assert captured["queue"] == "materials"
+        assert captured["payload"]["application_id"] == "00000000-0000-0000-0000-000000000099"
 
     @patch("src.web.routes.api.list_material_templates_usecase")
     def test_templates_route(self, mock_templates, client):

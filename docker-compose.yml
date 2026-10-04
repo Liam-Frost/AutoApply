@@ -29,6 +29,32 @@
 # or SSH tunnel for any multi-host setup.
 
 services:
+  autoapply:
+    build:
+      context: .
+    image: autoapply-vnc:latest
+    container_name: autoapply
+    init: true
+    environment:
+      VNC_PASSWD: "${VNC_PASSWD}"
+      DISPLAY: ":0"
+      DISPLAY_WIDTH: "1680"
+      DISPLAY_HEIGHT: "1050"
+      TZ: "Europe/Barcelona"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+    network_mode: host
+    shm_size: "512mb"
+    mem_limit: "1.5g"
+    mem_reservation: "600m"
+    cpus: "0.6"
+    security_opt:
+      - no-new-privileges:true
   postgres:
     # `pgvector/pgvector:pg16` = official Postgres 16 + pgvector
     # preinstalled. Matches the project's "PostgreSQL 16+ with

@@ -171,6 +171,7 @@ class JobMaterialPayload(BaseModel):
     use_llm: bool = False
     template_id: str | None = None
     profile_id: str | None = None
+    application_id: str | None = None
     # Phase 17.8: caller may override the user's saved defaults.
     strategy: str | None = None  # "regenerate" | "patch_existing" | "use_library"
     source_document_id: str | None = None  # UserDocument id
@@ -179,6 +180,11 @@ class JobMaterialPayload(BaseModel):
     patch_aggressiveness: str | None = None
     patch_allow_reorder_sections: bool | None = None
     patch_allow_add_remove_bullets: bool | None = None
+
+
+class MaterialsApplicationPayload(BaseModel):
+    job: dict
+    profile_id: str | None = None
 
 
 class TemplateCreatePayload(BaseModel):
@@ -490,6 +496,128 @@ async def generate_job_material(payload: JobMaterialPayload) -> dict:
     return _enqueue_materials_generate_from_web(payload)
 
 
+@router.post("/jobs/materials-application")
+async def create_materials_application(payload: MaterialsApplicationPayload) -> dict:
+    """Create a draft Application row for the Materials workspace.
+
+    The generation route is intentionally still a task enqueue endpoint.
+    ``/materials`` uses this lightweight endpoint first so resume and
+    cover-letter generation can share one durable Application row and
+    the worker can write produced artifacts back onto it.
+    """
+    try:
+        return _create_materials_application_from_web(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("materials application create failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create application: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+def _create_materials_application_from_web(payload: MaterialsApplicationPayload) -> dict:
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from src.application.jobs import (  # noqa: PLC0415
+        _get_or_create_job_record,
+        _raw_job_from_web_payload,
+    )
+    from src.core.config import load_config
+    from src.core.database import get_session_factory
+    from src.core.models import Application
+    from src.core.state_machine import AppStatus
+    from src.tasks.context import current_tenant_id
+
+    raw_job = _raw_job_from_web_payload(payload.job, use_llm=False)
+    tenant_id = current_tenant_id() or "default"
+    job_snapshot_id = _extract_job_snapshot_id(payload.job)
+    now = datetime.now(UTC)
+
+    factory = get_session_factory(load_config())
+    with factory() as session, session.begin():
+        db_job = _get_or_create_job_record(session, raw_job)
+        existing = (
+            session.execute(
+                select(Application)
+                .where(Application.tenant_id == tenant_id)
+                .where(Application.job_id == db_job.id)
+                .where(Application.deleted_at.is_(None))
+                .where(
+                    Application.status.in_(
+                        [
+                            AppStatus.DISCOVERED,
+                            AppStatus.QUALIFIED,
+                            AppStatus.MATERIALS_READY,
+                        ]
+                    )
+                )
+                .order_by(Application.updated_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            if job_snapshot_id and not existing.job_snapshot_id:
+                existing.job_snapshot_id = job_snapshot_id
+            app = existing
+            status = "existing"
+        else:
+            app = Application(
+                tenant_id=tenant_id,
+                job_id=db_job.id,
+                job_snapshot_id=job_snapshot_id,
+                status=AppStatus.DISCOVERED,
+                state_history=[
+                    {
+                        "timestamp": now.isoformat(),
+                        "event": "MATERIALS_DRAFT_CREATED",
+                        "profile_id": payload.profile_id,
+                        "source": raw_job.source,
+                    }
+                ],
+            )
+            session.add(app)
+            session.flush()
+            status = "created"
+
+        return {
+            "ok": True,
+            "status": status,
+            "application_id": str(app.id),
+            "job_id": str(db_job.id),
+            "job": {
+                "id": str(db_job.id),
+                "company": db_job.company,
+                "title": db_job.title,
+                "location": db_job.location,
+                "application_url": db_job.application_url,
+                "ats_type": db_job.ats_type,
+            },
+        }
+
+
+def _extract_job_snapshot_id(job_payload: dict) -> UUID | None:
+    raw_data = job_payload.get("raw_data") if isinstance(job_payload, dict) else None
+    candidates = []
+    if isinstance(job_payload, dict):
+        candidates.append(job_payload.get("job_snapshot_id"))
+    if isinstance(raw_data, dict):
+        candidates.append(raw_data.get("job_snapshot_id"))
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return UUID(str(candidate))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _enqueue_materials_generate_from_web(payload: JobMaterialPayload) -> dict:
     """Bridge the JobsView payload onto the Phase 14 enqueue contract.
 
@@ -535,6 +663,7 @@ def _enqueue_materials_generate_from_web(payload: JobMaterialPayload) -> dict:
     task_payload: dict[str, Any] = {
         "job_id": job_id,
         "job": payload.job,
+        "application_id": payload.application_id,
         "profile_id": payload.profile_id,
         "document_types": [
             "cover_letter" if document_type == "cover_letter" else "resume"
@@ -657,6 +786,7 @@ def _enqueue_materials_generate_from_web(payload: JobMaterialPayload) -> dict:
         "status": "queued",
         "task_id": str(task_id),
         "material_type": payload.material_type,
+        "application_id": payload.application_id,
         "poll_url": f"/api/tasks/{task_id}",
     }
 

@@ -1011,10 +1011,10 @@ def _default_manifest(document_type: str, template_id: str) -> dict:
             },
             "skills": {"enabled": True, "max_lines": 4},
         },
-        "section_order": ["header", "education", "skills", "projects", "experience"],
+        "section_order": ["header", "summary", "education", "skills", "projects", "experience"],
         "capacity": {
             "max_pages": 1,
-            "max_sections": 5,
+            "max_sections": 6,
             "max_experience_items": 3,
             "max_project_items": 3,
             "max_bullets_total": 13,

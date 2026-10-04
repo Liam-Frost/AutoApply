@@ -30,10 +30,10 @@ def fit_resume_document_to_template(
     fitted = document.model_copy(deep=True)
     fitted.template_id = manifest.template_id
     if manifest.section_order:
-        # Manifest section_order is the source of truth, but ``summary``
-        # is filtered out unconditionally -- generated resumes never
-        # render a Summary section.
-        fitted.section_order = [s for s in manifest.section_order if s != "summary"]
+        # Manifest section_order is the source of truth.
+        fitted.section_order = list(manifest.section_order)
+    if not _section_enabled(manifest, "summary"):
+        fitted.summary = ""
 
     if not _section_enabled(manifest, "education"):
         fitted.education = []

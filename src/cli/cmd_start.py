@@ -131,18 +131,18 @@ def _runtime_env(postgres_port: int, redis_port: int) -> dict[str, str]:
 
 
 def _resolve_service_ports(
-    *, postgres_port: int, redis_port: int, auto_ports: bool
+    *, postgres_port: int, redis_port: int, auto_ports: bool, skip_docker: bool
 ) -> tuple[int, int]:
     resolved_postgres = postgres_port
     resolved_redis = redis_port
     postgres_running = False
     redis_running = False
-    if _compose_service_running("postgres"):
+    if not skip_docker and _compose_service_running("postgres"):
         published = _compose_published_port("postgres", 5432)
         if published:
             resolved_postgres = published
             postgres_running = True
-    if _compose_service_running("redis"):
+    if not skip_docker and _compose_service_running("redis"):
         published = _compose_published_port("redis", 6379)
         if published:
             resolved_redis = published
@@ -151,6 +151,7 @@ def _resolve_service_ports(
     if (
         auto_ports
         and not postgres_running
+        and not skip_docker 
         and not _port_is_bindable("127.0.0.1", resolved_postgres)
     ):
         fallback = _find_free_port("127.0.0.1")
@@ -162,6 +163,7 @@ def _resolve_service_ports(
     if (
         auto_ports
         and not redis_running
+        and not skip_docker
         and not _port_is_bindable("127.0.0.1", resolved_redis)
     ):
         fallback = _find_free_port("127.0.0.1")
@@ -170,7 +172,7 @@ def _resolve_service_ports(
             fg="yellow",
         )
         resolved_redis = fallback
-    if not auto_ports:
+    if not auto_ports and not skip_docker:
         blocked = []
         if not postgres_running and not _port_is_bindable("127.0.0.1", resolved_postgres):
             blocked.append(str(resolved_postgres))
@@ -349,6 +351,7 @@ def start_cmd(
         postgres_port=postgres_port,
         redis_port=redis_port,
         auto_ports=auto_ports,
+        skip_docker=skip_docker,
     )
     port = _resolve_web_port(host=host, port=port, auto_ports=auto_ports)
     env = _runtime_env(postgres_port, redis_port)
