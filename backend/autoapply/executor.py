@@ -240,6 +240,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
     def _takeover(i: int, problem: dict[str, Any], only: list[str] | None, issues: list[dict[str, Any]], on_ids: list[str] | None = None) -> dict[str, Any] | None:
         _repair_note.clear()
+        if page.is_closed():
+            return None
         rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids)
         if rep is None:
             step("repair_skipped", why=_repair_note.get("why") or "repair is switched off")
@@ -248,6 +250,32 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
              needs_user=len(rep.get("needs_user") or []), form_still_reports=audit.texts(rep.get("left") or [])[:10], cause=rep.get("cause", "")[:200])
         _apply(rep, i)
         return rep
+
+    user_done: dict[str, Any] = {}   # what the user did in the window while the program was still working on the form
+
+    def _over() -> bool:
+        """The user is at the same window. Has the application been sent meanwhile (the confirmation page is showing and
+        the form is gone), or has the window been closed? Then there is nothing left to do on the form."""
+        if user_done:
+            return True
+        if page.is_closed():
+            user_done["closed"] = True
+            step("window_closed")
+            return True
+        if _looks_submitted(page) and driver.form_gone(page, fill):
+            try:
+                conf = driver.confirmation(page)
+            except Exception:  # noqa: BLE001
+                conf = None
+            try:
+                seen_now = {"url": page.url, "text": page.evaluate("() => document.body.innerText.slice(0, 1500)")}
+            except Exception:  # noqa: BLE001
+                seen_now = {"url": "", "text": ""}
+            user_done["evidence"] = conf or seen_now
+            browser.snapshot(page, run_dir, "submitted_in_window")
+            step("submitted_in_window", url=seen_now["url"])
+            return True
+        return False
 
     def _left_step(title0: str) -> bool:
         """Has the form moved to another step since this one was opened (told by its heading)?"""
@@ -266,7 +294,14 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 step("stuck", step=n, title=driver.step_title(page))
                 _left("form", f"表单停在「{driver.step_title(page) or '同一步'}」没法继续往下走", "", "请在窗口里把这一步处理好，再继续到最后提交")
                 break
+            still = []      # what the form reports belongs to the step it was read on
+            if _over():
+                break
             title0 = driver.step_title(page)
+            if driver.is_review_step(page):     # a summary of the answers with the button that submits: nothing to fill in here
+                step("review_step", step=n, title=title0)
+                still = _issues(None)
+                break
             here = [q for q in driver.present(page, fill) if q.id not in done_ids]
             ids = [q.id for q in here]
             # 1. the driver fills what this step shows
@@ -293,6 +328,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 if rep is None and fill_error is not None:
                     for f in failed:
                         _left("fix", f["label"], str(fill.get(f["id"], ""))[:120], "没能自动填上")
+            if _over():
+                break
             step("fill_step", step=n, title=driver.step_title(page), questions=len(here))
             browser.snapshot(page, run_dir, f"step_{n + 1}_filled")
             # read back what was filled on this step
@@ -324,6 +361,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 step("review_step", step=n, title=driver.step_title(page))
                 break
             # on to the next step: the form's own button, else the agent finds the way
+            if _over():
+                break
             if _left_step(title0):      # a take-over went on to the next step by itself: that step is handled in the next round
                 step("advance", step=n, how="take-over")
                 continue
@@ -333,6 +372,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     break
                 # The form refused to go on, and now it says why (many forms report a missing answer only after "Continue"):
                 # one more round of finishing this step, then its own button again.
+                if _over():
+                    break
                 blockers = [it for it in _issues(None) if not _handed(it)]
                 if (blockers or why) and rounds < 3:
                     step("form_reports", step=n, after="next", issues=audit.texts(blockers)[:12], seen=why[:200])
@@ -345,6 +386,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                         if moved:
                             how = "button after take-over"
                             break
+                if _over():
+                    break
                 # no button the program knows: the agent finds the way
                 before = driver.signature(page)
                 try:
@@ -360,6 +403,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if at_end:
                 step("review_step", step=n, title=driver.step_title(page), found_by="agent")
                 break
+            if _over():
+                break
             if not moved:
                 step("cannot_advance", step=n, title=driver.step_title(page), why=why[:200])
                 for it in still:
@@ -370,6 +415,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             step("advance", step=n, how=how)
         # answers the form never asked for this time: usually saved by an earlier attempt, or not needed for this applicant
         rest = [q for q in schema.questions if q.id in fill and q.id not in done_ids and q.id not in entered_by_agent]
+        if user_done:      # the user sent the application or closed the window: nothing on the form is left to compare
+            return []
         if rest:
             try:
                 shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
@@ -494,7 +541,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             touched = any(st["op"] == "repair" for st in steps)
             if policy != "manual" and touched:
                 raise NeedsVisibleRun("驱动没能独自填完，AI 接手处理过，这次请你过目后再提交")
-            if policy == "manual":
+            if policy == "manual" and user_done.get("evidence"):
+                # the user submitted in the window while the program was still on the form: the confirmation page was seen
+                notify.close_todos("submit", f"application:{application_id}")
+                outcome = {"status": "submitted", "evidence": user_done["evidence"]}
+            elif policy == "manual":
                 # 5. whatever the form still complains about goes to the user by the form's own words: never "filled" while it says otherwise
                 for it in open_issues:
                     if not _handed(it):

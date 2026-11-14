@@ -447,7 +447,9 @@ WIZARD = r"""<main>
     work: () => ['Work Eligibility', '<label for="auth">Are you legally authorized to work in Canada?</label><select id="auth" required><option value=""></option><option>Yes</option><option>No</option></select>'
         + '<label for="legal">Legal First Name</label><input id="legal" required>'
         + '<button onclick="if (auth.value &amp;&amp; legal.value) { saved.auth = auth.value; saved.legal = legal.value; go(\'review\') } else document.getElementById(\'err\').textContent = \'Please complete the required fields.\'">Go on to the summary</button><div id="err" role="alert"></div>'],
-    review: () => ['Review & submit', '<p>First Name: ' + saved.first + '</p><p>Are you legally authorized to work in Canada?: ' + saved.auth + '</p><p>Legal First Name: ' + saved.legal + '</p><button onclick="window.submitted = true">Submit application</button>'],
+    review: () => ['Review & submit', '<p>First Name: ' + saved.first + '</p><p>Are you legally authorized to work in Canada?: ' + saved.auth + '</p><p>Legal First Name: ' + saved.legal + '</p>'
+        + '<div style="height:0; overflow:hidden"><label for="first">First Name</label><input id="first" oninput="window.touched = true"></div>'
+        + '<button onclick="window.submitted = true">Submit application</button>'],
   };
   function go(name) { const [t, html] = steps[name](); document.getElementById('t').textContent = t; document.getElementById('body').innerHTML = html; }
   go('sms');                                // the form resumes at the step after the last one it saved
@@ -507,6 +509,7 @@ def test_a_form_with_several_steps_is_walked_by_what_is_on_screen(app_env, tmp_p
     def user_window(driver, page, title, application_id, draft_id=None, **kw):
         handed.update(kw)
         handed["state"] = page.evaluate("({title: document.getElementById('t').textContent, sms: window.sms, submitted: window.submitted, auth: saved.auth, legal: saved.legal})")
+        handed["touched"] = page.evaluate("window.touched || null")
         return {"status": "ready_to_submit", "error": "window closed"}
 
     monkeypatch.setattr(llm, "agent", agent)
@@ -521,8 +524,10 @@ def test_a_form_with_several_steps_is_walked_by_what_is_on_screen(app_env, tmp_p
     with db.session() as s:
         steps = s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first().steps
     ops = [(x["op"], x.get("how") or x.get("title") or "") for x in steps if x["op"] in ("walk", "fill_step", "advance", "review_step", "cannot_advance", "stuck")]
+    # the review page is recognised before anything is filled in: its collapsed sections still carry controls of earlier steps
     assert ops == [("walk", ""), ("fill_step", "SMS Notifications (Optional)"), ("advance", "button"), ("fill_step", "Work Eligibility"), ("advance", "agent"),
-                   ("fill_step", "Review & submit"), ("review_step", "Review & submit")], ops
+                   ("review_step", "Review & submit")], ops
+    assert handed["touched"] is None
     assert next(x for x in steps if x["op"] == "not_asked")["shown_on_review"] == 1
     # what the navigator found is kept for the next run on this site
     assert "Go on to the summary" in (config.PLAYBOOKS / "site-wizard.example.test.md").read_text(encoding="utf-8")
@@ -737,3 +742,77 @@ def test_what_a_site_taught_is_given_to_the_next_draft_and_no_patch_card_is_made
     repair._propose(schema, None, 0, {"message": "x"}, {"cause": "c", "suggestion": "s"}, title="Acme", ref="application:1")
     with db.session() as s:
         assert s.query(Todo).filter_by(kind="driver_patch").count() == 0
+
+
+USER_IS_FASTER = """<main><h1 id="t">Work Eligibility</h1><div id="pane">
+  <label for="a">City</label><input id="a">
+  <label for="b">Country of residence</label><input id="b" required>
+  <button onclick="document.getElementById('t').textContent = 'Review'">Continue</button>
+  <a href="#" id="user" onclick="document.querySelector('main').innerHTML = '<h1>Thank you for applying!</h1><p>Your application has been submitted.</p>'; return false">.</a>
+</div></main>"""
+
+
+def _one_question_draft(tmp_path, html, name):
+    from autoapply import db
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job
+
+    form = tmp_path / f"{name}.html"
+    form.write_text(html, encoding="utf-8")
+    qq = Question(id="#a", label="City", type="text", required=True, page=0, locator={"selector": "#a"})
+    schema = FormSchema(ats="generic", tenant=f"{name}.example.test", url=form.as_uri(), source="agent", pages=["Work Eligibility", "Review"], questions=[qq])
+    ref = JobRef(ats="generic", tenant=f"{name}.example.test", job_id="", url=form.as_uri(), host=f"{name}.example.test")
+    with db.session() as s:
+        job = Job(source="manual", source_id=name, company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="approved")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="approved",
+                  answers=[{"id": "#a", "label": "City", "type": "text", "options": [], "required": True, "page": 0, "value": "Vancouver", "basis": "profile",
+                            "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+        s.add(d)
+        s.flush()
+        return app.id, d.id
+
+
+def test_the_user_submits_in_the_window_while_the_program_is_still_on_the_form(app_env, tmp_path, monkeypatch):
+    """The user sits at the same window and does not wait for the program: while a take-over is still working on a step,
+    they finish the form and submit it. The confirmation page is the end of the run - it is not treated as another step,
+    and the application is recorded as submitted with what the page showed."""
+    from autoapply import db, executor, llm
+    from autoapply.models import Application, Run
+
+    app_id, did = _one_question_draft(tmp_path, USER_IS_FASTER, "faster")
+    db.set_setting("repair.enabled", True)
+    calls = []
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        calls.append("fix" if "check_form" in t else "nav")
+        t["click"].fn(selector="#user")           # meanwhile, in the same window, the user sends the application
+        t["done"].fn(fixed=[], unfixed=[], cause="", suggestion="")
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("there is no form left to hand over")))
+    out = executor.execute(app_id, did)
+    assert out["status"] == "submitted" and "Thank you for applying" in str(out["evidence"])
+    assert calls == ["fix"]                         # nothing more is tried on the confirmation page
+    with db.session() as s:
+        assert s.get(Application, app_id).status == "submitted"
+        ops = [x["op"] for x in s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first().steps]
+    assert "submitted_in_window" in ops and "cannot_advance" not in ops and "not_asked" not in ops
+
+
+def test_words_of_thanks_on_a_step_of_the_form_are_not_a_submission(app_env, tmp_path, monkeypatch):
+    """"Thank you for your interest" above a form that is still there says nothing about a submission."""
+    from autoapply import executor
+
+    html = """<main><h1>Thank you for your interest in Acme</h1><label for="a">City</label><input id="a"><button>Submit application</button></main>"""
+    app_id, did = _one_question_draft(tmp_path, html, "thanks")
+    handed = {}
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda driver, page, *a, **kw: (handed.update(city=page.locator("#a").input_value()), {"status": "ready_to_submit", "error": "window closed"})[-1])
+    out = executor.execute(app_id, did)
+    assert out["status"] == "ready_to_submit" and handed["city"] == "Vancouver"

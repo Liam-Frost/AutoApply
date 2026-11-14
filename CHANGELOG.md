@@ -40,6 +40,14 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - A form that names a missing answer only after "Continue" gets one more round of finishing before the step is handed
   over. An error text that was on the page before the fields were changed no longer counts as a new problem.
 - A multi-select that shows its choices as chips is no longer reported as "required, still empty".
+- You sit at the same window as the program. When you submit the application (or close the window) while the program is
+  still working on the form, it now notices: the confirmation page ends the run and the application is recorded as
+  submitted with what the page showed. Before, the confirmation page was treated as one more step to fill in, and the
+  run ended with "no confirmation page seen".
+- A step the form itself calls a review is recognised before anything is filled in. Controls that a page keeps in
+  collapsed or cut-off sections (the summaries on a review page) no longer count as questions that are on the step.
+- An application whose filling was cut off because the program was closed twice no longer shows "filling in" for ever;
+  it can be started again.
 - Forms the AI explored have no driver code, so a take-over there no longer leaves a "driver patch suggestion" card that
   nobody could act on (open ones are closed once). What the take-over found is kept in the notes for the site, and
   those notes are now also given to the model that answers the questions of the next draft for the site - a length

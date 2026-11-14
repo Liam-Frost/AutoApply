@@ -63,6 +63,28 @@ _STEP_JS = r"""() => {
 }"""
 
 
+REVIEW_RE = re.compile(r"\b(review|summary|preview|check your (answers|application|details))\b|核对|预览|确认并提交|检查并提交", re.I)
+
+# Is this control shown to the applicant now? Forms keep the controls of other steps in the page: in panels that are not
+# displayed, or in collapsed sections that are clipped away (a summary with "show all answers"). A native input that is
+# hidden behind its own styling (file inputs, custom radio buttons) is judged by its label or parent.
+_SHOWN_JS = r"""(e) => {
+  const laid = (n) => !!(n && (n.offsetParent || n.getClientRects().length));
+  let n = (e.type !== 'file' && laid(e)) ? e : [e.labels && e.labels[0], e.parentElement].find(laid);
+  if (!n || getComputedStyle(n).visibility === 'hidden') return false;
+  const r = n.getBoundingClientRect();
+  for (let a = n.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    const st = getComputedStyle(a);
+    if (st.visibility === 'hidden' || +st.opacity === 0) return false;
+    if (/hidden|clip/.test(st.overflowY + st.overflowX)) {      // clipped away by a collapsed or cut-off container?
+      const c = a.getBoundingClientRect();
+      if (c.height < 2 || c.width < 2 || r.top >= c.bottom || r.bottom <= c.top || r.left >= c.right || r.right <= c.left) return false;
+    }
+  }
+  return true;
+}"""
+
+
 def _same_label(label: str) -> re.Pattern[str]:
     """Matches a label that is this question: the same words from the start, followed by nothing or by decoration only."""
     words = r"\s+".join(re.escape(w) for w in label.split())
@@ -391,8 +413,7 @@ class GenericDriver:
                 loc = _loc(page, q)
                 if not loc.count():
                     continue
-                if q.type == "file" or loc.evaluate(
-                        "(e) => !!(e.offsetParent || e.getClientRects().length || (e.labels && e.labels[0] && e.labels[0].offsetParent) || (e.parentElement && e.parentElement.offsetParent))"):
+                if loc.evaluate(_SHOWN_JS):
                     out.append(q)
             except Exception:  # noqa: BLE001 - a selector this page cannot parse: not here
                 continue
@@ -420,14 +441,27 @@ class GenericDriver:
                     continue
         return False
 
+    @staticmethod
+    def _buttons(page: Page) -> list[str]:
+        try:
+            return [(b.inner_text() or b.get_attribute("value") or "").strip() for b in page.get_by_role("button").all()[:60] if b.is_visible()]
+        except Exception:  # noqa: BLE001
+            return []
+
     def at_review(self, page: Page) -> bool:
         """Is this the last step: a button that submits is showing and there is no forward button?"""
-        try:
-            buttons = [b for b in page.get_by_role("button").all()[:60] if b.is_visible()]
-            texts = [(b.inner_text() or b.get_attribute("value") or "").strip() for b in buttons]
-        except Exception:  # noqa: BLE001
-            return False
+        texts = self._buttons(page)
         return any(SUBMIT_RE.search(t) for t in texts) and not any(FORWARD_RE.match(t) for t in texts)
+
+    def is_review_step(self, page: Page) -> bool:
+        """The last step, and the form itself calls it a review: a summary of the answers with the button that submits.
+        Nothing is filled in here - whatever controls the page still carries belong to the steps it summarises."""
+        return self.at_review(page) and bool(REVIEW_RE.search(self.step_title(page)))
+
+    def form_gone(self, page: Page, answers: dict[str, Any]) -> bool:
+        """No question of the application and no button that leads on or submits is showing any more."""
+        texts = self._buttons(page)
+        return not any(SUBMIT_RE.search(t) or FORWARD_RE.match(t) for t in texts) and not self.present(page, answers)
 
     @staticmethod
     def signature(page: Page) -> str:
