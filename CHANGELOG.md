@@ -9,14 +9,43 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - The local server now refuses requests that do not come from its own pages. It has no login and relies on being reachable
   only from this computer; before this change a web page open in the user's browser could send it requests (approve a
   pending draft, change a setting), and a domain name pointed at `127.0.0.1` could read from it. Requests with a foreign
-  `Host` header, and API requests from another site, are answered with 403.
+  `Host` header, and API requests from another site, are answered with 403. The whole origin is compared - scheme, host
+  and port - so a page served by another program on the same computer is not taken for the program's own page either.
 
 - Sites are told apart by the host of an address, never by a name appearing somewhere in it: a look-alike address such
   as `evilgreenhouse.io` or `evil.example/?next=myaccount.google.com` is no longer taken for the real site when a posting
   is recognised or when the program decides that a sign-in has finished.
 - A prompt can only be saved or reset under a key from the registry; a crafted key could name another `.md` file.
 - Location text from a posting can no longer stall the regular expressions that read it.
-- Importing a table of postings through the API accepts only `.tsv`, `.txt` and `.csv` files.
+- Importing a table of postings takes a file path, so it is available on the command line only
+  (`autoapply import-tsv <path>`); the API endpoint for it is gone.
+- Identifiers of postings read from careers pages are derived with SHA-256; stored ones are re-keyed once at start-up.
+
+### Fixed
+
+- Forms with several steps that the AI explored (Amazon's application form, for example) are now walked by what is on
+  the screen, not by the page numbers recorded in the draft. Such forms resume where an earlier attempt stopped, skip
+  steps they already have and put optional offers in between, so "fill page 1, press Next, fill page 2" failed with
+  *could not advance to the next page* - often on a page that had nothing to do with the draft, like an offer of text
+  message updates. Now each step is handled on its own: fill the questions that are there, read what the form reports,
+  let the AI finish what is left, go on with the form's own forward button ("Skip & continue" included), and where there
+  is none let the AI find the way. Optional offers are declined. The run stops at the review page, where you submit.
+  Answers the form did not ask for again are compared with the review page and listed for you when they cannot be
+  confirmed. A step that will not go on is handed to you in the window with the reason, instead of failing the run.
+- Whether a form has moved to another step is told by what can be seen of the step (the step the form marks as current,
+  its headings, controls and buttons). The first `<form>` of a page was used before; on Amazon's page that is a hidden
+  log-out form, so the program never noticed that "Skip & continue" had worked.
+- A take-over on one step is given every approved answer of the application, not only the ones the driver located on
+  that step, so a question the driver cannot find gets its approved value and never a newly made-up one.
+- A form that names a missing answer only after "Continue" gets one more round of finishing before the step is handed
+  over. An error text that was on the page before the fields were changed no longer counts as a new problem.
+- A multi-select that shows its choices as chips is no longer reported as "required, still empty".
+- Forms the AI explored have no driver code, so a take-over there no longer leaves a "driver patch suggestion" card that
+  nobody could act on (open ones are closed once). What the take-over found is kept in the notes for the site, and
+  those notes are now also given to the model that answers the questions of the next draft for the site - a length
+  limit a form only shows after typing is respected the next time.
+- A control is found by its label only when the label is the question. A label that merely contains the question's
+  words is another question: "First Name" was filled into "Legal First Name" when its own field was not on the page.
 
 ### Repository
 

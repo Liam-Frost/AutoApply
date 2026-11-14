@@ -550,6 +550,21 @@ def form_present(page: Page, schema: FormSchema, page_index: int = 0, *, wait_s:
     sels = [q.locator.get("selector") for q in schema.questions if q.page == page_index and q.locator.get("selector")]
     if not sels:
         return True
+    if len(schema.pages or []) > 1:
+        # a wizard resumes wherever it stopped: any of its questions, or its own forward / submit button, means the form is open
+        from .ats.generic_driver import FORWARD_RE, SUBMIT_RE, _loc as _find
+
+        for _ in range(int(wait_s // 1.5) + 1):
+            try:
+                if any(_find(page, q).count() for q in schema.questions[:60]):
+                    return True
+                texts = [(b.inner_text() or "").strip() for b in page.get_by_role("button").all()[:40] if b.is_visible()]
+                if any(FORWARD_RE.match(t) or SUBMIT_RE.search(t) for t in texts) and not page.locator("input[type=password]:visible").count():
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+            page.wait_for_timeout(1500)
+        return False
     waited = 0.0
     while True:
         found = 0

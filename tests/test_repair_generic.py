@@ -435,3 +435,305 @@ def test_a_form_behind_an_apply_button_is_opened_not_reported_as_a_login_problem
         pg.set_content("""<button onclick="document.title='submitted'">Submit application</button><a href="#" onclick="document.title='applied'">Apply now</a>""")
         assert d.reveal_form(pg) is True and pg.title() == "applied"
         b.close()
+
+
+WIZARD = r"""<main>
+<h1 id="t"></h1><div id="body"></div>
+<script>
+  window.sms = false; window.submitted = false;
+  const saved = {first: 'Alex'};           // an earlier attempt already saved the contact step
+  const steps = {
+    sms: () => ['SMS Notifications (Optional)', '<p>Get SMS updates on your job applications</p><button onclick="window.sms = true; go(\'work\')">Enable SMS updates</button> <button onclick="go(\'work\')">Skip &amp; continue</button>'],
+    work: () => ['Work Eligibility', '<label for="auth">Are you legally authorized to work in Canada?</label><select id="auth" required><option value=""></option><option>Yes</option><option>No</option></select>'
+        + '<label for="legal">Legal First Name</label><input id="legal" required>'
+        + '<button onclick="if (auth.value &amp;&amp; legal.value) { saved.auth = auth.value; saved.legal = legal.value; go(\'review\') } else document.getElementById(\'err\').textContent = \'Please complete the required fields.\'">Go on to the summary</button><div id="err" role="alert"></div>'],
+    review: () => ['Review & submit', '<p>First Name: ' + saved.first + '</p><p>Are you legally authorized to work in Canada?: ' + saved.auth + '</p><p>Legal First Name: ' + saved.legal + '</p><button onclick="window.submitted = true">Submit application</button>'],
+  };
+  function go(name) { const [t, html] = steps[name](); document.getElementById('t').textContent = t; document.getElementById('body').innerHTML = html; }
+  go('sms');                                // the form resumes at the step after the last one it saved
+</script></main>"""
+
+
+def test_a_form_with_several_steps_is_walked_by_what_is_on_screen(app_env, tmp_path, monkeypatch):
+    """A wizard that resumes at an optional step, shows a required field the draft never saw, uses a forward button with an
+    unusual name and ends on a review page. The steps are not the pages the draft recorded: the run must still get to the
+    review page, decline the optional offer, and hand the form to the user there - not fail with "could not advance"."""
+    from autoapply import config, db, executor, knowledge, llm
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job, Run
+
+    form = tmp_path / "wizard.html"
+    form.write_text(WIZARD, encoding="utf-8")
+    knowledge.write("profile", "# Profile\n\n- Name on documents: Alexander Chen\n")
+    q = lambda sel, label, typ, page, opts=None: Question(id=sel, label=label, type=typ, required=True, options=opts or [], page=page, locator={"selector": sel})  # noqa: E731
+    # the draft was read on an earlier visit: "contact" first, then work eligibility; the form now starts elsewhere
+    schema = FormSchema(ats="generic", tenant="wizard.example.test", url=form.as_uri(), source="agent", pages=["Contact information", "Work Eligibility", "Review & submit"], questions=[
+        q("#first", "First Name", "text", 0), q("#auth", "Are you legally authorized to work in Canada?", "select", 1, ["Yes", "No"])])
+    ref = JobRef(ats="generic", tenant="wizard.example.test", job_id="", url=form.as_uri(), host="wizard.example.test")
+    row = lambda qq, v: {"id": qq.id, "label": qq.label, "type": qq.type, "options": qq.options, "required": True, "page": qq.page, "value": v, "basis": "profile",  # noqa: E731
+                         "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}
+    with db.session() as s:
+        job = Job(source="manual", source_id="wz1", company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="approved")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="approved",
+                  answers=[row(schema.questions[0], "Alex"), row(schema.questions[1], "Yes")])
+        s.add(d)
+        s.flush()
+        app_id, did = app.id, d.id
+    db.set_setting("repair.enabled", True)
+    calls = {"fix": 0, "nav": 0}
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        if "check_form" in t:                      # finishing a step: the field the draft did not know, from the profile
+            calls["fix"] += 1
+            assert "Legal First Name: required, still empty" in goal and "Alexander Chen" in goal
+            t["fill"].fn(selector="#legal", value="Alexander")
+            t["done"].fn(fixed=[], unfixed=[], cause="A required field the draft did not list.", suggestion="Fill Legal First Name on the Work Eligibility step.",
+                         added=[{"label": "Legal First Name", "value": "Alexander", "basis": "Name on documents: Alexander Chen", "type": "text"}])
+        else:                                      # finding the way forward: it can look and click, it cannot answer or submit
+            calls["nav"] += 1
+            assert set(t) == {"read_page", "list_controls", "screenshot", "click", "press", "done"}
+            t["click"].fn(text="Go on to the summary")
+            t["done"].fn(state="moved", note="the forward button on Work Eligibility is called 'Go on to the summary'")
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    handed = {}
+
+    def user_window(driver, page, title, application_id, draft_id=None, **kw):
+        handed.update(kw)
+        handed["state"] = page.evaluate("({title: document.getElementById('t').textContent, sms: window.sms, submitted: window.submitted, auth: saved.auth, legal: saved.legal})")
+        return {"status": "ready_to_submit", "error": "window closed"}
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", user_window)
+    executor.execute(app_id, did)
+
+    # at the review page, with the optional offer declined, nothing submitted, and the field the draft did not know filled
+    assert handed["state"] == {"title": "Review & submit", "sms": False, "submitted": False, "auth": "Yes", "legal": "Alexander"}
+    assert calls == {"fix": 1, "nav": 1}
+    assert handed["leftovers"] == [], handed["leftovers"]             # "First Name" was not asked again, and the review page confirms it
+    assert handed["added"][0]["label"] == "Legal First Name"
+    with db.session() as s:
+        steps = s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first().steps
+    ops = [(x["op"], x.get("how") or x.get("title") or "") for x in steps if x["op"] in ("walk", "fill_step", "advance", "review_step", "cannot_advance", "stuck")]
+    assert ops == [("walk", ""), ("fill_step", "SMS Notifications (Optional)"), ("advance", "button"), ("fill_step", "Work Eligibility"), ("advance", "agent"),
+                   ("fill_step", "Review & submit"), ("review_step", "Review & submit")], ops
+    assert next(x for x in steps if x["op"] == "not_asked")["shown_on_review"] == 1
+    # what the navigator found is kept for the next run on this site
+    assert "Go on to the summary" in (config.PLAYBOOKS / "site-wizard.example.test.md").read_text(encoding="utf-8")
+
+
+def test_a_step_that_will_not_go_on_is_handed_to_the_user_with_the_reason(app_env, tmp_path, monkeypatch):
+    """No forward button the program knows, and the navigator reports that the form is blocked: the run does not fail and
+    does not pretend - the window goes to the user with the reason on the list."""
+    from autoapply import db, executor, llm
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job
+
+    form = tmp_path / "stuck.html"
+    form.write_text("""<main><h1>Assessment</h1><label for="a">City</label><input id="a"><p>Complete the online assessment sent to your e-mail to continue.</p></main>""", encoding="utf-8")
+    qq = Question(id="#a", label="City", type="text", required=True, page=0, locator={"selector": "#a"})
+    schema = FormSchema(ats="generic", tenant="stuck.example.test", url=form.as_uri(), source="agent", pages=["Assessment", "Review"], questions=[qq])
+    ref = JobRef(ats="generic", tenant="stuck.example.test", job_id="", url=form.as_uri(), host="stuck.example.test")
+    with db.session() as s:
+        job = Job(source="manual", source_id="st1", company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="approved")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="approved",
+                  answers=[{"id": "#a", "label": "City", "type": "text", "options": [], "required": True, "page": 0, "value": "Vancouver", "basis": "profile",
+                            "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+        s.add(d)
+        s.flush()
+        app_id, did = app.id, d.id
+    db.set_setting("repair.enabled", True)
+    calls = {"fix": 0, "nav": 0}
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        if "check_form" in t:      # asked once to finish the step, with what the navigator saw: there is nothing it can fill
+            calls["fix"] += 1
+            assert "online assessment" in goal
+            t["done"].fn(fixed=[], unfixed=[], cause="The step waits for an assessment outside the form.", suggestion="")
+        else:
+            calls["nav"] += 1
+            t["done"].fn(state="blocked", why="the page asks for an online assessment first")
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    handed = {}
+
+    def user_window(driver, page, title, application_id, draft_id=None, **kw):
+        handed.update(kw)
+        handed["city"] = page.locator("#a").input_value()
+        return {"status": "ready_to_submit", "error": "window closed"}
+
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", user_window)
+    executor.execute(app_id, did)
+    assert handed["city"] == "Vancouver"
+    assert [x["kind"] for x in handed["leftovers"]] == ["form"] and "online assessment" in handed["leftovers"][0]["label"]
+    assert calls == {"fix": 1, "nav": 2}       # the way forward, one round of finishing the step, the way forward again - then the user
+
+
+LATE_ERRORS = """<main><h1 id="t">Work Eligibility</h1><div id="pane">
+  <label for="a">City *</label><input id="a">
+  <label for="b">Country of residence *</label><input id="b">
+  <div id="err" role="alert"></div><button onclick="next()">Continue</button></div>
+<script>
+  function next() {
+    const a = document.getElementById('a').value, b = document.getElementById('b').value;
+    if (!a || !b) { document.getElementById('err').textContent = 'Country of residence is required.'; return; }
+    document.getElementById('t').textContent = 'Review';
+    document.getElementById('pane').innerHTML = '<p>City: ' + a + '</p><p>Country of residence: ' + b + '</p><button>Submit application</button>';
+  }
+</script></main>"""
+
+
+def test_a_form_that_names_a_missing_answer_only_after_continue_is_finished_and_goes_on(app_env, tmp_path, monkeypatch):
+    """Nothing marks the second field as required until "Continue" is pressed. The refusal is not the end of the run: the
+    form now says what is missing, the take-over fills it from the profile, and the form goes on to its review page."""
+    from autoapply import db, executor, knowledge, llm
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job
+
+    form = tmp_path / "late.html"
+    form.write_text(LATE_ERRORS, encoding="utf-8")
+    knowledge.write("profile", "# Profile\n\n- Lives in: Vancouver, Canada\n")
+    qq = Question(id="#a", label="City", type="text", required=True, page=0, locator={"selector": "#a"})
+    schema = FormSchema(ats="generic", tenant="late.example.test", url=form.as_uri(), source="agent", pages=["Work Eligibility", "Review"], questions=[qq])
+    ref = JobRef(ats="generic", tenant="late.example.test", job_id="", url=form.as_uri(), host="late.example.test")
+    with db.session() as s:
+        job = Job(source="manual", source_id="lt1", company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="approved")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="approved",
+                  answers=[{"id": "#a", "label": "City", "type": "text", "options": [], "required": True, "page": 0, "value": "Vancouver", "basis": "profile",
+                            "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+        s.add(d)
+        s.flush()
+        app_id, did = app.id, d.id
+    db.set_setting("repair.enabled", True)
+    goals = []
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        assert "check_form" in t, "the navigator is not needed: the form has a Continue button"
+        goals.append(goal)
+        t["fill"].fn(selector="#b", value="Canada")
+        t["done"].fn(fixed=[], unfixed=[], cause="The form asks for the country only after Continue.", suggestion="Fill Country of residence on Work Eligibility.",
+                     added=[{"label": "Country of residence", "value": "Canada", "basis": "Lives in: Vancouver, Canada", "type": "text"}])
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    handed = {}
+
+    def user_window(driver, page, title, application_id, draft_id=None, **kw):
+        handed.update(kw)
+        handed["title"], handed["text"] = page.locator("#t").inner_text(), page.locator("#pane").inner_text()
+        return {"status": "ready_to_submit", "error": "window closed"}
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", user_window)
+    executor.execute(app_id, did)
+    assert len(goals) == 1 and "Country of residence is required" in goals[0]
+    assert handed["title"] == "Review" and "City: Vancouver" in handed["text"] and "Country of residence: Canada" in handed["text"]
+    assert handed["leftovers"] == [] and handed["added"][0]["label"] == "Country of residence"
+
+
+def test_forward_buttons_are_recognised_and_submit_never_is(app_env):
+    from autoapply.ats.generic_driver import FORWARD_RE, SUBMIT_RE
+
+    for t in ("Next", "Continue", "Save and continue", "Save & Continue", "Skip & continue", "Skip for now", "Next step", "下一步", "跳过", "Continue ›"):
+        assert FORWARD_RE.match(t), t
+    for t in ("Submit application", "Enable SMS updates", "Continue with Google", "Save draft", "Back", "Cancel", "Skip to main content"):
+        assert not FORWARD_RE.match(t), t
+    assert SUBMIT_RE.search("Submit application") and SUBMIT_RE.search("Review and Submit") and not SUBMIT_RE.search("Skip & continue")
+
+
+def test_a_label_that_only_contains_the_question_is_another_question(app_env):
+    """The recorded control is not on this step. Its label must not be 'found' in a longer label of another field."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats.base import Question
+    from autoapply.ats.generic_driver import _loc
+
+    q = lambda label, typ="text": Question(id="#gone", label=label, type=typ, locator={"selector": "#gone"})  # noqa: E731
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page()
+        pg.set_content("""<form>
+          <label for="l">Legal First Name</label><input id="l">
+          <label for="pt">Phone type</label><select id="pt"><option>Mobile</option></select>
+          <label for="e">Email address *</label><input id="e">
+          <label for="c">City (required)</label><input id="c">
+          <fieldset><legend>Do you need sponsorship?</legend><label><input type="radio" name="s">Yes</label><label><input type="radio" name="s">No</label></fieldset>
+          <fieldset><legend>Have you worked here before, or at a subsidiary?</legend><label><input type="radio" name="w">Yes</label></fieldset>
+        </form>""")
+        assert _loc(pg, q("First Name")).count() == 0
+        assert _loc(pg, q("Phone")).count() == 0
+        assert _loc(pg, q("Have you worked here before", "radio")).count() == 0
+        assert _loc(pg, q("Email address")).get_attribute("id") == "e"        # decoration after the label is still the same question
+        assert _loc(pg, q("email address *")).get_attribute("id") == "e"
+        assert _loc(pg, q("City")).get_attribute("id") == "c"
+        assert _loc(pg, q("Do you need sponsorship?", "radio")).count() == 1
+        b.close()
+
+
+def test_a_pick_list_that_shows_its_choices_as_chips_is_not_called_empty(app_env):
+    """Multi-select widgets keep a hidden <select> and an empty search box, and show what was chosen as chips in a
+    group marked required. The audit reads what the group shows."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats import audit
+
+    chips = """<label id="l{n}">{label}</label>
+      <span role="group" aria-required="true" aria-label="{label}" tabindex="0"><ul>{items}
+        <li><input type="text" role="textbox" aria-autocomplete="list" placeholder=""></li></ul></span>"""
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page()
+        pg.set_content("<form>" + chips.format(n=1, label="Area of specialization", items='<li><span role="button">×</span>Machine Learning</li>')
+                       + chips.format(n=2, label="Availability", items="")
+                       + """<fieldset role="group" aria-required="true" aria-label="Sponsorship"><label><input type="radio" name="s">Yes</label><label><input type="radio" name="s">No</label></fieldset></form>""")
+        found = [(i["kind"], i["label"]) for i in audit.page_issues(pg)]
+        assert ("empty_required", "Availability") in found and ("empty_required", "Sponsorship") in found
+        assert not any("specialization" in label for _, label in found)
+        b.close()
+
+
+def test_what_a_site_taught_is_given_to_the_next_draft_and_no_patch_card_is_made_for_it(app_env, monkeypatch):
+    from autoapply import answers, db, knowledge, llm, repair
+    from autoapply.ats.base import FormSchema, Question
+    from autoapply.models import Job, Todo
+
+    knowledge.write("profile", "# Profile\n\n- Skills: C++, Linux\n")
+    knowledge.add_site_note("site-jobs.example.test", "The skills description takes at most 200 characters.")
+    schema = FormSchema(ats="generic", tenant="jobs.example.test", url="https://jobs.example.test/apply", source="agent", pages=["Application"],
+                        questions=[Question(id="#s", label="Describe your skills", type="text", required=True, locator={"selector": "#s"})])
+    seen = {}
+
+    def fake_json(prompt, schema_, *, system="", **kw):
+        seen["prompt"] = prompt
+        return {"answers": [{"id": "k1", "resolved": True, "value": "C++ and Linux", "basis": "Skills", "confidence": "high", "source": "profile"}], "new_rules": []}
+
+    monkeypatch.setattr(llm, "json", fake_json)
+    with db.session() as s:
+        job = Job(source="manual", source_id="sn1", company="Acme", title="Engineer", apply_url=schema.url, jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        s.expunge(job)
+    answers.resolve(schema, job, cover_letter=None, resume=None)
+    assert "<site_notes>" in seen["prompt"] and "at most 200 characters" in seen["prompt"]
+    # a take-over on such a form leaves no "driver patch" card: there is no driver, and the note above is where the finding lives
+    repair._propose(schema, None, 0, {"message": "x"}, {"cause": "c", "suggestion": "s"}, title="Acme", ref="application:1")
+    with db.session() as s:
+        assert s.query(Todo).filter_by(kind="driver_patch").count() == 0

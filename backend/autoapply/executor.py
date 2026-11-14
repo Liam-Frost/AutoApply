@@ -15,6 +15,12 @@ No LLM calls on the normal path. The fallback chain on every page (section 7.5):
 5. what is still open goes to the user in a visible window, listed by name. A run the agent touched is never
    submitted automatically.
 
+A form with several steps that the AI explored (a wizard) is not walked page 1, page 2, page 3 of the draft: such forms
+show their steps in their own order, skip the ones they already have, insert optional ones and resume where an earlier
+attempt stopped. ``_walk_steps`` goes through the steps that are really there, fills on each the approved answers whose
+controls are showing, lets the AI find the way forward when the button is not one of the usual ones, and stops at the
+review step, where the user submits.
+
 What the agent found out is kept (site notes, the draft's own schema and answers), so the driver does it alone next time.
 Forms mapped by the agent (no driver) run through ``GenericDriver`` and are always submitted by the user.
 """
@@ -158,6 +164,24 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         label = norm_question(issue.get("label") or "")
         return bool(label) and any(label in norm_question(x["label"]) or norm_question(x["label"]) in label for x in leftovers if x["label"])
 
+    def _mismatch_leftovers(mismatches: list[dict[str, Any]]) -> None:
+        """Values that still differ from the draft go on the user's list, sorted into "cannot be read back" and "is something else"."""
+        from .ats.generic_driver import value_visible
+
+        by_id = {q.id: q for q in schema.questions}
+        seen_ok, unsure, wrong = [], [], []
+        for m in mismatches:
+            q = by_id.get(m["id"])
+            if m["actual"] in ("", None, []):   # the control gives nothing back: look at what the page shows instead
+                (seen_ok if q is not None and value_visible(page, q, m["expected"]) else unsure).append(m)
+            else:
+                wrong.append(m)
+        step("unverified", shown_on_page=len(seen_ok), unsure=[m["label"] for m in unsure][:20], different=[m["label"] for m in wrong][:20])
+        for m in unsure:
+            _left("check", m["label"], str(m["expected"])[:120], "这个控件的值程序读不回来，没法确认是否填上了，请看一眼")
+        for m in wrong:
+            _left("fix", m["label"], str(m["expected"])[:120], f"页面上现在是：{str(m['actual'])[:80]}")
+
     def _checked(run_verify: Any) -> None:
         """Read-back differences never go out automatically: in a run the user submits they are listed for the user,
         otherwise the run is repeated in a visible window."""
@@ -166,33 +190,19 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         except VerifyFailed as e:
             if policy != "manual":
                 raise NeedsVisibleRun(f"表单上有 {len(e.mismatches)} 项和草案不一致，自动修正后仍然不对，改为在可见窗口里交给你处理") from e
-            from .ats.generic_driver import value_visible
+            _mismatch_leftovers(e.mismatches)
 
-            by_id = {q.id: q for q in schema.questions}
-            seen_ok, unsure, wrong = [], [], []
-            for m in e.mismatches:
-                q = by_id.get(m["id"])
-                if m["actual"] in ("", None, []):   # the control gives nothing back: look at what the page shows instead
-                    (seen_ok if q is not None and value_visible(page, q, m["expected"]) else unsure).append(m)
-                else:
-                    wrong.append(m)
-            step("unverified", shown_on_page=len(seen_ok), unsure=[m["label"] for m in unsure][:20], different=[m["label"] for m in wrong][:20])
-            for m in unsure:
-                _left("check", m["label"], str(m["expected"])[:120], "这个控件的值程序读不回来，没法确认是否填上了，请看一眼")
-            for m in wrong:
-                _left("fix", m["label"], str(m["expected"])[:120], f"页面上现在是：{str(m['actual'])[:80]}")
-
-    def _issues(i: int) -> list[dict[str, Any]]:
+    def _issues(i: int | None) -> list[dict[str, Any]]:
         """What the form itself reports on the open page, minus 'still empty' findings the driver's read-back contradicts
         (a custom control whose value only the driver knows how to read)."""
         found = audit.page_issues(page)
         if not found:
             return []
         try:
-            back = driver.read_back(page, schema, i)
+            back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
         except Exception:  # noqa: BLE001
             back = {}
-        known = {norm_question(q.label): q for q in schema.questions if q.page == i}
+        known = {norm_question(q.label): q for q in schema.questions if i is None or q.page == i}
         out = []
         for it in found:
             q = known.get(norm_question(it["label"])) if it.get("label") else None
@@ -201,9 +211,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             out.append(it)
         return out
 
+    entered_by_agent: set[str] = set()   # approved answers the take-over entered on a step where the driver did not find their control
+
     def _apply(rep: dict[str, Any], i: int) -> None:
         """Take the agent's report into the state of this run."""
         lab = rep.get("labels") or {}
+        entered_by_agent.update(x for x in rep.get("fixed") or [] if x in fill)
         for m in rep.get("mapped") or []:  # the form's own wording for an approved answer: from here on that is the value
             mapped.append({"label": lab.get(m["id"], m["id"]), "approved": m["approved"], "chosen": m["chosen"]})
             fill[m["id"]] = m["chosen"]
@@ -225,9 +238,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             _left("fix", lab.get(qid, qid), str(fill.get(qid, ""))[:120], "表单上的选项和草案里的答案对不上，或控件没法自动操作")
         skip_verify.update(rep.get("unfixed") or [])
 
-    def _takeover(i: int, problem: dict[str, Any], only: list[str] | None, issues: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _takeover(i: int, problem: dict[str, Any], only: list[str] | None, issues: list[dict[str, Any]], on_ids: list[str] | None = None) -> dict[str, Any] | None:
         _repair_note.clear()
-        rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues)
+        rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids)
         if rep is None:
             step("repair_skipped", why=_repair_note.get("why") or "repair is switched off")
             return None
@@ -235,6 +248,146 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
              needs_user=len(rep.get("needs_user") or []), form_still_reports=audit.texts(rep.get("left") or [])[:10], cause=rep.get("cause", "")[:200])
         _apply(rep, i)
         return rep
+
+    def _left_step(title0: str) -> bool:
+        """Has the form moved to another step since this one was opened (told by its heading)?"""
+        now = driver.step_title(page)
+        return bool(title0) and bool(now) and now != title0
+
+    def _walk_steps() -> list[dict[str, Any]]:
+        """A form with several steps: go through the steps that are really there. Returns what the form still reports at the end."""
+        done_ids: set[str] = set()
+        seen: dict[str, int] = {}
+        still: list[dict[str, Any]] = []
+        for n in range(40):
+            sig = driver.signature(page)
+            seen[sig] = seen.get(sig, 0) + 1
+            if seen[sig] > 2:      # the same step for the third time: going round in circles
+                step("stuck", step=n, title=driver.step_title(page))
+                _left("form", f"表单停在「{driver.step_title(page) or '同一步'}」没法继续往下走", "", "请在窗口里把这一步处理好，再继续到最后提交")
+                break
+            title0 = driver.step_title(page)
+            here = [q for q in driver.present(page, fill) if q.id not in done_ids]
+            ids = [q.id for q in here]
+            # 1. the driver fills what this step shows
+            fill_error: DriverError | None = None
+            if here:
+                try:
+                    driver.fill_questions(page, here, fill, n)
+                except DriverError as e:
+                    browser.snapshot(page, run_dir, f"fill_failed_step_{n + 1}")
+                    fill_error = e
+            # 2. the form's own verdict; 3. the agent finishes what is left (also fields of this step the draft does not know)
+            issues = _issues(None)
+            if issues:
+                step("form_reports", step=n, after="driver", issues=audit.texts(issues)[:12])
+            rounds = 0
+            told: list[dict[str, Any]] = []     # what a take-over of this step has been shown
+            if fill_error is not None or issues:
+                failed = list(getattr(fill_error, "failures", [])) if fill_error is not None else []
+                only = [f["id"] for f in failed] if (failed or fill_error is None) else None
+                problem = fill_error.to_dict() if fill_error is not None else {"message": "this step of the form reports problems"}
+                rep = _takeover(n, problem, only, issues, on_ids=ids)
+                rounds += 1
+                told += issues if rep is not None else []
+                if rep is None and fill_error is not None:
+                    for f in failed:
+                        _left("fix", f["label"], str(fill.get(f["id"], ""))[:120], "没能自动填上")
+            step("fill_step", step=n, title=driver.step_title(page), questions=len(here))
+            browser.snapshot(page, run_dir, f"step_{n + 1}_filled")
+            # read back what was filled on this step
+            if here and not _left_step(title0):
+                scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
+                bad = _really_different(page, schema, verify(schema, scope, driver.read_back(page, schema)))
+                if bad and rounds < 2 and _takeover(n, {"message": "values on the form differ from the approved draft", "mismatches": bad}, [b["id"] for b in bad], [], on_ids=ids) is not None:
+                    rounds += 1
+                    scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
+                    bad = _really_different(page, schema, verify(schema, scope, driver.read_back(page, schema)))
+                step("read_back", step=n, checked=len(scope), mismatches=len(bad))
+                if bad:
+                    browser.snapshot(page, run_dir, "verify_failed")
+                    _mismatch_leftovers(bad)
+            done_ids.update(ids)
+            # 4. the form has the last word on this step
+            # (an error text that was already there before the take-over stays on many forms until they are asked again:
+            # pressing the forward button below is the test for it, not another take-over)
+            still = audit.not_stale(_issues(None), told)
+            fresh = [it for it in still if not _handed(it)]
+            if fresh and rounds < 2 and repair.enabled():
+                step("form_reports", step=n, after="checks", issues=audit.texts(fresh)[:12])
+                if _takeover(n, {"message": "this step was filled and compared with the draft, but the form still reports problems"}, [], fresh, on_ids=ids) is not None:
+                    rounds += 1
+                    told += fresh
+                    still = audit.not_stale(_issues(None), told)
+            # the last step is where the user submits
+            if driver.at_review(page):
+                step("review_step", step=n, title=driver.step_title(page))
+                break
+            # on to the next step: the form's own button, else the agent finds the way
+            if _left_step(title0):      # a take-over went on to the next step by itself: that step is handled in the next round
+                step("advance", step=n, how="take-over")
+                continue
+            moved, how, why, at_end = driver.forward(page), "button", "", False
+            for _ in range(2 if repair.enabled() else 0):
+                if moved:
+                    break
+                # The form refused to go on, and now it says why (many forms report a missing answer only after "Continue"):
+                # one more round of finishing this step, then its own button again.
+                blockers = [it for it in _issues(None) if not _handed(it)]
+                if (blockers or why) and rounds < 3:
+                    step("form_reports", step=n, after="next", issues=audit.texts(blockers)[:12], seen=why[:200])
+                    rounds += 1
+                    # what the navigator saw on the page counts like a message of the form, when the form's own marks show nothing
+                    seen_there = blockers or [{"kind": "message", "label": "", "message": why[:240], "selector": "", "value": ""}]
+                    if _takeover(n, {"message": "the form does not go on to the next step" + (f": {why}" if why else "")}, [], seen_there, on_ids=ids) is not None:
+                        still = _issues(None)
+                        moved = _left_step(title0) or driver.forward(page)
+                        if moved:
+                            how = "button after take-over"
+                            break
+                # no button the program knows: the agent finds the way
+                before = driver.signature(page)
+                try:
+                    nav = repair.advance(page, schema, run_dir, step=n)
+                except llm.LLMError as e:
+                    nav = {"state": "blocked", "why": f"AI 没能接手：{str(e)[:160]}"}
+                if nav["state"] == "review":
+                    at_end = True
+                    break
+                moved, how, why = nav["state"] == "moved" and driver.signature(page) != before, "agent", nav.get("why", "")
+                if not why:
+                    break
+            if at_end:
+                step("review_step", step=n, title=driver.step_title(page), found_by="agent")
+                break
+            if not moved:
+                step("cannot_advance", step=n, title=driver.step_title(page), why=why[:200])
+                for it in still:
+                    if not _handed(it):
+                        _left("form", audit.describe(it), "", "表单自己的提示")
+                _left("form", f"表单在「{driver.step_title(page) or '这一步'}」没法进入下一步" + (f"：{why[:120]}" if why else ""), "", "请在窗口里把这一步处理好，再继续到最后提交")
+                break
+            step("advance", step=n, how=how)
+        # answers the form never asked for this time: usually saved by an earlier attempt, or not needed for this applicant
+        rest = [q for q in schema.questions if q.id in fill and q.id not in done_ids and q.id not in entered_by_agent]
+        if rest:
+            try:
+                shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
+            except Exception:  # noqa: BLE001
+                shown = ""
+            unseen = []
+            for q in rest:
+                val = fill[q.id]
+                want = Path(str(val)).name if q.type == "file" else ", ".join(map(str, val)) if isinstance(val, list) else str(val)
+                parts = [str(x).lower() for x in (val if isinstance(val, list) else [want])] if q.type != "file" else [want.lower()]
+                if not (all(" ".join(x.split()) in shown for x in parts if x) and " ".join(q.label.lower().split())[:60] in shown):
+                    unseen.append((q, want))
+            step("not_asked", count=len(rest), shown_on_review=len(rest) - len(unseen), unconfirmed=[q.label for q, _ in unseen][:20])
+            for q, want in unseen:
+                if q.type == "checkbox":     # acknowledgements belong to steps that were passed; nothing to compare on a summary
+                    continue
+                _left("check", q.label, want[:120], "表单这次没有再问这一题（多半是上次已经保存了），确认页上也没找到这个答案，提交前请核对")
+        return still
 
     def _after_verify_repair(rep: dict[str, Any], i: int) -> None:
         _apply(rep, i)
@@ -267,7 +420,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                         step("reopen", form_found=gen.form_present(page, schema, wait_s=6))
             pages = schema.pages or ["Application"]
             open_issues: list[dict[str, Any]] = []
-            for i in range(len(pages)):
+            wizard = generic and len(pages) > 1
+            if wizard:
+                step("walk", pages_in_draft=len(pages))
+                open_issues = _walk_steps()
+            for i in range(0 if wizard else len(pages)):
                 rounds = 0  # agent take-overs on this page (at most two: one after the driver, one after the checks)
                 live = FormSchema(ats=schema.ats, questions=[Question(**{**q.__dict__, "page": i}) for q in driver.live_questions(page, i)])
                 diff = diff_schemas(_page_view(schema, i), live, page=i)
@@ -331,7 +488,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     if not moved:
                         raise DriverError("could not advance to the next page", page=i, seen="; ".join(_errors(driver, page) or audit.texts(_issues(i)))[:400])
                     step("next", page=i)
-            if not per_page:
+            if not per_page and not wizard:
                 _checked(lambda: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, None, page_of, run_dir, step, title, application_id,
                                          after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1))))
             touched = any(st["op"] == "repair" for st in steps)
@@ -473,12 +630,13 @@ _repair_note: dict[str, str] = {}   # why the last take-over did not happen (sho
 
 
 def _repair(page: Any, schema: FormSchema, i: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
-            only_ids: list[str] | None, title: str, application_id: int, *, issues: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+            only_ids: list[str] | None, title: str, application_id: int, *, issues: list[dict[str, Any]] | None = None,
+            on_ids: list[str] | None = None) -> dict[str, Any] | None:
     """Agent takeover of one page. None when repair is off or no model is available (the caller re-raises)."""
     if not repair.enabled():
         return None
     try:
-        return repair.fix_page(page, schema, i, fill, problem, run_dir, only_ids=only_ids, issues=issues, title=title, ref=f"application:{application_id}")
+        return repair.fix_page(page, schema, i, fill, problem, run_dir, only_ids=only_ids, issues=issues, title=title, ref=f"application:{application_id}", on_ids=on_ids)
     except llm.LLMError as e:
         log.warning("repair unavailable: %s", e)
         _repair_note["why"] = str(e)[:300]

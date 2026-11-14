@@ -37,6 +37,38 @@ class FieldFailures(DriverError):
         return {**super().to_dict(), "failures": self.failures}
 
 
+# What a step of a form looks like. Forms keep every step in the page and show one (hidden forms and panels are ignored),
+# and the first <form> of a page is often not the application at all (a hidden log-out form), so nothing here relies on
+# "the first form" or on text that is not visible.
+_STEP_JS = r"""() => {
+  const vis = (e) => !!(e.offsetParent || e.getClientRects().length) && getComputedStyle(e).visibility !== 'hidden';
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const root = [...document.querySelectorAll('main, [role=main]')].find(vis) || document.body;
+  const all = (sel) => [...root.querySelectorAll(sel)].filter(vis);
+  const current = all('[aria-current=step], [aria-current=page], [aria-current=true], [role=tab][aria-selected=true]').map((e) => clean(e.innerText || e.getAttribute('aria-label')));
+  const heads = all('h1, h2, h3, legend');
+  const controls = all('input:not([type=hidden]), select, textarea, [role=combobox], [role=radiogroup], [contenteditable=true]');
+  const buttons = all('button, [role=button], input[type=submit], input[type=button]');
+  const label = (e) => clean((e.labels && e.labels[0] && e.labels[0].innerText) || e.getAttribute('aria-label') || e.getAttribute('placeholder') || '');
+  let title = current.find((t) => t) || '';
+  if (!title && heads.length) {
+    const first = controls[0] || buttons[0];
+    let best = heads[0];
+    if (first) for (const h of heads) if (h.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING) best = h;
+    title = clean(best.innerText);
+  }
+  const parts = [current, heads.map((h) => clean(h.innerText)), controls.map((e) => e.tagName + ':' + (e.getAttribute('type') || '') + ':' + (e.getAttribute('name') || '') + ':' + label(e)),
+                 buttons.map((b) => clean(b.innerText || b.value || b.getAttribute('aria-label')))];
+  return { title, parts: JSON.stringify(parts) };
+}"""
+
+
+def _same_label(label: str) -> re.Pattern[str]:
+    """Matches a label that is this question: the same words from the start, followed by nothing or by decoration only."""
+    words = r"\s+".join(re.escape(w) for w in label.split())
+    return re.compile(r"^\s*" + words + r"\s*(?:$|[*:：?？(（\[\-–—]|(?:required|optional|必填|选填)\b)", re.I)
+
+
 def _loc(page: Page, q: Question) -> Locator:
     """The control for a question: by the selector recorded when the form was read, else by its label.
     Many forms generate their ids (#input-16, #:r5:) afresh on every visit, so the recorded selector alone is not enough;
@@ -46,9 +78,10 @@ def _loc(page: Page, q: Question) -> Locator:
     loc = page.locator("[data-autoapply-none]" if by_label_only else sel).first
     label = re.sub(r"\s+", " ", q.label or "").strip().rstrip("*").strip()
     positional = bool(POSITIONAL.search(sel))  # "the 3rd select": right only while the form shows exactly the fields it showed when it was read
+    same = _same_label(label) if label else None
     if positional and label and q.type != "file":
         for make in (lambda: page.get_by_label(label, exact=True), lambda: page.get_by_role("combobox", name=label, exact=True),
-                     lambda: page.get_by_role("radiogroup", name=label), lambda: page.get_by_role("group", name=label)):
+                     lambda: page.get_by_role("radiogroup", name=same), lambda: page.get_by_role("group", name=same)):
             try:
                 c = make()
                 if c.count() == 1:
@@ -61,10 +94,13 @@ def _loc(page: Page, q: Question) -> Locator:
     except Exception:  # noqa: BLE001 - a selector this page cannot parse
         pass
     if label:
-        cands = [lambda: page.get_by_label(label, exact=True), lambda: page.get_by_role("radiogroup", name=label), lambda: page.get_by_role("group", name=label),
-                 lambda: page.get_by_role("combobox", name=label), lambda: page.get_by_label(label),
+        # The label has to BE the question (give or take a "*", "(required)", a colon): a label that only contains the
+        # question's words belongs to another question - "First Name" is not "Legal First Name".
+        cands = [lambda: page.get_by_label(label, exact=True), lambda: page.get_by_role("radiogroup", name=same), lambda: page.get_by_role("group", name=same),
+                 lambda: page.get_by_role("combobox", name=same), lambda: page.get_by_label(same),
                  # a question whose text sits in a label / legend / heading next to its control
-                 lambda: page.locator("fieldset, [role=group], [role=radiogroup], .form-group, [class*=question], [class*=field]").filter(has_text=label).last]
+                 lambda: page.locator("fieldset, [role=group], [role=radiogroup], .form-group, [class*=question], [class*=field]").filter(
+                     has=page.locator("label, legend, h2, h3, h4, h5, h6, p, span, [class*=label], [class*=title]").filter(has_text=same)).last]
         for make in cands:
             try:
                 c = make()
@@ -259,6 +295,8 @@ def value_visible(page: Page, q: Question, expected: Any) -> bool:
         return False
 
 
+FORWARD_RE = re.compile(r"^\s*(next|next step|next page|continue|save (and|&) (continue|next)|skip|skip (and|&) continue|skip for now|not now|no,? thanks|proceed|"
+                        r"go to (the )?next step|下一步|继续|保存并继续|跳过|暂不)\s*[›»→>]*\s*$", re.I)
 POSITIONAL = re.compile(r":nth-(match|of-type|child|last-child)|:nth\(|>>\s*nth=|:first-(child|of-type)|:last-(child|of-type)", re.I)
 APPLY_RE = re.compile(r"^\s*(apply|apply now|apply here|apply online|apply for (this|the) (job|position|role)|apply to (this )?(job|position|role)|start (your )?application|"
                       r"begin application|申请|立即申请|申请(该|此)?(职位|岗位))\s*$", re.I)
@@ -342,10 +380,82 @@ class GenericDriver:
         """The mapped questions whose control is on the page now (a missing control shows up as 'removed')."""
         return [Question(**{**q.__dict__, "options": []}) for q in self.schema.questions if q.page == page_index and _loc(page, q).count() > 0]
 
+    def present(self, page: Page, answers: dict[str, Any]) -> list[Question]:
+        """The answered questions whose control is on the page right now, whatever page they were recorded on.
+        A form with several steps shows them in its own order, skips steps it already has, and resumes where it stopped."""
+        out = []
+        for q in self.schema.questions:
+            if q.id not in answers:
+                continue
+            try:
+                loc = _loc(page, q)
+                if not loc.count():
+                    continue
+                if q.type == "file" or loc.evaluate(
+                        "(e) => !!(e.offsetParent || e.getClientRects().length || (e.labels && e.labels[0] && e.labels[0].offsetParent) || (e.parentElement && e.parentElement.offsetParent))"):
+                    out.append(q)
+            except Exception:  # noqa: BLE001 - a selector this page cannot parse: not here
+                continue
+        return out
+
+    def forward(self, page: Page) -> bool:
+        """Go to the next step with the form's own forward button: the ones recorded when the form was read, else the usual
+        names (Next, Continue, Save and continue, Skip & continue ...). Never a button that submits. True when the page changed."""
+        before = self.signature(page)
+        names: list[Any] = [n for n in (self.schema.extra.get("next_buttons") or []) if n and not SUBMIT_RE.search(n)] + [FORWARD_RE]
+        for name in names:
+            for role in ("button", "link"):
+                try:
+                    for btn in page.get_by_role(role, name=name, exact=isinstance(name, str)).all()[:6]:
+                        if not btn.is_visible() or not btn.is_enabled():
+                            continue
+                        if SUBMIT_RE.search((btn.inner_text() or "").strip()):
+                            continue
+                        btn.click(timeout=w.T)
+                        for _ in range(12):
+                            page.wait_for_timeout(500)
+                            if self.signature(page) != before:
+                                return True
+                except Exception:  # noqa: BLE001 - not clickable: try the next candidate
+                    continue
+        return False
+
+    def at_review(self, page: Page) -> bool:
+        """Is this the last step: a button that submits is showing and there is no forward button?"""
+        try:
+            buttons = [b for b in page.get_by_role("button").all()[:60] if b.is_visible()]
+            texts = [(b.inner_text() or b.get_attribute("value") or "").strip() for b in buttons]
+        except Exception:  # noqa: BLE001
+            return False
+        return any(SUBMIT_RE.search(t) for t in texts) and not any(FORWARD_RE.match(t) for t in texts)
+
+    @staticmethod
+    def signature(page: Page) -> str:
+        """Changes when the form shows another step (the address often stays the same). A step is told by what can be
+        seen of it: the step the form marks as current, the headings, the controls and the buttons. Error messages are
+        not part of it - a form that refuses to go on and shows a message is still on the same step."""
+        import hashlib
+
+        try:
+            seen = page.evaluate(_STEP_JS)["parts"]
+        except Exception:  # noqa: BLE001
+            seen = ""
+        return page.url + "|" + hashlib.sha256(seen.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def step_title(page: Page) -> str:
+        """The step the form marks as current, else the heading above its first visible control."""
+        try:
+            return page.evaluate(_STEP_JS)["title"] or ""
+        except Exception:  # noqa: BLE001
+            return ""
+
     def fill_page(self, page: Page, schema: FormSchema, page_index: int, answers: dict[str, Any]) -> None:
+        self.fill_questions(page, [q for q in schema.questions if q.page == page_index and q.id in answers], answers, page_index)
+
+    def fill_questions(self, page: Page, todo: list[Question], answers: dict[str, Any], page_index: int = 0) -> None:
         failures = []
         acknowledge_notice(page)
-        todo = [q for q in schema.questions if q.page == page_index and q.id in answers]
         # Files first: many forms parse an uploaded résumé and overwrite other fields with what they find.
         files = [q for q in todo if q.type == "file"]
         for q in files + [q for q in todo if q.type != "file"]:
@@ -371,6 +481,8 @@ class GenericDriver:
             raise FieldFailures(page_index, failures)
 
     def next_page(self, page: Page) -> bool:
+        if self.forward(page):
+            return True
         names = self.schema.extra.get("next_buttons") or []
         for name in [n for n in names if n] + ["Next", "Continue", "Save and Continue", "Save & Continue"]:
             if SUBMIT_RE.search(name):

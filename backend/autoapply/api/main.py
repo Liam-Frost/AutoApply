@@ -41,6 +41,15 @@ async def lifespan(app: FastAPI):
     if not db.get_setting("migrated.page_ids"):
         _watch.migrate_ids()
         db.set_setting("migrated.page_ids", True)
+    if not db.get_setting("migrated.generic_patch_cards"):
+        # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
+        from ..models import Todo, now
+
+        with db.session() as s:
+            for td in s.query(Todo).filter_by(kind="driver_patch", status="open"):
+                if (td.payload or {}).get("ats") == "generic":
+                    td.status, td.done_at = "done", now()
+        db.set_setting("migrated.generic_patch_cards", True)
     net.apply()
     tasks.start()
     yield
