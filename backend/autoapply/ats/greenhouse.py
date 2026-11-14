@@ -23,7 +23,7 @@ from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from . import widgets as w
-from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question
+from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, host_is
 
 API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job}?questions=true"
 EMBED = "https://job-boards.greenhouse.io/embed/job_app?for={board}&token={job}"
@@ -49,7 +49,7 @@ class GreenhouseDriver:
         u = urlparse(url)
         host = u.netloc.lower()
         qs = parse_qs(u.query)
-        if host.endswith("greenhouse.io"):
+        if host_is(u.hostname or "", "greenhouse.io"):
             m = re.search(r"/([^/]+)/jobs/(\d+)", u.path)
             if m:
                 return JobRef(self.ats, m.group(1), m.group(2), url, host)

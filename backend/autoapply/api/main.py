@@ -1799,9 +1799,9 @@ def gmail_authorize() -> dict[str, Any]:
 def import_tsv(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     from .. import importer
 
-    p = Path(body["path"])
-    if not p.exists():
-        raise HTTPException(400, "file not found")
+    p = Path(str(body["path"]))
+    if p.suffix.lower() not in (".tsv", ".txt", ".csv") or not p.is_file():
+        raise HTTPException(400, "请给出一个 .tsv / .txt / .csv 文件的完整路径")
     return importer.import_tsv(p)
 
 

@@ -1,3 +1,7 @@
+<script>
+let counter = 0   // ids for the label / listbox pairing: unique on the page, nothing more
+</script>
+
 <script setup>
 // Drop-down that replaces the browser's own <select>. Used exactly like one - <AaSelect v-model="x"><option value="a">A</option></AaSelect> -
 // so the options stay readable in the template; they are read from the slot and drawn in the product's own style.
@@ -107,7 +111,7 @@ function onKey(e) {
   }
 }
 onBeforeUnmount(close)
-const uid = 'sel' + Math.random().toString(36).slice(2, 8)
+const uid = 'sel' + ++counter
 </script>
 
 <template>

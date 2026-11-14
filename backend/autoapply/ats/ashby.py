@@ -22,7 +22,7 @@ from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from . import widgets as w
-from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question
+from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, host_is
 
 GQL = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting"
 QUERY = (
@@ -44,7 +44,7 @@ class AshbyDriver:
 
     def detect(self, url: str) -> JobRef | None:
         u = urlparse(url)
-        if not u.netloc.lower().endswith("ashbyhq.com"):
+        if not host_is(u.hostname or "", "ashbyhq.com"):
             return None
         m = re.match(r"/([^/]+)/([0-9a-f-]{36})", u.path)
         if not m:

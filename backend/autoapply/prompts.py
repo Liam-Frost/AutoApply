@@ -87,6 +87,8 @@ def _doc(key: str) -> str:
 
 
 def _path(key: str):  # noqa: ANN202
+    if key not in SPECS:   # the key becomes a file name: only the names in the registry are files of ours
+        raise KeyError(key)
     d = config.KNOWLEDGE / "prompts"
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{key}.md"

@@ -31,7 +31,7 @@ KEEP_PER_ATS = 12
 
 
 def _clean(html: str) -> str:
-    html = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.S | re.I)
+    html = re.sub(r"<script\b[^>]*>.*?</script\b[^>]*>", "", html, flags=re.S | re.I)
     html = re.sub(r'(<input[^>]*type="password"[^>]*value=")[^"]*', r"\1", html)
     return html
 

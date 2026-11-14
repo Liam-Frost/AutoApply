@@ -92,7 +92,7 @@ def parse_detail(pid: str, text: str) -> dict[str, Any]:
         "source": "pdportal", "source_id": pid,
         "title": _field(text, "Job Title:"), "company": _field(text, "Company:") or _field(text, "Organization:"),
         "term": f"{m.group(2)} {m.group(1)}" if m else term,
-        "months": re.sub(r"\s*months?\s*", "", _field(text, "Length of Work Term:")),
+        "months": " ".join(re.sub(r"months?", " ", _field(text, "Length of Work Term:")).split()),
         "location": _field(text, "Job Location:"), "salary": _field(text, "Salary ($):"),
         "deadline": _deadline(text), "docs_required": _field(text, "Application Documents Required:"),
         "channel": "PD Portal" if "system" in proc.lower() else "employer site",

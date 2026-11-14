@@ -45,22 +45,36 @@ def write_state(tenant_key: str, state: dict) -> None:
 # Built in: the ones career sites and applicant systems offer most often. Google and Apple are what Workday supports;
 # Microsoft / LinkedIn / Google / Facebook is the Eightfold set (Microsoft Careers); Google / Facebook / Indeed appear on
 # Oracle Recruiting sites; LinkedIn is near-universal; GitHub on developer-focused boards; SEEK and XING regionally.
+def _at(url: str, domain: str, path: str = "") -> bool:
+    """Is the window on that site (and, if given, under that path)? Decided by the address's host, not by finding the
+    name somewhere in the address: "https://evil.example/?next=myaccount.google.com" is not Google."""
+    from urllib.parse import urlparse
+
+    from .ats.base import host_is
+
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return False
+    return u.scheme == "https" and host_is(u.hostname or "", domain) and (not path or u.path.startswith(path))
+
+
 IDENTITIES = {
-    "google": {"name": "Google", "url": "https://accounts.google.com/", "domains": ("google.com",), "done": lambda u: "myaccount.google.com" in u,
+    "google": {"name": "Google", "url": "https://accounts.google.com/", "domains": ("google.com",), "done": lambda u: _at(u, "myaccount.google.com"),
                "note": "Google 有时会拒绝在程序控制的浏览器里登录（提示“此浏览器或应用可能不安全”）。遇到这种情况就是用不了，程序不会去绕过它。"},
-    "linkedin": {"name": "LinkedIn", "url": "https://www.linkedin.com/login", "domains": ("linkedin.com",), "done": lambda u: "linkedin.com/feed" in u},
+    "linkedin": {"name": "LinkedIn", "url": "https://www.linkedin.com/login", "domains": ("linkedin.com",), "done": lambda u: _at(u, "linkedin.com", "/feed")},
     "microsoft": {"name": "Microsoft", "url": "https://login.live.com/", "domains": ("live.com", "microsoftonline.com", "microsoft.com"),
-                  "done": lambda u: "account.microsoft.com" in u or "account.live.com" in u},
-    "apple": {"name": "Apple", "url": "https://account.apple.com/sign-in", "domains": ("apple.com", "icloud.com"), "done": lambda u: "account.apple.com/account" in u,
+                  "done": lambda u: _at(u, "account.microsoft.com") or _at(u, "account.live.com")},
+    "apple": {"name": "Apple", "url": "https://account.apple.com/sign-in", "domains": ("apple.com", "icloud.com"), "done": lambda u: _at(u, "account.apple.com", "/account"),
               "note": "Apple 每次在新浏览器里登录都要双重认证，验证码请你自己输入。"},
     "facebook": {"name": "Facebook", "url": "https://www.facebook.com/login", "domains": ("facebook.com",),
                  "done": lambda u: re.match(r"https://www\.facebook\.com/(\?.*)?$", u) is not None},
     "indeed": {"name": "Indeed", "url": "https://secure.indeed.com/auth", "domains": ("indeed.com",),
-               "done": lambda u: re.match(r"https://([a-z]+\.)?indeed\.com/", u) is not None and "secure.indeed.com" not in u},
+               "done": lambda u: _at(u, "indeed.com") and not _at(u, "secure.indeed.com")},
     "github": {"name": "GitHub", "url": "https://github.com/login", "domains": ("github.com",), "done": lambda u: u.rstrip("/") == "https://github.com"},
     "seek": {"name": "SEEK", "url": "https://www.seek.com.au/oauth/login/", "domains": ("seek.com.au", "seek.com"),
-             "done": lambda u: "seek.com" in u and "login" not in u and "oauth" not in u, "region": "澳大利亚、新西兰"},
-    "xing": {"name": "XING", "url": "https://login.xing.com/", "domains": ("xing.com",), "done": lambda u: "www.xing.com" in u, "region": "德语区"},
+             "done": lambda u: (_at(u, "seek.com") or _at(u, "seek.com.au")) and "login" not in u and "oauth" not in u, "region": "澳大利亚、新西兰"},
+    "xing": {"name": "XING", "url": "https://login.xing.com/", "domains": ("xing.com",), "done": lambda u: _at(u, "www.xing.com"), "region": "德语区"},
 }
 
 

@@ -32,7 +32,7 @@ SYSTEM = ("You are given the links found on an employer's careers page. Pick the
 
 
 def _sid(url: str) -> str:
-    return hashlib.sha1(url.split("#")[0].encode()).hexdigest()[:16]
+    return hashlib.sha1(url.split("#")[0].encode(), usedforsecurity=False).hexdigest()[:16]   # an identifier for de-duplication, not a secret
 
 
 def links(page) -> list[dict[str, str]]:  # noqa: ANN001
@@ -85,6 +85,6 @@ def scan(employer: dict[str, Any], keep: Callable[..., bool] = lambda *a: True) 
                 page.wait_for_timeout(1800)
                 jd = re.sub(r"[ \t]+", " ", page.evaluate("() => (document.querySelector('main, [role=main], article') || document.body).innerText") or "")[:15000]
             except Exception as e:  # noqa: BLE001 - one posting that will not open does not stop the rest
-                log.info("posting %s did not open: %s", href, type(e).__name__)
+                log.info("a posting on %s did not open: %s", urlparse(href).netloc, type(e).__name__)
                 jd = ""
             yield {**row, "jd_text": jd}

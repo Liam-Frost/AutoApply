@@ -66,7 +66,8 @@ def countries_of(location: str) -> set[str]:
         part = part.strip()
         if not part:
             continue
-        m = re.search(r"^[^,]+,\s*[^,]+,\s*([A-Z]{2,3})$", part)  # "City, Region, CC": the last token is the country
+        bits = [b.strip() for b in part.split(",")]   # "City, Region, CC": the last token is the country
+        m = re.fullmatch(r"([A-Z]{2,3})", bits[2]) if len(bits) == 3 and bits[0] and bits[1] else None
         if m:
             cc = {"USA": "US", "CAN": "CA", "UK": "GB", "GBR": "GB", "AUS": "AU", "DEU": "DE", "SGP": "SG", "CHN": "CN", "HKG": "HK"}.get(m.group(1), m.group(1))
             if cc in COUNTRY_PATTERNS:
@@ -105,7 +106,7 @@ def check(row: dict[str, Any], r: dict[str, Any] | None = None) -> str:
     loc = row.get("location") or ""
     if r["countries"] and loc.strip():
         found = countries_of(loc)
-        remote_only = re.fullmatch(r"\s*remote\s*", loc, re.I)
+        remote_only = loc.strip().lower() == "remote"
         if not remote_only and not (found & set(r["countries"])):
             return "country"
     if r["max_age_days"] and row.get("posted"):

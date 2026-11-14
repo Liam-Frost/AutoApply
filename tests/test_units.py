@@ -215,3 +215,50 @@ def test_sdk_tool_content():
     assert llm_sdk._mcp_content("ok") == [{"type": "text", "text": "ok"}]
     img = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}}
     assert llm_sdk._mcp_content([img]) == [{"type": "image", "data": "QUJD", "mimeType": "image/png"}]
+
+
+def test_sites_are_told_apart_by_host_not_by_a_name_somewhere_in_the_address():
+    from autoapply.ats import registry
+    from autoapply.ats.base import host_is, url_host
+    from autoapply.browser import IDENTITIES
+
+    assert host_is("jobs.ashbyhq.com", "ashbyhq.com") and host_is("ashbyhq.com", "ashbyhq.com") and host_is("JOBS.ashbyhq.com:443", "ashbyhq.com")
+    assert not host_is("notashbyhq.com", "ashbyhq.com") and not host_is("ashbyhq.com.evil.example", "ashbyhq.com") and not host_is("", "ashbyhq.com")
+    assert url_host("https://Boards.Greenhouse.io/acme/jobs/1") == "boards.greenhouse.io" and url_host("boards.greenhouse.io/acme") == "boards.greenhouse.io"
+    # look-alike addresses are ordinary sites, not the systems they imitate
+    for url in ("https://evilgreenhouse.io/acme/jobs/123", "https://evil.example/?u=boards.greenhouse.io/acme/jobs/123", "https://myworkdayjobs.com.evil.example/x/job/1",
+                "https://fakeashbyhq.com/acme/1"):
+        ref = registry.detect(url)
+        assert ref is None or ref.ats == "generic", url
+    assert registry.detect("https://boards.greenhouse.io/acme/jobs/123").ats == "greenhouse"
+    # "sign-in finished" is where the window is, not a name inside the address
+    done = {k: v["done"] for k, v in IDENTITIES.items()}
+    assert done["google"]("https://myaccount.google.com/") and not done["google"]("https://evil.example/?next=myaccount.google.com")
+    assert done["linkedin"]("https://www.linkedin.com/feed/") and not done["linkedin"]("https://www.linkedin.com/login") and not done["linkedin"]("https://evil.example/linkedin.com/feed")
+    assert done["microsoft"]("https://account.microsoft.com/?ref=x") and not done["microsoft"]("http://account.microsoft.com.evil.example/")
+    assert done["indeed"]("https://ca.indeed.com/") and not done["indeed"]("https://secure.indeed.com/auth")
+
+
+def test_a_prompt_key_cannot_name_another_file(app_env):
+    import pytest
+
+    from autoapply import config, prompts
+
+    victim = config.KNOWLEDGE / "profile.md"
+    victim.write_text("keep me", encoding="utf-8")
+    for key in ("..\\profile", "../profile", "nope"):
+        with pytest.raises(KeyError):
+            prompts.reset(key)
+    assert victim.read_text(encoding="utf-8") == "keep me"
+
+
+def test_location_parsing_is_not_slowed_down_by_hostile_text():
+    import time
+
+    from autoapply.intake import countries_of
+
+    assert countries_of("Vancouver, BC, CAN") >= {"CA"}
+    t = time.time()
+    countries_of("a" + ", " * 20000 + "x")
+    countries_of("City" + " " * 40000 + ", Region, CA")
+    assert time.time() - t < 2

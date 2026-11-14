@@ -11,6 +11,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   pending draft, change a setting), and a domain name pointed at `127.0.0.1` could read from it. Requests with a foreign
   `Host` header, and API requests from another site, are answered with 403.
 
+- Sites are told apart by the host of an address, never by a name appearing somewhere in it: a look-alike address such
+  as `evilgreenhouse.io` or `evil.example/?next=myaccount.google.com` is no longer taken for the real site when a posting
+  is recognised or when the program decides that a sign-in has finished.
+- A prompt can only be saved or reset under a key from the registry; a crafted key could name another `.md` file.
+- Location text from a posting can no longer stall the regular expressions that read it.
+- Importing a table of postings through the API accepts only `.tsv`, `.txt` and `.csv` files.
+
 ### Repository
 
 - Security policy, code of conduct, issue and pull-request templates, weekly dependency updates.

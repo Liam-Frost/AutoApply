@@ -47,7 +47,9 @@ def _recon(t: Task) -> dict[str, Any]:
             j = s.get(Job, job_id)
             company, url = j.company, j.apply_url
         ref = registry.detect(url) if url else None
-        if "accounts.google.com" in (e.url or "") or "accounts.google.com" in e.reason:
+        from .ats.base import host_is, url_host
+
+        if host_is(url_host(e.url or ""), "accounts.google.com") or "accounts.google.com" in e.reason:
             notify.add_todo("blocked", f"{company}", body="google_sign_in: " + e.reason, ref=f"job:{job_id}", payload={"url": url, "job_id": job_id, "retry_task": t.id, "why": "google"})
         elif e.kind not in ("login", "captcha", "mfa", "account", "verification", "register"):
             # not a sign-in problem: the page does not work in this program's browser (blank page, site error, apply button leads nowhere)
