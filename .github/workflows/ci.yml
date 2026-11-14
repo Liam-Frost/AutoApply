@@ -1,0 +1,188 @@
+# Tests, then every package built and installed for real on its own system.
+# Runs on pushes and pull requests; the release workflow calls it before publishing anything.
+name: CI
+
+on:
+  push:
+    branches: [master, main, next]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Dependencies
+        run: |
+          uv sync
+          uv run playwright install chromium
+      - name: Interface
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Tests
+        run: uv run pytest -q
+
+  package:
+    name: Portable zip and Linux package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Build
+        run: |
+          python scripts/make_release.py
+          python scripts/make_linux.py
+          ls -la dist-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable
+          path: dist-release/AutoApply-*.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist-release/AutoApply-*-linux.run
+          if-no-files-found: error
+
+  linux:
+    name: Install on Linux
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: linux }
+      - name: Install without questions
+        run: |
+          sh AutoApply-*-linux.run --yes --no-launch --lang en --dir "$RUNNER_TEMP/autoapply" || { cat "${TMPDIR:-/tmp}/autoapply-setup.log"; exit 1; }
+          test -x "$RUNNER_TEMP/autoapply/.venv/bin/python"
+          test -f "$HOME/.local/share/applications/autoapply.desktop"
+          test "$(cat "$RUNNER_TEMP/autoapply/data/ui-lang.txt")" = en
+      - name: The installed copy starts and answers
+        run: |
+          cd "$RUNNER_TEMP/autoapply"
+          nohup .venv/bin/python -m autoapply.cli serve --port 8765 > serve.log 2>&1 &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8765/api/overview > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8765/api/overview | head -c 200 || { cat serve.log; exit 1; }
+          curl -fsS http://127.0.0.1:8765/ | grep -q 'id="app"'
+          pkill -f "autoapply.cli serve" || true
+      - name: Upgrade keeps the data; uninstall keeps or deletes it as asked
+        run: |
+          echo marker > "$RUNNER_TEMP/autoapply/data/marker.txt"
+          sh AutoApply-*-linux.run --yes --no-launch --dir "$RUNNER_TEMP/autoapply"
+          test "$(cat "$RUNNER_TEMP/autoapply/data/marker.txt")" = marker
+          bash "$RUNNER_TEMP/autoapply/scripts/install-linux.sh" --uninstall --yes --dir "$RUNNER_TEMP/autoapply"
+          test -f "$RUNNER_TEMP/autoapply/data/marker.txt" && test ! -e "$RUNNER_TEMP/autoapply/backend"
+          test ! -e "$HOME/.local/share/applications/autoapply.desktop"
+          sh AutoApply-*-linux.run --yes --no-launch --dir "$RUNNER_TEMP/autoapply"
+          bash "$RUNNER_TEMP/autoapply/scripts/install-linux.sh" --uninstall --yes --delete-data --dir "$RUNNER_TEMP/autoapply"
+          test ! -e "$RUNNER_TEMP/autoapply"
+
+  windows:
+    name: Windows installer
+    needs: package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/download-artifact@v4
+        with: { name: portable, path: dist-release }
+      - name: Build the installer
+        run: python scripts/make_installer.py
+      - name: Install through the real setup window, driving itself
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist-release\AutoApply-Setup-*.exe).FullName
+          $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
+          $log = Join-Path ([IO.Path]::GetTempPath()) 'autoapply-setup.log'
+          $env:AUTOAPPLY_SETUP_ARGS = "-Auto -NoIntegrate -Lang en -Dir $dir"
+          Start-Process $exe -Wait
+          for ($i = 0; $i -lt 240 -and -not (Test-Path "$log.result"); $i++) { Start-Sleep 5 }
+          if (-not (Test-Path "$log.result")) { Get-Content $log -Tail 60; throw 'setup did not finish' }
+          $r = Get-Content "$log.result" -Raw
+          Write-Host $r
+          if ($r -notmatch '^\W*done\|') { Get-Content $log -Tail 60; throw 'setup failed' }
+          if (-not (Test-Path "$dir\.venv\Scripts\pythonw.exe")) { throw 'no environment' }
+      - name: The installed copy starts and answers
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
+          $p = Start-Process "$dir\.venv\Scripts\python.exe" -ArgumentList '-m', 'autoapply.cli', 'serve', '--port', '8765' -WorkingDirectory $dir -PassThru -WindowStyle Hidden
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/overview).StatusCode -eq 200) { $ok = $true; break } } catch { Start-Sleep 2 } }
+          if (-not $ok) { throw 'the installed copy did not answer' }
+          if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/).Content -notmatch 'id="app"') { throw 'no page' }
+          Stop-Process -Id $p.Id -Force
+      - name: Upgrade keeps the data; uninstall keeps or deletes it as asked
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
+          $stage = Join-Path $env:RUNNER_TEMP 'stage'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item (Get-ChildItem dist-release\AutoApply-*.zip | Where-Object Name -NotMatch 'Setup')[0].FullName "$stage\app.zip"
+          Copy-Item scripts\setup.ps1, frontend\public\favicon.png $stage
+          'marker' | Set-Content "$dir\data\marker.txt"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode install -Silent -NoIntegrate -Dir $dir
+          if ((Get-Content "$dir\data\marker.txt") -ne 'marker') { throw 'data was touched by the upgrade' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode uninstall -Moved -Silent -NoIntegrate -Dir $dir
+          if (-not (Test-Path "$dir\data\marker.txt") -or (Test-Path "$dir\backend")) { throw 'uninstall (keep data) is wrong' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode install -Silent -NoIntegrate -Dir $dir
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode uninstall -Moved -Silent -NoIntegrate -DeleteData -Dir $dir
+          if (Test-Path $dir) { throw 'uninstall (delete data) left the folder' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist-release/AutoApply-Setup-*.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS package
+    needs: package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: portable, path: dist-release }
+      - name: Build the disk image
+        run: bash scripts/make_macos.sh
+      - name: Set up from the app inside the image, without questions
+        run: |
+          hdiutil attach dist-release/AutoApply-*-macos.dmg -mountpoint /Volumes/AutoApplyTest -nobrowse
+          export AUTOAPPLY_HOME="$RUNNER_TEMP/autoapply" AUTOAPPLY_LANG=en
+          /Volumes/AutoApplyTest/AutoApply.app/Contents/MacOS/AutoApply --yes --setup-only || { cat "${TMPDIR:-/tmp}/autoapply-setup.log"; exit 1; }
+          test -x "$AUTOAPPLY_HOME/.venv/bin/python"
+          test "$(cat "$AUTOAPPLY_HOME/data/ui-lang.txt")" = en
+          plutil -lint /Volumes/AutoApplyTest/AutoApply.app/Contents/Info.plist
+          test -L /Volumes/AutoApplyTest/Applications
+          hdiutil detach /Volumes/AutoApplyTest
+      - name: The installed copy starts and answers
+        run: |
+          cd "$RUNNER_TEMP/autoapply"
+          nohup .venv/bin/python -m autoapply.cli serve --port 8765 > serve.log 2>&1 &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8765/api/overview > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8765/api/overview | head -c 200 || { cat serve.log; exit 1; }
+          curl -fsS http://127.0.0.1:8765/ | grep -q 'id="app"'
+          .venv/bin/python -c "from autoapply import launcher; launcher.make_icon('running'); import pystray; print('menu-bar support:', pystray.Icon.__module__)"
+          pkill -f "autoapply.cli serve" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist-release/AutoApply-*-macos.dmg
+          if-no-files-found: error

@@ -1,8 +1,0 @@
-{
-  "template_id": "latex_resume_template",
-  "document_type": "resume",
-  "styles": {},
-  "blocks": {
-    "sections": "{{resume.sections}}"
-  }
-}

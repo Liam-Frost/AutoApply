@@ -1,38 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=autoapply" />
     <title>AutoApply</title>
-    <script>
-      ;(() => {
-        const key = "autoapply.theme"
-        let stored = null
-        try {
-          stored = localStorage.getItem(key)
-        } catch {
-          stored = null
-        }
-        const preference = ["system", "light", "dark"].includes(stored) ? stored : "system"
-        const resolved =
-          preference === "system"
-            ? window.matchMedia("(prefers-color-scheme: dark)").matches
-              ? "dark"
-              : "light"
-            : preference
-
-        document.documentElement.dataset.theme = resolved
-        document.documentElement.style.colorScheme = resolved
-        // Phase D: Tailwind's `dark:` variants key off the .dark class on
-        // <html>, so set it synchronously here too — otherwise users with a
-        // saved dark preference get a light-theme flash before Vue mounts.
-        document.documentElement.classList.toggle("dark", resolved === "dark")
-      })()
-    </script>
+    <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
+    <link rel="alternate icon" type="image/png" href="/favicon.png" />
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
-  </html>
+</html>

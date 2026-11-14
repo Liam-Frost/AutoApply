@@ -1,0 +1,23 @@
+<!doctype html><html><body><main>
+<h1>Fixture application form</h1>
+<form id="f">
+<label for="first_name">First Name</label><input id="first_name" required>
+<label for="email">Email</label><input id="email" type="email" required>
+<label for="auth">Are you legally authorized to work in Canada?</label>
+<select id="auth" required><option value="">Select...</option><option>Yes</option><option>No</option></select>
+<label for="sponsor">Will you require sponsorship?</label>
+<select id="sponsor" required><option value="">Select...</option><option>Yes</option><option>No</option></select>
+<label for="resume">Resume/CV</label><input id="resume" type="file" required>
+<label for="consent">I agree to the privacy policy</label><input id="consent" type="checkbox">
+<!--EXTRA-->
+<div id="err" role="alert"></div>
+<button type="submit">Submit application</button>
+</form></main>
+<script>
+document.getElementById('f').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  window.submitCount = (window.submitCount || 0) + 1;
+  document.body.innerHTML = '<main><h1>Thank you for applying</h1><p>Application received: REF-123</p></main>';
+});
+</script>
+</body></html>

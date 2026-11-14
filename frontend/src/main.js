@@ -1,8 +1,49 @@
-import { createApp } from "vue"
+import { createApp } from 'vue'
+import { createRouter, createWebHistory } from 'vue-router'
+import App from './App.vue'
+import AaSelect from './components/Select.vue'
+import './style.css'
+import { loadPersona, persona } from './ui'
+import { followServerLang, initI18n } from './i18n'
+import AnalyticsView from './views/AnalyticsView.vue'
+import FilesView from './views/FilesView.vue'
+import ContactsView from './views/ContactsView.vue'
+import HomeView from './views/HomeView.vue'
+import WelcomeView from './views/WelcomeView.vue'
+import JobsView from './views/JobsView.vue'
+import DraftsView from './views/DraftsView.vue'
+import DraftDetail from './views/DraftDetail.vue'
+import TodosView from './views/TodosView.vue'
+import AccountsView from './views/AccountsView.vue'
+import ProfileView from './views/ProfileView.vue'
+import RunsView from './views/RunsView.vue'
+import SettingsView from './views/SettingsView.vue'
 
-import App from "./App.vue"
-import router from "./router"
-import "./tokens.css"
-import "./styles.css"
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', redirect: '/home' },
+    { path: '/home', component: HomeView },
+    { path: '/contacts', component: ContactsView },
+    { path: '/welcome', component: WelcomeView },
+    { path: '/files', component: FilesView },
+    { path: '/analytics', component: AnalyticsView },
+    { path: '/jobs', component: JobsView },
+    { path: '/drafts', component: DraftsView },
+    { path: '/drafts/:id', component: DraftDetail, props: true },
+    { path: '/todos', component: TodosView },
+    { path: '/accounts', component: AccountsView },
+    { path: '/profile', component: ProfileView },
+    { path: '/runs', component: RunsView },
+    { path: '/settings', component: SettingsView },
+  ],
+})
 
-createApp(App).use(router).mount("#app")
+// a fresh install goes to the first-run guide before anything else
+router.beforeEach(async (to) => {
+  if (!persona.loaded) await loadPersona()
+  if (!persona.done && to.path !== '/welcome') return '/welcome'
+})
+
+createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).use(router).mount('#app')
+initI18n().then(followServerLang)

@@ -1,236 +1,228 @@
 <p align="center">
-  <img src="docs/logo/AutoApply_logo.svg" alt="AutoApply Logo" width="400"/>
+  <img src="frontend/public/logo-full.svg" alt="AutoApply" width="300">
 </p>
 
 <p align="center">
-  <a href="#product">Product</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#documentation">Docs</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#license">License</a>
+  <b>A job-search assistant that runs on your own computer.</b><br>
+  It finds postings, scores them against your own rules, prepares every application as a draft,<br>
+  and fills in the form after <b>you</b> approve it. Then it reads your mail to track what happens.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.18.9-blue.svg" alt="Version"/>
-  <img src="https://img.shields.io/badge/license-PolyForm_Noncommercial-green.svg" alt="License"/>
-  <img src="https://img.shields.io/badge/python-3.12%2B-3776AB.svg" alt="Python"/>
-  <img src="https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg" alt="FastAPI"/>
-  <img src="https://img.shields.io/badge/Vue-3.5-42B883.svg" alt="Vue"/>
-  <img src="https://img.shields.io/badge/PostgreSQL-16%2B-4169E1.svg" alt="PostgreSQL"/>
+  <a href="https://github.com/Liam-Frost/AutoApply/releases/latest"><img src="https://img.shields.io/github/v/release/Liam-Frost/AutoApply?label=release" alt="Latest release"></a>
+  <a href="https://github.com/Liam-Frost/AutoApply/actions/workflows/ci.yml"><img src="https://github.com/Liam-Frost/AutoApply/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational" alt="Platforms">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License"></a>
 </p>
 
----
+<p align="center"><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
 
-AutoApply is a local-first job application automation workspace. It helps a job seeker discover roles, score fit, generate tailored application materials, prepare applications, and track outcomes while keeping every submit behind an explicit human decision.
+![Overview](docs/images/overview-en.webp)
 
-The product combines a Vue/FastAPI operator console, PostgreSQL-backed job and application records, Redis/Celery background work, auditable agent traces, and a provider-agnostic LLM layer supporting OpenAI, Anthropic, Gemini, DeepSeek, Moonshot/Kimi, Qwen, xAI Grok, Groq, Mistral, OpenRouter, Ollama (local), the Claude and Codex CLIs, and user-defined custom OpenAI-compatible providers.
+## Contents
 
-> **License**: [PolyForm Noncommercial 1.0.0](LICENSE). Personal, academic, and nonprofit use is free. Commercial use requires a separate license; see [Commercial Use](#commercial-use).
+- [What it does](#what-it-does)
+- [What it will not do](#what-it-will-not-do)
+- [Install](#install)
+- [First run](#first-run)
+- [How an application goes out](#how-an-application-goes-out)
+- [AI services, backups and allowance](#ai-services-backups-and-allowance)
+- [Your data](#your-data)
+- [What the previous version got wrong, and what changed](#what-the-previous-version-got-wrong-and-what-changed)
+- [What has been verified](#what-has-been-verified)
+- [Development](#development)
+- [License](#license)
 
-## Product
+## What it does
 
-AutoApply is designed for users who want automation without losing control over sensitive application actions.
-
-- **Job discovery**: Search LinkedIn-discovered roles and supported ATS platforms, normalize postings, and keep a durable Job Index.
-- **Fit scoring**: Combine hard rules, semantic matching, freshness checks, and explainability for rejected or borderline jobs.
-- **Applicant memory**: Maintain structured profile data, story bank entries, bullet pools, and reusable Q&A material.
-- **Materials workspace**: Generate resumes and cover letters from a job or pasted JD, using templates, source documents, and evidence-grounded IR.
-- **Document library**: Curate trusted resumes and cover letters, reuse them as generation bases, and promote generated artifacts when they are worth keeping.
-- **Automation plans**: Create user-defined recurring tasks that search, scrape, score, prepare materials, and optionally auto-apply eligible jobs.
-- **Review and submission**: Review prepared applications, replace materials, approve submissions, and keep submit actions gated.
-- **Tracking and analytics**: Track application status, generated artifacts, outcomes, task history, and provider/agent cost telemetry.
-
-## Current Status
-
-Core product development is complete through **Phase 18: Worker Activation, Reliability, Parallelism, and automatic artifact Cleanup with quarantine/audit** (layered on top of Phase 17.9: LLM Provider Expansion).
-
-The current application includes the Job Index, task queue with closed-out worker bodies (no fake `"scheduled"` / `"stubbed"` success returns), async materials generation that returns `task_id` + structured `TaskRecord.result`, a `dead_lettered` state + "Stuck / failed" tab for retries/discards, an automatic artifact-cleanup pipeline with quarantine + restore + purge, atomic-write protection on every materials writer, process-wide LLM rate-limit gates (global + per-provider), and the existing Phase 17.x surface (review queue, document library, material strategy defaults, multi-vendor provider management with per-provider model catalogs, Settings model picker, custom OpenAI-compatible providers, optional cheap-model tier, LinkedIn session management, modern Vue web console). Browser form-fill / click-submit, saved-search registry fanout, and outcome status sync are still explicit `not_implemented` paths rather than silent fake successes; legacy submit entrypoints now keep entries approved/queued instead of marking them submitted. The roadmap from here is **Phase 19** (Per-Posting Tag Cache & Filter Fast Path plus saved-search registry fanout) → **Phase 20** (Custom Job Sources / Connectors with URL safety, bounded multi-source search, and feature-gated template DSL) → **Phase 21** (Multi-tenancy & Auth Hardening) → future ATS-first application status sync.
-
-Latest local verification in this workspace:
-
-- `uv run pytest -q`: 1720 passed, 1 skipped (2026-05-21, after Phase 18)
-- `npm run build`: passed, with the existing Vite chunk-size warning
-- Alembic head: `b8d2f9e15c33` (Phase 18.3 DLQ columns); the Phase 18 schema chain is `e7c3a5b91f48` → `f4e8c1d2a907` → `a1c7b3e54f08` → `b8d2f9e15c33`
-
-For implementation-level history, see [Phase History](docs/PHASE_HISTORY.md) and [Changelog](docs/CHANGELOG.md).
-
-## Quick Start
-
-Install dependencies once, then use the unified local launcher:
-
-```powershell
-# 1. Set AUTOAPPLY_DB_PASSWORD in .env (any non-empty value), then install deps
-uv sync
-uv run playwright install chromium
-uv run autoapply init
-
-# 2. Start Postgres + Redis, migrations, Celery worker/Beat, and the web UI
-uv run autoapply start
-```
-
-Open the web console at `http://127.0.0.1:8000`.
-
-`autoapply start` runs Docker Compose for **data dependencies**
-(Postgres + Redis), applies Alembic migrations, starts Celery worker
-and Beat, then launches the Python web app on the host. Use
-`uv run autoapply start --check` to print the exact startup plan without
-starting anything. If the default host ports are unavailable, the launcher
-chooses alternate ports and passes them to Compose, Alembic, Celery, and
-the web process for that run. It is cross-platform; Docker Desktop can be
-auto-launched on Windows/macOS when installed, while Linux expects the
-Docker daemon to already be available. For a single-server production install that runs the
-same processes under one supervisor, see `supervisord.conf` and section
-15 of [the deployment guide](docs/DEPLOYMENT.md).
-
-If you modify frontend files:
-
-```powershell
-cd frontend
-npm install
-npm run build
-```
-
-The repository includes built SPA assets under `src/web/static/spa`, so a frontend rebuild is only required after editing `frontend/`.
-
-## Requirements
-
-| Area | Requirement |
+| | |
 |---|---|
-| Python | Python 3.12+ with `uv` |
-| Frontend | Node.js and npm for local SPA rebuilds |
-| Database | PostgreSQL 16+ with pgvector |
-| Browser | Playwright Chromium |
-| Cache and queue | Redis for cache, locks, Celery broker, and Beat metadata |
-| LLM provider | At least one of OpenAI, Anthropic, Gemini, DeepSeek, Moonshot, Qwen, xAI, Groq, Mistral, OpenRouter, a local Ollama server, the Claude / Codex CLIs, or a user-defined custom OpenAI-compatible endpoint |
+| **Finds postings** | Reads the careers pages of the employers you choose (Greenhouse, Lever, Ashby, SmartRecruiters and Workday boards, eight large tech companies, field job boards with a feed, or any careers page read by the AI). 46 employers and 16 job boards are checked and ready to pick from. |
+| **Scores them** | Against rules written in plain language that you can edit. Postings that cannot fit (wrong country, wrong level) are dropped before any AI is spent on them. |
+| **Drafts the application** | Opens the real form, reads every question, and answers from your profile only. Each answer shows where it came from and how sure it is. Questions it cannot answer are left for you, not guessed. |
+| **Waits for you** | You review the draft, change anything in plain words ("make the second paragraph about my internship"), and approve. |
+| **Fills in the form** | A driver fills the form, the program checks what the form itself reports, and an AI takes over whatever is left. You press *Submit* yourself unless you have chosen otherwise. |
+| **Tracks the result** | Reads your mailbox (read-only) for confirmations, rejections and interview invitations and updates each application. |
 
-## Common Commands
+It adapts to who you are: a first-run guide asks your career stage (internship, new graduate, experienced), field and target roles, and sets up filters, scoring rules and the interface accordingly. Not only for software jobs.
 
-```powershell
-# Database schema
-uv run alembic upgrade head
+<table>
+<tr>
+<td width="50%"><img src="docs/images/draft-en.webp" alt="Reviewing a draft"><br><sub><b>A draft.</b> Every answer with its source; nothing is sent before you approve.</sub></td>
+<td width="50%"><img src="docs/images/todos-en.webp" alt="Things that need you"><br><sub><b>Needs you.</b> What the program could not do alone, listed by name.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/jobs-en.webp" alt="Postings"><br><sub><b>Postings</b>, scored and sorted, with where each application stands.</sub></td>
+<td><img src="docs/images/failover-en.webp" alt="Backup AI services"><br><sub><b>Backup AI services</b> with the allowance each one has left.</sub></td>
+</tr>
+</table>
 
-# All-in-one local runtime
-uv run autoapply start
+## What it will not do
 
-# Web console only
-uv run autoapply web --host 127.0.0.1 --port 8000
+These are fixed in code and have no switch:
 
-# Provider setup
-uv run autoapply provider list
-uv run autoapply provider set-key openai sk-...
-uv run autoapply provider set-primary openai
-uv run autoapply provider test openai
+- **It does not invent anything about you.** Answers, cover letters and tailored résumés use only your résumé and the profile you confirmed.
+- **It does not submit what you have not approved.** The tools the AI is given cannot press Submit.
+- **It does not get around a site's protections.** No CAPTCHA solving, no disguised browser. A site that refuses the program's browser is handed to you.
+- **It does not call a form filled in while the form says otherwise.** If a field is still empty or rejected, you are told which one.
+- **It does not see your passwords.** They are in the system keyring; the AI only learns "signed in" or "needs you".
 
-# Search and tracking
-uv run autoapply search --source linkedin --keyword "software engineer" --location "Canada" --max-pages 3
-uv run autoapply status
+## Install
 
-# Background workers
-uv run autoapply worker --queues search,materials,application,maintenance
-uv run autoapply beat
+Download from the [latest release](https://github.com/Liam-Frost/AutoApply/releases/latest):
 
-# Automation plan runs
-uv run autoapply plan-runs run --profile default --top-n 10
-uv run autoapply pause-plan-runs --clear-pending
-uv run autoapply resume-plan-runs
-```
-
-Use the deployment guides for complete setup and production notes.
-
-## Architecture
-
-| Layer | Responsibility | Key Modules |
+| System | File | How |
 |---|---|---|
-| Web console | Human-facing operator UI | `frontend/`, `src/web/` |
-| Application services | Use cases shared by CLI and Web | `src/application/` |
-| Job intelligence | Search, normalized postings, snapshots, freshness | `src/jobs/`, `src/intake/` |
-| Matching | Rules, semantic scoring, explainability | `src/matching/` |
-| Materials | Resume/cover letter IR, rendering, document library | `src/generation/`, `src/documents/` |
-| Automation | Plan runs, review queue, digest | `src/orchestration/`, `src/review/` |
-| Task execution | Celery tasks, queues, schedule, audit | `src/tasks/` |
-| Agent harness | Bounded tools, traces, evals, HITL contracts | `src/agent/` |
-| Persistence | SQLAlchemy models and Alembic migrations | `src/core/`, `migrations/` |
-| Providers | LLM provider registry and credentials | `src/providers/`, `src/utils/llm.py` |
+| **Windows 10 / 11** | `AutoApply-Setup-<version>.exe` | Run it. Choose where to install and which shortcuts you want. |
+| **macOS 12+** | `AutoApply-<version>-macos.dmg` | Open it and drag AutoApply to Applications. |
+| **Linux** | `AutoApply-<version>-linux.run` | `sh AutoApply-<version>-linux.run` |
+| Any, portable | `AutoApply-<version>.zip` | Unzip, then `start.bat` (Windows) or `./start.sh`. |
 
-## Documentation
+<p align="center"><img src="docs/images/setup-en.png" alt="The setup window" width="560"></p>
 
-| Document | Purpose |
-|---|---|
-| [Deployment Guide](docs/DEPLOYMENT.md) | Installation, database, Redis, workers, and deployment operations |
-| [部署与使用教程](docs/DEPLOYMENT_zh.md) | Chinese deployment and usage guide |
-| [Project Management](docs/PROJECT_MANAGEMENT.md) | Current project state, next roadmap, verification baseline, and doc ownership |
-| [Phase History](docs/PHASE_HISTORY.md) | Compact shipped-phase archive without README-level noise |
-| [Changelog](docs/CHANGELOG.md) | Implementation-level change log and verification notes |
-| [Architecture Decisions](docs/DECISIONS.md) | Accepted design decisions and rationale |
-| [Agent Architecture](docs/AGENT_ARCHITECTURE.md) | Agent harness, tool boundary, HITL, trace, and eval contracts |
-| [Implementation Plan](docs/plan_en.md) | Long-form planning reference in English |
-| [实施计划](docs/plan_zh.md) | Long-form planning reference in Chinese |
+The installer needs no administrator rights and puts everything in your user folder. The first run downloads [uv](https://docs.astral.sh/uv/), Python, the dependencies and the program's own browser (about 600 MB, a few minutes). The same installer upgrades, repairs and removes the program; an upgrade never touches your data. Its language follows your system (Chinese or English) and can be switched in the window.
 
-## Project Layout
+> **The packages are not code-signed.** Windows shows *Windows protected your PC*: choose *More info → Run anyway*. On macOS, right-click the app the first time and choose *Open*. Every package is built by [the release workflow](.github/workflows/release.yml), installed and started on its own system before it is published, and listed with its SHA-256 in `SHA256SUMS.txt`.
 
-```text
-frontend/             Vue SPA source
-migrations/           Alembic schema migrations
-src/application/      CLI/Web use cases
-src/agent/            Agent harness, tools, traces, evals
-src/cli/              autoapply command groups
-src/core/             Models, configuration, database wiring
-src/documents/        Template engines and user document storage
-src/execution/        Browser automation and form filling
-src/generation/       Resume and cover-letter generation
-src/intake/           ATS and LinkedIn intake
-src/jobs/             Job Index, snapshots, freshness, search cache
-src/matching/         Rules, scoring, explainability
-src/orchestration/    Plan runs and digest logic
-src/providers/        LLM provider abstraction
-src/tasks/            Celery app, tasks, Beat schedule, audit
-src/web/              FastAPI routes and built SPA assets
-tests/                Backend, route, eval, and integration tests
+Cover letters, résumé tailoring and Word previews need a Word-to-PDF converter: Microsoft Word if you have it, otherwise the free [LibreOffice](https://www.libreoffice.org/).
+
+## First run
+
+An icon appears in the tray (menu bar on macOS) and the page opens at `http://127.0.0.1:8000`.
+
+<p align="center"><img src="docs/images/tray-en.png" alt="The tray menu" width="300"></p>
+
+1. **The guide** asks who you are and what you are looking for, then proposes filters and scoring rules you can edit.
+2. **AI service**: sign in with a Claude or ChatGPT subscription, or paste an API key (see below).
+3. **Profile**: upload your résumé; the program drafts your profile from it and marks what forms will ask that the résumé does not say.
+4. **Try one**: paste a posting's address and watch a draft being prepared, without sending anything.
+
+After that it works on a schedule: scan, score, draft, and tell you when something needs you (in the page, and on Telegram if you set it up).
+
+## How an application goes out
+
+```mermaid
+flowchart LR
+    A[Posting found] --> B[Scored by your rules]
+    B --> C[Form read,<br>draft prepared]
+    C --> D{You review}
+    D -- change it --> C
+    D -- approve --> E[Driver fills the form]
+    E --> F{Form reports<br>a problem?}
+    F -- no --> H[Submit]
+    F -- yes --> G[AI finishes the page<br>from your profile]
+    G --> F2{Still a problem?}
+    F2 -- no --> H
+    F2 -- yes --> I[Listed for you<br>in a visible window]
+    I --> H
+    H --> J[Mail tracked]
 ```
 
-## Safety Model
+Three things about this chain are worth knowing:
 
-AutoApply is not intended to be an unchecked autonomous submitter.
+- **The form has the last word.** After filling, the program asks the page itself what is wrong: fields it marks invalid, its error messages, required fields still empty. Neither the driver nor the AI can declare a page done while the page disagrees.
+- **The AI is the fallback, not the pilot.** Deterministic drivers do the routine work quickly and for free. The AI steps in for a form nobody has seen before, a field that appeared after an answer, or a value the form rejects, and it may only use what your profile states.
+- **What it learns stays.** Notes about a site, the form's own wording for your answers and the fields it discovered are kept, so the next run needs less help.
 
-- Submit actions are gated by review flows and explicit approval.
-- Agents run inside bounded tool registries; they do not receive arbitrary filesystem, database, browser, or network authority.
-- Generated materials are evidence-grounded and traceable to profile facts, job snapshots, templates, and source documents.
-- PostgreSQL stores durable application, task, review, and job-index state; Redis is treated as derived cache/queue state.
-- The UI exposes review queues, task history, provider health, and downloadable artifacts for auditability.
+Who presses *Submit* is your choice per site: by default an approved draft on a well-proven site is submitted for you, and anything the AI had to touch, any site without a dedicated driver, and any answer you were unsure about waits for your click.
+
+## AI services, backups and allowance
+
+*Settings → AI model.*
+
+| Service | How you pay | Allowance can be read |
+|---|---|---|
+| Claude subscription (Pro / Max) | your subscription | yes |
+| ChatGPT subscription (Plus / Pro) | your subscription | yes |
+| Claude API | per use | no (Anthropic offers no call for it) |
+| OpenAI API | per use | no |
+| Google Gemini | per use | no |
+| DeepSeek | per use | yes (balance) |
+| Qwen (DashScope) | per use | no |
+| OpenRouter | per use | yes (credits) |
+| Any OpenAI-compatible endpoint, including a local Ollama | — | no |
+
+**Backups.** List backup services in order. When the one in use runs out, is rate-limited or cannot be reached, the same step is repeated on the next one; the service that failed rests until its window resets, then is used again. This holds for the main model and for the small model used for simple tasks.
+
+**Allowance.** Where a service reports it, the program shows how much is used, warns you once when it passes the level you set (80 % by default), and stops calling a service that is used up until it resets.
+
+The Claude subscription is the best-tested service. Others work through the same interface; weaker models read forms less reliably. All the guard rails above are in code and do not depend on the model.
+
+## Your data
+
+- Everything is on your computer: a SQLite database, your files, and a few Markdown documents you can read and edit (your profile, the scoring rules, notes about sites).
+- Passwords and API keys are in the system keyring. Saved sign-ins are encrypted.
+- Nothing is sent anywhere except to the AI service you chose and to the job sites themselves. There is no telemetry and no account.
+- The server listens on `127.0.0.1` only.
+- *Settings → Advanced → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
+
+## What the previous version got wrong, and what changed
+
+AutoApply 1.0 is a rewrite. The earlier version (the `legacy-v0` branch) had about 55,000 lines of code and 1,720 passing tests, and could not submit an application: form filling, submission, status tracking and scheduled search all ended in `not_implemented`. In the same months, the same author sent more than 140 real applications by driving a general coding agent by hand. Comparing the two showed what was wrong.
+
+| What the previous version did | Why it failed | What 1.0 does |
+|---|---|---|
+| **Measured progress in tests.** 1,720 tests, none of which sent an application. | Tests passed while the product did not work. | Every milestone is accepted on real applications. [docs/STATUS.md](docs/STATUS.md) says what has been run for real and what has only been unit-tested. |
+| **Put the AI in boxes.** The model filled a few constrained text slots inside a fixed pipeline. | Real forms are irregular; a pipeline has no slot for "this field appeared after I answered that one". | The model perceives, judges and repairs; code keeps state, executes and enforces the rules. |
+| **Showed the model a summary of the page.** A static snapshot of at most 60 fields, no screenshot. | The model could not see what a person sees, so it could not notice an error message or a custom control. | The AI reads the whole page, takes screenshots, lists controls and their options, and asks the form what it still complains about. |
+| **Stored the applicant as tables and regular expressions.** A structured schema plus ten categories of pattern-matched answers. | Real rules have conditions and exceptions ("use my legal name only when the form asks for it") that a table cannot hold. | The profile is a dated Markdown document that you and the AI both read and correct. |
+| **Wrote cover letters from keyword buckets.** Classify the posting, pick a hard-coded skill bucket, fill five fixed paragraphs. | Letters that could be about anyone. | The letter is written from your whole résumé, the whole posting and your own example letters, then checked against your résumé for anything invented. |
+| **One adapter per job site, written in advance.** | Never caught up: most sites had none. | Dedicated drivers for the common systems; any other site is explored by the AI once, and what it learns is kept. |
+| **No fallback.** A step either worked or stopped. | One unexpected field ended the run. | Driver → the form's own verdict → AI take-over → verdict again → you. A run is handed over, not thrown away. |
+
+Two mistakes were made again while building 1.0 and are fixed in this release, recorded here because they are easy to repeat:
+
+- The AI take-over was first allowed to set only a given list of fields. It ignored a required field that appeared after an answer and reported a form as filled while the form showed errors. *Now it finishes the page, and the page decides.*
+- A form described with selectors like "the second drop-down on the page" gave several questions the same identity, and their answers were lost. *Now every question has its own identity however the form is described, and positional selectors are refused.*
+
+## What has been verified
+
+Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
+
+| | Status |
+|---|---|
+| Windows 10 / 11 | used daily |
+| Greenhouse; forms explored by the AI (Microsoft Careers, BambooHR, JazzHR sites) | real applications submitted and confirmed by mail |
+| Ashby | filled and read back on real forms; none submitted yet |
+| Workday, the UBC portal driver | written from earlier manual runs; the steps after sign-in have not been run for real |
+| Windows installer (install, upgrade over a running copy, repair, uninstall) | run end to end |
+| Failover between AI services | run once for real, when a subscription had actually run out |
+| macOS and Linux packages | built, installed and started by CI on every release; not used day to day by the author |
+| Other AI services than the Claude subscription | interface tested; application quality not compared |
+| English interface | machine-translated, not proof-read |
+
+## Development
+
+```bash
+git clone https://github.com/Liam-Frost/AutoApply
+cd AutoApply
+./start.sh            # or start.bat: installs what is missing, builds the interface, starts
+```
+
+| Command | What it does |
+|---|---|
+| `uv run pytest` | the tests (they never reach a real AI service or a real website) |
+| `uv run autoapply serve` | the server only, in the terminal |
+| `uv run autoapply tray` | the tray launcher |
+| `cd frontend && npm run dev` | the interface with hot reload |
+| `uv run python scripts/demo.py --serve 8020` | a demo copy with made-up data (what the screenshots show) |
+| `uv run python scripts/make_release.py` | the portable zip |
+| `uv run python scripts/make_installer.py` | the Windows installer |
+
+Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `ats/` holds the drivers and the page audit, `executor.py` the fallback chain, `repair.py` the AI take-over, `llm.py` the services and their failover), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
+
+**Releasing.** Set the version in `pyproject.toml`, add the section to `CHANGELOG.md`, then:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+The release workflow runs the tests, builds the four packages, installs and starts each one on Windows, macOS and Linux, and only then publishes the release.
+
+Contributions that add one entry to a list (an employer, a job board, a sign-in provider, a mailbox, a region pack, a translation) need no knowledge of the whole program: see [CONTRIBUTING.md](CONTRIBUTING.md). The interface follows [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
 
 ## License
 
-AutoApply is released under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal and other noncommercial use.
 
-### What this means
-
-| | Allowed | Requires Commercial License |
-|---|---|---|
-| Run AutoApply to apply for your own jobs | Yes | |
-| Personal experimentation, learning, hobby use | Yes | |
-| Academic research, coursework, thesis projects | Yes | |
-| Use by a registered nonprofit, public-research organization, or educational institution | Yes | |
-| Read, modify, and redistribute the source code for noncommercial use | Yes | |
-| Run AutoApply as a paid service for other job seekers | | Yes |
-| Bundle AutoApply into a commercial product | | Yes |
-| Use AutoApply inside a for-profit company's workflow | | Yes |
-| Sell support, hosting, or modifications based on AutoApply | | Yes |
-
-### Commercial Use
-
-Commercial use is not granted under the default license. If your use case requires a commercial license, contact the author:
-
-- **Email**: <frostnova986@gmail.com>
-- **GitHub**: <https://github.com/Liam-Frost/AutoApply>
-
-Please include your organization, intended use case, and expected scale.
-
-### Required Notice
-
-> Required Notice: Copyright (c) 2026 Liam Frost (frostnova986@gmail.com)
-
-This notice must be preserved in any redistribution of the software, in source or binary form.
-
-### Warranty Disclaimer
-
-The software is provided as-is, without warranty. See the [full LICENSE text](LICENSE) for the legally binding terms.
+You are responsible for following the terms of use of the job sites you apply through. The program fills in your own applications with your own information; it is not a tool for applying on behalf of others or in bulk.

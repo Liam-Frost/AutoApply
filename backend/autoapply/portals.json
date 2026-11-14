@@ -1,0 +1,16 @@
+{
+  "_about": "School career portals. status: supported = an importer exists and has been used for real; same_system = runs on the same portal software as a supported school but has not been adapted or tested; none = no importer. Portals sit behind a school login and usually forbid automated access, so an importer always runs in the student's own browser (a bookmarklet), never in the program's. Add a school only with a status you can stand behind.",
+  "portals": [
+    {"key": "ubc", "school": "University of British Columbia", "name": "PD Portal (Engineering Co-op)", "system": "Orbis Outcome", "country": "CA", "status": "supported"},
+    {"key": "waterloo", "school": "University of Waterloo", "name": "WaterlooWorks", "system": "Orbis Outcome", "country": "CA", "status": "same_system"},
+    {"key": "utoronto", "school": "University of Toronto", "name": "CLNx", "system": "Orbis Outcome", "country": "CA", "status": "same_system"},
+    {"key": "sfu", "school": "Simon Fraser University", "name": "myExperience", "system": "Orbis Outcome", "country": "CA", "status": "same_system"},
+    {"key": "mcmaster", "school": "McMaster University", "name": "OSCARplus", "system": "Orbis Outcome", "country": "CA", "status": "same_system"},
+    {"key": "uvic", "school": "University of Victoria", "name": "Learning in Motion", "system": "Orbis Outcome", "country": "CA", "status": "same_system"},
+    {"key": "handshake", "school": "", "name": "Handshake", "system": "Handshake", "country": "US", "status": "none"},
+    {"key": "symplicity", "school": "", "name": "Symplicity CSM", "system": "Symplicity", "country": "US", "status": "none"},
+    {"key": "12twenty", "school": "", "name": "12twenty", "system": "12twenty", "country": "US", "status": "none"},
+    {"key": "careerhub", "school": "", "name": "CareerHub", "system": "CareerHub", "country": "AU", "status": "none"},
+    {"key": "targetconnect", "school": "", "name": "TARGETconnect", "system": "TARGETconnect", "country": "GB", "status": "none"}
+  ]
+}

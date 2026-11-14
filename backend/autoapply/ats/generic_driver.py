@@ -1,0 +1,417 @@
+"""Driver for forms that were mapped by the agent (FormSchema.source == "agent").
+
+The agent's reconnaissance records one CSS selector per question. This driver
+replays an approved draft against those selectors with the ordinary widget
+helpers. It is not in the registry: the executor builds one per schema.
+
+It never submits. Driverless ATS always run with the manual policy, so the
+user clicks Submit in the visible window.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Any
+
+from playwright.sync_api import Locator, Page
+
+from . import widgets as w
+from .base import DriverError, FormSchema, JobRef, PasswordPolicy, Question
+
+SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
+DONE_RE = r"thank(s| you) for (applying|your (application|interest|submission))|thank you|application (has been |was |is )?(received|submitted|sent|complete)|successfully (submitted|applied)|we(.ve| have) received|submission (received|complete)"
+
+
+class FieldFailures(DriverError):
+    """Some fields on a page could not be set; the rest were. Carries the list for the repair agent."""
+
+    def __init__(self, page: int, failures: list[dict[str, str]]) -> None:
+        super().__init__(
+            f"{len(failures)} field(s) could not be filled", page=page,
+            question="; ".join(f["label"] for f in failures)[:300], seen="; ".join(f["error"] for f in failures)[:400],
+        )
+        self.failures = failures
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**super().to_dict(), "failures": self.failures}
+
+
+def _loc(page: Page, q: Question) -> Locator:
+    """The control for a question: by the selector recorded when the form was read, else by its label.
+    Many forms generate their ids (#input-16, #:r5:) afresh on every visit, so the recorded selector alone is not enough;
+    the label is what the applicant saw and what stays the same."""
+    sel = (q.locator or {}).get("selector") or q.id
+    by_label_only = sel.startswith("@label:")  # a question the take-over discovered: it has no selector, only its label
+    loc = page.locator("[data-autoapply-none]" if by_label_only else sel).first
+    label = re.sub(r"\s+", " ", q.label or "").strip().rstrip("*").strip()
+    positional = bool(POSITIONAL.search(sel))  # "the 3rd select": right only while the form shows exactly the fields it showed when it was read
+    if positional and label and q.type != "file":
+        for make in (lambda: page.get_by_label(label, exact=True), lambda: page.get_by_role("combobox", name=label, exact=True),
+                     lambda: page.get_by_role("radiogroup", name=label), lambda: page.get_by_role("group", name=label)):
+            try:
+                c = make()
+                if c.count() == 1:
+                    return c.first
+            except Exception:  # noqa: BLE001
+                continue
+    try:
+        if not by_label_only and loc.count():
+            return loc
+    except Exception:  # noqa: BLE001 - a selector this page cannot parse
+        pass
+    if label:
+        cands = [lambda: page.get_by_label(label, exact=True), lambda: page.get_by_role("radiogroup", name=label), lambda: page.get_by_role("group", name=label),
+                 lambda: page.get_by_role("combobox", name=label), lambda: page.get_by_label(label),
+                 # a question whose text sits in a label / legend / heading next to its control
+                 lambda: page.locator("fieldset, [role=group], [role=radiogroup], .form-group, [class*=question], [class*=field]").filter(has_text=label).last]
+        for make in cands:
+            try:
+                c = make()
+                if c.count():
+                    return c.first if hasattr(c, "first") else c
+            except Exception:  # noqa: BLE001
+                continue
+    return loc
+
+
+def _tag(loc: Locator) -> tuple[str, str]:
+    return loc.evaluate("(e) => [e.tagName.toLowerCase(), (e.getAttribute('type') || '').toLowerCase()]")
+
+
+_BOXES_JS = r"""(root) => [...root.querySelectorAll('input[type=checkbox]')].map((i) => {
+    const lab = (i.labels && i.labels[0]) || i.closest('label') || i.parentElement;
+    return { label: ((lab && lab.innerText) || i.getAttribute('aria-label') || i.value || '').replace(/\s+/g, ' ').trim(), checked: i.checked };
+})"""
+
+_SUGGEST = "[role=option]:visible, .dropdown-results:visible > *, .pac-item:visible, ul.ui-autocomplete:visible li, [class*=suggestion]:visible li"
+_chosen: dict[str, tuple[str, str]] = {}  # question id -> (draft wording, suggestion the form accepted for it)
+
+
+def _is_group(loc: Locator, tag: str) -> bool:
+    return tag not in ("select", "button", "input") and loc.locator("input[type=checkbox]").count() > 0
+
+
+def _check_group(loc: Locator, q: Question, want: list[Any]) -> None:
+    """Tick exactly the wanted options in a container of checkboxes."""
+    seen = loc.evaluate(_BOXES_JS)
+    idx = {w.pick_option([o["label"] for o in seen], str(v)) for v in want}
+    boxes = loc.locator("input[type=checkbox]")
+    for i, o in enumerate(seen):
+        if (i in idx) != o["checked"]:
+            w.set_checkbox(boxes.nth(i), i in idx)
+
+
+def _autocomplete(page: Page, loc: Locator, q: Question, value: str) -> bool:
+    """Text inputs that only accept a suggestion (city pickers): type, then take the best-matching suggestion."""
+    hint = " ".join(str(loc.get_attribute(a) or "") for a in ("role", "aria-autocomplete", "id", "name", "class")).lower()
+    if not ("combobox" in hint or "list" in hint.split() or re.search(r"location|city|autocomplete", hint + " " + q.label.lower())):
+        return False
+    loc.click(timeout=w.T)
+    loc.fill("")
+    first = value.split(",")[0].strip()
+    loc.press_sequentially(first, delay=40)
+    opts = page.locator(_SUGGEST)
+    texts: list[str] = []
+    for _ in range(12):
+        page.wait_for_timeout(300)
+        texts = [t.strip() for t in opts.all_inner_texts() if t.strip()]
+        if texts:
+            break
+    if not texts:  # an ordinary text box after all
+        loc.fill(value)
+        return True
+    parts = [p.strip().lower() for p in value.split(",")[1:] if p.strip()]
+    cands = [(i, t) for i, t in enumerate(texts) if t.lower().startswith(first.lower())] or list(enumerate(texts))
+    i, text = max(cands, key=lambda c: (sum(1 for p in parts if p in c[1].lower()), -c[0]))
+    opts.nth(i).click(timeout=w.T)
+    page.wait_for_timeout(300)
+    _chosen[q.id] = (value, loc.input_value())
+    return True
+
+
+def set_value(page: Page, q: Question, value: Any) -> None:
+    """Put ``value`` into the control for ``q``, choosing the widget helper from the element itself."""
+    loc = _loc(page, q)
+    if loc.count() == 0:
+        raise DriverError("control not found", question=q.label, expected=str((q.locator or {}).get("selector") or q.id))
+    tag, typ = _tag(loc)
+    if tag in ("input", "textarea") and q.type not in ("file", "checkbox", "radio"):
+        try:
+            locked = loc.evaluate("(e) => e.readOnly || e.disabled")
+        except Exception:  # noqa: BLE001
+            locked = False
+        if locked:  # the site fills this in itself and does not let it be changed (the account's e-mail, a fixed country)
+            shown = (loc.input_value() or "").strip()
+            if shown and (shown.lower() == str(value).strip().lower() or not str(value).strip()):
+                return
+            if shown:
+                raise DriverError("the site has locked this field to a different value", question=q.label, expected=str(value), seen=shown)
+            raise DriverError("the site has locked this field and left it empty", question=q.label, expected=str(value))
+    if q.type == "file":
+        if tag == "input" and typ == "file":
+            w.upload(loc, [str(value)])
+        else:  # a button that opens the file chooser
+            with page.expect_file_chooser(timeout=w.T) as fc:
+                loc.click(timeout=w.T)
+            fc.value.set_files(str(value))
+        page.wait_for_timeout(800)
+    elif q.type in ("multiselect", "checkbox") and _is_group(loc, tag):
+        _check_group(loc, q, value if isinstance(value, list) else ([] if value in (False, "False") else [value]))
+    elif q.type == "checkbox":
+        w.set_checkbox(loc, bool(value) and str(value) != "False")
+    elif q.type == "radio":
+        _radio(page, loc, tag, typ, str(value))
+    elif q.type in ("select", "multiselect"):
+        for v in value if isinstance(value, list) else [value]:
+            if tag == "select":
+                w.select_native(loc, str(v))
+            elif tag == "button":
+                w.workday_listbox(page, loc, str(v))
+            else:
+                w.react_select(page, loc, str(v))
+    elif tag == "input" and _autocomplete(page, loc, q, str(value)):
+        pass
+    else:
+        w.set_text(loc, str(value))
+
+
+def _radio(page: Page, loc: Locator, tag: str, typ: str, value: str) -> None:
+    """``loc`` is either one radio of the group or the group's container."""
+    if tag == "input" and typ == "radio":
+        name = loc.get_attribute("name")
+        radios = page.locator(f"input[type=radio][name='{name}']") if name else loc
+    else:
+        radios = loc.locator("input[type=radio]")
+    labels = radios.evaluate_all(
+        "(els) => els.map(e => ((e.labels && e.labels[0] && e.labels[0].innerText) || e.getAttribute('aria-label') || e.value || '').trim())"
+    )
+    if not labels:
+        raise DriverError("no radio buttons in this group", expected=value)
+    w.set_checkbox(radios.nth(w.pick_option(labels, value)), True)
+
+
+def get_value(page: Page, q: Question) -> Any:
+    loc = _loc(page, q)
+    if loc.count() == 0:
+        return None
+    tag, typ = _tag(loc)
+    if q.type == "file":
+        if tag == "input" and typ == "file":
+            names = loc.evaluate("(e) => [...(e.files || [])].map(f => f.name)")
+            if names:
+                return names[0]
+        # custom uploaders replace the input: look for the file name near the control
+        return loc.evaluate(
+            r"""(e) => { let n = e; for (let i = 0; i < 4 && n; i++, n = n.parentElement) {
+                 const m = (n.innerText || '').match(/[\w .()\-]+\.(pdf|docx?|txt|rtf)/i); if (m) return m[0].trim(); } return ''; }"""
+        )
+    if q.type in ("multiselect", "checkbox") and _is_group(loc, tag):
+        return [o["label"] for o in loc.evaluate(_BOXES_JS) if o["checked"]]
+    if q.type == "checkbox":
+        return loc.is_checked()
+    if q.type == "radio":
+        radios = page.locator(f"input[type=radio][name='{loc.get_attribute('name')}']") if (tag, typ) == ("input", "radio") else loc.locator("input[type=radio]")
+        return radios.evaluate_all(
+            "(els) => { const e = els.find(x => x.checked); return e ? ((e.labels && e.labels[0] && e.labels[0].innerText) || e.value || '').trim() : ''; }"
+        )
+    if tag == "select":
+        vals = loc.evaluate("(e) => [...e.selectedOptions].filter(o => o.value !== '').map(o => o.text.trim())")
+        return vals if q.type == "multiselect" else (vals[0] if vals else "")
+    if tag == "button":
+        return (loc.inner_text() or "").strip()
+    if q.type in ("select", "multiselect"):
+        got = w.react_select_value(loc)
+        if got or tag != "input":
+            return got
+        # a combobox that is a plain text input holding the chosen option's text (not a react-select)
+    shown = loc.input_value()
+    pair = _chosen.get(q.id)
+    return pair[0] if pair and shown and shown == pair[1] else shown
+
+
+def value_visible(page: Page, q: Question, expected: Any) -> bool:
+    """Is the expected value shown at the control, even though it cannot be read back from it?
+    Custom drop-downs keep their own <input> empty and show the choice as a chip or a label next to it; an uploaded
+    file often replaces its upload button with the file's name somewhere on the page.
+    The question's own label is left out of what is searched, and a value is matched as a whole word: "No" is not
+    found in "Notice"."""
+    want = [str(x).strip() for x in (expected if isinstance(expected, list) else [expected]) if str(x).strip()]
+    if not want:
+        return False
+    try:
+        if q.type == "file":
+            names = [Path(w_).name for w_ in want]
+            body = page.inner_text("body", timeout=5000) + " " + " ".join(page.evaluate(
+                "() => [...document.querySelectorAll('input:not([type=hidden]):not([type=password])')].map(i => i.value).filter(Boolean)"))
+            return all(n in body or Path(n).stem in body for n in names)
+        loc = _loc(page, q)
+        if not loc.count():
+            return False
+        near = loc.evaluate(r"""(e) => { let n = e, out = ''; for (let i = 0; i < 7 && n; i++, n = n.parentElement) {
+                                 const vals = [...n.querySelectorAll('input:not([type=hidden]):not([type=password]), textarea')].map(x => x.value).join(' ');
+                                 const next = (n.innerText || '') + ' ' + (n.value || '') + ' ' + vals;
+                                 if (next.length > 700 && out) break; out = next; if (out.length > 700) break; }
+                               return out.replace(/\s+/g, ' '); }""")
+        low = near.lower().replace(re.sub(r"\s+", " ", q.label or "").strip().lower() or "~no label~", " ")
+        return all(re.search(r"(?<![a-z0-9])" + re.escape(w_.lower()) + r"(?![a-z0-9])", low) is not None for w_ in want)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+POSITIONAL = re.compile(r":nth-(match|of-type|child|last-child)|:nth\(|>>\s*nth=|:first-(child|of-type)|:last-(child|of-type)", re.I)
+APPLY_RE = re.compile(r"^\s*(apply|apply now|apply here|apply online|apply for (this|the) (job|position|role)|apply to (this )?(job|position|role)|start (your )?application|"
+                      r"begin application|申请|立即申请|申请(该|此)?(职位|岗位))\s*$", re.I)
+NOTICE = re.compile(r"privacy (notice|statement|policy)|data (privacy|protection|processing)|how we (use|process|handle) your (data|information)|"
+                    r"candidate privacy|personal (data|information)|隐私|个人信息|数据处理", re.I)
+NOTICE_OK = re.compile(r"^(i understand|i acknowledge|acknowledge|i agree|agree|accept|accept all|ok|okay|got it|continue|confirm|我已了解|我知道了|同意|接受|确认|继续)\.?$", re.I)
+NOTICE_NOT = re.compile(r"submit (your |my |the )?application|review (and|&) submit|提交申请", re.I)
+
+
+def acknowledge_notice(page: Page) -> bool:
+    """Close a blocking dialog that only informs about data handling. Returns True if one was acknowledged.
+    Nothing else is ever clicked here: the dialog must talk about privacy / data, must not be about submitting,
+    and the button must be a plain acknowledgement."""
+    from .. import db
+
+    if not db.get_setting("consent.acknowledge_notices"):
+        return False
+    try:
+        dialogs = page.locator("[role=dialog]:visible, [role=alertdialog]:visible, dialog[open]")
+        for i in range(min(dialogs.count(), 3)):
+            d = dialogs.nth(i)
+            text = re.sub(r"\s+", " ", d.inner_text(timeout=3000))[:4000]
+            if not NOTICE.search(text) or NOTICE_NOT.search(text):
+                continue
+            btns = d.locator("button:visible, [role=button]:visible, input[type=submit]:visible, input[type=button]:visible")
+            for j in range(min(btns.count(), 8)):
+                b = btns.nth(j)
+                label = re.sub(r"\s+", " ", (b.inner_text() or b.get_attribute("value") or "")).strip()
+                if NOTICE_OK.match(label):
+                    b.click(timeout=5000)
+                    page.wait_for_timeout(1200)
+                    return True
+    except Exception:  # noqa: BLE001 - a dialog that will not answer is left to the next step
+        pass
+    return False
+
+
+class GenericDriver:
+    requires_login = False
+    verify_per_page = True  # earlier pages are gone by the time the last one is reached
+    password_policy = PasswordPolicy()
+
+    def __init__(self, schema: FormSchema) -> None:
+        self.ats = schema.ats
+        self.schema = schema
+
+    def detect(self, url: str) -> JobRef | None:
+        return None
+
+    def open_application(self, page: Page, ref: JobRef) -> None:
+        page.goto(self.schema.url or ref.url, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
+        self.reveal_form(page)
+
+    def reveal_form(self, page: Page) -> bool:
+        """Many postings show the form only after "Apply for this job" is clicked (the address stays the same, so the
+        address recorded with the draft leads to the posting, not the form). If none of the mapped controls is there,
+        click that button. Returns True when a click was made."""
+        first = [q for q in self.schema.questions if q.page == 0 and q.type != "file"][:12]   # file inputs are usually hidden
+        try:
+            if not first or any(_loc(page, q).count() and _loc(page, q).first.is_visible() for q in first):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        for name in [n for n in (self.schema.extra.get("apply_button"),) if n] + [APPLY_RE]:
+            for role in ("button", "link"):
+                btn = page.get_by_role(role, name=name).first
+                try:
+                    if btn.count() and btn.is_visible():
+                        label = (btn.inner_text() or "").strip()
+                        if SUBMIT_RE.search(label):
+                            continue
+                        btn.click(timeout=w.T)
+                        page.wait_for_timeout(2500)
+                        return True
+                except Exception:  # noqa: BLE001 - not clickable: try the next candidate
+                    continue
+        return False
+
+    def live_questions(self, page: Page, page_index: int = 0) -> list[Question]:
+        """The mapped questions whose control is on the page now (a missing control shows up as 'removed')."""
+        return [Question(**{**q.__dict__, "options": []}) for q in self.schema.questions if q.page == page_index and _loc(page, q).count() > 0]
+
+    def fill_page(self, page: Page, schema: FormSchema, page_index: int, answers: dict[str, Any]) -> None:
+        failures = []
+        acknowledge_notice(page)
+        todo = [q for q in schema.questions if q.page == page_index and q.id in answers]
+        # Files first: many forms parse an uploaded résumé and overwrite other fields with what they find.
+        files = [q for q in todo if q.type == "file"]
+        for q in files + [q for q in todo if q.type != "file"]:
+            try:
+                set_value(page, q, answers[q.id])
+                if q.type == "file" and q is files[-1]:
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except Exception:  # noqa: BLE001 - a busy page is not an error
+                        pass
+                    page.wait_for_timeout(1500)
+                if q.type == "file":
+                    acknowledge_notice(page)  # uploading a résumé is what usually brings the data-privacy notice up
+            except Exception as e:  # noqa: BLE001 - collect, then let the repair agent see all of them
+                if acknowledge_notice(page):  # the control was covered by a notice: one more try now that it is gone
+                    try:
+                        set_value(page, q, answers[q.id])
+                        continue
+                    except Exception as e2:  # noqa: BLE001
+                        e = e2
+                failures.append({"id": q.id, "label": q.label, "error": f"{type(e).__name__}: {e}"[:200]})
+        if failures:
+            raise FieldFailures(page_index, failures)
+
+    def next_page(self, page: Page) -> bool:
+        names = self.schema.extra.get("next_buttons") or []
+        for name in [n for n in names if n] + ["Next", "Continue", "Save and Continue", "Save & Continue"]:
+            if SUBMIT_RE.search(name):
+                continue
+            btn = page.get_by_role("button", name=name, exact=True).or_(page.get_by_role("link", name=name, exact=True)).first
+            if btn.count() and btn.is_visible():
+                before = page.url + str(len(page.content()))
+                btn.click(timeout=w.T)
+                page.wait_for_timeout(2000)
+                return page.url + str(len(page.content())) != before
+        return False
+
+    def read_back(self, page: Page, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for q in schema.questions:
+            if page_index is not None and q.page != page_index:
+                continue
+            try:
+                v = get_value(page, q)
+            except Exception:  # noqa: BLE001 - an unreadable control is simply not verified
+                continue
+            if v is not None:
+                out[q.id] = v
+        return out
+
+    def submit(self, page: Page) -> None:
+        raise PermissionError("forms without a driver are submitted by the user")
+
+    def confirmation(self, page: Page) -> dict[str, Any] | None:
+        body = page.inner_text("body")
+        m = re.search(rf"[^\n]*({DONE_RE})[^\n]*", body, re.I)
+        return {"url": page.url, "text": m.group(0).strip()[:300]} if m else None
+
+    def already_applied(self, page: Page, ref: JobRef) -> bool:
+        return False
+
+    def form_errors(self, page: Page) -> list[str]:
+        from . import audit
+
+        return audit.texts([i for i in audit.page_issues(page) if i["kind"] != "empty_required"])[:10]
+
+    @staticmethod
+    def file_name(path: str) -> str:
+        return Path(path).name
