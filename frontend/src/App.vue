@@ -1,206 +1,75 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { RouterLink, RouterView, useRoute } from "vue-router"
-import { ConfigProvider } from "reka-ui"
-import {
-  Briefcase,
-  ClipboardCheck,
-  FileText,
-  LayoutDashboard,
-  ListChecks,
-  Monitor,
-  Moon,
-  Send,
-  Settings as SettingsIcon,
-  Sun,
-  UserCircle,
-} from "lucide-vue-next"
+import { onMounted, onUnmounted, provide, ref } from 'vue'
+import { api } from './api'
+import Icon from './components/Icon.vue'
+import { LANGS, lang, setLang } from './i18n'
+import { answer, dialog, dismissToast, persona, setTheme, theme, toasts } from './ui'
 
-import { ensureLinkedInSessionLoaded } from "./lib/linkedin-session"
-
-const route = useRoute()
-const themeMenuRef = ref(null)
-const themePreference = ref("system")
-const systemPrefersDark = ref(false)
-const themeMenuOpen = ref(false)
-const THEME_STORAGE_KEY = "autoapply.theme"
-const logoUrl = "/logo.svg"
-
-const themeOptions = [
-  { value: "system", label: "Follow system", icon: Monitor },
-  { value: "light", label: "Light mode", icon: Sun },
-  { value: "dark", label: "Dark mode", icon: Moon },
-]
-
-let cleanupThemeListeners = () => {}
-
-const items = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/jobs", label: "Jobs", icon: Briefcase },
-  { to: "/materials", label: "Materials", icon: FileText },
-  { to: "/review", label: "Awaiting Review", icon: ClipboardCheck },
-  { to: "/tasks", label: "Plans", icon: ListChecks },
-  { to: "/applications", label: "Applications", icon: Send },
-  { to: "/profile", label: "Profile", icon: UserCircle },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
-]
-
-const resolvedTheme = computed(() => {
-  if (themePreference.value === "system") {
-    return systemPrefersDark.value ? "dark" : "light"
-  }
-  return themePreference.value
-})
-
-const themeButtonIcon = computed(() => {
-  if (themePreference.value === "system") {
-    return Monitor
-  }
-  return resolvedTheme.value === "dark" ? Moon : Sun
-})
-
-function isActive(item) {
-  if (item.to === "/") {
-    return route.path === "/"
-  }
-
-  return route.path === item.to || route.path.startsWith(`${item.to}/`)
+const ov = ref({ pending_drafts: 0, open_todos: 0, queued_tasks: 0, paused: false, running: [] })
+let timer
+async function load() {
+  try { ov.value = await api.get('/overview') } catch (e) { /* server restarting */ }
 }
-
-function applyTheme() {
-  document.documentElement.dataset.theme = resolvedTheme.value
-  document.documentElement.style.colorScheme = resolvedTheme.value
-  // Tailwind dark: variants opt into the .dark class on <html>.
-  document.documentElement.classList.toggle("dark", resolvedTheme.value === "dark")
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, themePreference.value)
-  } catch {
-    // Ignore storage restrictions and fall back to in-memory theme state.
-  }
+async function togglePause() {
+  await api.put('/settings', { settings: { 'schedule.paused': !ov.value.paused } })
+  load()
 }
-
-function selectTheme(value) {
-  themePreference.value = value
-  themeMenuOpen.value = false
-}
-
-function toggleThemeMenu() {
-  themeMenuOpen.value = !themeMenuOpen.value
-}
-
-function onDocumentClick(event) {
-  if (!themeMenuRef.value?.contains(event.target)) {
-    themeMenuOpen.value = false
-  }
-}
-
-onMounted(() => {
-  let storedTheme = null
-  try {
-    storedTheme = localStorage.getItem(THEME_STORAGE_KEY)
-  } catch {
-    storedTheme = null
-  }
-  if (["system", "light", "dark"].includes(storedTheme)) {
-    themePreference.value = storedTheme
-  }
-
-  const media = window.matchMedia("(prefers-color-scheme: dark)")
-  systemPrefersDark.value = media.matches
-
-  const updateSystemTheme = (event) => {
-    systemPrefersDark.value = event.matches
-  }
-
-  if (media.addEventListener) {
-    media.addEventListener("change", updateSystemTheme)
-  } else {
-    media.addListener(updateSystemTheme)
-  }
-
-  const stopThemeWatch = watch([themePreference, resolvedTheme], applyTheme, { immediate: true })
-  document.addEventListener("click", onDocumentClick)
-  void ensureLinkedInSessionLoaded()
-
-  cleanupThemeListeners = () => {
-    stopThemeWatch()
-    document.removeEventListener("click", onDocumentClick)
-    if (media.removeEventListener) {
-      media.removeEventListener("change", updateSystemTheme)
-    } else {
-      media.removeListener(updateSystemTheme)
-    }
-  }
-})
-
-onBeforeUnmount(() => {
-  cleanupThemeListeners()
-})
+provide('overview', ov)
+provide('reloadOverview', load)
+onMounted(() => { load(); timer = setInterval(load, 8000) })
+onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
-  <!--
-    `scrollBody: false` tells reka-ui's modal scroll lock NOT to add
-    padding/margin to <body> when a Select / Dialog / Popover opens.
-    Default behaviour assumes the scrollbar lives on <body>, so it adds
-    padding-right equal to the scrollbar width to "compensate" — but
-    we moved the scrollbar to <html> (see styles.css). That left
-    reka-ui shifting the body content by 15px even though the
-    scrollbar never disappeared.
-  -->
-  <ConfigProvider :scroll-body="false">
-  <div class="app-shell">
-    <aside class="dock" aria-label="Primary navigation">
-      <RouterLink
-        v-for="item in items"
-        :key="item.to"
-        :to="item.to"
-        class="dock-item"
-        :class="{ 'is-active': isActive(item) }"
-        :aria-label="item.label"
-      >
-        <component :is="item.icon" class="dock-icon" />
-      </RouterLink>
+  <div class="shell">
+    <nav class="side" :class="{ guide: !persona.done }">
+      <router-link to="/" class="brand"><img src="/logo-mark.svg" alt="" /><span>AutoApply</span></router-link>
 
-      <div ref="themeMenuRef" class="dock-theme">
-        <button
-          class="dock-item dock-button"
-          :class="{ 'is-active': themeMenuOpen }"
-          type="button"
-          aria-label="Theme mode"
-          title="Theme mode"
-          @click.stop="toggleThemeMenu"
-        >
-          <component :is="themeButtonIcon" class="dock-icon" />
-        </button>
+      <router-link to="/home" class="nav"><Icon name="home" />概览</router-link>
+      <router-link to="/todos" class="nav"><Icon name="bell" />需要我处理 <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
+      <router-link to="/drafts" class="nav"><Icon name="draft" />草案审批 <span v-if="ov.pending_drafts" class="count">{{ ov.pending_drafts }}</span></router-link>
+      <router-link to="/jobs" class="nav"><Icon name="briefcase" />岗位</router-link>
 
-        <div v-if="themeMenuOpen" class="dock-theme-menu">
-          <button
-            v-for="option in themeOptions"
-            :key="option.value"
-            class="dock-theme-item"
-            :class="{ 'is-active': themePreference === option.value }"
-            type="button"
-            :aria-label="option.label"
-            :title="option.label"
-            @click.stop="selectTheme(option.value)"
-          >
-            <component :is="option.icon" class="dock-icon" />
-          </button>
+      <div class="nav-label">我的资料</div>
+      <router-link to="/profile" class="nav"><Icon name="user" />个人资料</router-link>
+      <router-link to="/files" class="nav"><Icon name="inbox" />材料库</router-link>
+      <router-link to="/contacts" class="nav"><Icon name="user" />人脉与内推</router-link>
+      <router-link to="/accounts" class="nav"><Icon name="key" />网站账号</router-link>
+
+      <div class="nav-label">系统</div>
+      <router-link to="/analytics" class="nav"><Icon name="search" />数据分析</router-link>
+      <router-link to="/runs" class="nav"><Icon name="activity" />活动记录</router-link>
+      <router-link to="/settings" class="nav"><Icon name="settings" />设置</router-link>
+
+      <div class="side-foot">
+        <div v-if="ov.paused"><span class="status-dot paused"></span>已暂停，不会自动运行</div>
+        <div v-else-if="ov.running && ov.running.length"><span class="status-dot busy"></span>正在{{ ov.running[0].label }}</div>
+        <div v-else><span class="status-dot"></span>运行中，目前空闲</div>
+        <div class="theme-seg" role="group" aria-label="外观">
+          <button :class="{ on: theme.value === 'light' }" @click="setTheme('light')">浅色</button>
+          <button :class="{ on: theme.value === 'dark' }" @click="setTheme('dark')">深色</button>
+          <button :class="{ on: theme.value === 'system' }" @click="setTheme('system')">跟随系统</button>
+        </div>
+        <div class="seg lang" data-notr aria-label="Language / 语言"><button v-for="(l, k) in LANGS" :key="k" :class="{ on: lang.value === k }" @click="lang.value !== k && setLang(k)">{{ l }}</button></div>
+        <button class="sm" @click="togglePause"><Icon :name="ov.paused ? 'play' : 'pause'" />{{ ov.paused ? '恢复自动运行' : '暂停自动运行' }}</button>
+      </div>
+    </nav>
+    <main class="content"><router-view /></main>
+    <template v-if="dialog.open">
+      <div class="overlay" style="z-index: 80" @click="answer(false)"></div>
+      <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(false)">
+        <p>{{ dialog.text }}</p>
+        <div class="row" style="justify-content: flex-end">
+          <button @click="answer(false)">取消</button>
+          <button v-focus :class="dialog.danger ? 'danger solid' : 'primary'" @click="answer(true)">{{ dialog.ok }}</button>
         </div>
       </div>
-    </aside>
-
-    <main class="workspace">
-      <header class="page-header">
-        <img class="page-logo" :src="logoUrl" alt="AutoApply logo" />
-        <div>
-          <h1 class="page-title">{{ route.meta.label }}</h1>
-        </div>
-      </header>
-
-      <RouterView />
-    </main>
+    </template>
+    <div class="toasts" role="status" aria-live="polite">
+      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
+        <span class="grow">{{ t.text }}</span>
+        <button aria-label="关闭" @click="dismissToast(t.id)">✕</button>
+      </div>
+    </div>
   </div>
-  </ConfigProvider>
 </template>

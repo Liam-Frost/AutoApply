@@ -1,1870 +1,325 @@
 <script setup>
-import { computed, onMounted, reactive, watch } from "vue"
-import { RouterLink, useRouter } from "vue-router"
-import {
-  AlertCircle,
-  AlertTriangle,
-  Briefcase,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Filter as FilterIcon,
-  Info,
-  Inbox,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  Save,
-  Search,
-  Sparkles,
-  Trash2,
-} from "lucide-vue-next"
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { api, fmt } from '../api'
+import EmptyState from '../components/EmptyState.vue'
+import Icon from '../components/Icon.vue'
+import PageHead from '../components/PageHead.vue'
+import TechDetails from '../components/TechDetails.vue'
+import { renderMarkdown } from '../md'
+import { run, toast, ask, persona } from '../ui'
 
-import AppSelect from "@/components/AppSelect.vue"
-import JobIndexBanner from "@/components/JobIndexBanner.vue"
-import TagInput from "@/components/TagInput.vue"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { EmptyState } from "@/components/ui/empty-state"
-import { ProgressBanner } from "@/components/ui/progress-banner"
-import { api } from "@/lib/api"
-import { formatPercent, truncateText } from "@/lib/format"
-import { ensureLinkedInSessionLoaded, linkedinSessionState, syncLinkedInSession } from "@/lib/linkedin-session"
-import {
-  emptyCounts,
-  emptyResultSets,
-  jobsForm as form,
-  jobsState as state,
-  persistJobsState,
-} from "@/lib/jobs-state"
-
+const route = useRoute()
 const router = useRouter()
+const jobs = ref([])
+const counts = ref({})
+const groups = ref([])
+const stages = ref([])
+const group = ref('todo')
+const sortKey = ref('score')
+const sortDir = ref(-1)
+const sel = ref(null)
+const newUrl = ref('')
+const picked = ref(new Set())
+const showJd = ref(false)
+const showArchived = ref(false)
 
-const sourceOptions = [
-  { value: "ats", label: "ATS" },
-  { value: "linkedin", label: "LinkedIn" },
-  { value: "all", label: "All" },
-]
+// Optional columns. The fixed ones (score, job, deadline, status, latest) answer "what is it, how good, how urgent, where does it stand";
+// the rest is detail that lives in the drawer unless the user asks for it here.
+const COLS = { source: '来源', direction: '方向', salary: '薪资', channel: '在哪里投', posted: '发布日期', first_seen: '发现日期' }
+let saved = null
+try { saved = JSON.parse(localStorage.getItem('jobs.cols') || 'null') } catch { /* private window */ }
+const cols = ref(new Set(Array.isArray(saved) ? saved : persona.features.job_columns || ['source']))
+function toggleCol(k) {
+  const s = new Set(cols.value); s.has(k) ? s.delete(k) : s.add(k); cols.value = s
+  try { localStorage.setItem('jobs.cols', JSON.stringify([...s])) } catch { /* ignore */ }
+}
 
-const postedDateOptions = [
-  { value: "all", label: "All Dates" },
-  { value: "month", label: "Past Month" },
-  { value: "week", label: "Past Week" },
-  { value: "24h", label: "Past 24 Hours" },
-]
+// Filters. Empty string / 0 / false = not filtering on that field.
+const f = reactive({ q: '', stage: '', minScore: 0, direction: '', term: '', channel: '', deadline: '', link: false, prio: false })
+const DEADLINES = { '': '任何截止时间', 3: '3 天内截止', 7: '7 天内截止', 14: '14 天内截止', none: '没写截止时间' }
+const activeFilters = computed(() => ['q', 'stage', 'direction', 'term', 'channel', 'deadline'].filter((k) => f[k]).length + (f.minScore ? 1 : 0) + (f.link ? 1 : 0) + (f.prio ? 1 : 0))
+function clearFilters() { Object.assign(f, { q: '', stage: '', minScore: 0, direction: '', term: '', channel: '', deadline: '', link: false, prio: false }) }
 
-const atsOptions = [
-  { value: "", label: "All" },
-  { value: "greenhouse", label: "Greenhouse" },
-  { value: "lever", label: "Lever" },
-]
-
-const experienceLevelOptions = [
-  { value: "entry", label: "Entry-level" },
-  { value: "senior", label: "Senior" },
-  { value: "manager", label: "Manager" },
-  { value: "director", label: "Director" },
-  { value: "executive", label: "Executive" },
-]
-
-const employmentTypeOptions = [
-  { value: "part_time", label: "Part-time" },
-  { value: "contract", label: "Contract" },
-  { value: "internship", label: "Internship" },
-  { value: "coop", label: "Co-op" },
-  { value: "full_time", label: "Full-time" },
-  { value: "permanent", label: "Permanent" },
-  { value: "temporary", label: "Temporary" },
-  { value: "casual", label: "Casual" },
-  { value: "seasonal", label: "Seasonal" },
-  { value: "freelance", label: "Freelance" },
-  { value: "volunteer", label: "Volunteer" },
-]
-
-const locationTypeOptions = [
-  { value: "in_person", label: "In-person" },
-  { value: "hybrid", label: "Hybrid" },
-  { value: "remote", label: "Remote" },
-]
-
-const educationOptions = [
-  { value: "high_school", label: "High school" },
-  { value: "associate", label: "Associate" },
-  { value: "bachelor", label: "Bachelor" },
-  { value: "master", label: "Master" },
-  { value: "mba", label: "MBA" },
-  { value: "phd", label: "PhD" },
-  { value: "jd", label: "JD" },
-  { value: "md", label: "MD" },
-]
-
-const numericOperators = [
-  { value: "", label: "Any" },
-  { value: "gt", label: ">" },
-  { value: "gte", label: ">=" },
-  { value: "lt", label: "<" },
-  { value: "lte", label: "<=" },
-]
-
-const pageSizeOptions = [10, 20, 50, 100].map((value) => ({
-  value,
-  label: `${value} / page`,
-}))
-
-const materialTargets = [
-  {
-    id: "resume",
-    materialType: "resume_docx",
-    label: "Resume",
-    description: "Tailored resume preview with DOCX/PDF downloads when available.",
-  },
-  {
-    id: "cover_letter",
-    materialType: "cover_letter_docx",
-    label: "Cover Letter",
-    description: "Role-specific cover letter preview with DOCX/PDF/TXT downloads.",
-  },
-]
-
-const materialOptions = [
-  { type: "resume_pdf", label: "Resume PDF" },
-  { type: "resume_docx", label: "Resume DOCX" },
-  { type: "cover_letter_pdf", label: "Cover Letter PDF" },
-  { type: "cover_letter_docx", label: "Cover Letter DOCX" },
-]
-
-const materialModal = reactive({
-  open: false,
-  job: null,
-  selected: {
-    resume: true,
-    cover_letter: true,
-  },
-  templateIds: {
-    resume: "",
-    cover_letter: "",
-  },
+const inGroup = (job, g) => (showArchived.value || !job.archived) && (g === 'all' || job.stage_group === g)
+const archivedCount = computed(() => jobs.value.filter((j) => j.archived).length)
+const inScope = computed(() => jobs.value.filter((j) => inGroup(j, group.value)))
+const options = (key) => computed(() => {
+  const m = new Map()
+  for (const j of inScope.value) { const v = j[key]; if (v) m.set(v, (m.get(v) || 0) + 1) }
+  return [...m.entries()].sort((a, b) => b[1] - a[1])
 })
+const directions = options('direction')
+const terms = options('term')
+const channels = options('channel_label')
+const groupStages = computed(() => stages.value.filter((x) => group.value === 'all' || x.group === group.value))
+const groupCount = (g) => jobs.value.filter((j) => inGroup(j, g)).length
+function pickGroup(k) { group.value = k; f.stage = ''; picked.value = new Set() }
 
-// Phase 16.3: "Why was this filtered?" popover state.
-//
-// We open it from the explicit info button on each job card. The
-// popover prefers the breakdown that came inline with the search
-// response (``job.raw_data.score_breakdown``); when that's absent
-// (legacy cached jobs, or jobs that arrived through a path that
-// didn't run scoring), it falls back to ``POST /api/matching/explain``
-// which re-scores against the active profile.
-const whyFilteredModal = reactive({
-  open: false,
-  job: null,
-  loading: false,
-  error: "",
-  breakdown: null,
-})
-
-function closeWhyFilteredModal() {
-  whyFilteredModal.open = false
-  whyFilteredModal.job = null
-  whyFilteredModal.error = ""
-  whyFilteredModal.breakdown = null
-  whyFilteredModal.loading = false
-}
-
-async function openWhyFilteredModal(job) {
-  whyFilteredModal.open = true
-  whyFilteredModal.job = job
-  whyFilteredModal.error = ""
-  whyFilteredModal.breakdown = null
-  whyFilteredModal.loading = false
-
-  const inline = job?.raw_data?.score_breakdown
-  if (inline && typeof inline === "object") {
-    whyFilteredModal.breakdown = inline
-    return
-  }
-
-  whyFilteredModal.loading = true
-  try {
-    const response = await api.matchingExplain(job)
-    if (response?.ok && response.score_breakdown) {
-      whyFilteredModal.breakdown = response.score_breakdown
-    } else {
-      whyFilteredModal.error =
-        (response?.warnings || []).join(" ") || "Could not load explanation."
-    }
-  } catch (err) {
-    whyFilteredModal.error = err?.message || "Could not load explanation."
-  } finally {
-    whyFilteredModal.loading = false
-  }
-}
-
-const whyFailingRules = computed(() => {
-  const bd = whyFilteredModal.breakdown
-  if (!bd) return []
-  // Prefer the structured 16.1 surface; fall back to legacy string list.
-  if (Array.isArray(bd.disqualify_results) && bd.disqualify_results.length) {
-    return bd.disqualify_results
-  }
-  return (bd.disqualify_reasons || []).map((reason, i) => ({
-    rule_id: `legacy_${i}`,
-    rule_name: "rule",
-    verdict: "fail",
-    reason,
-    evidence_excerpt: null,
-  }))
-})
-
-const modalMaterialState = computed(() => {
-  const jobId = materialModal.job?.id
-  return jobId ? state.materialState[jobId] || {} : {}
-})
-
-const canGenerateMaterials = computed(
-  () => Boolean(materialModal.job) && selectedMaterialTargets().length > 0 && !modalMaterialState.value.loading,
-)
-
-const materialReviewEntries = computed(() => buildMaterialReviewEntries(modalMaterialState.value))
-const resumeTemplateOptions = computed(() => templateOptions("resume"))
-const coverLetterTemplateOptions = computed(() => templateOptions("cover_letter"))
-
-const sourceUsesLinkedIn = computed(() => form.source === "linkedin" || form.source === "all")
-const sourceUsesAts = computed(() => form.source === "ats" || form.source === "all")
-const filterProfileOptions = computed(() => [
-  { value: "", label: "Select saved profile" },
-  ...state.filterProfiles.map((profile) => ({ value: profile.id, label: profile.id })),
-])
-const currentViewJobs = computed(() => {
-  if (state.viewMode === "shown") {
-    return state.filteredJobs
-  }
-  return state.resultSets[state.viewMode] || []
-})
-const totalPages = computed(() => Math.max(1, Math.ceil(currentViewJobs.value.length / state.pageSize)))
-const paginatedJobs = computed(() => {
-  const start = (state.currentPage - 1) * state.pageSize
-  return currentViewJobs.value.slice(start, start + state.pageSize)
-})
-const pageButtons = computed(() => buildPageButtons(totalPages.value, state.currentPage))
-const resultViewChips = computed(() => {
-  const chips = []
-  if (state.searched) {
-    chips.push({ id: "shown", label: `${state.filteredJobs.length} shown` })
-    if (state.resultSets.fetched.length) {
-      chips.push({ id: "fetched", label: `${state.resultSets.fetched.length} fetched` })
-    }
-    if (state.resultSets.linkedin.length) {
-      chips.push({ id: "linkedin", label: `${state.resultSets.linkedin.length} LinkedIn` })
-    }
-    if (state.resultSets.ats.length) {
-      chips.push({ id: "ats", label: `${state.resultSets.ats.length} ATS` })
-    }
-  }
-  return chips
-})
-
-const activeFilterLabels = computed(() => {
-  const labels = []
-
-  if (form.profile.trim()) {
-    labels.push(`Profile: ${form.profile.trim()}`)
-  }
-  if (sourceUsesLinkedIn.value && form.keywords.length) {
-    labels.push(...form.keywords.map((keyword) => `Keyword: ${keyword}`))
-  }
-  if (sourceUsesAts.value && form.ats) {
-    labels.push(`ATS: ${prettyLabel(form.ats)}`)
-  }
-  if (sourceUsesAts.value && form.company.trim()) {
-    labels.push(`Company: ${form.company.trim()}`)
-  }
-
-  if (form.time_filter !== "all") {
-    labels.push(`Posted: ${timeFilterLabel(form.time_filter)}`)
-  }
-  if (form.locations.length) {
-    labels.push(...form.locations.map((value) => `Location: ${value}`))
-  }
-  labels.push(...labelValues(form.experience_levels, experienceLevelOptions))
-  labels.push(...labelValues(form.employment_types, employmentTypeOptions))
-  labels.push(...labelValues(form.location_types, locationTypeOptions))
-  labels.push(...labelValues(form.education_levels, educationOptions))
-
-  if (form.pay_operator && form.pay_amount) {
-    labels.push(`Pay ${operatorLabel(form.pay_operator)} ${formatMoney(Number(form.pay_amount))}`)
-  }
-  if (form.experience_operator && form.experience_years) {
-    labels.push(`Exp ${operatorLabel(form.experience_operator)} ${form.experience_years}y`)
-  }
-
-  return labels
-})
-
-const searchLocationNote = computed(() => {
-  if (!sourceUsesLinkedIn.value || !form.locations.length) {
-    return ""
-  }
-  return "LinkedIn search runs once per candidate location and merges the results."
-})
-
-watch(
-  () => form.source,
-  (source) => {
-    if (source === "ats") {
-      form.keywords = []
-      form.time_filter = "all"
-    }
-
-    if (source === "linkedin") {
-      form.ats = ""
-      form.company = ""
-    }
-
-    if (source === "linkedin" || source === "all") {
-      void ensureLinkedInSessionLoaded()
-    }
-  },
-)
-
-watch(
-  () => state.selectedFilterProfileId,
-  (profileId) => {
-    if (!profileId) {
-      return
-    }
-    const profile = state.filterProfiles.find((item) => item.id === profileId)
-    if (profile) {
-      applyFilterProfile(profile)
-    }
-  },
-)
-
-watch(
-  () => [state.viewMode, state.pageSize, currentViewJobs.value.length],
-  () => {
-    if (state.currentPage > totalPages.value) {
-      state.currentPage = totalPages.value
-    }
-    if (state.currentPage < 1) {
-      state.currentPage = 1
-    }
-  },
-)
-
-watch(
-  [form, state],
-  () => {
-    persistJobsState()
-  },
-  { deep: true },
-)
-
-onMounted(() => {
-  if (sourceUsesLinkedIn.value) {
-    void ensureLinkedInSessionLoaded()
-  }
-  void loadFilterProfiles()
-  void loadMaterialTemplates()
-})
-
-const emptyStateMessage = computed(() => {
-  if (!state.searched) {
-    return "No jobs"
-  }
-  if (state.viewMode === "shown" && state.resultSets.fetched.length > 0 && state.filteredJobs.length === 0) {
-    return "Jobs were fetched, but none matched your current filters."
-  }
-  return "No jobs"
-})
-
-const jobIndexFreshnessPayload = computed(() => ({
-  source: form.source === "all" ? "linkedin" : form.source,
-  keywords: [...form.keywords],
-  profile: "",
-  locations: [...form.locations],
-  time_filter: form.time_filter,
-  experience_levels: [...form.experience_levels],
-  employment_types: [...form.employment_types],
-  location_types: [...form.location_types],
-  education_levels: [...form.education_levels],
-  pay_operator: form.pay_operator,
-  experience_operator: form.experience_operator,
-  max_pages: Number(form.max_pages) || 20,
-}))
-
-const canForceRefreshFetchedResults = computed(() => canReuseFetchedResults(buildFetchSignature()))
-
-async function forceRefreshSearch() {
-  // Force-refresh path -- bypass the canReuseFetchedResults shortcut so
-  // the next search() invocation actually hits the network. We clear
-  // the fetch signature so the existing code path treats the request
-  // as a fresh one without growing a new force_refresh flag through
-  // every layer.
-  state.lastFetchSignature = ""
-  await search({ forceRefresh: true })
-}
-
-async function search({ forceRefresh = false } = {}) {
-  const signature = buildFetchSignature()
-  if (!forceRefresh && canReuseFetchedResults(signature)) {
-    state.searched = true
-    state.error = ""
-    state.message = "Updated results from the last fetched set."
-    refreshDisplayedJobs()
-    return
-  }
-
-  state.searching = true
-  state.searched = true
-  state.error = ""
-  state.message = ""
-  if (sourceUsesLinkedIn.value) {
-    linkedinSessionState.checked = true
-    linkedinSessionState.authenticated = true
-    linkedinSessionState.ok = true
-  }
-  state.filteredJobs = []
-  state.resultSets = emptyResultSets()
-  state.counts = emptyCounts()
-
-  try {
-    const response = await api.searchJobs({
-      ...form,
-      keyword: "",
-      keywords: [...form.keywords],
-      profile: "",
-      location: "",
-      max_pages: Number(form.max_pages) || 20,
-      force_refresh: forceRefresh,
-      locations: [...form.locations],
-      pay_amount: parseOptionalNumber(form.pay_amount),
-      experience_years: parseOptionalNumber(form.experience_years),
-    })
-    state.viewMode = "shown"
-    setResultSets(response.views)
-    refreshDisplayedJobs()
-    state.counts = response.counts || emptyCounts()
-    state.error = response.error || ""
-    state.lastFetchSignature = signature
-    state.currentPage = 1
-
-    if (sourceUsesLinkedIn.value && response.error_code === "linkedin_auth_required") {
-      syncLinkedInSession({
-        ok: false,
-        authenticated: false,
-        has_session_data: linkedinSessionState.has_session_data,
-        message: response.error || "LinkedIn login required.",
-        error: response.error || "LinkedIn login required.",
-      })
-    } else if (sourceUsesLinkedIn.value && response.counts?.linkedin) {
-      syncLinkedInSession({
-        ok: true,
-        authenticated: true,
-        has_session_data: true,
-        message:
-          linkedinSessionState.message || "LinkedIn session is ready for authenticated searches.",
-      })
-      if (!linkedinSessionState.message) {
-        linkedinSessionState.message = "LinkedIn session is ready for authenticated searches."
-      }
-    }
-  } catch (error) {
-    state.filteredJobs = []
-    state.resultSets = emptyResultSets()
-    state.counts = emptyCounts()
-    state.error = error.message
-  } finally {
-    state.searching = false
-  }
-}
-
-async function loadFilterProfiles() {
-  state.filterProfilesLoading = true
-  try {
-    const response = await api.filterProfiles()
-    state.filterProfiles = response.profiles || []
-
-    const activeProfileId = state.selectedFilterProfileId || form.profile.trim()
-    if (activeProfileId) {
-      const profile = state.filterProfiles.find((item) => item.id === activeProfileId)
-      if (profile) {
-        state.selectedFilterProfileId = profile.id
-        applyFilterProfile(profile)
-      }
-    }
-  } catch (error) {
-    state.error = error.message
-  } finally {
-    state.filterProfilesLoading = false
-  }
-}
-
-async function loadMaterialTemplates() {
-  try {
-    const response = await api.templates()
-    state.materialTemplates = {
-      resume: response.templates?.resume || [],
-      cover_letter: response.templates?.cover_letter || [],
-    }
-    materialModal.templateIds.resume ||= state.materialTemplates.resume[0]?.template_id || ""
-    materialModal.templateIds.cover_letter ||=
-      state.materialTemplates.cover_letter[0]?.template_id || ""
-  } catch (error) {
-    state.materialTemplates = { resume: [], cover_letter: [] }
-  }
-}
-
-async function saveCurrentFilterProfile() {
-  const profileId = form.profile.trim()
-  if (!profileId) {
-    state.error = "Enter a filter profile name before saving."
-    state.message = ""
-    return
-  }
-
-  state.error = ""
-  try {
-    const response = await api.saveFilterProfile(profileId, currentFilterProfilePayload())
-    state.filterProfiles = response.profiles || []
-    state.selectedFilterProfileId = profileId
-    state.message = response.message || `Saved filter profile '${profileId}'.`
-  } catch (error) {
-    state.error = error.message
-    state.message = ""
-  }
-}
-
-async function deleteCurrentFilterProfile() {
-  const profileId = form.profile.trim()
-  if (!profileId) {
-    state.error = "Enter a filter profile name before deleting."
-    state.message = ""
-    return
-  }
-
-  state.error = ""
-  try {
-    const response = await api.deleteFilterProfile(profileId)
-    state.filterProfiles = response.profiles || []
-    state.selectedFilterProfileId = ""
-    form.profile = ""
-    state.message = response.message || `Deleted filter profile '${profileId}'.`
-  } catch (error) {
-    state.error = error.message
-    state.message = ""
-  }
-}
-
-function currentFilterProfilePayload() {
-  return {
-    source: form.source,
-    keywords: [...form.keywords],
-    time_filter: form.time_filter,
-    max_pages: Number(form.max_pages) || 20,
-    ats: form.ats,
-    company: form.company,
-    locations: [...form.locations],
-    experience_levels: [...form.experience_levels],
-    employment_types: [...form.employment_types],
-    location_types: [...form.location_types],
-    education_levels: [...form.education_levels],
-    pay_operator: form.pay_operator,
-    pay_amount: parseOptionalNumber(form.pay_amount),
-    experience_operator: form.experience_operator,
-    experience_years: parseOptionalNumber(form.experience_years),
-  }
-}
-
-function applyFilterProfile(profile) {
-  form.profile = profile.id
-  form.source = profile.source || "ats"
-  form.keywords = [...(profile.keywords || [])]
-  form.time_filter = profile.time_filter || "all"
-  form.max_pages = profile.max_pages ?? 20
-  form.ats = profile.ats || ""
-  form.company = profile.company || ""
-  form.locations = [...(profile.locations || [])]
-  form.experience_levels = [...(profile.experience_levels || [])]
-  form.employment_types = [...(profile.employment_types || [])]
-  form.location_types = [...(profile.location_types || [])]
-  form.education_levels = [...(profile.education_levels || [])]
-  form.pay_operator = profile.pay_operator || ""
-  form.pay_amount = profile.pay_amount ?? ""
-  form.experience_operator = profile.experience_operator || ""
-  form.experience_years = profile.experience_years ?? ""
-  state.message = `Loaded filter profile '${profile.id}'.`
-  state.error = ""
-}
-
-async function applyToJob(job) {
-  if (isApplied(job)) {
-    goToReview(job)
-    return
-  }
-
-  state.applyState[job.id] = { loading: true, message: "" }
-
-  try {
-    const response = await api.applyJob(job.application_url)
-    state.applyState[job.id] = {
-      loading: false,
-      message: response.message,
-      status: response.status,
-      applicationId: response.application_id || "",
-      result: response.result || null,
-    }
-    if (response.status === "review" || response.status === "submitted") {
-      job.raw_data = {
-        ...(job.raw_data || {}),
-        autoapply_status: response.status,
-        autoapply_application_id: response.application_id || "",
-      }
-    }
-  } catch (error) {
-    state.applyState[job.id] = { loading: false, message: error.message, status: "error" }
-  }
-}
-
-function isApplied(job) {
-  const status = state.applyState[job.id]?.status || job.raw_data?.autoapply_status
-  return status === "review" || status === "submitted"
-}
-
-function applyButtonLabel(job) {
-  if (state.applyState[job.id]?.loading) return "Applying…"
-  return isApplied(job) ? "Review" : "AutoApply"
-}
-
-function goToReview(job) {
-  const applicationId =
-    state.applyState[job.id]?.applicationId || job.raw_data?.autoapply_application_id || ""
-  router.push({
-    path: "/review",
-    query: applicationId ? { application: applicationId } : {},
+function daysTo(dl) { return dl ? Math.ceil((new Date(dl.replace(' ', 'T')).getTime() - Date.now()) / 86400000) : null }
+const rows = computed(() => {
+  const needle = f.q.trim().toLowerCase()
+  const out = inScope.value.filter((j) => {
+    if (f.stage && j.stage !== f.stage) return false
+    if (f.minScore && (j.score ?? -1) < f.minScore) return false
+    if (f.direction && j.direction !== f.direction) return false
+    if (f.term && j.term !== f.term) return false
+    if (f.channel && j.channel_label !== f.channel) return false
+    if (f.link && !j.apply_url) return false
+    if (f.prio && !j.priority) return false
+    if (f.deadline === 'none' && j.deadline) return false
+    if (f.deadline && f.deadline !== 'none') { const d = daysTo(j.deadline); if (d == null || d < 0 || d > +f.deadline) return false }
+    return !needle || `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)
   })
-}
-
-function materialOptionLabel(materialType) {
-  return (
-    materialOptions.find((option) => option.type === materialType)?.label ||
-    {
-      resume_pdf: "Resume PDF",
-      resume_docx: "Resume DOCX",
-      cover_letter_pdf: "Cover Letter PDF",
-      cover_letter_docx: "Cover Letter DOCX",
-    }[materialType] ||
-    "Material"
-  )
-}
-
-function openMaterialModal(job) {
-  const previousTargets = state.materialState[job.id]?.selectedTargets || []
-  const previousTemplates = state.materialState[job.id]?.selectedTemplates || {}
-  materialModal.job = job
-  materialModal.open = true
-  materialTargets.forEach((target) => {
-    materialModal.selected[target.id] = previousTargets.length
-      ? previousTargets.includes(target.id)
-      : true
+  const k = sortKey.value
+  return out.sort((a, b) => {
+    const x = a[k] ?? (k === 'score' ? -1 : ''), y = b[k] ?? (k === 'score' ? -1 : '')
+    return (x > y ? 1 : x < y ? -1 : 0) * sortDir.value || Number(b.priority) - Number(a.priority) || (b.score ?? -1) - (a.score ?? -1)
   })
-  materialModal.templateIds.resume =
-    previousTemplates.resume || materialModal.templateIds.resume || state.materialTemplates.resume[0]?.template_id || ""
-  materialModal.templateIds.cover_letter =
-    previousTemplates.cover_letter ||
-    materialModal.templateIds.cover_letter ||
-    state.materialTemplates.cover_letter[0]?.template_id ||
-    ""
+})
+function sortBy(k) { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = k === 'score' ? -1 : 1 } }
+const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? ' ↑' : ' ↓') : '')
+const scoreCls = (s) => (s == null ? '' : s >= 9 ? 'hi' : s >= 7.5 ? 'mid' : s < 6 ? 'lo' : '')
+
+// selection
+const allPicked = computed(() => rows.value.length > 0 && rows.value.every((j) => picked.value.has(j.id)))
+function togglePick(id) { const s = new Set(picked.value); s.has(id) ? s.delete(id) : s.add(id); picked.value = s }
+function toggleAll() { picked.value = allPicked.value ? new Set() : new Set(rows.value.map((j) => j.id)) }
+const BULK = {
+  draft: ['生成申请草案', (r) => `${r.done} 个岗位已排队生成草案` + (r.skipped ? `；${r.skipped} 个跳过（没有链接、已下线或已投过）` : '')],
+  score: ['重新评分', (r) => `${r.done} 个岗位已排队评分` + (r.skipped ? `；${r.skipped} 个没有岗位说明，没法评分` : '')],
+  skip: ['不投这些', (r) => `${r.done} 个岗位已标为不投递` + (r.skipped ? `；${r.skipped} 个已经投出，没有改动` : '')],
+  archive: ['归档', (r) => `${r.done} 个岗位已归档，在“显示已归档”里还能找到`],
+  unarchive: ['取消归档', (r) => `${r.done} 个岗位已放回列表`],
+  restore: ['恢复为未投递', (r) => `${r.done} 个岗位已恢复` + (r.skipped ? `；${r.skipped} 个本来就不是“不投递”` : '')],
+}
+async function bulk(action) {
+  const ids = [...picked.value]
+  if (action === 'draft' && ids.length > 5 && !(await ask(`要为 ${ids.length} 个岗位生成草案吗？每个需要一两分钟，会占用 AI 额度。`))) return
+  await run(() => api.post('/jobs/bulk', { action, ids }), BULK[action][1], load)
+  picked.value = new Set()
 }
 
-function closeMaterialModal() {
-  materialModal.open = false
-  materialModal.job = null
+async function load() {
+  const d = await api.get('/jobs')
+  jobs.value = d.jobs; counts.value = d.counts; groups.value = d.groups; stages.value = d.stages
 }
-
-function goToMaterials(job) {
-  router.push({ path: "/materials", query: { jobId: job.id } })
-}
-
-async function generateSelectedMaterials() {
-  const job = materialModal.job
-  if (!job) {
-    return
-  }
-
-  const targets = selectedMaterialTargets()
-  if (!targets.length) {
-    state.materialState[job.id] = {
-      ...(state.materialState[job.id] || {}),
-      loading: false,
-      message: "Select at least one material to generate.",
-      status: "error",
-    }
-    return
-  }
-
-  const existing = state.materialState[job.id] || {}
-  state.materialState[job.id] = {
-    ...existing,
-    loading: true,
-    message: `Generating ${targetListLabel(targets)}...`,
-    status: "",
-    selectedTargets: targets.map((target) => target.id),
-    selectedTemplates: selectedTemplateIds(),
-  }
-
-  const settled = await Promise.allSettled(
-    targets.map((target) =>
-      api
-        .generateJobMaterial(job, target.materialType, materialModal.templateIds[target.id])
-        .then((response) => ({ target, response })),
-    ),
-  )
-
-  const results = { ...(existing.results || {}) }
-  const failures = []
-  const successes = []
-  settled.forEach((result, index) => {
-    const target = targets[index]
-    if (result.status === "fulfilled") {
-      results[target.id] = result.value.response
-      successes.push(target.label)
-    } else {
-      failures.push(`${target.label}: ${result.reason?.message || "generation failed"}`)
-    }
-  })
-
-  const primary = results.resume || results.cover_letter || null
-  state.materialState[job.id] = {
-    loading: false,
-    message: materialGenerationMessage(successes, failures),
-    status: successes.length ? "review" : "error",
-    selectedTargets: targets.map((target) => target.id),
-    selectedTemplates: selectedTemplateIds(),
-    results,
-    artifacts: mergeMaterialArtifacts(results),
-    artifact: primary?.artifact || null,
-    document: primary?.document || null,
-    validation: primary?.validation || null,
-    version: primary?.version || null,
-    materialType: primary?.material_type || "",
-  }
-}
-
-function selectedTemplateIds() {
-  return {
-    resume: materialModal.templateIds.resume,
-    cover_letter: materialModal.templateIds.cover_letter,
-  }
-}
-
-function artifactDownloadUrl(artifact) {
-  const path = typeof artifact === "string" ? artifact : artifact?.path
-  return path ? api.artifactDownloadUrl(path) : ""
-}
-
-function artifactEntries(material) {
-  return Object.entries(material?.artifacts || {})
-    .filter(([, path]) => Boolean(path))
-    .map(([type, path]) => ({ type, path, label: materialOptionLabel(type) }))
-}
-
-function selectedMaterialTargets() {
-  return materialTargets.filter((target) => materialModal.selected[target.id])
-}
-
-function templateOptions(documentType) {
-  const templates = state.materialTemplates[documentType] || []
-  if (!templates.length) {
-    return [{ value: "", label: "Default template" }]
-  }
-  return templates.map((template) => ({
-    value: template.template_id,
-    label: template.name || template.template_id,
-  }))
-}
-
-function targetListLabel(targets) {
-  return targets.map((target) => target.label).join(" and ")
-}
-
-function materialGenerationMessage(successes, failures) {
-  if (successes.length && failures.length) {
-    return `Generated ${successes.join(" and ")}. Failed ${failures.join("; ")}.`
-  }
-  if (successes.length) {
-    return `Generated ${successes.join(" and ")}.`
-  }
-  return failures.join("; ") || "Material generation failed."
-}
-
-function mergeMaterialArtifacts(results) {
-  const artifacts = Object.fromEntries(materialOptions.map((option) => [option.type, null]))
-  Object.values(results || {}).forEach((result) => {
-    Object.entries(result?.artifacts || {}).forEach(([type, path]) => {
-      if (path) {
-        artifacts[type] = path
-      }
-    })
-  })
-  return artifacts
-}
-
-function buildMaterialReviewEntries(material) {
-  const results = material?.results || {}
-  const entries = materialTargets
-    .map((target) => ({
-      id: target.id,
-      label: target.label,
-      result: results[target.id],
-      document: results[target.id]?.document || null,
-    }))
-    .filter((entry) => entry.document)
-
-  if (!entries.length && material?.document) {
-    return [
-      {
-        id: material.materialType || "material",
-        label: materialOptionLabel(material.materialType),
-        result: material,
-        document: material.document,
-      },
-    ]
-  }
-  return entries
-}
-
-function validationIssues(material) {
-  return material?.validation?.issues || []
-}
-
-function validationMetrics(material) {
-  return material?.validation?.metrics || {}
-}
-
-function resumePreviewItems(document) {
-  if (!document || document.document_type !== "resume") {
-    return []
-  }
-  return [
-    ...(document.experiences || []).map((item) => ({ ...item, section: "Experience" })),
-    ...(document.projects || []).map((item) => ({ ...item, section: "Projects" })),
-  ]
-}
-
-function coverParagraphs(document) {
-  return document?.document_type === "cover_letter" ? document.paragraphs || [] : []
-}
-
-function parseOptionalNumber(value) {
-  if (value === "" || value === null || value === undefined) {
-    return null
-  }
-
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function score(job) {
-  return job.match_score ?? job.raw_data?.match_score ?? null
-}
-
-function isLinkedInUrl(url) {
-  return Boolean(url) && url.toLowerCase().includes("linkedin.com")
-}
-
-function absoluteUrl(url) {
-  if (!url) {
-    return ""
-  }
-  if (url.startsWith("/")) {
-    return `https://www.linkedin.com${url}`
-  }
-  return url
-}
-
-function detailUrl(job) {
-  return absoluteUrl(
-    job.raw_data?.detail_url ||
-      job.raw_data?.linkedin_url ||
-      job.raw_data?.linkedin_href ||
-      job.application_url ||
-      "",
-  )
-}
-
-function manualApplyUrl(job) {
-  return absoluteUrl(job.raw_data?.manual_apply_url || job.application_url || detailUrl(job))
-}
-
-function sourceLabel(job) {
-  return prettyLabel(job.ats_type && job.ats_type !== "unknown" ? job.ats_type : job.source)
-}
-
-async function manualApply(job) {
-  const fallbackUrl = detailUrl(job) || manualApplyUrl(job)
-  const initialUrl = manualApplyUrl(job)
-
-  if (initialUrl && !isLinkedInUrl(initialUrl)) {
-    window.open(initialUrl, "_blank")
-    return
-  }
-
-  const targetWindow = window.open(fallbackUrl || initialUrl || "about:blank", "_blank")
-
-  try {
-    const response = await api.manualApplyTarget(fallbackUrl)
-    const finalUrl = response.url || fallbackUrl
-    if (targetWindow && finalUrl) {
-      targetWindow.location.replace(finalUrl)
-    } else if (finalUrl) {
-      window.open(finalUrl, "_blank")
-    }
-  } catch (error) {
-    if (targetWindow && fallbackUrl) {
-      targetWindow.location.replace(fallbackUrl || "about:blank")
-    } else if (fallbackUrl) {
-      window.open(fallbackUrl, "_blank")
-    }
-    state.applyState[job.id] = { loading: false, message: error.message, status: "review" }
-  }
-}
-
-function chipLabel(value) {
-  return prettyLabel(value)
-}
-
-function metadataChips(job) {
-  return [
-    chipLabel(job.employment_category),
-    chipLabel(job.experience_level),
-    chipLabel(job.education_level),
-    payLabel(job),
-    experienceLabel(job),
-  ].filter(Boolean)
-}
-
-function payLabel(job) {
-  if (job.pay_min === null || job.pay_min === undefined) {
-    if (job.pay_max === null || job.pay_max === undefined) {
-      return ""
-    }
-
-    return `<= ${formatMoney(job.pay_max)}`
-  }
-
-  if (job.pay_max === null || job.pay_max === undefined || job.pay_max === job.pay_min) {
-    return formatMoney(job.pay_min)
-  }
-
-  return `${formatMoney(job.pay_min)} - ${formatMoney(job.pay_max)}`
-}
-
-function experienceLabel(job) {
-  if (job.experience_years_min === null || job.experience_years_min === undefined) {
-    if (job.experience_years_max === null || job.experience_years_max === undefined) {
-      return ""
-    }
-
-    return `<= ${job.experience_years_max}y`
-  }
-
-  if (job.experience_years_max === null || job.experience_years_max === undefined || job.experience_years_max === job.experience_years_min) {
-    return `${job.experience_years_min}+y`
-  }
-
-  return `${job.experience_years_min}-${job.experience_years_max}y`
-}
-
-function formatMoney(value) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value)
-}
-
-function prettyLabel(value) {
-  if (!value || value === "unknown") {
-    return ""
-  }
-
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ")
-}
-
-function labelValues(values, options) {
-  return options.filter((option) => values.includes(option.value)).map((option) => option.label)
-}
-
-function operatorLabel(value) {
-  return numericOperators.find((option) => option.value === value)?.label || value
-}
-
-function timeFilterLabel(value) {
-  return (
-    {
-      all: "All dates",
-      month: "Past month",
-      week: "Past week",
-      "24h": "Past 24 hours",
-    }[value] || value
-  )
-}
-
-function resetForm() {
-  form.source = "ats"
-  form.keywords = []
-  form.profile = ""
-  form.time_filter = "all"
-  form.max_pages = 20
-  form.ats = ""
-  form.company = ""
-  form.locations = []
-  form.experience_levels = []
-  form.employment_types = []
-  form.location_types = []
-  form.education_levels = []
-  form.pay_operator = ""
-  form.pay_amount = ""
-  form.experience_operator = ""
-  form.experience_years = ""
-}
-
-function toggleSection(section) {
-  state.sections[section] = !state.sections[section]
-}
-
-function setResultSets(views) {
-  const next = views || emptyResultSets()
-  state.resultSets = {
-    shown: next.shown || [],
-    fetched: next.fetched || [],
-    linkedin: next.linkedin || [],
-    ats: next.ats || [],
-  }
-}
-
-function buildFetchSignature() {
-  return JSON.stringify({
-    source: form.source,
-    keywords: sourceUsesLinkedIn.value
-      ? [...form.keywords].map((value) => value.trim().toLowerCase())
-      : [],
-    time_filter: sourceUsesLinkedIn.value ? form.time_filter : "all",
-    search_locations: sourceUsesLinkedIn.value
-      ? [...form.locations].map((value) => value.trim().toLowerCase()).filter(Boolean)
-      : [],
-    ats: sourceUsesAts.value ? form.ats : "",
-    company: sourceUsesAts.value ? form.company.trim().toLowerCase() : "",
-    max_pages: sourceUsesLinkedIn.value ? Number(form.max_pages) || 20 : 0,
-  })
-}
-
-function canReuseFetchedResults(signature) {
-  return (
-    Boolean(state.lastFetchSignature)
-    && state.lastFetchSignature === signature
-    && state.resultSets.fetched.length > 0
-    && !state.error
-  )
-}
-
-function refreshDisplayedJobs() {
-  state.filteredJobs = filterFetchedJobs(state.resultSets.fetched)
-}
-
-function filterFetchedJobs(jobs) {
-  return jobs.filter((job) => matchesLocalFilters(job))
-}
-
-function matchesLocalFilters(job) {
-  if (form.experience_levels.length && !form.experience_levels.includes(job.experience_level)) {
-    return false
-  }
-  if (form.employment_types.length && !form.employment_types.includes(job.employment_category)) {
-    return false
-  }
-  if (form.location_types.length && !form.location_types.includes(job.location_type)) {
-    return false
-  }
-  if (form.education_levels.length && !form.education_levels.includes(job.education_level)) {
-    return false
-  }
-  if (!shouldSkipLocalLocationFilter() && form.locations.length && !matchesLocations(job.location, form.locations)) {
-    return false
-  }
-
-  const payAmount = parseOptionalNumber(form.pay_amount)
-  if (form.pay_operator && payAmount !== null && !matchesNumericRange(job.pay_min, job.pay_max, form.pay_operator, payAmount)) {
-    return false
-  }
-
-  const experienceYears = parseOptionalNumber(form.experience_years)
-  if (
-    form.experience_operator
-    && experienceYears !== null
-    && !matchesNumericRange(job.experience_years_min, job.experience_years_max, form.experience_operator, experienceYears)
-  ) {
-    return false
-  }
-
-  return true
-}
-
-function shouldSkipLocalLocationFilter() {
-  return sourceUsesLinkedIn.value && form.locations.length > 0
-}
-
-function matchesLocations(location, candidates) {
-  const normalizedLocation = (location || "").toLowerCase()
-  if (!normalizedLocation) {
-    return false
-  }
-  return candidates.some((candidate) => normalizedLocation.includes(candidate.toLowerCase()))
-}
-
-function matchesNumericRange(minValue, maxValue, operator, target) {
-  if (minValue === null || minValue === undefined) {
-    if (maxValue === null || maxValue === undefined) {
-      return false
-    }
-  }
-
-  const lower = minValue ?? maxValue
-  const upper = maxValue ?? minValue
-  if (operator === "gt") {
-    return upper > target
-  }
-  if (operator === "gte") {
-    return upper >= target
-  }
-  if (operator === "lt") {
-    return lower < target
-  }
-  if (operator === "lte") {
-    return lower <= target
-  }
-  return true
-}
-
-function setViewMode(mode) {
-  state.viewMode = mode
-  state.currentPage = 1
-  state.pageJump = ""
-}
-
-function goToPage(page) {
-  state.currentPage = Math.min(Math.max(page, 1), totalPages.value)
-  state.pageJump = ""
-}
-
-function jumpToPage() {
-  const page = Number(state.pageJump)
-  if (Number.isFinite(page) && page >= 1) {
-    goToPage(page)
-  }
-}
-
-function buildPageButtons(total, current) {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, index) => index + 1)
-  }
-
-  const buttons = [1]
-  const windowStart = Math.max(2, current - 1)
-  const windowEnd = Math.min(total - 1, current + 1)
-
-  if (windowStart > 2) {
-    buttons.push("ellipsis-left")
-  }
-
-  for (let page = windowStart; page <= windowEnd; page += 1) {
-    buttons.push(page)
-  }
-
-  if (windowEnd < total - 1) {
-    buttons.push("ellipsis-right")
-  }
-
-  buttons.push(total)
-  return buttons
-}
+async function open(j) { sel.value = await api.get('/jobs/' + j.id); showJd.value = false; if (route.query.open) router.replace({ path: '/jobs' }) }
+const refreshSel = async () => { if (sel.value) sel.value = await api.get('/jobs/' + sel.value.id) }
+const act = (fn, ok) => run(fn, ok, async () => { await load(); await refreshSel() })
+const makeDraft = () => act(() => api.post(`/jobs/${sel.value.id}/draft`), '已开始：读取申请表并生成草案，完成后会通知你')
+const rescore = () => act(() => api.post(`/jobs/${sel.value.id}/score`), '已开始重新评分')
+const setStatus = (s) => act(() => api.patch(`/jobs/${sel.value.id}`, { status: s }), s === 'skipped' ? '已标为不投递' : '已恢复为未投递')
+const setArchived = (on) => act(() => api.post('/jobs/bulk', { action: on ? 'archive' : 'unarchive', ids: [sel.value.id] }), on ? '已归档' : '已放回列表')
+const saveUrl = () => act(() => api.patch(`/jobs/${sel.value.id}`, { apply_url: sel.value.apply_url }), '申请链接已保存')
+const addJob = () => run(async () => { await api.post('/jobs', { url: newUrl.value }); newUrl.value = '' }, '岗位已添加，稍后会评分', load)
+const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), '开始扫描新岗位，完成后会通知你')
+const mail = () => run(() => api.post('/tasks', { kind: 'mail' }), '开始检查邮箱')
+const sent = computed(() => sel.value && ['submitted', 'confirmed', 'rejected', 'interview', 'assessment', 'offer'].includes(sel.value.app_status))
+const facts = computed(() => {
+  const j = sel.value
+  if (!j) return []
+  return [['学期', j.term], ['时长', j.months ? j.months + ' 个月' : ''], ['薪资', j.salary], ['地点 / 形式', j.location || j.work_type], ['截止时间', j.deadline], ['在哪里投', j.channel_label],
+    ['要交的材料', j.docs_required], ['方向', j.direction], ['来源', j.source_label], ['发布日期', j.posted], ['岗位编号', j.source_id && j.source_id.length <= 12 ? j.source_id : '']].filter((x) => x[1])
+})
+watch(() => route.query.open, (id) => { if (id) open({ id }) })
+if (route.query.q) f.q = String(route.query.q)
+onMounted(async () => { await load(); if (route.query.open) open({ id: route.query.open }) })
 </script>
 
 <template>
-  <div class="space-y-6">
-    <Alert v-if="state.message" variant="success">
-      <CheckCircle2 class="h-4 w-4" />
-      <AlertDescription>{{ state.message }}</AlertDescription>
-    </Alert>
-    <Card class="jobs-shell">
-      <form class="page-stack" @submit.prevent="search">
-        <section class="jobs-panel jobs-panel-full">
-          <div class="section-head compact-head">
-            <div class="flex items-center gap-2">
-              <FilterIcon class="h-4 w-4 text-muted-foreground" />
-              <div>
-                <h2 class="text-sm font-semibold">Filters</h2>
-                <div class="muted-inline">Basic and advanced search controls</div>
-              </div>
-            </div>
-            <Badge variant="secondary" class="tabular-nums">{{ activeFilterLabels.length }}</Badge>
-          </div>
+  <PageHead title="岗位" sub="所有找到的岗位，以及每个申请进行到哪一步。点一行看详情，勾选多行可以批量操作。">
+    <button @click="mail"><Icon name="mail" />检查邮箱</button>
+    <button @click="scan"><Icon name="search" />扫描新岗位</button>
+  </PageHead>
 
-          <div class="jobs-profile-strip">
-            <div class="jobs-profile-fields">
-              <label class="field">
-                <span>Filter Profile</span>
-                <input v-model="form.profile" class="input" type="text" placeholder="Saved filter profile name" />
-              </label>
+  <div class="seg" style="margin-bottom: 12px">
+    <button v-for="g in groups" :key="g.key" :class="{ on: group === g.key }" @click="pickGroup(g.key)">{{ g.label }}<span class="n">{{ groupCount(g.key) }}</span></button>
+  </div>
 
-              <label class="field">
-                <span>Saved Profiles</span>
-                <AppSelect v-model="state.selectedFilterProfileId" :options="filterProfileOptions" placeholder="Select saved profile" aria-label="Saved filter profiles" />
-              </label>
-            </div>
+  <div class="filters">
+    <input v-model="f.q" placeholder="搜索公司、岗位、地点或编号" style="width: 240px" />
+    <AaSelect v-if="groupStages.length > 1" v-model="f.stage"><option value="">全部状态</option><option v-for="x in groupStages" :key="x.key" :value="x.key">{{ x.label }}（{{ counts[x.key] || 0 }}）</option></AaSelect>
+    <AaSelect v-model="f.direction"><option value="">全部方向</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-if="persona.features.term" v-model="f.term"><option value="">全部学期</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-model="f.channel"><option value="">在哪里投都行</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-model="f.deadline"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ l }}</option></AaSelect>
+    <label class="muted nowrap">评分至少 <input v-model.number="f.minScore" type="number" min="0" max="10" step="0.5" style="width: 68px" /></label>
+    <label class="muted nowrap"><input v-model="f.link" type="checkbox" /> 只看有申请链接的</label>
+    <label v-if="jobs.some((j) => j.priority)" class="muted nowrap"><input v-model="f.prio" type="checkbox" /> 只看重点雇主</label>
+    <label v-if="archivedCount" class="muted nowrap"><input v-model="showArchived" type="checkbox" /> 显示已归档（{{ archivedCount }}）</label>
+    <button v-if="activeFilters" class="ghost sm" @click="clearFilters"><Icon name="x" />清空筛选</button>
+    <span class="grow"></span>
+    <span class="muted small nowrap">{{ rows.length }} 个岗位</span>
+    <details class="colpick">
+      <summary class="btn sm ghost">显示的列</summary>
+      <div class="menu"><label v-for="(l, k) in COLS" :key="k"><input type="checkbox" :checked="cols.has(k)" @change="toggleCol(k)" /> {{ l }}</label></div>
+    </details>
+  </div>
 
-            <div class="jobs-profile-actions">
-              <Button variant="ghost" size="icon" type="button" :disabled="state.filterProfilesLoading" aria-label="Reload saved profile list" title="Reload saved profile list" @click="loadFilterProfiles">
-                <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': state.filterProfilesLoading }" />
-              </Button>
-              <Button variant="default" size="icon" type="button" aria-label="Save current filters as this profile" title="Save current filters as this profile" @click="saveCurrentFilterProfile">
-                <Save class="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" type="button" class="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label="Delete this saved profile" title="Delete this saved profile" @click="deleteCurrentFilterProfile">
-                <Trash2 class="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 36px"><input type="checkbox" :checked="allPicked" aria-label="全选" @change="toggleAll" /></th>
+          <th class="sortable" @click="sortBy('score')">评分{{ arrow('score') }}</th>
+          <th class="sortable" @click="sortBy('company')">岗位{{ arrow('company') }}</th>
+          <th v-if="cols.has('source')">来源</th>
+          <th v-if="cols.has('direction')">方向</th>
+          <th v-if="cols.has('salary')">薪资</th>
+          <th v-if="cols.has('channel')">在哪里投</th>
+          <th v-if="cols.has('posted')" class="sortable" @click="sortBy('posted')">发布{{ arrow('posted') }}</th>
+          <th v-if="cols.has('first_seen')" class="sortable" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</th>
+          <th class="sortable" @click="sortBy('deadline')">截止{{ arrow('deadline') }}</th>
+          <th>状态</th>
+          <th>最新情况</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="j in rows" :key="j.id" class="clickable" @click="open(j)">
+          <td @click.stop><input type="checkbox" :checked="picked.has(j.id)" :aria-label="'选择 ' + j.company" @change="togglePick(j.id)" /></td>
+          <td><span class="score" :class="scoreCls(j.score)">{{ j.score == null ? '—' : j.score.toFixed(1) }}</span></td>
+          <td class="jobcell">
+            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><b>{{ j.company }}</b> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
+            <div>{{ j.title }} <a v-if="j.apply_url" :href="j.apply_url" target="_blank" rel="noopener" title="打开岗位链接" @click.stop>↗</a></div>
+            <div class="small muted">{{ [j.location, persona.features.term ? j.term : '', persona.features.term && j.months ? j.months + ' 个月' : ''].filter(Boolean).join(' · ') }}</div>
+          </td>
+          <td v-if="cols.has('source')" class="small nowrap">{{ j.source_label }}</td>
+          <td v-if="cols.has('direction')" class="small">{{ j.direction }}</td>
+          <td v-if="cols.has('salary')" class="small">{{ j.salary }}</td>
+          <td v-if="cols.has('channel')" class="small nowrap">{{ j.channel_label }}</td>
+          <td v-if="cols.has('posted')" class="small nowrap">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
+          <td v-if="cols.has('first_seen')" class="small nowrap">{{ j.first_seen || '—' }}</td>
+          <td class="small nowrap">{{ (j.deadline || '').slice(5, 10) || '—' }}</td>
+          <td class="nowrap"><span class="tag" :class="j.stage_tone">{{ j.stage_label }}</span><span v-if="j.archived" class="tag" style="margin-left: 4px">已归档</span><span v-if="!j.online && j.stage !== 'offline'" class="tag" style="margin-left: 4px">已下线</span></td>
+          <td class="small muted" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
+        </tr>
+      </tbody>
+    </table>
+    <EmptyState v-if="!rows.length" icon="briefcase" title="没有符合条件的岗位" :text="activeFilters ? '试试清空筛选条件。' : '换一个分组看看，或者扫描新岗位。'">
+      <button v-if="activeFilters" @click="clearFilters">清空筛选</button>
+    </EmptyState>
+  </div>
 
-          <div class="muted-inline jobs-profile-note">
-            Saved filter profiles include both Basic and Advanced filters.
-          </div>
+  <div class="row" style="margin-top: 12px">
+    <input v-model="newUrl" placeholder="粘贴一个岗位的网址来添加" style="width: 360px" />
+    <button :disabled="!newUrl" @click="addJob">添加岗位</button>
+  </div>
 
-          <div class="page-stack jobs-panel-stack">
-            <section class="accordion-section jobs-accordion">
-              <button class="accordion-head" type="button" :aria-expanded="state.sections.basic" @click="toggleSection('basic')">
-                <div>
-                  <strong>Basic</strong>
-                  <div class="muted-inline">Source, Query, And Candidate Locations</div>
-                </div>
-                <span class="accordion-icon"><component :is="state.sections.basic ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
-              </button>
+  <div v-if="picked.size" class="bulkbar">
+    <b>已选 {{ picked.size }} 个</b>
+    <button class="sm" @click="bulk('draft')">{{ BULK.draft[0] }}</button>
+    <button class="sm" @click="bulk('score')">{{ BULK.score[0] }}</button>
+    <button class="sm" @click="bulk('skip')">{{ BULK.skip[0] }}</button>
+    <button class="sm" @click="bulk('restore')">{{ BULK.restore[0] }}</button>
+    <button class="sm" @click="bulk('archive')">{{ BULK.archive[0] }}</button>
+    <button v-if="showArchived" class="sm" @click="bulk('unarchive')">{{ BULK.unarchive[0] }}</button>
+    <button class="sm ghost" style="border-color: transparent" @click="picked = new Set()">取消选择</button>
+  </div>
 
-              <div v-if="state.sections.basic" class="accordion-body">
-                <div class="form-grid jobs-panel-grid jobs-panel-grid-wide">
-                  <label class="field">
-                    <span>Source</span>
-                    <AppSelect v-model="form.source" :options="sourceOptions" aria-label="Source" />
-                  </label>
+  <!-- detail drawer -->
+  <div v-if="sel" class="overlay" @click="sel = null"></div>
+  <div v-if="sel" class="drawer">
+    <div class="row" style="align-items: flex-start">
+      <div class="grow">
+        <h2 style="margin: 0">{{ sel.company }}</h2>
+        <div style="font-size: 16px; color: var(--text-2)">{{ sel.title }}</div>
+      </div>
+      <button class="ghost" aria-label="关闭" @click="sel = null"><Icon name="x" /></button>
+    </div>
+    <div class="row" style="margin: 12px 0">
+      <span class="tag" :class="sel.stage_tone">{{ sel.stage_label }}</span>
+      <span v-if="!sel.online && sel.stage !== 'offline'" class="tag">岗位已下线</span>
+      <span class="score" :class="scoreCls(sel.score)">{{ sel.score == null ? '还没评分' : '评分 ' + sel.score }}</span>
+      <span v-if="sel.exclusion" class="tag bad">{{ sel.exclusion }}</span>
+      <span v-if="sel.archived" class="tag">已归档</span>
+    </div>
 
-                  <template v-if="sourceUsesLinkedIn">
-                    <label class="field">
-                      <span>Date Posted</span>
-                      <AppSelect v-model="form.time_filter" :options="postedDateOptions" aria-label="Date Posted" />
-                    </label>
+    <div class="row" style="margin-bottom: 16px">
+      <button class="primary" :disabled="!sel.apply_url || sent" @click="makeDraft"><Icon name="draft" />生成申请草案</button>
+      <a v-if="sel.apply_url" :href="sel.apply_url" target="_blank" rel="noopener" class="btn"><Icon name="external" />看原岗位</a>
+      <button :disabled="!sel.has_jd" :title="sel.has_jd ? '' : '没有岗位说明全文，没法评分'" @click="rescore">重新评分</button>
+      <button v-if="sel.status !== 'skipped'" :disabled="sent" @click="setStatus('skipped')">不投这个</button>
+      <button v-else @click="setStatus('scored')">恢复为未投递</button>
+      <button v-if="!sel.archived" title="从日常列表里收起来，记录保留" @click="setArchived(true)">归档</button>
+      <button v-else @click="setArchived(false)">取消归档</button>
+      <router-link v-if="sel.drafts.length" :to="'/drafts/' + sel.drafts[sel.drafts.length - 1].id" class="btn"><Icon name="draft" />查看草案<span v-if="sel.drafts.length > 1" class="muted">（第 {{ sel.drafts[sel.drafts.length - 1].version }} 版）</span></router-link>
+    </div>
+    <p v-if="!sel.apply_url" class="callout warn"><Icon name="alert" /><span>这个岗位还没有申请链接，所以没法生成草案。把雇主官网上这个岗位的网址贴到下面保存即可。</span></p>
 
-                    <label class="field">
-                      <span>Max Pages</span>
-                      <input v-model="form.max_pages" class="input" type="number" min="1" max="100" step="1" />
-                    </label>
+    <div class="card">
+      <div class="facts">
+        <div v-for="[k, v] in facts" :key="k"><div class="k">{{ k }}</div><div class="v">{{ v }}</div></div>
+      </div>
+      <div class="row" style="margin-top: 14px">
+        <input v-model="sel.apply_url" class="grow" placeholder="申请链接（雇主官网上这个岗位的网址）" />
+        <button class="sm" @click="saveUrl">保存链接</button>
+      </div>
+    </div>
 
-                    <label class="field field-span-full">
-                      <span>Keywords</span>
-                      <TagInput v-model="form.keywords" placeholder="Add a keyword or phrase" />
-                      <div class="muted-inline">Any keyword tag found in the title or description will keep the result.</div>
-                    </label>
-                  </template>
+    <div v-if="sel.contacts && sel.contacts.length" class="callout">
+      <Icon name="user" />
+      <div>
+        <b>这家公司你认识 {{ sel.contacts.length }} 个人</b>
+        <div v-for="c in sel.contacts" :key="c.id" class="small" style="margin-top: 4px">{{ c.name }}<span v-if="c.role" class="muted">（{{ c.role }}）</span><span v-if="c.relation"> · {{ c.relation }}</span><span v-if="c.status === 'referred'" class="tag ok" style="margin-left: 6px">已帮你内推</span></div>
+        <router-link to="/contacts" class="small">去“人脉与内推”查看 →</router-link>
+      </div>
+    </div>
 
-                  <template v-if="sourceUsesAts">
-                    <label class="field">
-                      <span>ATS</span>
-                      <AppSelect v-model="form.ats" :options="atsOptions" aria-label="ATS" />
-                    </label>
-
-                    <label class="field">
-                      <span>Company Slug</span>
-                      <input v-model="form.company" class="input" type="text" placeholder="Stripe" />
-                    </label>
-                  </template>
-
-                  <label class="field field-span-full">
-                    <span>Candidate Locations</span>
-                    <TagInput v-model="form.locations" placeholder="San Francisco, CA, United States" />
-                    <div v-if="searchLocationNote" class="muted-inline">
-                      {{ searchLocationNote }}
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </section>
-
-            <section class="accordion-section jobs-accordion">
-              <button class="accordion-head" type="button" :aria-expanded="state.sections.advanced" @click="toggleSection('advanced')">
-                <div>
-                  <strong>Advanced</strong>
-                  <div class="muted-inline">Pay, Experience, Employment, Location, And Education</div>
-                </div>
-                <span class="accordion-icon"><component :is="state.sections.advanced ? ChevronDown : ChevronRight" class="h-4 w-4" /></span>
-              </button>
-
-              <div v-if="state.sections.advanced" class="accordion-body">
-                <div class="page-stack jobs-filter-stack">
-                  <div class="inline-grid inline-grid-2">
-                    <div class="field">
-                      <span>Pay</span>
-                      <div class="inline-grid inline-grid-2">
-                        <AppSelect v-model="form.pay_operator" :options="numericOperators" aria-label="Pay Operator" />
-                        <input v-model="form.pay_amount" class="input" type="number" min="0" placeholder="120000" />
-                      </div>
-                    </div>
-
-                    <div class="field">
-                      <span>Experience Years</span>
-                      <div class="inline-grid inline-grid-2">
-                        <AppSelect v-model="form.experience_operator" :options="numericOperators" aria-label="Experience Operator" />
-                        <input v-model="form.experience_years" class="input" type="number" min="0" placeholder="3" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <span>Experience Level</span>
-                    <div class="toggle-grid">
-                      <label v-for="option in experienceLevelOptions" :key="option.value" class="toggle-pill">
-                        <input v-model="form.experience_levels" type="checkbox" :value="option.value" />
-                        <span>{{ option.label }}</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <span>Employment Type</span>
-                    <div class="toggle-grid">
-                      <label v-for="option in employmentTypeOptions" :key="option.value" class="toggle-pill">
-                        <input v-model="form.employment_types" type="checkbox" :value="option.value" />
-                        <span>{{ option.label }}</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <span>Location Type</span>
-                    <div class="toggle-grid">
-                      <label v-for="option in locationTypeOptions" :key="option.value" class="toggle-pill">
-                        <input v-model="form.location_types" type="checkbox" :value="option.value" />
-                        <span>{{ option.label }}</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <span>Education</span>
-                    <div class="toggle-grid">
-                      <label v-for="option in educationOptions" :key="option.value" class="toggle-pill">
-                        <input v-model="form.education_levels" type="checkbox" :value="option.value" />
-                        <span>{{ option.label }}</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-        </section>
-
-        <div class="jobs-toolbar">
-          <div class="chip-row" v-if="activeFilterLabels.length">
-            <span v-for="label in activeFilterLabels" :key="label" class="chip subtle">{{ label }}</span>
-          </div>
-          <div class="actions-row">
-            <Button variant="ghost" type="button" :disabled="!activeFilterLabels.length" aria-label="Clear all filters" title="Clear all filters" @click="resetForm">
-              <RotateCcw class="h-4 w-4" />
-              Clear filters
-            </Button>
-            <Button
-              v-if="canForceRefreshFetchedResults && !sourceUsesLinkedIn"
-              variant="secondary"
-              type="button"
-              :disabled="state.searching"
-              title="Search again, bypassing cached results"
-              @click="forceRefreshSearch"
-            >
-              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': state.searching }" />
-              Re-fetch from source
-            </Button>
-            <Button variant="default" type="submit" :disabled="state.searching" aria-label="Search jobs" title="Search jobs">
-              <Search class="h-4 w-4" :class="{ 'animate-pulse': state.searching }" />
-              Search
-            </Button>
-          </div>
-        </div>
-      </form>
-    </Card>
-
-    <Alert
-      v-if="sourceUsesLinkedIn && linkedinSessionState.checked && !linkedinSessionState.authenticated && !state.searching && !state.resultSets.linkedin.length"
-      variant="warning"
-    >
-      <AlertTriangle class="h-4 w-4" />
-      <AlertDescription>
-        LinkedIn session is not connected for web search.
-        <RouterLink class="font-medium underline underline-offset-2 hover:no-underline" to="/settings">Go to Settings</RouterLink>
-        to connect or clear the saved session.
-      </AlertDescription>
-    </Alert>
-
-    <Alert v-if="state.error" variant="destructive">
-      <AlertCircle class="h-4 w-4" />
-      <AlertDescription>{{ state.error }}</AlertDescription>
-    </Alert>
-
-    <JobIndexBanner
-      v-if="sourceUsesLinkedIn"
-      :visible="state.searched"
-      :payload="jobIndexFreshnessPayload"
-      @refresh="forceRefreshSearch"
-    />
-
-    <Card class="jobs-results-shell">
-      <div class="section-head jobs-results-head">
-        <div class="jobs-results-copy flex items-center gap-2">
-          <Briefcase class="h-4 w-4 text-muted-foreground" />
-          <h2 class="text-sm font-semibold">Results</h2>
-        </div>
-
-        <div class="chip-row jobs-results-metrics" v-if="state.searched">
-          <button
-            v-for="chip in resultViewChips"
-            :key="chip.id"
-            class="chip result-chip-button"
-            :class="{ subtle: state.viewMode !== chip.id }"
-            type="button"
-            @click="setViewMode(chip.id)"
-          >
-            {{ chip.label }}
-          </button>
+    <div v-if="sel.duplicates && sel.duplicates.length" class="callout">
+      <Icon name="link" />
+      <div>
+        <b>这个岗位在别处也出现了，已合并成这一条</b>（来自 {{ sel.source_label }}）
+        <div v-for="d in sel.duplicates" :key="d.id" class="small" style="margin-top: 4px">
+          {{ d.source_label }}：<a v-if="d.apply_url" :href="d.apply_url" target="_blank" rel="noopener">{{ d.title }}</a><span v-else>{{ d.title }}</span><span v-if="!d.online" class="muted">（已下线）</span>
         </div>
       </div>
+    </div>
 
-      <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar">
-        <div class="jobs-pagination-controls">
-          <div class="jobs-page-numbers">
-            <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <ChevronsLeft class="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <ChevronLeft class="h-4 w-4" />
-            </Button>
-            <button
-              v-for="page in pageButtons"
-              :key="`${page}`"
-              class="jobs-page-button"
-              :class="{ 'is-active': page === state.currentPage, 'is-ellipsis': String(page).startsWith('ellipsis') }"
-              type="button"
-              :disabled="String(page).startsWith('ellipsis')"
-              @click="typeof page === 'number' ? goToPage(page) : null"
-            >
-              {{ String(page).startsWith('ellipsis') ? '…' : page }}
-            </button>
-            <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <ChevronRight class="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <ChevronsRight class="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div class="jobs-page-size">
-            <AppSelect v-model="state.pageSize" :options="pageSizeOptions" compact aria-label="Results per page" />
-          </div>
+    <div v-if="sel.history && sel.history.length" class="callout">
+      <Icon name="activity" />
+      <div>
+        <b>这家公司以前出现过相同或相近的岗位</b>
+        <div v-for="h in sel.history" :key="h.id" class="small" style="margin-top: 4px">
+          {{ h.first_seen.slice(0, 7) }} · <a href="#" @click.prevent="open(h)">{{ h.title }}</a><span v-if="h.term" class="muted">（{{ h.term }}）</span>
+          <span class="tag" :class="h.stage_tone" style="margin-left: 6px">{{ h.applied ? '投过 · ' : '' }}{{ h.stage_label }}</span>
         </div>
       </div>
+    </div>
 
-      <div v-if="state.searching" class="px-6 py-12">
-        <EmptyState
-          title="Searching jobs…"
-          description="Pulling fresh results from your selected sources. This typically takes 5–30 seconds depending on the provider."
-        >
-          <template #icon><Loader2 class="animate-spin" /></template>
-        </EmptyState>
+    <template v-if="sel.app_status">
+      <h3>申请进展</h3>
+      <div class="card">
+        <div>{{ sel.app_explained.message || sel.stage_label }}</div>
+        <div v-if="sel.submitted_at" class="muted small" style="margin-top: 4px">提交于 {{ fmt(sel.submitted_at) }}</div>
+        <TechDetails :text="sel.app_explained.detail" />
+        <template v-if="sel.evidence && (sel.evidence.text || sel.evidence.url)">
+          <details class="tech"><summary>提交成功时网站显示的内容</summary><pre>{{ sel.evidence.url }}
+{{ sel.evidence.text }}</pre></details>
+        </template>
       </div>
-      <div v-else-if="currentViewJobs.length" class="job-list">
-        <article v-for="job in paginatedJobs" :key="job.id" class="job-card">
-          <div class="job-card-main">
-            <div class="job-card-header">
-              <div class="job-card-copy">
-                <div class="chip-row job-card-topline">
-                  <span v-if="score(job) !== null" class="chip job-chip-strong">{{ formatPercent(score(job), "0%") }}</span>
-                  <span class="chip">{{ sourceLabel(job) }}</span>
-                  <span v-if="chipLabel(job.location_type)" class="chip">{{ chipLabel(job.location_type) }}</span>
-                  <span v-if="job.raw_data?.search_mode === 'public_guest'" class="chip subtle">Guest</span>
-                  <span v-if="job.raw_data?.disqualified" class="chip danger">Review</span>
-                  <span v-if="isApplied(job)" class="chip success">
-                    <CheckCircle2 class="mr-1 h-3.5 w-3.5" />
-                    Applied
-                  </span>
-                  <button
-                    v-if="job.raw_data?.disqualified"
-                    type="button"
-                    class="chip-button"
-                    title="Why was this filtered?"
-                    aria-label="Why was this filtered?"
-                    @click="openWhyFilteredModal(job)"
-                  >
-                    <Info class="h-3.5 w-3.5" />
-                  </button>
-                </div>
+    </template>
 
-                <h3>{{ job.title }}</h3>
-                <div class="job-card-company">{{ job.company }}<span v-if="job.location"> · {{ job.location }}</span></div>
-              </div>
-            </div>
+    <template v-if="sel.score_reason">
+      <h3>为什么是这个分数</h3>
+      <div class="card">{{ sel.score_reason }}</div>
+    </template>
 
-            <div v-if="metadataChips(job).length" class="job-card-box">
-              <div class="chip-row job-card-tags">
-                <span v-for="chip in metadataChips(job)" :key="chip" class="chip subtle">{{ chip }}</span>
-              </div>
-            </div>
+    <template v-if="sel.brief">
+      <h3>岗位概况</h3>
+      <div class="card md" v-html="renderMarkdown(sel.brief)"></div>
+    </template>
 
-            <div v-if="job.description" class="job-card-box">
-              <p class="job-card-description">{{ truncateText(job.description) }}</p>
-            </div>
-
-            <div class="job-card-actions-row">
-              <div class="job-card-actions">
-                <a
-                  class="button ghost compact"
-                  :href="detailUrl(job)"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Details
-                </a>
-                <button class="button ghost compact" type="button" @click="manualApply(job)">
-                  ManualApply
-                </button>
-                <button
-                  class="button ghost compact material-open-button"
-                  type="button"
-                  @click="goToMaterials(job)"
-                >
-                  <Sparkles class="h-4 w-4" />
-                  Generate Apply Materials
-                </button>
-                <button
-                  class="button compact inline-flex items-center gap-1.5"
-                  type="button"
-                  @click="applyToJob(job)"
-                  :disabled="state.applyState[job.id]?.loading || !job.application_url"
-                >
-                  <Loader2 v-if="state.applyState[job.id]?.loading" class="h-3.5 w-3.5 animate-spin" />
-                  {{ applyButtonLabel(job) }}
-                </button>
-              </div>
-            </div>
-
-            <div v-if="state.applyState[job.id]?.message" class="inline-feedback" :class="state.applyState[job.id]?.status">
-              <span>{{ state.applyState[job.id].message }}</span>
-              <RouterLink
-                v-if="state.applyState[job.id]?.applicationId"
-                class="link-inline"
-                :to="`/review?application=${state.applyState[job.id].applicationId}`"
-              >
-                Open review
-              </RouterLink>
-            </div>
-          </div>
-        </article>
-      </div>
-      <div v-else class="px-6 py-12">
-        <EmptyState :title="emptyStateMessage" description="Adjust your filters or pull fresh results to populate this view.">
-          <template #icon><Inbox /></template>
-        </EmptyState>
-      </div>
-
-      <div v-if="state.searched && currentViewJobs.length" class="jobs-pagination-bar jobs-pagination-bar-bottom">
-        <div class="jobs-pagination-controls">
-          <div class="jobs-page-numbers">
-            <Button variant="ghost" size="icon" type="button" aria-label="First page" title="First page" :disabled="state.currentPage <= 1" @click="goToPage(1)">
-              <ChevronsLeft class="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" type="button" aria-label="Previous page" title="Previous page" :disabled="state.currentPage <= 1" @click="goToPage(state.currentPage - 1)">
-              <ChevronLeft class="h-4 w-4" />
-            </Button>
-            <button
-              v-for="page in pageButtons"
-              :key="`bottom-${page}`"
-              class="jobs-page-button"
-              :class="{ 'is-active': page === state.currentPage, 'is-ellipsis': String(page).startsWith('ellipsis') }"
-              type="button"
-              :disabled="String(page).startsWith('ellipsis')"
-              @click="typeof page === 'number' ? goToPage(page) : null"
-            >
-              {{ String(page).startsWith('ellipsis') ? '…' : page }}
-            </button>
-            <input v-model="state.pageJump" class="input jobs-page-jump" type="number" min="1" :max="totalPages" placeholder="#" @keydown.enter.prevent="jumpToPage" />
-            <Button variant="ghost" size="icon" type="button" aria-label="Next page" title="Next page" :disabled="state.currentPage >= totalPages" @click="goToPage(state.currentPage + 1)">
-              <ChevronRight class="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" type="button" aria-label="Last page" title="Last page" :disabled="state.currentPage >= totalPages" @click="goToPage(totalPages)">
-              <ChevronsRight class="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div class="jobs-page-size">
-            <AppSelect v-model="state.pageSize" :options="pageSizeOptions" compact aria-label="Results per page" />
-          </div>
-        </div>
-      </div>
-    </Card>
-
-    <Dialog :open="materialModal.open" @update:open="(value) => !value && closeMaterialModal()">
-      <DialogContent class="max-w-3xl max-h-[calc(100vh-3.5rem)] overflow-y-auto">
-        <DialogHeader>
-          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Apply materials</p>
-          <DialogTitle class="text-xl">{{ materialModal.job?.title }}</DialogTitle>
-          <DialogDescription>
-            {{ materialModal.job?.company }}<span v-if="materialModal.job?.location"> · {{ materialModal.job.location }}</span>
-          </DialogDescription>
-        </DialogHeader>
-
-        <div class="material-target-grid" aria-label="Select materials to generate">
-          <label
-            v-for="target in materialTargets"
-            :key="target.id"
-            class="material-target-card"
-            :class="{ 'is-selected': materialModal.selected[target.id] }"
-          >
-            <input v-model="materialModal.selected[target.id]" type="checkbox" :disabled="modalMaterialState.loading" />
-            <span class="material-target-check">
-              <Check class="h-3.5 w-3.5" />
-            </span>
-            <span class="material-target-copy">
-              <strong>{{ target.label }}</strong>
-              <small>{{ target.description }}</small>
-            </span>
-          </label>
-        </div>
-
-        <div class="material-template-grid">
-          <label class="material-template-field" :class="{ 'is-disabled': !materialModal.selected.resume }">
-            <span>Resume Template</span>
-            <AppSelect
-              v-model="materialModal.templateIds.resume"
-              :options="resumeTemplateOptions"
-              compact
-              :disabled="modalMaterialState.loading || !materialModal.selected.resume"
-              aria-label="Resume template"
-            />
-          </label>
-          <label class="material-template-field" :class="{ 'is-disabled': !materialModal.selected.cover_letter }">
-            <span>Cover Letter Template</span>
-            <AppSelect
-              v-model="materialModal.templateIds.cover_letter"
-              :options="coverLetterTemplateOptions"
-              compact
-              :disabled="modalMaterialState.loading || !materialModal.selected.cover_letter"
-              aria-label="Cover letter template"
-            />
-          </label>
-        </div>
-
-        <div class="material-modal-actions">
-          <Button type="button" :disabled="!canGenerateMaterials || modalMaterialState.loading" @click="generateSelectedMaterials">
-            <Loader2 v-if="modalMaterialState.loading" class="h-4 w-4 animate-spin" />
-            <Sparkles v-else class="h-4 w-4" />
-            {{ modalMaterialState.loading ? 'Generating…' : 'Generate Selected Materials' }}
-          </Button>
-          <span v-if="modalMaterialState.message" class="inline-feedback" :class="modalMaterialState.status">
-            {{ modalMaterialState.message }}
-          </span>
-        </div>
-
-        <ProgressBanner
-          v-if="modalMaterialState.loading"
-          title="Generating tailored materials…"
-          detail="The language model is rewriting your resume and/or cover letter for this job. 30–90 seconds is normal."
-          class="mt-2"
-        />
-
-        <div v-if="materialReviewEntries.length" class="material-review-stack">
-          <section v-for="entry in materialReviewEntries" :key="entry.id" class="material-review-panel">
-            <div class="material-review-head">
-              <div>
-                <div class="muted-inline">Generated Preview</div>
-                <h4>{{ entry.label }}</h4>
-              </div>
-            </div>
-
-            <div class="chip-row">
-              <span v-if="entry.result?.version?.id" class="chip subtle">Version {{ entry.result.version.id.slice(0, 8) }}</span>
-              <span v-if="entry.result?.validation" class="chip" :class="entry.result.validation.ok ? 'success' : 'danger'">
-                {{ entry.result.validation.ok ? 'Validation OK' : 'Needs Review' }}
-              </span>
-              <span v-if="validationMetrics(entry.result).pdf_page_count" class="chip subtle">
-                {{ validationMetrics(entry.result).pdf_page_count }} PDF page(s)
-              </span>
-              <span v-if="validationMetrics(entry.result).coverage_ratio" class="chip subtle">
-                {{ Math.round(validationMetrics(entry.result).coverage_ratio * 100) }}% keyword coverage
-              </span>
-            </div>
-
-            <div v-if="artifactEntries(entry.result).length" class="material-download-row">
-              <a
-                v-for="artifact in artifactEntries(entry.result)"
-                :key="artifact.type"
-                class="button ghost compact"
-                :href="artifactDownloadUrl(artifact.path)"
-                target="_blank"
-                rel="noopener"
-              >
-                Download {{ artifact.label }}
-              </a>
-            </div>
-
-            <div v-if="validationIssues(entry.result).length" class="material-review-issues">
-              <div v-for="issue in validationIssues(entry.result)" :key="`${entry.id}-${issue.type}-${issue.source_id || issue.message}`" class="material-issue" :class="issue.severity">
-                <strong>{{ prettyLabel(issue.type) }}</strong>
-                <span>{{ issue.message }}</span>
-              </div>
-            </div>
-
-            <div v-if="entry.document?.document_type === 'resume'" class="material-preview-body">
-              <div v-if="entry.document.summary?.length" class="material-preview-section">
-                <strong>Summary</strong>
-                <p v-for="line in entry.document.summary" :key="line">{{ line }}</p>
-              </div>
-
-              <div v-if="entry.document.skills" class="material-preview-section">
-                <strong>Skills</strong>
-                <div class="chip-row">
-                  <template v-for="(items, category) in entry.document.skills" :key="category">
-                    <span v-for="skill in items" :key="`${category}-${skill}`" class="chip subtle">{{ skill }}</span>
-                  </template>
-                </div>
-              </div>
-
-              <div v-for="item in resumePreviewItems(entry.document)" :key="item.source_id" class="material-preview-section">
-                <div class="material-preview-item-head">
-                  <strong>{{ item.section }} · {{ item.name }}</strong>
-                  <span class="muted">{{ item.title || item.meta }}</span>
-                </div>
-                <div v-for="bullet in item.bullets" :key="bullet.source_id" class="material-bullet-preview">
-                  <div>{{ bullet.text }}</div>
-                  <div class="chip-row material-bullet-meta">
-                    <span class="chip subtle">{{ bullet.source_entity }}</span>
-                    <span v-if="bullet.score" class="chip subtle">score {{ Number(bullet.score).toFixed(1) }}</span>
-                    <span v-for="keyword in bullet.matched_keywords" :key="`${bullet.source_id}-${keyword}`" class="chip">{{ keyword }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div v-else class="material-preview-body">
-              <div v-for="paragraph in coverParagraphs(entry.document)" :key="paragraph.text" class="material-preview-section">
-                <div class="muted-inline">{{ prettyLabel(paragraph.type) }}</div>
-                <p>{{ paragraph.text }}</p>
-              </div>
-            </div>
-          </section>
-        </div>
-        <div v-else class="material-preview-empty">
-          Select Resume, Cover Letter, or both. Generated previews and download buttons appear here.
-        </div>
-      </DialogContent>
-    </Dialog>
-
-    <!-- Phase 16.3: "Why was this filtered?" popover -->
-    <Dialog
-      :open="whyFilteredModal.open"
-      @update:open="(value) => !value && closeWhyFilteredModal()"
-    >
-      <DialogContent class="max-w-2xl max-h-[calc(100vh-3.5rem)] overflow-y-auto">
-        <DialogHeader>
-          <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Filter explanation
-          </p>
-          <DialogTitle class="text-xl">
-            Why was this filtered?
-          </DialogTitle>
-          <DialogDescription>
-            <span v-if="whyFilteredModal.job">
-              {{ whyFilteredModal.job.title }} ·
-              {{ whyFilteredModal.job.company }}
-            </span>
-          </DialogDescription>
-        </DialogHeader>
-
-        <div v-if="whyFilteredModal.loading" class="py-6 text-sm text-muted-foreground">
-          Loading explanation…
-        </div>
-
-        <div v-else-if="whyFilteredModal.error" class="py-6">
-          <Alert variant="destructive">
-            <AlertDescription>{{ whyFilteredModal.error }}</AlertDescription>
-          </Alert>
-        </div>
-
-        <div v-else-if="whyFilteredModal.breakdown" class="space-y-4">
-          <div class="chip-row">
-            <span v-if="whyFilteredModal.breakdown.final_score !== undefined" class="chip subtle">
-              Final score
-              {{ formatPercent(whyFilteredModal.breakdown.final_score, "0%") }}
-            </span>
-            <span v-if="whyFilteredModal.breakdown.job_snapshot_id" class="chip subtle">
-              Snapshot {{ String(whyFilteredModal.breakdown.job_snapshot_id).slice(0, 8) }}
-            </span>
-            <span v-if="whyFilteredModal.breakdown.disqualified" class="chip danger">
-              Disqualified by hard rule
-            </span>
-          </div>
-
-          <div v-if="whyFailingRules.length" class="space-y-3">
-            <div
-              v-for="rule in whyFailingRules"
-              :key="rule.rule_id"
-              class="rounded-md border border-destructive/30 bg-destructive/5 p-3"
-            >
-              <div class="flex items-center gap-2 text-sm font-semibold">
-                <span>{{ rule.rule_name || rule.rule_id }}</span>
-                <span class="chip danger">{{ rule.verdict || "fail" }}</span>
-              </div>
-              <p class="mt-1 text-sm">{{ rule.reason }}</p>
-              <p
-                v-if="rule.evidence_excerpt"
-                class="mt-2 rounded bg-muted/50 p-2 text-xs italic text-muted-foreground"
-              >
-                JD excerpt: {{ rule.evidence_excerpt }}
-              </p>
-            </div>
-          </div>
-
-          <div v-else class="text-sm text-muted-foreground">
-            No structured rule failures recorded for this job.
-          </div>
-        </div>
-
-        <div v-else class="py-6 text-sm text-muted-foreground">
-          No explanation available for this job.
-        </div>
-      </DialogContent>
-    </Dialog>
+    <h3>岗位说明原文</h3>
+    <div class="card">
+      <template v-if="sel.jd_text && sel.jd_text.length >= 200">
+        <pre style="font-family: inherit; font-size: 13.5px; line-height: 1.6" :style="showJd || sel.jd_text.length < 900 ? '' : 'max-height: 200px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent)'">{{ sel.jd_text }}</pre>
+        <button v-if="sel.jd_text.length >= 900" class="ghost sm" style="margin-top: 6px" @click="showJd = !showJd">{{ showJd ? '收起' : '展开全文' }}</button>
+      </template>
+      <template v-else>
+        <p v-if="sel.summary || sel.note || sel.jd_text" style="margin-bottom: 8px">{{ sel.jd_text || sel.summary || sel.note }}</p>
+        <p class="muted small" style="margin: 0">这个岗位是从旧表格导入的，只有一句简介，没有岗位说明全文，所以没有详细概况，也没法重新评分。可以点“看原岗位”到官网查看。</p>
+      </template>
+    </div>
   </div>
 </template>

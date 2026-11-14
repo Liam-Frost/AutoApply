@@ -1,0 +1,841 @@
+{
+ "checked": "2026-11-14",
+ "employers": [
+  {
+   "name": "Amazon",
+   "url": "https://www.amazon.jobs",
+   "kind": "builtin",
+   "fields": [
+    "software",
+    "engineering",
+    "business",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB",
+    "DE"
+   ]
+  },
+  {
+   "name": "Apple",
+   "url": "https://jobs.apple.com",
+   "kind": "builtin",
+   "fields": [
+    "software",
+    "engineering",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Google",
+   "url": "https://www.google.com/about/careers/applications/",
+   "kind": "builtin",
+   "fields": [
+    "software",
+    "engineering",
+    "business",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Microsoft",
+   "url": "https://jobs.careers.microsoft.com",
+   "kind": "builtin",
+   "fields": [
+    "software",
+    "engineering",
+    "business",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Meta",
+   "url": "https://www.metacareers.com/jobs",
+   "kind": "builtin",
+   "fields": [
+    "software",
+    "engineering",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "GB"
+   ]
+  },
+  {
+   "name": "NVIDIA",
+   "url": "https://nvidia.eightfold.ai/careers",
+   "kind": "builtin",
+   "fields": [
+    "software",
+    "engineering"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "AMD",
+   "url": "https://careers.amd.com",
+   "kind": "builtin",
+   "fields": [
+    "engineering",
+    "software"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Intel",
+   "url": "https://jobs.intel.com",
+   "kind": "builtin",
+   "fields": [
+    "engineering",
+    "software"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "RBC",
+   "url": "https://rbc.wd3.myworkdayjobs.com/RBCGLOBAL1",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "TD",
+   "url": "https://td.wd3.myworkdayjobs.com/TD_Bank_Careers",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "CA",
+    "US"
+   ]
+  },
+  {
+   "name": "BMO",
+   "url": "https://bmo.wd3.myworkdayjobs.com/External",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "CA",
+    "US"
+   ]
+  },
+  {
+   "name": "CIBC",
+   "url": "https://cibc.wd3.myworkdayjobs.com/search",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "Manulife",
+   "url": "https://manulife.wd3.myworkdayjobs.com/MFCJH_Jobs",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "CA",
+    "US"
+   ]
+  },
+  {
+   "name": "Sun Life",
+   "url": "https://sunlife.wd3.myworkdayjobs.com/Experienced-Jobs",
+   "kind": "workday",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "Capital One",
+   "url": "https://capitalone.wd12.myworkdayjobs.com/Capital_One",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "CPP Investments",
+   "url": "https://cppib.wd10.myworkdayjobs.com/cppinvestments",
+   "kind": "workday",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "PwC",
+   "url": "https://pwc.wd3.myworkdayjobs.com/Global_Campus_Careers",
+   "kind": "workday",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "PwC (experienced)",
+   "url": "https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers",
+   "kind": "workday",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Accenture",
+   "url": "https://accenture.wd103.myworkdayjobs.com/AccentureCareers",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Deloitte",
+   "url": "https://careers.smartrecruiters.com/Deloitte6",
+   "kind": "smartrecruiters",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "Unilever",
+   "url": "https://unilever.wd3.myworkdayjobs.com/Unilever_Experienced_Professionals",
+   "kind": "workday",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "GB",
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Stripe",
+   "url": "https://job-boards.greenhouse.io/stripe",
+   "kind": "greenhouse",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Airbnb",
+   "url": "https://job-boards.greenhouse.io/airbnb",
+   "kind": "greenhouse",
+   "fields": [
+    "software",
+    "design"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "Databricks",
+   "url": "https://job-boards.greenhouse.io/databricks",
+   "kind": "greenhouse",
+   "fields": [
+    "software"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Figma",
+   "url": "https://job-boards.greenhouse.io/figma",
+   "kind": "greenhouse",
+   "fields": [
+    "software",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "GB"
+   ]
+  },
+  {
+   "name": "Pinterest",
+   "url": "https://job-boards.greenhouse.io/pinterest",
+   "kind": "greenhouse",
+   "fields": [
+    "software",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Coinbase",
+   "url": "https://job-boards.greenhouse.io/coinbase",
+   "kind": "greenhouse",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Robinhood",
+   "url": "https://job-boards.greenhouse.io/robinhood",
+   "kind": "greenhouse",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Wealthsimple",
+   "url": "https://jobs.ashbyhq.com/wealthsimple",
+   "kind": "ashby",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "Ramp",
+   "url": "https://jobs.ashbyhq.com/ramp",
+   "kind": "ashby",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "Notion",
+   "url": "https://jobs.ashbyhq.com/notion",
+   "kind": "ashby",
+   "fields": [
+    "software",
+    "design"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "OpenAI",
+   "url": "https://jobs.ashbyhq.com/openai",
+   "kind": "ashby",
+   "fields": [
+    "software"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "Palantir",
+   "url": "https://jobs.lever.co/palantir",
+   "kind": "lever",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "GB"
+   ]
+  },
+  {
+   "name": "Spotify",
+   "url": "https://jobs.lever.co/spotify",
+   "kind": "lever",
+   "fields": [
+    "software",
+    "design"
+   ],
+   "regions": [
+    "US",
+    "GB"
+   ]
+  },
+  {
+   "name": "Salesforce",
+   "url": "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site",
+   "kind": "workday",
+   "fields": [
+    "software",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "UBC (staff)",
+   "url": "https://ubc.wd10.myworkdayjobs.com/ubcstaffjobs",
+   "kind": "workday",
+   "fields": [
+    "academic",
+    "education",
+    "hr",
+    "psych"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "Roche",
+   "url": "https://roche.wd3.myworkdayjobs.com/roche-ext",
+   "kind": "workday",
+   "fields": [
+    "health",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "DE",
+    "CA"
+   ]
+  },
+  {
+   "name": "Sanofi",
+   "url": "https://sanofi.wd3.myworkdayjobs.com/SanofiCareers",
+   "kind": "workday",
+   "fields": [
+    "health",
+    "business"
+   ],
+   "regions": [
+    "US",
+    "FR",
+    "CA"
+   ]
+  },
+  {
+   "name": "AstraZeneca",
+   "url": "https://astrazeneca.wd3.myworkdayjobs.com/Careers",
+   "kind": "workday",
+   "fields": [
+    "health",
+    "business"
+   ],
+   "regions": [
+    "GB",
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "McGill University",
+   "url": "https://mcgill.wd3.myworkdayjobs.com/McGill_Careers",
+   "kind": "workday",
+   "fields": [
+    "academic",
+    "education"
+   ],
+   "regions": [
+    "CA"
+   ]
+  },
+  {
+   "name": "Shell",
+   "url": "https://shell.wd3.myworkdayjobs.com/ShellCareers",
+   "kind": "workday",
+   "fields": [
+    "engineering",
+    "business"
+   ],
+   "regions": [
+    "GB",
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "Airbus",
+   "url": "https://ag.wd3.myworkdayjobs.com/Airbus",
+   "kind": "workday",
+   "fields": [
+    "engineering"
+   ],
+   "regions": [
+    "FR",
+    "DE",
+    "GB"
+   ]
+  },
+  {
+   "name": "Rio Tinto",
+   "url": "https://riotinto.wd3.myworkdayjobs.com/RioTinto_Careers",
+   "kind": "workday",
+   "fields": [
+    "engineering",
+    "business"
+   ],
+   "regions": [
+    "AU",
+    "CA"
+   ]
+  },
+  {
+   "name": "Commonwealth Bank",
+   "url": "https://cba.wd3.myworkdayjobs.com/CommBank_Careers",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "AU"
+   ]
+  },
+  {
+   "name": "DBS Bank",
+   "url": "https://dbs.wd3.myworkdayjobs.com/DBS_Careers",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "SG",
+    "HK"
+   ]
+  },
+  {
+   "name": "Barclays",
+   "url": "https://barclays.wd3.myworkdayjobs.com/External_Career_Site_Barclays",
+   "kind": "workday",
+   "fields": [
+    "business",
+    "software"
+   ],
+   "regions": [
+    "GB",
+    "US"
+   ]
+  }
+ ],
+ "boards_about": "Job boards for a field that publish a feed of their newest postings. Each feed was fetched and parsed on the 'checked' date. A feed lists the newest postings only (usually 20-300); most accept a search word in the address, see the board's own RSS page.",
+ "boards": [
+  {
+   "name": "Chronicle of Higher Education Jobs",
+   "url": "https://jobs.chronicle.com/jobsrss/",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "academic",
+    "education"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "Inside Higher Ed Careers",
+   "url": "https://careers.insidehighered.com/jobsrss/",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "academic",
+    "education"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "Times Higher Education Unijobs",
+   "url": "https://www.timeshighereducation.com/unijobs/jobsrss/",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "academic",
+    "education"
+   ],
+   "regions": [
+    "GB",
+    "AU",
+    "HK",
+    "SG"
+   ]
+  },
+  {
+   "name": "Nature Careers",
+   "url": "https://www.nature.com/naturecareers/jobsrss/",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "academic",
+    "health"
+   ],
+   "regions": [
+    "US",
+    "GB",
+    "DE",
+    "CN"
+   ]
+  },
+  {
+   "name": "Science Careers",
+   "url": "https://jobs.sciencecareers.org/jobsrss/",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "academic",
+    "health"
+   ],
+   "regions": [
+    "US",
+    "GB",
+    "DE"
+   ]
+  },
+  {
+   "name": "AcademicJobsOnline",
+   "url": "https://academicjobsonline.org/ajo?joblist-0-0-0-----rss--",
+   "kind": "feed",
+   "style": "",
+   "fields": [
+    "academic"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB",
+    "DE",
+    "CN"
+   ]
+  },
+  {
+   "name": "MathJobs",
+   "url": "https://www.mathjobs.org/jobs?joblist-0-0----rss--",
+   "kind": "feed",
+   "style": "",
+   "fields": [
+    "academic"
+   ],
+   "regions": [
+    "US",
+    "CA"
+   ]
+  },
+  {
+   "name": "EURAXESS (research jobs in Europe)",
+   "url": "https://euraxess.ec.europa.eu/job-feed",
+   "kind": "feed",
+   "style": "",
+   "fields": [
+    "academic"
+   ],
+   "regions": [
+    "DE",
+    "FR",
+    "NL",
+    "IE",
+    "ES",
+    "IT",
+    "SE"
+   ]
+  },
+  {
+   "name": "BMJ Careers",
+   "url": "https://www.bmj.com/careers/jobsrss/",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "health"
+   ],
+   "regions": [
+    "GB",
+    "AU",
+    "IE"
+   ]
+  },
+  {
+   "name": "Dribbble Jobs",
+   "url": "https://dribbble.com/jobs.rss",
+   "kind": "feed",
+   "style": "employer is hiring title",
+   "fields": [
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Coroflot Design Jobs",
+   "url": "https://www.coroflot.com/jobs/rss",
+   "kind": "feed",
+   "style": "employer is hiring title",
+   "fields": [
+    "design"
+   ],
+   "regions": [
+    "US"
+   ]
+  },
+  {
+   "name": "We Work Remotely: design",
+   "url": "https://weworkremotely.com/categories/remote-design-jobs.rss",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "design"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "We Work Remotely: sales and marketing",
+   "url": "https://weworkremotely.com/categories/remote-sales-and-marketing-jobs.rss",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "business"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "We Work Remotely: programming",
+   "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss",
+   "kind": "feed",
+   "style": "employer: title",
+   "fields": [
+    "software"
+   ],
+   "regions": [
+    "US",
+    "CA",
+    "GB"
+   ]
+  },
+  {
+   "name": "Python.org Jobs",
+   "url": "https://www.python.org/jobs/feed/rss/",
+   "kind": "feed",
+   "style": "title, employer",
+   "fields": [
+    "software"
+   ],
+   "regions": [
+    "US",
+    "GB",
+    "DE"
+   ]
+  },
+  {
+   "name": "Job Bank (Government of Canada)",
+   "url": "https://www.jobbank.gc.ca/jobsearch/feed/jobSearchRSSfeed?fsrc=16&sort=D",
+   "kind": "feed",
+   "style": "",
+   "fields": [
+    "business",
+    "hr",
+    "health",
+    "education",
+    "engineering",
+    "psych"
+   ],
+   "regions": [
+    "CA"
+   ]
+  }
+ ]
+}

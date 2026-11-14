@@ -1,0 +1,100 @@
+#!/bin/bash
+# AutoApply.app (macOS). The app is a thin shell: the program itself lives in the user's Application Support folder,
+# next to its data, so replacing the app with a newer one never touches the data.
+#
+#   first start, or first start after the app was replaced by a newer version:
+#       copy the program files, get uv (asks first), let uv fetch Python and the dependencies, fetch the browser
+#   every start: run the menu-bar launcher (status, open the page, start at login, quit)
+#
+# Uninstall: drag AutoApply.app to the Trash. Your data stays in ~/Library/Application Support/AutoApply; delete that
+# folder too if you want it gone. Passwords the program stored are in the Keychain under "autoapply".
+#
+# For checking without a person:  --yes (no dialogs)   --setup-only (prepare, do not start)
+#                                 AUTOAPPLY_HOME=<dir> (use another folder)   AUTOAPPLY_LANG=zh|en
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+RES="$HERE/../Resources"
+APP_HOME="${AUTOAPPLY_HOME:-$HOME/Library/Application Support/AutoApply}"
+VER="$(cat "$RES/version.txt" 2>/dev/null || echo 0)"
+LOG="${TMPDIR:-/tmp}/autoapply-setup.log"
+YES=0
+SETUP_ONLY=0
+for a in "$@"; do
+  case "$a" in
+    --yes) YES=1 ;;
+    --setup-only) SETUP_ONLY=1 ;;
+  esac
+done
+
+# Language follows the system: Chinese (Simplified or Traditional) shows Chinese, everything else English.
+ZH=0
+case "$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' \n' | cut -c1-12)" in *zh*) ZH=1 ;; esac
+case "${AUTOAPPLY_LANG:-}" in zh) ZH=1 ;; en) ZH=0 ;; esac
+t() { if [ "$ZH" = 1 ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }
+note() { echo "$(date +%H:%M:%S)  $*" >> "$LOG"; }
+
+ask() {   # ask "<text>" "<button>" -> 0 when the user goes on
+  [ "$YES" = 1 ] && return 0
+  osascript -e "display dialog \"$1\" with title \"AutoApply\" buttons {\"$(t 取消 Cancel)\", \"$2\"} default button 2 with icon note" >/dev/null 2>&1
+}
+tell() {  # a passing message
+  if [ "$YES" = 1 ]; then echo "[AutoApply] $1"; else osascript -e "display notification \"$1\" with title \"AutoApply\"" >/dev/null 2>&1; fi
+}
+fail() {
+  note "ERROR: $1"
+  if [ "$YES" = 1 ]; then
+    echo "[AutoApply] FAILED: $1 (log: $LOG)" >&2
+  else
+    osascript -e "display dialog \"$1\n\n$(t '已经完成的部分不会丢，再次打开 AutoApply 会从停下的地方继续。日志：' 'What was done is kept; opening AutoApply again continues from where it stopped. Log: ')$LOG\" with title \"AutoApply\" buttons {\"OK\"} default button 1 with icon caution" >/dev/null 2>&1
+  fi
+  exit 1
+}
+
+need=0
+[ -f "$APP_HOME/pyproject.toml" ] || need=1
+[ "$(cat "$APP_HOME/.installed-version" 2>/dev/null)" = "$VER" ] || need=1
+[ -x "$APP_HOME/.venv/bin/python" ] || need=1
+
+if [ "$need" = 1 ]; then
+  first=1
+  [ -f "$APP_HOME/pyproject.toml" ] && first=0
+  if [ "$first" = 1 ]; then
+    ask "$(t '第一次启动要准备运行环境：下载 uv、Python 和依赖（来自 astral.sh 和 pypi.org），以及程序自己用的浏览器（Chromium）。约 600 MB，需要几分钟。\n\n都装在你的用户目录里，不需要管理员密码。' 'The first start prepares the program: it downloads uv, Python and the dependencies (from astral.sh and pypi.org) and the browser the program uses (Chromium). About 600 MB, a few minutes.\n\nEverything goes into your user folder; no administrator password is needed.')" "$(t 继续 Continue)" || exit 0
+  fi
+  : > "$LOG"
+  note "AutoApply setup $VER -> $APP_HOME (first=$first)"
+  tell "$(t '正在准备，完成后会自动启动。' 'Setting up. AutoApply starts by itself when this is done.')"
+
+  mkdir -p "$APP_HOME" || fail "$(t '不能创建程序文件夹。' 'The program folder cannot be created.')"
+  tmp="$(mktemp -d)"
+  /usr/bin/unzip -q "$RES/app.zip" -d "$tmp" >> "$LOG" 2>&1 || fail "$(t '安装包不完整。' 'The package is incomplete.')"
+  src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -1)"
+  [ -f "$src/pyproject.toml" ] || fail "$(t '安装包内容不对。' 'The package content is not what was expected.')"
+  rm -rf "$APP_HOME/backend" "$APP_HOME/frontend" "$APP_HOME/scripts"     # replaced whole: no leftovers of an older version
+  cp -R "$src"/. "$APP_HOME"/ || fail "$(t '复制程序文件失败。' 'Copying the program files failed.')"
+  rm -rf "$tmp"
+  note "program files copied"
+
+  export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+  if ! command -v uv >/dev/null 2>&1; then
+    note "downloading uv from astral.sh"
+    curl -LsSf https://astral.sh/uv/install.sh | sh >> "$LOG" 2>&1
+    command -v uv >/dev/null 2>&1 || fail "$(t 'uv 没有装上（多数是网络问题）。' 'uv could not be installed (usually the network).')"
+  fi
+  (cd "$APP_HOME" && uv sync --inexact >> "$LOG" 2>&1) || fail "$(t '安装 Python 和依赖失败（多数是网络问题）。' 'Installing Python and the dependencies failed (usually the network).')"
+  if [ ! -d "$HOME/Library/Caches/ms-playwright" ]; then
+    (cd "$APP_HOME" && uv run playwright install chromium >> "$LOG" 2>&1) || fail "$(t '下载浏览器失败。' 'Downloading the browser failed.')"
+  fi
+  if [ ! -f "$APP_HOME/data/app.db" ]; then   # a first install: the program starts in this language
+    mkdir -p "$APP_HOME/data"
+    if [ "$ZH" = 1 ]; then echo zh > "$APP_HOME/data/ui-lang.txt"; else echo en > "$APP_HOME/data/ui-lang.txt"; fi
+  fi
+  echo "$VER" > "$APP_HOME/.installed-version"
+  note "done"
+  tell "$(t '准备好了。菜单栏里会出现 AutoApply 图标，网页会自动打开。' 'Ready. An AutoApply icon appears in the menu bar and the page opens by itself.')"
+fi
+
+[ "$SETUP_ONLY" = 1 ] && exit 0
+cd "$APP_HOME" || exit 1
+exec "$APP_HOME/.venv/bin/python" -m autoapply.launcher

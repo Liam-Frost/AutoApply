@@ -1,0 +1,72 @@
+# Push a version tag (v1.2.3) and a release is built, checked and published:
+#   the tests run, every package is built and installed for real on its own system (the CI workflow),
+#   and only if all of that passes a GitHub release is created with the packages and their checksums.
+#
+#   git tag v1.2.3 && git push origin v1.2.3        (the tag must match the version in pyproject.toml)
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Tag matches the version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
+            exit 1
+          fi
+
+  build:
+    needs: check
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          cd packages
+          ls -la
+          sha256sum AutoApply-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          version="${GITHUB_REF_NAME#v}"
+          # the section of CHANGELOG.md for this version, up to the next version heading
+          awk -v v="$version" '$0 ~ "^## \\[?" v "\\]?" { on = 1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "## Downloads"
+            echo
+            echo "| System | File | How |"
+            echo "|---|---|---|"
+            echo "| Windows 10 / 11 | \`AutoApply-Setup-$version.exe\` | Run it. Not code-signed: choose *More info → Run anyway* when Windows asks. |"
+            echo "| macOS 12+ | \`AutoApply-$version-macos.dmg\` | Open it and drag AutoApply to Applications. Not notarised: the first time, right-click the app and choose *Open*. |"
+            echo "| Linux | \`AutoApply-$version-linux.run\` | \`sh AutoApply-$version-linux.run\` |"
+            echo "| Any | \`AutoApply-$version.zip\` | Portable: unzip and run \`start.bat\` / \`./start.sh\`. |"
+            echo
+            echo "Checksums are in \`SHA256SUMS.txt\`. Every package above was built by this workflow and installed and started on its own system before being published."
+          } >> notes.md
+          cat notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *a*|*b*|*rc*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" packages/* --title "AutoApply ${GITHUB_REF_NAME#v}" --notes-file notes.md $pre

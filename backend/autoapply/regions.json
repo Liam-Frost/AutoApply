@@ -1,0 +1,197 @@
+{
+  "_about": "Region packs: how application forms in a country usually ask about the right to work, what they ask on top (diversity monitoring, consents), and the formats they expect. Used to tell the applicant what their profile should state, and to help the AI read a form's questions. Rules change: every item here describes how forms ask, not what the law is. Contributions welcome (see CONTRIBUTING.md).",
+  "CA": {
+    "name": {
+      "zh": "加拿大",
+      "en": "Canada"
+    },
+    "profile": [
+      "status in Canada: citizen, permanent resident, open work permit, employer-specific work permit, or study permit (and whether it allows co-op / off-campus work)",
+      "permit expiry date, if any",
+      "whether an employer would need to support a work permit now or later"
+    ],
+    "questions": [
+      "\"Are you legally entitled / eligible to work in Canada?\" is about the applicant's current status, not about citizenship.",
+      "\"Will you now or in the future require sponsorship?\" covers any employer support for a work permit (LMIA, employer-specific permit); a study permit that will run out counts as \"in the future\".",
+      "Status lists usually read: Canadian citizen / Permanent resident / Work permit / Study permit / Other."
+    ],
+    "diversity": "Employment-equity self-identification is voluntary: women, Indigenous peoples (First Nations, Inuit, Métis), persons with disabilities, members of visible minorities; sometimes 2SLGBTQ+. There is almost always a \"prefer not to answer\" entry.",
+    "formats": "Dates are often YYYY-MM-DD, sometimes MM/DD/YYYY: read the placeholder. Phone +1 with a 10-digit number. Postal code A1A 1A1. Provinces as two letters (BC, ON, QC).",
+    "consents": "A privacy notice is acknowledged to apply. Quebec postings may add a separate consent under Law 25 and may require French.",
+    "never": "Social Insurance Number (SIN), date of birth unless the form requires it.",
+    "zh": {
+      "profile": [
+        "你在加拿大的身份：公民、永久居民、开放工签、雇主担保工签，还是学签（是否允许 co-op / 校外工作）",
+        "许可的到期日（如果有）",
+        "现在或将来是否需要雇主支持办理工签"
+      ],
+      "diversity": "就业平等自我认定是自愿的：女性、原住民（First Nations、Inuit、Métis）、残障人士、可见少数族裔，有时还有 2SLGBTQ+。几乎都有“不愿回答”的选项。",
+      "consents": "投递需要确认隐私声明。魁北克的岗位可能另有 Law 25 的同意项，也可能要求法语。",
+      "never": "社会保险号（SIN）；出生日期（除非表单必填）。"
+    }
+  },
+  "US": {
+    "name": {
+      "zh": "美国",
+      "en": "United States"
+    },
+    "profile": [
+      "work authorisation in the United States: citizen, permanent resident, or a visa status (F-1 with CPT / OPT / STEM OPT, H-1B, TN, other)",
+      "whether sponsorship is needed now or in the future",
+      "whether the applicant is a \"U.S. person\" for export-control questions (citizen, permanent resident, refugee or asylee)"
+    ],
+    "questions": [
+      "\"Are you legally authorized to work in the United States?\" and \"Will you now or in the future require sponsorship for employment visa status (e.g. H-1B)?\" are two separate questions; F-1 OPT is authorised now and needs sponsorship in the future.",
+      "Export-control questions ask about citizenship or \"U.S. person\" status; answer only from what the profile states.",
+      "Students are often asked for CPT / OPT eligibility and dates."
+    ],
+    "diversity": "Voluntary self-identification: gender; race / ethnicity in the EEO-1 categories (Hispanic or Latino, White, Black or African American, Native Hawaiian or Other Pacific Islander, Asian, American Indian or Alaska Native, Two or More Races); protected-veteran status; disability (form CC-305: yes / no / do not want to answer). Each has a decline option.",
+    "formats": "Dates MM/DD/YYYY. Phone (xxx) xxx-xxxx. ZIP code five digits. States as two letters.",
+    "consents": "E-Verify and equal-opportunity notices are information only. Consent to a background check, an arbitration agreement or an at-will acknowledgement that must be signed is a decision for the applicant.",
+    "never": "Social Security Number (SSN), date of birth unless the form requires it.",
+    "zh": {
+      "profile": [
+        "在美国的工作许可：公民、永久居民，或签证身份（F-1 的 CPT / OPT / STEM OPT、H-1B、TN 等）",
+        "现在或将来是否需要签证担保",
+        "出口管制问题里你是否属于“U.S. person”（公民、永久居民、难民或受庇护者）"
+      ],
+      "diversity": "自愿的自我认定：性别；种族 / 族裔（EEO-1 分类）；受保护退伍军人身份；残障（CC-305 表：是 / 否 / 不愿回答）。每一项都有拒绝回答的选项。",
+      "consents": "E-Verify 和平等机会声明只是告知。背景调查同意书、仲裁协议、需要签署的 at-will 确认，由你自己决定。",
+      "never": "社会安全号（SSN）；出生日期（除非表单必填）。"
+    }
+  },
+  "GB": {
+    "name": {
+      "zh": "英国",
+      "en": "United Kingdom"
+    },
+    "profile": [
+      "right to work in the UK: British or Irish citizen, settled or pre-settled status, Graduate visa, Student visa (state the weekly limit that applies to you), Skilled Worker visa, or none yet",
+      "visa expiry date, if any",
+      "whether sponsorship (Skilled Worker) would be needed"
+    ],
+    "questions": [
+      "\"Do you have the right to work in the UK?\" is about current status; \"Do you require sponsorship?\" is separate.",
+      "Some forms ask whether the right to work has an end date or restrictions (hours, type of work)."
+    ],
+    "diversity": "Equality and diversity monitoring is voluntary and usually separate from the application: age band, gender and gender identity, ethnicity (census categories), disability, religion or belief, sexual orientation, sometimes socio-economic background (type of school, parents' occupation). Disability Confident employers ask whether you want to be considered under the guaranteed-interview scheme: that is a decision for the applicant.",
+    "formats": "Dates DD/MM/YYYY. Phone +44. Postcode. The document is called a CV.",
+    "consents": "A UK GDPR privacy notice is acknowledged to apply. Questions about unspent criminal convictions are for the applicant.",
+    "never": "National Insurance number, right-to-work share code (asked after an offer, not on the application).",
+    "zh": {
+      "profile": [
+        "在英国的工作权利：英国或爱尔兰公民、定居 / 预定居身份、Graduate 签证、学生签证（写明适用于你的每周工时上限）、Skilled Worker 签证，或暂时没有",
+        "签证到期日（如果有）",
+        "是否需要 Skilled Worker 担保"
+      ],
+      "diversity": "平等与多元化监测是自愿的，通常和申请分开：年龄段、性别与性别认同、族裔、残障、宗教信仰、性取向，有时还有社会经济背景。Disability Confident 雇主会问是否按“保证面试”计划考虑你，这由你自己决定。",
+      "consents": "投递需要确认 UK GDPR 隐私声明。关于未失效犯罪记录的问题由你自己回答。",
+      "never": "国民保险号（NI number）；工作权利的 share code（录用后才需要）。"
+    }
+  },
+  "EU": {
+    "name": {
+      "zh": "欧盟各国",
+      "en": "European Union"
+    },
+    "countries": [
+      "DE",
+      "FR",
+      "NL",
+      "IE",
+      "ES",
+      "IT",
+      "SE",
+      "DK",
+      "FI",
+      "BE",
+      "AT",
+      "PL",
+      "PT",
+      "CZ",
+      "LU"
+    ],
+    "profile": [
+      "right to work in the country: EU / EEA / Swiss citizen, or a residence permit that allows work (which kind, valid until), or none yet",
+      "whether a work permit or EU Blue Card would have to be arranged",
+      "languages and level (CEFR: A1-C2), which forms here ask more often than elsewhere",
+      "for Germany, Austria and the Netherlands: salary expectation and earliest start date are asked on most forms"
+    ],
+    "questions": [
+      "\"Do you have a valid work permit for <country>?\" EU / EEA / Swiss citizens answer that no permit is needed, which is usually the \"yes, I may work\" option.",
+      "German forms: Gehaltsvorstellung = salary expectation (gross, per year), Eintrittstermin / frühestmöglicher Starttermin = earliest start date, Kündigungsfrist = notice period, Anrede = form of address.",
+      "French forms: prétentions salariales = salary expectation, disponibilité = availability, préavis = notice period."
+    ],
+    "diversity": "Rarely asked, because of data minimisation. Where it is asked it is voluntary.",
+    "formats": "Dates DD.MM.YYYY (Germany, Austria) or DD/MM/YYYY. Phone in international format. Decimal comma in numbers.",
+    "consents": "The GDPR privacy notice is acknowledged to apply. A second, separate box asks to keep the data for other or future openings (talent pool, typically 6-24 months): that one is optional and stays unticked unless the applicant has said otherwise.",
+    "never": "National identity or social-security numbers, date of birth unless the form requires it, a photo unless the applicant provided one for this purpose.",
+    "zh": {
+      "profile": [
+        "在该国的工作权利：欧盟 / 欧洲经济区 / 瑞士公民，或允许工作的居留许可（哪一种、有效期），或暂时没有",
+        "是否需要办理工作许可或欧盟蓝卡",
+        "语言及水平（CEFR：A1–C2），这里的表单比别处问得多",
+        "德国、奥地利、荷兰：大多数表单会问期望薪资和最早到岗日期"
+      ],
+      "diversity": "出于数据最小化原则，很少问。问到时也是自愿的。",
+      "consents": "投递需要确认 GDPR 隐私声明。另外单独的一个勾选框是“把资料保留用于其他或将来的职位”（人才库，通常 6–24 个月）：这是可选的，除非你另有说明，否则不勾。",
+      "never": "身份证号或社保号；出生日期（除非表单必填）；照片（除非你专门为此提供了照片）。"
+    }
+  },
+  "AU": {
+    "name": {
+      "zh": "澳大利亚",
+      "en": "Australia"
+    },
+    "profile": [
+      "work rights in Australia: citizen, permanent resident, New Zealand citizen, or a temporary visa with work rights (subclass and expiry; state the hour limit that applies to you, if any)",
+      "whether sponsorship would be needed"
+    ],
+    "questions": [
+      "\"Do you have the right to work in Australia?\" is usually a list: Australian citizen / Permanent resident / New Zealand citizen / Temporary visa with full work rights / Temporary visa with restrictions / Require sponsorship.",
+      "Government and university roles ask for statements against key selection criteria: free text that has to come from the applicant's own experience."
+    ],
+    "diversity": "Voluntary: gender, whether the applicant is of Aboriginal and/or Torres Strait Islander origin, disability, sometimes language background.",
+    "formats": "Dates DD/MM/YYYY. Phone +61. Postcode four digits. States as NSW, VIC, QLD, WA, SA, TAS, ACT, NT.",
+    "consents": "A privacy notice is acknowledged to apply. Police checks and Working with Children Checks come after an offer.",
+    "never": "Tax File Number (TFN), passport number unless the form requires it.",
+    "zh": {
+      "profile": [
+        "在澳大利亚的工作权利：公民、永久居民、新西兰公民，或有工作权利的临时签证（类别和到期日；如有工时限制请写明）",
+        "是否需要担保"
+      ],
+      "diversity": "自愿：性别、是否为原住民和 / 或托雷斯海峡岛民、残障，有时还有语言背景。",
+      "consents": "投递需要确认隐私声明。无犯罪记录检查和 Working with Children Check 在录用之后。",
+      "never": "税号（TFN）；护照号（除非表单必填）。"
+    }
+  },
+  "SG": {
+    "name": {
+      "zh": "新加坡",
+      "en": "Singapore"
+    },
+    "profile": [
+      "status in Singapore: citizen, permanent resident, Employment Pass, S Pass, Dependant's Pass, Student Pass, or none yet",
+      "whether a work pass would have to be applied for",
+      "expected salary and last drawn salary, which most forms here ask (see the salary section)"
+    ],
+    "questions": [
+      "\"Do you require a work pass to work in Singapore?\" Citizens and permanent residents do not.",
+      "\"Last drawn salary\" is the current or most recent salary; it is filled only if the applicant allows it."
+    ],
+    "diversity": "Some forms still ask nationality, race, religion, marital status or National Service status. Treat them as sensitive: answer only from the profile, otherwise leave them for the applicant.",
+    "formats": "Dates DD/MM/YYYY. Phone +65 with eight digits. Postal code six digits.",
+    "consents": "A PDPA consent to collect and use the data is acknowledged to apply.",
+    "never": "NRIC / FIN number unless the form requires it.",
+    "zh": {
+      "profile": [
+        "在新加坡的身份：公民、永久居民、Employment Pass、S Pass、Dependant's Pass、Student Pass，或暂时没有",
+        "是否需要申请工作准证",
+        "期望薪资和最近一份薪资（这里大多数表单都会问，见“薪资与推荐人”）"
+      ],
+      "diversity": "有些表单仍会问国籍、种族、宗教、婚姻状况或国民服役情况。这些按敏感问题处理：只按你的资料回答，否则留给你自己填。",
+      "consents": "投递需要确认 PDPA 的资料收集与使用同意。",
+      "never": "NRIC / FIN 号码（除非表单必填）。"
+    }
+  }
+}

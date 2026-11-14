@@ -1,0 +1,240 @@
+"""Shared types for ATS drivers: the form schema, the driver interface, errors.
+
+A driver knows how to *operate* one ATS. It never decides *what* to answer;
+answers come from ``answers.resolve`` and are passed in as plain values.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from dataclasses import asdict, dataclass, field
+from typing import Any, Protocol
+
+QTYPES = ("text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date")
+
+SENSITIVE_PATTERNS = [
+    (r"sponsor", "sponsorship"),
+    (r"salary|compensation|pay expectation|desired (annual )?pay", "salary"),
+    (r"intellectual property|patent|trademark|copyright", "ip"),
+    (r"non-?compet|non-?disclosure|non-?solicit|restrictive covenant", "noncompete"),
+    (r"gender|ethnic|race\b|racial|disab|veteran|indigenous|lgbt|pronoun|sexual orientation", "demographic"),
+    (r"authorized to work|legally (entitled|eligible|permitted|authorized)|work permit|citizen|permanent resident", "work_auth"),
+    (r"criminal|convict|background check", "background"),
+    (r"\breferees?\b|\breferences?\b(?! (number|code|id|#))|recommender", "referee"),
+    (r"notice period|current (salary|compensation|pay)", "salary"),
+]
+
+
+def sensitivity(label: str) -> str:
+    low = label.lower()
+    for pat, tag in SENSITIVE_PATTERNS:
+        if re.search(pat, low):
+            return tag
+    return ""
+
+
+def norm_question(label: str) -> str:
+    """Normalise a question label for the answer cache."""
+    t = re.sub(r"\s+", " ", label).strip().lower()
+    t = re.sub(r"[*:]+$", "", t).strip()
+    return t
+
+
+def options_hash(options: list[str]) -> str:
+    if not options:
+        return ""
+    return hashlib.sha1("|".join(sorted(o.strip().lower() for o in options)).encode()).hexdigest()[:12]
+
+
+@dataclass
+class Question:
+    id: str  # stable key within the form (usually the field name)
+    label: str
+    type: str = "text"
+    required: bool = False
+    options: list[str] = field(default_factory=list)
+    page: int = 0
+    section: str = ""
+    help: str = ""
+    locator: dict[str, Any] = field(default_factory=dict)  # driver-specific hints
+    depends_on: str = ""  # id of the question whose answer reveals this one
+    accept_text: bool = False  # file question that also accepts pasted text
+
+    def key(self) -> tuple[str, str]:
+        return norm_question(self.label), options_hash(self.options)
+
+
+@dataclass
+class FormSchema:
+    ats: str
+    tenant: str = ""
+    job_ref: str = ""
+    url: str = ""
+    title: str = ""
+    company: str = ""
+    requires_login: bool = False
+    source: str = "api"  # api | walk | agent
+    pages: list[str] = field(default_factory=list)  # page titles, in order
+    questions: list[Question] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "FormSchema":
+        d = dict(d)
+        d["questions"] = [Question(**q) for q in d.get("questions", [])]
+        return cls(**d)
+
+    def fingerprint(self, page: int | None = None) -> str:
+        """Hash of the structure that matters for drift detection."""
+        items = [
+            (q.page, norm_question(q.label), q.type, q.required, options_hash(q.options))
+            for q in self.questions
+            if page is None or q.page == page
+        ]
+        return hashlib.sha1(json.dumps(sorted(items)).encode()).hexdigest()[:16]
+
+    def by_id(self) -> dict[str, Question]:
+        return {q.id: q for q in self.questions}
+
+
+def diff_schemas(draft: FormSchema, live: FormSchema, page: int | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Compare the reviewed schema against what the live form shows.
+
+    Returns {"added": [...], "changed": [...], "removed": [...]} where only
+    *required* additions and option/type changes count as blocking drift.
+    """
+
+    def keyed(s: FormSchema) -> dict[str, Question]:
+        return {norm_question(q.label): q for q in s.questions if page is None or q.page == page}
+
+    a, b = keyed(draft), keyed(live)
+    added = [asdict(q) for k, q in b.items() if k not in a]
+    removed = [asdict(q) for k, q in a.items() if k not in b]
+    changed = []
+    for k in a.keys() & b.keys():
+        qa, qb = a[k], b[k]
+        # Live inspection cannot always see options (custom dropdowns) or tell
+        # text from textarea, so only compare what both sides actually know.
+        fam = lambda t: "text" if t in ("text", "textarea", "date") else "choice" if t in ("select", "multiselect", "radio") else t  # noqa: E731
+        type_changed = fam(qa.type) != fam(qb.type)
+        opts_changed = bool(qa.options) and bool(qb.options) and options_hash(qa.options) != options_hash(qb.options)
+        if type_changed or opts_changed:
+            changed.append({"before": asdict(qa), "after": asdict(qb)})
+    return {"added": added, "changed": changed, "removed": removed}
+
+
+def blocking_drift(d: dict[str, list[dict[str, Any]]]) -> bool:
+    return any(q.get("required") for q in d["added"]) or bool(d["changed"])
+
+
+# --- errors --------------------------------------------------------------------
+
+
+class DriverError(Exception):
+    """Structured failure the repair agent can act on."""
+
+    def __init__(self, message: str, *, page: int | None = None, question: str = "", expected: str = "", seen: str = "") -> None:
+        super().__init__(message)
+        self.page, self.question, self.expected, self.seen = page, question, expected, seen
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"message": str(self), "page": self.page, "question": self.question, "expected": self.expected, "seen": self.seen}
+
+
+class SiteDown(DriverError):
+    """The site itself is not answering (5xx, gateway error page, blank app shell). Not a login problem
+    and not a driver bug: nothing is counted against the account and no one is asked to sign in."""
+
+
+class NeedsHuman(Exception):
+    """Login, CAPTCHA, MFA, or an existing account without stored credentials."""
+
+    def __init__(self, reason: str, *, kind: str = "login", url: str = "") -> None:
+        super().__init__(reason)
+        self.reason, self.kind, self.url = reason, kind, url
+
+
+class AlreadyApplied(Exception):
+    pass
+
+
+# --- driver interface ----------------------------------------------------------
+
+
+@dataclass
+class JobRef:
+    ats: str
+    tenant: str  # board token / workday tenant / company slug
+    job_id: str
+    url: str
+    host: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def tenant_key(self) -> str:
+        return f"{self.ats}:{self.tenant}"
+
+
+@dataclass
+class PasswordPolicy:
+    length: int = 20
+    symbols: str = "!@#$%^&*"
+
+
+class Driver(Protocol):
+    ats: str
+    requires_login: bool
+    password_policy: PasswordPolicy
+
+    def detect(self, url: str) -> JobRef | None: ...
+
+    # --- schema
+    def get_schema(self, ref: JobRef, page: Any | None, answers: dict[str, Any] | None = None) -> FormSchema: ...
+
+    # --- execution (page is a Playwright sync Page)
+    def open_application(self, page: Any, ref: JobRef) -> None: ...
+    def live_questions(self, page: Any, page_index: int) -> list[Question]: ...
+    def fill_page(self, page: Any, schema: FormSchema, page_index: int, answers: dict[str, Any]) -> None: ...
+    def next_page(self, page: Any) -> bool: ...
+    def read_back(self, page: Any, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]: ...
+    def submit(self, page: Any) -> None: ...
+    def confirmation(self, page: Any) -> dict[str, Any] | None: ...
+    def already_applied(self, page: Any, ref: JobRef) -> bool: ...
+
+    # --- auth (only when requires_login)
+    def is_logged_in(self, page: Any, ref: JobRef) -> bool: ...
+    def login(self, page: Any, ref: JobRef, email: str, password: str) -> None: ...
+    def register(self, page: Any, ref: JobRef, email: str, password: str) -> str: ...  # "ok" | "verify_email" | "exists"
+    def login_url(self, ref: JobRef) -> str: ...
+
+
+def values_equal(expected: Any, actual: Any) -> bool:
+    """Loose comparison for read-back verification."""
+
+    def n(v: Any) -> Any:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (list, tuple, set)):
+            return sorted(n(x) for x in v)
+        if v is None:
+            return ""
+        s = re.sub("[🀀-🫿☀-➿️]", "", str(v))  # flags and icons shown in front of an option
+        s = re.sub(r"\s+", " ", s).strip().lower()
+        return s
+
+    e, a = n(expected), n(actual)
+    if e == a:
+        return True
+    if isinstance(e, str) and isinstance(a, str):
+        # phone formatting, trailing slashes, masked file names
+        de, da = re.sub(r"\D", "", e), re.sub(r"\D", "", a)
+        if len(de) >= 7 and de and (de.endswith(da) or da.endswith(de)) and min(len(de), len(da)) >= 7:
+            return True
+        if e.rstrip("/") == a.rstrip("/"):
+            return True
+    return False
