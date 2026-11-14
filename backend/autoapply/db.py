@@ -32,6 +32,19 @@ def get_engine():
             cur.close()
 
         _Session = sessionmaker(_engine, expire_on_commit=False)
+
+        @event.listens_for(_Session, "before_flush")
+        def _status_history(session, _ctx, _instances):  # noqa: ANN001
+            """Whoever changes an application's status - the executor, the mail tracker, the user - the change is kept."""
+            from sqlalchemy import inspect as sa_inspect
+
+            from .models import Application, ApplicationEvent
+
+            for obj in list(session.dirty):
+                if isinstance(obj, Application) and obj.id is not None:
+                    h = sa_inspect(obj).attrs.status.history
+                    if h.has_changes() and h.added and (not h.deleted or h.deleted[0] != h.added[0]):
+                        session.add(ApplicationEvent(application_id=obj.id, old=str(h.deleted[0]) if h.deleted else "", new=str(h.added[0])))
     return _engine
 
 
@@ -52,7 +65,8 @@ def init_db() -> None:
 
 
 # Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS", so check first.
-_NEW_COLUMNS = {"jobs": {"brief": "TEXT DEFAULT ''", "duplicate_of": "INTEGER", "posted": "VARCHAR DEFAULT ''", "archived_at": "DATETIME"}}
+_NEW_COLUMNS = {"jobs": {"brief": "TEXT DEFAULT ''", "duplicate_of": "INTEGER", "posted": "VARCHAR DEFAULT ''", "archived_at": "DATETIME"},
+                "tasks": {"stages": "JSON"}}
 
 
 def _add_missing_columns() -> None:

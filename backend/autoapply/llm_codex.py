@@ -149,7 +149,9 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
                     raise Failed(str(getattr(err, "message", err))[:400])
                 u = getattr(r, "usage", None)
                 tot = getattr(u, "total", u)
-                usage = {"input": int(getattr(tot, "input_tokens", 0) or 0), "output": int(getattr(tot, "output_tokens", 0) or 0)}
+                g = lambda k: int(getattr(tot, k, 0) or 0)  # noqa: E731
+                usage = {"input": g("input_tokens"), "output": g("output_tokens"), "cached": g("cached_input_tokens"), "cache_write": g("cache_write_input_tokens"),
+                         "reasoning": g("reasoning_output_tokens"), "total": g("total_tokens")}
                 result.set_result((r.final_response or "", usage))
         except Exception as e:  # noqa: BLE001
             if not result.done():

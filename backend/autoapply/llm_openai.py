@@ -46,21 +46,33 @@ class Client:
         self.base = base_url.rstrip("/")
         self.http = httpx.Client(timeout=httpx.Timeout(300, connect=30), headers={"Authorization": f"Bearer {api_key}"} if api_key else {}, transport=transport)
         self.calls = self.input_tokens = self.output_tokens = 0
+        self.log: list[dict[str, Any]] = []     # one entry per request: when, how long, how it ended, the usage as reported
 
     # --- plumbing ---
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+        import time
+
+        t0 = time.time()
+        entry: dict[str, Any] = {"t0": t0, "model": body.get("model", ""), "status": "error", "usage": None, "id": "", "error": ""}
+        self.log.append(entry)
         try:
             r = self.http.post(self.base + "/chat/completions", json=body)
         except httpx.HTTPError as e:
+            entry.update(ms=int((time.time() - t0) * 1000), status="timeout" if isinstance(e, httpx.TimeoutException) else "unavailable", error=type(e).__name__)
             raise Unavailable(f"连不上 AI 服务（{type(e).__name__}）。检查接口地址和“设置 → 网络”。") from e
+        entry["ms"] = int((time.time() - t0) * 1000)
         if r.status_code in (401, 403):
+            entry.update(status="unavailable", error=f"HTTP {r.status_code}")
             raise Unavailable("AI 服务拒绝了这个 API key（没填、填错或没有权限）。")
         if r.status_code == 402 or (r.status_code == 429 and re.search(r"quota|billing|insufficient|balance", r.text, re.I)):
+            entry.update(status="rate_limited", error=f"HTTP {r.status_code}")
             raise Unavailable(f"AI 服务的额度用完了或账户欠费：{r.text[:200]}")
         if r.status_code >= 400:
+            entry.update(status="rate_limited" if r.status_code == 429 else "error", error=f"HTTP {r.status_code}")
             raise Failed(f"HTTP {r.status_code}: {r.text[:400]}")
         data = r.json()
         u = data.get("usage") or {}
+        entry.update(status="ok", usage=u or None, id=str(data.get("id") or ""), model=str(data.get("model") or entry["model"]))
         self.calls += 1
         self.input_tokens += int(u.get("prompt_tokens") or 0)
         self.output_tokens += int(u.get("completion_tokens") or 0)

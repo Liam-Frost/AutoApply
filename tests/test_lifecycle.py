@@ -92,7 +92,11 @@ def test_analytics_numbers(app_env):
         s.add(Job(source="manual", source_id="x", company="Missed", title="Great Intern", status="scored", online=0, score=9.5, apply_url="https://x.example/job"))
     c = TestClient(app)
     d = c.get("/api/analytics").json()
-    assert d["total"] == {"n": 4, "replied": 3, "positive": 1, "rejected": 1}
+    assert d["total"] == {"n": 4, "replied": 3, "decided": 2, "positive": 1, "progressed": 1, "rejected": 1, "offer": 0}
+    # each step of the funnel is a part of the one before it
+    vals = [f["value"] for f in d["funnel"]]
+    assert vals == sorted(vals, reverse=True) and vals[0] == 4
+    assert sum(x["value"] for x in d["states"]) == 4          # where each application stands now: the parts add up to the whole
     assert {r["label"]: r["n"] for r in d["by_score"]} == {"9–10": 1, "8–8.5": 2, "6–6.5": 1}
     assert d["median_wait_days"] == 4 and d["median_lead_days"] == 10  # the row first seen after it was sent has no lead time
     assert d["missed_total"] == 1 and d["missed"][0]["company"] == "Missed"

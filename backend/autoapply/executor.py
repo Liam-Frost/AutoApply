@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from . import answers as ans, messages
-from . import auth, browser, config, db, fixtures, llm, notify, repair
+from . import auth, browser, config, db, fixtures, llm, metering, notify, repair
 from .ats import audit, registry
 from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .drafts import _stat
@@ -144,7 +144,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     page_of = {a["id"]: int(a.get("page") or 0) for a in draft_answers}
     run_dir = config.RUNS / f"exec_app_{application_id}_d{draft_id}"
     steps: list[dict[str, Any]] = []
-    step = lambda op, **kw: steps.append({"op": op, "at": now().isoformat(), **kw})  # noqa: E731
+    def step(op: str, **kw: Any) -> None:
+        steps.append({"op": op, "at": now().isoformat(), **kw})
+        metering.stage(op)       # the task remembers how far it got
     notify.send("task_started", messages.execute_started(title, ats=ref.ats, policy=policy, pages=len(schema.pages or []), reasons=mode["reasons"]), ref=f"application:{application_id}")
     outcome: dict[str, Any] = {}
     ok = False

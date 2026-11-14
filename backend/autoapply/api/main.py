@@ -41,6 +41,12 @@ async def lifespan(app: FastAPI):
     if not db.get_setting("migrated.page_ids"):
         _watch.migrate_ids()
         db.set_setting("migrated.page_ids", True)
+    if not db.get_setting("migrated.llm_runs"):
+        # per-task totals from before every model request was recorded: carried over once, marked as history
+        from .. import metering as _metering
+
+        _metering.import_legacy()
+        db.set_setting("migrated.llm_runs", True)
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
         from ..models import Todo, now
@@ -1292,68 +1298,70 @@ def pdportal_bookmarklet() -> dict[str, Any]:
 
 
 @app.get("/api/analytics")
-def analytics(days: int = 0) -> dict[str, Any]:
-    """Numbers for the analysis page. ``days`` limits to applications sent in the last N days (0 = all).
-    Archived jobs are included: this page is about what happened, not about what is still open."""
+def analytics(days: int = 0, start: str = "", end: str = "") -> dict[str, Any]:
+    """What came of the applications sent in the window: the last ``days`` days, or local dates ``start``..``end``
+    (inclusive), or everything. The other two views of the analysis page are below."""
     from collections import defaultdict
-    from datetime import timedelta
 
-    cut = now().replace(tzinfo=None) - timedelta(days=days) if days else None
-    REPLIED = ("confirmed", "assessment", "interview", "offer", "rejected")
-    POSITIVE = ("assessment", "interview", "offer")
+    from .. import analytics as an
+
+    out = an.applications(an.window(days, start, end))
+    # the two blocks the page showed before the automation and AI views existed; kept until the page stops reading them
     with db.session() as s:
-        apps = []
-        for a in s.query(Application).filter(Application.submitted_at.isnot(None)):
-            sub_at = a.submitted_at.replace(tzinfo=None)
-            if cut and sub_at < cut:
-                continue
-            j = a.job
-            first_mail = s.query(func.min(MailEvent.received_at)).filter(MailEvent.application_id == a.id, MailEvent.category.notin_(("other", "confirmation"))).scalar()  # an automatic receipt is not an answer
-            wait = (first_mail.replace(tzinfo=None) - sub_at).days if first_mail and first_mail.replace(tzinfo=None) >= sub_at else None
-            lead = (sub_at - j.first_seen.replace(tzinfo=None)).days if j.first_seen else None
-            apps.append({"status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or "未标注",
-                         "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
-                         "auto": bool(a.auto_approved), "wait": wait, "lead": lead, "month": sub_at.strftime("%Y-%m")})
-
-        def rate(rows: list[dict[str, Any]]) -> dict[str, Any]:
-            n = len(rows)
-            return {"n": n, "replied": sum(1 for r in rows if r["status"] in REPLIED), "positive": sum(1 for r in rows if r["status"] in POSITIVE),
-                    "rejected": sum(1 for r in rows if r["status"] == "rejected")}
-
-        def by(key, order=None):  # noqa: ANN001, ANN202
-            g: dict[str, list] = defaultdict(list)
-            for r in apps:
-                g[key(r)].append(r)
-            keys = order or sorted(g, key=lambda k: -len(g[k]))
-            return [{"label": k, **rate(g[k])} for k in keys if k in g]
-
-        band = lambda r: "没评分" if r["score"] is None else "9–10" if r["score"] >= 9 else "8–8.5" if r["score"] >= 8 else "7–7.5" if r["score"] >= 7 else "6–6.5" if r["score"] >= 6 else "6 以下"  # noqa: E731
-        waits = sorted(r["wait"] for r in apps if r["wait"] is not None)
-        leads = sorted(r["lead"] for r in apps if r["lead"] is not None and r["lead"] >= 0)  # rows imported after the fact have no meaningful lead time
-        med = lambda xs: xs[len(xs) // 2] if xs else None  # noqa: E731
-        wait_hist = [{"label": lab, "value": sum(1 for w in waits if lo <= w <= hi)} for lab, lo, hi in
-                     (("当天", 0, 0), ("1–3 天", 1, 3), ("4–7 天", 4, 7), ("8–14 天", 8, 14), ("15–30 天", 15, 30), ("30 天以上", 31, 10**6))]
-        # chances that were not taken: good postings that closed without an application
-        missed = []
-        for j in s.query(Job).filter(Job.duplicate_of.is_(None), Job.score >= 7.5):
-            st = stages.stage(j.status, bool(j.online), j.deadline or "", j.application.status if j.application else None)
-            if st in ("expired", "offline") and (not cut or (j.first_seen and j.first_seen.replace(tzinfo=None) >= cut)):
-                missed.append({"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline, "why": "没有申请链接" if not j.apply_url else "已截止或下线时还没投"})
-        missed.sort(key=lambda r: -(r["score"] or 0))
-        runs = s.query(Run).filter(Run.kind == "execute").all()
         by_sys: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-        for r in runs:
+        for r in s.query(Run).filter(Run.kind == "execute"):
             by_sys[humanize.ats_name(r.ats) or "其他"][0 if r.ok else 1] += 1
-        llm = s.query(func.sum(Run.llm_calls), func.sum(Run.input_tokens), func.sum(Run.output_tokens)).first()
-    return {
-        "total": rate(apps), "median_wait_days": med(waits), "median_lead_days": med(leads), "waited": len(waits),
-        "by_score": by(band, ["9–10", "8–8.5", "7–7.5", "6–6.5", "6 以下", "没评分"]), "by_channel": by(lambda r: r["channel"]), "by_direction": by(lambda r: r["direction"])[:8],
-        "by_month": by(lambda r: r["month"], sorted({r["month"] for r in apps})), "wait_hist": wait_hist,
-        "auto": {"auto": sum(1 for r in apps if r["auto"]), "manual": sum(1 for r in apps if not r["auto"])},
-        "missed": missed[:12], "missed_total": len(missed),
-        "automation": [{"label": k, "ok": v[0], "failed": v[1]} for k, v in sorted(by_sys.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))],
-        "llm": {"calls": llm[0] or 0, "input_tokens": llm[1] or 0, "output_tokens": llm[2] or 0},
-    }
+        calls = s.query(func.sum(Run.llm_calls), func.sum(Run.input_tokens), func.sum(Run.output_tokens)).first()
+    out["automation"] = [{"label": k, "ok": v[0], "failed": v[1]} for k, v in sorted(by_sys.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))]
+    out["llm"] = {"calls": calls[0] or 0, "input_tokens": calls[1] or 0, "output_tokens": calls[2] or 0}
+    return out
+
+
+@app.get("/api/analytics/automation")
+def analytics_automation(days: int = 0, start: str = "", end: str = "", kind: str = "") -> dict[str, Any]:
+    """What the program's tasks did: how they ended, how long they took, where they failed, what they cost in AI."""
+    from .. import analytics as an
+
+    return an.automation(an.window(days, start, end), kind=kind)
+
+
+@app.get("/api/analytics/ai")
+def analytics_ai(days: int = 0, start: str = "", end: str = "", group: str = "model", bucket: str = "", provider: str = "", model: str = "", feature: str = "") -> dict[str, Any]:
+    """What the model calls used and cost: by time, model, service and feature, per result, and what failures cost."""
+    from .. import analytics as an
+
+    return an.ai(an.window(days, start, end), group=group, bucket=bucket, provider=provider, model=model, feature=feature)
+
+
+@app.get("/api/analytics/ai/requests")
+def analytics_ai_requests(task_id: int) -> dict[str, Any]:
+    """The model requests of one task: from a total down to what it is made of."""
+    from .. import analytics as an
+
+    return {"requests": an.requests_of(task_id=task_id)}
+
+
+@app.put("/api/analytics/ai/prices")
+def analytics_ai_prices(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The user's own prices (US dollars per million tokens) for models the built-in list does not cover. Saving them
+    estimates again every request whose cost comes from a price list; a cost a service reported itself is left alone."""
+    from .. import metering
+
+    out = []
+    for p in (body.get("prices") or [])[:100]:
+        model = str((p or {}).get("model") or "").strip()
+        try:
+            row = {"model": model, "provider": str(p.get("provider") or ""), "input": float(p["input"]), "output": float(p["output"])}
+            for k in ("cache_read", "cache_write"):
+                if p.get(k) not in (None, ""):
+                    row[k] = float(p[k])
+        except (KeyError, TypeError, ValueError) as e:
+            raise HTTPException(400, f"「{model or '?'}」的价格不完整：输入和输出价格都要填数字") from e
+        if not model or min(v for k, v in row.items() if k not in ("model", "provider")) < 0:
+            raise HTTPException(400, "模型名不能为空，价格不能是负数")
+        out.append(row)
+    db.set_setting("llm.prices", out)
+    return {"ok": True, "repriced": metering.reprice()}
 
 
 @app.get("/api/sources/last-scan")

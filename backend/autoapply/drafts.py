@@ -13,7 +13,7 @@ from typing import Any
 
 from . import answers as ans, messages
 from . import prompts
-from . import auth, browser, config, db, knowledge, llm, materials, notify
+from . import auth, browser, config, db, knowledge, llm, materials, metering, notify
 from .ats import registry
 from .ats.base import DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
 from .models import Application, Draft, DraftComment, DriverStat, Job, now
@@ -117,6 +117,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         s.flush()
         app_id = app.id
     run_dir = run_dir or (config.RUNS / f"recon_job_{job_id}")
+    metering.stage("read_form")
     try:
         ref, schema = recon(job, run_dir)
     except NeedsHuman as e:

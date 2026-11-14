@@ -46,6 +46,11 @@ class SDKResult:
     output_tokens: int = 0
     stopped: str = "end_turn"
     steps: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, Any] | None = None      # as reported: input_tokens (uncached), cache_read_input_tokens, cache_creation_input_tokens, output_tokens
+    cost_usd: float | None = None            # what the command line says the query would cost on the API
+    api_ms: int | None = None
+    session_id: str = ""
+    model_usage: dict[str, Any] | None = None
 
 
 def cli_path() -> str | None:
@@ -156,10 +161,8 @@ def _mcp_content(out: Any) -> list[dict[str, Any]]:
 
 
 async def _run(content: Any, *, system: str | None, model: str, effort: str | None, schema: dict[str, Any] | None,
-               tools: list[Any], max_turns: int, token: str | None, calls: "queue.Queue[Any]", timeout: float) -> SDKResult:
+               tools: list[Any], max_turns: int, token: str | None, calls: "queue.Queue[Any]", timeout: float, res: SDKResult) -> SDKResult:
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, create_sdk_mcp_server, query, tool
-
-    res = SDKResult()
     sdk_tools = []
     for t in tools:
 
@@ -220,6 +223,12 @@ async def _run(content: Any, *, system: str | None, model: str, effort: str | No
                 res.turns = msg.num_turns
                 res.input_tokens = int(u.get("input_tokens", 0) or 0) + int(u.get("cache_read_input_tokens", 0) or 0) + int(u.get("cache_creation_input_tokens", 0) or 0)
                 res.output_tokens = int(u.get("output_tokens", 0) or 0)
+                # kept before any error is raised: a query that failed part-way has still used what it reports
+                res.usage, res.cost_usd, res.api_ms, res.session_id = (dict(u) if u else None), msg.total_cost_usd, msg.duration_api_ms, msg.session_id or ""
+                try:
+                    res.model_usage = {k: dict(v) for k, v in (msg.model_usage or {}).items()} or None
+                except Exception:  # noqa: BLE001
+                    res.model_usage = None
                 res.text, res.structured = msg.result or "", msg.structured_output
                 if msg.stop_reason == "refusal":
                     raise SDKError("the model declined this request", refused=True)
@@ -242,9 +251,10 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
     from claude_agent_sdk import ClaudeSDKError, CLINotFoundError
 
     calls: queue.Queue[Any] = queue.Queue()
+    res = SDKResult()       # filled as the answer arrives, so that an error can still say what was used
     fut = asyncio.run_coroutine_threadsafe(
         _run(content, system=system, model=model, effort=effort, schema=schema, tools=tools or [], max_turns=max_turns,
-             token=token, calls=calls, timeout=timeout),
+             token=token, calls=calls, timeout=timeout, res=res),
         _ensure_loop(),
     )
     fut.add_done_callback(lambda _f: calls.put(None))
@@ -261,14 +271,18 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
             reply.set_result(t.fn(**args))
         except Exception as e:  # noqa: BLE001
             reply.set_exception(e)
+    def failed(err: SDKError) -> SDKError:
+        err.partial = res      # type: ignore[attr-defined]
+        return err
+
     try:
         return fut.result()
-    except SDKError:
-        raise
+    except SDKError as e:
+        raise failed(e)
     except CLINotFoundError as e:
-        raise SDKError(f"Claude Code CLI not found: {e}", unavailable=True) from e
+        raise failed(SDKError(f"Claude Code CLI not found: {e}", unavailable=True)) from e
     except (asyncio.TimeoutError, TimeoutError) as e:
-        raise SDKError(f"no answer from Claude within {int(timeout)}s") from e
+        raise failed(SDKError(f"no answer from Claude within {int(timeout)}s")) from e
     except ClaudeSDKError as e:
         low = str(e).lower()
-        raise SDKError(str(e)[:400], unavailable="login" in low or "authenticat" in low or "not logged in" in low) from e
+        raise failed(SDKError(str(e)[:400], unavailable="login" in low or "authenticat" in low or "not logged in" in low)) from e
