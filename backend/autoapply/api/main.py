@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import mimetypes
 import re
 
@@ -34,8 +35,12 @@ async def lifespan(app: FastAPI):
     db.init_db()
     persona.migrate()
     from .. import i18n as _i18n
+    from ..sources import watch as _watch
 
     _i18n.first_run_lang()
+    if not db.get_setting("migrated.page_ids"):
+        _watch.migrate_ids()
+        db.set_setting("migrated.page_ids", True)
     net.apply()
     tasks.start()
     yield
@@ -89,7 +94,8 @@ def _foreign(request) -> str:  # noqa: ANN001
     from urllib.parse import urlparse
 
     own = _own_hosts()
-    if _host_of(request.headers.get("host", "")) not in own:
+    host = request.headers.get("host", "")
+    if _host_of(host) not in own:
         return "host"
     path = request.url.path
     if not (path.startswith("/api/") or path.startswith("/mcp/")):
@@ -98,10 +104,18 @@ def _foreign(request) -> str:  # noqa: ANN001
     if path.startswith("/api/import/pdportal") and origin == PORTAL_ORIGIN:
         return ""          # the one deliberate exception: the importer the user runs on the portal's page
     if origin is not None:
-        if origin == "null" or (urlparse(origin).hostname or "").lower() not in own:
+        # The whole origin has to be ours - scheme, host and port. Another program on this computer can serve a page
+        # at 127.0.0.1 on its own port; the same host name does not make that page this program's.
+        mine = {f"{request.url.scheme}://{host}".lower().rstrip("/")}
+        base = str(db.get_setting("app.base_url") or "").strip().lower().rstrip("/")
+        if base:
+            u = urlparse(base)
+            mine.add(f"{u.scheme}://{u.netloc}")
+        mine.update(o.strip().lower().rstrip("/") for o in os.environ.get("AUTOAPPLY_DEV_ORIGINS", "").split(",") if o.strip())   # the interface's dev server, when developing
+        if origin.lower().rstrip("/") not in mine:
             return "origin"
-    elif request.headers.get("sec-fetch-site") == "cross-site":
-        return "cross-site"
+    elif request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
+        return "cross-site"     # same-site covers another port of this computer
     return ""
 
 
@@ -1795,14 +1809,6 @@ def gmail_authorize() -> dict[str, Any]:
     return {"started": True}
 
 
-@app.post("/api/import-tsv")
-def import_tsv(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from .. import importer
-
-    p = Path(str(body["path"]))
-    if p.suffix.lower() not in (".tsv", ".txt", ".csv") or not p.is_file():
-        raise HTTPException(400, "请给出一个 .tsv / .txt / .csv 文件的完整路径")
-    return importer.import_tsv(p)
 
 
 # --- frontend ------------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from . import config, db, discover, drafts, executor, mail, messages, notify, scoring, tasks
@@ -49,7 +50,9 @@ def _recon(t: Task) -> dict[str, Any]:
         ref = registry.detect(url) if url else None
         from .ats.base import host_is, url_host
 
-        if host_is(url_host(e.url or ""), "accounts.google.com") or "accounts.google.com" in e.reason:
+        # where the run stopped, or an address the agent quoted in its notes: by host, not by a name somewhere in the text
+        seen = [e.url or "", *re.findall(r"https?://[^\s\"'<>)]+", e.reason or ""), *re.findall(r"\b[a-z0-9.-]+\.[a-z]{2,}\b", (e.reason or "").lower())]
+        if any(host_is(url_host(x), "accounts.google.com") for x in seen):
             notify.add_todo("blocked", f"{company}", body="google_sign_in: " + e.reason, ref=f"job:{job_id}", payload={"url": url, "job_id": job_id, "retry_task": t.id, "why": "google"})
         elif e.kind not in ("login", "captcha", "mfa", "account", "verification", "register"):
             # not a sign-in problem: the page does not work in this program's browser (blank page, site error, apply button leads nowhere)
