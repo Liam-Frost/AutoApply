@@ -4,6 +4,29 @@ Most useful contributions need no knowledge of the whole program: they add one e
 each list is and how to check an addition. Run `uv run pytest` before sending anything; the tests never reach a real
 AI service or a real website.
 
+## Getting set up
+
+```bash
+git clone https://github.com/Liam-Frost/AutoApply
+cd AutoApply
+./start.sh                     # or start.bat: installs uv, Python, the dependencies and the browser, builds the interface, starts
+uv run pytest                  # the tests: no real AI service, no real website
+uv run python scripts/demo.py --serve 8020     # a copy with made-up data to click around in, without touching your own
+```
+
+You need [Node.js](https://nodejs.org/) 20 or newer to build the interface. `cd frontend && npm run dev` gives hot reload.
+
+## Sending a change
+
+- Open a pull request against `master`. Changes are merged by squash, so one pull request becomes one commit; its title
+  is the commit message.
+- CI runs the tests and then builds every package and installs it on Windows, macOS and Linux. It has to pass.
+- Say what you ran the change against. "Unit tests" and "a real form, not submitted" are both fine; they are not the same.
+- Keep personal data out: no real names, e-mail addresses or application records in code, tests, screenshots or logs.
+  `scripts/demo.py` has fictional data for screenshots.
+- By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems go through
+  [SECURITY.md](SECURITY.md), not through an issue.
+
 ## Ground rules
 
 These are not open for change, because the program acts on a person's behalf:

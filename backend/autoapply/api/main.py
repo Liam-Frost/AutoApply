@@ -52,10 +52,67 @@ app = FastAPI(title="AutoApply", lifespan=lifespan)
 PORTAL_ORIGIN = "https://pdportal.apsc.ubc.ca"
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
+
+
+def _own_hosts() -> set[str]:
+    """Host names under which this server is the user's own: this computer, and the address the user set for links."""
+    from urllib.parse import urlparse
+
+    hosts = set(LOCAL_HOSTS)
+    try:
+        h = urlparse(str(db.get_setting("app.base_url") or "")).hostname
+        if h:
+            hosts.add(h.lower())
+    except Exception:  # noqa: BLE001
+        pass
+    return hosts
+
+
+def _host_of(value: str) -> str:
+    """'127.0.0.1:8000' -> '127.0.0.1'; '[::1]:8000' -> '::1'."""
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        return v[1:].split("]", 1)[0]
+    return v.rsplit(":", 1)[0] if ":" in v else v
+
+
+def _foreign(request) -> str:  # noqa: ANN001
+    """Why this request does not come from the user's own pages ('' when it does).
+
+    The server has no login: it listens on 127.0.0.1 and trusts whoever can reach it. A web page the user happens to
+    have open can reach it too - the browser will send a request to 127.0.0.1 for any site - so two things are checked:
+    the Host header is this computer's (a page cannot get around the browser's same-origin rule by pointing its own
+    domain name at 127.0.0.1), and a request that changes something, or any API call the browser itself marks as
+    cross-site, comes from one of this program's own pages. Programs on this computer (the tray launcher, the AI
+    tool bridge, curl) send no Origin and are not affected."""
+    from urllib.parse import urlparse
+
+    own = _own_hosts()
+    if _host_of(request.headers.get("host", "")) not in own:
+        return "host"
+    path = request.url.path
+    if not (path.startswith("/api/") or path.startswith("/mcp/")):
+        return ""
+    origin = request.headers.get("origin")
+    if path.startswith("/api/import/pdportal") and origin == PORTAL_ORIGIN:
+        return ""          # the one deliberate exception: the importer the user runs on the portal's page
+    if origin is not None:
+        if origin == "null" or (urlparse(origin).hostname or "").lower() not in own:
+            return "origin"
+    elif request.headers.get("sec-fetch-site") == "cross-site":
+        return "cross-site"
+    return ""
+
+
 @app.middleware("http")
 async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
-    from fastapi.responses import Response
+    from fastapi.responses import JSONResponse, Response
 
+    why = _foreign(request)
+    if why:
+        log.warning("refused a request that did not come from this program's own pages (%s): %s %s", why, request.method, request.url.path)
+        return JSONResponse({"detail": "This request did not come from AutoApply's own page and was refused."}, status_code=403)
     if request.url.path.startswith("/api/import/pdportal") and request.headers.get("origin") == PORTAL_ORIGIN:
         hdr = {"Access-Control-Allow-Origin": PORTAL_ORIGIN, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type",
                "Access-Control-Allow-Private-Network": "true", "Access-Control-Max-Age": "600", "Vary": "Origin"}

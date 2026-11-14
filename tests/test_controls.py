@@ -640,3 +640,42 @@ def test_first_start_language_without_installer_uses_the_system_and_leaves_exist
     monkeypatch.setattr(i18n, "system_lang", lambda: "en-us")
     i18n.first_run_lang()
     assert row() is None and db.get_setting("ui.lang") == "zh"
+
+
+def test_only_this_programs_own_pages_can_use_the_local_server(app_env):
+    """The server has no login. A web page open in the user's browser must not be able to approve a draft, read the
+    profile or change a setting by sending requests to 127.0.0.1."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app
+
+    c = TestClient(app)
+    # the program's own page, and programs on this computer (no Origin at all)
+    assert c.get("/api/overview").status_code == 200
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}).status_code == 200
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "zh"}}, headers={"origin": "http://127.0.0.1:8000", "host": "127.0.0.1:8000"}).status_code == 200
+    assert c.get("/api/overview", headers={"host": "localhost:8000"}).status_code == 200
+    assert c.get("/api/overview", headers={"host": "[::1]:8000"}).status_code == 200
+    # another site's page: changing something, with or without a JSON body
+    evil = {"origin": "https://evil.example"}
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}, headers=evil).status_code == 403
+    assert c.post("/api/drafts/1/approve", headers=evil).status_code == 403
+    assert c.post("/api/drafts/1/approve", headers={"origin": "null"}).status_code == 403           # a sandboxed frame or a local file
+    assert db.get_setting("ui.lang") == "zh"
+    # another site's page: reading, or triggering work, through an API address
+    assert c.get("/api/profile", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    assert c.get("/api/llm/quota?refresh=true", headers=evil).status_code == 403
+    # a domain name pointed at 127.0.0.1 (DNS rebinding): the page would be "same-origin" for the browser, the Host header gives it away
+    assert c.get("/api/profile", headers={"host": "attacker.example:8000"}).status_code == 403
+    assert c.get("/", headers={"host": "attacker.example:8000"}).status_code == 403
+    # opening the page itself from a link elsewhere (a Telegram message, a bookmark) is ordinary navigation
+    assert c.get("/api/overview", headers={"sec-fetch-site": "same-origin"}).status_code == 200
+    assert c.get("/", headers={"sec-fetch-site": "cross-site"}).status_code in (200, 404)             # 404 only when the interface has not been built
+    # the address the user set for links counts as their own
+    db.set_setting("app.base_url", "http://my-pc.lan:8000")
+    assert c.get("/api/overview", headers={"host": "my-pc.lan:8000", "origin": "http://my-pc.lan:8000"}).status_code == 200
+    # the portal importer is the one page elsewhere that may post, and only to its own endpoint
+    portal = {"origin": "https://pdportal.apsc.ubc.ca"}
+    assert c.options("/api/import/pdportal", headers=portal).status_code == 204
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}, headers=portal).status_code == 403

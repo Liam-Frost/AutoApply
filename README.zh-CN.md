@@ -31,6 +31,7 @@
 - [上一版错在哪里，这一版改了什么](#上一版错在哪里这一版改了什么)
 - [哪些实际验证过](#哪些实际验证过)
 - [开发](#开发)
+- [社区](#社区)
 - [许可](#许可)
 
 ## 它做什么
@@ -153,7 +154,7 @@ Claude 订阅是测试得最充分的。其他服务走同一套接口；能力�
 - 所有东西都在你的电脑上：一个 SQLite 数据库、你的文件，以及几份你能直接读和改的 Markdown 文档（个人资料、评分规则、关于各网站的笔记）。
 - 密码和 API key 在系统的密码库里。保存的登录状态是加密的。
 - 除了你选的 AI 服务和招聘网站本身，不向任何地方发送数据。没有遥测，不需要注册账号。
-- 服务只监听 `127.0.0.1`。
+- 服务只监听 `127.0.0.1`，而且只回应它自己的页面：你浏览器里开着的其他网站发来的请求会被拒绝。
 - “设置 → 高级 → 导出全部数据”会生成一个压缩包；在另一台电脑上用 `uv run autoapply restore <文件.zip>` 恢复。
 
 ## 上一版错在哪里，这一版改了什么
@@ -220,6 +221,13 @@ git tag v1.2.3 && git push origin v1.2.3
 发布流程会跑测试、构建四个安装包，在 Windows、macOS、Linux 上各自安装并启动一遍，都通过了才发布。
 
 只往某个清单里加一项的贡献（一家雇主、一个职位站、一种第三方登录、一种邮箱、一个地区包、一种翻译）不需要了解整个程序，见 [CONTRIBUTING.md](CONTRIBUTING.md)。界面遵循 [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md)。
+
+## 社区
+
+- 遇到问题或有想法：[提一个 issue](https://github.com/Liam-Frost/AutoApply/issues/new/choose)。
+- 安全问题：请私下报告，方法见 [SECURITY.md](SECURITY.md)。
+- 怎么参与：[CONTRIBUTING.md](CONTRIBUTING.md) 和[行为准则](CODE_OF_CONDUCT.md)。
+- 每个版本改了什么：[CHANGELOG.md](CHANGELOG.md)。
 
 ## 许可
 

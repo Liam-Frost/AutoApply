@@ -2,6 +2,21 @@
 
 All notable changes are recorded here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- The local server now refuses requests that do not come from its own pages. It has no login and relies on being reachable
+  only from this computer; before this change a web page open in the user's browser could send it requests (approve a
+  pending draft, change a setting), and a domain name pointed at `127.0.0.1` could read from it. Requests with a foreign
+  `Host` header, and API requests from another site, are answered with 403.
+
+### Repository
+
+- Security policy, code of conduct, issue and pull-request templates, weekly dependency updates.
+- The shell scripts are executable after a clone (`./start.sh` works without `chmod`).
+- CI uses current versions of the GitHub actions and rehearses the publish step on every run.
+
 ## [1.0.0] - 2026-11-14
 
 The first release of the rewrite. The previous code base is kept on the `legacy-v0` branch; nothing of it is carried over.
@@ -46,4 +61,5 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
+[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v1.0.0

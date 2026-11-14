@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/Liam-Frost/AutoApply/security/advisories/new
+    about: Not in a public issue, please. See SECURITY.md for what counts and what to include.
+  - name: What has been verified, and what has not
+    url: https://github.com/Liam-Frost/AutoApply/blob/master/docs/STATUS.md
+    about: Before reporting that something does not work on a site or a system, check whether it has been run for real yet.

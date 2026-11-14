@@ -1,0 +1,19 @@
+<!-- Thank you. A few lines are enough; delete what does not apply. -->
+
+## What this changes
+
+<!-- What a user will notice, or what gets easier to maintain. -->
+
+## How it was checked
+
+<!-- Say what you ran it against. "Unit tests" and "a real Greenhouse form, not submitted" are both fine answers; they are different answers. -->
+
+- [ ] `uv run pytest` passes
+- [ ] If the interface changed: `cd frontend && npm run build`, and new text went through `scripts/i18n_extract.py`
+- [ ] If behaviour that `docs/STATUS.md` describes changed: that page is updated
+- [ ] Nothing personal in the diff, the screenshots or the test data (names, e-mail addresses, application records)
+
+## Not open to change
+
+The program does not invent facts about the applicant, does not submit what the user has not approved, and does not get
+around a site's protections. A change must leave those as they are.

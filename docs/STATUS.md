@@ -29,6 +29,12 @@ Last updated for 1.0.0 (November 2026). The author uses the program on Windows w
 | Mail tracking with Outlook and generic IMAP | Unit-tested only |
 | Telegram notifications | Chinese: used for real. English: checked for untranslated text, not sent |
 
+## The local server
+
+| Part | Status |
+|---|---|
+| Refusing requests from other websites and foreign `Host` headers | Unit-tested only (requests with the headers a browser would send); not attacked from a real page |
+
 ## AI services
 
 | Part | Status |

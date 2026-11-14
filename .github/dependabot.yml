@@ -1,0 +1,26 @@
+# Dependency updates, once a week, grouped so that a week brings a few pull requests and not thirty.
+# Security updates are separate (a repository setting) and come as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      interface:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions:
+        patterns: ["*"]
