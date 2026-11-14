@@ -262,3 +262,26 @@ def test_location_parsing_is_not_slowed_down_by_hostile_text():
     countries_of("a" + ", " * 20000 + "x")
     countries_of("City" + " " * 40000 + ", Region, CA")
     assert time.time() - t < 2
+
+
+def test_an_application_cut_off_while_being_filled_can_be_started_again(app_env):
+    """The program was closed twice while filling a form. The task is given up - and the application must not go on
+    showing "being filled" for ever."""
+    from autoapply import db, tasks
+    from autoapply.models import Application, Job, Task
+
+    with db.session() as s:
+        for i in (1, 2):
+            j = Job(source="manual", source_id=f"cut{i}", company="Acme", title="Engineer", apply_url=f"https://jobs.example.test/{i}", jd_text="x")
+            s.add(j)
+            s.flush()
+            s.add(Application(job_id=j.id, status="executing"))
+        s.flush()
+        a1, a2 = [a.id for a in s.query(Application).order_by(Application.id)]
+        s.add(Task(kind="execute", ref=f"application:{a1}", status="running", attempts=2, payload={}))   # interrupted for the second time
+        s.add(Task(kind="execute", ref=f"application:{a2}", status="running", attempts=1, payload={}))   # first time: it is run again
+    tasks.recover()
+    with db.session() as s:
+        assert s.get(Application, a1).status == "failed" and "中断" in s.get(Application, a1).last_event
+        assert s.get(Application, a2).status == "executing"
+        assert {t.ref: t.status for t in s.query(Task)} == {f"application:{a1}": "failed", f"application:{a2}": "queued"}

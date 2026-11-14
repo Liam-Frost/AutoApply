@@ -143,6 +143,15 @@ def recover() -> None:
             t.status = "queued" if t.attempts < 2 else "failed"
             if t.status == "failed":
                 t.error = "interrupted twice"
+        s.flush()
+        # An application whose filling was cut off and will not be taken up again is not "being filled": say so, so that
+        # it can be started again instead of showing "filling in" for ever.
+        from .models import Application
+
+        waiting = {t.ref for t in s.query(Task).filter(Task.kind == "execute", Task.status.in_(("queued", "running")))}
+        for a in s.query(Application).filter_by(status="executing"):
+            if f"application:{a.id}" not in waiting:
+                a.status, a.last_event = "failed", "填写被中断（程序在填写途中被关闭），可以重新开始"
 
 
 def retry(task_id: int) -> None:
