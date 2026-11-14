@@ -40,7 +40,7 @@ dependencies = [
     # Web GUI
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
-    "python-multipart>=0.0.20",
+    "python-multipart>=0.0.31",
     # Cache (Phase 12). redis-py 5.x has the unified sync + asyncio
     # client; we use the sync client here because the cache layer
     # is consumed from sync call sites (`generate_text`, `embed_text`).
