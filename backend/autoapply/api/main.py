@@ -46,15 +46,14 @@ async def lifespan(app: FastAPI):
         from .. import metering as _metering
 
         _metering.import_legacy()
-        try:      # applications a confirmation was read for while the program took them for unsent; cards of applications that are sent
-            from .. import lifecycle as _lifecycle
-            from .. import mail as _mail
-
-            _mail.reconcile()
-            _lifecycle.settle_all()
-        except Exception:  # noqa: BLE001 - never a reason not to start
-            logging.getLogger("autoapply").exception("could not settle sent applications")
         db.set_setting("migrated.llm_runs", True)
+    try:      # every start: confirmations read while an application was taken for unsent; cards of applications that are sent
+        from .. import lifecycle as _lifecycle
+
+        mail.reconcile()
+        _lifecycle.settle_all()
+    except Exception:  # noqa: BLE001 - never a reason not to start
+        logging.getLogger("autoapply").exception("could not settle sent applications")
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
         from ..models import Todo, now
