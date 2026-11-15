@@ -571,6 +571,33 @@ def approve_many(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"approved": done, "errors": errors}
 
 
+@app.post("/api/drafts/batch")
+def drafts_batch(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """One action for several drafts that wait for approval: "withdraw" (not applying after all) or "rebuild" (read the
+    form and write the draft again). Approving several is /api/drafts/approve."""
+    action = body.get("action")
+    if action not in ("withdraw", "rebuild"):
+        raise HTTPException(400, "unsupported action")
+    done, errors = [], {}
+    for i in body.get("ids", []):
+        try:
+            with db.session() as s:
+                d = _404(s.get(Draft, int(i)))
+                if d.review_status != "pending":
+                    raise ValueError("这份草案已经处理过")
+                job_id, deadline = d.application.job_id, d.application.job.deadline
+            if action == "withdraw":
+                drafts.reject(int(i), withdraw=True)
+                for kind in ("answer", "submit", "failed"):
+                    notify.close_todos(kind, f"draft:{int(i)}")
+            else:
+                tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))
+            done.append(i)
+        except (ValueError, HTTPException) as e:
+            errors[str(i)] = str(getattr(e, "detail", e))
+    return {"done": done, "errors": errors}
+
+
 @app.post("/api/drafts/{draft_id}/reject")
 def reject_draft(draft_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     drafts.reject(draft_id, withdraw=bool(body.get("withdraw")))

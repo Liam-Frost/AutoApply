@@ -132,6 +132,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - A document a form kept from an earlier application - another résumé, cover letter or transcript than the one for
   this application - is removed and replaced by the current one instead of being sent along with it.
 
+- The drafts page: select all or any drafts and approve them, have them rebuilt, or drop the postings in one go; the
+  version has its own column; and a draft shows one state in plain words (the second, internal one beside it is gone).
+- The analysis page has "last 7 days" and "today" (the local calendar day).
+
 ### Security
 
 - The route that serves the interface could be made to return files outside its folder with an address such as

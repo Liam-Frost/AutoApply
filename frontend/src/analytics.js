@@ -42,7 +42,11 @@ export function change(cur, prev) {
 // A range chosen in the page head -> query string
 export function rangeQuery(range, extra = {}) {
   const q = new URLSearchParams()
-  if (range.mode === 'custom') { if (range.start) q.set('start', range.start); if (range.end) q.set('end', range.end) } else if (+range.mode) q.set('days', range.mode)
+  if (range.mode === 'custom') { if (range.start) q.set('start', range.start); if (range.end) q.set('end', range.end) }
+  else if (range.mode === 'today') {      // the local calendar day, not the last 24 hours
+    const d = new Date(); const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    q.set('start', day); q.set('end', day)
+  } else if (+range.mode) q.set('days', range.mode)
   for (const [k, v] of Object.entries(extra)) if (v !== '' && v != null) q.set(k, v)
   const s = q.toString()
   return s ? '?' + s : ''

@@ -30,8 +30,8 @@ def settle(application_id: int) -> dict[str, int]:
         if a is None or a.status not in SENT:
             return closed
         job = a.job
-        if a.submitted_at is None:
-            a.submitted_at = now()
+        # (When it was sent is set by whoever knows - the run that submitted, the mail that confirmed. An application that
+        # was sent at an unknown time keeps no date: giving it "now" once dated 59 old applications to one afternoon.)
         if job is not None and job.status not in ("applied", "closed"):
             job.status = "applied"
         draft_ids = [d.id for d in a.drafts]
