@@ -467,11 +467,6 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .kpi .l { color: var(--text-2); font-size: var(--fs-sm); margin-top: 2px; }
 .kpi .d { color: var(--text-3); font-size: var(--fs-xs); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .kpi[title] .l::after { content: " ⓘ"; color: var(--text-3); font-size: 11px; }
-/* cards sized by what is in them: a grid of twelve, rows that do not stretch their neighbours */
-.an-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--s4); align-items: start; margin-bottom: var(--s4); }
-.an-grid > .card { margin: 0; min-width: 0; }
-.an-grid > .w4 { grid-column: span 4; } .an-grid > .w5 { grid-column: span 5; } .an-grid > .w6 { grid-column: span 6; } .an-grid > .w7 { grid-column: span 7; }
-.an-grid > .w8 { grid-column: span 8; } .an-grid > .w12 { grid-column: span 12; }
 .card-sub { color: var(--text-2); font-size: var(--fs-xs); margin: 2px 0 var(--s3); }
 .card-head { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
 .card-head .card-title { flex: 1; min-width: 0; }
@@ -485,7 +480,7 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .legend > button:hover { background: transparent; color: var(--text); } .legend > button.off { opacity: 0.45; text-decoration: line-through; }
 .legend i { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
 .legend b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
-.legend.rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; }
+.legend.rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
 /* stacked columns */
 .chart.stack .col .stackcol { width: min(24px, 70%); display: flex; flex-direction: column-reverse; gap: 2px; justify-content: flex-start; }
 .chart.stack .col .stackcol > i { display: block; width: 100%; min-height: 2px; }
@@ -496,12 +491,10 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .chart .tip.multi .h { font-weight: 650; margin-bottom: 2px; }
 /* compact tables inside cards */
 .an-table { font-size: var(--fs-sm); }
-.an-table th { position: static; background: transparent; padding: 6px 10px; border-bottom: 1px solid var(--border-strong); }
-.an-table td { padding: 8px 10px; vertical-align: middle; }
+.an-table th { position: static; background: transparent; padding: 8px 10px; border-bottom: 1px solid var(--border-strong); vertical-align: bottom; line-height: 1.3; }
+.an-table td { padding: 9px 10px; vertical-align: middle; line-height: 1.4; }
 .an-table .num, .an-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .an-table .name { font-weight: 550; overflow-wrap: anywhere; }
-.an-table td:first-child { min-width: 170px; }
-.an-grid .empty, .an-tight .empty { padding: var(--s4) var(--s3); }
 .an-table .splitbar { height: 8px; min-width: 90px; }
 .an-scroll { overflow-x: auto; }
 .share { display: inline-block; width: 64px; height: 6px; border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; vertical-align: middle; margin-right: 8px; }
@@ -510,7 +503,6 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .figs .v { font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; } .figs .v.na { color: var(--text-3); }
 .figs .k { color: var(--text-2); font-size: var(--fs-xs); }
 .hbars.tight { gap: 8px 12px; } .hbars .fill.bad { background: var(--bad); } .hbars .fill.ok { background: var(--ok); }
-.hbars .lab.wrap { max-width: 230px; white-space: normal; }
 .missed { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 var(--s5); }
 .missed a { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); color: inherit; }
 .missed a:hover { text-decoration: none; } .missed a:hover .main { color: var(--primary); }
@@ -518,6 +510,48 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .skel { height: 120px; border-radius: var(--r-md); background: linear-gradient(90deg, var(--surface-2), var(--neutral-soft), var(--surface-2)); background-size: 200% 100%; animation: skel 1.4s ease-in-out infinite; margin-bottom: var(--s4); }
 @keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
-tr.sub-row > td { background: var(--surface-2); padding: 10px 14px; }
-@media (max-width: 1100px) { .an-grid > .w4, .an-grid > .w5, .an-grid > .w6, .an-grid > .w7, .an-grid > .w8 { grid-column: span 12; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .kpis { grid-template-columns: 1fr; } .hbars .lab.wrap { max-width: 150px; } .missed { grid-template-columns: 1fr; } }
+
+/* Rows of cards. The page is a column of rows; a row is as tall as its content needs and its cards share that height,
+   so tops and bottoms line up within a row and rows differ from each other. The layout decides the widths (.c11 one to
+   one, .c32 three to two, .c21 two to one); a card only holds its content. Nothing has a fixed height, and a chart keeps
+   its own height when its card is stretched: what is left over sits above the card's footer. Widths are judged against
+   the page's own width (a container query), not the window's, so the side bar does not matter. */
+.an-view { container-type: inline-size; }
+.an-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-items: stretch; margin-bottom: var(--s4); }
+.an-row.c11 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.an-row.c32 { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.an-row.c21 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.an-row > .card { margin: 0; min-width: 0; display: flex; flex-direction: column; }
+.an-row > .an-detail { grid-column: 1 / -1; }
+.card-foot { margin-top: auto; padding-top: var(--s3); display: flex; gap: var(--s2) var(--s3); align-items: center; flex-wrap: wrap; }
+.card-foot .hint { flex: 1; min-width: 180px; }
+.an-view .empty { padding: var(--s4) var(--s3); }
+@container (max-width: 1040px) { .an-row.c21, .an-row.c32 { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 900px) { .an-row.c11 { grid-template-columns: minmax(0, 1fr); } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 520px) { .kpis { grid-template-columns: minmax(0, 1fr); } .missed { grid-template-columns: minmax(0, 1fr); } .hbars.even { --lab: 6.5em; } }
+/* detail: opened below the row it belongs to, across the whole page width - never inside an overview card */
+.an-detail { border-color: var(--border-strong); }
+.an-fade-enter-active, .an-fade-leave-active { transition: opacity 0.16s ease, transform 0.16s ease; }
+.an-fade-enter-from, .an-fade-leave-to { opacity: 0; transform: translateY(-4px); }
+@media (prefers-reduced-motion: reduce) { .an-fade-enter-active, .an-fade-leave-active { transition: none; } }
+.pager { display: flex; gap: var(--s2); align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: var(--s3); }
+.pager .where { margin-right: auto; color: var(--text-2); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.drawer.wide { width: min(980px, 100vw); }
+.drawer-head { display: flex; gap: var(--s2); align-items: flex-start; margin-bottom: var(--s3); }
+.drawer-head h3 { margin: 0; font-size: var(--fs-xl); }
+/* bars whose labels, tracks and figures line up from row to row and from card to card */
+.hbars.even { grid-template-columns: var(--lab, 8.5em) minmax(0, 1fr) var(--numw, 5.6em); }
+.hbars.even .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbars.even .lab.two { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+/* tables */
+.an-table .name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.an-table .one { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.an-table td.grow, .an-table th.grow { width: 99%; min-width: 150px; max-width: 0; }
+.an-table td.note { max-width: 260px; }
+.an-table tr.clickable:focus-visible td { background: var(--surface-2); }
+.sharecell { display: flex; align-items: center; gap: 10px; }
+.sharecell .share { flex: 1; width: auto; min-width: 60px; margin: 0; }
+.sharecell .pc { width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.card-head .seg button svg { width: 14px; height: 14px; }
+.legend.rows.single { grid-template-columns: minmax(0, 1fr); }
+.figs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -2,35 +2,56 @@
 // Automation: what the program's tasks did. A task that is "done" has not always succeeded - a filling task is done
 // when it has handed the form over - so the outcome is shown in three groups: done, not finished (your move, or still
 // running), failed.
-import { computed, reactive, ref } from 'vue'
+// The overview stays compact: the numbers behind the chart open in a panel below its row, the full list of runs and
+// the detail of one run open in a drawer.
+import { computed, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../../api'
-import { change, compact, dur, money, ms, pct } from '../../analytics'
+import { change, compact, dur, money, pct, rangeQuery } from '../../analytics'
+import DetailPanel from '../../components/DetailPanel.vue'
 import EmptyState from '../../components/EmptyState.vue'
+import Icon from '../../components/Icon.vue'
+import Pager from '../../components/Pager.vue'
+import SeriesTable from '../../components/SeriesTable.vue'
+import SideDrawer from '../../components/SideDrawer.vue'
 import SplitBar from '../../components/SplitBar.vue'
 import StackChart from '../../components/StackChart.vue'
+import RunDetail from './RunDetail.vue'
 
-const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, required: true } })
+const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, required: true }, range: { type: Object, required: true } })
 const t = computed(() => props.d.total)
 const SERIES = [{ key: 'success', label: '完成', color: 'var(--ok)' }, { key: 'unfinished', label: '没做完（等你，或还在跑）', color: 'var(--warn)' }, { key: 'failed', label: '失败', color: 'var(--bad)' }]
 const trend = computed(() => props.d.trend.map((b) => ({ key: b.key, label: b.label, tip: b.key, values: { success: b.success, unfinished: b.unfinished, failed: b.failed } })))
 const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color: 'var(--ok)' }, { key: 'unfinished', label: '没做完', value: k.unfinished, color: 'var(--warn)' },
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
+const count = (v) => String(Math.round(v))
 const maxReason = computed(() => Math.max(1, ...props.d.reasons.map((r) => r.n)))
 const maxStage = computed(() => Math.max(1, ...props.d.stages.map((r) => r.n)))
 const TONE = { success: 'ok', handed: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '' }
 const unfinishedTip = computed(() => `填好等你提交 ${t.value.handed}，等你处理（登录、验证码）${t.value.waiting}，改为可见窗口重跑 ${t.value.rerun}，进行中 ${t.value.running}`)
+const TITLE = { day: '每天跑了多少', week: '每周跑了多少', month: '每个月跑了多少' }
 
-// drill-down: the model requests of one task
-const open = reactive({ id: null, rows: null, error: '' })
-async function toggle(r) {
-  if (open.id === r.id) { open.id = null; return }
-  Object.assign(open, { id: r.id, rows: null, error: '' })
-  try { open.rows = (await api.get('/analytics/ai/requests?task_id=' + r.id)).requests } catch (e) { open.error = e.message }
+const table = ref(false)        // the numbers behind the chart, in a panel below the row
+
+// the drawer: the full list of runs (a page at a time, from the server), or one run
+const SIZE = 15
+const drawer = reactive({ open: false, run: null, fromList: false, outcome: '', page: 0, total: 0, rows: null, error: '' })
+let seq = 0
+async function loadList() {
+  const mine = ++seq
+  drawer.error = ''
+  try {
+    const r = await api.get('/analytics/automation/runs' + rangeQuery(props.range, { kind: props.params.kind, outcome: drawer.outcome, offset: drawer.page * SIZE, limit: SIZE }))
+    if (mine === seq) Object.assign(drawer, { rows: r.rows, total: r.total })
+  } catch (e) { if (mine === seq) drawer.error = e.message || '没有读到数据' }
 }
-const all = ref(false)       // the list of executions starts short
-const recent = computed(() => (all.value ? props.d.recent : props.d.recent.slice(0, 12)))
-const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '超时', rate_limited: '额度或限流', unavailable: '服务不可用', unknown: '没有记录' }
+function openList() { Object.assign(drawer, { open: true, run: null, fromList: false, outcome: '', page: 0, rows: null }); loadList() }
+function openRun(r, fromList = false) { Object.assign(drawer, { open: true, run: r, fromList }) }
+function close() { drawer.open = false; drawer.run = null }
+watch(() => [drawer.page, drawer.outcome], () => { if (drawer.open && !drawer.run) loadList() })
+// another range or another kind of task: what the drawer shows would be out of date
+watch(() => [props.d, props.params.kind], close)
+const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
 </script>
 
 <template>
@@ -49,18 +70,21 @@ const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '
       <AaSelect v-model="params.kind" small><option value="">全部任务</option><option v-for="k in d.kinds" :key="k.kind" :value="k.kind">{{ k.label }}</option></AaSelect>
     </div>
 
-    <div class="an-grid">
-      <div class="card w7">
-        <div class="card-title">{{ { day: '每天跑了多少', week: '每周跑了多少', month: '每个月跑了多少' }[d.bucket] }}</div>
-        <p class="card-sub">按任务开始的日期（本地时间）</p>
-        <StackChart :buckets="trend" :series="SERIES" :format="(v) => String(Math.round(v))" table-label="日期" />
+    <div class="an-row c32">
+      <div class="card">
+        <div class="card-title">{{ TITLE[d.bucket] }}</div>
+        <p class="card-sub">按任务开始的日期（本地时间）。点图例可以把一项拿掉。</p>
+        <StackChart :buckets="trend" :series="SERIES" :format="count" :height="190" />
+        <div class="card-foot">
+          <button class="ghost sm" :aria-expanded="table" @click="table = !table"><Icon :name="table ? 'chevron_up' : 'table'" />{{ table ? '收起明细' : '查看数据表格' }}</button>
+        </div>
       </div>
-      <div class="card w5">
+      <div class="card">
         <div class="card-title">失败的原因</div>
         <p class="card-sub">这段时间 {{ t.failed + t.interrupted }} 次失败，按原因归并</p>
-        <div v-if="d.reasons.length" class="hbars tight">
+        <div v-if="d.reasons.length" class="hbars tight even" style="--lab: 55%; --numw: 2em">
           <template v-for="r in d.reasons" :key="r.reason">
-            <span class="lab wrap">{{ r.reason }}</span>
+            <span class="lab two" :title="r.reason + '（' + r.kinds.join('、') + '）'">{{ r.reason }}</span>
             <div class="track"><div class="fill bad" :style="{ width: pct(r.n, maxReason) + '%' }"></div></div>
             <span class="num">{{ r.n }}</span>
           </template>
@@ -68,16 +92,21 @@ const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '
         <EmptyState v-else icon="check" title="这段时间没有失败的任务" />
         <template v-if="d.stages.length">
           <div class="card-title" style="margin-top: 18px; font-size: var(--fs-md)">失败时做到了哪一步</div>
-          <div class="hbars tight" style="margin-top: 10px">
+          <div class="hbars tight even" style="margin-top: 10px; --lab: 55%; --numw: 2em">
             <template v-for="r in d.stages" :key="r.stage">
-              <span class="lab">{{ r.stage }}</span>
+              <span class="lab" :title="r.stage">{{ r.stage }}</span>
               <div class="track"><div class="fill bad" :style="{ width: pct(r.n, maxStage) + '%' }"></div></div>
               <span class="num">{{ r.n }}</span>
             </template>
           </div>
-          <p class="hint" style="margin-top: 10px">步骤从这个版本开始记录；之前的任务只有填表有步骤，其余显示为“没有记录到哪一步”。</p>
+          <div class="card-foot"><span class="hint">步骤从这个版本开始记录；之前的任务只有填表有步骤，其余显示为“没有记录到哪一步”。</span></div>
         </template>
       </div>
+      <Transition name="an-fade">
+        <DetailPanel v-if="table" :title="TITLE[d.bucket]" sub="和上面的图是同一份数据，最新的在前。" @close="table = false">
+          <SeriesTable :buckets="trend" :series="SERIES" :format="count" />
+        </DetailPanel>
+      </Transition>
     </div>
 
     <div class="card">
@@ -85,12 +114,12 @@ const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '
       <p class="card-sub">耗时取完成和失败的任务的中位数；AI 成本是这类任务的全部花费（失败的也算），除以完成的次数。</p>
       <div class="an-scroll">
         <table class="an-table">
-          <thead><tr><th>任务</th><th class="num">次数</th><th style="min-width: 150px">结果</th><th class="num">成功率</th><th class="num">通常耗时</th><th class="num">重启过</th><th class="num">AI 请求</th><th class="num">AI 成本</th><th class="num">每次完成的成本</th></tr></thead>
+          <thead><tr><th class="grow">任务</th><th class="num">次数</th><th style="min-width: 190px">结果</th><th class="num">成功率</th><th class="num">通常耗时</th><th class="num">重启过</th><th class="num">AI 请求</th><th class="num">AI 成本</th><th class="num">每次完成的成本</th></tr></thead>
           <tbody>
             <tr v-for="k in d.by_kind" :key="k.kind">
-              <td class="name">{{ k.label }}</td>
+              <td class="grow"><span class="name" :title="k.label">{{ k.label }}</span></td>
               <td class="num">{{ k.total }}</td>
-              <td><SplitBar :parts="parts(k)" :legend="false" /><div class="small muted" style="margin-top: 3px">{{ k.success }} 完成 · {{ k.unfinished }} 没做完 · {{ k.failed + k.interrupted }} 失败</div></td>
+              <td><SplitBar :parts="parts(k)" :legend="false" /><div class="small muted nowrap" style="margin-top: 4px">{{ k.success }} 完成 · {{ k.unfinished }} 没做完 · {{ k.failed + k.interrupted }} 失败</div></td>
               <td class="num">{{ rate(k.success_rate) }}</td>
               <td class="num" :title="k.waits_for_you ? '交给你提交的那几次不算在内：它们的时长里有等你操作的时间' : ''">{{ dur(k.median_s) }}</td>
               <td class="num">{{ k.retried }}</td>
@@ -108,52 +137,26 @@ const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '
     </div>
 
     <div class="card">
-      <div class="card-title">最近的执行</div>
-      <p class="card-sub">点一行看它用到的每一次模型请求。</p>
+      <div class="card-head"><span class="card-title">最近的执行</span>
+        <button v-if="d.recent_total > d.recent.length" class="ghost sm" @click="openList"><Icon name="table" />查看全部 {{ d.recent_total }} 次</button></div>
+      <p class="card-sub">最近 {{ d.recent.length }} 次。点一行看它用到的每一次模型请求。</p>
       <div class="an-scroll">
         <table class="an-table">
-          <thead><tr><th>任务</th><th>开始</th><th>结果</th><th class="num">耗时</th><th class="num">AI 请求</th><th class="num">Token</th><th class="num">AI 成本</th><th>没完成的原因</th></tr></thead>
+          <thead><tr><th class="grow">任务</th><th>开始</th><th>结果</th><th class="num">耗时</th><th class="num">AI 请求</th><th class="num">Token</th><th class="num">AI 成本</th><th>没完成的原因</th></tr></thead>
           <tbody>
-            <template v-for="r in recent" :key="r.id">
-              <tr class="clickable" @click="toggle(r)">
-                <td><div class="name">{{ r.label }}</div><div v-if="r.subject" class="small muted">{{ r.subject }}</div></td>
-                <td class="nowrap">{{ fmt(r.at) }}</td>
-                <td><span class="badge" :class="TONE[r.outcome]">{{ r.outcome_label }}</span></td>
-                <td class="num">{{ dur(r.duration_s) }}</td>
-                <td class="num">{{ r.requests || '—' }}</td>
-                <td class="num">{{ r.tokens ? compact(r.tokens) : '—' }}</td>
-                <td class="num">{{ r.requests ? money(r.cost, r.cost_partial && r.cost != null) : '—' }}</td>
-                <td><span v-if="r.reason">{{ r.reason }}</span><div v-if="r.stage && r.reason" class="small muted">停在：{{ r.stage }}</div></td>
-              </tr>
-              <tr v-if="open.id === r.id" class="sub-row">
-                <td colspan="8">
-                  <div v-if="open.error" class="err">{{ open.error }}</div>
-                  <div v-else-if="!open.rows" class="muted small">正在读取…</div>
-                  <div v-else-if="!open.rows.length" class="muted small">这次执行没有用到模型。</div>
-                  <table v-else class="an-table">
-                    <thead><tr><th>功能</th><th>模型</th><th>状态</th><th class="num">轮数</th><th class="num">输入</th><th class="num">缓存读取</th><th class="num">缓存写入</th><th class="num">输出</th><th class="num">耗时</th><th class="num">成本</th></tr></thead>
-                    <tbody>
-                      <tr v-for="q in open.rows" :key="q.id">
-                        <td>{{ q.legacy ? '改造前的合计' : q.label }}<span v-if="q.attempt" class="badge" style="margin-left: 6px">备用服务第 {{ q.attempt }} 次</span></td>
-                        <td><span data-notr>{{ q.model || '没有记录' }}</span><div class="small muted">{{ q.provider_label }}</div></td>
-                        <td><span class="badge" :class="q.status === 'ok' ? 'ok' : q.status === 'unknown' ? '' : 'bad'" :title="q.error">{{ STATUS[q.status] || q.status }}</span></td>
-                        <td class="num">{{ q.turns }}</td>
-                        <td class="num">{{ q.input == null ? '—' : compact(q.input) }}</td>
-                        <td class="num">{{ q.cache_read == null ? '—' : compact(q.cache_read) }}</td>
-                        <td class="num">{{ q.cache_write == null ? '—' : compact(q.cache_write) }}</td>
-                        <td class="num">{{ q.output == null ? '—' : compact(q.output) }}</td>
-                        <td class="num">{{ ms(q.latency_ms) }}</td>
-                        <td class="num">{{ money(q.cost) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-            </template>
+            <tr v-for="r in d.recent" :key="r.id" class="clickable" tabindex="0" @click="openRun(r)" @keydown.enter="openRun(r)">
+              <td class="grow"><span class="one" style="font-weight: 550">{{ r.label }}</span><span v-if="r.subject" class="one small muted" :title="r.subject">{{ r.subject }}</span></td>
+              <td class="nowrap">{{ fmt(r.at) }}</td>
+              <td><span class="badge" :class="TONE[r.outcome]">{{ r.outcome_label }}</span></td>
+              <td class="num">{{ dur(r.duration_s) }}</td>
+              <td class="num">{{ r.requests || '—' }}</td>
+              <td class="num">{{ r.tokens ? compact(r.tokens) : '—' }}</td>
+              <td class="num">{{ r.requests ? money(r.cost, r.cost_partial && r.cost != null) : '—' }}</td>
+              <td class="note"><span v-if="r.reason" class="one" :title="r.stage ? `${r.reason}（停在：${r.stage}）` : r.reason">{{ r.reason }}</span><span v-else class="muted">—</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
-      <button v-if="d.recent.length > 12" class="ghost sm" style="margin-top: 8px" @click="all = !all">{{ all ? '收起' : `再看 ${d.recent.length - 12} 次` }}</button>
     </div>
   </template>
   <div v-else class="card">
@@ -161,4 +164,34 @@ const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '
       <button v-if="params.kind" @click="params.kind = ''">看全部任务</button>
     </EmptyState>
   </div>
+
+  <SideDrawer v-if="drawer.open && drawer.run" :title="drawer.run.label" :sub="drawer.run.subject" :back="drawer.fromList ? '返回列表' : ''" @close="close" @back="drawer.run = null">
+    <RunDetail :run="drawer.run" />
+  </SideDrawer>
+  <SideDrawer v-else-if="drawer.open" title="全部执行" :sub="`共 ${drawer.total} 次，最新的在前。时间范围和任务类型跟着页面上的选择。`" @close="close">
+    <div class="an-bar" style="margin-bottom: 12px">
+      <div class="seg"><button v-for="[k, l] in [['', '全部'], ['success', '完成'], ['unfinished', '没做完'], ['failed', '失败']]" :key="k" :class="{ on: drawer.outcome === k }" @click="pickOutcome(k)">{{ l }}</button></div>
+    </div>
+    <div v-if="drawer.error" class="err">{{ drawer.error }}</div>
+    <div v-else-if="!drawer.rows" class="skel" style="height: 200px"></div>
+    <EmptyState v-else-if="!drawer.rows.length" icon="activity" title="没有符合条件的执行" />
+    <template v-else>
+      <div class="an-scroll">
+        <table class="an-table">
+          <thead><tr><th class="grow">任务</th><th>开始</th><th>结果</th><th class="num">耗时</th><th class="num">AI 请求</th><th class="num">AI 成本</th></tr></thead>
+          <tbody>
+            <tr v-for="r in drawer.rows" :key="r.id" class="clickable" tabindex="0" @click="openRun(r, true)" @keydown.enter="openRun(r, true)">
+              <td class="grow"><span class="one" style="font-weight: 550">{{ r.label }}</span><span v-if="r.subject" class="one small muted" :title="r.subject">{{ r.subject }}</span></td>
+              <td class="nowrap">{{ fmt(r.at) }}</td>
+              <td><span class="badge" :class="TONE[r.outcome]">{{ r.outcome_label }}</span></td>
+              <td class="num">{{ dur(r.duration_s) }}</td>
+              <td class="num">{{ r.requests || '—' }}</td>
+              <td class="num">{{ r.requests ? money(r.cost, r.cost_partial && r.cost != null) : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <Pager v-model:page="drawer.page" :size="SIZE" :total="drawer.total" />
+    </template>
+  </SideDrawer>
 </template>

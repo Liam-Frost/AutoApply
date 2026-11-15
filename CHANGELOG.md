@@ -25,6 +25,10 @@ change against the period before where there is one to compare with.
   spent, failed runs included, over what it produced); what failures, retries on a backup service and repeated runs
   cost; and the runs and requests far above the others of their kind (by Tukey's fence, not a made-up threshold).
 
+The cards of a row share its height, so tops and bottoms line up; rows are as tall as their content. Detail never
+grows an overview card: the numbers behind a chart open in a panel below its row, across the page; the full list of
+runs, a single run with its model requests, and the price editor open in a drawer; long tables are paged.
+
 ### Recording what the AI costs
 
 - Every request to an AI service is recorded: service, model, the feature and the task that asked, how long it took,

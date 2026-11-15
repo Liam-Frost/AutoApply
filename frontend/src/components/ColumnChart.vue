@@ -8,6 +8,7 @@ const props = defineProps({
   height: { type: Number, default: 150 },
   unit: { type: String, default: '' },
   tableLabel: { type: String, default: '项目' },
+  table: { type: Boolean, default: true },     // the "as a table" fold-out underneath; off where the page offers its own table view
 })
 const max = computed(() => Math.max(1, ...props.data.map((d) => d.value)))
 const top = computed(() => { const m = max.value; const step = m <= 5 ? 1 : m <= 10 ? 2 : m <= 30 ? 5 : m <= 60 ? 10 : 20; return Math.ceil(m / step) * step })
@@ -29,7 +30,7 @@ const every = computed(() => Math.ceil(props.data.length / 6))
       </div>
     </div>
     <div class="xaxis"><span v-for="(d, i) in data" :key="i">{{ i % every === 0 || i === data.length - 1 ? d.label : '' }}</span></div>
-    <details class="tech">
+    <details v-if="table" class="tech">
       <summary>用表格看</summary>
       <table style="margin-top: 6px"><thead><tr><th>{{ tableLabel }}</th><th>数量</th></tr></thead>
         <tbody><tr v-for="(d, i) in data" :key="i"><td>{{ d.tip || d.label }}</td><td>{{ d.value }}{{ unit }}</td></tr></tbody></table>

@@ -293,6 +293,28 @@ def _bucket_fn(w: Window, firsts: list[datetime], bucket: str = "") -> tuple[str
     return size, key
 
 
+def _run_row(r: dict[str, Any], ai: dict[int, dict[str, Any]], subject: str) -> dict[str, Any]:
+    """One run as the page lists it."""
+    a = ai.get(r["id"])
+    return {"id": r["id"], "kind": r["kind"], "label": metering.workflow_label(r["kind"]), "subject": subject, "at": r["at"].isoformat(), "outcome": r["outcome"],
+            "outcome_label": OUTCOMES[r["outcome"]], "duration_s": r["duration"], "attempts": r["attempts"], "reason": r["reason"], "stage": stage_label(r["stage"]) if r["stage"] else "",
+            "requests": a["requests"] if a else 0, "tokens": a["tokens"] if a else 0, "cost": (a["cost"] if a["priced"] else None) if a else None,
+            "cost_partial": bool(a["unknown"]) if a else False, "ref": r["ref"]}
+
+
+def runs(w: Window, *, kind: str = "", outcome: str = "", offset: int = 0, limit: int = 15) -> dict[str, Any]:
+    """The runs of the window, newest first, a page at a time (the list behind "show all" on the automation view)."""
+    group = {"success": ("success",), "unfinished": UNFINISHED, "failed": ("failed", "interrupted")}.get(outcome)
+    limit = max(1, min(int(limit or 15), 100))
+    with db.session() as s:
+        rows = [r for r in _task_rows(s, w) if (not kind or r["kind"] == kind) and (group is None or r["outcome"] in group)]
+        rows.sort(key=lambda r: (r["at"], r["id"]), reverse=True)
+        page = rows[max(0, int(offset or 0)):][:limit]
+        ai = _ai_by_task(s, [r["id"] for r in page])
+        out = [_run_row(r, ai, humanize.subject(r["ref"])) for r in page]
+    return {"total": len(rows), "offset": max(0, int(offset or 0)), "limit": limit, "rows": out}
+
+
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     """What the program's tasks did in the window (by the day a task started)."""
     with db.session() as s:
@@ -301,7 +323,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         ai = _ai_by_task(s, [r["id"] for r in rows])
         kinds = sorted({r["kind"] for r in rows}, key=lambda k: -sum(1 for r in rows if r["kind"] == k))
         shown = [r for r in rows if not kind or r["kind"] == kind]
-        recent = sorted(shown, key=lambda r: r["at"], reverse=True)[:60]
+        recent = sorted(shown, key=lambda r: (r["at"], r["id"]), reverse=True)[:8]
         subjects = {r["id"]: humanize.subject(r["ref"]) for r in recent}
 
     def counts(rs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -355,11 +377,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         "repeats": {"objects": sum(1 for v in per_obj.values() if v > 1), "extra_runs": sum(v - 1 for v in per_obj.values() if v > 1),
                     "auto_retries": sum(1 for r in shown if r["auto_retry"]), "restarted": sum(1 for r in shown if r["attempts"] > 1)},
         "outcomes": OUTCOMES,
-        "recent": [{"id": r["id"], "kind": r["kind"], "label": metering.workflow_label(r["kind"]), "subject": subjects.get(r["id"], ""), "at": r["at"].isoformat(), "outcome": r["outcome"],
-                    "outcome_label": OUTCOMES[r["outcome"]], "duration_s": r["duration"], "attempts": r["attempts"], "reason": r["reason"], "stage": stage_label(r["stage"]) if r["stage"] else "",
-                    "requests": ai[r["id"]]["requests"] if r["id"] in ai else 0, "tokens": ai[r["id"]]["tokens"] if r["id"] in ai else 0,
-                    "cost": (ai[r["id"]]["cost"] if ai[r["id"]]["priced"] else None) if r["id"] in ai else None,
-                    "cost_partial": bool(ai[r["id"]]["unknown"]) if r["id"] in ai else False, "ref": r["ref"]} for r in recent],
+        "recent": [_run_row(r, ai, subjects.get(r["id"], "")) for r in recent], "recent_total": len(shown),
     }
 
 
@@ -563,7 +581,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
                            "tokens": cost_by_task[tid]["tokens"], "outcome": tasks[tid]["outcome"], "outcome_label": OUTCOMES[tasks[tid]["outcome"]], "at": tasks[tid]["at"].isoformat(),
                            "ref": tasks[tid]["ref"]})
     costly.sort(key=lambda r: -r["cost"])
-    costly = costly[:6]
+    costly = costly[:30]
     per_feature: dict[str, list[Any]] = defaultdict(list)
     for r in live:
         if r.detail != "none":
@@ -584,7 +602,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
         "series": series, "trend": [{**b, "values": dict(b["values"]), "token_values": dict(b["token_values"])} for _, b in sorted(buckets.items())],
         "token_kinds": [{"key": k, "label": lab, "tokens": total["tokens"][k], "cost": kind_cost.get(k) if split_rows else None} for k, lab in TOKEN_KINDS],
         "token_cost_requests": split_rows, "billing_labels": BILLING,
-        "by_model": by_model, "by_provider": by_provider, "by_feature": by_feature, "units": units, "waste": waste, "costly": costly, "heavy": heavy[:5],
+        "by_model": by_model, "by_provider": by_provider, "by_feature": by_feature, "units": units, "waste": waste, "costly": costly, "heavy": heavy[:30],
         "filters": {"providers": opts(lambda r: r.provider, _provider_label), "models": opts(lambda r: r.model, lambda k: k), "features": opts(lambda r: r.feature, metering.feature_label),
                     "provider": provider, "model": model, "feature": feature},
         "pricing": {"version": metering.price_table()["version"], "user": metering.user_prices(),

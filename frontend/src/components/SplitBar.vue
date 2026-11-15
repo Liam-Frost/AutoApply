@@ -8,6 +8,7 @@ const props = defineProps({
   format: { type: Function, default: (v) => String(v) },
   legend: { type: Boolean, default: true },
   rows: { type: Boolean, default: false },      // legend as a grid of rows instead of a wrapped line
+  single: { type: Boolean, default: false },    // ... in one column (a narrow card, or long names)
   share: { type: Boolean, default: true },      // show each part's share of the whole in the legend
 })
 const total = computed(() => props.parts.reduce((a, p) => a + (p.value || 0), 0))
@@ -20,7 +21,7 @@ const pc = (v) => (total.value ? Math.round((v / total.value) * 100) : 0)
     <div class="splitbar" :class="{ empty: !total }">
       <i v-for="p in drawn" :key="p.key" :style="{ flex: p.value + ' 0 0', background: p.color }" :title="`${p.label}：${format(p.value)}（${pc(p.value)}%）`"></i>
     </div>
-    <div v-if="legend" class="legend" :class="{ rows }">
+    <div v-if="legend" class="legend" :class="{ rows: rows || single, single }">
       <span v-for="p in parts" :key="p.key"><i :style="{ background: p.color }"></i>{{ p.label }} <b>{{ format(p.value) }}</b><template v-if="share && total && p.value"> · {{ pc(p.value) }}%</template></span>
     </div>
   </div>

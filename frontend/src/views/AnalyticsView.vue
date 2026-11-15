@@ -73,12 +73,12 @@ const cur = computed(() => state[view.value])
   <div v-if="!ready" class="card"><EmptyState icon="activity" title="选一个开始日期和结束日期" text="两个日期都算在内。" /></div>
   <div v-else-if="cur.error" class="callout bad"><Icon name="alert" /><div><b>这一页的数据没有读出来</b><div class="small">{{ cur.error }}</div><button class="sm" style="margin-top: 8px" @click="load">再试一次</button></div></div>
   <template v-else-if="!cur.data">
-    <div class="kpis"><div v-for="i in 4" :key="i" class="skel" style="height: 84px; margin: 0"></div></div>
+    <div class="kpis" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))"><div v-for="i in 4" :key="i" class="skel" style="height: 84px; margin: 0"></div></div>
     <div class="skel" style="height: 240px"></div>
   </template>
-  <div v-else :style="{ opacity: cur.loading ? 0.55 : 1, transition: 'opacity 0.15s' }" :aria-busy="cur.loading">
+  <div v-else class="an-view" :style="{ opacity: cur.loading ? 0.55 : 1, transition: 'opacity 0.15s' }" :aria-busy="cur.loading">
     <AppsPanel v-if="view === 'apps'" :d="state.apps.data" />
-    <AutoPanel v-else-if="view === 'auto'" :d="state.auto.data" :params="params.auto" />
+    <AutoPanel v-else-if="view === 'auto'" :d="state.auto.data" :params="params.auto" :range="range" />
     <CostPanel v-else :d="state.ai.data" :params="params.ai" @reload="load" />
   </div>
 </template>

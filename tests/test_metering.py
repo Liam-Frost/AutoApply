@@ -233,6 +233,12 @@ def test_the_automation_view_tells_done_from_handed_over_from_failed(app_env):
     only = c.get("/api/analytics/automation?days=30&kind=score").json()
     assert only["total"]["total"] == 1 and only["previous"] is None and len(only["by_kind"]) == 3
     assert len(c.get(f"/api/analytics/ai/requests?task_id={ids['fill']}").json()["requests"]) == 3
+    # the full list behind "show all": a page at a time, newest first, with the same filters
+    page = c.get("/api/analytics/automation/runs?days=30&limit=3").json()
+    assert (page["total"], len(page["rows"]), page["rows"][0]["id"]) == (4, 3, ids["fill"]) and d["recent_total"] == 4
+    assert [r["id"] for r in c.get("/api/analytics/automation/runs?days=30&limit=3&offset=3").json()["rows"]] == [ids["score"]]
+    assert c.get("/api/analytics/automation/runs?days=30&outcome=failed").json()["total"] == 1
+    assert c.get("/api/analytics/automation/runs?days=30&outcome=unfinished&kind=execute").json()["rows"][0]["outcome"] == "handed"
 
 
 def test_the_ai_view_adds_up_and_keeps_unknown_apart_from_zero(app_env):

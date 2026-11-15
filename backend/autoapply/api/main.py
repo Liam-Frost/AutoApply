@@ -1314,6 +1314,14 @@ def analytics_automation(days: int = 0, start: str = "", end: str = "", kind: st
     return an.automation(an.window(days, start, end), kind=kind)
 
 
+@app.get("/api/analytics/automation/runs")
+def analytics_runs(days: int = 0, start: str = "", end: str = "", kind: str = "", outcome: str = "", offset: int = 0, limit: int = 15) -> dict[str, Any]:
+    """The runs of the window, newest first, a page at a time."""
+    from .. import analytics as an
+
+    return an.runs(an.window(days, start, end), kind=kind, outcome=outcome, offset=offset, limit=limit)
+
+
 @app.get("/api/analytics/ai")
 def analytics_ai(days: int = 0, start: str = "", end: str = "", group: str = "model", bucket: str = "", provider: str = "", model: str = "", feature: str = "") -> dict[str, Any]:
     """What the model calls used and cost: by time, model, service and feature, per result, and what failures cost."""

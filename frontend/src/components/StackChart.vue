@@ -1,7 +1,8 @@
 <script setup>
 // Stacked columns over time. buckets: [{ key, label, values: { seriesKey: number } }], series: [{ key, label, color }].
 // One axis, one unit. A legend that also filters (click a series to leave it out), a tooltip with every part and the
-// total, a value only on the tallest column, and the same numbers as a table underneath.
+// total, a value only on the tallest column. The chart has its own height and never grows: the numbers behind it are
+// shown by the page in a detail panel (SeriesTable), not appended here.
 import { computed, ref } from 'vue'
 
 const props = defineProps({
@@ -9,7 +10,6 @@ const props = defineProps({
   series: { type: Array, required: true },
   format: { type: Function, default: (v) => String(v) },
   height: { type: Number, default: 170 },
-  tableLabel: { type: String, default: '时间' },
 })
 const off = ref(new Set())
 const tip = ref(null)
@@ -55,15 +55,5 @@ const tipSide = (i) => (i < props.buckets.length / 2 ? { left: '0', transform: '
     <div v-if="series.length > 1" class="legend">
       <button v-for="s in series" :key="s.key" type="button" :class="{ off: off.has(s.key) }" title="点一下，把这一项从图里拿掉或放回来" @click="toggle(s.key)"><i :style="{ background: s.color }"></i>{{ s.label }}</button>
     </div>
-    <details class="tech">
-      <summary>用表格看</summary>
-      <div class="an-scroll">
-        <table class="an-table" style="margin-top: 6px">
-          <thead><tr><th>{{ tableLabel }}</th><th v-for="s in series" :key="s.key" class="num">{{ s.label }}</th><th v-if="series.length > 1" class="num">合计</th></tr></thead>
-          <tbody><tr v-for="b in buckets" :key="b.key"><td>{{ b.tip || b.label }}</td><td v-for="s in series" :key="s.key" class="num">{{ format(b.values[s.key] || 0) }}</td>
-            <td v-if="series.length > 1" class="num">{{ format(series.reduce((a, s) => a + (b.values[s.key] || 0), 0)) }}</td></tr></tbody>
-        </table>
-      </div>
-    </details>
   </div>
 </template>
