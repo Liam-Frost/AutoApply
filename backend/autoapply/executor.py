@@ -214,6 +214,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         return out
 
     entered_by_agent: set[str] = set()   # approved answers the take-over entered on a step where the driver did not find their control
+    adapted: list[dict[str, Any]] = []   # answers rewritten to fit a limit of the form: shown to the user, kept in the draft
+    limits: dict[str, int] = {}          # question id -> the most characters the form accepts
+    asked: list[dict[str, Any]] = []     # questions the form asks that neither the draft nor the profile answers: they join the draft as open questions
 
     def _apply(rep: dict[str, Any], i: int) -> None:
         """Take the agent's report into the state of this run."""
@@ -225,6 +228,19 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             for a in draft_answers:
                 if a["id"] == m["id"]:
                     a["value"] = m["chosen"]
+        for a in rep.get("adapted") or []:  # the form took the answer only in another shape: from here on that is the answer
+            before = str(fill.get(a["id"], ""))
+            fill[a["id"]] = a["value"]
+            entered_by_agent.add(a["id"])
+            if a.get("max_chars"):
+                limits[a["id"]] = int(a["max_chars"])
+            for row in draft_answers:
+                if row["id"] == a["id"]:
+                    row["value"] = a["value"]
+                    row["basis"] = (f"填表时按表单的限制改写（最多 {a['max_chars']} 个字符；原答案 {len(before)} 个字符）" if a.get("max_chars") else "填表时按表单的要求改写")[:300]
+                    row["confidence"] = "medium"
+            adapted[:] = [x for x in adapted if x["id"] != a["id"]] + [{"id": a["id"], "label": lab.get(a["id"], a["id"]), "approved": before[:600], "entered": a["value"][:600],
+                                                                       "max_chars": a.get("max_chars") or 0, "why": a.get("why", "")}]
         for qid in rep.get("absent") or []:  # not on the form for this applicant's choices: nothing to fill, nothing to verify
             fill.pop(qid, None)
             absent_ids.add(qid)
@@ -236,6 +252,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 added.append({"label": a["label"], "value": a["value"], "basis": a.get("basis") or "", "type": a.get("type") or "text", "page": i})
         for n in rep.get("needs_user") or []:
             _left("fix", n["label"], "", n.get("why") or "资料里没有这一项，需要你来填")
+            if n.get("type") and not any(norm_question(x["label"]) == norm_question(n["label"]) for x in asked):
+                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": n["type"], "options": [str(o) for o in n.get("options") or []][:60], "page": i})
         for qid in rep.get("unfixed") or []:
             _left("fix", lab.get(qid, qid), str(fill.get(qid, ""))[:120], "表单上的选项和草案里的答案对不上，或控件没法自动操作")
         skip_verify.update(rep.get("unfixed") or [])
@@ -320,6 +338,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 step("form_reports", step=n, after="driver", issues=audit.texts(issues)[:12])
             rounds = 0
             told: list[dict[str, Any]] = []     # what a take-over of this step has been shown
+            waits = False                       # a take-over has handed something on this step to the applicant
+            hands = lambda rep: bool(rep and (rep.get("needs_user") or rep.get("unfixed")))  # noqa: E731
+            seen_before = lambda it: audit.describe(it) in {audit.describe(x) for x in told}  # noqa: E731
             if fill_error is not None or issues:
                 failed = list(getattr(fill_error, "failures", [])) if fill_error is not None else []
                 only = [f["id"] for f in failed] if (failed or fill_error is None) else None
@@ -327,6 +348,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 rep = _takeover(n, problem, only, issues, on_ids=ids)
                 rounds += 1
                 told += issues if rep is not None else []
+                waits = waits or hands(rep)
                 if rep is None and fill_error is not None:
                     for f in failed:
                         _left("fix", f["label"], str(fill.get(f["id"], ""))[:120], "没能自动填上")
@@ -350,14 +372,19 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             # 4. the form has the last word on this step
             # (an error text that was already there before the take-over stays on many forms until they are asked again:
             # pressing the forward button below is the test for it, not another take-over)
+            # What a take-over has already been shown and could not settle is not new: asking again finds the same thing.
             still = audit.not_stale(_issues(None), told)
-            fresh = [it for it in still if not _handed(it)]
+            fresh = [it for it in still if not _handed(it) and not seen_before(it)]
             if fresh and rounds < 2 and repair.enabled():
                 step("form_reports", step=n, after="checks", issues=audit.texts(fresh)[:12])
-                if _takeover(n, {"message": "this step was filled and compared with the draft, but the form still reports problems"}, [], fresh, on_ids=ids) is not None:
+                rep = _takeover(n, {"message": "this step was filled and compared with the draft, but the form still reports problems"}, [], fresh, on_ids=ids)
+                if rep is not None:
                     rounds += 1
                     told += fresh
+                    waits = waits or hands(rep)
                     still = audit.not_stale(_issues(None), told)
+            if waits:      # what was handed to the applicant is on the list by its name; the form's raw marks for the same thing are not repeated
+                still = [it for it in still if not seen_before(it)]
             # the last step is where the user submits
             if driver.at_review(page):
                 step("review_step", step=n, title=driver.step_title(page))
@@ -369,20 +396,27 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 step("advance", step=n, how="take-over")
                 continue
             moved, how, why, at_end = driver.forward(page), "button", "", False
-            for _ in range(2 if repair.enabled() else 0):
+            if not moved and waits:      # the step is waiting for an answer only the applicant has: no agent can move it on
+                why = "这一步还有需要你回答的问题"
+            for _ in range(2 if repair.enabled() and not waits else 0):
                 if moved:
                     break
                 # The form refused to go on, and now it says why (many forms report a missing answer only after "Continue"):
                 # one more round of finishing this step, then its own button again.
                 if _over():
                     break
-                blockers = [it for it in _issues(None) if not _handed(it)]
+                blockers = [it for it in _issues(None) if not _handed(it) and not seen_before(it)]
                 if (blockers or why) and rounds < 3:
                     step("form_reports", step=n, after="next", issues=audit.texts(blockers)[:12], seen=why[:200])
                     rounds += 1
                     # what the navigator saw on the page counts like a message of the form, when the form's own marks show nothing
                     seen_there = blockers or [{"kind": "message", "label": "", "message": why[:240], "selector": "", "value": ""}]
-                    if _takeover(n, {"message": "the form does not go on to the next step" + (f": {why}" if why else "")}, [], seen_there, on_ids=ids) is not None:
+                    rep = _takeover(n, {"message": "the form does not go on to the next step" + (f": {why}" if why else "")}, [], seen_there, on_ids=ids)
+                    if rep is not None:
+                        told += seen_there
+                        if hands(rep):       # it is the applicant's to answer: stop here
+                            waits, still = True, [it for it in _issues(None) if not seen_before(it)]
+                            break
                         still = _issues(None)
                         moved = _left_step(title0) or driver.forward(page)
                         if moved:
@@ -557,7 +591,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     browser.snapshot(page, run_dir, "handed_over")
                 if leftovers or mapped or added:
                     step("handed_over", left=[x["label"] for x in leftovers][:20], mapped=[m["label"] for m in mapped][:20], added=[a["label"] for a in added][:20])
-                outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added)
+                outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added, adapted=adapted)
             else:
                 clicked_at = datetime.now(timezone.utc)
                 driver.submit(page)
@@ -614,8 +648,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             app.evidence = outcome.get("evidence", {})
             app.detail = f"submitted {now().date().isoformat()} via {ref.ats}" + (" (auto-approved)" if app.auto_approved else "")
         s.add(Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, dir=str(run_dir)))
-        if mapped or added:
-            _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic)
+        new_questions = 0
+        if mapped or added or adapted or asked:
+            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked) or 0
+    if new_questions and outcome["status"] != "submitted":      # outside the session: SQLite allows one writer at a time
+        names = "\n".join("· " + a["label"][:90] for a in asked[:6])
+        notify.add_todo("answer", title, ref=f"draft:{draft_id}", payload={"draft_id": draft_id},
+                        body=f"填表时遇到 {new_questions} 个资料里没有答案的问题，已加进草案。在草案里回答一次（勾选“记住这个答案”），以后就会自动填：\n{names}")
     if outcome["status"] == "submitted":
         for kind in ("failed", "submit"):  # earlier attempts at this application are settled now
             notify.close_todos(kind, f"application:{application_id}")
@@ -648,12 +687,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
 
 def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], approved_values: dict[str, Any], absent_ids: set[str],
-                  added: list[dict[str, Any]], *, generic: bool) -> None:
+                  added: list[dict[str, Any]], *, generic: bool, limits: dict[str, int] | None = None, asked: list[dict[str, Any]] | None = None) -> int:
     """Write back into the draft what the take-over established, so the next run of it needs no agent:
     the form's own wording for approved answers, and the questions the first reading of the form did not see.
     For explored forms the new questions also join the schema (found by their label), which is what the driver replays."""
     if d is None:
-        return
+        return 0
     rows = []
     for a in draft_answers:
         row = dict(a)
@@ -662,6 +701,9 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
         rows.append(row)
     sch = dict(d.schema)
     questions = [dict(q) for q in sch.get("questions", [])]
+    for q in questions:      # a limit the form showed only after typing: the question remembers it
+        if (limits or {}).get(q.get("id")):
+            q["max_length"] = int(limits[q["id"]])
     for a in added:
         qid = f"@label:{a['label']}"
         row = {"id": qid, "label": a["label"], "type": a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date") else "text", "options": [],
@@ -674,9 +716,26 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
             ans.cache_put(schema.ats, Question(id=qid, label=a["label"], type=row["type"]), a["value"], row["basis"], confirmed=False)
         except Exception:  # noqa: BLE001
             log.debug("answer not cached", exc_info=True)
+    # Questions the form asks that neither the draft nor the profile answers: open questions of the draft from now on.
+    # Answered once in the program, they are filled by their label on the next run (and remembered, if the applicant says so).
+    fresh = 0
+    for a in asked or []:
+        qid = f"@label:{a['label']}"
+        if any(norm_question(r.get("label", "")) == norm_question(a["label"]) for r in rows):
+            continue
+        typ = a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect") else "text"
+        rows.append({"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": True, "page": a["page"], "value": "",
+                     "basis": ("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:300], "confidence": "low", "source": "unresolved",
+                     "sensitive": sensitivity(a["label"]), "sensitive_confirmed": False})
+        if generic and not any(q["id"] == qid for q in questions):
+            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"], locator={"selector": qid}).__dict__)
+        fresh += 1
     sch["questions"] = questions
     d.answers = rows
     d.schema = sch
+    if fresh:
+        d.unresolved = [r for r in rows if r.get("source") == "unresolved" and r.get("required")]
+    return fresh
 
 
 _repair_note: dict[str, str] = {}   # why the last take-over did not happen (shown with the failure)
@@ -781,7 +840,7 @@ def _drift_text(diff: dict[str, Any]) -> str:
 
 def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: int, draft_id: int | None = None, *,
                             leftovers: list[dict[str, str]] | None = None, mapped: list[dict[str, str]] | None = None,
-                            added: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                            added: list[dict[str, Any]] | None = None, adapted: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Manual policy: the form is filled in a visible window; the user clicks Submit."""
     payload: dict[str, Any] = {"draft_id": draft_id} if draft_id else {}
     if leftovers:
@@ -790,12 +849,14 @@ def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: 
         payload["mapped"] = mapped[:30]
     if added:
         payload["added"] = [{"label": a["label"], "value": str(a["value"])[:120], "basis": a.get("basis", "")[:200]} for a in added[:30]]
+    if adapted:
+        payload["adapted"] = [{"label": a["label"], "approved": a["approved"], "entered": a["entered"], "max_chars": a.get("max_chars") or 0} for a in adapted[:30]]
     todo_n = sum(1 for m in leftovers or [] if m.get("kind") in ("fix", "form"))
     look_n = sum(1 for m in leftovers or [] if m.get("kind") == "check")
     if todo_n:
         payload["incomplete"] = True   # the card and the notification must not say "filled"
     parts = [f"还有 {todo_n} 处没填好，需要你在窗口里处理" if todo_n else "", f"{look_n} 项请你看一眼是否填上了" if look_n else "",
-             f"{len(added)} 项是 AI 按你的资料补填的" if added else ""]
+             f"{len(added)} 项是 AI 按你的资料补填的" if added else "", f"{len(adapted)} 项答案按表单的限制改写了，提交前请过目" if adapted else ""]
     notify.close_todos("submit", f"application:{application_id}")  # a fresh card: what is left to do differs from run to run
     notify.add_todo("submit", title, ref=f"application:{application_id}", payload=payload or None, body="；".join(x for x in parts if x))
     code_tried = False

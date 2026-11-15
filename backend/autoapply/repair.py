@@ -57,8 +57,16 @@ Rules:
   Report each one under `added` with its label, the value you entered, and the profile line it comes from. If the
   profile does not state it, or it needs a decision (salary, free-text motivation, a consent beyond the privacy notice and
   terms needed to apply, demographic questions the profile does not answer), do NOT guess: report it under `needs_user`
-  with the label and what is needed.
-- A value the form rejects (an error next to the field): read the message, look at what the form expects, and correct the
+  - ONE entry per question (never one per choice, never the form's error text), with the question's label exactly as the
+  form words it, what is needed, its `type`, and for a choice its `options` word for word. The applicant then answers it
+  once in the program and it is filled from then on.
+- An approved answer the form rejects for its LENGTH or FORMAT ("Text length should be between 0 and 200", "maximum 500
+  characters", "use the format YYYY-MM-DD"): this is yours to solve, not the applicant's. Rewrite the answer so that it
+  fits: keep to what the approved answer says, choose the points that answer the question most directly, add nothing
+  that is not in it, and stay a little under the limit (count the characters). Enter it, check that the form accepts it,
+  and report it under `adapted` with the question's id, the text you entered, the limit you found (`max_chars`) and the
+  form's message. Do not hand such a field to the applicant: they see both versions before anything is submitted.
+- Any other value the form rejects (an error next to the field): read the message, look at what the form expects, and correct the
   entry without changing its meaning - another format, or the right entry of a list. Phone numbers: open the country-code
   list (use `options` with the country's name as search) and choose the entry for the applicant's country calling code;
   the number itself goes in national format without the country code. If the form still rejects it, try the other entry
@@ -119,7 +127,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             files[Path(str(v)).name] = str(v)
             v = f"upload the file {Path(str(v)).name!r}"
         sel = (q.locator or {}).get("selector") or ""
-        return f"- id={q.id} | label={q.label!r} | type={q.type}" + (f" | selector hint={sel}" if sel and not sel.startswith("@") else "") + f" | approved value={v!r}"
+        return (f"- id={q.id} | label={q.label!r} | type={q.type}" + (f" | selector hint={sel}" if sel and not sel.startswith("@") else "")
+                + (f" | the form accepts at most {q.max_length} characters" if getattr(q, "max_length", 0) else "") + f" | approved value={v!r}")
 
     to_fix = [line(q) for q in qs]
     others = [line(q) for q in on_page if q not in qs]
@@ -137,9 +146,18 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
 
     def done(fixed: list[str] | None = None, unfixed: list[str] | None = None, cause: str = "", suggestion: str = "", notes: str = "",
              mapped: list[dict[str, str]] | None = None, absent: list[str] | None = None, added: list[dict[str, str]] | None = None,
-             needs_user: list[dict[str, str]] | None = None) -> str:
+             needs_user: list[dict[str, str]] | None = None, adapted: list[dict[str, Any]] | None = None) -> str:
         ids = {q.id for q in on_page}
         known = ids | {q.id for q in elsewhere}
+        fits = []
+        for a in adapted or []:       # an answer rewritten to fit the form: it has to be a known question, and it has to fit
+            limit = int(a.get("max_chars") or 0)
+            value = str(a.get("value") or "")
+            if a.get("id") not in known or not value.strip():
+                continue
+            if limit and len(value) > limit:
+                return f"NOT ACCEPTED: the adapted answer for {a.get('id')} has {len(value)} characters and the limit you reported is {limit}. Shorten it, enter it, then call done again."
+            fits.append({"id": a["id"], "value": value, "max_chars": limit, "why": str(a.get("why") or "")[:200]})
         now = audit.page_issues(page)
         # once the agent has changed fields, an error text from before is no longer evidence (see audit.not_stale)
         still = audit.texts(audit.not_stale(now, issues) if acted["n"] else now)
@@ -152,7 +170,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         report.update({"fixed": fixed or [], "unfixed": [i for i in unfixed or [] if i in ids], "cause": cause, "suggestion": suggestion, "notes": notes,
                        "mapped": [m for m in mapped or [] if m.get("id") in known and m.get("chosen")], "absent": [i for i in absent or [] if i in ids],
                        "added": [a for a in added or [] if a.get("label") and a.get("value")],
-                       "needs_user": [n for n in needs_user or [] if n.get("label")]})
+                       "needs_user": [n for n in needs_user or [] if n.get("label")], "adapted": fits})
         return "recorded"
 
     st = {"type": "string"}
@@ -162,7 +180,12 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                          {"type": "object", "properties": {"fixed": arr, "unfixed": arr, "cause": st, "suggestion": st, "notes": st, "absent": arr,
                                                            "mapped": {"type": "array", "items": {"type": "object", "properties": {"id": st, "approved": st, "chosen": st},
                                                                                                  "required": ["id", "approved", "chosen"], "additionalProperties": False}},
-                                                           "added": obj("label", "value", "basis", "type"), "needs_user": obj("label", "why")},
+                                                           "added": obj("label", "value", "basis", "type"),
+                                                           "needs_user": {"type": "array", "items": {"type": "object", "properties": {
+                                                               "label": st, "why": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
+                                                               "options": arr}, "required": ["label", "why"], "additionalProperties": False}},
+                                                           "adapted": {"type": "array", "items": {"type": "object", "properties": {"id": st, "value": st, "max_chars": {"type": "integer"}, "why": st},
+                                                                                                  "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
     tools = [t for t in generic.l0_tools(page, run_dir, {}, files=files, finish_tool=done_tool) if t.name != "goto"]
 
@@ -198,10 +221,10 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         json.dumps({"problem": problem, "issues": issues, "report": report, "steps": out.steps}, ensure_ascii=False, default=str)[:400000], encoding="utf-8")
     if not report:
         report = {"fixed": [], "unfixed": [q.id for q in qs], "cause": "", "suggestion": "", "notes": (out.final_text or out.stopped)[:300]}
-    for k in ("mapped", "absent", "added", "needs_user"):
+    for k in ("mapped", "absent", "added", "needs_user", "adapted"):
         report.setdefault(k, [])
-    labels = {q.id: q.label for q in on_page}
-    report["labels"] = {i: labels.get(i, i) for i in [*report["unfixed"], *report["absent"], *[m["id"] for m in report["mapped"]]]}
+    labels = {q.id: q.label for q in [*on_page, *elsewhere]}
+    report["labels"] = {i: labels.get(i, i) for i in [*report["unfixed"], *report["absent"], *[m["id"] for m in report["mapped"]], *[a["id"] for a in report["adapted"]]]}
     report["left"] = audit.page_issues(page)  # the form's verdict after the agent, whatever the agent said
     _learn(schema, page_index, report)
     _propose(schema, page, page_index, problem, report, title=title, ref=ref)
@@ -260,6 +283,9 @@ def _learn(schema: FormSchema, page_index: int, report: dict[str, Any]) -> None:
         lines.append(report["suggestion"].strip())
     for m in report.get("mapped") or []:
         lines.append(f"\"{report['labels'].get(m['id'], m['id'])}\": the form's entry for \"{m['approved']}\" is \"{m['chosen']}\".")
+    for a in report.get("adapted") or []:      # a limit the form only shows after typing: known from now on
+        if a.get("max_chars"):
+            lines.append(f"\"{report['labels'].get(a['id'], a['id'])[:160]}\": the form accepts at most {a['max_chars']} characters; write the answer within that.")
     hidden = [a["label"] for a in report.get("added") or []] + [n["label"] for n in report.get("needs_user") or []]
     if hidden:
         lines.append("Fields that are not there when the form is first read and appear after an answer is chosen (include them when describing the form): "

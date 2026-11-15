@@ -816,3 +816,188 @@ def test_words_of_thanks_on_a_step_of_the_form_are_not_a_submission(app_env, tmp
     monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda driver, page, *a, **kw: (handed.update(city=page.locator("#a").input_value()), {"status": "ready_to_submit", "error": "window closed"})[-1])
     out = executor.execute(app_id, did)
     assert out["status"] == "ready_to_submit" and handed["city"] == "Vancouver"
+
+
+LIMITED = """<form onsubmit="return false">
+  <label for="city">City</label><input id="city" required>
+  <label for="skills">Describe your skills</label>
+  <input id="skills" required aria-describedby="serr" oninput="const bad = this.value.length > 200; this.setAttribute('aria-invalid', bad);
+        document.getElementById('serr').textContent = bad ? 'Text length should be between 0 and 200' : ''"><div id="serr" role="alert"></div>
+  <button type="submit">Submit application</button>
+</form>"""
+
+
+def test_an_answer_the_form_refuses_for_its_length_is_adapted_by_the_take_over_and_remembered(app_env, tmp_path, monkeypatch):
+    """The approved answer is 600 characters and the field takes 200. That is not the applicant's problem: the take-over
+    rewrites it to fit, the applicant is shown both versions, and the draft and the notes for the site keep what was
+    learned - so the same draft goes through without any agent the second time."""
+    from autoapply import config, db, executor, knowledge, llm
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job
+
+    form = tmp_path / "limited.html"
+    form.write_text(LIMITED, encoding="utf-8")
+    knowledge.write("profile", "# Profile\n\n- Skills: C++ at an internship; Linux services; algorithms coursework\n")
+    long = "i) C/C++: built a key storage provider at my internship. " * 11          # about 620 characters
+    q = lambda sel, label: Question(id=sel, label=label, type="text", required=True, locator={"selector": sel})  # noqa: E731
+    schema = FormSchema(ats="generic", tenant="limited.example.test", url=form.as_uri(), source="agent", pages=["Application"], questions=[q("#city", "City"), q("#skills", "Describe your skills")])
+    ref = JobRef(ats="generic", tenant="limited.example.test", job_id="", url=form.as_uri(), host="limited.example.test")
+    row = lambda qq, v: {"id": qq.id, "label": qq.label, "type": "text", "options": [], "required": True, "page": 0, "value": v, "basis": "profile",  # noqa: E731
+                         "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}
+    with db.session() as s:
+        job = Job(source="manual", source_id="lim1", company="Acme", title="Engineer", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="approved")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="approved", answers=[row(schema.questions[0], "Vancouver"), row(schema.questions[1], long)])
+        s.add(d)
+        s.flush()
+        app_id, did = app.id, d.id
+    db.set_setting("repair.enabled", True)
+    short = "C/C++ at an internship (a Windows key storage provider); Linux services; algorithms and complexity from coursework."
+    log = {}
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        log["goal"], log["system"] = goal, system
+        log["too_long"] = t["done"].fn(fixed=[], unfixed=[], cause="c", suggestion="s", adapted=[{"id": "#skills", "value": long[:300], "max_chars": 200}])   # still over the limit
+        t["fill"].fn(selector="#skills", value=short)
+        log["check"] = t["check_form"].fn()
+        log["final"] = t["done"].fn(fixed=["#skills"], unfixed=[], cause="The skills field takes at most 200 characters.", suggestion="Write the skills answer within 200 characters.",
+                                    adapted=[{"id": "#skills", "value": short, "max_chars": 200, "why": "Text length should be between 0 and 200"}])
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    handed = {}
+
+    def user_window(driver, page, title, application_id, draft_id=None, **kw):
+        handed.update(kw)
+        handed["skills"] = page.locator("#skills").input_value()
+        return {"status": "ready_to_submit", "error": "window closed"}
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", user_window)
+    executor.execute(app_id, did)
+
+    # the agent was told what the form says, and its rules make the rewrite its job
+    assert "Text length should be between 0 and 200" in log["goal"] and "LENGTH or FORMAT" in log["system"] and "Never invent or alter" not in log["system"]
+    assert log["too_long"].startswith("NOT ACCEPTED") and "300 characters" in log["too_long"]      # an "adapted" answer that does not fit is not accepted
+    assert log["check"] == "The form reports no problem." and log["final"] == "recorded"
+    # nothing is left for the applicant to fill; they are shown what was changed, old and new
+    assert handed["skills"] == short and [x for x in handed["leftovers"] if x["kind"] in ("fix", "form")] == []
+    assert [(a["label"], a["entered"], a["max_chars"]) for a in handed["adapted"]] == [("Describe your skills", short, 200)] and handed["adapted"][0]["approved"].startswith("i) C/C++")
+    # what was learned is kept: in the draft (answer and limit) and in the notes for the site
+    with db.session() as s:
+        d = s.get(Draft, did)
+        ans = {a["id"]: a for a in d.answers}
+        assert ans["#skills"]["value"] == short and "200" in ans["#skills"]["basis"] and ans["#city"]["value"] == "Vancouver"
+        assert {qq["id"]: qq.get("max_length", 0) for qq in d.schema["questions"]} == {"#city": 0, "#skills": 200}
+    assert "at most 200 characters" in (config.PLAYBOOKS / "site-limited.example.test.md").read_text(encoding="utf-8")
+
+    # the same draft again: the driver fills the adapted answer, the form accepts it, no agent is needed
+    monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no take-over should be needed the second time")))
+    with db.session() as s:
+        s.get(Application, app_id).status = "approved"
+    handed.clear()
+    executor.execute(app_id, did)
+    assert handed["skills"] == short and not handed.get("adapted") and [x for x in handed["leftovers"] if x["kind"] in ("fix", "form")] == []
+
+
+def test_a_question_with_a_known_limit_is_answered_within_it(app_env, monkeypatch):
+    from autoapply import answers, db, knowledge, llm
+    from autoapply.ats.base import FormSchema, Question
+    from autoapply.models import Job
+
+    knowledge.write("profile", "# Profile\n\n- Skills: C++, Linux\n")
+    schema = FormSchema(ats="generic", tenant="jobs.example.test", url="https://jobs.example.test/apply", source="agent", pages=["Application"],
+                        questions=[Question(id="#s", label="Describe your skills", type="text", required=True, locator={"selector": "#s"}, max_length=60)])
+    prompts_seen = []
+
+    def fake_json(prompt, schema_, *, system="", **kw):
+        prompts_seen.append(prompt)
+        value = "C++ and Linux, " * 10 if len(prompts_seen) == 1 else "C++ at an internship; Linux services."       # the first answer ignores the limit
+        return {"answers": [{"id": "k1", "resolved": True, "value": value, "basis": "Skills", "confidence": "high", "source": "profile"}], "new_rules": []}
+
+    monkeypatch.setattr(llm, "json", fake_json)
+    with db.session() as s:
+        job = Job(source="manual", source_id="lim2", company="Acme", title="Engineer", apply_url=schema.url, jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        s.expunge(job)
+    out = answers.resolve(schema, job, cover_letter=None, resume=None)
+    assert "at most 60 characters" in prompts_seen[0] and len(prompts_seen) == 2 and "YOUR ANSWER HAD 150 CHARACTERS" in prompts_seen[1]
+    assert out["answers"][0]["value"] == "C++ at an internship; Linux services."
+    # a draft stored before limits were kept still loads: the field is optional
+    assert Question(**{"id": "#x", "label": "X"}).max_length == 0
+
+
+UNKNOWN_QUESTION = """<main><h1 id="t">Work Eligibility</h1><div id="pane">
+  <label for="a">City</label><input id="a" required>
+  <fieldset role="radiogroup" aria-required="true"><legend>Have you been a government employee in the past three years?</legend>
+    <label><input type="radio" name="gov" value="no">No, never</label> <label><input type="radio" name="gov" value="yes">Yes</label></fieldset>
+  <div id="err" role="alert"></div><button onclick="next()">Continue</button></div>
+<script>
+  function next() {
+    const g = document.querySelector('input[name=gov]:checked');
+    if (!document.getElementById('a').value || !g) { document.getElementById('err').textContent = 'This field is required'; return; }
+    document.getElementById('t').textContent = 'Review';
+    document.getElementById('pane').innerHTML = '<p>City: ' + document.getElementById('a').value + '</p><p>Government employee: ' + g.value + '</p><button>Submit application</button>';
+  }
+</script></main>"""
+
+
+def test_a_question_nobody_can_answer_but_the_applicant_is_asked_once_and_then_known(app_env, tmp_path, monkeypatch):
+    """A required question the draft does not have and the profile does not answer. The take-over hands it over - once:
+    the step is not given to an agent again and no navigator is sent to a step that waits for the applicant. The question
+    joins the draft as an open question; answered there, the next run fills it and goes on without any agent."""
+    from autoapply import db, drafts, executor, llm
+    from autoapply.models import Application, Draft, Todo
+
+    app_id, did = _one_question_draft(tmp_path, UNKNOWN_QUESTION, "unknown")
+    db.set_setting("repair.enabled", True)
+    calls = []
+    label = "Have you been a government employee in the past three years?"
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        calls.append("fix" if "check_form" in t else "nav")
+        if "check_form" in t:
+            t["done"].fn(fixed=[], unfixed=[], cause="A required question that is not in the profile.", suggestion="",
+                         needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
+        else:
+            t["done"].fn(state="blocked", why="a required answer is missing")
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    handed = {}
+
+    def user_window(driver, page, title, application_id, draft_id=None, **kw):
+        handed.update(kw)
+        handed["title"], handed["text"] = page.locator("#t").inner_text(), page.locator("#pane").inner_text()
+        return {"status": "ready_to_submit", "error": "window closed"}
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", user_window)
+    executor.execute(app_id, did)
+
+    assert calls == ["fix"]                                                    # asked once; not again, and no navigator
+    # the applicant is told the question by its name, once - not the form's raw marks for the same thing
+    assert [(x["kind"], x["label"]) for x in handed["leftovers"] if x["kind"] == "fix"] == [("fix", label)]
+    assert len([x for x in handed["leftovers"] if x["kind"] == "form"]) == 1 and handed["title"] == "Work Eligibility"
+    # the question is in the draft now, open, with its choices; and there is a card pointing at it
+    with db.session() as s:
+        d = s.get(Draft, did)
+        new = next(a for a in d.answers if a["source"] == "unresolved")
+        assert (new["id"], new["type"], new["options"], new["value"]) == ("@label:" + label, "radio", ["No, never", "Yes"], "")
+        assert [u["label"] for u in d.unresolved] == [label] and any(q["id"] == new["id"] and q["options"] == ["No, never", "Yes"] for q in d.schema["questions"])
+        assert s.query(Todo).filter_by(kind="answer", ref=f"draft:{did}", status="open").count() == 1
+
+    # the applicant answers it in the program; the next run needs no agent at all and reaches the review page
+    drafts.edit_answer(did, "@label:" + label, "No, never")
+    with db.session() as s:
+        assert s.get(Draft, did).unresolved == []
+        s.get(Application, app_id).status = "approved"
+    monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no agent should be needed once the question is answered")))
+    handed.clear()
+    executor.execute(app_id, did)
+    assert handed["title"] == "Review" and "Government employee: no" in handed["text"] and [x for x in handed["leftovers"] if x["kind"] in ("fix", "form")] == []

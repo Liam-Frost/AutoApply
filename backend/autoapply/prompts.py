@@ -75,7 +75,8 @@ SPECS: dict[str, Spec] = {s.key: s for s in [
     Spec("repair_agent", "填表没填完时接手", "自动填写没能把某一页填完，或表单自己报了错时，AI 接手把这一页做完：填入你批准的值，草案里没有的项只按你的个人资料填，拿不准的交给你。",
          ("repair", "SYSTEM"),
          ("Enter the approved values exactly. A field the approved answers do not cover is filled only when the applicant's profile states the answer plainly, and is reported; "
-          "anything else is handed to the applicant. Never invent or alter an answer.",
+          "anything else is handed to the applicant. Never invent an answer. An approved answer is rewritten only to fit a limit the form enforces "
+          "(its length, its format), without adding anything to what it says, and every such change is reported.",
           "The page is not done while the form itself still reports a problem that has not been handed to the applicant.",
           "You cannot submit and must not leave this page. Do not type passwords.", DATA_RULE),
          group="网站操作", risk="high", requires=("done",)),

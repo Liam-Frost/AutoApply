@@ -93,6 +93,15 @@ runs, a single run with its model requests, and the price editor open in a drawe
   nobody could act on (open ones are closed once). What the take-over found is kept in the notes for the site, and
   those notes are now also given to the model that answers the questions of the next draft for the site - a length
   limit a form only shows after typing is respected the next time.
+- An approved answer that a form refuses for its length or format is rewritten by the AI take-over to fit, instead of
+  being handed back to you on every run. Before, the fixed rule of that prompt was "never alter an answer", so an answer
+  of 1,400 characters in a field that takes 200 stopped Amazon's form each time. The rewrite keeps to what the approved
+  answer says; you are shown the old and the new text before anything is submitted. What was learned is kept: the draft
+  holds the adapted answer and the limit (the next run needs no AI), the notes for the site name the limit, and a
+  question with a known limit is answered within it from the start.
+- A question that only you can answer (the profile does not say) is handed over once. The step is no longer given to
+  the AI again and again for the same thing, and the question joins the draft as an open question: answer it once in the
+  program (with "remember this answer") and it is filled from then on.
 - A control is found by its label only when the label is the question. A label that merely contains the question's
   words is another question: "First Name" was filled into "Legal First Name" when its own field was not on the page.
 

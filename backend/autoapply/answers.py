@@ -207,6 +207,7 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
         listing = "\n".join(
             f"- id={k} | type={q.type} | required={q.required} | page={q.page + 1} | label={q.label!r}"
             + (f" | options={q.options}" if q.options else "")
+            + (f" | at most {q.max_length} characters (the form refuses more)" if q.max_length else "")
             + (f" | help={q.help[:200]!r}" if q.help else "")
             for k, q in keys.items()
         )
@@ -237,6 +238,16 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
             try:
                 more = llm.json(prompt.replace(listing, again), ANSWER_SCHEMA, system=prompts.get("answers"))
                 by_key.update({str(a["id"]).strip(): a for a in more["answers"] if str(a["id"]).strip() in missing})
+            except llm.LLMError:
+                pass
+        # an answer over a limit the form is known to enforce: asked once more for exactly those, with the count
+        long = [k for k, q in keys.items() if q.max_length and k in by_key and by_key[k].get("resolved") and isinstance(by_key[k].get("value"), str) and len(by_key[k]["value"]) > q.max_length]
+        if long:
+            again = "\n".join(ln + f" | YOUR ANSWER HAD {len(by_key[ln.split(' | ')[0][5:]]['value'])} CHARACTERS: REWRITE IT WITHIN THE LIMIT"
+                              for ln in listing.splitlines() if ln.split(" | ")[0][5:] in long)
+            try:
+                more = llm.json(prompt.replace(listing, again), ANSWER_SCHEMA, system=prompts.get("answers"))
+                by_key.update({str(a["id"]).strip(): a for a in more["answers"] if str(a["id"]).strip() in long})
             except llm.LLMError:
                 pass
         by_id = {keys[k].id: a for k, a in by_key.items() if k in keys}

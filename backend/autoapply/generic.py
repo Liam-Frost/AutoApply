@@ -91,6 +91,8 @@ The applicant's answers are later chosen from exactly these texts, so "Yes / No"
 Questions that only appear after an answer is chosen ("Legal first name" after "Is your legal name the same as your preferred name? No"):
 when the notes from earlier applications name such fields, include them too, on the page where they appear, with the selector written as
 @label:<the field's label> (it has no control yet; it is found by its label once it is there).
+A text field with a length limit (maxlength in list_controls, a counter such as "0 / 200", a hint such as "max. 500 characters", or a limit
+the notes from earlier applications name): give it as max_length, so that the answer is written to fit.
 For multi-page forms also give next_buttons: the exact text of the button that leads from each page to the next.
 If the form only appeared after you clicked a button on the posting ("Apply for This Job"), give that button's exact text as apply_button."""
 
@@ -250,7 +252,8 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
             s(
                 questions={"type": "array", "items": {"type": "object", "properties": {
                     "label": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date"]},
-                    "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st},
+                    "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st,
+                    "max_length": {"type": "integer"}},
                     "required": ["label", "type", "required", "page", "selector"]}},
                 pages={"type": "array", "items": st}, blocked=st, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
             ),
@@ -677,7 +680,8 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         raise DriverError("the agent could not determine the form structure", seen=(out.final_text or out.stopped)[:300])
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])
     qs = [
-        Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]})
+        Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]},
+                 max_length=max(0, int(q.get("max_length") or 0)))
         for qid, q in zip(ids, result["questions"])
     ]
     schema = FormSchema(ats=ref.ats, tenant=ref.tenant, url=final_url, source="agent", pages=result.get("pages") or ["Application"], questions=qs, extra={"notes": result.get("notes", ""), "next_buttons": result.get("next_buttons") or [], "apply_button": result.get("apply_button") or ""})
