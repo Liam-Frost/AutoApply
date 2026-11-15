@@ -1432,13 +1432,16 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
-    return {"settings": db.all_settings(), "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+    # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
+    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     for k, v in (body.get("settings") or {}).items():
+        if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out
+            continue
         if k not in config.DEFAULT_SETTINGS:
             raise HTTPException(400, f"unknown setting {k}")
         db.set_setting(k, v)

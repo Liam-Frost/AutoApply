@@ -296,3 +296,16 @@ def test_answering_a_form_that_stopped_while_being_read_reads_on_with_that_answe
     fresh = {"answers": [{**row}, {"id": "x", "label": "City", "type": "text", "options": [], "required": True, "value": "", "source": "unresolved", "sensitive": ""}], "unresolved": []}
     assert drafts._use_given(fresh, given) == 1
     assert fresh["answers"][0]["value"] == "LinkedIn" and fresh["answers"][0]["source"] == "profile" and [u["label"] for u in fresh["unresolved"]] == ["City"]
+
+
+def test_saving_the_settings_page_is_not_refused_over_the_programs_own_bookkeeping(app_env):
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app as api
+
+    db.set_setting("migrated.page_ids", True)
+    c = TestClient(api)
+    got = c.get("/api/settings").json()["settings"]
+    assert "migrated.page_ids" not in got and "draft.min_score" in got or "migrated.page_ids" not in got
+    assert c.put("/api/settings", json={"settings": {**got, "migrated.page_ids": True}}).status_code == 200
