@@ -106,11 +106,19 @@ found its control, report where it is under `located` (id, selector) in the same
 
 """
 
-ACCOUNT = """This form creates the applicant's account on the site together with the application (password boxes, "Create an account",
-often marked optional). The applicant wants that account: it is how they follow the application afterwards. Choose the password
-option and fill every password box with fill_account_password(selector, new=true) - the password is generated, kept by the program
-and never shown to you; the same call fills "confirm password" with the same one. Do not type anything into a password box
-yourself, and do not pick "one-time code" or "already have an account" unless a stored account exists (the tool says so).
+ACCOUNT = """The account section of this form (password boxes; "Create an account", "Already have an account", often marked optional).
+The applicant wants to have an account on the site: it is how they follow the application afterwards. {facts}
+Look at what the section offers and decide - it is your call, made from what the page shows:
+- An account is saved: the applicant already has one, so SIGN IN, do not register a second time. Choose the option for an existing
+  account ("Already have an account", "Sign in", "Log in"), fill the e-mail with fill_account_email if a box asks for it, and the
+  password with fill_account_password(selector). If the site then says there is no such account or the password is wrong, and the
+  saved account was only begun and never confirmed, the account does not exist yet: go back to the option that creates one and
+  fill its password box AND its "confirm password" box with fill_account_password(selector, new=true) - the same saved password
+  is used, so the applicant keeps one password for the site.
+- No account is saved: create one with the password option - both boxes, fill_account_password(selector, new=true) each (a password
+  is generated and kept by the program).
+Never type into a password box yourself; you are never shown a password. Do not choose a one-time code unless the site leaves no
+other way. Say under `cause` which way you went and why.
 
 """
 
@@ -363,8 +371,20 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             account = page.locator("input[type=password]:visible").count() > 0
         except Exception:  # noqa: BLE001
             account = False
-        if account:      # the one tool that types the site's password (never shown to the model); nothing else of the sign-in tools
-            tools += [t for t in generic.account_tools(page, site, {}) if t.name == "fill_account_password"]
+        if account:      # the tools that type the applicant's e-mail and the site's password (never shown to the model) and press an account button
+            tools += [t for t in generic.account_tools(page, site, {}) if t.name in ("fill_account_password", "fill_account_email", "click_account_button")]
+    account_facts = ""
+    if account:
+        from . import auth, secrets
+
+        key = auth.key_for(site.tenant_key)
+        acct = auth.account(key) or {}
+        if secrets.get_password(key):
+            how = {"ok": "the program has signed in to it before", "pending": "it was begun by the program on an earlier application and may or may not have been completed by the site"}.get(
+                str(acct.get("status") or ""), "its state on the site is not known")
+            account_facts = f"The program HAS an account saved for this site (e-mail and password; {how})."
+        else:
+            account_facts = "The program has NO account saved for this site."
 
     def counted(fn: Any) -> Any:
         def run(**kw: Any) -> Any:
@@ -389,7 +409,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
            "on this step: when a field here asks one of them, enter exactly that approved value (never an answer of your own) and list its id "
            "under `fixed`. Ignore the ones that are not on this step.\n" + "\n".join(elsewhere_lines) + "\n\n" if elsewhere_lines else "")
         + (DOCUMENTS.format(docs="; ".join([*on_file, *[f"for this application: {n}" for n in files if not any(n in x for x in on_file)]])) if files else "")
-        + (ACCOUNT if account else "")
+        + (ACCOUNT.format(facts=account_facts) if account else "")
         + (STAND_IN if stand_in and read == "step" else "")
         + (SHOWS if issues else "")
         + ((OPTIONAL_FILL if db.get_setting("fill.optional") else OPTIONAL_SKIP) if read == "step" else "")

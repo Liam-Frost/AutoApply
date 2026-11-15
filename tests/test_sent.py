@@ -236,6 +236,16 @@ def test_a_workday_session_is_told_by_what_the_page_shows_and_a_failed_page_is_n
             with pytest.raises(NeedsHuman):
                 auth.ensure_session(page, drv, ref)
         assert auth.account(ref.tenant_key)["fail_count"] == 0 and "Timeout" in auth.account(ref.tenant_key)["last_error"]
+        # the site itself refusing the stored password is another matter: it counts, and after two the program stops sending it
+        from autoapply.ats.base import DriverError
+
+        monkeypatch.setattr(drv, "login", lambda *a, **k: (_ for _ in ()).throw(DriverError("sign-in rejected", seen="Wrong e-mail or password")))
+        calls = []
+        for _ in range(3):
+            with pytest.raises(NeedsHuman) as err:
+                auth.ensure_session(page, drv, ref)
+            calls.append(err.value.reason[:40])
+        assert auth.account(ref.tenant_key)["fail_count"] == 2 and "twice" in calls[-1]
         b.close()
 
 

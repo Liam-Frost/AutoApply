@@ -143,6 +143,14 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - A search on the jobs page says how many matching postings are in the other groups (applied, not applying), with
   one click to see them all.
 
+- A form's account section is handled by what is known: when an account for the site is saved the agent signs in
+  ("Already have an account") instead of registering a second time, and falls back to creating one only when the
+  site says the account does not exist; with no saved account it creates one. Before, it was told to create one in
+  every case.
+- A password the site itself refuses counts towards "failed twice" again, so that a wrong stored password is not sent
+  over and over; a sign-in page the program could not work still does not count.
+- The legend of "where each application stands" keeps an entry on one line.
+
 ### Security
 
 - The route that serves the interface could be made to return files outside its folder with an address such as

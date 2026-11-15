@@ -16,13 +16,14 @@ import time
 import csv
 import io
 import logging
+import re
 from typing import Any
 from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
 from . import browser, db, messages, notify, secrets
-from .ats.base import Driver, JobRef, NeedsHuman, SiteDown
+from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError
 from .models import Account, now
 
 log = logging.getLogger("autoapply.auth")
@@ -257,10 +258,16 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
             raise
         except Exception as e:  # noqa: BLE001
             msg = secrets.redact(str(e), pw)
-            # The site did not refuse the password - the program could not work the sign-in page. That says nothing about
-            # the password, so it does not count towards "the stored password failed twice".
-            upsert_account(key, ats=ref.ats, host=ref.host, error=msg[:300])
-            log.warning("could not work the sign-in page of %s: %s", key, msg)
+            if isinstance(e, DriverError) and re.search(r"sign-in rejected|rejected|incorrect|invalid (password|credentials)|wrong password", str(e), re.I):
+                # The site itself refused the stored password: that counts. Two refusals and the program stops trying it,
+                # so that an account is not locked by the same wrong password being sent again and again.
+                n = _bump_fail(key, msg)
+                log.warning("the site refused the stored password for %s (%d): %s", key, n, msg)
+            else:
+                # The program could not work the sign-in page (a field that did not appear, a time-out). That says nothing
+                # about the password, so it does not count towards "the stored password failed twice".
+                upsert_account(key, ats=ref.ats, host=ref.host, error=msg[:300])
+                log.warning("could not work the sign-in page of %s: %s", key, msg)
             _need_takeover(ref, driver, f"Automatic login failed: {msg[:200]}")
         if driver.is_logged_in(page, ref):
             upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")
