@@ -4,6 +4,8 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-15
+
 ### Changed
 
 - **Forms that are a walk through several steps are read and filled by the AI agent, not by coded steps.** On such sites
@@ -331,5 +333,7 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
-[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v1.0.0
