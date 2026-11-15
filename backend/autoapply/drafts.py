@@ -192,6 +192,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
             _stat(r.ats, "recon_fail")
         raise
     _stat(ref.ats, "recon_ok")
+    for kind in ("takeover", "login", "blocked"):      # the form was reached and read: a card that asked for a sign-in for it has nothing left to ask
+        notify.close_todos(kind, f"account:{ref.tenant_key}")
+        notify.close_todos(kind, f"job:{job_id}")
     with db.session() as s:
         j = s.get(Job, job_id)
         j.ats, j.tenant = ref.ats, ref.tenant
