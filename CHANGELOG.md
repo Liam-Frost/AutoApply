@@ -28,6 +28,9 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   the saved password) it concluded that nobody was signed in, tried the sign-in page again, was sent on to the candidate
   home and waited there for an e-mail field: "automatic login failed", however often you signed in. It now waits until
   the page has settled. A sign-in page the program cannot work no longer counts as a wrong password.
+- Workday: opening the application form waits for the form to appear, and presses "Use My Last Application" once
+  more when the first press came before the page was ready. Before, the program looked for the form a moment after
+  the press and gave up with "application flow did not open".
 
 ### Security
 

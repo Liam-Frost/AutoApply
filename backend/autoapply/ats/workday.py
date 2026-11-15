@@ -214,11 +214,23 @@ class WorkdayDriver:
         self._dismiss_cookies(page)
         self._wait_page(page)
         # "Start Your Application": prefer the previous application's data when there is one.
-        for label in ("Use My Last Application", "Apply Manually"):
-            btn = page.get_by_role("button", name=label).or_(page.get_by_role("link", name=label)).first
-            if btn.count() and btn.is_visible():
-                btn.click()
+        # The choice is a link that loads the form; a click that lands before the page is ready is dropped, and the form
+        # takes a few seconds to appear. So: click, wait for the form's progress bar, and click once more if nothing moved.
+        for attempt in range(2):
+            if _a(page, "progressBar").count():
                 break
+            before = page.url
+            for aid, label in (("useMyLastApplication", "Use My Last Application"), ("applyManually", "Apply Manually")):
+                btn = _a(page, aid).or_(page.get_by_role("button", name=label)).or_(page.get_by_role("link", name=label)).first
+                if btn.count() and btn.is_visible():
+                    if attempt == 0:
+                        page.wait_for_timeout(1000)
+                    btn.click()
+                    break
+            try:
+                page.wait_for_selector(A.format("progressBar"), timeout=30000 if page.url != before or attempt else 12000)
+            except PWTimeout:
+                pass
         self._wait_page(page)
         if _a(page, "progressBar").count() == 0:
             raise DriverError("application flow did not open", seen=page.url)
