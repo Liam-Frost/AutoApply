@@ -490,6 +490,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     step("kept_as_on_form", step=n, fields=len(driver.kept))
             # 2. the form's own verdict; 3. the agent finishes what is left (also fields of this step the draft does not know)
             issues = _issues(None)
+            for sf in getattr(driver, "stale_files", None) or []:
+                # an older document is still attached beside the current one: the take-over removes it
+                issues.append({"kind": "message", "label": sf["label"], "selector": "", "value": "",
+                               "message": f"out-of-date document still attached: {', '.join(sf['old'])} (the current one is {sf['want']}); remove the old one"})
+            if getattr(driver, "stale_files", None):
+                step("old_documents", step=n, files=[x for sf in driver.stale_files for x in sf["old"]][:6])
+                driver.stale_files = []
             if issues:
                 step("form_reports", step=n, after="driver", issues=audit.texts(issues)[:12])
             rounds = 0

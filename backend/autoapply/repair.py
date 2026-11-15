@@ -165,6 +165,10 @@ DOCUMENTS = """Documents the applicant has on file: {docs}. Use the upload tool 
 upload, "attach your transcript to the résumé section", ...), and report it under `added` with type "file" and the file's name as
 its value. A question about a document ("Did you attach your transcript?") is yours to answer truthfully from what you did: attach
 it if the form has a place for it, then answer; never hand such a question to the applicant while the document is on file.
+A form often keeps the documents of an earlier application. Compare what it shows with the documents listed above: a résumé,
+cover letter or transcript with ANOTHER file name than the one for this application is an out-of-date copy - remove it (its
+delete button) and upload the current one in its place, and report that under `added` (type "file", the new file's name).
+The applicant's current documents are the ones listed here, never the ones a site happened to keep.
 A document the form already shows is attached: do not upload it again. If the form shows the same document more than once,
 remove the extra copies (their delete buttons) so that one is left.
 

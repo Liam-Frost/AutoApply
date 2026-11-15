@@ -122,6 +122,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - An account that was begun on a site whose form can be reached without signing in is shown as "no sign-in needed",
   not as "being registered" for ever; one that was never finished and is needed says so.
 
+- Calls through the ChatGPT sign-in have a cost: the list prices of `gpt-6.1-sol` and `gpt-5.6-luna` (OpenAI's price
+  page, 2026-11-15, with the long-context tier) are built in, and requests recorded without a price are estimated
+  again when the program starts. The two notes on the AI settings tab about what had not been checked are gone.
+- A document a form kept from an earlier application - another résumé, cover letter or transcript than the one for
+  this application - is removed and replaced by the current one instead of being sent along with it.
+
 ### Security
 
 - The route that serves the interface could be made to return files outside its folder with an address such as

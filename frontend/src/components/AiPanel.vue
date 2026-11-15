@@ -165,7 +165,8 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
       <template v-if="cur.key === 'claude_subscription'">
         <p class="muted">用你自己的 Claude 订阅，和平时用 Claude 共用额度；额度用完时任务会等额度恢复后自动继续。功能最完整，也是这个程序测试得最充分的方式。</p>
         <div v-if="claude" class="callout" :class="claude.logged_in ? '' : 'warn'"><Icon :name="claude.logged_in ? 'check' : 'alert'" />
-          <div v-if="claude.logged_in">已登录{{ claude.plan ? '（' + claude.plan + '）' : '' }}</div>
+          <div v-if="claude.logged_in">已登录{{ claude.plan ? '（' + claude.plan + '）' : '' }}
+            <div v-if="claude.plan" class="small muted">套餐名是登录那一刻记下的。换了套餐后，在终端运行一次 <code>uv run autoapply claude-login</code> 重新登录，这里才会更新；额度本身不受这个显示影响。</div></div>
           <div v-else>还没有登录。在终端运行 <code>uv run autoapply claude-login</code>，在浏览器里登录后回到这里刷新。</div></div>
         <div class="kv" style="margin-top: 14px">
           <label>主要模型</label><ModelPick v-model="props.s['llm.model']" :models="models" :loading="loadingModels" />
@@ -191,7 +192,6 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
       <!-- ChatGPT subscription through the official Codex SDK -->
       <template v-else-if="cur.kind === 'codex'">
         <p class="muted">用你的 ChatGPT 订阅（Plus / Pro 等），通过 OpenAI 官方的 Codex SDK。登录在 OpenAI 自己的页面上完成，这个程序接触不到你的密码。和 Claude 订阅一样，评分、答题、写求职信、让 AI 操作网页都可以用。</p>
-        <div class="callout"><Icon name="info" /><div>文本、结构化输出和工具调用都用真实的 ChatGPT 账号验证过。还没有用它完整跑过一次“探索招聘网站并生成草案”，效果可能和 Claude 有差别；它每一步的固定开销也更大（每次调用自带约 2.5 万字的系统上下文）。</div></div>
         <div class="callout" :class="cur.installed && cur.logged_in ? '' : 'warn'" style="margin-top: 10px"><Icon :name="cur.installed && cur.logged_in ? 'check' : 'info'" />
           <div v-if="!cur.installed">还没有安装接入组件。在程序目录运行 <code>uv sync --extra chatgpt</code>（会下载约 190 MB），重启程序后回到这里。</div>
           <div v-else-if="cur.login && cur.login.state === 'waiting'">已在浏览器里打开 ChatGPT 的登录页，请在那里完成登录。没有弹出来的话，<a :href="cur.login.url" target="_blank" rel="noopener">点这里打开 ↗</a></div>
@@ -211,7 +211,6 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
       <template v-else>
         <p class="muted">通过这家的 API key 使用，按用量付费。<a v-if="cur.keys" :href="cur.keys" target="_blank" rel="noopener">在这里申请 key ↗</a>
           <template v-if="cur.key === 'custom'">填任何兼容 OpenAI 接口的服务地址；本机的 Ollama 是 <code>http://localhost:11434/v1</code>，不需要 key。</template></p>
-        <div class="callout"><Icon name="info" /><div>这些模型我没有逐个验证过效果。回答申请表、探索新网站这些步骤对模型能力要求高，建议用各家最强的那一档；小模型容易读错表单。所有“不编造、不提交”的保护在程序里，不依赖模型。</div></div>
         <div class="kv" style="margin-top: 14px">
           <label>接口地址</label><input v-model="form.base_url" :placeholder="cur.default_base_url || 'https://…/v1'" />
           <label>API key</label><input v-model="form.api_key" type="password" autocomplete="off" :placeholder="cur.has_key ? '已保存；要更换时在这里填新的' : cur.key === 'custom' ? '不需要就留空' : '还没有保存'" @input="keyTyped" />

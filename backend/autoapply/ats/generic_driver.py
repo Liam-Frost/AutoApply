@@ -612,6 +612,20 @@ class GenericDriver:
                     except Exception as e2:  # noqa: BLE001
                         e = e2
                 failures.append({"id": q.id, "label": q.label, "error": f"{type(e).__name__}: {e}"[:200]})
+        # Documents the form kept from an earlier application, next to the ones just attached: named, so that the
+        # executor has them replaced instead of sending an old résumé along with the new one.
+        self.stale_files = []
+        for q in files:
+            try:
+                want = Path(str(answers[q.id])).name
+                near = _loc(page, q).evaluate(
+                    r"""(e) => { let n = e; for (let i = 0; i < 5 && n; i++, n = n.parentElement) {
+                         const m = (n.innerText || '').match(/[\w .()\-]+\.(pdf|docx?|rtf)/ig); if (m && m.length) return m.map(x => x.trim()); } return []; }""")
+                old = [x for x in dict.fromkeys(near) if x and x != want and want not in x]
+                if old:
+                    self.stale_files.append({"label": q.label, "want": want, "old": old[:4]})
+            except Exception:  # noqa: BLE001
+                continue
         if failures:
             raise FieldFailures(page_index, failures)
 

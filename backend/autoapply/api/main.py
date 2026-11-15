@@ -71,6 +71,17 @@ async def lifespan(app: FastAPI):
                 acct.last_error = "" if read_since else "注册没有完成（确认邮件里的链接没有打开）"
     except Exception:  # noqa: BLE001
         logging.getLogger("autoapply").exception("could not settle unfinished accounts")
+    try:      # a newer price list came with the program: requests that had no price, or an older one, are estimated again
+        import json as _json
+
+        from .. import metering as _metering2
+
+        ver = str(_json.loads((Path(_metering2.__file__).parent / "pricing.json").read_text(encoding="utf-8")).get("version") or "")
+        if ver and db.get_setting("migrated.pricing_version") != ver:
+            _metering2.reprice()
+            db.set_setting("migrated.pricing_version", ver)
+    except Exception:  # noqa: BLE001
+        logging.getLogger("autoapply").exception("could not apply the new price list")
     if not db.get_setting("migrated.agent_reads_all"):
         # the first version of "the agent reads the form" covered one system; a settings page saved since then has stored
         # that list. Every site is read by the agent now.
