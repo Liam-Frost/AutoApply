@@ -799,7 +799,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     a["value"] = typed.get(f"@label:{a['label']}", "")
             else:
                 clicked_at = datetime.now(timezone.utc)
-                driver.submit(page)
+                try:
+                    driver.submit(page)
+                except DriverError as e:
+                    if generic and re.search(r"not on the last step|could not tell which button", str(e)):
+                        # Nothing was pressed: the program could not make out the button that sends. The form is filled
+                        # and checked - that is not a failed run, it is one the applicant finishes with one click.
+                        browser.snapshot(page, run_dir, "submit_not_found")
+                        raise NeedsVisibleRun("表单已经填好并核对过，但程序没能确认哪个是提交按钮，这次由你点提交") from e
+                    raise
                 step("submit")
                 if _email_code_step(driver, page, run_dir, clicked_at):
                     step("email_code")

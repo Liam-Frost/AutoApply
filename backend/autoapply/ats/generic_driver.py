@@ -492,10 +492,18 @@ class GenericDriver:
 
     @staticmethod
     def _buttons(page: Page) -> list[str]:
-        try:
-            return [(b.inner_text() or b.get_attribute("value") or "").strip() for b in page.get_by_role("button").all()[:60] if b.is_visible()]
-        except Exception:  # noqa: BLE001
-            return []
+        # Read in one go, inside the page. Going through the buttons one by one from outside broke whenever the page drew
+        # itself again in between (a busy single-page form does, constantly) - and "no buttons" then read as "this is not
+        # the last step", on a page with a Submit button in plain sight.
+        js = """() => [...document.querySelectorAll('button, [role=button], input[type=submit], input[type=button]')]
+            .filter((e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e); return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; })
+            .map((e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim()).filter(Boolean).slice(0, 200)"""
+        for _ in range(3):
+            try:
+                return list(page.evaluate(js))
+            except Exception:  # noqa: BLE001 - between two renders: look again
+                page.wait_for_timeout(300)
+        return []
 
     def at_review(self, page: Page) -> bool:
         """Is this the last step: a button that submits is showing and there is no forward button?"""

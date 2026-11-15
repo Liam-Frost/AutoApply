@@ -98,6 +98,8 @@ def explain(text: str | None) -> dict[str, str]:
         from .messages import MAIL
 
         return {"message": f"{MAIL[m.group(1)][1]}：{m.group(2)}", "detail": ""}
+    if re.search(r"not on the last step of the form|could not tell which button submits", raw):
+        return {"message": "表单已经填好，但程序没能确认提交按钮，所以没有提交。点“重新填写并提交”，这次会把窗口交给你点提交。", "detail": raw}
     for pat, msg in _RULES:
         if re.search(pat, raw, re.I):
             return {"message": msg, "detail": "" if raw == msg else raw}
