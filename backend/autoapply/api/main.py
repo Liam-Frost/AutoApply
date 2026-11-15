@@ -458,7 +458,7 @@ def scout_draft(draft_id: int) -> dict[str, Any]:
         d = _404(s.get(Draft, draft_id))
         if d.review_status != "pending":
             raise HTTPException(400, "只有待审批的草案可以接着读后面的步骤")
-        if d.unresolved:
+        if d.unresolved and not db.get_setting("recon.provisional"):
             raise HTTPException(400, "先回答草案里还没有答案的问题，程序才能带着答案往下走")
         sch = dict(d.schema)
         sch["extra"] = {**(sch.get("extra") or {}), "scouted": 0}      # asked for by hand: the count of automatic rounds starts over

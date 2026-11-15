@@ -13,22 +13,32 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   reading of these forms broke on every new site - a list that opens late, a notice taken for an error, a field without
   a name - and each break came back to you as one more draft.
 - **Every site's form is read by the agent** (`agent.reads` is `["*"]`); the coded drivers sign in and are otherwise
-  tools. A form the agent read is submitted by you in the window.
+  tools.
+- **An approved draft is submitted by the program whoever filled the form.** A form the agent read used to be handed
+  to you for the last click in every case, and so was any run in which the AI had worked on the form. Neither is a
+  reason: the answers are the ones you approved, and they are read back before anything is sent. The program submits
+  unless you keep the last click for that site or company, an answer is below your confidence bar, or the run leaves
+  something that is yours to settle - a question the profile does not answer, a field that could not be filled, an
+  answer that could not be confirmed. Then it stops and gives you the window, with the reason.
+- **What the agent works out about a site is kept as the site's plan and used on its next posting.** Which questions
+  a step has, what kind of control each is and where it is: a later posting takes a known step from the plan, answers
+  it from your profile and fills it with no agent. A plan holds structure only (never an answer, never code), a place
+  enters it only after it was checked on the live page, a step is taken from it only when every place it names is
+  there, and an entry that is not found twice is dropped, so a changed form is read by the agent again. Plans are JSON
+  files under `data/sites/`.
 - **What should happen by itself does.** A draft whose form still has unread steps is read on without a button; the
   button stays as "read now". Every ten minutes, postings whose score has reached the draft threshold and that have no
   draft yet get one (six at a time, best first) - also right after the threshold is lowered in the settings; before,
   the threshold counted only at the moment a posting was scored. Regular jobs (scanning for postings, reading mail,
   the self-check) count their interval from their last run, not from the start of the program: a scan every twelve
   hours never came round on a program that is closed or restarted more often than that. The activity page shows the
-  regular jobs with their last and next run and a "run now".
+  regular jobs with their last and next run and a "run now", and their intervals can be changed there.
 - **A form is read to its end before you are asked anything, and you are asked once.** Where a required question that
   only you can answer would stop the reading, the agent enters a stand-in to get past it and says so in the draft. A
   stand-in is never submitted: the draft cannot be approved until you have answered, and your answer replaces it
   (setting `recon.provisional`).
 - The agent knows which documents you have on file and can attach them. A form that asks for a transcript on a later
   step gets it; "Did you attach your transcript?" is answered by attaching it, not by asking you.
-- A form whose application is filled by the agent is submitted by you in the window, as explored forms always were.
-
 ### Fixed
 
 - Pressing Submit in the program's window no longer closes it. Between the review page and the page that follows there

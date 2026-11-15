@@ -376,7 +376,7 @@ def test_what_should_happen_by_itself_does(app_env, monkeypatch):
         assert [(t.kind, t.ref) for t in s.query(Task).filter_by(kind="recon")] == [("recon", f"job:{gid}")] and s.get(Job, gid).status == "queued" and s.get(Job, lid).status == "scored"
     assert scoring.queue_qualifying() == 0      # not twice
 
-    # a draft with unread steps and nothing to answer: its reading is queued; one with an open question is left for the applicant
+    # a draft with unread steps: its reading is queued by itself
     with db.session() as s:
         for i, unresolved in enumerate(([], [{"id": "x", "label": "Why us?"}])):
             _, a, d = _application(s, status="draft_ready", url=f"https://w{i}.example/apply", company=f"W{i}")
@@ -385,10 +385,15 @@ def test_what_should_happen_by_itself_does(app_env, monkeypatch):
             d.unresolved = unresolved
         s.flush()
         ready = s.query(Draft).order_by(Draft.id).all()[-2].id
+    db.set_setting("recon.provisional", False)      # without stand-ins a form cannot be walked past an open question
     assert drafts.walk_pending() == 1
     with db.session() as s:
         assert [(t.kind, t.ref) for t in s.query(Task).filter_by(kind="scout")] == [("scout", f"draft:{ready}")]
     assert drafts.walk_pending() == 0
+    db.set_setting("recon.provisional", True)       # with them (the default) it is walked to its end first, and the applicant is asked once
+    assert drafts.walk_pending() == 1
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="scout").count() == 2
 
     # a scan that last ran eleven hours ago, every twelve hours: due in one hour, whenever the program was started
     with db.session() as s:
@@ -396,3 +401,136 @@ def test_what_should_happen_by_itself_does(app_env, monkeypatch):
     assert abs((now() - tasks.last_run("discover")).total_seconds() - 11 * 3600) < 5
     rows = {r["kind"]: r for r in c.get("/api/schedule").json()}
     assert rows["discover"]["minutes"] == 720 and rows["discover"]["last"] and rows["mail"]["last"] is None
+
+
+TWO_STEPS = r"""<main><h1 id="t"></h1><div id="pane"></div>
+<script>
+  window.sent = 0; const saved = {};
+  const steps = {
+    contact: () => ['Contact information', '<label for="a">City</label><input id="a" required><button onclick="if (document.getElementById(\'a\').value) { saved.city = document.getElementById(\'a\').value; go(\'work\') }">Continue</button>'],
+    work: () => ['Work Eligibility', '<label for="visa">Visa status</label><input id="visa" name="visa" required><button onclick="if (document.getElementById(\'visa\').value) { saved.visa = document.getElementById(\'visa\').value; go(\'review\') }">Continue</button>'],
+    review: () => ['Review & submit', '<p>City: ' + saved.city + '</p><p>Visa status: ' + saved.visa + '</p><button onclick="window.sent++; go(\'done\')">Submit application</button>'],
+    done: () => ['Thank you for applying', '<p>Thank you for applying. We have received your application for Analyst.</p>'],
+  };
+  function go(name) { const [t, html] = steps[name](); document.getElementById('t').textContent = t; document.getElementById('pane').innerHTML = html; }
+  go('contact');
+</script></main>"""
+
+
+def _explored(s, form, host, *, status="recon"):
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job
+
+    schema = FormSchema(ats="generic", tenant=host, url=form.as_uri(), source="agent", pages=["Contact information", "Work Eligibility (not yet visible)", "Review & submit"],
+                        questions=[Question(id="#a", label="City", type="text", required=True, page=0, locator={"selector": "#a"})])
+    schema.extra["read"] = ["Contact information"]
+    ref = JobRef(ats="generic", tenant=host, job_id="", url=form.as_uri(), host=host)
+    job = Job(source="manual", source_id=form.name, company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+    s.add(job)
+    s.flush()
+    app = Application(job_id=job.id, status=status)
+    s.add(app)
+    s.flush()
+    d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="pending", notes=[],
+              answers=[{"id": "#a", "label": "City", "type": "text", "options": [], "required": True, "page": 0, "value": "Vancouver", "basis": "profile",
+                        "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+    s.add(d)
+    s.flush()
+    return app.id, d.id
+
+
+def test_what_the_agent_learns_on_a_site_is_used_on_its_next_posting_and_an_approved_draft_is_submitted(app_env, tmp_path, monkeypatch):
+    """First posting on a site: the agent reads the second step (once) and the walk reaches the review. What it found
+    there - which question, what kind of control, where - is kept as the site's plan. The applicant approves; the
+    program fills the form and submits it, because that is their setting and nothing was left for them: the agent having
+    worked on the form is no reason to hold it back. Second posting on the same site: the step is taken from the plan,
+    answered from the profile and filled by the driver - no agent at all."""
+    from autoapply import answers, db, drafts, executor, knowledge, llm, siteplan
+    from autoapply.models import Application, Draft, Todo
+
+    knowledge.write("profile", "# Profile\n\n- Visa status: study permit with co-op work permit\n")
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("nothing here is the applicant's to do")))
+    calls = []
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        calls.append("read" if "THIS STEP HAS NOT BEEN READ BEFORE" in goal else "other")
+        t["fill"].fn(selector="#visa", value="Study permit with co-op work permit")
+        assert t["done"].fn(fixed=[], unfixed=[], cause="", suggestion="", added=[{"label": "Visa status", "value": "Study permit with co-op work permit",
+                                                                                  "basis": "Visa status: study permit with co-op work permit", "type": "text", "selector": "[name=visa]"}]) == "recorded"
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    first = tmp_path / "first.html"
+    first.write_text(TWO_STEPS, encoding="utf-8")
+    with db.session() as s:
+        app1, d1 = _explored(s, first, "plan.example.test")
+    out = drafts.scout(d1)
+    assert (out["reached_review"], out["added"], calls) == (True, 1, ["read"])
+    plan = siteplan.step("site-plan.example.test", "Work Eligibility")
+    assert [(q["label"], q["type"], q["selector"]) for q in plan] == [("Visa status", "text", "[name=visa]")]
+    assert "Study permit" not in siteplan._path("site-plan.example.test").read_text(encoding="utf-8")      # structure only, never an answer
+
+    # approved: filled and submitted by the program; the confirmation page is the evidence
+    monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no agent is needed for a form that was walked once")))
+    drafts.approve(d1)
+    res = executor.execute(app1, d1)
+    assert res["status"] == "submitted"
+    with db.session() as s:
+        a = s.get(Application, app1)
+        assert a.status == "submitted" and "thank you for applying" in a.evidence["text"].lower() and s.query(Todo).filter_by(status="open").count() == 0
+
+    # the next posting on the same site: the plan stands in for the agent
+    monkeypatch.setattr(answers, "resolve", lambda schema, job, **kw: {"answers": [
+        {"id": q.id, "label": q.label, "type": q.type, "options": q.options, "required": q.required, "page": q.page, "value": "Study permit with co-op work permit",
+         "basis": "Visa status: study permit with co-op work permit", "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False} for q in schema.questions],
+        "unresolved": [], "materials": [], "notes": [], "new_rules": []})
+    second = tmp_path / "second.html"
+    second.write_text(TWO_STEPS, encoding="utf-8")
+    with db.session() as s:
+        app2, d2 = _explored(s, second, "plan.example.test")
+    out = drafts.scout(d2)
+    assert (out["status"], out["reached_review"]) == ("scouted", True)
+    with db.session() as s:
+        d = s.get(Draft, d2)
+        row = next(a for a in d.answers if a["label"] == "Visa status")
+        assert row["value"] == "Study permit with co-op work permit" and not d.unresolved
+        assert next(q for q in d.schema["questions"] if q["label"] == "Visa status")["locator"]["selector"] == "[name=visa]"
+
+    # a site that has changed its form: the plan's place is gone - counted, the agent reads again, and the second miss drops the entry
+    siteplan.missed("site-plan.example.test", "Work Eligibility", ["Visa status"])
+    assert siteplan.step("site-plan.example.test", "Work Eligibility")
+    siteplan.missed("site-plan.example.test", "Work Eligibility", ["Visa status"])
+    assert siteplan.step("site-plan.example.test", "Work Eligibility") == []
+
+
+def test_a_run_that_leaves_something_for_the_applicant_is_not_submitted_by_the_program(app_env, tmp_path, monkeypatch):
+    """The same form, but the second step asks something the draft does not have and the profile does not say. The
+    program does not submit: it stops and gives the window to the applicant."""
+    from autoapply import db, drafts, executor, llm
+    from autoapply.models import Application
+
+    form = tmp_path / "left.html"
+    form.write_text(TWO_STEPS, encoding="utf-8")
+    with db.session() as s:
+        app_id, did = _explored(s, form, "left.example.test", status="draft_ready")
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        t["done"].fn(fixed=[], unfixed=[], cause="", suggestion="", needs_user=[{"label": "Visa status", "why": "The profile does not say.", "type": "text"}])
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    handed = []
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda driver, page, title, application_id, draft_id=None, **kw:
+                        handed.append(page.evaluate("window.sent")) or {"status": "ready_to_submit", "error": "window closed"})
+    drafts.approve(did)
+    out = executor.execute(app_id, did)
+    # not submitted: the run is given back, to be done again in a window the applicant sees, with the reason
+    from autoapply.models import Task
+
+    assert out["status"] != "submitted" and handed == []
+    with db.session() as s:
+        assert s.get(Application, app_id).status != "submitted"
+        ts = s.query(Task).filter_by(kind="execute").order_by(Task.id).all()
+        assert ts[-1].status == "queued" and "Visa status" in str(ts[-1].payload)

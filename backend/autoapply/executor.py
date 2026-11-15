@@ -72,16 +72,13 @@ def submit_mode(ats: str, company: str, answers: list[dict[str, Any]], *, has_dr
     hit = next((c for c in (db.get_setting("policy.manual_companies") or []) if c and c.strip().lower() in (company or "").lower()), None)
     if hit:
         reasons.append(f"你把 {hit} 设为人工提交")
-    if not has_driver:
-        reasons.append("这个 ATS 还没有专用驱动")
     level = str(db.get_setting("policy.manual_confidence") or "low")
     bar = {"none": set(), "low": {"low"}, "medium": {"low", "medium"}}.get(level, {"low"})
     shaky = [a["label"] for a in answers if a.get("value") not in ("", None, []) and a.get("confidence") in bar and a.get("type") != "file"]
     if shaky:
         reasons.append(f"有 {len(shaky)} 项答案把握不高（{'；'.join(x[:30] for x in shaky[:3])}{'…' if len(shaky) > 3 else ''}）")
-    extra = [a["label"] for a in answers if a.get("source") == "agent_added" and a.get("value") not in ("", None, [])]
-    if extra:
-        reasons.append(f"有 {len(extra)} 项是填表时 AI 按你的资料补填的，你还没有看过（{'；'.join(x[:30] for x in extra[:3])}{'…' if len(extra) > 3 else ''}）")
+    # (Answers the agent added from the profile while reading the form are in the draft the applicant approves: approving
+    # the draft is having seen them. What comes up after the approval is dealt with in the run - see needs_you there.)
     return {"mode": "manual" if reasons else "auto", "reasons": reasons}
 
 
@@ -155,6 +152,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         job = app.job
         job_id = job.id
         title = f"{job.company} · {job.title}"
+        s.expunge(job)
         if not scout:
             app.status = "executing"
     ref = JobRef(**ref_d)
@@ -171,7 +169,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         from .ats.generic_driver import GenericDriver
 
         driver = GenericDriver(schema)
-        policy = "manual"  # guard rail: driverless forms are never submitted automatically
+        # A form the agent read is submitted the way the applicant decided, like any other: automatically once the draft is
+        # approved, unless they keep the last click for this site or company, or the run leaves something that is theirs.
     if scout and not (generic and len(schema.pages or []) > 1):
         return {"status": "skipped", "note": "not an explored form with several steps"}
     fill = ans.to_fill_map(draft_answers)
@@ -367,6 +366,56 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     return k
         return fallback
 
+    def _needs_you(open_issues: list[dict[str, Any]]) -> list[str]:
+        """What a run that would submit by itself has left that only the applicant can settle (empty: nothing)."""
+        out = [f"{x['label'][:60]}（{x.get('why') or '没填上'}）" for x in leftovers if x.get("kind") in ("fix", "form", "check")]
+        out += [f"{a['label'][:60]}（资料里没有答案）" for a in asked]
+        out += [audit.describe(it)[:80] for it in open_issues if not _handed(it)]
+        level = str(db.get_setting("policy.manual_confidence") or "low")
+        if level == "medium":      # the applicant wants to look at anything that is not certain: an answer added from the profile is one
+            out += [f"{a['label'][:60]}（AI 按资料补填，你还没看过）" for a in added]
+        return out
+
+    def _from_plan(title0: str, n: int) -> bool:
+        """A step nobody has read on this posting, but that the site's plan knows (the agent read it on an earlier
+        posting): take its questions from the plan, answer them from the profile, and let the driver fill them - no
+        agent. Only when every place the plan names is on the page; otherwise the agent reads the step as before."""
+        from . import siteplan
+
+        known = siteplan.step(repair.site_key(schema), title0)
+        if not known:
+            return False
+        have = {norm_question(q.label) for q in schema.questions}
+        gone = []
+        for k in known:
+            try:
+                if not page.locator(k["selector"]).count():
+                    gone.append(k["label"])
+            except Exception:  # noqa: BLE001
+                gone.append(k["label"])
+        if gone:
+            siteplan.missed(repair.site_key(schema), title0, gone)
+            step("plan_out_of_date", step=n, title=title0, missing=gone[:8])
+            return False
+        new = [k for k in known if norm_question(k["label"]) not in have]
+        i = _page_index(title0, n)
+        qs = [Question(id=f"@label:{k['label']}", label=k["label"], type=k["type"], options=k["options"], required=k["required"], page=i,
+                       locator={"selector": k["selector"]}, max_length=k.get("max_length") or 0) for k in new]
+        if qs:
+            res = ans.resolve(FormSchema(ats=schema.ats, tenant=schema.tenant, source="agent", questions=qs), job)
+            if any(r["required"] and r["type"] != "file" and r["value"] in ("", None, []) for r in res["answers"]):
+                return False      # something here only the applicant can answer: the agent reads the step and asks properly
+            for q, r in zip(qs, res["answers"]):
+                if r["value"] in ("", None, []):
+                    continue
+                schema.questions.append(q)
+                fill[q.id] = r["value"]
+                draft_answers.append({**r, "id": q.id, "page": i})
+                added.append({"label": q.label, "value": r["value"], "basis": str(r.get("basis") or "")[:200], "type": q.type, "page": i, "selector": q.locator["selector"]})
+        read_now.append(title0)
+        step("read_from_plan", step=n, title=title0, known=len(known), new=len(qs))
+        return True
+
     def _unread() -> list[str]:
         """The steps of the draft that nobody has read yet, counting what this walk has read."""
         from . import drafts
@@ -419,6 +468,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             here = [q for q in driver.present(page, fill) if q.id not in done_ids and q.id not in held_ids]
             # a walk reads a step it has not read, whatever the form says about it (the page that submits is read as the review)
             to_read = scout and not _is_read(title0) and not driver.at_review(page)
+            if to_read and _from_plan(title0, n):      # the site's plan knows this step: no agent needed to read it
+                to_read = False
+                here = [q for q in driver.present(page, fill) if q.id not in done_ids and q.id not in held_ids]
             ids = [q.id for q in here]
             # 1. the driver fills what this step shows
             fill_error: DriverError | None = None
@@ -703,8 +755,10 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 outcome = {"status": "scouted", "reached_review": reached, "stopped_at": "" if reached or page.is_closed() else driver.step_title(page),
                            "read": list(read_now), "all_read": reached and (review_read.get("done", False) or not _unread())}
                 step("scouted", reached_review=reached, stopped_at=outcome["stopped_at"])
-            elif policy != "manual" and touched:
-                raise NeedsVisibleRun("驱动没能独自填完，AI 接手处理过，这次请你过目后再提交")
+            elif policy != "manual" and (needs_you := _needs_you(open_issues)):
+                # The agent having worked on the form is no reason to stop: the answers are the approved ones and were read
+                # back. What stops an automatic submission is something that is the applicant's to settle.
+                raise NeedsVisibleRun("有需要你处理的地方，这次填好后由你过目并提交：" + "；".join(needs_you[:4]))
             elif policy == "manual" and user_done.get("evidence"):
                 # the user submitted in the window while the program was still on the form: the confirmation page was seen
                 notify.close_todos("submit", f"application:{application_id}")

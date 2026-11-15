@@ -168,8 +168,7 @@ onUnmounted(() => clearInterval(timer))
       <div class="small" style="margin-top: 4px">这些步骤要先填完前面的才打得开。程序会带着这份草案的答案在隐藏窗口里一步步往下填，把后面问到的问题读回来加进草案；不会提交，也不用你点什么，几分钟内自己开始。
         填进去的内容雇主网站可能会自动保存为未完成的申请。</div>
       <div class="row" style="margin-top: 8px">
-        <span v-if="d.unresolved.length" class="muted small">先回答上面没有答案的问题，程序才能带着答案往下走。</span>
-        <span v-else-if="scouting || d.application.status === 'recon'" class="muted small">正在往下读…</span>
+        <span v-if="scouting || d.application.status === 'recon'" class="muted small">正在往下读…</span>
         <button v-else class="ghost sm" @click="scout"><Icon name="play" />现在就读</button>
       </div>
     </div>

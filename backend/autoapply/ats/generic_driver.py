@@ -642,7 +642,25 @@ class GenericDriver:
         return out
 
     def submit(self, page: Page) -> None:
-        raise PermissionError("forms without a driver are submitted by the user")
+        """Press the button that sends the application. Called by the executor only: for an approved draft whose form was
+        filled, read back and left nothing for the applicant, under a submit policy that says the program submits.
+        The button has to be the one that sends - on the last step, by its name - and there has to be exactly one."""
+        if not self.at_review(page):
+            raise DriverError("not on the last step of the form: nothing is submitted", seen=self.step_title(page))
+        root = page.locator("main, [role=main]").first if page.locator("main, [role=main]").count() else page.locator("body")
+        btns = root.locator("button:visible, input[type=submit]:visible, [role=button]:visible")
+        hits = [i for i in range(btns.count()) if SUBMIT_RE.search((btns.nth(i).inner_text() or btns.nth(i).get_attribute("value") or "").strip())
+                and not re.search(r"\b(later|draft|save)\b", (btns.nth(i).inner_text() or ""), re.I)]
+        if len(hits) != 1:
+            raise DriverError("could not tell which button submits the application", seen=f"{len(hits)} candidates")
+        btns.nth(hits[0]).click(timeout=w.T)
+        for _ in range(60):      # the page after it: a confirmation, or the form saying what is wrong
+            page.wait_for_timeout(500)
+            try:
+                if self.confirmation(page) is not None or self.form_gone(page, {}):
+                    break
+            except Exception:  # noqa: BLE001 - between two pages
+                continue
 
     def confirmation(self, page: Page) -> dict[str, Any] | None:
         body = page.inner_text("body")

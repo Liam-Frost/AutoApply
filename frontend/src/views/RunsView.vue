@@ -15,6 +15,7 @@ const filter = ref('all')
 const tab = ref('activity')
 const sched = ref([])
 const runNow = (j) => run(() => api.post('/tasks', { kind: j.kind }), '已开始，结果会出现在“活动”里', load)
+const setEvery = (j) => run(() => api.put('/settings', { settings: { [j.setting]: Math.max(0, Math.round(Number(j.minutes) || 0)) } }), '已保存，下一次运行时间已按新的间隔重排', load)
 const every = (m) => (m >= 1440 && m % 1440 === 0 ? `${m / 1440} 天` : m >= 60 && m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`)
 
 async function load() {
@@ -55,14 +56,15 @@ onMounted(load)
 
   <div v-if="tab === 'sched'" class="card">
     <div class="card-title">程序自己定时做的事</div>
-    <p class="card-sub">间隔从上一次运行算起，关掉程序再打开不会重新计时；到点时程序没开着，打开后两分钟内补跑。间隔在“设置”里改，填 0 关闭。</p>
+    <p class="card-sub">间隔从上一次运行算起，关掉程序再打开不会重新计时；到点时程序没开着，打开后两分钟内补跑。间隔直接在这里改，改完就生效；填 0 关闭。</p>
     <div class="table-wrap" style="max-height: none">
       <table>
         <thead><tr><th>做什么</th><th>多久一次</th><th>上一次</th><th>下一次</th><th></th></tr></thead>
         <tbody>
           <tr v-for="j in sched" :key="j.kind">
             <td>{{ j.label }}</td>
-            <td><span v-if="j.minutes">每 {{ every(j.minutes) }}</span><span v-else class="muted">已关闭</span></td>
+            <td class="nowrap">每 <input v-model.number="j.minutes" type="number" min="0" style="width: 84px" @change="setEvery(j)" /> 分钟
+              <span class="muted small">{{ j.minutes ? `（${every(j.minutes)}）` : '（已关闭）' }}</span></td>
             <td><span v-if="j.last">{{ fmtTime(j.last) }}</span><span v-else class="muted">还没跑过</span></td>
             <td><span v-if="j.paused" class="tag warn">自动运行已暂停</span><span v-else-if="j.next">{{ fmtTime(j.next) }}</span><span v-else class="muted">—</span></td>
             <td style="text-align: right"><button class="ghost sm" @click="runNow(j)"><Icon name="play" />现在跑一次</button></td>

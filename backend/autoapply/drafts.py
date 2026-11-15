@@ -288,7 +288,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         app.last_event = ""      # what an earlier attempt ended with is not what is true now
         s.flush()
         draft_id = d.id
-        to_scout = bool(unseen_steps(schema)) and bool(db.get_setting("recon.walk")) and not res["unresolved"]
+        # With stand-ins allowed, an open question on the first step does not hold the reading back: the form is walked
+        # to its end first, and the applicant is asked once, for everything.
+        to_scout = bool(unseen_steps(schema)) and bool(db.get_setting("recon.walk")) and (not res["unresolved"] or bool(db.get_setting("recon.provisional")))
         if to_scout:
             app.status = "recon"      # still being read: the later steps are next
     for old_id in stale:  # their open questions belong to a draft that no longer exists
@@ -518,7 +520,7 @@ def walk_pending(limit: int = 3) -> int:
         busy = {t.ref for t in s.query(Task).filter(Task.kind.in_(("scout", "recon", "execute")), Task.status.in_(("queued", "running")))}
         for d in s.query(Draft).filter_by(review_status="pending").order_by(Draft.id.desc()):
             app = d.application
-            if app is None or app.status not in ("draft_ready", "recon") or d.unresolved:
+            if app is None or app.status not in ("draft_ready", "recon", "needs_input") or (d.unresolved and not db.get_setting("recon.provisional")):
                 continue
             if f"draft:{d.id}" in busy or f"job:{app.job_id}" in busy or f"application:{app.id}" in busy:
                 continue
@@ -600,6 +602,12 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
                 names = [str(x) for x in sch.get("pages") or []] if out.get("all_read") else []
                 extra["read"] = list(dict.fromkeys([*read_before, *(out.get("read") or []), *names]))
                 extra["walk_open"] = not out.get("reached_review")
+                try:      # the site's plan: what the agent read on this posting is known for the next one
+                    from . import repair, siteplan
+
+                    siteplan.learn(repair.site_key(_schema_of(d)), [str(x) for x in sch.get("pages") or []], list(sch.get("questions") or []), list(extra["read"]))
+                except Exception:  # noqa: BLE001 - never a reason to lose the walk's result
+                    log.exception("could not update the site's plan")
             sch["extra"] = extra
             d.schema = sch
             notes = [n for n in (d.notes or []) if not n.startswith(SCOUT_NOTES)]

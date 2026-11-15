@@ -17,7 +17,7 @@ def test_manual_when_the_user_or_the_answers_say_so(app_env):
 
     assert executor.submit_mode("greenhouse", "Acme", [_a("low")])["mode"] == "manual"  # a shaky answer
     assert executor.submit_mode("greenhouse", "Acme", [_a("low", value="")])["mode"] == "auto"  # empty answers do not count
-    assert executor.submit_mode("someats", "Acme", [_a()], has_driver=False)["mode"] == "manual"  # no driver
+    assert executor.submit_mode("someats", "Acme", [_a()], has_driver=False)["mode"] == "auto"  # a form the agent read follows the same policy
     db.set_setting("policy.manual_confidence", "none")
     assert executor.submit_mode("greenhouse", "Acme", [_a("low")])["mode"] == "auto"
     db.set_setting("policy.manual_confidence", "medium")

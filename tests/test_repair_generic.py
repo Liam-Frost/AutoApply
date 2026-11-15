@@ -9,6 +9,17 @@ from fakes import FORM
 from test_pipeline import _status, pipeline  # noqa: F401 - fixture
 
 
+@pytest.fixture(autouse=True)
+def _the_applicant_submits(request):
+    """The tests of this module are about what is handed to the applicant in the window; that happens when they keep
+    the last click for themselves. (That the program submits an approved draft when they do not is tested in test_sent.)"""
+    if "app_env" in request.fixturenames or "pipeline" in request.fixturenames:
+        request.getfixturevalue("app_env" if "app_env" in request.fixturenames else "pipeline")
+        from autoapply import db
+
+        db.set_setting("policy.default", "manual")
+
+
 def _agent_that_fixes(log):
     """A stand-in model: tries to submit (must be refused), then sets the approved values with the tools."""
 
