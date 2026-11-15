@@ -220,6 +220,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         )
         s.add(d)
         app.status = "needs_input" if res["unresolved"] else "draft_ready"
+        app.last_event = ""      # what an earlier attempt ended with is not what is true now
         s.flush()
         draft_id = d.id
         to_scout = bool(unseen_steps(schema)) and bool(db.get_setting("recon.walk")) and not res["unresolved"]

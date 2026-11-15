@@ -55,6 +55,11 @@ def upsert_account(tenant_key: str, *, ats: str = "", host: str = "", email: str
         if password is not None:
             secrets.put_password(tenant_key, password)
             a.has_password = 1
+    if status == "ok":      # the site is signed in to: a card that asked the applicant to sign in there has nothing left to ask
+        from . import notify
+
+        for kind in ("takeover", "login"):
+            notify.close_todos(kind, f"account:{tenant_key}")
 
 
 def account(tenant_key: str) -> dict[str, Any] | None:

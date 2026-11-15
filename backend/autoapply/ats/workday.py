@@ -207,6 +207,13 @@ class WorkdayDriver:
             page.wait_for_function("() => !/\\bLoading\\b/.test((document.querySelector('main') || document.body).innerText.slice(0, 4000))", timeout=20000)
         except PWTimeout:
             pass
+        # A step of the form shows its progress bar before its fields (with "Use My Last Application" the fields come
+        # with the earlier answers, seconds later). Reading it in between finds nothing - and an empty draft looked ready.
+        if _a(page, "progressBar").count() and not re.search(r"^review$", self._page_title(page), re.I):
+            try:
+                page.wait_for_selector("main input:not([type=hidden]), main textarea, main button[aria-haspopup=listbox]", state="visible", timeout=20000)
+            except PWTimeout:
+                pass
         page.wait_for_timeout(700)
 
     def open_application(self, page: Page, ref: JobRef) -> None:
@@ -247,6 +254,10 @@ class WorkdayDriver:
             if not c["visible"] or c["type"] in ("password", "search", "hidden"):
                 continue
             cid = c["id"]
+            if c["type"] == "file":      # the upload box has no id of its own on some sites; it is the résumé all the same
+                if not any(q.id == "file::resume" for q in qs):
+                    qs.append(Question(id="file::resume", label="Resume/CV", type="file", required=True, page=page_index))
+                continue
             if not cid or self._SKIP_IDS.search(cid):
                 continue
             label = re.sub(r"\s*(Select One|Required)\s*", " ", c["label"]).strip().rstrip("*").strip()
@@ -258,9 +269,6 @@ class WorkdayDriver:
                 seen_groups.add(gl)
                 opts = [t.strip() for t in grp.locator("label").all_inner_texts()] if grp.count() else ["Yes", "No"]
                 qs.append(Question(id=f"radio::{gl}", label=gl, type="radio", required=True, options=opts, page=page_index))
-                continue
-            if c["type"] == "file":
-                qs.append(Question(id="file::resume", label="Resume/CV", type="file", required="*" in c["label"] or True, page=page_index))
                 continue
             if c["type"] == "listbox":
                 btn = page.locator(f"[id='{cid}']")
@@ -326,6 +334,9 @@ class WorkdayDriver:
                 self.fill_page(page, partial, idx, fill)
                 page.wait_for_timeout(800)
             schema.questions.extend(known.values())
+            if not known and idx == 0:
+                # the first step of an application always asks something: nothing read means the page was not read
+                raise DriverError("the application form opened but its fields could not be read", page=idx, seen=page.url)
             if not self.next_page(page):
                 errs = self.form_errors(page)
                 # Unanswered required questions stop the walk here; the draft lists them as unresolved.
@@ -432,7 +443,10 @@ class WorkdayDriver:
         if box.count() == 0:
             return []
         txt = page.locator("[data-automation-id='errorBanner'], [role=alert]:visible, [data-automation-id='inputAlert']").all_inner_texts()
-        return [t.strip()[:300] for t in txt if t.strip()][:20]
+        # an alert is how the page announces anything, good news included ("Resume.pdf successfully uploaded"): that is no error
+        good = re.compile(r"success(fully)?|uploaded|saved", re.I)
+        bad = re.compile(r"error|required|invalid|must|cannot|can't|failed|not (valid|allowed)", re.I)
+        return [t.strip()[:300] for t in txt if t.strip() and (bad.search(t) or not good.search(t))][:20]
 
     def read_back(self, page: Page, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]:
         """On the Review page everything is rendered as text: match by question label."""

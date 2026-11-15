@@ -31,6 +31,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - Workday: opening the application form waits for the form to appear, and presses "Use My Last Application" once
   more when the first press came before the page was ready. Before, the program looked for the form a moment after
   the press and gave up with "application flow did not open".
+- Workday: a step is read once its fields are there (the progress bar comes first; a draft made in between was empty
+  and looked ready - an empty first step is now an error). The résumé upload is recorded when its box has no id. A date
+  box that a click cannot reach is given the focus instead. "Résumé successfully uploaded" is no longer taken for an
+  error of the form, which stopped the reading on that step.
+- A card that asks you to sign in to a site is closed as soon as the program is signed in there, however that came
+  about. A draft that is built clears the "failed" note of the attempt before it.
 
 ### Security
 
