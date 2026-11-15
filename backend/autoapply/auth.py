@@ -16,13 +16,14 @@ import time
 import csv
 import io
 import logging
+import re
 from typing import Any
 from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
 from . import browser, db, messages, notify, secrets
-from .ats.base import Driver, JobRef, NeedsHuman, SiteDown
+from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError
 from .models import Account, now
 
 log = logging.getLogger("autoapply.auth")
@@ -55,6 +56,36 @@ def upsert_account(tenant_key: str, *, ats: str = "", host: str = "", email: str
         if password is not None:
             secrets.put_password(tenant_key, password)
             a.has_password = 1
+    if status == "ok":      # the site is signed in to: a card that asked the applicant to sign in there has nothing left to ask
+        from . import notify
+
+        for kind in ("takeover", "login"):
+            notify.close_todos(kind, f"account:{tenant_key}")
+
+
+def key_for(tenant_key: str) -> str:
+    """The key a site's sign-in is kept under: its own, or the one of the site it turned out to sign in on."""
+    return str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
+
+
+def adopt(tenant_key: str, host: str) -> str | None:
+    """A sign-in page on ``host`` was reached while working for ``tenant_key``, which has no sign-in of its own. If a
+    sign-in for exactly that host is saved under another key (the same employer's postings were found under another
+    address before), that is the account: remember the link and return its key. Only an exact host, only an account
+    that has a password or a saved session, never across employers."""
+    host = (host or "").lower().strip()
+    if not host or key_for(tenant_key) != tenant_key or secrets.get_password(tenant_key):
+        return None
+    from . import browser
+
+    with db.session() as s:
+        rows = [(a.tenant_key, a.has_password) for a in s.query(Account).filter(Account.host == host, Account.tenant_key != tenant_key)]
+    for key, has_pw in rows:
+        if (has_pw and secrets.get_password(key)) or browser.load_state(key):
+            db.set_setting("accounts.alias", {**(db.get_setting("accounts.alias") or {}), tenant_key: key})
+            log.info("%s signs in on %s, where a sign-in is saved as %s: using it", tenant_key, host, key)
+            return key
+    return None
 
 
 def account(tenant_key: str) -> dict[str, Any] | None:
@@ -227,8 +258,16 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
             raise
         except Exception as e:  # noqa: BLE001
             msg = secrets.redact(str(e), pw)
-            n = _bump_fail(key, msg)
-            log.warning("login failed for %s (%d): %s", key, n, msg)
+            if isinstance(e, DriverError) and re.search(r"sign-in rejected|rejected|incorrect|invalid (password|credentials)|wrong password", str(e), re.I):
+                # The site itself refused the stored password: that counts. Two refusals and the program stops trying it,
+                # so that an account is not locked by the same wrong password being sent again and again.
+                n = _bump_fail(key, msg)
+                log.warning("the site refused the stored password for %s (%d): %s", key, n, msg)
+            else:
+                # The program could not work the sign-in page (a field that did not appear, a time-out). That says nothing
+                # about the password, so it does not count towards "the stored password failed twice".
+                upsert_account(key, ats=ref.ats, host=ref.host, error=msg[:300])
+                log.warning("could not work the sign-in page of %s: %s", key, msg)
             _need_takeover(ref, driver, f"Automatic login failed: {msg[:200]}")
         if driver.is_logged_in(page, ref):
             upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")

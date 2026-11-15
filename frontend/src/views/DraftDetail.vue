@@ -11,6 +11,7 @@ const router = useRouter()
 const d = ref(null)
 const editing = ref(null)
 const editVal = ref('')
+const typeOwn = ref(false)      // a choice that is not among the ones the draft lists
 const saveRule = ref('')
 const remember = ref(false)
 const comment = ref('')
@@ -56,7 +57,7 @@ async function tailorNow() {
   } catch (e) { toast(e.message, 'bad') }
 }
 
-function startEdit(a) { editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : a.value; saveRule.value = ''; remember.value = false }
+function startEdit(a) { typeOwn.value = false; editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : a.value; saveRule.value = ''; remember.value = false }
 async function commitEdit(a) {
   let v = editVal.value
   if (a.type === 'checkbox') v = String(v).toLowerCase() === 'true'
@@ -165,11 +166,11 @@ onUnmounted(() => clearInterval(timer))
 
     <div v-if="d.review_status === 'pending' && ((d.unseen && d.unseen.length) || d.walk_open)" class="callout" style="display: block">
       <b v-if="d.unseen && d.unseen.length">这张表还有 {{ d.unseen.length }} 步没读到</b><b v-else>上一次往下读没有走到确认页</b>
-      <div class="small" style="margin-top: 4px">这些步骤要先填完前面的才打得开。程序可以带着这份草案的答案在隐藏窗口里一步步往下填，把后面问到的问题读回来加进草案；不会提交。
+      <div class="small" style="margin-top: 4px">这些步骤要先填完前面的才打得开。程序会带着这份草案的答案在隐藏窗口里一步步往下填，把后面问到的问题读回来加进草案；不会提交，也不用你点什么，几分钟内自己开始。
         填进去的内容雇主网站可能会自动保存为未完成的申请。</div>
       <div class="row" style="margin-top: 8px">
-        <button :disabled="scouting || d.application.status === 'recon' || d.unresolved.length > 0" @click="scout"><Icon name="play" />{{ scouting || d.application.status === 'recon' ? '正在往下读…' : '带着答案读完后面的步骤' }}</button>
-        <span v-if="d.unresolved.length" class="muted small">先回答上面没有答案的问题。</span>
+        <span v-if="scouting || d.application.status === 'recon'" class="muted small">正在往下读…</span>
+        <button v-else class="ghost sm" @click="scout"><Icon name="play" />现在就读</button>
       </div>
     </div>
 
@@ -191,12 +192,21 @@ onUnmounted(() => clearInterval(timer))
               {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
               <span v-if="a.delta" class="tag warn" style="margin-left: 4px">{{ a.delta === 'new' ? '新增' : '有变化' }}</span>
               <span v-if="a.held" class="tag" style="margin-left: 4px" title="这个答案已经存在雇主网站上，程序不会改动它。你在这里修改后，程序会按你改的去填。">网站上已有</span>
+              <span v-if="a.conflict" class="tag warn" style="margin-left: 4px">和你的资料不一致</span>
               <div v-if="a.sensitive" class="small"><span class="tag" :class="a.sensitive_confirmed ? '' : 'warn'">{{ SENS[a.sensitive] || a.sensitive }}{{ a.sensitive_confirmed ? '（已确认过）' : '（第一次遇到，请确认）' }}</span></div>
               <div v-if="d.pages.length > 1" class="muted small">第 {{ a.page + 1 }} 页 · {{ d.pages[a.page] }}</div>
             </td>
             <td>
               <template v-if="editing === a.id">
-                <AaSelect v-if="a.options && a.options.length && a.type !== 'multiselect'" v-model="editVal" style="max-width: 100%"><option v-for="o in a.options" :key="o">{{ o }}</option></AaSelect>
+                <template v-if="a.options && a.options.length && a.type !== 'multiselect' && !a.searchable && !typeOwn">
+                  <AaSelect v-model="editVal" style="max-width: 100%"><option v-for="o in a.options" :key="o">{{ o }}</option></AaSelect>
+                  <div><button class="ghost sm" @click="typeOwn = true">列表里没有？直接输入</button></div>
+                </template>
+                <template v-else-if="a.options && a.options.length && a.type !== 'multiselect'">
+                  <input v-model="editVal" :list="'opts-' + a.page + '-' + a.label.length" style="width: 100%" />
+                  <datalist :id="'opts-' + a.page + '-' + a.label.length"><option v-for="o in a.options" :key="o" :value="o"></option></datalist>
+                  <div class="small muted">这个列表在表单上是可以搜索的，这里只列出了其中几项。直接输入你的答案，填表时程序会在列表里搜它。</div>
+                </template>
                 <AaSelect v-else-if="a.type === 'checkbox'" v-model="editVal"><option value="true">勾选</option><option value="false">不勾选</option></AaSelect>
                 <textarea v-else v-model="editVal" rows="3"></textarea>
                 <div class="small muted" v-if="a.type === 'multiselect'">多选用 || 分隔；可选：{{ a.options.join(' / ') }}</div>

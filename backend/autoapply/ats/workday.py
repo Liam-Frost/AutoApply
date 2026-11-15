@@ -14,6 +14,7 @@ yet been exercised end to end by this code; treat first runs per tenant as manua
 
 from __future__ import annotations
 
+import collections
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -85,10 +86,20 @@ class WorkdayDriver:
     def is_logged_in(self, page: Page, ref: JobRef, navigate: bool = True) -> bool:
         if navigate:
             self._goto(page, f"{self._base(ref)}/userHome")
+            # The header is drawn signed out first ("Sign In") and changes to the account menu once the page has asked
+            # the server who is there - a second or two later. Looking at the first thing that appears made a session
+            # that had just been signed in to look signed out, every time. The answer is in once the account menu is
+            # there, or once the page's own content is (it comes after the header has settled).
+            settled = f"{A.format('utilityButtonAccountTasksMenu')}, {A.format('signInSubmitButton')}, {A.format('welcomeMsgHeader')}, {A.format('applicationsSectionHeading')}"
             try:
-                page.wait_for_selector(f"{A.format('utilityButtonSignIn')}, {A.format('utilityButtonAccountTasksMenu')}, {A.format('signInSubmitButton')}", timeout=15000)
+                page.wait_for_selector(settled, timeout=20000)
             except PWTimeout:
                 return False
+            if not _a(page, "utilityButtonAccountTasksMenu").count() and not _a(page, "signInSubmitButton").count():
+                try:      # the content is there; one more moment for a header that is still changing
+                    page.wait_for_selector(A.format("utilityButtonAccountTasksMenu"), timeout=4000)
+                except PWTimeout:
+                    pass
             self._dismiss_cookies(page)
         return _a(page, "utilityButtonAccountTasksMenu").count() > 0 and _a(page, "signInSubmitButton").count() == 0
 
@@ -113,6 +124,12 @@ class WorkdayDriver:
         self._dismiss_cookies(page)
         if _a(page, "signInSubmitButton").count() == 0 and _a(page, "signInLink").count():
             _a(page, "signInLink").first.click()
+        try:
+            page.wait_for_function("() => document.querySelector(\"[data-automation-id='email']\") || /\\/userHome\\b/.test(location.href)", timeout=20000)
+        except PWTimeout:
+            pass
+        if re.search(r"/userHome\b", page.url) and _a(page, "email").count() == 0:
+            return      # the sign-in page sent us on to the candidate home: this session is signed in already
         _a(page, "email").first.wait_for(state="visible", timeout=20000)
         _a(page, "email").first.fill(email)
         _a(page, "password").first.fill(password)  # never logged
@@ -191,6 +208,13 @@ class WorkdayDriver:
             page.wait_for_function("() => !/\\bLoading\\b/.test((document.querySelector('main') || document.body).innerText.slice(0, 4000))", timeout=20000)
         except PWTimeout:
             pass
+        # A step of the form shows its progress bar before its fields (with "Use My Last Application" the fields come
+        # with the earlier answers, seconds later). Reading it in between finds nothing - and an empty draft looked ready.
+        if _a(page, "progressBar").count() and not re.search(r"^review$", self._page_title(page), re.I):
+            try:
+                page.wait_for_selector("main input:not([type=hidden]), main textarea, main button[aria-haspopup=listbox]", state="visible", timeout=20000)
+            except PWTimeout:
+                pass
         page.wait_for_timeout(700)
 
     def open_application(self, page: Page, ref: JobRef) -> None:
@@ -198,16 +222,30 @@ class WorkdayDriver:
         self._dismiss_cookies(page)
         self._wait_page(page)
         # "Start Your Application": prefer the previous application's data when there is one.
-        for label in ("Use My Last Application", "Apply Manually"):
-            btn = page.get_by_role("button", name=label).or_(page.get_by_role("link", name=label)).first
-            if btn.count() and btn.is_visible():
-                btn.click()
+        # The choice is a link that loads the form; a click that lands before the page is ready is dropped, and the form
+        # takes a few seconds to appear. So: click, wait for the form's progress bar, and click once more if nothing moved.
+        for attempt in range(2):
+            if _a(page, "progressBar").count():
                 break
+            before = page.url
+            for aid, label in (("useMyLastApplication", "Use My Last Application"), ("applyManually", "Apply Manually")):
+                btn = _a(page, aid).or_(page.get_by_role("button", name=label)).or_(page.get_by_role("link", name=label)).first
+                if btn.count() and btn.is_visible():
+                    if attempt == 0:
+                        page.wait_for_timeout(1000)
+                    btn.click()
+                    break
+            try:
+                page.wait_for_selector(A.format("progressBar"), timeout=30000 if page.url != before or attempt else 12000)
+            except PWTimeout:
+                pass
         self._wait_page(page)
         if _a(page, "progressBar").count() == 0:
             raise DriverError("application flow did not open", seen=page.url)
 
     # --- structure -------------------------------------------------------------------
+
+    _kept: list[str] = []      # rows the last fill_page left as the site holds them
 
     _SKIP_IDS = re.compile(r"extension$|countryPhoneCode$|middleName$|addressLine2$")
 
@@ -219,9 +257,23 @@ class WorkdayDriver:
             if not c["visible"] or c["type"] in ("password", "search", "hidden"):
                 continue
             cid = c["id"]
+            if c["type"] == "file":      # the upload box has no id of its own on some sites; it is the résumé all the same
+                if not any(q.id == "file::resume" for q in qs):
+                    qs.append(Question(id="file::resume", label="Resume/CV", type="file", required=True, page=page_index))
+                continue
             if not cid or self._SKIP_IDS.search(cid):
                 continue
             label = re.sub(r"\s*(Select One|Required)\s*", " ", c["label"]).strip().rstrip("*").strip()
+            if c["type"] in ("listbox", "checkbox", "text", "textarea") and (not label or c["type"] in ("checkbox", "listbox")):
+                # questionnaire steps put the question in the field's frame (a legend or a rich-text block), not in a label
+                frame = self._frame(page, cid)
+                if c["type"] == "checkbox" and frame["boxes"] > 1 and frame["text"]:
+                    if frame["text"] not in seen_groups:      # several tick boxes under one question: one question, many choices
+                        seen_groups.add(frame["text"])
+                        qs.append(Question(id=f"checks::{frame['text']}", label=frame["text"], type="multiselect", required=frame["required"], options=frame["options"], page=page_index))
+                    continue
+                # a list button's own "label" is often the choice it shows ("75-79%"): the frame has the question
+                label = frame["text"] if c["type"] == "listbox" and frame["text"] else (label or frame["text"])
             if c["type"] == "radio":
                 grp = page.locator(f"[id='{cid}']").locator("xpath=ancestor::fieldset[1]")
                 gl = grp.locator("legend").first.inner_text().strip().rstrip("*") if grp.count() and grp.locator("legend").count() else label
@@ -230,9 +282,6 @@ class WorkdayDriver:
                 seen_groups.add(gl)
                 opts = [t.strip() for t in grp.locator("label").all_inner_texts()] if grp.count() else ["Yes", "No"]
                 qs.append(Question(id=f"radio::{gl}", label=gl, type="radio", required=True, options=opts, page=page_index))
-                continue
-            if c["type"] == "file":
-                qs.append(Question(id="file::resume", label="Resume/CV", type="file", required="*" in c["label"] or True, page=page_index))
                 continue
             if c["type"] == "listbox":
                 btn = page.locator(f"[id='{cid}']")
@@ -251,17 +300,48 @@ class WorkdayDriver:
             if qtype == "date" and not cid.endswith("Month-input") and "dateSectionMonth" not in cid:
                 continue  # one question per date (anchored on the month box)
             qs.append(Question(id=cid, label=label, type=qtype, required=c["required"] or c["label"].strip().endswith("*"), page=page_index))
+        # "First Name" under "Legal Name" and under "Preferred Name" are two questions: one label for both got them one
+        # answer (and the legal name was overwritten with the preferred one). The id names the section.
+        seen = collections.Counter(q.label for q in qs if q.type in ("text", "textarea"))
+        for q in qs:
+            parts = q.id.split("--")
+            if q.type in ("text", "textarea") and seen[q.label] > 1 and len(parts) >= 3 and not re.search(r"-\d+$", parts[-2]):
+                q.label = f"{re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', parts[-2]).title()}: {q.label}"
         return qs
+
+    def _frame(self, page: Page, cid: str) -> dict[str, Any]:
+        """The question a control belongs to, read from the frame Workday draws around a field."""
+        try:
+            return page.locator(f"[id='{cid}']").first.evaluate(r"""(e) => {
+                const f = e.closest("[data-automation-id^='formField']") || e.closest('fieldset');
+                const head = f && f.querySelector('legend, [data-automation-id=richText], label');
+                const raw = head ? head.innerText.replace(/\s+/g, ' ').trim() : '';
+                const boxes = f ? [...f.querySelectorAll('input[type=checkbox]')] : [];
+                return { text: raw.replace(/\s*\*\s*$/, '').trim().slice(0, 400), required: /\*\s*$/.test(raw) || !!(head && head.querySelector('abbr')), boxes: boxes.length,
+                         options: boxes.map((b) => ((b.labels && b.labels[0] && b.labels[0].innerText) || '').trim()).filter(Boolean) }; }""")
+        except Exception:  # noqa: BLE001
+            return {"text": "", "required": False, "boxes": 0, "options": []}
 
     def _listbox_options(self, page: Page, btn: Locator) -> list[str]:
         try:
+            # A list that is still open from the field before would be read as this field's choices (the phone codes
+            # were once recorded as the countries, and the next visit looked like a changed form): close it first, and
+            # read the list this button opens.
+            if page.locator("[role=listbox]:visible").count():
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(300)
             btn.scroll_into_view_if_needed(timeout=w.T)
             btn.click(timeout=w.T)
-            opts = page.locator("[role=listbox]:visible [role=option]")
+            own = btn.get_attribute("aria-controls") or ""
+            box = page.locator(f"[id='{own}']") if own and page.locator(f"[id='{own}']").count() else page.locator("[role=listbox]:visible").last
+            opts = box.locator("[role=option]")
             opts.first.wait_for(state="visible", timeout=w.T)
             texts = [t.strip() for t in opts.all_inner_texts() if t.strip() and t.strip() != "Select One"]
             page.keyboard.press("Escape")
-            page.wait_for_timeout(200)
+            try:
+                box.wait_for(state="hidden", timeout=2000)
+            except PWTimeout:
+                page.wait_for_timeout(200)
             return texts
         except PWTimeout:
             page.keyboard.press("Escape")
@@ -295,9 +375,20 @@ class WorkdayDriver:
                     known[q.id] = q
                 partial = FormSchema(ats=self.ats, tenant=ref.tenant, questions=fresh)
                 fill = answers(partial)
-                self.fill_page(page, partial, idx, fill)
+                # Reading goes on past a field the driver cannot work: it is noted, and the form says at "Save and
+                # Continue" whether it matters. (One date box used to end the whole reading with nothing to show.)
+                for q, why in self.fill_page(page, partial, idx, fill, tolerant=True):
+                    schema.extra.setdefault("walk_issues", []).append({"page": idx, "label": q.label[:120], "why": why[:200]})
+                for qid in self._kept:      # rows left as the site holds them: the draft shows what is there
+                    try:
+                        schema.extra.setdefault("held", {})[qid] = page.locator(f"[id='{qid}']").first.input_value(timeout=3000)
+                    except Exception:  # noqa: BLE001
+                        pass
                 page.wait_for_timeout(800)
             schema.questions.extend(known.values())
+            if not known and idx == 0:
+                # the first step of an application always asks something: nothing read means the page was not read
+                raise DriverError("the application form opened but its fields could not be read", page=idx, seen=page.url)
             if not self.next_page(page):
                 errs = self.form_errors(page)
                 # Unanswered required questions stop the walk here; the draft lists them as unresolved.
@@ -309,24 +400,90 @@ class WorkdayDriver:
 
     # --- fill ------------------------------------------------------------------------
 
-    def fill_page(self, page: Page, schema: FormSchema, page_index: int, answers: dict[str, Any]) -> None:
-        for q in schema.questions:
-            if q.page != page_index and schema.source != "api" and len({x.page for x in schema.questions}) > 1:
+    def _rows_as_they_are(self, page: Page, todo: list[Question], answers: dict[str, Any]) -> set[str]:
+        """Several rows of the same question (the websites of "My Experience", carried over from the last application):
+        what counts is which entries are there, not which row holds which. When the rows already hold exactly the wanted
+        entries they are left alone - retyping them in another order makes two rows equal for a moment, and the form
+        answers "You can't add duplicate website URLs" and stays on the step. When they differ, the rows are emptied
+        first, so that no entry meets its own copy. Returns the ids that need no filling."""
+        norm = lambda v: str(v or "").strip().rstrip("/").lower()  # noqa: E731
+        groups: dict[str, list[Question]] = {}
+        for q in todo:      # rows are numbered in their ids: webAddress-4--url, webAddress-5--url
+            if q.type == "text" and re.search(r"-\d+--", q.id) and answers.get(q.id) not in (None, "", []):
+                groups.setdefault(re.sub(r"-\d+--", "-#--", q.id), []).append(q)
+        settled: set[str] = set()
+        for qs in groups.values():
+            if len(qs) < 2:
+                continue
+            try:
+                have = [norm(page.locator(f"[id='{q.id}']").first.input_value(timeout=3000)) for q in qs]
+            except Exception:  # noqa: BLE001 - not plain text boxes: filled one by one as before
+                continue
+            want = [norm(answers[q.id]) for q in qs]
+            if sorted(have) == sorted(want):
+                settled.update(q.id for q in qs)
+            elif len(set(want)) < len(want):
+                # The answers cannot tell the rows apart (one answer for "URL", three rows): rows that hold something are
+                # the applicant's own entries from last time and stay; an empty row gets an entry that is not there yet.
+                spare = [v for v in dict.fromkeys(str(answers[q.id]) for q in qs) if norm(v) not in have]
+                for q, h in zip(qs, have):
+                    if h or not spare:
+                        settled.add(q.id)
+                    else:
+                        answers[q.id] = spare.pop(0)
+            elif any(have):
+                for q in qs:
+                    try:
+                        page.locator(f"[id='{q.id}']").first.fill("", timeout=w.T)
+                    except PWTimeout:
+                        pass
+        return settled
+
+    def fill_page(self, page: Page, schema: FormSchema, page_index: int, answers: dict[str, Any], tolerant: bool = False) -> list[tuple[Question, str]]:
+        """Fill the page's questions. ``tolerant`` (reading a form): a field that cannot be worked is returned with the
+        reason instead of ending everything; otherwise it raises, as filling an approved draft must."""
+        todo = [q for q in schema.questions
+                if not (q.page != page_index and schema.source != "api" and len({x.page for x in schema.questions}) > 1) and answers.get(q.id) not in (None, "", [])]
+        settled = self._rows_as_they_are(page, todo, answers)
+        self._kept = sorted(settled)
+        failed: list[tuple[Question, str]] = []
+        for q in todo:
+            if q.id in settled:
                 continue
             val = answers.get(q.id)
-            if val in (None, "", []):
-                continue
             try:
                 self._fill_one(page, q, val)
             except DriverError as e:
+                if tolerant:
+                    failed.append((q, str(e)))
+                    continue
                 e.question, e.page = e.question or q.label, page_index
                 raise
             except PWTimeout as e:
+                if tolerant:
+                    failed.append((q, f"timeout operating field: {str(e)[:160]}"))
+                    page.keyboard.press("Escape")
+                    continue
                 raise DriverError(f"timeout operating field: {str(e)[:160]}", page=page_index, question=q.label, expected=str(val)[:200]) from e
+        return failed
 
     def _fill_one(self, page: Page, q: Question, val: Any) -> None:
         if q.id == "file::resume":
             self._upload(page, val if isinstance(val, list) else [val])
+            return
+        if q.id.startswith("checks::"):
+            wanted = [str(v).strip().lower() for v in (val if isinstance(val, list) else re.split(r"\s*[;\n]\s*", str(val)))]
+            # the legend's text runs its lines together ("seeking?(You may ...)"): the first line is enough to find it
+            head = re.split(r"[(\n]", q.label)[0].strip()[:60]
+            grp = page.locator("fieldset").filter(has=page.locator("legend", has_text=head)).first
+            boxes = grp.locator("input[type=checkbox]")
+            if boxes.count() == 0:
+                raise DriverError("field not found on page", question=q.label, expected=q.id)
+            names = boxes.evaluate_all("(els) => els.map((b) => ((b.labels && b.labels[0] && b.labels[0].innerText) || '').trim().toLowerCase())")
+            if not any(n in wanted for n in names):
+                raise DriverError("none of the choices is on the form", question=q.label, expected="; ".join(wanted), seen="; ".join(names))
+            for i, n in enumerate(names):
+                w.set_checkbox(boxes.nth(i), n in wanted)
             return
         if q.id.startswith("radio::"):
             grp = page.locator("fieldset").filter(has=page.locator("legend", has_text=q.label[:60])).first
@@ -404,7 +561,10 @@ class WorkdayDriver:
         if box.count() == 0:
             return []
         txt = page.locator("[data-automation-id='errorBanner'], [role=alert]:visible, [data-automation-id='inputAlert']").all_inner_texts()
-        return [t.strip()[:300] for t in txt if t.strip()][:20]
+        # an alert is how the page announces anything, good news included ("Resume.pdf successfully uploaded"): that is no error
+        good = re.compile(r"success(fully)?|uploaded|saved", re.I)
+        bad = re.compile(r"error|required|invalid|must|cannot|can't|failed|not (valid|allowed)", re.I)
+        return [t.strip()[:300] for t in txt if t.strip() and (bad.search(t) or not good.search(t))][:20]
 
     def read_back(self, page: Page, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]:
         """On the Review page everything is rendered as text: match by question label."""

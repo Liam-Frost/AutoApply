@@ -1,8 +1,8 @@
 {
-  "version": "2026-11-03",
+  "version": "2026-11-15",
   "currency": "USD",
   "unit": "per million tokens",
-  "note": "List prices of the Anthropic API. Used to estimate what a call would cost at pay-as-you-go rates when the service does not report a cost itself. Other services have no built-in prices: enter them on the analysis page (AI cost > prices).",
+  "note": "List prices of the Anthropic API and of the OpenAI models the ChatGPT sign-in uses (developers.openai.com/api/docs/pricing, read 2026-11-15). Used to estimate what a call would cost at pay-as-you-go rates when the service does not report a cost itself. Models that are not listed have no built-in price: enter it on the analysis page (AI cost > prices).",
   "defaults": { "cache_read_ratio": 0.1, "cache_write_ratio": 1.25 },
   "models": [
     { "match": "claude-fable-5-2", "providers": ["anthropic", "claude_subscription"], "input": 8.0, "output": 40.0, "cache_read": 0.2 },
@@ -20,6 +20,10 @@
     { "match": "claude-sonnet-4-6", "providers": ["anthropic", "claude_subscription"], "input": 3.0, "output": 15.0 },
     { "match": "claude-haiku-5-5", "providers": ["anthropic", "claude_subscription"], "input": 0.1, "output": 0.5,
       "over": { "prompt_tokens": 100000, "input": 0.5, "output": 2.5 } },
-    { "match": "claude-haiku-4-5", "providers": ["anthropic", "claude_subscription"], "input": 1.0, "output": 5.0 }
+    { "match": "claude-haiku-4-5", "providers": ["anthropic", "claude_subscription"], "input": 1.0, "output": 5.0 },
+    { "match": "gpt-6.1-sol", "providers": ["openai", "chatgpt"], "input": 2.0, "output": 10.0, "cache_read": 0.1,
+      "over": { "prompt_tokens": 272000, "input": 4.0, "output": 15.0 } },
+    { "match": "gpt-5.6-luna", "providers": ["openai", "chatgpt"], "input": 0.2, "output": 1.2, "cache_read": 0.02,
+      "over": { "prompt_tokens": 272000, "input": 0.4, "output": 1.8 } }
   ]
 }

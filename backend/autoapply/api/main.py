@@ -47,6 +47,30 @@ async def lifespan(app: FastAPI):
 
         _metering.import_legacy()
         db.set_setting("migrated.llm_runs", True)
+    try:      # every start: confirmations read while an application was taken for unsent; cards of applications that are sent
+        from .. import lifecycle as _lifecycle
+
+        mail.reconcile()
+        _lifecycle.settle_all()
+    except Exception:  # noqa: BLE001 - never a reason not to start
+        logging.getLogger("autoapply").exception("could not settle sent applications")
+    try:      # a newer price list came with the program: requests that had no price, or an older one, are estimated again
+        import json as _json
+
+        from .. import metering as _metering2
+
+        ver = str(_json.loads((Path(_metering2.__file__).parent / "pricing.json").read_text(encoding="utf-8")).get("version") or "")
+        if ver and db.get_setting("migrated.pricing_version") != ver:
+            _metering2.reprice()
+            db.set_setting("migrated.pricing_version", ver)
+    except Exception:  # noqa: BLE001
+        logging.getLogger("autoapply").exception("could not apply the new price list")
+    if not db.get_setting("migrated.agent_reads_all"):
+        # the first version of "the agent reads the form" covered one system; a settings page saved since then has stored
+        # that list. Every site is read by the agent now.
+        if db.get_setting("agent.reads") == ["workday"]:
+            db.set_setting("agent.reads", ["*"])
+        db.set_setting("migrated.agent_reads_all", True)
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
         from ..models import Todo, now
@@ -325,6 +349,16 @@ def tailor_job(job_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
     return {"task_id": tasks.enqueue("tailor", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": body.get("instructions", "")}, priority=30)}
 
 
+def _already_sent(a: Application) -> HTTPException:
+    """Someone asks to send, or to mark as sent, an application that is past that. The card they clicked is out of date:
+    it is closed with everything else that waited on the application, and the answer says what the state is."""
+    from .. import lifecycle
+
+    label = lifecycle.LABEL.get(a.status, a.status)
+    lifecycle.settle(a.id)      # its own session; the caller has only read so far
+    return HTTPException(409, f"这份申请已经是“{label}”了，不需要再处理；相关的待办已经关掉")
+
+
 @app.post("/api/jobs/{job_id}/mark-submitted")
 def mark_job_submitted(job_id: int) -> dict[str, Any]:
     """The user applied on the employer's site themselves (the program could not operate it). Recorded as the user's word."""
@@ -335,7 +369,7 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
             a = Application(job_id=j.id, channel=j.channel)
             s.add(a)
         elif a.status in ("confirmed", "interview", "assessment", "offer", "rejected"):
-            raise HTTPException(400, f"application is already {a.status}")
+            raise _already_sent(a)
         a.status, a.submitted_at = "submitted", a.submitted_at or now()
         a.last_event = "你确认已自己在官网提交；等确认邮件核实"
         a.detail = f"submitted {now().date().isoformat()} (by the user on the employer's site)"
@@ -435,7 +469,7 @@ def scout_draft(draft_id: int) -> dict[str, Any]:
         d = _404(s.get(Draft, draft_id))
         if d.review_status != "pending":
             raise HTTPException(400, "只有待审批的草案可以接着读后面的步骤")
-        if d.unresolved:
+        if d.unresolved and not db.get_setting("recon.provisional"):
             raise HTTPException(400, "先回答草案里还没有答案的问题，程序才能带着答案往下走")
         sch = dict(d.schema)
         sch["extra"] = {**(sch.get("extra") or {}), "scouted": 0}      # asked for by hand: the count of automatic rounds starts over
@@ -481,7 +515,7 @@ def execute_again(draft_id: int) -> dict[str, Any]:
         if d.review_status != "approved":
             raise HTTPException(400, "draft is not approved")
         if app.status in ("submitted", "confirmed", "interview", "assessment", "offer", "rejected"):
-            raise HTTPException(400, f"application is already {app.status}")
+            raise _already_sent(app)
         if app.status == "executing":
             raise HTTPException(400, "a run is in progress")
         app_id, deadline = app.id, app.job.deadline
@@ -495,7 +529,7 @@ def mark_submitted(application_id: int) -> dict[str, Any]:
     with db.session() as s:
         a = _404(s.get(Application, application_id))
         if a.status in ("confirmed", "interview", "assessment", "offer", "rejected"):
-            raise HTTPException(400, f"application is already {a.status}")
+            raise _already_sent(a)
         a.status, a.submitted_at = "submitted", a.submitted_at or now()
         a.last_event = "你确认已手动提交；没有保存到确认页，等确认邮件核实"
         a.detail = f"submitted {now().date().isoformat()} (confirmed by the user, no confirmation page captured)"
@@ -535,6 +569,33 @@ def approve_many(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         except ValueError as e:
             errors[str(i)] = str(e)
     return {"approved": done, "errors": errors}
+
+
+@app.post("/api/drafts/batch")
+def drafts_batch(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """One action for several drafts that wait for approval: "withdraw" (not applying after all) or "rebuild" (read the
+    form and write the draft again). Approving several is /api/drafts/approve."""
+    action = body.get("action")
+    if action not in ("withdraw", "rebuild"):
+        raise HTTPException(400, "unsupported action")
+    done, errors = [], {}
+    for i in body.get("ids", []):
+        try:
+            with db.session() as s:
+                d = _404(s.get(Draft, int(i)))
+                if d.review_status != "pending":
+                    raise ValueError("这份草案已经处理过")
+                job_id, deadline = d.application.job_id, d.application.job.deadline
+            if action == "withdraw":
+                drafts.reject(int(i), withdraw=True)
+                for kind in ("answer", "submit", "failed"):
+                    notify.close_todos(kind, f"draft:{int(i)}")
+            else:
+                tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))
+            done.append(i)
+        except (ValueError, HTTPException) as e:
+            errors[str(i)] = str(getattr(e, "detail", e))
+    return {"done": done, "errors": errors}
 
 
 @app.post("/api/drafts/{draft_id}/reject")
@@ -645,6 +706,14 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
         r["status_label"], r["tone"] = humanize.TASK_STATUS.get(r["status"], (r["status"], ""))
         r["explained"] = humanize.explain(r["error"])
         r["summary"] = humanize.result_summary(r["kind"], r["status"], r["result"])
+    return rows
+
+
+@app.get("/api/schedule")
+def schedule() -> list[dict[str, Any]]:
+    rows = tasks.schedule_status()
+    for r in rows:
+        r["label"] = humanize.TASK.get(r["kind"], r["kind"])
     return rows
 
 
@@ -1415,13 +1484,17 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
-    return {"settings": db.all_settings(), "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+    # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
+    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
+        if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out
+            continue
         if k not in config.DEFAULT_SETTINGS:
             raise HTTPException(400, f"unknown setting {k}")
         db.set_setting(k, v)
@@ -1437,6 +1510,11 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     net.apply()
     llm.reset_client()
     tasks.reschedule()
+    if float(db.get_setting("queue.min_score_for_draft") or 0) < before:
+        # the score at which a draft is prepared was lowered: postings that are already scored and now qualify get theirs
+        from .. import scoring
+
+        scoring.queue_qualifying()
     return {"ok": True}
 
 
@@ -1849,7 +1927,9 @@ if config.FRONTEND_DIST.exists():
 
     @app.get("/{path:path}")
     def spa(path: str):
-        f = config.FRONTEND_DIST / path
-        if path and f.is_file():
+        root = config.FRONTEND_DIST.resolve()
+        f = (root / path).resolve()
+        # only files of the built interface: "..%2F" in an address must not reach the rest of the disk
+        if path and f.is_relative_to(root) and f.is_file():
             return FileResponse(f)
-        return FileResponse(config.FRONTEND_DIST / "index.html")
+        return FileResponse(root / "index.html")

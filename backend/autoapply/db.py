@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import json
 from contextlib import contextmanager
 from typing import Any, Iterator
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from . import config
 
+_SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 _engine = None
 _Session: sessionmaker[Session] | None = None
 
@@ -45,6 +47,25 @@ def get_engine():
                     h = sa_inspect(obj).attrs.status.history
                     if h.has_changes() and h.added and (not h.deleted or h.deleted[0] != h.added[0]):
                         session.add(ApplicationEvent(application_id=obj.id, old=str(h.deleted[0]) if h.deleted else "", new=str(h.added[0])))
+                        if str(h.added[0]) in _SENT:      # whichever way it was sent: what waited on it is closed (lifecycle.settle)
+                            session.info.setdefault("sent", set()).add(obj.id)
+
+        @event.listens_for(_Session, "after_commit")
+        def _settle_sent(session):  # noqa: ANN001
+            ids = session.info.pop("sent", None)
+            if not ids:
+                return
+            from . import lifecycle
+
+            for i in ids:
+                try:
+                    lifecycle.settle(i)
+                except Exception:  # noqa: BLE001 - the status change itself is committed; closing the cards must not undo it
+                    logging.getLogger("autoapply.db").exception("could not settle application %s", i)
+
+        @event.listens_for(_Session, "after_rollback")
+        def _forget_sent(session):  # noqa: ANN001
+            session.info.pop("sent", None)
     return _engine
 
 

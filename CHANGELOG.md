@@ -4,6 +4,161 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-15
+
+### Changed
+
+- **Forms that are a walk through several steps are read and filled by the AI agent, not by coded steps.** On such sites
+  (Workday for now; the list is the setting `agent.reads`) the coded driver signs in and hands over; the agent looks at
+  each page and decides what to do there, and the program's own rules stay what they were: nothing is made up, nothing
+  is submitted without the approved draft, every value is read back and compared, the run keeps its evidence. Coded
+  reading of these forms broke on every new site - a list that opens late, a notice taken for an error, a field without
+  a name - and each break came back to you as one more draft.
+- **Every site's form is read by the agent** (`agent.reads` is `["*"]`); the coded drivers sign in and are otherwise
+  tools.
+- **An approved draft is submitted by the program whoever filled the form.** A form the agent read used to be handed
+  to you for the last click in every case, and so was any run in which the AI had worked on the form. Neither is a
+  reason: the answers are the ones you approved, and they are read back before anything is sent. The program submits
+  unless you keep the last click for that site or company, an answer is below your confidence bar, or the run leaves
+  something that is yours to settle - a question the profile does not answer, a field that could not be filled, an
+  answer that could not be confirmed. Then it stops and gives you the window, with the reason.
+- **What the agent works out about a site is kept as the site's plan and used on its next posting.** Which questions
+  a step has, what kind of control each is and where it is: a later posting takes a known step from the plan, answers
+  it from your profile and fills it with no agent. A plan holds structure only (never an answer, never code), a place
+  enters it only after it was checked on the live page, a step is taken from it only when every place it names is
+  there, and an entry that is not found twice is dropped, so a changed form is read by the agent again. Plans are JSON
+  files under `data/sites/`.
+- **What should happen by itself does.** A draft whose form still has unread steps is read on without a button; the
+  button stays as "read now". Every ten minutes, postings whose score has reached the draft threshold and that have no
+  draft yet get one (six at a time, best first) - also right after the threshold is lowered in the settings; before,
+  the threshold counted only at the moment a posting was scored. Regular jobs (scanning for postings, reading mail,
+  the self-check) count their interval from their last run, not from the start of the program: a scan every twelve
+  hours never came round on a program that is closed or restarted more often than that. The activity page shows the
+  regular jobs with their last and next run and a "run now", and their intervals can be changed there.
+- **A form is read to its end before you are asked anything, and you are asked once.** Where a required question that
+  only you can answer would stop the reading, the agent enters a stand-in to get past it and says so in the draft. A
+  stand-in is never submitted: the draft cannot be approved until you have answered, and your answer replaces it
+  (setting `recon.provisional`).
+- The agent knows which documents you have on file and can attach them. A form that asks for a transcript on a later
+  step gets it; "Did you attach your transcript?" is answered by attaching it, not by asking you.
+### Fixed
+
+- Pressing Submit in the program's window no longer closes it. Between the review page and the page that follows there
+  is a moment with nothing to read; the program took that for the window having been closed, ended the run, closed the
+  window on you and missed the submission. It now waits for the next page, and reads a confirmation from the page's
+  title and address as well as from its text.
+- An application that has been sent leaves nothing waiting, however the program learns of it - it submitted, you
+  submitted, the employer's site says an application already exists, or a confirmation arrives by e-mail. Its cards
+  under "needs me" (failed runs, sign-in requests raised for it, open questions) are closed, a draft still waiting for
+  approval is closed, and queued work on its form is cancelled. Applications that were already sent are put in order
+  when the program starts.
+- A confirmation e-mail for an application whose form the program had filled now confirms it, even when the program
+  believed the run had failed or was filling the form again at that moment. Before, such a mail was recorded and changed
+  nothing.
+- When the employer's site answers "you have already applied for this position" instead of showing the form, the
+  application is recorded as sent with what the page said. Before, this was read as an expired sign-in and you were
+  asked to log in.
+- Asking to fill or mark an application that is already sent is answered in plain words, and the out-of-date card
+  disappears, instead of an English "application is already confirmed".
+- Workday: a session that is signed in is recognised. The candidate home shows "Sign In" for a moment before it shows
+  the account menu, and the program looked at whichever came first - so right after a sign-in (yours, or its own with
+  the saved password) it concluded that nobody was signed in, tried the sign-in page again, was sent on to the candidate
+  home and waited there for an e-mail field: "automatic login failed", however often you signed in. It now waits until
+  the page has settled. A sign-in page the program cannot work no longer counts as a wrong password.
+- Workday: opening the application form waits for the form to appear, and presses "Use My Last Application" once
+  more when the first press came before the page was ready. Before, the program looked for the form a moment after
+  the press and gave up with "application flow did not open".
+- Workday: a step is read once its fields are there (the progress bar comes first; a draft made in between was empty
+  and looked ready - an empty first step is now an error). The résumé upload is recorded when its box has no id. A date
+  box that a click cannot reach is given the focus instead. "Résumé successfully uploaded" is no longer taken for an
+  error of the form, which stopped the reading on that step.
+- Workday forms are read as far as they go in one pass, and the reading goes on by itself. A field the program cannot
+  work no longer ends the reading (it is noted in the draft). When the form stops at a question only you can answer,
+  your answer starts the reading again from there - before any approval - and is used there; answers you typed into
+  an earlier draft of the application are not asked for again. The draft says how far the form was read and which
+  steps are still unread. Before, such a draft looked ready, and approving it ended in "the form changed" and yet
+  another draft.
+- Workday: several rows of one question that the site carries over from your last application (the websites) are left
+  as they are when they already hold the entries; retyping them made two rows equal for a moment and the form answered
+  "You can't add duplicate website URLs". The draft shows what the rows hold. Questions on questionnaire steps are read
+  with their real wording (some came out without any, or with the chosen value as their name), a group of tick boxes
+  is one question with several choices, and "First Name" under "Legal Name" and under "Preferred Name" are told apart -
+  one answer for both had put the preferred name into the legal name. A list is read from its own box: the choices of
+  the field before could be recorded for it, which later looked like a changed form.
+- An answer the employer's site holds from an earlier application is compared with your profile when the form is
+  walked: where the profile plainly says something else, the draft marks it "differs from your profile" and shows both,
+  and you decide which one goes in.
+- A card that asks you to sign in to a site is closed as soon as the program is signed in there, however that came
+  about. A draft that is built clears the "failed" note of the attempt before it.
+
+- A confirmation link in an e-mail ("confirm your e-mail address to finish signing up") is opened by the program -
+  when, and only when, it is the site's own: the program is signing up or in on that site at that moment, the link is
+  https and leads to that same site (another domain, a mail service's redirect, a look-alike host, an address with a
+  user name, a port or a bare IP in it are not opened), and the address is in the mail word for word. The address,
+  which carries a one-time token, is not shown to the model or written to a log. If the link leads away from the site,
+  the window goes back and nothing is typed there. A link that is not opened is reported, and the account is marked as
+  needing you. The site's password is typed on the site's own pages only.
+- Tailoring a résumé with "reorder and allow rewording" never reworded anything: the instruction the model works
+  under said "keep the applicant's facts exactly as written", and it took that for the wording too. It now says what
+  is meant - facts, numbers and tools stay, the words around them may follow the posting - and the request asks for
+  rewording where a bullet describes what the posting asks for in other words. Every rewording is still checked in
+  code (no new number, no new tool or product name) and shown in the list of changes.
+- Entries a form already holds in another order than the draft lists them are left where they are, and the draft takes
+  the form's order. An upload that was read as "the file box" is made on the step it was read on, not on another step's
+  file box. A step is named by the form's own "you are here" mark and read once it has stopped loading; before, the
+  frame between two steps was read as a step with nothing on it, and three of them ended a walk as "going in circles".
+
+- A filled, correct form is no longer handed back to you over how a control reads. A search box whose choices show as
+  pills beside it counts as answered; a ticked box is a ticked box whatever the control calls it; and what still reads
+  differently from the draft is looked at by the agent on the page before you are told - only what it finds different
+  is reported, with what the form shows.
+- A document the form already shows is not uploaded again; every visit used to add another copy.
+- Optional questions and sections that take entries (work experience, education, languages, links) are filled from
+  your profile by default; "fill optional items too" on the settings page turns that off.
+- The self-check deals with what it finds instead of reminding you: it tries another posting before it blames a system,
+  removes saved pages that are out of date, raises no cards and closes the old ones.
+
+- A list that is searched (a location or school picker) is no longer taken for a list of its first few entries. The
+  agent marks it as searched and looks the applicant's own value up in it; the answer is not limited to the entries
+  it happened to see; and when editing a draft you can type a value that is not among the ones listed.
+- A form that creates your account on the site together with the application ("Create a Career Profile account",
+  marked optional) gets that section filled: the agent chooses the password option and the program types a generated
+  password it keeps for you (never shown to the model). After the submission the site's confirmation e-mail is
+  completed under the rules for links, and the account is ready for the next application there; if that does not
+  work, the account page says what is missing. Before, the section was left empty and the account stayed "being
+  registered".
+
+- Calls through the ChatGPT sign-in have a cost: the list prices of `gpt-6.1-sol` and `gpt-5.6-luna` (OpenAI's price
+  page, 2026-11-15, with the long-context tier) are built in, and requests recorded without a price are estimated
+  again when the program starts. The two notes on the AI settings tab about what had not been checked are gone.
+- A document a form kept from an earlier application - another résumé, cover letter or transcript than the one for
+  this application - is removed and replaced by the current one instead of being sent along with it.
+
+- The drafts page: select all or any drafts and approve them, have them rebuilt, or drop the postings in one go; the
+  version has its own column; and a draft shows one state in plain words (the second, internal one beside it is gone).
+- The analysis page has "last 7 days" and "today" (the local calendar day).
+
+- A saved sign-in is found when the same employer's sign-in page is reached from another address. An employer whose
+  postings appear under two addresses (a careers site and its own domain) was asked for a new sign-in under the
+  second one, although the sign-in page - and the saved account - was the same. The account is now found by the host
+  of the sign-in page (exactly that host), and both addresses share its saved session and password.
+- A search on the jobs page says how many matching postings are in the other groups (applied, not applying), with
+  one click to see them all.
+
+- A form's account section is handled by what is known: when an account for the site is saved the agent signs in
+  ("Already have an account") instead of registering a second time, and falls back to creating one only when the
+  site says the account does not exist; with no saved account it creates one. Before, it was told to create one in
+  every case.
+- A password the site itself refuses counts towards "failed twice" again, so that a wrong stored password is not sent
+  over and over; a sign-in page the program could not work still does not count.
+- The legend of "where each application stands" keeps an entry on one line.
+
+### Security
+
+- The route that serves the interface could be made to return files outside its folder with an address such as
+  `/..%2F..%2Fdata/...`. The server is reachable from this computer only and refuses requests from other sites, so this
+  was open to programs on the same computer; it now serves files of the built interface only.
+
 ## [1.0.1] - 2026-11-15
 
 ### The analysis page
@@ -178,5 +333,7 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
-[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v1.0.0

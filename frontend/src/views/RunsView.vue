@@ -13,8 +13,13 @@ const notes = ref([])
 const ov = ref({ drivers: [], mail_recent: [] })
 const filter = ref('all')
 const tab = ref('activity')
+const sched = ref([])
+const runNow = (j) => run(() => api.post('/tasks', { kind: j.kind }), '已开始，结果会出现在“活动”里', load)
+const setEvery = (j) => run(() => api.put('/settings', { settings: { [j.setting]: Math.max(0, Math.round(Number(j.minutes) || 0)) } }), '已保存，下一次运行时间已按新的间隔重排', load)
+const every = (m) => (m >= 1440 && m % 1440 === 0 ? `${m / 1440} 天` : m >= 60 && m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`)
 
 async function load() {
+  api.get('/schedule').then((r) => { sched.value = r }).catch(() => {})
   ;[runs.value, tasks.value, notes.value, ov.value] = await Promise.all([api.get('/runs'), api.get('/tasks?limit=80'), api.get('/notifications?limit=40'), api.get('/overview')])
 }
 const shown = computed(() => tasks.value.filter((t) => filter.value === 'all' || ['failed', 'waiting_human', 'running', 'queued'].includes(t.status)))
@@ -38,6 +43,7 @@ onMounted(load)
   <div class="row" style="margin-bottom: 12px">
     <div class="seg">
       <button :class="{ on: tab === 'activity' }" @click="tab = 'activity'">活动</button>
+      <button :class="{ on: tab === 'sched' }" @click="tab = 'sched'">定时任务</button>
       <button :class="{ on: tab === 'notes' }" @click="tab = 'notes'">发出的通知</button>
       <button :class="{ on: tab === 'systems' }" @click="tab = 'systems'">各招聘系统的表现</button>
     </div>
@@ -46,6 +52,27 @@ onMounted(load)
       <button :class="{ on: filter === 'all' }" @click="filter = 'all'">全部</button>
       <button :class="{ on: filter === 'open' }" @click="filter = 'open'">只看没完成的</button>
     </div>
+  </div>
+
+  <div v-if="tab === 'sched'" class="card">
+    <div class="card-title">程序自己定时做的事</div>
+    <p class="card-sub">间隔从上一次运行算起，关掉程序再打开不会重新计时；到点时程序没开着，打开后两分钟内补跑。间隔直接在这里改，改完就生效；填 0 关闭。</p>
+    <div class="table-wrap" style="max-height: none">
+      <table>
+        <thead><tr><th>做什么</th><th>多久一次</th><th>上一次</th><th>下一次</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="j in sched" :key="j.kind">
+            <td>{{ j.label }}</td>
+            <td class="nowrap">每 <input v-model.number="j.minutes" type="number" min="0" style="width: 84px" @change="setEvery(j)" /> 分钟
+              <span class="muted small">{{ j.minutes ? `（${every(j.minutes)}）` : '（已关闭）' }}</span></td>
+            <td><span v-if="j.last">{{ fmtTime(j.last) }}</span><span v-else class="muted">还没跑过</span></td>
+            <td><span v-if="j.paused" class="tag warn">自动运行已暂停</span><span v-else-if="j.next">{{ fmtTime(j.next) }}</span><span v-else class="muted">—</span></td>
+            <td style="text-align: right"><button class="ghost sm" @click="runNow(j)"><Icon name="play" />现在跑一次</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted" style="margin-top: 10px">另外，每 10 分钟检查一次：评分已达到“自动生成草案”分数、但还没有草案的岗位，会开始生成草案（一次最多 6 个）；表单还有步骤没读到的草案，会接着往下读。草案批准后立刻开始填写，不用等定时。</p>
   </div>
 
   <div v-if="tab === 'activity'" class="card">

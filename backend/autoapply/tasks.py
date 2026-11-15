@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import timezone
 import traceback
 from datetime import datetime
 from typing import Any, Callable
@@ -193,10 +194,29 @@ def _schedule_jobs() -> None:
         "mail": ("schedule.mail_minutes", lambda: enqueue("mail", ref="schedule", priority=50)),
         "canary": ("schedule.canary_minutes", lambda: enqueue("canary", ref="schedule", priority=900)),
     }
+    from datetime import datetime, timedelta
+
     for name, (key, fn) in plan.items():
         minutes = int(db.get_setting(key) or 0)
         if minutes > 0:
-            _sched.add_job(fn, "interval", minutes=minutes, id=name, replace_existing=True)
+            # Counted from the last time it ran, not from the start of the program: an interval of twelve hours never
+            # came round on a program that is restarted or closed more often than that - the scan simply never ran.
+            last = last_run(name)
+            due = (minutes * 60 - (datetime.now(timezone.utc) - last).total_seconds()) if last else 0
+            _sched.add_job(fn, "interval", minutes=minutes, id=name, replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=max(120, due)))
+
+    def upkeep() -> None:
+        """What should happen by itself between the big runs: drafts whose form still has unread steps are read on, and
+        postings that have come to qualify for a draft get one."""
+        try:
+            from . import drafts, scoring
+
+            drafts.walk_pending()
+            scoring.queue_qualifying()
+        except Exception:  # noqa: BLE001
+            log.exception("upkeep failed")
+
+    _sched.add_job(upkeep, "interval", minutes=10, id="upkeep", replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=90))
 
     def unscored() -> None:  # safety net: nothing that can be scored stays unscored for long, whatever interrupted the last run
         from . import scoring
@@ -217,6 +237,32 @@ def _schedule_jobs() -> None:
     minutes = int(db.get_setting("llm.quota_check_minutes") or 0)
     if minutes > 0:
         _sched.add_job(quota_check, "interval", minutes=minutes, id="quota", replace_existing=True)
+
+
+SCHEDULED = {"discover": "schedule.discover_minutes", "mail": "schedule.mail_minutes", "canary": "schedule.canary_minutes"}
+
+
+def last_run(kind: str):  # noqa: ANN201
+    """When a scheduled kind of task last ran (by the clock or by hand), as an aware UTC time; None if never."""
+    with db.session() as s:
+        t = s.query(Task).filter(Task.kind == kind, Task.ref.in_(("schedule", "manual"))).order_by(Task.id.desc()).first()
+        at = (t.finished_at or t.created_at) if t else None
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)) if at else None
+
+
+def schedule_status() -> list[dict[str, Any]]:
+    """The regular jobs: how often, when last, when next - for the page that shows them."""
+    out = []
+    for kind, key in SCHEDULED.items():
+        minutes = int(db.get_setting(key) or 0)
+        job = _sched.get_job(kind) if _sched is not None else None
+        last = last_run(kind)
+        with db.session() as s:
+            t = s.query(Task).filter(Task.kind == kind, Task.ref.in_(("schedule", "manual"))).order_by(Task.id.desc()).first()
+            state = t.status if t else ""
+        out.append({"kind": kind, "setting": key, "minutes": minutes, "last": last.isoformat() if last else None, "last_status": state,
+                    "next": job.next_run_time.isoformat() if job is not None and job.next_run_time else None, "paused": bool(db.get_setting("schedule.paused"))})
+    return out
 
 
 def enqueue_later(kind: str, *, ref: str = "", payload: dict | None = None, minutes: float = 5, priority: int = 100) -> None:

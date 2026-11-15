@@ -24,6 +24,8 @@ export async function run(fn, ok, after) {
     return r
   } catch (e) {
     toast(e.message || '操作没有成功', 'bad')
+    // what the page shows may be what is out of date (a card for something that is settled meanwhile): show it afresh
+    if (after) await Promise.resolve(after()).catch(() => {})
   }
 }
 

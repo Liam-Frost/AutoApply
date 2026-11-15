@@ -18,6 +18,10 @@ from . import config, secrets
 
 
 def _state_path(tenant_key: str) -> Path:
+    from . import db
+
+    # a site whose sign-in is another site's keeps no session of its own: it reads and writes that site's
+    tenant_key = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
     safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in tenant_key)
     return config.SESSIONS / f"{safe}.bin"
 
@@ -212,6 +216,9 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
     """Yield a page in a fresh context, restoring the tenant's saved session if any."""
     with sync_playwright() as p:
         from . import db, net
+
+        if tenant_key:      # a site whose sign-in is another site's: that site's saved session
+            tenant_key = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
 
         if headless and tenant_key and tenant_key in (db.get_setting("browser.visible_sites") or []):
             headless = False  # this site was seen refusing the hidden window

@@ -143,6 +143,8 @@ def _coerce(q: Question, raw: str) -> Any:
 
 
 def _valid(q: Question, value: Any) -> bool:
+    if getattr(q, "searchable", False):      # the options are the list's first entries only: the applicant's own value is looked up when filling
+        return value not in ("", None, [])
     if q.type in ("select", "radio") and q.options:
         return value in q.options
     if q.type == "multiselect" and q.options:
@@ -174,7 +176,7 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
     def row(q: Question, value: Any, basis: str, confidence: str, source: str, *, confirmed: bool = False) -> dict[str, Any]:
         tag = sensitivity(q.label)
         return {
-            "id": q.id, "label": q.label, "type": q.type, "options": q.options, "required": q.required, "page": q.page,
+            "id": q.id, "label": q.label, "type": q.type, "options": q.options, "required": q.required, "page": q.page, "searchable": bool(getattr(q, "searchable", False)),
             "value": value, "basis": basis, "confidence": confidence, "source": source,
             "sensitive": tag, "sensitive_confirmed": bool(tag) and confirmed,
         }
@@ -207,6 +209,8 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
         listing = "\n".join(
             f"- id={k} | type={q.type} | required={q.required} | page={q.page + 1} | label={q.label!r}"
             + (f" | options={q.options}" if q.options else "")
+            + (" | THIS LIST IS SEARCHED: the options shown are only its first entries. Answer with the applicant's own value as the profile states it "
+               "(their city and country, their school); it is looked up in the list when the form is filled" if getattr(q, "searchable", False) else "")
             + (f" | at most {q.max_length} characters (the form refuses more)" if q.max_length else "")
             + (f" | help={q.help[:200]!r}" if q.help else "")
             for k, q in keys.items()
@@ -219,6 +223,10 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
             f"Salary posted: {job.salary}\n\n{job.jd_text or job.summary}\n</job>\n\n"
             f"<form ats=\"{schema.ats}\">\nAll field labels on this form: {all_labels}\n\nQuestions to answer:\n{listing}\n</form>"
         )
+        docs = [f"{what}: {d['name']}" for kind, what in (("transcript", "transcript"), ("resume_site", "résumé")) if (d := _active_doc(kind))]
+        if docs:
+            prompt += ("\n\n<documents>\nOn file and attached where the form has a place for them: " + "; ".join(docs) + ". A question about a document "
+                       "(\"Did you attach your transcript?\", \"Is your résumé up to date?\") is answered from this, not handed to the applicant.\n</documents>")
         from . import regions
 
         region = regions.for_location(job.location or "")

@@ -170,7 +170,13 @@ def workday_prompt(page: Page, search_input: Locator, path: list[str]) -> None:
 
 def workday_date(page: Page, month_spin: Locator, mmddyyyy: str) -> None:
     """Workday date made of month/day/year spinbuttons: focus the first, type digits."""
-    month_spin.click(timeout=T)
+    # The box is often covered by the text that shows its value, so a click on it never lands; the keyboard works as
+    # soon as the box has the focus, however it got it.
+    try:
+        month_spin.scroll_into_view_if_needed(timeout=T)
+        month_spin.click(timeout=2500)
+    except PWTimeout:
+        month_spin.focus(timeout=T)
     page.keyboard.type(re.sub(r"\D", "", mmddyyyy), delay=40)
 
 

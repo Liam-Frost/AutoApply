@@ -61,6 +61,7 @@ class Question:
     locator: dict[str, Any] = field(default_factory=dict)  # driver-specific hints
     depends_on: str = ""  # id of the question whose answer reveals this one
     accept_text: bool = False  # file question that also accepts pasted text
+    searchable: bool = False  # a list that is searched or loads as one types: ``options`` are only its first entries, not all of its choices
     max_length: int = 0  # the most characters the form accepts for this answer (0 = no limit known); learned when the form refuses a longer one
 
     def key(self) -> tuple[str, str]:

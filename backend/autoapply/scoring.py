@@ -102,6 +102,37 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     return {"scored": scored, "no_description": skipped, "queued_for_draft": queued, "remaining": remaining}
 
 
+def queue_qualifying(limit: int = 6) -> int:
+    """Postings that are scored, still open, have no application and reach the score at which a draft is prepared: start
+    their drafts. Scoring does this for a posting at the moment it is scored; this is for everything that came to qualify
+    afterwards - the threshold was lowered, an employer became a priority one, the program was closed in between.
+    A few at a time, best first, so that one change of a setting does not start dozens of forms at once."""
+    from . import employers, tasks
+    from .models import Task
+
+    if db.get_setting("schedule.paused"):
+        return 0
+    min_score = float(db.get_setting("queue.min_score_for_draft"))
+    prio, prio_score = employers.priority_names(), float(db.get_setting("employers.priority_min_score") or 7.0)
+    todo: list[tuple[int, str]] = []
+    with db.session() as s:
+        busy = {t.ref for t in s.query(Task).filter(Task.kind == "recon", Task.status.in_(("queued", "running", "waiting_human")))}
+        rows = (s.query(Job).filter(Job.status == "scored", Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None), Job.score.isnot(None))
+                .order_by(Job.score.desc(), Job.id.desc()).all())
+        for j in rows:
+            if j.application is not None or j.exclusion or not j.apply_url or j.source == "pdportal" or f"job:{j.id}" in busy:
+                continue
+            floor = min(min_score, prio_score) if employers.is_priority(j.company, j.source, prio) else min_score
+            if j.score >= floor:
+                j.status = "queued"
+                todo.append((j.id, j.deadline or ""))
+                if len(todo) >= limit:
+                    break
+    for jid, deadline in todo:
+        tasks.enqueue("recon", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
+    return len(todo)
+
+
 def unscored_count() -> int:
     """Postings that could be scored and have not been."""
     with db.session() as s:

@@ -24,7 +24,7 @@ from playwright.sync_api import Page
 from . import browser, knowledge, llm
 from . import prompts
 from .ats import widgets as w
-from .ats.base import DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
+from .ats.base import url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
 from .models import Job
 
 SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
@@ -93,6 +93,11 @@ when the notes from earlier applications name such fields, include them too, on 
 @label:<the field's label> (it has no control yet; it is found by its label once it is there).
 A text field with a length limit (maxlength in list_controls, a counter such as "0 / 200", a hint such as "max. 500 characters", or a limit
 the notes from earlier applications name): give it as max_length, so that the answer is written to fit.
+A list that has a search box, or that loads more entries as one types or scrolls (a location, a school, a country picker): the
+entries you see first are NOT its choices - they are its first few. Set searchable=true for it. Then look for the applicant's own
+value in it with the `options` tool and a search term taken from <applicant> (their city, their country, their school), and put
+the entry you find first in `options`, followed by the ones you saw. A draft built from the first five entries of such a list
+offers the applicant five wrong answers.
 For multi-page forms also give next_buttons: the exact text of the button that leads from each page to the next.
 If the form only appeared after you clicked a button on the posting ("Apply for This Job"), give that button's exact text as apply_button."""
 
@@ -192,6 +197,14 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
     def upload(selector: str, file_name: str) -> str:
         if not files or file_name not in files:
             raise PermissionError(f"refused: only these files may be uploaded: {sorted(files or {})}")
+        # A form keeps what was uploaded on an earlier visit. Uploading "to be sure" adds a second, third, fourth copy.
+        try:
+            shown = page.inner_text("body", timeout=5000).count(file_name)
+        except Exception:  # noqa: BLE001
+            shown = 0
+        if shown:
+            return (f"not uploaded: the form already shows {file_name!r}" + (f" {shown} times - remove the extra copies with their delete buttons so that one is left" if shown > 1 else "")
+                    + ". It is attached; go on.")
         loc = page.locator(selector).first
         if loc.evaluate("(e) => e.tagName.toLowerCase() === 'input' && e.type === 'file'"):
             w.upload(loc, [files[file_name]])
@@ -253,7 +266,7 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
                 questions={"type": "array", "items": {"type": "object", "properties": {
                     "label": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date"]},
                     "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st,
-                    "max_length": {"type": "integer"}},
+                    "max_length": {"type": "integer"}, "searchable": {"type": "boolean"}},
                     "required": ["label", "type", "required", "page", "selector"]}},
                 pages={"type": "array", "items": st}, blocked=st, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
             ),
@@ -315,13 +328,35 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
 
     from . import auth, mail, messages, notify, secrets
 
-    key = ref.tenant_key
+    key = auth.key_for(ref.tenant_key)
     _a = auth.account(key) or {}
+
+    def _own_account() -> str:
+        """The key this site's sign-in is kept under - found out at the sign-in page: the page may be another site's, for
+        which a sign-in is already saved (an employer whose postings appear under two addresses). Its cookies are put
+        into the window too, so that a session that is still good is used before any password."""
+        nonlocal key
+        got = auth.adopt(ref.tenant_key, url_host(page.url))
+        if got:
+            key = got
+            try:
+                st = browser.load_state(got) or {}
+                if st.get("cookies"):
+                    page.context.add_cookies(st["cookies"])
+            except Exception:  # noqa: BLE001
+                pass
+            state["adopted"] = got
+        return key
     if _a.get("status") == "pending" and _a.get("created_at"):
         state.setdefault("since", datetime.fromisoformat(_a["created_at"]).replace(tzinfo=timezone.utc))  # the link was mailed back then
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
+        if _own_account() != ref.tenant_key and secrets.get_password(key):
+            plan = {"do": "password", "why": "an account for this sign-in page is already saved (the same employer's site under another address): "
+                                             "fill the e-mail and call fill_account_password; if the page turns out to be signed in already after a reload, go on"}
+            state["plan"] = plan
+            return plan
         plan = auth.sign_in_plan(ref, [str(p).lower() for p in (offered or [])])
         state["plan"] = plan
         return plan
@@ -463,6 +498,13 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         return "filled"
 
     def fill_account_password(selector: str, new: bool = False) -> str:
+        # The site's password is typed on the site's own pages only - wherever a link or a redirect has taken the window.
+        here = mail.site_domain(url_host(page.url))
+        _own_account()
+        home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
+        if home and here not in home:
+            raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
+        _own_account()
         pw = secrets.get_password(key)
         if not pw:
             if not new:
@@ -491,13 +533,31 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         return f"clicked '{label[:60]}'; now at {page.url}"
 
     def email_verification(selector: str = "") -> str:
-        got = mail.wait_for_verification(sender_hint=ref.host, timeout=180, since=state["since"])
+        site = url_host(page.url) or ref.host
+        if not (mail.site_domain(site) and mail.site_domain(site) == mail.site_domain(ref.host or site)):
+            site = ref.host       # the page has wandered off the site: the link must be the site's, not this page's
+        got = mail.wait_for_verification(sender_hint=ref.host, timeout=180, since=state["since"], site_host=site)
         if got is None:
             return "no verification e-mail arrived within 3 minutes"
+        if got.startswith("refused:"):
+            # not opened: the applicant does this one themselves, and is told so
+            state["link_refused"] = got[9:]
+            return (f"The e-mail has a confirmation link, but it is not opened by the program ({got[9:]}). Do not look for another way: "
+                    "call account_result('failed', 'the confirmation link in the e-mail has to be opened by the applicant') and finish with blocked='login'.")
         if got.startswith("http"):
-            page.goto(got, wait_until="domcontentloaded")
+            before = page.url
+            page.goto(got, wait_until="domcontentloaded")      # the address carries a one-time token: it is not shown to the model or written to a log
             page.wait_for_timeout(2500)
-            return f"opened the verification link; now at {page.url}"
+            landed = url_host(page.url)
+            if mail.link_refusal(f"https://{landed}/", site):
+                # the site's link sent the window somewhere else: nothing is typed there
+                try:
+                    page.goto(before, wait_until="domcontentloaded")
+                except Exception:  # noqa: BLE001
+                    pass
+                return f"The link led away from the site (to {landed}); the window is back where it was. Report account_result('failed', ...) with that."
+            state["link_opened"] = True
+            return f"opened the confirmation link from the e-mail; now on {landed}{page.url.split(landed, 1)[-1].split('?')[0][:80]}. Read the page to see whether the address is confirmed."
         if not selector:
             return "the e-mail contains a code: call again with the selector of the code box"
         box = page.locator(selector).first
@@ -681,7 +741,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])
     qs = [
         Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]},
-                 max_length=max(0, int(q.get("max_length") or 0)))
+                 max_length=max(0, int(q.get("max_length") or 0)), searchable=bool(q.get("searchable")))
         for qid, q in zip(ids, result["questions"])
     ]
     schema = FormSchema(ats=ref.ats, tenant=ref.tenant, url=final_url, source="agent", pages=result.get("pages") or ["Application"], questions=qs, extra={"notes": result.get("notes", ""), "next_buttons": result.get("next_buttons") or [], "apply_button": result.get("apply_button") or ""})

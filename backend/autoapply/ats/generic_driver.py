@@ -17,7 +17,7 @@ from typing import Any
 from playwright.sync_api import Locator, Page
 
 from . import widgets as w
-from .base import DriverError, FormSchema, JobRef, PasswordPolicy, Question
+from .base import DriverError, FormSchema, JobRef, PasswordPolicy, Question, norm_question
 
 SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
 DONE_RE = r"thank(s| you) for (applying|your (application|interest|submission))|thank you|application (has been |was |is )?(received|submitted|sent|complete)|successfully (submitted|applied)|we(.ve| have) received|submission (received|complete)"
@@ -45,7 +45,15 @@ _STEP_JS = r"""() => {
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim().slice(0, 80);
   const root = [...document.querySelectorAll('main, [role=main]')].find(vis) || document.body;
   const all = (sel) => [...root.querySelectorAll(sel)].filter(vis);
-  const current = all('[aria-current=step], [aria-current=page], [aria-current=true], [role=tab][aria-selected=true]').map((e) => clean(e.innerText || e.getAttribute('aria-label')));
+  // the form's own "you are here": standard marks first, then the ones progress bars use (anywhere on the page - a progress
+  // bar often sits outside the main area), without the "current step 3 of 6" that is read out to screen readers
+  const marks = '[aria-current=step], [aria-current=page], [aria-current=true], [role=tab][aria-selected=true], [data-automation-id=progressBarActiveStep], '
+              + '[class*=step][class*=active], [class*=step][class*=current], [class*=progress] [class*=active]';
+  const here = (scope) => [...scope.querySelectorAll(marks)].filter(vis)
+      .map((e) => clean((e.innerText || e.getAttribute('aria-label') || '').replace(/(current|active)?\s*step \d+ of \d+/ig, ' '))).filter((t) => t && t.length > 2);
+  let current = here(root);
+  if (!current.length) current = here(document.body);
+  const loading = /^\s*(loading|please wait)\b/i.test((root.innerText || '').slice(0, 200)) || !!document.querySelector('[data-automation-id=loadingSpinner], [aria-busy=true]');
   const heads = all('h1, h2, h3, legend');
   const controls = all('input:not([type=hidden]), select, textarea, [role=combobox], [role=radiogroup], [contenteditable=true]');
   const buttons = all('button, [role=button], input[type=submit], input[type=button]');
@@ -59,7 +67,7 @@ _STEP_JS = r"""() => {
   }
   const parts = [current, heads.map((h) => clean(h.innerText)), controls.map((e) => e.tagName + ':' + (e.getAttribute('type') || '') + ':' + (e.getAttribute('name') || '') + ':' + label(e)),
                  buttons.map((b) => clean(b.innerText || b.value || b.getAttribute('aria-label')))];
-  return { title, parts: JSON.stringify(parts) };
+  return { title, parts: JSON.stringify(parts), loading, controls: controls.length };
 }"""
 
 
@@ -435,8 +443,15 @@ class GenericDriver:
         """The answered questions whose control is on the page right now, whatever page they were recorded on.
         A form with several steps shows them in its own order, skips steps it already has, and resumes where it stopped."""
         out = []
+        # "The file box" names no box in particular: on a form with several steps it matches the résumé box of one step
+        # and the transcript box of another. Such an upload belongs to the step it was read on, and nowhere else.
+        title = norm_question(self.step_title(page))
+        here = next((k for k, name in enumerate(self.schema.pages or []) if title and (title in norm_question(str(name)) or norm_question(str(name)) in title)), -1)
         for q in self.schema.questions:
             if q.id not in answers:
+                continue
+            sel = str((q.locator or {}).get("selector") or "")
+            if q.type == "file" and re.fullmatch(r"input\[type=['\"]?file['\"]?\]", sel.strip()) and here >= 0 and q.page != here:
                 continue
             try:
                 loc = _loc(page, q)
@@ -503,6 +518,23 @@ class GenericDriver:
         return not any(SUBMIT_RE.search(t) or FORWARD_RE.match(t) for t in texts) and not self.present(page, answers)
 
     @staticmethod
+    def settle(page: Page, seconds: float = 12) -> None:
+        """Wait until the step has stopped changing: between two steps a form shows a frame without its questions, and a
+        step that is read then looks like one with nothing on it (three of those in a row once ended a walk as "going
+        round in circles")."""
+        last, same = "", 0
+        for _ in range(int(seconds / 0.5)):
+            try:
+                now_ = page.evaluate(_STEP_JS)
+            except Exception:  # noqa: BLE001 - the page is being replaced
+                now_ = {"parts": "", "loading": True, "controls": 0}
+            same = same + 1 if (now_["parts"] == last and not now_.get("loading")) else 0
+            last = now_["parts"]
+            if same >= 2 and (now_.get("controls") or same >= 6):      # steady, and showing something (or steadily empty for 3 s)
+                return
+            page.wait_for_timeout(500)
+
+    @staticmethod
     def signature(page: Page) -> str:
         """Changes when the form shows another step (the address often stays the same). A step is told by what can be
         seen of it: the step the form marks as current, the headings, the controls and the buttons. Error messages are
@@ -526,13 +558,43 @@ class GenericDriver:
     def fill_page(self, page: Page, schema: FormSchema, page_index: int, answers: dict[str, Any]) -> None:
         self.fill_questions(page, [q for q in schema.questions if q.page == page_index and q.id in answers], answers, page_index)
 
+    def _same_entries_other_order(self, page: Page, todo: list[Question], answers: dict[str, Any]) -> dict[str, Any]:
+        """Text fields of this step that together already hold exactly the wanted entries, only in other places (three
+        website rows carried over from an earlier application): they are left where they are, and the answers take the
+        order the form has. Retyping them makes two rows equal for a moment; forms that refuse duplicates then keep an
+        error on the step and will not go on. Returns {question id: the value its field holds}."""
+        norm = lambda v: str(v or "").strip().rstrip("/").lower()  # noqa: E731
+        off: list[tuple[Question, str]] = []
+        for q in todo:
+            if q.type not in ("text", "textarea") or isinstance(answers.get(q.id), (list, dict, bool)):
+                continue
+            try:
+                loc = _loc(page, q)
+                if not loc.count() or _tag(loc)[0] not in ("input", "textarea"):
+                    continue
+                cur = loc.input_value(timeout=2000)
+            except Exception:  # noqa: BLE001
+                continue
+            if norm(cur) != norm(answers[q.id]) and cur.strip():      # an empty field is simply to be filled; it is no part of this
+                off.append((q, cur))
+        if len(off) < 2:
+            return {}
+        if sorted(norm(cur) for _, cur in off) != sorted(norm(answers[q.id]) for q, _ in off):
+            return {}
+        return {q.id: cur for q, cur in off}
+
     def fill_questions(self, page: Page, todo: list[Question], answers: dict[str, Any], page_index: int = 0) -> None:
         failures = []
         acknowledge_notice(page)
+        self.kept = self._same_entries_other_order(page, todo, answers)
+        answers.update(self.kept)      # from here on the answer of each of these fields is what the field holds
+        todo = [q for q in todo if q.id not in self.kept]
         # Files first: many forms parse an uploaded résumé and overwrite other fields with what they find.
         files = [q for q in todo if q.type == "file"]
         for q in files + [q for q in todo if q.type != "file"]:
             try:
+                if q.type == "file" and Path(str(answers[q.id])).name in page.inner_text("body", timeout=5000):
+                    continue      # the form already shows this very file name (kept from an earlier visit): not uploaded a second time
                 set_value(page, q, answers[q.id])
                 if q.type == "file" and q is files[-1]:
                     try:
@@ -550,6 +612,20 @@ class GenericDriver:
                     except Exception as e2:  # noqa: BLE001
                         e = e2
                 failures.append({"id": q.id, "label": q.label, "error": f"{type(e).__name__}: {e}"[:200]})
+        # Documents the form kept from an earlier application, next to the ones just attached: named, so that the
+        # executor has them replaced instead of sending an old résumé along with the new one.
+        self.stale_files = []
+        for q in files:
+            try:
+                want = Path(str(answers[q.id])).name
+                near = _loc(page, q).evaluate(
+                    r"""(e) => { let n = e; for (let i = 0; i < 5 && n; i++, n = n.parentElement) {
+                         const m = (n.innerText || '').match(/[\w .()\-]+\.(pdf|docx?|rtf)/ig); if (m && m.length) return m.map(x => x.trim()); } return []; }""")
+                old = [x for x in dict.fromkeys(near) if x and x != want and want not in x]
+                if old:
+                    self.stale_files.append({"label": q.label, "want": want, "old": old[:4]})
+            except Exception:  # noqa: BLE001
+                continue
         if failures:
             raise FieldFailures(page_index, failures)
 
@@ -582,12 +658,34 @@ class GenericDriver:
         return out
 
     def submit(self, page: Page) -> None:
-        raise PermissionError("forms without a driver are submitted by the user")
+        """Press the button that sends the application. Called by the executor only: for an approved draft whose form was
+        filled, read back and left nothing for the applicant, under a submit policy that says the program submits.
+        The button has to be the one that sends - on the last step, by its name - and there has to be exactly one."""
+        if not self.at_review(page):
+            raise DriverError("not on the last step of the form: nothing is submitted", seen=self.step_title(page))
+        root = page.locator("main, [role=main]").first if page.locator("main, [role=main]").count() else page.locator("body")
+        btns = root.locator("button:visible, input[type=submit]:visible, [role=button]:visible")
+        hits = [i for i in range(btns.count()) if SUBMIT_RE.search((btns.nth(i).inner_text() or btns.nth(i).get_attribute("value") or "").strip())
+                and not re.search(r"\b(later|draft|save)\b", (btns.nth(i).inner_text() or ""), re.I)]
+        if len(hits) != 1:
+            raise DriverError("could not tell which button submits the application", seen=f"{len(hits)} candidates")
+        btns.nth(hits[0]).click(timeout=w.T)
+        for _ in range(60):      # the page after it: a confirmation, or the form saying what is wrong
+            page.wait_for_timeout(500)
+            try:
+                if self.confirmation(page) is not None or self.form_gone(page, {}):
+                    break
+            except Exception:  # noqa: BLE001 - between two pages
+                continue
 
     def confirmation(self, page: Page) -> dict[str, Any] | None:
         body = page.inner_text("body")
-        m = re.search(rf"[^\n]*({DONE_RE})[^\n]*", body, re.I)
-        return {"url": page.url, "text": m.group(0).strip()[:300]} if m else None
+        m = re.search(rf"[^\n]*({DONE_RE})[^\n]*", body, re.I) or re.search(rf"[^\n]*({DONE_RE})[^\n]*", page.title() or "", re.I)   # some sites say it in the title only
+        if m:
+            return {"url": page.url, "text": m.group(0).strip()[:300]}
+        if re.search(r"[?&]result=(success|submitted|duplicate)\b", page.url, re.I):      # the address says it; keep what the page shows with it
+            return {"url": page.url, "text": " ".join(body.split())[:300]}
+        return None
 
     def already_applied(self, page: Page, ref: JobRef) -> bool:
         return False

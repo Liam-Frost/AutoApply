@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import logging
+
 from . import db, knowledge, llm
 
 STAGES: dict[str, dict[str, Any]] = {
@@ -76,6 +78,8 @@ RULES_SCHEMA = llm.obj({
     "scoring_md": {"type": "string", "description": "Markdown scoring rules: '# Scoring rules', a '## Hard exclusions' list, and a '## Fit (0-10)' list with four bands (9-10, 7-8.5, 5-6.5, below 5)."},
     "examples": {"type": "array", "items": {"type": "string"}, "description": "8 realistic posting titles as 'Title | City, Region, Country': 5 the applicant would want, 3 they would not."},
 })
+
+log = logging.getLogger("autoapply.persona")
 
 
 def get() -> dict[str, Any]:
@@ -229,8 +233,10 @@ def suggest(p: dict[str, Any]) -> dict[str, Any]:
             r["scoring_md"] = md
             out = {"settings": {**base, "intake.title_role_any": roles, "intake.title_none": list(dict.fromkeys([*base["intake.title_none"], *none]))},
                    "scoring_md": r["scoring_md"].strip() + "\n", "examples": [e for e in r["examples"] if "|" in e][:10], "by": "ai"}
-    except llm.LLMError as e:
-        out["note"] = f"AI 暂时用不了（{str(e)[:120]}），先给了一份通用模板，可以直接改。"
+    except llm.LLMError:
+        # why is in the program's log; the page gets the fact, not the text of an internal error
+        log.warning("persona suggestions fell back to the template", exc_info=True)
+        out["note"] = "AI 暂时用不了，先给了一份通用模板，可以直接改；AI 服务的状态在“设置 → AI 模型”里可以测试。"
     return out
 
 
