@@ -237,3 +237,62 @@ def test_a_workday_session_is_told_by_what_the_page_shows_and_a_failed_page_is_n
                 auth.ensure_session(page, drv, ref)
         assert auth.account(ref.tenant_key)["fail_count"] == 0 and "Timeout" in auth.account(ref.tenant_key)["last_error"]
         b.close()
+
+
+def test_rows_the_site_already_holds_are_left_alone_and_one_bad_field_does_not_end_the_reading(app_env):
+    """Three website rows carried over from the last application, in another order than the draft lists them: retyping
+    them makes two rows equal for a moment, and the form refuses the step. And a field that cannot be worked while a
+    form is being read is reported, not fatal."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats.base import DriverError, FormSchema, Question
+    from autoapply.ats.workday import WorkdayDriver
+
+    html = """<main><input id="webAddress-4--url" value="https://github.com/me"><input id="webAddress-5--url" value="https://me.example/">
+      <input id="webAddress-6--url" value="https://www.linkedin.com/in/me"><input id="city" value=""></main>
+      <script>window.typed = 0; document.querySelectorAll('input').forEach((e) => e.addEventListener('input', () => window.typed++));</script>"""
+    qs = [Question(id=f"webAddress-{i}--url", label="URL", type="text", page=0) for i in (4, 5, 6)] + [Question(id="city", label="City", type="text", page=0),
+                                                                                                      Question(id="gone", label="Gone", type="text", page=0)]
+    schema = FormSchema(ats="workday", tenant="acme", questions=qs)
+    fill = {"webAddress-4--url": "https://www.linkedin.com/in/me", "webAddress-5--url": "https://github.com/me", "webAddress-6--url": "https://me.example", "city": "Richmond", "gone": "x"}
+    drv = WorkdayDriver()
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content(html)
+        failed = drv.fill_page(page, schema, 0, fill, tolerant=True)
+        assert [(q.id, why) for q, why in failed] == [("gone", "field not found on page")]
+        assert page.locator("#city").input_value() == "Richmond"
+        assert [page.locator(f"[id='webAddress-{i}--url']").input_value() for i in (4, 5, 6)] == ["https://github.com/me", "https://me.example/", "https://www.linkedin.com/in/me"]
+        assert page.evaluate("window.typed") == 1                          # only the city was typed
+        with pytest.raises(DriverError):                                   # filling an approved draft stays strict
+            drv.fill_page(page, schema, 0, fill)
+        # one entry really is new: the rows are emptied first, then filled, so no entry meets its own copy
+        fill["webAddress-6--url"] = "https://new.example"
+        drv.fill_page(page, FormSchema(ats="workday", tenant="acme", questions=qs[:3]), 0, fill)
+        assert [page.locator(f"[id='webAddress-{i}--url']").input_value() for i in (4, 5, 6)] == ["https://www.linkedin.com/in/me", "https://github.com/me", "https://new.example"]
+        b.close()
+
+
+def test_answering_a_form_that_stopped_while_being_read_reads_on_with_that_answer(app_env):
+    """A Workday form is read by filling it. It stopped at a step with a question only the applicant can answer. Their
+    answer starts the reading again by itself - before any approval - and is used there, and in the draft that follows."""
+    from autoapply import db, drafts
+    from autoapply.models import Application, Draft, Task
+
+    q = {"id": "source--source", "label": "How Did You Hear About Us?", "type": "select", "options": [], "required": True, "page": 0}
+    row = {**q, "value": "", "basis": "", "confidence": "low", "source": "unresolved", "sensitive": "", "sensitive_confirmed": False}
+    with db.session() as s:
+        job, a, d = _application(s, status="needs_input")
+        d.schema = {"ats": "workday", "tenant": "acme", "source": "walk", "pages": ["My Information"], "questions": [q],
+                    "extra": {"stopped_at": {"page": 0, "errors": ["required"]}, "steps": ["My Information", "My Experience", "Review"]}}
+        d.answers, d.unresolved = [row], [row]
+        aid, did, jid = a.id, d.id, job.id
+    drafts.edit_answer(did, "source--source", "LinkedIn")
+    with db.session() as s:
+        t = s.query(Task).filter_by(kind="recon").one()
+        assert (t.ref, t.status, t.payload["read_on"]) == (f"job:{jid}", "queued", did) and s.get(Application, aid).status == "recon"
+    given = drafts._given(aid)
+    fresh = {"answers": [{**row}, {"id": "x", "label": "City", "type": "text", "options": [], "required": True, "value": "", "source": "unresolved", "sensitive": ""}], "unresolved": []}
+    assert drafts._use_given(fresh, given) == 1
+    assert fresh["answers"][0]["value"] == "LinkedIn" and fresh["answers"][0]["source"] == "profile" and [u["label"] for u in fresh["unresolved"]] == ["City"]

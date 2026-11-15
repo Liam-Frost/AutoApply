@@ -35,6 +35,22 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   and looked ready - an empty first step is now an error). The résumé upload is recorded when its box has no id. A date
   box that a click cannot reach is given the focus instead. "Résumé successfully uploaded" is no longer taken for an
   error of the form, which stopped the reading on that step.
+- Workday forms are read as far as they go in one pass, and the reading goes on by itself. A field the program cannot
+  work no longer ends the reading (it is noted in the draft). When the form stops at a question only you can answer,
+  your answer starts the reading again from there - before any approval - and is used there; answers you typed into
+  an earlier draft of the application are not asked for again. The draft says how far the form was read and which
+  steps are still unread. Before, such a draft looked ready, and approving it ended in "the form changed" and yet
+  another draft.
+- Workday: several rows of one question that the site carries over from your last application (the websites) are left
+  as they are when they already hold the entries; retyping them made two rows equal for a moment and the form answered
+  "You can't add duplicate website URLs". The draft shows what the rows hold. Questions on questionnaire steps are read
+  with their real wording (some came out without any, or with the chosen value as their name), a group of tick boxes
+  is one question with several choices, and "First Name" under "Legal Name" and under "Preferred Name" are told apart -
+  one answer for both had put the preferred name into the legal name. A list is read from its own box: the choices of
+  the field before could be recorded for it, which later looked like a changed form.
+- An answer the employer's site holds from an earlier application is compared with your profile when the form is
+  walked: where the profile plainly says something else, the draft marks it "differs from your profile" and shows both,
+  and you decide which one goes in.
 - A card that asks you to sign in to a site is closed as soon as the program is signed in there, however that came
   about. A draft that is built clears the "failed" note of the attempt before it.
 

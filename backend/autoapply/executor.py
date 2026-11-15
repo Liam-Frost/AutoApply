@@ -296,7 +296,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         for h in rep.get("held") or []:
             if not any(norm_question(x["label"]) == norm_question(h["label"]) for x in held):
                 held.append({"label": str(h["label"])[:400], "value": h["value"], "type": h.get("type") or "text", "options": [str(o) for o in h.get("options") or []][:60],
-                             "selector": h.get("selector") or "", "page": _page_index(str(h.get("section") or ""), i) if h.get("section") else i})
+                             "selector": h.get("selector") or "", "page": _page_index(str(h.get("section") or ""), i) if h.get("section") else i,
+                             "profile_says": str(h.get("profile_says") or "").strip()[:300]})
         for n in rep.get("needs_user") or []:
             _left("fix", n["label"], "", n.get("why") or "资料里没有这一项，需要你来填")
             if n.get("type") and not any(norm_question(x["label"]) == norm_question(n["label"]) for x in asked):
@@ -856,8 +857,11 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
         if any(norm_question(r.get("label", "")) == norm_question(a["label"]) for r in rows):
             continue
         typ = a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect") else "text"
+        differs = bool(a.get("profile_says")) and not values_equal(a["profile_says"], a["value"])
         rows.append({"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": False, "page": a["page"], "value": a["value"],
-                     "basis": "雇主网站上已经存着这个答案（来自以前的申请或你在那里的资料），程序没有改动", "confidence": "high", "source": "site", "held": True,
+                     "basis": (f"雇主网站上存的是旧信息：你的资料里写的是「{a['profile_says']}」。要改就在这里改成新的，程序会按你改的去填"[:300] if differs
+                               else "雇主网站上已经存着这个答案（来自以前的申请或你在那里的资料），程序没有改动"),
+                     "confidence": "low" if differs else "high", "source": "site", "held": True, "conflict": differs,
                      "sensitive": sensitivity(a["label"]), "sensitive_confirmed": False})
         if generic and not any(q["id"] == qid for q in questions):
             questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=False, page=a["page"],

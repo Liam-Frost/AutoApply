@@ -41,8 +41,9 @@ def job_ref(job: Job) -> JobRef:
     return ref
 
 
-def recon(job: Job, run_dir) -> tuple[JobRef, FormSchema]:  # noqa: ANN001
-    """Get the form schema. Opens a browser only when the driver needs one."""
+def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRef, FormSchema]:  # noqa: ANN001
+    """Get the form schema. Opens a browser only when the driver needs one. ``given``: answers the applicant has
+    already given for this application (see _given) - a form that is read by filling it needs them to get on."""
     ref = job_ref(job)
     driver = registry.get(ref.ats)
     if driver is None:
@@ -60,19 +61,54 @@ def recon(job: Job, run_dir) -> tuple[JobRef, FormSchema]:  # noqa: ANN001
             return ref, driver.get_schema(ref, None)
         auth.ensure_session(page, driver, ref)
         # Walk with profile-derived answers so conditional questions appear.
-        schema = driver.get_schema(ref, page, answers=_walk_answerer(job))
+        schema = driver.get_schema(ref, page, answers=_walk_answerer(job, given))
         browser.snapshot(page, run_dir, "recon_last_page")
         return ref, schema
 
 
-def _walk_answerer(job: Job):
-    """Callback a multi-page driver uses during the walk: questions -> fill map."""
+def _walk_answerer(job: Job, given: dict[str, Any] | None = None):
+    """Callback a multi-page driver uses during the walk: questions -> fill map. What the applicant has answered for this
+    application before goes first: that is what lets the reading pass the step it stopped on last time."""
 
     def answer(partial: FormSchema) -> dict[str, Any]:
         res = ans.resolve(partial, job)
+        _use_given(res, given)
         return ans.to_fill_map(res["answers"])
 
     return answer
+
+
+def _answer_key(a: dict[str, Any]) -> tuple[str, str]:
+    from .ats.base import norm_question, options_hash
+
+    return norm_question(a["label"]), options_hash(a.get("options") or [])
+
+
+def _given(app_id: int) -> dict[str, Any]:
+    """Answers the applicant gave themselves in the drafts of this application that were never approved (typed into a
+    draft, or into the application window), by question. A draft that is built again must not ask for them again."""
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    with db.session() as s:
+        a = s.get(Application, app_id)
+        for d in sorted(a.drafts if a else [], key=lambda x: x.version):
+            for r in d.answers or []:
+                mine = r.get("basis") in ("edited by user", "你在申请窗口里填的") or str(r.get("basis") or "").startswith("revised per comment")
+                if mine and r.get("type") != "file" and r.get("value") not in ("", None, []):
+                    out[_answer_key(r)] = {"value": r["value"], "basis": r["basis"]}
+    return out
+
+
+def _use_given(res: dict[str, Any], given: dict[str, Any] | None) -> int:
+    """Put the applicant's own earlier answers into freshly resolved ones. Returns how many were used."""
+    n = 0
+    for r in res["answers"] if given else []:
+        g = given.get(_answer_key(r))
+        if g is not None and r["type"] != "file":
+            r.update(value=g["value"], basis="edited by user", confidence="high", source="profile", sensitive_confirmed=bool(r.get("sensitive")))
+            n += 1
+    if n:
+        res["unresolved"] = [r for r in res["answers"] if r["required"] and r["type"] != "file" and r["value"] in ("", None, []) and r["source"] == "unresolved"]
+    return n
 
 
 def plan_steps(ref: JobRef, schema: FormSchema, fill: dict[str, Any], mats: list[dict[str, Any]], requires_login: bool) -> list[dict[str, Any]]:
@@ -118,8 +154,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         app_id = app.id
     run_dir = run_dir or (config.RUNS / f"recon_job_{job_id}")
     metering.stage("read_form")
+    given = _given(app_id)
     try:
-        ref, schema = recon(job, run_dir)
+        ref, schema = recon(job, run_dir, given)
     except NeedsHuman as e:
         _set_app(app_id, "needs_human", f"recon blocked: {e.reason}")
         raise
@@ -171,7 +208,24 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         except Exception as e:  # noqa: BLE001 - the application goes ahead with the résumé as uploaded
             tailor_note = f"Tailored résumé was not written ({str(e)[:160]}); the uploaded résumé is attached instead."
     res = ans.resolve(schema, job, cover_letter=cover, resume=resume)
+    _use_given(res, given)
+    for r in res["answers"]:      # rows the form already holds from an earlier application and the reading left alone
+        kept = (schema.extra.get("held") or {}).get(r["id"])
+        if kept not in (None, ""):
+            r.update(value=kept, basis="雇主网站上已经存着这个答案（来自以前的申请或你在那里的资料），程序没有改动", confidence="high", source="site", held=True)
     notes = list(res["notes"])
+    stop = schema.extra.get("stopped_at") if schema.source == "walk" else None
+    if stop:
+        # The form was read by filling it step by step, and one step would not let go. Say how far the reading got: a
+        # draft that covers two steps of six must not look complete.
+        steps_all = [str(x) for x in schema.extra.get("steps") or []]
+        left = [x for x in steps_all[int(stop.get("page", 0)) + 1:] if not re.search(r"^review$", x, re.I)]
+        said = "; ".join(str(e).replace("\n", " ")[:160] for e in (stop.get("errors") or [])[:3])
+        notes.append(f"This form was read up to its step \"{(schema.pages or ['?'])[-1]}\"; that step did not let the program go on"
+                     + f" (the form said: {said or 'nothing'}). Not read yet: {'; '.join(left[:8]) or 'nothing'}"
+                     + ". Answer the open questions and the reading goes on from there by itself.")
+    for it in (schema.extra.get("walk_issues") or [])[:6]:
+        notes.append(f"While reading the form, the field \"{it['label']}\" could not be filled in ({it['why'][:120]}).")
     if tailor_note:
         notes.append(tailor_note)
     if cover is not None and not new_letter:
@@ -370,7 +424,7 @@ def _carry_over(res: dict[str, Any], prev: dict[str, Any]) -> int:
     n = 0
     for r in res["answers"]:
         r["delta"] = ""
-        if r["type"] == "file":
+        if r["type"] == "file" or r.get("held"):      # a row the site holds is shown as it is there, whatever an earlier draft said
             continue
         p = old.get(key(r))
         if p is None:
@@ -557,8 +611,12 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
             d.application.status = "draft_ready"
         # every open question is answered and the form still has steps that were not read: the walk goes on from there
         walk_on = resolved_all and d.review_status == "pending" and needs_walk(d) and bool(db.get_setting("recon.walk"))
-        if walk_on:
+        # a form that is read by filling it (Workday) and stopped at a step: with the answers in, it is read again from there
+        read_on = (resolved_all and d.review_status == "pending" and d.schema.get("source") == "walk" and bool((d.schema.get("extra") or {}).get("stopped_at"))
+                   and bool(db.get_setting("recon.walk")))
+        if walk_on or read_on:
             d.application.status = "recon"
+        job_id, deadline = d.application.job_id, d.application.job.deadline
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
     if walk_on:
@@ -571,6 +629,10 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         # a rule is only usable later if it says what was asked; a bare "No" means nothing on the next form
         rule = f'Form question "{label.strip()[:200]}": answer "{shown[:300]}".' + (f" Note: {note}" if note and note.lower() != shown.lower() else "")
         knowledge.append_rule(rule, source="user", section="Standard answers")
+    if read_on:
+        from . import tasks
+
+        tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id, "read_on": draft_id}, priority=tasks.deadline_priority(deadline))
 
 
 REVISE_SCHEMA = llm.obj(

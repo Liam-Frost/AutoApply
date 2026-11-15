@@ -191,6 +191,7 @@ onUnmounted(() => clearInterval(timer))
               {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
               <span v-if="a.delta" class="tag warn" style="margin-left: 4px">{{ a.delta === 'new' ? '新增' : '有变化' }}</span>
               <span v-if="a.held" class="tag" style="margin-left: 4px" title="这个答案已经存在雇主网站上，程序不会改动它。你在这里修改后，程序会按你改的去填。">网站上已有</span>
+              <span v-if="a.conflict" class="tag warn" style="margin-left: 4px">和你的资料不一致</span>
               <div v-if="a.sensitive" class="small"><span class="tag" :class="a.sensitive_confirmed ? '' : 'warn'">{{ SENS[a.sensitive] || a.sensitive }}{{ a.sensitive_confirmed ? '（已确认过）' : '（第一次遇到，请确认）' }}</span></div>
               <div v-if="d.pages.length > 1" class="muted small">第 {{ a.page + 1 }} 页 · {{ d.pages[a.page] }}</div>
             </td>

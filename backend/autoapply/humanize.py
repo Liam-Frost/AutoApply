@@ -110,6 +110,9 @@ def explain(text: str | None) -> dict[str, str]:
 
 
 _NOTES: list[tuple[str, str]] = [
+    (r"^This form was read up to its step \"(.*?)\"; that step did not let the program go on \(the form said: (.*?)\)\. Not read yet: (.*?)\. Answer the open questions and the reading goes on from there by itself\.$",
+     r"这张表读到了「\1」这一步，这一步没能通过（表单的提示：\2）。还没读到的步骤：\3。回答完没有答案的问题后，程序会自己从这里接着读。"),
+    (r"^While reading the form, the field \"(.*?)\" could not be filled in \((.*)\)\.$", r"读表时「\1」这一栏没能填上（\2）。"),
     (r"^Proposed rule \(confirm to save to profile\): (.*)$", r"建议记住这条规则（你确认后会存进个人资料）：\1"),
     (r"^Form changed since the approved draft v(\d+): (\d+) new or changed question\(s\) need review; the other answers are carried over\.$",
      r"申请表和你批准第 \1 版草案时不一样了：有 \2 个新增或变化的问题需要你看，其余答案沿用。"),

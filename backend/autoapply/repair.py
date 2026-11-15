@@ -110,7 +110,9 @@ READ_STEP = """THIS STEP HAS NOT BEEN READ BEFORE. Besides finishing it, read it
 the approved answers above is reported, each one once:
 - the form already shows an answer to it (kept by the site from an earlier application or from the applicant's account there):
   under `held` - the full label, its type, its options word for word, the answer shown, a selector. Leave these answers as
-  they are; the applicant sees them in the draft and decides.
+  they are; the applicant sees them in the draft and decides. If the applicant's profile plainly states something else
+  for it (another address, phone number, school, graduation date, work authorisation ...), add `profile_says` with what
+  the profile states: the site is holding out-of-date information, and the applicant is asked which one is right.
 - it has no answer and the profile states one: fill it and report it under `added`.
 - it has no answer and only the applicant can say: under `needs_user`.
 Controls that are not questions of the application (search boxes, navigation, a document that is already listed) are left out.
@@ -247,7 +249,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                                                            "located": obj("id", "selector"),
                                                            "held": {"type": "array", "items": {"type": "object", "properties": {
                                                                "label": st, "value": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
-                                                               "options": arr, "selector": st, "section": st}, "required": ["label", "value"], "additionalProperties": False}},
+                                                               "options": arr, "selector": st, "section": st, "profile_says": st},
+                                                               "required": ["label", "value"], "additionalProperties": False}},
                                                            "needs_user": {"type": "array", "items": {"type": "object", "properties": {
                                                                "label": st, "why": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
                                                                "options": arr, "selector": st}, "required": ["label", "why"], "additionalProperties": False}},
