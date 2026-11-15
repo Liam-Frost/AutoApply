@@ -21,7 +21,8 @@ const SUBS = {
 }
 const route = useRoute()
 const router = useRouter()
-const view = ref(VIEWS.some(([k]) => k === route.query.view) ? route.query.view : 'apps')
+// The name of the view comes from the list, never from the address itself: what the address says is only compared with it.
+const view = ref(VIEWS.map(([k]) => k).find((k) => k === route.query.view) || 'apps')
 const range = reactive({ mode: '0', start: '', end: '' })
 const params = reactive({ auto: { kind: '' }, ai: { group: 'model', bucket: '', provider: '', model: '', feature: '' } })
 const state = reactive({ apps: { data: null, error: '', loading: false }, auto: { data: null, error: '', loading: false }, ai: { data: null, error: '', loading: false } })
