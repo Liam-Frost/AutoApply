@@ -302,6 +302,16 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         now = driver.step_title(page)
         return bool(title0) and bool(now) and now != title0
 
+    def _page_index(step_title: str, fallback: int) -> int:
+        """Which page of the draft a step of the live form is, by its name (the form shows its steps in its own order)."""
+        t = norm_question(step_title or "")
+        if t:
+            for k, name in enumerate(schema.pages or []):
+                nm = norm_question(str(name))
+                if nm and (t in nm or nm in t):
+                    return k
+        return fallback
+
     def _walk_steps() -> list[dict[str, Any]]:
         """A form with several steps: go through the steps that are really there. Returns what the form still reports at the end."""
         done_ids: set[str] = set()
@@ -345,7 +355,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 failed = list(getattr(fill_error, "failures", [])) if fill_error is not None else []
                 only = [f["id"] for f in failed] if (failed or fill_error is None) else None
                 problem = fill_error.to_dict() if fill_error is not None else {"message": "this step of the form reports problems"}
-                rep = _takeover(n, problem, only, issues, on_ids=ids)
+                rep = _takeover(_page_index(title0, n), problem, only, issues, on_ids=ids)
                 rounds += 1
                 told += issues if rep is not None else []
                 waits = waits or hands(rep)
@@ -360,7 +370,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if here and not _left_step(title0):
                 scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
                 bad = _really_different(page, schema, verify(schema, scope, driver.read_back(page, schema)))
-                if bad and rounds < 2 and _takeover(n, {"message": "values on the form differ from the approved draft", "mismatches": bad}, [b["id"] for b in bad], [], on_ids=ids) is not None:
+                if bad and rounds < 2 and _takeover(_page_index(title0, n), {"message": "values on the form differ from the approved draft", "mismatches": bad}, [b["id"] for b in bad], [], on_ids=ids) is not None:
                     rounds += 1
                     scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
                     bad = _really_different(page, schema, verify(schema, scope, driver.read_back(page, schema)))
@@ -377,7 +387,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             fresh = [it for it in still if not _handed(it) and not seen_before(it)]
             if fresh and rounds < 2 and repair.enabled():
                 step("form_reports", step=n, after="checks", issues=audit.texts(fresh)[:12])
-                rep = _takeover(n, {"message": "this step was filled and compared with the draft, but the form still reports problems"}, [], fresh, on_ids=ids)
+                rep = _takeover(_page_index(title0, n), {"message": "this step was filled and compared with the draft, but the form still reports problems"}, [], fresh, on_ids=ids)
                 if rep is not None:
                     rounds += 1
                     told += fresh
@@ -411,7 +421,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     rounds += 1
                     # what the navigator saw on the page counts like a message of the form, when the form's own marks show nothing
                     seen_there = blockers or [{"kind": "message", "label": "", "message": why[:240], "selector": "", "value": ""}]
-                    rep = _takeover(n, {"message": "the form does not go on to the next step" + (f": {why}" if why else "")}, [], seen_there, on_ids=ids)
+                    rep = _takeover(_page_index(title0, n), {"message": "the form does not go on to the next step" + (f": {why}" if why else "")}, [], seen_there, on_ids=ids)
                     if rep is not None:
                         told += seen_there
                         if hands(rep):       # it is the applicant's to answer: stop here
