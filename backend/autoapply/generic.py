@@ -93,6 +93,11 @@ when the notes from earlier applications name such fields, include them too, on 
 @label:<the field's label> (it has no control yet; it is found by its label once it is there).
 A text field with a length limit (maxlength in list_controls, a counter such as "0 / 200", a hint such as "max. 500 characters", or a limit
 the notes from earlier applications name): give it as max_length, so that the answer is written to fit.
+A list that has a search box, or that loads more entries as one types or scrolls (a location, a school, a country picker): the
+entries you see first are NOT its choices - they are its first few. Set searchable=true for it. Then look for the applicant's own
+value in it with the `options` tool and a search term taken from <applicant> (their city, their country, their school), and put
+the entry you find first in `options`, followed by the ones you saw. A draft built from the first five entries of such a list
+offers the applicant five wrong answers.
 For multi-page forms also give next_buttons: the exact text of the button that leads from each page to the next.
 If the form only appeared after you clicked a button on the posting ("Apply for This Job"), give that button's exact text as apply_button."""
 
@@ -261,7 +266,7 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
                 questions={"type": "array", "items": {"type": "object", "properties": {
                     "label": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date"]},
                     "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st,
-                    "max_length": {"type": "integer"}},
+                    "max_length": {"type": "integer"}, "searchable": {"type": "boolean"}},
                     "required": ["label", "type", "required", "page", "selector"]}},
                 pages={"type": "array", "items": st}, blocked=st, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
             ),
@@ -694,6 +699,13 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
                 refused = len(body) < 300 and bool(REFUSAL.search(body))
             except Exception:  # noqa: BLE001
                 refused = False
+        if result.get("questions") and not acct_state:
+            # The form was reached without signing in. An account that was begun for this site and never finished is not
+            # needed: say so, instead of leaving it as "being registered" for ever.
+            from . import auth as _auth
+
+            if (_auth.account(ref.tenant_key) or {}).get("status") == "pending":
+                _auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="not_needed", error="")
         browser.snapshot(page, run_dir, "agent_recon_end")
         (run_dir / "agent_trace.json").write_text(json.dumps(out.steps, ensure_ascii=False, default=str)[:500000], encoding="utf-8")
         final_url = page.url
@@ -712,7 +724,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])
     qs = [
         Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]},
-                 max_length=max(0, int(q.get("max_length") or 0)))
+                 max_length=max(0, int(q.get("max_length") or 0)), searchable=bool(q.get("searchable")))
         for qid, q in zip(ids, result["questions"])
     ]
     schema = FormSchema(ats=ref.ats, tenant=ref.tenant, url=final_url, source="agent", pages=result.get("pages") or ["Application"], questions=qs, extra={"notes": result.get("notes", ""), "next_buttons": result.get("next_buttons") or [], "apply_button": result.get("apply_button") or ""})

@@ -116,6 +116,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - The self-check deals with what it finds instead of reminding you: it tries another posting before it blames a system,
   removes saved pages that are out of date, raises no cards and closes the old ones.
 
+- A list that is searched (a location or school picker) is no longer taken for a list of its first few entries. The
+  agent marks it as searched and looks the applicant's own value up in it; the answer is not limited to the entries
+  it happened to see; and when editing a draft you can type a value that is not among the ones listed.
+- An account that was begun on a site whose form can be reached without signing in is shown as "no sign-in needed",
+  not as "being registered" for ever; one that was never finished and is needed says so.
+
 ### Security
 
 - The route that serves the interface could be made to return files outside its folder with an address such as

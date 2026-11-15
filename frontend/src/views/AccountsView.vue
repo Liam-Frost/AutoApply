@@ -43,7 +43,7 @@ async function loadIdps() { idps.value = await api.get('/identities'); idpState.
 const idpLogin = (p) => runAction(() => api.post(`/identities/${p.key}/login`), `已打开窗口，请在里面登录 ${p.name}。登录成功后窗口会自己关闭。`, loadIdps)
 const idpForget = async (p) => (await ask(`删除保存的 ${p.name} 登录状态？之后遇到“用 ${p.name} 登录”的网站需要你重新登录。`)) && runAction(() => api.del('/identities/' + p.key), '已删除', loadIdps)
 
-const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['注册中', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''] }
+const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['注册中', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''], not_needed: ['不登录也能申请', ''] }
 const BY = { agent: '程序注册', takeover: '你登录时保存', manual: '手动添加', chrome_csv: '从 Chrome 导入' }
 
 async function load() { accounts.value = await api.get('/accounts'); loadIdps() }

@@ -11,6 +11,7 @@ const router = useRouter()
 const d = ref(null)
 const editing = ref(null)
 const editVal = ref('')
+const typeOwn = ref(false)      // a choice that is not among the ones the draft lists
 const saveRule = ref('')
 const remember = ref(false)
 const comment = ref('')
@@ -56,7 +57,7 @@ async function tailorNow() {
   } catch (e) { toast(e.message, 'bad') }
 }
 
-function startEdit(a) { editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : a.value; saveRule.value = ''; remember.value = false }
+function startEdit(a) { typeOwn.value = false; editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : a.value; saveRule.value = ''; remember.value = false }
 async function commitEdit(a) {
   let v = editVal.value
   if (a.type === 'checkbox') v = String(v).toLowerCase() === 'true'
@@ -197,7 +198,15 @@ onUnmounted(() => clearInterval(timer))
             </td>
             <td>
               <template v-if="editing === a.id">
-                <AaSelect v-if="a.options && a.options.length && a.type !== 'multiselect'" v-model="editVal" style="max-width: 100%"><option v-for="o in a.options" :key="o">{{ o }}</option></AaSelect>
+                <template v-if="a.options && a.options.length && a.type !== 'multiselect' && !a.searchable && !typeOwn">
+                  <AaSelect v-model="editVal" style="max-width: 100%"><option v-for="o in a.options" :key="o">{{ o }}</option></AaSelect>
+                  <div><button class="ghost sm" @click="typeOwn = true">列表里没有？直接输入</button></div>
+                </template>
+                <template v-else-if="a.options && a.options.length && a.type !== 'multiselect'">
+                  <input v-model="editVal" :list="'opts-' + a.page + '-' + a.label.length" style="width: 100%" />
+                  <datalist :id="'opts-' + a.page + '-' + a.label.length"><option v-for="o in a.options" :key="o" :value="o"></option></datalist>
+                  <div class="small muted">这个列表在表单上是可以搜索的，这里只列出了其中几项。直接输入你的答案，填表时程序会在列表里搜它。</div>
+                </template>
                 <AaSelect v-else-if="a.type === 'checkbox'" v-model="editVal"><option value="true">勾选</option><option value="false">不勾选</option></AaSelect>
                 <textarea v-else v-model="editVal" rows="3"></textarea>
                 <div class="small muted" v-if="a.type === 'multiselect'">多选用 || 分隔；可选：{{ a.options.join(' / ') }}</div>
