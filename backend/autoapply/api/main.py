@@ -665,6 +665,14 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
     return rows
 
 
+@app.get("/api/schedule")
+def schedule() -> list[dict[str, Any]]:
+    rows = tasks.schedule_status()
+    for r in rows:
+        r["label"] = humanize.TASK.get(r["kind"], r["kind"])
+    return rows
+
+
 @app.post("/api/tasks")
 def run_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     kind = body["kind"]
@@ -1439,6 +1447,7 @@ def get_settings() -> dict[str, Any]:
 
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
         if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out
             continue
@@ -1457,6 +1466,11 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     net.apply()
     llm.reset_client()
     tasks.reschedule()
+    if float(db.get_setting("queue.min_score_for_draft") or 0) < before:
+        # the score at which a draft is prepared was lowered: postings that are already scored and now qualify get theirs
+        from .. import scoring
+
+        scoring.queue_qualifying()
     return {"ok": True}
 
 

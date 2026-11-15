@@ -12,6 +12,15 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   is submitted without the approved draft, every value is read back and compared, the run keeps its evidence. Coded
   reading of these forms broke on every new site - a list that opens late, a notice taken for an error, a field without
   a name - and each break came back to you as one more draft.
+- **Every site's form is read by the agent** (`agent.reads` is `["*"]`); the coded drivers sign in and are otherwise
+  tools. A form the agent read is submitted by you in the window.
+- **What should happen by itself does.** A draft whose form still has unread steps is read on without a button; the
+  button stays as "read now". Every ten minutes, postings whose score has reached the draft threshold and that have no
+  draft yet get one (six at a time, best first) - also right after the threshold is lowered in the settings; before,
+  the threshold counted only at the moment a posting was scored. Regular jobs (scanning for postings, reading mail,
+  the self-check) count their interval from their last run, not from the start of the program: a scan every twelve
+  hours never came round on a program that is closed or restarted more often than that. The activity page shows the
+  regular jobs with their last and next run and a "run now".
 - **A form is read to its end before you are asked anything, and you are asked once.** Where a required question that
   only you can answer would stop the reading, the agent enters a stand-in to get past it and says so in the draft. A
   stand-in is never submitted: the draft cannot be approved until you have answered, and your answer replaces it
@@ -77,6 +86,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   which carries a one-time token, is not shown to the model or written to a log. If the link leads away from the site,
   the window goes back and nothing is typed there. A link that is not opened is reported, and the account is marked as
   needing you. The site's password is typed on the site's own pages only.
+- Tailoring a résumé with "reorder and allow rewording" never reworded anything: the instruction the model works
+  under said "keep the applicant's facts exactly as written", and it took that for the wording too. It now says what
+  is meant - facts, numbers and tools stay, the words around them may follow the posting - and the request asks for
+  rewording where a bullet describes what the posting asks for in other words. Every rewording is still checked in
+  code (no new number, no new tool or product name) and shown in the list of changes.
 - Entries a form already holds in another order than the draft lists them are left where they are, and the draft takes
   the form's order. An upload that was read as "the file box" is made on the step it was read on, not on another step's
   file box. A step is named by the form's own "you are here" mark and read once it has stopped loading; before, the

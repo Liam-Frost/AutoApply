@@ -50,12 +50,9 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
         from . import generic
 
         return generic.recon(job, ref, run_dir)
-    if not driver.requires_login and ref.tenant:
-        if getattr(driver, "page_extras", False):  # the API misses blocks that only the page shows
-            with browser.open_page() as page:
-                return ref, driver.get_schema(ref, page)
-        return ref, driver.get_schema(ref, None)
-    if ref.ats in (db.get_setting("agent.reads") or []):
+    reads = db.get_setting("agent.reads") or []
+    # (the university's portal does not allow programs to operate it: nothing reads it, coded or not)
+    if ("*" in reads or ref.ats in reads) and ref.ats != "pdportal":
         # A form that is a walk through several steps is read by the agent: it looks at each page and decides what to do
         # there. The coded driver does what code does well - signing in with the saved session or password - and hands over.
         from . import generic
@@ -64,6 +61,11 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
             with browser.open_page(ref.tenant_key) as page:
                 auth.ensure_session(page, driver, ref)
         return generic.recon(job, ref, run_dir)
+    if not driver.requires_login and ref.tenant:
+        if getattr(driver, "page_extras", False):  # the API misses blocks that only the page shows
+            with browser.open_page() as page:
+                return ref, driver.get_schema(ref, page)
+        return ref, driver.get_schema(ref, None)
     with browser.open_page(ref.tenant_key if driver.requires_login else None) as page:
         if not ref.tenant and hasattr(driver, "resolve_board"):
             ref = driver.resolve_board(page, ref)  # type: ignore[attr-defined]
@@ -499,6 +501,36 @@ def needs_walk(d: Draft) -> bool:
     """Is there still something of this form to read by walking it: steps nobody has read, or a walk that stopped
     before the review page?"""
     return bool(_unseen_of(d)) or bool((d.schema.get("extra") or {}).get("walk_open"))
+
+
+def walk_pending(limit: int = 3) -> int:
+    """Drafts that wait for approval while steps of their form are still unread, with nothing open for the applicant to
+    answer: the reading is started for them. Nobody should have to press a button for the program to finish reading.
+    A draft is not walked more than a few times by itself (a form that will not let the walk through stays as it is, with
+    its note), and not while something else is already working on it. Returns how many walks were queued."""
+    from . import tasks
+    from .models import Task
+
+    if not db.get_setting("recon.walk") or db.get_setting("schedule.paused"):
+        return 0
+    todo: list[tuple[int, str]] = []
+    with db.session() as s:
+        busy = {t.ref for t in s.query(Task).filter(Task.kind.in_(("scout", "recon", "execute")), Task.status.in_(("queued", "running")))}
+        for d in s.query(Draft).filter_by(review_status="pending").order_by(Draft.id.desc()):
+            app = d.application
+            if app is None or app.status not in ("draft_ready", "recon") or d.unresolved:
+                continue
+            if f"draft:{d.id}" in busy or f"job:{app.job_id}" in busy or f"application:{app.id}" in busy:
+                continue
+            if int((d.schema.get("extra") or {}).get("scouted") or 0) >= 3 or not needs_walk(d):
+                continue
+            app.status = "recon"
+            todo.append((d.id, app.job.deadline or ""))
+            if len(todo) >= limit:
+                break
+    for did, deadline in todo:
+        tasks.enqueue("scout", ref=f"draft:{did}", payload={"draft_id": did}, priority=tasks.deadline_priority(deadline))
+    return len(todo)
 
 
 def read_titles(schema: FormSchema) -> list[str]:

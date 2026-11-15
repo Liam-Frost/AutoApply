@@ -40,7 +40,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "llm.providers": {},
     # Sites whose form is a walk through several steps are read and filled by the agent (it looks at the page and decides);
     # the coded driver signs in and is otherwise out of the way. Coded reading of such forms broke on every new site.
-    "agent.reads": ["workday"],
+    "agent.reads": ["*"],      # every site ("*"); a list of names limits it - kept for taking a site out, not for turning the agent off
     # While reading, a required question only the applicant can answer gets a stand-in answer so that the steps after it
     # can be read too; it is never submitted - the draft cannot be approved until the applicant has answered.
     "recon.provisional": True,

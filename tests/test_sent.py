@@ -337,3 +337,62 @@ def test_a_confirmation_link_from_an_e_mail_is_opened_only_when_it_is_the_sites_
     assert got.startswith("refused: leads to click.mailservice.net")
     box["msgs"][0].body = "Hi, confirm here: https://www.metacareers.com/confirm?token=abc thanks"
     assert mail.wait_for_verification(sender_hint="www.metacareers.com", timeout=1, since=now, site_host="www.metacareers.com") == "https://www.metacareers.com/confirm?token=abc"
+
+
+def test_what_should_happen_by_itself_does(app_env, monkeypatch):
+    """Every site is read by the agent. A posting that comes to qualify for a draft after it was scored gets one (the
+    threshold was lowered); a draft whose form still has unread steps is read on without anyone pressing a button; and a
+    regular job counts its interval from its last run, not from the start of the program."""
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import config, db, drafts, generic, scoring, tasks
+    from autoapply.api.main import app as api
+    from autoapply.models import Application, Draft, Job, Task, now
+
+    assert config.DEFAULT_SETTINGS["agent.reads"] == ["*"]
+    db.set_setting("agent.reads", ["*"])
+    seen = []
+    monkeypatch.setattr(generic, "recon", lambda job, ref, run_dir: seen.append(ref.ats) or (_ for _ in ()).throw(RuntimeError("the agent was asked")))
+    with db.session() as s:
+        gh = Job(source="greenhouse", source_id="g1", company="Acme", title="Intern", apply_url="https://boards.greenhouse.io/acme/jobs/123", channel="employer site", jd_text="x" * 300, score=7.5, status="scored")
+        low = Job(source="manual", source_id="l1", company="Beta", title="Intern", apply_url="https://beta.example/apply", channel="employer site", jd_text="x" * 300, score=6.0, status="scored")
+        s.add_all([gh, low])
+        s.flush()
+        gid, lid = gh.id, low.id
+    with pytest.raises(RuntimeError, match="the agent was asked"):
+        with db.session() as s:
+            j = s.get(Job, gid)
+            s.expunge(j)
+        drafts.recon(j, None)
+    assert seen == ["greenhouse"]
+
+    # the threshold: 8 by default - nothing qualifies; lowered to 7 through the settings page - the 7.5 gets its draft
+    assert scoring.queue_qualifying() == 0
+    c = TestClient(api)
+    assert c.put("/api/settings", json={"settings": {"queue.min_score_for_draft": 7}}).status_code == 200
+    with db.session() as s:
+        assert [(t.kind, t.ref) for t in s.query(Task).filter_by(kind="recon")] == [("recon", f"job:{gid}")] and s.get(Job, gid).status == "queued" and s.get(Job, lid).status == "scored"
+    assert scoring.queue_qualifying() == 0      # not twice
+
+    # a draft with unread steps and nothing to answer: its reading is queued; one with an open question is left for the applicant
+    with db.session() as s:
+        for i, unresolved in enumerate(([], [{"id": "x", "label": "Why us?"}])):
+            _, a, d = _application(s, status="draft_ready", url=f"https://w{i}.example/apply", company=f"W{i}")
+            d.schema = {"ats": "generic", "tenant": f"w{i}.example", "source": "agent", "pages": ["One", "Two (not yet visible)", "Review"],
+                        "questions": [{"id": "#a", "label": "City", "type": "text", "page": 0, "locator": {"selector": "#a"}}], "extra": {"read": ["One"]}}
+            d.unresolved = unresolved
+        s.flush()
+        ready = s.query(Draft).order_by(Draft.id).all()[-2].id
+    assert drafts.walk_pending() == 1
+    with db.session() as s:
+        assert [(t.kind, t.ref) for t in s.query(Task).filter_by(kind="scout")] == [("scout", f"draft:{ready}")]
+    assert drafts.walk_pending() == 0
+
+    # a scan that last ran eleven hours ago, every twelve hours: due in one hour, whenever the program was started
+    with db.session() as s:
+        s.add(Task(kind="discover", ref="schedule", status="done", created_at=now() - timedelta(hours=11), finished_at=now() - timedelta(hours=11)))
+    assert abs((now() - tasks.last_run("discover")).total_seconds() - 11 * 3600) < 5
+    rows = {r["kind"]: r for r in c.get("/api/schedule").json()}
+    assert rows["discover"]["minutes"] == 720 and rows["discover"]["last"] and rows["mail"]["last"] is None

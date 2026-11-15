@@ -40,6 +40,9 @@ def app_env(tmp_path, monkeypatch):
 
     knowledge.DOCS = {"profile": config.PROFILE_MD, "scoring": config.SCORING_MD, "stories": config.STORIES_MD}
     db.init_db()
+    # The coded drivers are tested as what they are - tools. In the program every site is read by the agent ("*");
+    # a test that is about that says so itself.
+    db.set_setting("agent.reads", [])
     # Tests never reach a real model: anything not stubbed by a test behaves as "no credentials".
     from autoapply import llm, llm_sdk
 

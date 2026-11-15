@@ -44,9 +44,10 @@ PLAN_SCHEMA = llm.obj(
     }
 )
 
-SYSTEM = """You tailor an applicant's résumé to one job posting. You never add anything: you only choose
-what leads. Put the bullets, projects and skills that match the posting's requirements first.
-Keep the applicant's facts exactly as written. Use the ids given in the résumé outline."""
+SYSTEM = """You tailor an applicant's résumé to one job posting. You never add a fact: you choose what leads, and -
+where the rules of the request allow rewording - how a bullet is worded. Put the bullets, projects and skills that match
+the posting's requirements first. The applicant's facts, numbers and tools stay exactly what they are; the words around
+them may change only when rewording is allowed. Use the ids given in the résumé outline."""
 
 
 def settings() -> dict[str, Any]:
@@ -198,8 +199,12 @@ def _rules_text(cfg: dict[str, Any]) -> str:
               "all": "You may reorder the entries of any section."}[which])
     r.append("You may reorder the items of a skills line (same items, most relevant first)." if cfg.get("reorder_skills") else "Leave skills lines as they are.")
     if cfg.get("mode") == "rephrase":
-        r.append("You may reword a bullet to use the posting's vocabulary where the applicant's work really is that thing. Same facts, same numbers, same tools, "
-                 "not longer than the original. Do not reword bullets you would not change meaningfully. Keep **bold** on the same kind of phrases.")
+        r.append("Rewording is allowed and wanted where it helps. Go through the bullets you put first: where one describes work the posting asks for but in other "
+                 "words (the posting says \"embedded platforms\" and \"automated test\", the bullet says \"firmware\" and \"CI checks\"), reword it under `rewrites` so "
+                 "that a reader of this posting recognises it - the posting's term for the same thing, the matching part of the bullet moved to its start. Same facts, "
+                 "same numbers, same tools, not longer than the original, nothing claimed that the bullet does not say. Expect a few such bullets on a résumé that "
+                 "fits the posting; none only when every relevant bullet already speaks the posting's language. A bullet that would not read differently to this "
+                 "employer is left alone. Keep **bold** on the same kind of phrases.")
     else:
         r.append("Do not change any wording: leave `rewrites` empty.")
     r.append("Always fill `least_relevant` with every bullet id, least relevant first.")
