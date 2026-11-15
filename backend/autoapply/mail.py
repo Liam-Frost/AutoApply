@@ -226,6 +226,45 @@ def match_application(company: str, title: str, received: datetime | None) -> in
         return cands[0][2]
 
 
+def _was_filled(s: Any, application_id: int, before: datetime | None) -> bool:
+    """Has the program filled this application's form (so that the applicant had it in front of them to submit) before
+    this time? Then a confirmation is what it says, whatever the program believes about the run: a window that closed, a
+    confirmation page that was not recognised."""
+    from .models import Run
+
+    for r in s.query(Run).filter_by(kind="execute", ref=f"application:{application_id}"):
+        at = getattr(r, "created_at", None)
+        if before is None or at is None:
+            return True
+        a, b = (at if at.tzinfo else at.replace(tzinfo=timezone.utc)), (before if before.tzinfo else before.replace(tzinfo=timezone.utc))
+        if a <= b + timedelta(minutes=5):
+            return True
+    return False
+
+
+def reconcile() -> int:
+    """Confirmations that were read while the program still took the application for unsent (it was filling the form
+    again, or the run had ended without a confirmation page): the mail is right. Returns how many were corrected."""
+    fixed = 0
+    with db.session() as s:
+        rows = [(m.application_id, m.message_id, m.received_at, m.summary) for m in
+                s.query(MailEvent).filter(MailEvent.category == "confirmation", MailEvent.application_id.isnot(None)).order_by(MailEvent.id)]
+    for app_id, mid, received, summary in rows:
+        with db.session() as s:
+            a = s.get(Application, app_id)
+            if a is None or RANK.get(a.status, 0) >= RANK["confirmed"]:
+                continue
+            if a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received):
+                continue
+            a.status = "confirmed"
+            a.submitted_at = a.submitted_at or received
+            a.last_event = f"confirmation: {summary}"[:500]
+            a.evidence = {**(a.evidence or {}), "mail_id": mid}
+            a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
+            fixed += 1
+    return fixed
+
+
 def track(days: int = 3, max_results: int = 80) -> dict[str, int]:
     """Read recent mail, classify, link to applications, update statuses, notify."""
     from . import mailbox
@@ -267,11 +306,14 @@ def track(days: int = 3, max_results: int = 80) -> dict[str, int]:
             # A confirmation confirms a submission. An application this program is still preparing (no submission by it, none
             # reported by the user) is not turned into "confirmed" by an e-mail: sites send "we have your application" style
             # mail when an application is merely started. The mail is kept on the record and shown; the status stays.
-            early = t["category"] == "confirmation" and a.status in PREPARING and a.submitted_at is None
+            early = t["category"] == "confirmation" and a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received)
             if early:
                 a.last_event = f"收到一封像确认信的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{t['summary']}"[:500]
             elif new_status and RANK.get(new_status, 0) > RANK.get(a.status, 0):
                 a.status = new_status
+                if a.submitted_at is None:      # the program had not seen the submission; the employer has
+                    a.submitted_at = received
+                    a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
                 updated += 1
             if t["category"] == "confirmation" and not early:
                 a.evidence = {**(a.evidence or {}), "mail_id": mid}

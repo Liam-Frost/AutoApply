@@ -85,10 +85,20 @@ class WorkdayDriver:
     def is_logged_in(self, page: Page, ref: JobRef, navigate: bool = True) -> bool:
         if navigate:
             self._goto(page, f"{self._base(ref)}/userHome")
+            # The header is drawn signed out first ("Sign In") and changes to the account menu once the page has asked
+            # the server who is there - a second or two later. Looking at the first thing that appears made a session
+            # that had just been signed in to look signed out, every time. The answer is in once the account menu is
+            # there, or once the page's own content is (it comes after the header has settled).
+            settled = f"{A.format('utilityButtonAccountTasksMenu')}, {A.format('signInSubmitButton')}, {A.format('welcomeMsgHeader')}, {A.format('applicationsSectionHeading')}"
             try:
-                page.wait_for_selector(f"{A.format('utilityButtonSignIn')}, {A.format('utilityButtonAccountTasksMenu')}, {A.format('signInSubmitButton')}", timeout=15000)
+                page.wait_for_selector(settled, timeout=20000)
             except PWTimeout:
                 return False
+            if not _a(page, "utilityButtonAccountTasksMenu").count() and not _a(page, "signInSubmitButton").count():
+                try:      # the content is there; one more moment for a header that is still changing
+                    page.wait_for_selector(A.format("utilityButtonAccountTasksMenu"), timeout=4000)
+                except PWTimeout:
+                    pass
             self._dismiss_cookies(page)
         return _a(page, "utilityButtonAccountTasksMenu").count() > 0 and _a(page, "signInSubmitButton").count() == 0
 
@@ -113,6 +123,12 @@ class WorkdayDriver:
         self._dismiss_cookies(page)
         if _a(page, "signInSubmitButton").count() == 0 and _a(page, "signInLink").count():
             _a(page, "signInLink").first.click()
+        try:
+            page.wait_for_function("() => document.querySelector(\"[data-automation-id='email']\") || /\\/userHome\\b/.test(location.href)", timeout=20000)
+        except PWTimeout:
+            pass
+        if re.search(r"/userHome\b", page.url) and _a(page, "email").count() == 0:
+            return      # the sign-in page sent us on to the candidate home: this session is signed in already
         _a(page, "email").first.wait_for(state="visible", timeout=20000)
         _a(page, "email").first.fill(email)
         _a(page, "password").first.fill(password)  # never logged

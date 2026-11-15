@@ -227,8 +227,10 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
             raise
         except Exception as e:  # noqa: BLE001
             msg = secrets.redact(str(e), pw)
-            n = _bump_fail(key, msg)
-            log.warning("login failed for %s (%d): %s", key, n, msg)
+            # The site did not refuse the password - the program could not work the sign-in page. That says nothing about
+            # the password, so it does not count towards "the stored password failed twice".
+            upsert_account(key, ats=ref.ats, host=ref.host, error=msg[:300])
+            log.warning("could not work the sign-in page of %s: %s", key, msg)
             _need_takeover(ref, driver, f"Automatic login failed: {msg[:200]}")
         if driver.is_logged_in(page, ref):
             upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")

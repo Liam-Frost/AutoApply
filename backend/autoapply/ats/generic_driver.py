@@ -586,8 +586,12 @@ class GenericDriver:
 
     def confirmation(self, page: Page) -> dict[str, Any] | None:
         body = page.inner_text("body")
-        m = re.search(rf"[^\n]*({DONE_RE})[^\n]*", body, re.I)
-        return {"url": page.url, "text": m.group(0).strip()[:300]} if m else None
+        m = re.search(rf"[^\n]*({DONE_RE})[^\n]*", body, re.I) or re.search(rf"[^\n]*({DONE_RE})[^\n]*", page.title() or "", re.I)   # some sites say it in the title only
+        if m:
+            return {"url": page.url, "text": m.group(0).strip()[:300]}
+        if re.search(r"[?&]result=(success|submitted|duplicate)\b", page.url, re.I):      # the address says it; keep what the page shows with it
+            return {"url": page.url, "text": " ".join(body.split())[:300]}
+        return None
 
     def already_applied(self, page: Page, ref: JobRef) -> bool:
         return False

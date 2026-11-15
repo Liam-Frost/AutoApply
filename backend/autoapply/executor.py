@@ -28,6 +28,7 @@ Forms mapped by the agent (no driver) run through ``GenericDriver`` and are alwa
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 import logging
@@ -85,7 +86,33 @@ def submit_mode(ats: str, company: str, answers: list[dict[str, Any]], *, has_dr
 
 
 DONE_RE = re.compile(r"thank(s| you) for (applying|your (application|interest|submission))|thank you|application (has been |was |is )?(received|submitted|sent|complete)|successfully (submitted|applied)|we(.ve| have) received|submission (received|complete)", re.I)
-DONE_URL = re.compile(r"/(confirmation|thank[-_]?you|thanks|success|submitted|applied)(?=[/?#]|$)", re.I)
+DONE_URL = re.compile(r"/(confirmation|thank[-_]?you|thanks|success|submitted|applied)(?=[/?#]|$)|[?&]result=(success|submitted|duplicate)\b", re.I)
+# the site says an application for this posting exists already: there is no form to fill, and nothing to send again
+ALREADY_RE = re.compile(r"you(.ve| have) already (applied|submitted)|already (applied|submitted an application) (for|to) this|"
+                        r"you(.ve| have) previously applied (for|to) this|application (has )?already (been )?(received|submitted)|你已(经)?申请过", re.I)
+
+
+def _seen(page: Any, limit: int = 6000) -> dict[str, str]:
+    """What the window shows: its address, its title (many sites say "Thank you for your application" only there) and its text."""
+    try:
+        got = page.evaluate("(n) => ({ title: document.title || '', text: document.body ? document.body.innerText.slice(0, n) : '' })", limit)
+    except Exception:  # noqa: BLE001 - between two pages there is nothing to read
+        got = {"title": "", "text": ""}
+    try:
+        url = page.url
+    except Exception:  # noqa: BLE001
+        url = ""
+    return {"url": url, "title": got["title"], "text": got["text"]}
+
+
+def _already_applied(page: Any) -> dict[str, str] | None:
+    """The page that opened instead of the form says this posting has been applied for already."""
+    now_ = _seen(page, 3000)
+    m = ALREADY_RE.search(now_["text"]) or ALREADY_RE.search(now_["title"])
+    if not m and not re.search(r"[?&]result=duplicate\b", now_["url"], re.I):
+        return None
+    line = next((ln.strip() for ln in now_["text"].splitlines() if ALREADY_RE.search(ln)), now_["title"])
+    return {"url": now_["url"], "text": line[:300], "already_applied": "yes"}
 
 
 class NeedsVisibleRun(Exception):
@@ -560,6 +587,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if generic:
                 from . import generic as gen
 
+                if not gen.form_present(page, schema, wait_s=4) and (dup := _already_applied(page)):
+                    # no form, and the site says why: it has this application already (sent in an earlier run whose
+                    # confirmation page was not seen, or by the applicant themselves). Not a sign-in problem.
+                    browser.snapshot(page, run_dir, "already_applied")
+                    step("already_applied", url=dup["url"], text=dup["text"][:200])
+                    raise AlreadyApplied(dup)
                 if not gen.form_present(page, schema):
                     # the form is not there: almost always the saved sign-in has run out since the draft was prepared
                     run_dir.mkdir(parents=True, exist_ok=True)
@@ -691,8 +724,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if driver.requires_login:
                 browser.save_state(ref.tenant_key, page.context)
         ok = outcome.get("status") == "submitted"
-    except AlreadyApplied:
-        outcome = {"status": "submitted", "evidence": {"text": "The site shows this job as already applied."}, "note": "already applied"}
+    except AlreadyApplied as e:
+        seen_there = e.args[0] if e.args and isinstance(e.args[0], dict) else {"text": "The site shows this job as already applied."}
+        outcome = {"status": "submitted", "evidence": seen_there, "note": "雇主网站显示这个岗位已经申请过了，没有再提交一次"}
         ok = True
     except NeedsHuman as e:
         outcome = {"status": "needs_human", "error": e.reason}
@@ -1023,12 +1057,19 @@ def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: 
         if conf:
             notify.close_todos("submit", f"application:{application_id}")
             return {"status": "submitted", "evidence": conf}
-        try:  # remember what the window last showed: the user may close it right after the confirmation appears
-            last = {"url": page.url, "text": page.evaluate("() => document.body.innerText.slice(0, 1500)")}
+        # Remember what the window last showed: the user may close it right after the confirmation appears.
+        # Pressing Submit loads another page, and for a moment there is nothing to read: that is not a closed window.
+        # (It was taken for one, and the window was closed on the applicant in the middle of the submission.)
+        now_ = _seen(page, 1500)
+        if now_["text"] or now_["title"]:
+            last = now_
+        try:
             page.wait_for_timeout(1000)
-        except Exception:  # noqa: BLE001 - window closed by the user
-            break
-    if last and (DONE_RE.search(last["text"]) or DONE_URL.search(last["url"])):
+        except Exception:  # noqa: BLE001
+            if page.is_closed():
+                break
+            time.sleep(1)
+    if last and (DONE_RE.search(last["text"]) or DONE_RE.search(last.get("title", "")) or DONE_URL.search(last["url"])):
         notify.close_todos("submit", f"application:{application_id}")
         return {"status": "submitted", "evidence": last}
     return {"status": "ready_to_submit", "error": "窗口已关闭或超时，没有看到确认页；是否已提交不确定，请以确认邮件为准", "last_seen": last}
@@ -1067,7 +1108,5 @@ def _email_code_step(driver: Any, page: Any, run_dir: Path | None, since: dateti
 
 
 def _looks_submitted(page: Any) -> bool:
-    try:
-        return bool(DONE_RE.search(page.evaluate("() => document.body.innerText.slice(0, 6000)")) or DONE_URL.search(page.url))
-    except Exception:  # noqa: BLE001
-        return False
+    now_ = _seen(page)
+    return bool(DONE_RE.search(now_["text"]) or DONE_RE.search(now_["title"]) or DONE_URL.search(now_["url"]))

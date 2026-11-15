@@ -46,6 +46,14 @@ async def lifespan(app: FastAPI):
         from .. import metering as _metering
 
         _metering.import_legacy()
+        try:      # applications a confirmation was read for while the program took them for unsent; cards of applications that are sent
+            from .. import lifecycle as _lifecycle
+            from .. import mail as _mail
+
+            _mail.reconcile()
+            _lifecycle.settle_all()
+        except Exception:  # noqa: BLE001 - never a reason not to start
+            logging.getLogger("autoapply").exception("could not settle sent applications")
         db.set_setting("migrated.llm_runs", True)
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
@@ -325,6 +333,16 @@ def tailor_job(job_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
     return {"task_id": tasks.enqueue("tailor", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": body.get("instructions", "")}, priority=30)}
 
 
+def _already_sent(a: Application) -> HTTPException:
+    """Someone asks to send, or to mark as sent, an application that is past that. The card they clicked is out of date:
+    it is closed with everything else that waited on the application, and the answer says what the state is."""
+    from .. import lifecycle
+
+    label = lifecycle.LABEL.get(a.status, a.status)
+    lifecycle.settle(a.id)      # its own session; the caller has only read so far
+    return HTTPException(409, f"这份申请已经是“{label}”了，不需要再处理；相关的待办已经关掉")
+
+
 @app.post("/api/jobs/{job_id}/mark-submitted")
 def mark_job_submitted(job_id: int) -> dict[str, Any]:
     """The user applied on the employer's site themselves (the program could not operate it). Recorded as the user's word."""
@@ -335,7 +353,7 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
             a = Application(job_id=j.id, channel=j.channel)
             s.add(a)
         elif a.status in ("confirmed", "interview", "assessment", "offer", "rejected"):
-            raise HTTPException(400, f"application is already {a.status}")
+            raise _already_sent(a)
         a.status, a.submitted_at = "submitted", a.submitted_at or now()
         a.last_event = "你确认已自己在官网提交；等确认邮件核实"
         a.detail = f"submitted {now().date().isoformat()} (by the user on the employer's site)"
@@ -481,7 +499,7 @@ def execute_again(draft_id: int) -> dict[str, Any]:
         if d.review_status != "approved":
             raise HTTPException(400, "draft is not approved")
         if app.status in ("submitted", "confirmed", "interview", "assessment", "offer", "rejected"):
-            raise HTTPException(400, f"application is already {app.status}")
+            raise _already_sent(app)
         if app.status == "executing":
             raise HTTPException(400, "a run is in progress")
         app_id, deadline = app.id, app.job.deadline
@@ -495,7 +513,7 @@ def mark_submitted(application_id: int) -> dict[str, Any]:
     with db.session() as s:
         a = _404(s.get(Application, application_id))
         if a.status in ("confirmed", "interview", "assessment", "offer", "rejected"):
-            raise HTTPException(400, f"application is already {a.status}")
+            raise _already_sent(a)
         a.status, a.submitted_at = "submitted", a.submitted_at or now()
         a.last_event = "你确认已手动提交；没有保存到确认页，等确认邮件核实"
         a.detail = f"submitted {now().date().isoformat()} (confirmed by the user, no confirmation page captured)"
@@ -1849,7 +1867,9 @@ if config.FRONTEND_DIST.exists():
 
     @app.get("/{path:path}")
     def spa(path: str):
-        f = config.FRONTEND_DIST / path
-        if path and f.is_file():
+        root = config.FRONTEND_DIST.resolve()
+        f = (root / path).resolve()
+        # only files of the built interface: "..%2F" in an address must not reach the rest of the disk
+        if path and f.is_relative_to(root) and f.is_file():
             return FileResponse(f)
-        return FileResponse(config.FRONTEND_DIST / "index.html")
+        return FileResponse(root / "index.html")
