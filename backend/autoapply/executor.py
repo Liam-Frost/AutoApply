@@ -226,6 +226,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     adapted: list[dict[str, Any]] = []   # answers rewritten to fit a limit of the form: shown to the user, kept in the draft
     limits: dict[str, int] = {}          # question id -> the most characters the form accepts
     asked: list[dict[str, Any]] = []     # questions the form asks that neither the draft nor the profile answers: they join the draft as open questions
+    held: list[dict[str, Any]] = []      # questions the site already holds an answer to (read on a walk): they join the draft as they stand
+    located: dict[str, str] = {}         # question id -> where the take-over found its control (the driver fills it alone next time)
+    read_now: list[str] = []             # steps read completely on this walk, by their title
+    review_read: dict[str, bool] = {}    # the review page was read for the steps the form did not show again
+    held_ids = {a["id"] for a in draft_answers if a.get("held")}   # answers that are the site's own: never set again, nothing to confirm
 
     def _apply(rep: dict[str, Any], i: int) -> None:
         """Take the agent's report into the state of this run."""
@@ -258,25 +263,34 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     a["value"] = ""
         for a in rep.get("added") or []:
             if not any(x["label"] == a["label"] for x in added):
-                added.append({"label": a["label"], "value": a["value"], "basis": a.get("basis") or "", "type": a.get("type") or "text", "page": i})
+                added.append({"label": a["label"], "value": a["value"], "basis": a.get("basis") or "", "type": a.get("type") or "text", "page": i, "selector": a.get("selector") or ""})
+        for x in rep.get("located") or []:
+            located[x["id"]] = x["selector"]
+        for h in rep.get("held") or []:
+            if not any(norm_question(x["label"]) == norm_question(h["label"]) for x in held):
+                held.append({"label": str(h["label"])[:400], "value": h["value"], "type": h.get("type") or "text", "options": [str(o) for o in h.get("options") or []][:60],
+                             "selector": h.get("selector") or "", "page": _page_index(str(h.get("section") or ""), i) if h.get("section") else i})
         for n in rep.get("needs_user") or []:
             _left("fix", n["label"], "", n.get("why") or "资料里没有这一项，需要你来填")
             if n.get("type") and not any(norm_question(x["label"]) == norm_question(n["label"]) for x in asked):
-                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": n["type"], "options": [str(o) for o in n.get("options") or []][:60], "page": i})
+                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": n["type"], "options": [str(o) for o in n.get("options") or []][:60], "page": i,
+                              "selector": n.get("selector") or ""})
         for qid in rep.get("unfixed") or []:
             _left("fix", lab.get(qid, qid), str(fill.get(qid, ""))[:120], "表单上的选项和草案里的答案对不上，或控件没法自动操作")
         skip_verify.update(rep.get("unfixed") or [])
 
-    def _takeover(i: int, problem: dict[str, Any], only: list[str] | None, issues: list[dict[str, Any]], on_ids: list[str] | None = None) -> dict[str, Any] | None:
+    def _takeover(i: int, problem: dict[str, Any], only: list[str] | None, issues: list[dict[str, Any]], on_ids: list[str] | None = None,
+                  read: str = "", unread: list[str] | None = None) -> dict[str, Any] | None:
         _repair_note.clear()
         if page.is_closed():
             return None
-        rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids)
+        rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids, read=read, unread=unread)
         if rep is None:
             step("repair_skipped", why=_repair_note.get("why") or "repair is switched off")
             return None
         step("repair", page=i, fixed=len(rep["fixed"]), unfixed=len(rep["unfixed"]), mapped=len(rep.get("mapped") or []), added=len(rep.get("added") or []),
-             needs_user=len(rep.get("needs_user") or []), form_still_reports=audit.texts(rep.get("left") or [])[:10], cause=rep.get("cause", "")[:200])
+             needs_user=len(rep.get("needs_user") or []), held=len(rep.get("held") or []), located=len(rep.get("located") or []),
+             form_still_reports=audit.texts(rep.get("left") or [])[:10], cause=rep.get("cause", "")[:200])
         _apply(rep, i)
         return rep
 
@@ -321,6 +335,32 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     return k
         return fallback
 
+    def _unread() -> list[str]:
+        """The steps of the draft that nobody has read yet, counting what this walk has read."""
+        from . import drafts
+
+        return drafts.unseen_steps(schema, also=read_now)
+
+    def _is_read(step_title: str) -> bool:
+        """Has this step of the live form been read completely - when the form was first read, or on a walk?"""
+        from . import drafts
+
+        t = norm_question(step_title or "")
+        if not t:      # a step without a name cannot be remembered: not read again and again
+            return True
+        return any(x and (x in t or t in x) for x in (norm_question(str(r)) for r in [*drafts.read_titles(schema), *read_now]))
+
+    def _read_review(n: int) -> None:
+        """On a walk, at the review page: the steps the form did not show again (the site has them complete) are read from
+        what the review shows of them."""
+        left = _unread() if scout else []
+        if not left:
+            return
+        rep = _takeover(max(0, len(schema.pages or []) - 1), {"message": "the review page: read what it shows of the steps that were not shown"}, [], [], on_ids=[],
+                        read="review", unread=left)
+        review_read["done"] = rep is not None
+        step("read_review", step=n, steps=left[:8], found=len((rep or {}).get("held") or []))
+
     def _walk_steps() -> list[dict[str, Any]]:
         """A form with several steps: go through the steps that are really there. Returns what the form still reports at the end."""
         done_ids: set[str] = set()
@@ -339,9 +379,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             title0 = driver.step_title(page)
             if driver.is_review_step(page):     # a summary of the answers with the button that submits: nothing to fill in here
                 step("review_step", step=n, title=title0)
+                _read_review(n)
                 still = _issues(None)
                 break
-            here = [q for q in driver.present(page, fill) if q.id not in done_ids]
+            here = [q for q in driver.present(page, fill) if q.id not in done_ids and q.id not in held_ids]
+            # a walk reads a step it has not read, whatever the form says about it (the page that submits is read as the review)
+            to_read = scout and not _is_read(title0) and not driver.at_review(page)
             ids = [q.id for q in here]
             # 1. the driver fills what this step shows
             fill_error: DriverError | None = None
@@ -360,12 +403,16 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             waits = False                       # a take-over has handed something on this step to the applicant
             hands = lambda rep: bool(rep and (rep.get("needs_user") or rep.get("unfixed")))  # noqa: E731
             seen_before = lambda it: audit.describe(it) in {audit.describe(x) for x in told}  # noqa: E731
-            if fill_error is not None or issues:
+            if fill_error is not None or issues or to_read:
                 failed = list(getattr(fill_error, "failures", [])) if fill_error is not None else []
                 only = [f["id"] for f in failed] if (failed or fill_error is None) else None
-                problem = fill_error.to_dict() if fill_error is not None else {"message": "this step of the form reports problems"}
-                rep = _takeover(_page_index(title0, n), problem, only, issues, on_ids=ids)
+                problem = (fill_error.to_dict() if fill_error is not None else {"message": "this step of the form reports problems"} if issues
+                           else {"message": "this step has not been read before: read what it asks"})
+                rep = _takeover(_page_index(title0, n), problem, only, issues, on_ids=ids, read="step" if to_read else "")
                 rounds += 1
+                if to_read and rep is not None:
+                    read_now.append(title0)
+                    step("read_step", step=n, title=title0, held=len(rep.get("held") or []), added=len(rep.get("added") or []), needs_user=len(rep.get("needs_user") or []))
                 told += issues if rep is not None else []
                 waits = waits or hands(rep)
                 if rep is None and fill_error is not None:
@@ -407,6 +454,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             # the last step is where the user submits
             if driver.at_review(page):
                 step("review_step", step=n, title=driver.step_title(page))
+                _read_review(n)
                 break
             # on to the next step: the form's own button, else the agent finds the way
             if _over():
@@ -457,6 +505,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     break
             if at_end:
                 step("review_step", step=n, title=driver.step_title(page), found_by="agent")
+                _read_review(n)
                 break
             if _over():
                 break
@@ -469,11 +518,16 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 break
             step("advance", step=n, how=how)
         # answers the form never asked for this time: usually saved by an earlier attempt, or not needed for this applicant
-        rest = [q for q in schema.questions if q.id in fill and q.id not in done_ids and q.id not in entered_by_agent]
+        rest = [q for q in schema.questions if q.id in fill and q.id not in done_ids and q.id not in entered_by_agent and q.id not in held_ids]
         if user_done:      # the user sent the application or closed the window: nothing on the form is left to compare
             return []
         if rest:
             try:
+                browser.snapshot(page, run_dir, "review")      # what the review page showed, kept with the run
+                opened = driver.open_summaries(page) if hasattr(driver, "open_summaries") else 0      # a review often keeps the answers folded
+                if opened:
+                    page.wait_for_timeout(600)
+                    step("review_unfolded", sections=opened)
                 shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
             except Exception:  # noqa: BLE001
                 shown = ""
@@ -597,7 +651,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if scout:
                 # the walk ends here: at the review page, or at a step that needs the applicant. Nothing is submitted, nobody is handed a window.
                 reached = any(st["op"] == "review_step" for st in steps)
-                outcome = {"status": "scouted", "reached_review": reached, "stopped_at": "" if reached or page.is_closed() else driver.step_title(page)}
+                outcome = {"status": "scouted", "reached_review": reached, "stopped_at": "" if reached or page.is_closed() else driver.step_title(page),
+                           "read": list(read_now), "all_read": reached and (review_read.get("done", False) or not _unread())}
                 step("scouted", reached_review=reached, stopped_at=outcome["stopped_at"])
             elif policy != "manual" and touched:
                 raise NeedsVisibleRun("驱动没能独自填完，AI 接手处理过，这次请你过目后再提交")
@@ -670,9 +725,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     if scout:      # the application's status is not the walk's to change; what it found goes into the draft
         with db.session() as s:
             s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, dir=str(run_dir)))
-            if mapped or added or adapted or asked:
-                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False)
+            if mapped or added or adapted or asked or held or located:
+                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False,
+                              held=held, located=located)
         return {**{k: v for k, v in outcome.items() if k not in ("evidence", "driver_error", "mismatches", "diff")}, "added": len(added), "asked": len(asked), "adapted": len(adapted),
+                "held": len(held),
                 "mapped": len(mapped), "steps": sum(1 for st in steps if st["op"] == "fill_step")}
     with db.session() as s:
         app = s.get(Application, application_id)
@@ -685,9 +742,10 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             app.detail = f"submitted {now().date().isoformat()} via {ref.ats}" + (" (auto-approved)" if app.auto_approved else "")
         s.add(Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, dir=str(run_dir)))
         new_questions = 0
-        if mapped or added or adapted or asked:
+        if mapped or added or adapted or asked or located:
             back = outcome["status"] != "submitted"
-            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=back) or 0
+            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=back,
+                                          located=located) or 0
             if new_questions and back:       # the draft goes back to the applicant: it has questions only they can answer
                 app.status = "needs_input"
                 app.last_event = f"填表时遇到 {new_questions} 个草案里没有、资料里也没有答案的问题，已加进草案；回答并批准后接着填"
@@ -738,7 +796,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
 def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], approved_values: dict[str, Any], absent_ids: set[str],
                   added: list[dict[str, Any]], *, generic: bool, limits: dict[str, int] | None = None, asked: list[dict[str, Any]] | None = None,
-                  send_back: bool = False) -> int:
+                  send_back: bool = False, held: list[dict[str, Any]] | None = None, located: dict[str, str] | None = None) -> int:
     """Write back into the draft what the take-over established, so the next run of it needs no agent:
     the form's own wording for approved answers, and the questions the first reading of the form did not see.
     For explored forms the new questions also join the schema (found by their label), which is what the driver replays."""
@@ -755,6 +813,21 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
     for q in questions:      # a limit the form showed only after typing: the question remembers it
         if (limits or {}).get(q.get("id")):
             q["max_length"] = int(limits[q["id"]])
+    for q in questions:      # where the take-over found a question the driver could only look for by its label
+        sel = str((q.get("locator") or {}).get("selector") or q.get("id") or "")
+        if generic and (located or {}).get(q.get("id")) and sel.startswith("@label:"):
+            q["locator"] = {**(q.get("locator") or {}), "selector": located[q["id"]]}
+    for a in held or []:     # the site has an answer to it already: shown in the draft as it stands, not set again
+        qid = f"@label:{a['label']}"
+        if any(norm_question(r.get("label", "")) == norm_question(a["label"]) for r in rows):
+            continue
+        typ = a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect") else "text"
+        rows.append({"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": False, "page": a["page"], "value": a["value"],
+                     "basis": "雇主网站上已经存着这个答案（来自以前的申请或你在那里的资料），程序没有改动", "confidence": "high", "source": "site", "held": True,
+                     "sensitive": sensitivity(a["label"]), "sensitive_confirmed": False})
+        if generic and not any(q["id"] == qid for q in questions):
+            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=False, page=a["page"],
+                                      locator={"selector": a.get("selector") or qid}).__dict__)
     for a in added:
         qid = f"@label:{a['label']}"
         row = {"id": qid, "label": a["label"], "type": a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date") else "text", "options": [],
@@ -762,7 +835,7 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
                "source": "agent_added", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": False}
         rows = [r for r in rows if r["id"] != qid] + [row]
         if generic and not any(q["id"] == qid for q in questions):
-            questions.append(Question(id=qid, label=a["label"], type=row["type"], required=True, page=a["page"], locator={"selector": qid}).__dict__)
+            questions.append(Question(id=qid, label=a["label"], type=row["type"], required=True, page=a["page"], locator={"selector": a.get("selector") or qid}).__dict__)
         try:
             ans.cache_put(schema.ats, Question(id=qid, label=a["label"], type=row["type"]), a["value"], row["basis"], confirmed=False)
         except Exception:  # noqa: BLE001
@@ -782,7 +855,7 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
                "source": "profile" if given else "unresolved", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": given}
         rows = [r for r in rows if r is not old] + [row]
         if generic and not any(q["id"] == qid for q in questions):
-            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"], locator={"selector": qid}).__dict__)
+            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"], locator={"selector": a.get("selector") or qid}).__dict__)
         fresh += 0 if given else 1
     sch["questions"] = questions
     d.answers = rows
@@ -799,12 +872,13 @@ _repair_note: dict[str, str] = {}   # why the last take-over did not happen (sho
 
 def _repair(page: Any, schema: FormSchema, i: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
             only_ids: list[str] | None, title: str, application_id: int, *, issues: list[dict[str, Any]] | None = None,
-            on_ids: list[str] | None = None) -> dict[str, Any] | None:
+            on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None) -> dict[str, Any] | None:
     """Agent takeover of one page. None when repair is off or no model is available (the caller re-raises)."""
     if not repair.enabled():
         return None
     try:
-        return repair.fix_page(page, schema, i, fill, problem, run_dir, only_ids=only_ids, issues=issues, title=title, ref=f"application:{application_id}", on_ids=on_ids)
+        return repair.fix_page(page, schema, i, fill, problem, run_dir, only_ids=only_ids, issues=issues, title=title, ref=f"application:{application_id}", on_ids=on_ids,
+                               read=read, unread=unread)
     except llm.LLMError as e:
         log.warning("repair unavailable: %s", e)
         _repair_note["why"] = str(e)[:300]

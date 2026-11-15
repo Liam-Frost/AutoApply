@@ -85,6 +85,24 @@ _SHOWN_JS = r"""(e) => {
 }"""
 
 
+_UNFOLD_JS = r"""() => {
+  const says = /^(show|view|see|expand)\s+(all\s+)?(my\s+)?(answers|responses|details)$|^(show|expand)\s+all$|^(显示|展开|查看)(全部|所有)?(答案|回答|详情)?$/i;
+  let n = 0;
+  for (let round = 0; round < 3; round++) {
+    const todo = [...document.querySelectorAll('button, a, [role=button], summary')].filter((e) => {
+      const t = (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!says.test(t) || !(e.offsetParent || e.getClientRects().length)) return false;
+      if (e.tagName === 'A') { const h = (e.getAttribute('href') || '').trim(); if (h && h !== '#' && !h.toLowerCase().startsWith('javascript')) return false; }
+      // a button without a type counts as "submit" for the browser; what it says is what tells it apart here
+      return (e.getAttribute('type') || '').toLowerCase() !== 'submit' && e.getAttribute('aria-expanded') !== 'true';
+    });
+    if (!todo.length || n >= 30) break;
+    for (const e of todo.slice(0, 30 - n)) { e.click(); n++; }
+  }
+  return n;
+}"""
+
+
 def _same_label(label: str) -> re.Pattern[str]:
     """Matches a label that is this question: the same words from the start, followed by nothing or by decoration only."""
     words = r"\s+".join(re.escape(w) for w in label.split())
@@ -234,13 +252,25 @@ def set_value(page: Page, q: Question, value: Any) -> None:
         w.set_text(loc, str(value))
 
 
-def _radio(page: Page, loc: Locator, tag: str, typ: str, value: str) -> None:
-    """``loc`` is either one radio of the group or the group's container."""
+def _radios(page: Page, loc: Locator, tag: str, typ: str) -> Locator:
+    """The radio buttons of a question. ``loc`` is one radio of the group, the group's container, or a part of the group
+    (the label of one choice, which is what a take-over often records as the place of the question): then the group is
+    the set of radios that share a name with the nearest one."""
     if tag == "input" and typ == "radio":
         name = loc.get_attribute("name")
-        radios = page.locator(f"input[type=radio][name='{name}']") if name else loc
-    else:
-        radios = loc.locator("input[type=radio]")
+        return page.locator(f"input[type=radio][name='{name}']") if name else loc
+    radios = loc.locator("input[type=radio]")
+    if radios.count():
+        return radios
+    name = loc.evaluate("""(e) => {
+        const own = e.tagName === 'LABEL' && e.control && e.control.type === 'radio' ? e.control : null;
+        for (let n = e; !own && n; n = n.parentElement) { const r = n.querySelector('input[type=radio]'); if (r) return r.name || ''; }
+        return own ? own.name || '' : ''; }""")
+    return page.locator(f"input[type=radio][name='{name}']") if name else radios
+
+
+def _radio(page: Page, loc: Locator, tag: str, typ: str, value: str) -> None:
+    radios = _radios(page, loc, tag, typ)
     labels = radios.evaluate_all(
         "(els) => els.map(e => ((e.labels && e.labels[0] && e.labels[0].innerText) || e.getAttribute('aria-label') || e.value || '').trim())"
     )
@@ -269,8 +299,7 @@ def get_value(page: Page, q: Question) -> Any:
     if q.type == "checkbox":
         return loc.is_checked()
     if q.type == "radio":
-        radios = page.locator(f"input[type=radio][name='{loc.get_attribute('name')}']") if (tag, typ) == ("input", "radio") else loc.locator("input[type=radio]")
-        return radios.evaluate_all(
+        return _radios(page, loc, tag, typ).evaluate_all(
             "(els) => { const e = els.find(x => x.checked); return e ? ((e.labels && e.labels[0] && e.labels[0].innerText) || e.value || '').trim() : ''; }"
         )
     if tag == "select":
@@ -457,6 +486,16 @@ class GenericDriver:
         """The last step, and the form itself calls it a review: a summary of the answers with the button that submits.
         Nothing is filled in here - whatever controls the page still carries belong to the steps it summarises."""
         return self.at_review(page) and bool(REVIEW_RE.search(self.step_title(page)))
+
+    @staticmethod
+    def open_summaries(page: Page) -> int:
+        """A review page often keeps the answers of each step folded ("Show all answers"). Unfold them, so that what the
+        page will send can be compared with the draft. Only controls that unfold something on the page: never a link
+        that leads elsewhere, never a button that goes on or submits. Returns how many were opened."""
+        try:
+            return int(page.evaluate(_UNFOLD_JS))
+        except Exception:  # noqa: BLE001
+            return 0
 
     def form_gone(self, page: Page, answers: dict[str, Any]) -> bool:
         """No question of the application and no button that leads on or submits is showing any more."""

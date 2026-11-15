@@ -1059,7 +1059,9 @@ LOCKED_STEPS = r"""<main><h1 id="t"></h1><div id="pane"></div>
   const steps = {
     contact: () => ['Contact information', '<label for="a">City</label><input id="a" required><button onclick="if (document.getElementById(\'a\').value) { saved.city = document.getElementById(\'a\').value; go(\'work\') }">Continue</button>'],
     work: () => ['Work Eligibility', '<label for="legal">Legal First Name</label><input id="legal" required>'
-        + '<fieldset role="radiogroup" aria-required="true"><legend>Have you been a government employee in the past three years?</legend>'
+        + '<fieldset role="radiogroup" data-q="applied"><legend>Have you applied here before?</legend>'
+        + '<label><input type="radio" name="applied" value="yes" checked>Yes</label> <label><input type="radio" name="applied" value="no">No</label></fieldset>'
+        + '<fieldset role="radiogroup" aria-required="true" data-q="gov"><legend>Have you been a government employee in the past three years?</legend>'
         + '<label><input type="radio" name="gov" value="no">No, never</label> <label><input type="radio" name="gov" value="yes">Yes</label></fieldset>'
         + '<div id="err" role="alert"></div><button onclick="nextw()">Continue</button>'],
     review: () => ['Review & submit', '<p>City: ' + saved.city + '</p><p>Legal First Name: ' + saved.legal + '</p><p>Government employee: ' + saved.gov + '</p><button onclick="window.submitted = true">Submit application</button>'],
@@ -1078,7 +1080,9 @@ def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answer
     """The second step of this form opens only once the first is filled, so reading the form without filling anything saw
     one step. Before the applicant approves anything, the form is walked with the draft's own answers: the next step is
     read, what the profile answers is added, what only the applicant can answer comes back as an open question - and when
-    they answer it, the walk goes on to the review page. Nothing is submitted and no window is handed to anyone."""
+    they answer it, the walk goes on to the review page. Nothing is submitted and no window is handed to anyone.
+    A step the walk stands on is read completely: a question the site already holds an answer to joins the draft as it
+    stands, and every question read comes with where it is, so the next walk needs no agent."""
     from autoapply import db, drafts, executor, knowledge, llm
     from autoapply.ats.base import FormSchema, JobRef, Question
     from autoapply.models import Application, Draft, Job, Run, Task, Todo
@@ -1111,10 +1115,17 @@ def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answer
     def agent(goal, tools, *, system, max_steps=60, on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
+        assert "THIS STEP HAS NOT BEEN READ BEFORE" in goal
         t["fill"].fn(selector="#legal", value="Alexander")
-        t["done"].fn(fixed=[], unfixed=[], cause="A step the draft had not seen.", suggestion="",
-                     added=[{"label": "Legal First Name", "value": "Alexander", "basis": "Name on documents: Alexander Chen", "type": "text"}],
-                     needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
+        report = dict(fixed=[], unfixed=[], cause="A step the draft had not seen.", suggestion="",
+                      added=[{"label": "Legal First Name", "value": "Alexander", "basis": "Name on documents: Alexander Chen", "type": "text", "selector": "#legal"}],
+                      held=[{"label": "Have you applied here before?", "value": "Yes", "type": "radio", "options": ["Yes", "No"], "selector": "[data-q=applied]"}])
+        # a label that is not the form's wording is sent back: the driver could never find the question by it
+        short = t["done"].fn(**report, needs_user=[{"label": "Government employee in the past three years...?", "why": "x", "type": "radio", "options": ["No, never", "Yes"]}])
+        assert short.startswith("NOT ACCEPTED: these labels are not the form's own wording")
+        out = t["done"].fn(**report, needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"],
+                                                 "selector": "#radio-3f2a9c1e-77aa-4b1c-9d2e-0a1b2c3d4e5f"}])      # an id the form generates is not kept
+        assert out == "recorded"
         return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
 
     monkeypatch.setattr(llm, "agent", agent)
@@ -1129,7 +1140,12 @@ def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answer
         assert by[label]["source"] == "unresolved" and [u["label"] for u in d.unresolved] == [label]                   # only the applicant can answer this one
         assert d.review_status == "pending" and s.get(Application, app_id).status == "needs_input"                     # the draft is shown with its open question, not as ready
         assert any(n.startswith('Reading the later steps stopped at "Work Eligibility"') for n in d.notes) and not any(n.startswith("Steps of this form that could not") for n in d.notes)
-        assert d.schema["extra"]["unseen"] and s.query(Todo).filter_by(kind="answer", ref=f"draft:{did}", status="open").count() == 1
+        assert drafts.needs_walk(d) and s.query(Todo).filter_by(kind="answer", ref=f"draft:{did}", status="open").count() == 1
+        # the site's own answer is in the draft as it stands, and each question is known by where it is
+        assert (by["Have you applied here before?"]["value"], by["Have you applied here before?"]["held"], by["Have you applied here before?"]["source"]) == ("Yes", True, "site")
+        where = {q["label"]: q["locator"]["selector"] for q in d.schema["questions"]}
+        assert where["Have you applied here before?"] == "[data-q=applied]" and where["Legal First Name"] == "#legal" and where[label] == "@label:" + label
+        assert d.schema["extra"]["read"] == ["Contact information", "Work Eligibility"] and drafts.unseen_steps(drafts._schema_of(d)) == []
         assert s.query(Run).filter_by(kind="scout").count() == 1 and s.query(Run).filter_by(kind="execute").count() == 0
 
     # the applicant answers: the walk is queued again by itself and now reaches the review page without any agent
@@ -1141,7 +1157,7 @@ def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answer
     assert (out["status"], out["reached_review"]) == ("scouted", True)
     with db.session() as s:
         d = s.get(Draft, did)
-        assert d.schema["extra"]["unseen"] == [] and d.unresolved == [] and s.get(Application, app_id).status == "draft_ready"
+        assert not drafts.needs_walk(d) and d.unresolved == [] and s.get(Application, app_id).status == "draft_ready"
         assert any(n.startswith("The later steps of this form were read") for n in d.notes)
 
     # approved, the form is filled without an agent and the applicant gets it at the review page - still not submitted by the program
@@ -1204,3 +1220,126 @@ def test_the_walk_can_be_started_by_hand_for_a_draft_made_before_it_existed(app_
         assert s.get(Application, app_id).status == "draft_ready"
         s.get(Draft, did).review_status = "approved"
     assert c.post(f"/api/drafts/{did}/scout").status_code == 400                    # an approved draft is filled, not read
+
+
+SKIPPED_STEP = r"""<main><h1 id="t"></h1><div id="pane"></div>
+<script>
+  window.submitted = false; const saved = {};
+  const steps = {
+    contact: () => ['Contact information', '<label for="a">City</label><input id="a" required><button onclick="if (document.getElementById(\'a\').value) { saved.city = document.getElementById(\'a\').value; go(\'review\') }">Continue</button>'],
+    review: () => ['Review & submit', '<p>City: ' + saved.city + '</p><h2>Diversity</h2><p>Gender: Prefer not to say</p><button onclick="window.submitted = true">Submit application</button>'],
+  };
+  function go(name) { const [t, html] = steps[name](); document.getElementById('t').textContent = t; document.getElementById('pane').innerHTML = html; }
+  go('contact');
+</script></main>"""
+
+
+def test_a_step_the_site_does_not_show_again_is_read_from_the_review_page(app_env, tmp_path, monkeypatch):
+    """The site has a step complete from an earlier application and never opens it again, so no walk can stand on it.
+    What the review page shows of it is read into the draft: the applicant sees the answer the site will send. Such an
+    answer is the site's own - the program does not set it again and does not ask the applicant to confirm it later."""
+    from autoapply import db, drafts, executor, llm
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job
+
+    form = tmp_path / "skipped.html"
+    form.write_text(SKIPPED_STEP, encoding="utf-8")
+    schema = FormSchema(ats="generic", tenant="skipped.example.test", url=form.as_uri(), source="agent", pages=["Contact information", "Diversity (not yet visible)", "Review & submit"],
+                        questions=[Question(id="#a", label="City", type="text", required=True, page=0, locator={"selector": "#a"})])
+    schema.extra["read"] = ["Contact information"]
+    ref = JobRef(ats="generic", tenant="skipped.example.test", job_id="", url=form.as_uri(), host="skipped.example.test")
+    with db.session() as s:
+        job = Job(source="manual", source_id="skip1", company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="recon")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="pending", notes=[],
+                  answers=[{"id": "#a", "label": "City", "type": "text", "options": [], "required": True, "page": 0, "value": "Vancouver", "basis": "profile",
+                            "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+        s.add(d)
+        s.flush()
+        app_id, did = app.id, d.id
+    db.set_setting("repair.enabled", True)
+    seen = []
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        seen.append("review" if "THIS IS THE REVIEW PAGE" in goal else "other")
+        assert "Diversity (not yet visible)" in goal
+        assert t["done"].fn(fixed=[], unfixed=[], cause="", suggestion="", held=[{"label": "Gender", "value": "Prefer not to say", "section": "Diversity"}]) == "recorded"
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    out = drafts.scout(did)
+    assert (out["status"], out["reached_review"], out["held"], out["all_read"]) == ("scouted", True, 1, True) and seen == ["review"]
+    with db.session() as s:
+        d = s.get(Draft, did)
+        row = next(a for a in d.answers if a["label"] == "Gender")
+        assert (row["value"], row["held"], row["page"], row["required"]) == ("Prefer not to say", True, 1, False)       # filed under the step it belongs to
+        assert not drafts.needs_walk(d) and s.get(Application, app_id).status == "draft_ready"
+        assert any("1 answer(s) the employer's site already holds were read into the draft" in n for n in d.notes)
+
+    # approved and filled: no agent, and the site's own answer is neither set again nor listed as "could not be confirmed"
+    monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("nothing is left for an agent")))
+    drafts.approve(did)
+    handed = {}
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda driver, page, title, application_id, draft_id=None, **kw: handed.update(kw) or {"status": "ready_to_submit", "error": "window closed"})
+    executor.execute(app_id, did)
+    assert handed["leftovers"] == []
+
+    # the applicant changes it in the draft: it is theirs now, and filled like any other answer
+    drafts.edit_answer(did, row["id"], "Woman")
+    with db.session() as s:
+        assert next(a for a in s.get(Draft, did).answers if a["label"] == "Gender")["held"] is False
+
+
+def test_a_radio_question_known_by_the_label_of_one_choice_is_set_and_read_as_the_whole_group(app_env):
+    """A take-over reports where a question is; for custom radio buttons that is often the label of one choice, because
+    the input itself is covered by it and has an id that changes on every visit. The driver takes the group from it."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats import generic_driver as g
+    from autoapply.ats.base import FormSchema, Question
+
+    html = """<div class="question"><label id="SPONSOR-label">Will you need sponsorship?</label>
+      <div role="radiogroup" aria-labelledby="SPONSOR-label">
+        <div class="c"><input type="radio" name="SPONSOR" id="radio-1a2b" value="YES"><label id="SPONSOR-option-0-label" for="radio-1a2b">Yes</label></div>
+        <div class="c"><input type="radio" name="SPONSOR" id="radio-3c4d" value="NO"><label id="SPONSOR-option-1-label" for="radio-3c4d">No</label></div></div></div>
+      <div class="question"><label id="VET-label">Are you a veteran?</label><div role="radiogroup" aria-labelledby="VET-label">
+        <div class="c"><input type="radio" name="VET" id="radio-5e6f" value="YES"><label for="radio-5e6f">Yes</label></div>
+        <div class="c"><input type="radio" name="VET" id="radio-7a8b" value="NO"><label for="radio-7a8b">No</label></div></div></div>"""
+    q = Question(id="@label:Sponsorship", label="Sponsorship", type="radio", locator={"selector": "label#SPONSOR-option-0-label"})   # the label of "Yes"; the answer is "No"
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content(html)
+        assert g.get_value(page, q) == ""
+        g.GenericDriver(FormSchema(ats="generic", tenant="radio.example.test", url="", source="agent", questions=[q])).fill_questions(page, [q], {q.id: "No"})
+        assert g.get_value(page, q) == "No"
+        assert page.evaluate("[...document.querySelectorAll('input:checked')].map(e => e.name + '=' + e.value)") == ["SPONSOR=NO"]      # the other question is untouched
+        b.close()
+
+
+def test_folded_answers_on_a_review_page_are_unfolded_and_nothing_else_is_clicked(app_env):
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats import generic_driver as g
+
+    html = """<h1>Review &amp; submit</h1>
+      <section><h2>Work Eligibility</h2><a href="#" onclick="this.nextElementSibling.hidden = false; this.textContent = 'Hide answers'; return false">Show all answers</a><div hidden>Sponsorship: Yes</div></section>
+      <section><h2>Education</h2><button class="display-all-link" aria-expanded="false" aria-label="Show all answers Education"
+        onclick="this.nextElementSibling.hidden = false; this.setAttribute('aria-expanded', 'true')">Show all answers<i class="fa"></i></button><div hidden>Degree: BASc</div></section>
+      <a href="https://elsewhere.example.test/job">View details</a>
+      <button type="submit" onclick="window.sent = true">Submit application</button>"""
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content(html)
+        assert "Sponsorship: Yes" not in page.inner_text("body")
+        assert g.GenericDriver.open_summaries(page) == 2
+        text = page.inner_text("body")
+        assert "Sponsorship: Yes" in text and "Degree: BASc" in text
+        assert page.evaluate("window.sent") is None and page.url == "about:blank"      # no submission, no leaving the page
+        b.close()

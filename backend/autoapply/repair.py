@@ -22,6 +22,7 @@ the page saved as a regression fixture.
 from __future__ import annotations
 
 import json
+import re
 import logging
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,35 @@ When finished call done with:
   site next, so write it as an instruction."""
 
 
+# Given with the task (not in the editable prompt), so that a prompt the user has changed still gets them.
+WHERE = """Where the questions are. For every question you report under `added` or `needs_user`, give its label in full, word for word
+as the form shows it (never shortened, no "..."), and a `selector` for the question's control or for the element that groups its
+choices - one that will still match on the next visit: a name attribute, data-testid, data-questionid, aria-labelledby. Never an
+id the form generates (#radio-3f2a..., #input-16, #:r5:). For an approved answer you entered yourself because the driver had not
+found its control, report where it is under `located` (id, selector) in the same way. The program fills these by itself next time.
+
+"""
+
+READ_STEP = """THIS STEP HAS NOT BEEN READ BEFORE. Besides finishing it, read it completely. Every question of this step that is not among
+the approved answers above is reported, each one once:
+- the form already shows an answer to it (kept by the site from an earlier application or from the applicant's account there):
+  under `held` - the full label, its type, its options word for word, the answer shown, a selector. Leave these answers as
+  they are; the applicant sees them in the draft and decides.
+- it has no answer and the profile states one: fill it and report it under `added`.
+- it has no answer and only the applicant can say: under `needs_user`.
+Controls that are not questions of the application (search boxes, navigation, a document that is already listed) are left out.
+
+"""
+
+READ_REVIEW = """THIS IS THE REVIEW PAGE of the form. Nothing is filled in here and nothing may be submitted. Some steps of the form were
+not shown in this walk, because the site has them complete already: {steps}. Read what this page shows for those steps - open a
+section if it is collapsed - and report every question with the answer shown under `held`: the full label, the answer, the type
+if it can be told, and `section`, the heading of the step it belongs to. Questions that are among the approved answers above are
+not repeated. Report fixed: [] and unfixed: [].
+
+"""
+
+
 def enabled() -> bool:
     return bool(db.get_setting("repair.enabled"))
 
@@ -107,8 +137,11 @@ def site_key(schema: FormSchema) -> str:
 
 def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
              *, only_ids: list[str] | None = None, issues: list[dict[str, Any]] | None = None, title: str = "", ref: str = "",
-             on_ids: list[str] | None = None) -> dict[str, Any]:
-    """Let the agent finish the page. ``only_ids``: the fields the driver failed on (None = every answered field of the
+             on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None) -> dict[str, Any]:
+    """Let the agent finish the page. ``read``: "step" - the step has not been read before, so besides finishing it the
+    agent lists every question on it that the draft does not have; "review" - the review page, read for the steps the
+    form did not show again (``unread``).
+    Let the agent finish the page. ``only_ids``: the fields the driver failed on (None = every answered field of the
     page, [] = none in particular); ``issues``: what the form itself reports. Returns the agent's report; raises
     LLMError when no model is available."""
     # ``on_ids``: the questions that are on the step now showing (forms with several steps are walked by what is there,
@@ -116,8 +149,9 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
     on_page = [q for q in schema.questions if q.id in fill and (q.id in on_ids if on_ids is not None else q.page == page_index)]
     qs = [q for q in on_page if only_ids is None or q.id in only_ids]
     issues = issues or []
-    empty = {"fixed": [], "unfixed": [], "cause": "", "suggestion": "", "mapped": [], "absent": [], "added": [], "needs_user": [], "labels": {}, "left": []}
-    if not qs and not issues:
+    empty = {"fixed": [], "unfixed": [], "cause": "", "suggestion": "", "mapped": [], "absent": [], "added": [], "needs_user": [], "held": [], "located": [],
+             "labels": {}, "left": []}
+    if not qs and not issues and not read:
         return empty
     files: dict[str, str] = {}
 
@@ -144,11 +178,38 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         found = audit.texts(audit.page_issues(page))
         return "The form reports no problem." if not found else "The form still reports:\n" + "\n".join(f"- {t}" for t in found)
 
+    def on_the_page(label: str) -> bool:
+        """Is this the form's own wording? A label the agent shortened or reworded cannot be found again by the driver."""
+        try:
+            shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
+        except Exception:  # noqa: BLE001
+            return True
+        return " ".join(str(label).lower().split()).rstrip("*").strip()[:70] in shown
+
+    def usable(sel: str) -> str:
+        """A selector that matches something now and is not an id the form generates afresh on every visit."""
+        sel = str(sel or "").strip()
+        if not sel or re.search(r"#[\w-]*[0-9a-f]{8}-[0-9a-f]{4}|#:r\w*:|#(?:input|radio|select|field)-?\d+\b", sel):
+            return ""
+        try:
+            return sel if page.locator(sel).count() else ""
+        except Exception:  # noqa: BLE001 - not a selector this page can parse
+            return ""
+
     def done(fixed: list[str] | None = None, unfixed: list[str] | None = None, cause: str = "", suggestion: str = "", notes: str = "",
              mapped: list[dict[str, str]] | None = None, absent: list[str] | None = None, added: list[dict[str, str]] | None = None,
-             needs_user: list[dict[str, str]] | None = None, adapted: list[dict[str, Any]] | None = None) -> str:
+             needs_user: list[dict[str, str]] | None = None, adapted: list[dict[str, Any]] | None = None,
+             held: list[dict[str, Any]] | None = None, located: list[dict[str, str]] | None = None) -> str:
         ids = {q.id for q in on_page}
         known = ids | {q.id for q in elsewhere}
+        reworded = [str(r["label"])[:90] for rows in (added, needs_user, held) for r in rows or [] if r.get("label") and not on_the_page(r["label"])]
+        if reworded and refusals["n"] < 2:
+            refusals["n"] += 1
+            return ("NOT ACCEPTED: these labels are not the form's own wording: " + " | ".join(reworded[:8])
+                    + "\nGive each question's full text word for word as the page shows it (not shortened, no '...'). Then call done again.")
+        for rows in (added, needs_user, held):
+            for r in rows or []:
+                r["selector"] = usable(r.get("selector", ""))
         fits = []
         for a in adapted or []:       # an answer rewritten to fit the form: it has to be a known question, and it has to fit
             limit = int(a.get("max_chars") or 0)
@@ -170,7 +231,9 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         report.update({"fixed": fixed or [], "unfixed": [i for i in unfixed or [] if i in ids], "cause": cause, "suggestion": suggestion, "notes": notes,
                        "mapped": [m for m in mapped or [] if m.get("id") in known and m.get("chosen")], "absent": [i for i in absent or [] if i in ids],
                        "added": [a for a in added or [] if a.get("label") and a.get("value")],
-                       "needs_user": [n for n in needs_user or [] if n.get("label")], "adapted": fits})
+                       "needs_user": [n for n in needs_user or [] if n.get("label")], "adapted": fits,
+                       "held": [h for h in held or [] if h.get("label") and h.get("value") not in ("", None, [])] if read else [],
+                       "located": [{"id": x["id"], "selector": usable(x.get("selector", ""))} for x in located or [] if x.get("id") in known and usable(x.get("selector", ""))]})
         return "recorded"
 
     st = {"type": "string"}
@@ -180,10 +243,14 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                          {"type": "object", "properties": {"fixed": arr, "unfixed": arr, "cause": st, "suggestion": st, "notes": st, "absent": arr,
                                                            "mapped": {"type": "array", "items": {"type": "object", "properties": {"id": st, "approved": st, "chosen": st},
                                                                                                  "required": ["id", "approved", "chosen"], "additionalProperties": False}},
-                                                           "added": obj("label", "value", "basis", "type"),
+                                                           "added": obj("label", "value", "basis", "type", "selector"),
+                                                           "located": obj("id", "selector"),
+                                                           "held": {"type": "array", "items": {"type": "object", "properties": {
+                                                               "label": st, "value": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
+                                                               "options": arr, "selector": st, "section": st}, "required": ["label", "value"], "additionalProperties": False}},
                                                            "needs_user": {"type": "array", "items": {"type": "object", "properties": {
                                                                "label": st, "why": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
-                                                               "options": arr}, "required": ["label", "why"], "additionalProperties": False}},
+                                                               "options": arr, "selector": st}, "required": ["label", "why"], "additionalProperties": False}},
                                                            "adapted": {"type": "array", "items": {"type": "object", "properties": {"id": st, "value": st, "max_chars": {"type": "integer"}, "why": st},
                                                                                                   "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
@@ -211,6 +278,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         + ("Approved answers to the other questions of this application. The form shows its questions in its own order, so some of them may be "
            "on this step: when a field here asks one of them, enter exactly that approved value (never an answer of your own) and list its id "
            "under `fixed`. Ignore the ones that are not on this step.\n" + "\n".join(elsewhere_lines) + "\n\n" if elsewhere_lines else "")
+        + (WHERE if on_ids is not None else "")
+        + (READ_STEP if read == "step" else READ_REVIEW.format(steps="; ".join(unread or []) or "(not named)") if read == "review" else "")
         + (f"Notes from earlier work on this site:\n{notes[:3000]}\n\n" if notes else "")
         + f"<profile>\n{knowledge.read('profile')[:12000]}\n</profile>"
     )
@@ -221,7 +290,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         json.dumps({"problem": problem, "issues": issues, "report": report, "steps": out.steps}, ensure_ascii=False, default=str)[:400000], encoding="utf-8")
     if not report:
         report = {"fixed": [], "unfixed": [q.id for q in qs], "cause": "", "suggestion": "", "notes": (out.final_text or out.stopped)[:300]}
-    for k in ("mapped", "absent", "added", "needs_user", "adapted"):
+    for k in ("mapped", "absent", "added", "needs_user", "adapted", "held", "located"):
         report.setdefault(k, [])
     labels = {q.id: q.label for q in [*on_page, *elsewhere]}
     report["labels"] = {i: labels.get(i, i) for i in [*report["unfixed"], *report["absent"], *[m["id"] for m in report["mapped"]], *[a["id"] for a in report["adapted"]]]}

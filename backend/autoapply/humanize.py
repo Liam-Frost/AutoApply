@@ -116,6 +116,9 @@ _NOTES: list[tuple[str, str]] = [
     (r"^(?:Required file|File) '(.+?)' has no matching document\.( No résumé has been uploaded yet.*)?$", r"「\1」这一栏没有可以上传的文件。"),
     (r"^The form has no transcript field; the transcript goes in the Cover Letter slot\.$", "表单上没有成绩单栏，成绩单会放在求职信那一栏上传。"),
     (r"^Cover letter still has open issues: (.*)$", r"求职信还有没解决的问题：\1"),
+    (r"^The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted\. (\d+) answer\(s\) were added from your profile; "
+     r"(\d+) answer\(s\) the employer's site already holds were read into the draft; (\d+) question\(s\) need your answer\.$",
+     r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，读回了雇主网站上已经存着的 \2 个答案，有 \3 个问题需要你回答。"),
     (r"^The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted\. (\d+) answer\(s\) were added from your profile; (\d+) question\(s\) need your answer\.$",
      r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，有 \2 个问题需要你回答。"),
     (r"^Reading the later steps stopped at \"(.*)\": (\d+) question\(s\) there need your answer\. Answer them and the reading goes on from there; nothing was submitted\.$",

@@ -114,8 +114,17 @@ runs, a single run with its model requests, and the price editor open in a drawe
   where only you can answer. Answering it starts the walk again from there. The draft is shown as ready only when the
   walk reached the review page or cannot go further without you, and such a draft is never approved by itself. The
   walk fills in the employer's form, which may keep what was entered as an unfinished application; it can be turned
-  off (`recon.walk`), and started by hand on the draft's page for a draft made before this version. The draft names
+  off (in the settings), and started by hand on the draft's page for a draft made before this version. The draft names
   the steps that are still unread.
+- A step the walk stands on is read completely, not only where the form complains. Questions the employer's site
+  already holds an answer to (from an earlier application, or your account there) join the draft marked "already on the
+  site", so the draft shows everything the form will send; the program leaves them as they are unless you change them
+  in the draft. Steps the site has complete and never opens again are read from the review page.
+- Every question a take-over reports comes with where it is on the page, and is refused when its label is not the
+  form's own wording, so the driver finds and fills it by itself the next time - no AI for a form that was walked once.
+  A radio question known only by the label of one of its choices is set and read as the whole group.
+- Answers a review page keeps folded ("Show all answers") are unfolded before the draft is compared with it, so
+  answers that are there are no longer listed as "could not be confirmed".
 - A control is found by its label only when the label is the question. A label that merely contains the question's
   words is another question: "First Name" was filled into "Legal First Name" when its own field was not on the page.
 

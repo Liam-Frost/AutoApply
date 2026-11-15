@@ -188,9 +188,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
     if schema.source == "agent" and len(schema.pages) > 1:
         # A form with several steps often shows a step only after the ones before it are filled. Steps that had no
         # questions to read are named, so that the draft does not look complete when it is not.
+        schema.extra["read"] = [str(name) for i, name in enumerate(schema.pages) if any(q.page == i for q in schema.questions)]
         unseen = unseen_steps(schema)
         if unseen:
-            schema.extra["unseen"] = unseen
             notes.append("Steps of this form that could not be read yet: " + "; ".join(unseen[:8]) + ". The form shows them only after the earlier steps are filled; "
                          "they are read the first time the form is filled, and what they ask is added to this draft.")
     driver = registry.get(ref.ats)
@@ -222,7 +222,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         app.status = "needs_input" if res["unresolved"] else "draft_ready"
         s.flush()
         draft_id = d.id
-        to_scout = bool(schema.extra.get("unseen")) and bool(db.get_setting("recon.walk")) and not res["unresolved"]
+        to_scout = bool(unseen_steps(schema)) and bool(db.get_setting("recon.walk")) and not res["unresolved"]
         if to_scout:
             app.status = "recon"      # still being read: the later steps are next
     for old_id in stale:  # their open questions belong to a draft that no longer exists
@@ -412,6 +412,7 @@ def get(draft_id: int) -> dict[str, Any]:
             "pages": d.schema.get("pages", []),
             # steps of the form that have not been read yet (they open only once the earlier ones are filled)
             "unseen": _unseen_of(d),
+            "walk_open": bool((d.schema.get("extra") or {}).get("walk_open")),      # a walk stopped before the review page
             "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": d.plan, "notes": d.notes,
             "auto_approve_check": d.auto_approve_check,
             "submit_mode": _submit_mode(d.schema.get("ats", ""), job.company, d.answers),
@@ -419,22 +420,47 @@ def get(draft_id: int) -> dict[str, Any]:
         }
 
 
+def _schema_of(d: Draft) -> FormSchema:
+    return FormSchema.from_dict({k: v for k, v in d.schema.items() if not k.startswith("_")})
+
+
 def _unseen_of(d: Draft) -> list[str]:
-    extra = d.schema.get("extra") or {}
-    if "unseen" in extra:
-        return list(extra["unseen"] or [])
-    try:      # a draft from before unread steps were kept: work it out from what it recorded
-        raw = {k: v for k, v in d.schema.items() if k != "_ref"}
-        return unseen_steps(FormSchema.from_dict(raw))
+    try:
+        return unseen_steps(_schema_of(d))
     except Exception:  # noqa: BLE001
         return []
 
 
-def unseen_steps(schema: FormSchema) -> list[str]:
-    """Steps of an explored form that had nothing to read (they open only once the earlier ones are filled)."""
+def needs_walk(d: Draft) -> bool:
+    """Is there still something of this form to read by walking it: steps nobody has read, or a walk that stopped
+    before the review page?"""
+    return bool(_unseen_of(d)) or bool((d.schema.get("extra") or {}).get("walk_open"))
+
+
+def read_titles(schema: FormSchema) -> list[str]:
+    """The steps of an explored form that have been read completely: when the form was first read, or on a walk.
+    A draft from before this was kept: the steps where the first reading found a control (a question that is known only
+    by its label was met later, while filling)."""
+    if "read" in schema.extra:
+        return [str(t) for t in schema.extra["read"] or []]
+    found = {q.page for q in schema.questions if not str((q.locator or {}).get("selector") or q.id).startswith("@label:")}
+    return [str(name) for i, name in enumerate(schema.pages or []) if i in found]
+
+
+def unseen_steps(schema: FormSchema, also: list[str] | None = None) -> list[str]:
+    """Steps of an explored form that nobody has read yet (they open only once the earlier ones are filled).
+    ``also``: steps read just now, by the title the form shows."""
+    from .ats.base import norm_question
+
     if schema.source != "agent" or len(schema.pages or []) < 2:
         return []
-    return [str(name)[:80] for i, name in enumerate(schema.pages) if not any(q.page == i for q in schema.questions) and not re.search(r"review|submit|summary|confirm", str(name), re.I)]
+    read = [t for t in (norm_question(str(x)) for x in [*read_titles(schema), *(also or [])]) if t]
+
+    def was_read(name: str) -> bool:
+        nm = norm_question(name)
+        return any(t in nm or nm in t for t in read)
+
+    return [str(name)[:80] for name in schema.pages if not re.search(r"review|submit|summary|confirm", str(name), re.I) and not was_read(str(name))]
 
 
 SCOUT_NOTES = ("Steps of this form that could not be read yet", "The later steps of this form were read", "Reading the later steps")
@@ -452,10 +478,7 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
             return {"skipped": "the draft is no longer pending"}
         app_id = d.application_id
         rounds = int((d.schema.get("extra") or {}).get("scouted") or 0)
-        if "unseen" not in (d.schema.get("extra") or {}):      # a draft from before unread steps were kept
-            sch0 = dict(d.schema)
-            sch0["extra"] = {**(sch0.get("extra") or {}), "unseen": _unseen_of(d)}
-            d.schema = sch0
+        read_before = read_titles(_schema_of(d))      # taken before the walk adds what it finds
     if rounds >= 6:      # answering starts the walk again by itself; this is the end of that, not of a walk asked for by hand
         with db.session() as s:
             d = s.get(Draft, draft_id)
@@ -476,15 +499,19 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
             sch = dict(d.schema)
             extra = dict(sch.get("extra") or {})
             extra["scouted"] = rounds + 1
-            if out.get("reached_review"):
-                extra["unseen"] = []
+            extra.pop("unseen", None)      # kept by an earlier version; what is unread is worked out from what was read
+            if out.get("status") == "scouted":
+                names = [str(x) for x in sch.get("pages") or []] if out.get("all_read") else []
+                extra["read"] = list(dict.fromkeys([*read_before, *(out.get("read") or []), *names]))
+                extra["walk_open"] = not out.get("reached_review")
             sch["extra"] = extra
             d.schema = sch
             notes = [n for n in (d.notes or []) if not n.startswith(SCOUT_NOTES)]
             open_n = len(d.unresolved or [])
             if out.get("status") == "scouted" and out.get("reached_review"):
                 notes.append(f"The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted. "
-                             f"{out.get('added', 0)} answer(s) were added from your profile; {open_n} question(s) need your answer.")
+                             f"{out.get('added', 0)} answer(s) were added from your profile; {out.get('held', 0)} answer(s) the employer's site already holds were "
+                             f"read into the draft; {open_n} question(s) need your answer.")
             elif out.get("status") == "scouted":
                 notes.append(f"Reading the later steps stopped at \"{out.get('stopped_at') or '?'}\": {open_n} question(s) there need your answer. "
                              "Answer them and the reading goes on from there; nothing was submitted.")
@@ -517,7 +544,8 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         label = next((a.get("label", "") for a in d.answers if a["id"] == qid), "")
         for a in d.answers:
             if a["id"] == qid:
-                a = {**a, "value": value, "basis": "edited by user", "confidence": "high", "source": "profile", "sensitive_confirmed": bool(a.get("sensitive"))}
+                # an answer the site held becomes the applicant's own: from here on it is filled like any other
+                a = {**a, "value": value, "basis": "edited by user", "confidence": "high", "source": "profile", "sensitive_confirmed": bool(a.get("sensitive")), "held": False}
             new.append(a)
         d.answers = new
         d.unresolved = [u for u in d.unresolved if u["id"] != qid or value in ("", None, [])]
@@ -525,7 +553,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         if resolved_all:
             d.application.status = "draft_ready"
         # every open question is answered and the form still has steps that were not read: the walk goes on from there
-        walk_on = resolved_all and d.review_status == "pending" and bool((d.schema.get("extra") or {}).get("unseen")) and bool(db.get_setting("recon.walk"))
+        walk_on = resolved_all and d.review_status == "pending" and needs_walk(d) and bool(db.get_setting("recon.walk"))
         if walk_on:
             d.application.status = "recon"
     if resolved_all:  # outside the session: SQLite allows one writer at a time
