@@ -1925,11 +1925,19 @@ def gmail_authorize() -> dict[str, Any]:
 if config.FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=config.FRONTEND_DIST / "assets"), name="assets")
 
+    def _interface_files() -> dict[str, Path]:
+        """The files of the built interface, by the address they are served at. A request is answered by looking its
+        address up in this list - no path is ever put together from what a request says, so nothing outside the folder
+        can be named, however the address is written."""
+        root = config.FRONTEND_DIST.resolve()
+        return {f.relative_to(root).as_posix(): f for f in root.rglob("*") if f.is_file()}
+
+    _files = {"all": _interface_files()}
+
     @app.get("/{path:path}")
     def spa(path: str):
-        root = config.FRONTEND_DIST.resolve()
-        f = (root / path).resolve()
-        # only files of the built interface: "..%2F" in an address must not reach the rest of the disk
-        if path and f.is_relative_to(root) and f.is_file():
-            return FileResponse(f)
-        return FileResponse(root / "index.html")
+        f = _files["all"].get(path)
+        if f is None and path and "." in path.rsplit("/", 1)[-1]:      # a file that is not known: the interface may have been built again
+            _files["all"] = _interface_files()
+            f = _files["all"].get(path)
+        return FileResponse(f if f is not None and f.is_file() else _files["all"].get("index.html") or config.FRONTEND_DIST / "index.html")

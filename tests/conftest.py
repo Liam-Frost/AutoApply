@@ -58,6 +58,14 @@ def app_env(tmp_path, monkeypatch):
     if not hasattr(executor, "wait_for_the_applicant"):      # the real thing, for the tests that are about it
         executor.wait_for_the_applicant = executor._wait_for_manual_submit
     monkeypatch.setattr(executor, "_wait_for_manual_submit", nobody_is_there)
+    # Nothing a test starts outlives it. "Look for the confirmation e-mail in five minutes" is a timer; left running, it
+    # went off in whichever test was running five minutes later and was counted there. A test that is about the delay
+    # itself uses tasks.enqueue_later_for_real.
+    from autoapply import tasks
+
+    if not hasattr(tasks, "enqueue_later_for_real"):
+        tasks.enqueue_later_for_real = tasks.enqueue_later
+    monkeypatch.setattr(tasks, "enqueue_later", lambda *a, **k: None)
     # Tests never reach a real model: anything not stubbed by a test behaves as "no credentials".
     from autoapply import llm, llm_sdk
 

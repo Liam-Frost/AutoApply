@@ -173,7 +173,12 @@ def test_the_page_route_serves_only_the_built_interface(app_env):
         pytest.skip("the interface is not built here")
     c = TestClient(api)
     index = c.get("/").text
-    for path in ("/..%2Fpackage.json", "/..%2F..%2Fpyproject.toml", "/assets/..%2F..%2F..%2Fpyproject.toml"):
+    # a file of the interface is served as itself; an address the interface routes by itself gets the page
+    other = next((f for f in config.FRONTEND_DIST.iterdir() if f.is_file() and f.name != "index.html"), None)
+    if other is not None:
+        assert c.get("/" + other.name).content == other.read_bytes()
+    assert c.get("/drafts/12").text == index and c.get("/no-such-file.png").text == index
+    for path in ("/..%2Fpackage.json", "/..%2F..%2Fpyproject.toml", "/assets/..%2F..%2F..%2Fpyproject.toml", "/%2e%2e/%2e%2e/pyproject.toml", "/..\..\pyproject.toml"):
         r = c.get(path)
         assert "autoapply-frontend" not in r.text and "[project]" not in r.text, path
         assert r.status_code == 404 or r.text == index, path

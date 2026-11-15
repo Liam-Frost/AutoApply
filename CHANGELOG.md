@@ -4,6 +4,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Security
+
+- The route that serves the interface answers from a list of the built files instead of putting a path together from
+  the address. 1.0.2 already kept such a path inside the interface's folder; this form leaves nothing to check, and
+  code scanning recognises it.
+
 ## [1.0.2] - 2026-11-15
 
 ### Changed
