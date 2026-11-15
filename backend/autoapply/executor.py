@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from . import answers as ans, messages
-from . import auth, browser, config, db, fixtures, llm, metering, notify, repair
+from . import auth, browser, config, db, fixtures, knowledge, llm, metering, notify, repair
 from .ats import audit, registry
 from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .drafts import _stat
@@ -591,7 +591,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     browser.snapshot(page, run_dir, "handed_over")
                 if leftovers or mapped or added:
                     step("handed_over", left=[x["label"] for x in leftovers][:20], mapped=[m["label"] for m in mapped][:20], added=[a["label"] for a in added][:20])
-                outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added, adapted=adapted)
+                # the questions handed to the applicant are watched while they have the window: what they answer there is kept
+                watch = [Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"], locator={"selector": f"@label:{a['label']}"}) for a in asked] if generic else []
+                typed: dict[str, Any] = {}
+                outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added, adapted=adapted, watch=watch, typed=typed)
+                for a in asked:
+                    a["value"] = typed.get(f"@label:{a['label']}", "")
             else:
                 clicked_at = datetime.now(timezone.utc)
                 driver.submit(page)
@@ -650,9 +655,23 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         s.add(Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, dir=str(run_dir)))
         new_questions = 0
         if mapped or added or adapted or asked:
-            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked) or 0
-    if new_questions and outcome["status"] != "submitted":      # outside the session: SQLite allows one writer at a time
-        names = "\n".join("· " + a["label"][:90] for a in asked[:6])
+            back = outcome["status"] != "submitted"
+            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=back) or 0
+            if new_questions and back:       # the draft goes back to the applicant: it has questions only they can answer
+                app.status = "needs_input"
+                app.last_event = f"填表时遇到 {new_questions} 个草案里没有、资料里也没有答案的问题，已加进草案；回答并批准后接着填"
+    # outside the session: SQLite allows one writer at a time
+    for a in asked:      # answered by the applicant in the window: remembered, so that no form has to ask it again
+        if a.get("value") not in ("", None, [], False):
+            shown = "; ".join(map(str, a["value"])) if isinstance(a["value"], list) else str(a["value"])
+            try:
+                knowledge.append_rule(f'Form question "{a["label"].strip()[:200]}": answer "{shown[:300]}".', source="user", section="Standard answers")
+                ans.cache_put(schema.ats, Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"]), a["value"], "answered by the applicant in the application window", confirmed=True)
+            except Exception:  # noqa: BLE001 - remembering must not fail the run
+                log.exception("could not remember an answer given in the window")
+    if new_questions and outcome["status"] != "submitted":
+        names = "\n".join("· " + a["label"][:90] for a in asked if a.get("value") in ("", None, [], False))[:600]
+        notify.close_todos("submit", f"application:{application_id}")
         notify.add_todo("answer", title, ref=f"draft:{draft_id}", payload={"draft_id": draft_id},
                         body=f"填表时遇到 {new_questions} 个资料里没有答案的问题，已加进草案。在草案里回答一次（勾选“记住这个答案”），以后就会自动填：\n{names}")
     if outcome["status"] == "submitted":
@@ -687,7 +706,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
 
 def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], approved_values: dict[str, Any], absent_ids: set[str],
-                  added: list[dict[str, Any]], *, generic: bool, limits: dict[str, int] | None = None, asked: list[dict[str, Any]] | None = None) -> int:
+                  added: list[dict[str, Any]], *, generic: bool, limits: dict[str, int] | None = None, asked: list[dict[str, Any]] | None = None,
+                  send_back: bool = False) -> int:
     """Write back into the draft what the take-over established, so the next run of it needs no agent:
     the form's own wording for approved answers, and the questions the first reading of the form did not see.
     For explored forms the new questions also join the schema (found by their label), which is what the driver replays."""
@@ -721,20 +741,25 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
     fresh = 0
     for a in asked or []:
         qid = f"@label:{a['label']}"
-        if any(norm_question(r.get("label", "")) == norm_question(a["label"]) for r in rows):
-            continue
         typ = a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect") else "text"
-        rows.append({"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": True, "page": a["page"], "value": "",
-                     "basis": ("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:300], "confidence": "low", "source": "unresolved",
-                     "sensitive": sensitivity(a["label"]), "sensitive_confirmed": False})
+        given = a.get("value") not in ("", None, [], False)      # the applicant answered it in the window
+        old = next((r for r in rows if norm_question(r.get("label", "")) == norm_question(a["label"])), None)
+        if old is not None and (not given or old.get("value") not in ("", None, [])):
+            continue
+        row = {"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": True, "page": a["page"], "value": a["value"] if given else "",
+               "basis": "你在申请窗口里填的" if given else ("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:300], "confidence": "high" if given else "low",
+               "source": "profile" if given else "unresolved", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": given}
+        rows = [r for r in rows if r is not old] + [row]
         if generic and not any(q["id"] == qid for q in questions):
             questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"], locator={"selector": qid}).__dict__)
-        fresh += 1
+        fresh += 0 if given else 1
     sch["questions"] = questions
     d.answers = rows
     d.schema = sch
-    if fresh:
+    if asked:
         d.unresolved = [r for r in rows if r.get("source") == "unresolved" and r.get("required")]
+    if fresh and send_back:      # back to the applicant: answering and approving it starts the filling again
+        d.review_status, d.approved_at = "pending", None
     return fresh
 
 
@@ -840,7 +865,8 @@ def _drift_text(diff: dict[str, Any]) -> str:
 
 def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: int, draft_id: int | None = None, *,
                             leftovers: list[dict[str, str]] | None = None, mapped: list[dict[str, str]] | None = None,
-                            added: list[dict[str, Any]] | None = None, adapted: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                            added: list[dict[str, Any]] | None = None, adapted: list[dict[str, Any]] | None = None,
+                            watch: list[Any] | None = None, typed: dict[str, Any] | None = None) -> dict[str, Any]:
     """Manual policy: the form is filled in a visible window; the user clicks Submit."""
     payload: dict[str, Any] = {"draft_id": draft_id} if draft_id else {}
     if leftovers:
@@ -861,9 +887,19 @@ def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: 
     notify.add_todo("submit", title, ref=f"application:{application_id}", payload=payload or None, body="；".join(x for x in parts if x))
     code_tried = False
     last: dict[str, str] = {}
-    for _ in range(1200):  # up to ~20 minutes
+    watched = FormSchema(ats="generic", questions=list(watch or [])) if watch else None
+    for tick in range(1200):  # up to ~20 minutes
         if page.is_closed():
             break
+        if watched is not None and typed is not None and tick % 2 == 0:
+            # What the applicant enters for the questions that were handed to them: read while the field is on the page
+            # (it is gone once they go on to the next step), kept for the draft and remembered.
+            try:
+                for qid, val in driver.read_back(page, watched).items():
+                    if val not in ("", None, [], False):
+                        typed[qid] = val
+            except Exception:  # noqa: BLE001 - the page is theirs right now; a failed read must not disturb them
+                pass
         # After the user clicks Submit some sites e-mail a security code: read it from the inbox and enter it.
         try:
             wants_code = not code_tried and hasattr(driver, "needs_email_code") and driver.needs_email_code(page)

@@ -102,6 +102,12 @@ runs, a single run with its model requests, and the price editor open in a drawe
 - A question that only you can answer (the profile does not say) is handed over once. The step is no longer given to
   the AI again and again for the same thing, and the question joins the draft as an open question: answer it once in the
   program (with "remember this answer") and it is filled from then on.
+- What a form asks that the draft did not have is no longer lost. If you answer it in the window, the answer is read
+  from the page, written into the draft and remembered in your profile, so no form asks it twice. If you do not, the
+  draft comes back to you with the question in it (pending again, "needs your answer"); answering and approving it
+  starts the filling again.
+- A draft made from a form whose later steps could not be read yet (they open only after the earlier ones are filled)
+  names those steps instead of looking complete.
 - A control is found by its label only when the label is the question. A label that merely contains the question's
   words is another question: "First Name" was filled into "Legal First Name" when its own field was not on the page.
 

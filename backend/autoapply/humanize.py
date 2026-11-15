@@ -116,6 +116,8 @@ _NOTES: list[tuple[str, str]] = [
     (r"^(?:Required file|File) '(.+?)' has no matching document\.( No résumé has been uploaded yet.*)?$", r"「\1」这一栏没有可以上传的文件。"),
     (r"^The form has no transcript field; the transcript goes in the Cover Letter slot\.$", "表单上没有成绩单栏，成绩单会放在求职信那一栏上传。"),
     (r"^Cover letter still has open issues: (.*)$", r"求职信还有没解决的问题：\1"),
+    (r"^Steps of this form that could not be read yet: (.*?)\. The form shows them only after the earlier steps are filled; .*$",
+     r"这张表有几步在生成草案时还读不到：\1。要先填完前面的步骤，表单才显示它们；第一次填表时会读到，问到的新问题会加进这份草案，需要你回答的会退回给你。"),
 ]
 _BASIS: list[tuple[str, str]] = [
     (r"^carried over from approved draft v(\d+)$", r"沿用你批准过的第 \1 版草案"),

@@ -185,6 +185,14 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
             notes.append(f"Form changed since the approved draft v{prev['version']}: {n_delta} new or changed question(s) need review; the other answers are carried over.")
     if cover and cover.get("problems"):
         notes.append("Cover letter still has open issues: " + "; ".join(cover["problems"]))
+    if schema.source == "agent" and len(schema.pages) > 1:
+        # A form with several steps often shows a step only after the ones before it are filled. Steps that had no
+        # questions to read are named, so that the draft does not look complete when it is not.
+        unseen = [str(name)[:80] for i, name in enumerate(schema.pages) if not any(q.page == i for q in schema.questions)
+                  and not re.search(r"review|submit|summary|confirm", str(name), re.I)]
+        if unseen:
+            notes.append("Steps of this form that could not be read yet: " + "; ".join(unseen[:8]) + ". The form shows them only after the earlier steps are filled; "
+                         "they are read the first time the form is filled, and what they ask is added to this draft.")
     driver = registry.get(ref.ats)
     requires_login = bool(driver and driver.requires_login)
     fill = ans.to_fill_map(res["answers"])

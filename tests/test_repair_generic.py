@@ -991,13 +991,63 @@ def test_a_question_nobody_can_answer_but_the_applicant_is_asked_once_and_then_k
         assert (new["id"], new["type"], new["options"], new["value"]) == ("@label:" + label, "radio", ["No, never", "Yes"], "")
         assert [u["label"] for u in d.unresolved] == [label] and any(q["id"] == new["id"] and q["options"] == ["No, never", "Yes"] for q in d.schema["questions"])
         assert s.query(Todo).filter_by(kind="answer", ref=f"draft:{did}", status="open").count() == 1
+        # the draft is back with the applicant: pending again, and the application says it needs their answer
+        assert d.review_status == "pending" and s.get(Application, app_id).status == "needs_input" and "草案里没有" in s.get(Application, app_id).last_event
 
-    # the applicant answers it in the program; the next run needs no agent at all and reaches the review page
+    # the applicant answers it in the program and approves; the next run needs no agent at all and reaches the review page
     drafts.edit_answer(did, "@label:" + label, "No, never")
     with db.session() as s:
-        assert s.get(Draft, did).unresolved == []
-        s.get(Application, app_id).status = "approved"
+        assert s.get(Draft, did).unresolved == [] and s.get(Application, app_id).status == "draft_ready"
+    drafts.approve(did)
+    with db.session() as s:
+        assert s.get(Application, app_id).status == "approved"
     monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no agent should be needed once the question is answered")))
     handed.clear()
     executor.execute(app_id, did)
     assert handed["title"] == "Review" and "Government employee: no" in handed["text"] and [x for x in handed["leftovers"] if x["kind"] in ("fix", "form")] == []
+
+
+def test_what_the_applicant_answers_in_the_window_is_kept_and_remembered(app_env, tmp_path, monkeypatch):
+    """The question is handed over, and this time the applicant answers it right there in the window and submits. The
+    answer is read from the page while the field is still on it, written into the draft, and remembered in the profile -
+    the next form that asks the same thing does not need them."""
+    from autoapply import db, executor, knowledge, llm
+    from autoapply.models import Application, Draft, Todo
+
+    html = UNKNOWN_QUESTION.replace("<button>Submit application</button>", "<button onclick=\"document.querySelector(\\'main\\').innerHTML = \\'<h1>Thank you for applying!</h1>\\'\">Submit application</button>")
+    app_id, did = _one_question_draft(tmp_path, html, "typed")
+    knowledge.write("profile", "# Profile\n\n## Standard answers\n\n- Lives in Vancouver.\n")
+    db.set_setting("repair.enabled", True)
+    label = "Have you been a government employee in the past three years?"
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        {x.name: x for x in tools}["done"].fn(fixed=[], unfixed=[], cause="Not in the profile.", suggestion="",
+                                              needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    real_wait = executor._wait_for_manual_submit
+
+    def applicant(driver, page, *a, **kw):
+        page.check("input[name=gov][value=no]")                    # they answer the question ...
+        page.evaluate("setTimeout(() => { next(); document.querySelector('main button').click() }, 2600)")     # ... go on, and submit
+        return real_wait(driver, page, *a, **kw)
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", applicant)
+    out = executor.execute(app_id, did)
+    assert out["status"] == "submitted"
+    with db.session() as s:
+        d = s.get(Draft, did)
+        row = next(a for a in d.answers if a["label"] == label)
+        assert (row["value"], row["source"], row["basis"]) == ("No, never", "profile", "你在申请窗口里填的") and d.unresolved == [] and d.review_status == "approved"
+        assert s.get(Application, app_id).status == "submitted" and s.query(Todo).filter_by(kind="answer", status="open").count() == 0
+    assert f'Form question "{label}": answer "No, never".' in knowledge.read("profile")
+
+
+def test_a_draft_names_the_steps_that_could_not_be_read(app_env):
+    from autoapply import humanize
+
+    note = ("Steps of this form that could not be read yet: Work Eligibility (not yet visible); Acknowledgement. The form shows them only after the earlier steps are filled; "
+            "they are read the first time the form is filled, and what they ask is added to this draft.")
+    zh = humanize.notes([note])[0] if hasattr(humanize, "notes") else humanize.note(note)
+    assert "Work Eligibility (not yet visible); Acknowledgement" in zh and "读不到" in zh
