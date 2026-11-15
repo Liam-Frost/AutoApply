@@ -58,15 +58,15 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
         from . import generic
 
         if driver.requires_login:
-            with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
+            with browser.open_page(ref.tenant_key) as page:
                 auth.ensure_session(page, driver, ref)
         return generic.recon(job, ref, run_dir)
     if not driver.requires_login and ref.tenant:
         if getattr(driver, "page_extras", False):  # the API misses blocks that only the page shows
-            with browser.open_page(url=ref.url, operation="read") as page:
+            with browser.open_page() as page:
                 return ref, driver.get_schema(ref, page)
         return ref, driver.get_schema(ref, None)
-    with browser.open_page(ref.tenant_key if driver.requires_login else None, url=ref.url, operation="read") as page:
+    with browser.open_page(ref.tenant_key if driver.requires_login else None) as page:
         if not ref.tenant and hasattr(driver, "resolve_board"):
             ref = driver.resolve_board(page, ref)  # type: ignore[attr-defined]
             return ref, driver.get_schema(ref, None)

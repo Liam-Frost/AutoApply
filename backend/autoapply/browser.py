@@ -37,25 +37,11 @@ def load_state(tenant_key: str) -> dict | None:
 
 
 def save_state(tenant_key: str, context: BrowserContext) -> None:
-    write_state(tenant_key, context.storage_state())
+    _state_path(tenant_key).write_bytes(secrets.encrypt_json(context.storage_state()))
 
 
 def write_state(tenant_key: str, state: dict) -> None:
-    import os
-    import tempfile
-
-    target = _state_path(tenant_key)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(secrets.encrypt_json(state))
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, target)
-    finally:
-        if temporary:
-            temporary.unlink(missing_ok=True)
+    _state_path(tenant_key).write_bytes(secrets.encrypt_json(state))
 
 
 # Sign-in providers that career sites offer as "Sign in with ...". The user signs in to one once (Accounts page);
@@ -148,21 +134,7 @@ def session_info(tenant_key: str) -> dict | None:
 
 
 def clear_state(tenant_key: str) -> None:
-    import shutil
-    from .nodriver_backend import profile_lock
-
-    profile = _native_profile(tenant_key)
-    with profile_lock(profile):
-        _state_path(tenant_key).unlink(missing_ok=True)
-        if profile.exists():
-            shutil.rmtree(profile)
-
-
-def _native_profile(tenant_key: str) -> Path:
-    import hashlib
-
-    key = _state_path(tenant_key).name
-    return config.DATA / "profiles" / "nodriver" / hashlib.sha256(key.encode()).hexdigest()
+    _state_path(tenant_key).unlink(missing_ok=True)
 
 
 def find_chrome() -> str | None:
@@ -240,33 +212,8 @@ def plain_login(tenant_key: str, url: str, is_logged_in_url, *, timeout_s: int =
 
 
 @contextmanager
-def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads: Path | None = None,
-              url: str = "", operation: str = "apply", backend: str | None = None) -> Iterator[Page]:
+def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads: Path | None = None) -> Iterator[Page]:
     """Yield a page in a fresh context, restoring the tenant's saved session if any."""
-    from . import browser_policy, db, net
-    import logging
-
-    selected = browser_policy.select(tenant_key, url, operation, backend)
-    from . import metering
-    metering.stage(f"browser:{selected.backend} ({selected.reason})")
-    logging.getLogger("autoapply.browser").info("Browser backend %s (%s)", selected.backend, selected.reason)
-    canonical = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key or "")
-    if headless and canonical in (db.get_setting("browser.visible_sites") or []):
-        headless = False
-    if selected.backend == "nodriver":
-        from . import nodriver_backend
-
-        executable = db.get_setting("browser.executable") or find_chrome()
-        if not executable:
-            raise RuntimeError("nodriver requires Chrome or Edge; set its executable in browser settings")
-        if net.mode() == "custom" and db.get_setting("proxy.username"):
-            raise RuntimeError("Authenticated proxy support is not yet available for nodriver")
-        profile = _native_profile(tenant_key) if tenant_key else None
-        with nodriver_backend.profile_lock(profile):
-            state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key)
-            with nodriver_backend.open_page(state, headless=headless, executable=executable, args=net.chrome_args(), profile=profile) as page:
-                yield page
-        return
     with sync_playwright() as p:
         from . import db, net
 

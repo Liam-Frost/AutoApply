@@ -207,40 +207,45 @@ def intel(terms: list[str], keep: Keep = _all) -> Iterator[dict[str, Any]]:
 def meta(terms: list[str], keep: Keep = _all) -> Iterator[dict[str, Any]]:
     """Meta has no public listing API; the search page fills in its results with scripts. Read the
     rendered page in an ordinary headless browser. If the site refuses it, the error says so."""
-    from .. import browser
+    from playwright.sync_api import sync_playwright
 
-    with browser.open_page(url="https://www.metacareers.com", operation="scan") as page:
-        found: dict[str, dict[str, str]] = {}
-        for q in terms:
-            for pg in range(1, MAX_PER_TERM // 20 + 1):
-                page.goto(f"https://www.metacareers.com/jobsearch/?q={q}&page={pg}", wait_until="domcontentloaded", timeout=45000)
-                try:
-                    page.wait_for_selector("a[href*='/profile/job_details/']", timeout=20000)
-                except Exception as e:  # noqa: BLE001
-                    if pg == 1 and not found:
-                        raise RuntimeError("Meta's careers page did not show any results to an automated browser") from e
-                    break
-                page.wait_for_timeout(800)
-                cards = page.evaluate(r"""() => [...document.querySelectorAll("a[href*='/profile/job_details/']")].map(a => {
-                    const id = (a.getAttribute('href').match(/(\d{8,})/) || [])[1];
-                    const lines = a.innerText.split('\n').map(x => x.trim()).filter(x => x && x !== '⋅');
-                    return id ? { id, href: a.href, title: lines[0] || '', rest: lines.slice(1).join('; ') } : null; }).filter(Boolean)""")
-                new = [cdt for cdt in cards if cdt["id"] not in found]
-                for cdt in new:
-                    found[cdt["id"]] = cdt
-                if not new:
-                    break
-        for cdt in found.values():
-            jd = ""
-            loc = cdt["rest"][:200]
-            if keep(cdt["title"], loc):  # only candidates are opened for their description
-                try:
-                    page.goto(cdt["href"], wait_until="domcontentloaded", timeout=45000)
-                    page.wait_for_timeout(1500)
-                    jd = _text(page.inner_text("body"))[:12000]
-                except Exception:  # noqa: BLE001
-                    jd = ""
-            yield _row("meta", cdt["id"], cdt["title"], cdt["href"].split("?")[0], location=loc, jd=jd)
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=True)
+        try:
+            page = b.new_context(locale="en-US").new_page()
+            found: dict[str, dict[str, str]] = {}
+            for q in terms:
+                for pg in range(1, MAX_PER_TERM // 20 + 1):
+                    page.goto(f"https://www.metacareers.com/jobsearch/?q={q}&page={pg}", wait_until="domcontentloaded", timeout=45000)
+                    try:
+                        page.wait_for_selector("a[href*='/profile/job_details/']", timeout=20000)
+                    except Exception as e:  # noqa: BLE001
+                        if pg == 1 and not found:
+                            raise RuntimeError("Meta's careers page did not show any results to an automated browser") from e
+                        break
+                    page.wait_for_timeout(800)
+                    cards = page.evaluate(r"""() => [...document.querySelectorAll("a[href*='/profile/job_details/']")].map(a => {
+                        const id = (a.getAttribute('href').match(/(\d{8,})/) || [])[1];
+                        const lines = a.innerText.split('\n').map(x => x.trim()).filter(x => x && x !== '⋅');
+                        return id ? { id, href: a.href, title: lines[0] || '', rest: lines.slice(1).join('; ') } : null; }).filter(Boolean)""")
+                    new = [cdt for cdt in cards if cdt["id"] not in found]
+                    for cdt in new:
+                        found[cdt["id"]] = cdt
+                    if not new:
+                        break
+            for cdt in found.values():
+                jd = ""
+                loc = cdt["rest"][:200]
+                if keep(cdt["title"], loc):  # only candidates are opened for their description
+                    try:
+                        page.goto(cdt["href"], wait_until="domcontentloaded", timeout=45000)
+                        page.wait_for_timeout(1500)
+                        jd = _text(page.inner_text("body"))[:12000]
+                    except Exception:  # noqa: BLE001
+                        jd = ""
+                yield _row("meta", cdt["id"], cdt["title"], cdt["href"].split("?")[0], location=loc, jd=jd)
+        finally:
+            b.close()
 
 
 # --- registry -------------------------------------------------------------------------------

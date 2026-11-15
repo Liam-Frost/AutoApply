@@ -50,7 +50,7 @@ def app_env(tmp_path, monkeypatch):
     from autoapply import browser, executor
 
     real_open = browser.open_page
-    monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None, **kwargs: real_open(tenant_key, headless=True, downloads=downloads, **kwargs))
+    monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None: real_open(tenant_key, headless=True, downloads=downloads))
 
     def nobody_is_there(*a, **k):
         raise AssertionError("this run handed the form to the applicant, and the test does not say what the applicant does")

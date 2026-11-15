@@ -726,23 +726,7 @@ def run_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 
 @app.post("/api/tasks/{task_id}/retry")
-def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    backend = body.get("browser_backend")
-    if backend:
-        from .. import browser_policy
-        try:
-            browser_policy.select(None, override=backend)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        with db.session() as s:
-            task = s.get(Task, task_id)
-            if task is None:
-                raise HTTPException(404, "Task not found")
-            if task.status not in ("failed", "waiting_human") or task.kind not in ("recon", "discover", "revise"):
-                raise HTTPException(400, "Backend retry is available for stopped discovery and draft-reading tasks")
-            task.payload = {**task.payload, "browser_backend": backend}
-            task.status, task.error = "queued", ""
-        return {"ok": True}
+def retry_task(task_id: int) -> dict[str, Any]:
     tasks.retry(task_id)
     return {"ok": True}
 
@@ -1505,41 +1489,8 @@ def get_settings() -> dict[str, Any]:
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
-@app.get("/api/browser/status")
-def browser_status() -> dict[str, Any]:
-    import importlib.util
-    from .. import browser
-
-    return {"installed": importlib.util.find_spec("nodriver") is not None,
-            "executable": db.get_setting("browser.executable") or browser.find_chrome()}
-
-
-@app.post("/api/browser/test")
-def browser_test() -> dict[str, Any]:
-    from .. import browser, nodriver_backend
-
-    status = browser_status()
-    if not status["installed"] or not status["executable"]:
-        raise HTTPException(400, "Install nodriver and Chrome / Edge first")
-    try:
-        with nodriver_backend.open_page(None, headless=True, executable=status["executable"], args=net.chrome_args()) as page:
-            page.goto("data:text/html,<title>AutoApply browser test</title><input id='test'>")
-            page.locator("#test").fill("AutoApply")
-            if page.locator("#test").input_value() != "AutoApply":
-                raise RuntimeError("Browser input verification failed")
-    except Exception as exc:
-        raise HTTPException(400, f"Browser test failed: {type(exc).__name__}: {exc}") from exc
-    return {"ok": True}
-
-
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from .. import browser_policy
-
-    try:
-        browser_policy.validate(body.get("settings") or {})
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
         if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out

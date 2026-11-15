@@ -663,7 +663,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
     try:
         headless = policy != "manual" or scout
-        with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless, url=ref.url, operation="apply") as page:
+        with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless) as page:
             st = auth.ensure_session(page, signer or driver, ref)      # a site with a coded sign-in uses it, whoever fills the form
             step("ensure_session", result=st)
             if driver.requires_login and driver.already_applied(page, ref):

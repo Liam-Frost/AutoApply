@@ -105,7 +105,7 @@ def parse_detail(pid: str, text: str) -> dict[str, Any]:
 def scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
     """Yield every live posting. Details are fetched only for ids not in ``known_ids``;
     known ones are yielded as bare ids so the caller can keep them online."""
-    with browser.open_page(TENANT, url=POSTINGS, operation="scan") as page:
+    with browser.open_page(TENANT) as page:
         page.goto(POSTINGS, wait_until="domcontentloaded")
         if "Cloudflare" in page.title() or "you have been blocked" in page.inner_text("body")[:400]:
             # The site's firewall refuses automated browsers. This is not a login problem and is not worked around.

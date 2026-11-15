@@ -744,7 +744,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     hidden = ref.tenant_key not in (db.get_setting("browser.visible_sites") or [])
     refused = False
     result: dict[str, Any] = {}
-    with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
+    with browser.open_page(ref.tenant_key) as page:
         try:
             resp = page.goto(ref.url, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:  # noqa: BLE001 - timeout, DNS, connection reset: the site, not the form
