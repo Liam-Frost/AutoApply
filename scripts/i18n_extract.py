@@ -52,6 +52,8 @@ def with_slots(s: str, opener: str, closer: str) -> str:
 
 def keep(s: str) -> bool:
     bare = re.sub(r"\{\d+\}", "", s)
+    if re.search(r"[A-Za-z0-9_)\]]\||\|[A-Za-z\(]", s) or s.count("|") >= 3:      # a regular expression that matches error text, not wording anyone reads
+        return False
     return bool(CJK.search(bare)) and len(s) <= 400
 
 

@@ -221,11 +221,34 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
     return "success"
 
 
-def _reason(kind: str, status: str, result: dict[str, Any] | None, error: str) -> str:
-    raw = error or str((result or {}).get("error") or "")
+# Why a task failed, as a short name. The mapping reads the raw error text and is the same for every run, so the same
+# failure always lands in the same group; the sentence shown elsewhere and the raw text are kept beside it.
+CATEGORIES: list[tuple[str, str, str]] = [
+    ("interrupted", "运行被中断", r"interrupted|superseded|server stopped|Target page, context or browser has been closed|TargetClosed"),
+    ("ai_limit", "AI 额度用完", r"usage limit|limit reached|quota|额度|欠费|insufficient|billing"),
+    ("ai_unavailable", "AI 服务不可用", r"LLMUnavailable|LLMError|login is not usable|no model|API key|AI 服务|AI 模型"),
+    ("posting_closed", "岗位已关闭", r"posting not found|已关闭|已经关闭|no longer|下线|\b404\b|closed or wrong id"),
+    ("site_down", "网站打不开", r"网站暂时打不开|打不开|not answering|HTTP 5\d\d|ERR_|Page\.goto: Timeout|could not open the posting|SiteDown"),
+    ("login", "需要登录或验证", r"login required|needs login|sign.?in|captcha|verification|登录|验证码"),
+    ("cannot_advance", "表单进不了下一页", r"could not advance|没法进入下一步|does not go on"),
+    ("fields", "有字段没填上", r"could not set every field|field\(s\) could not be filled|没能自动填上|option not found"),
+    ("mismatch", "填的和草案不一致", r"differ from the approved draft|不一致|verify failed|mismatch"),
+    ("form_changed", "申请表有变化", r"form changed|drift"),
+    ("no_confirmation", "提交后没看到确认", r"no confirmation after submit"),
+    ("materials", "材料没准备好", r"cover-letter|cover letter|résumé|resume|求职信|简历"),
+    ("program", "程序自身出错", r"Error:|Exception|Traceback|driver bug|while parsing"),
+]
+
+
+def failure(kind: str, status: str, result: dict[str, Any] | None, error: str) -> dict[str, str]:
+    """{key, label, message, raw} for a failed task: a short category, the sentence the program shows, the text as recorded."""
+    import re
+
+    raw = (error or str((result or {}).get("error") or "")).strip()
     if not raw:
-        return ""
-    return humanize.explain(raw)["message"] or raw[:80]
+        return {"key": "none", "label": "没有记录原因", "message": "", "raw": ""}
+    key, label = next(((k, lab) for k, lab, pat in CATEGORIES if re.search(pat, raw, re.I)), ("other", "其他原因"))
+    return {"key": key, "label": label, "message": humanize.explain(raw)["message"] or raw[:120], "raw": raw[:600]}
 
 
 def _task_rows(s: Any, w: Window) -> list[dict[str, Any]]:
@@ -238,7 +261,8 @@ def _task_rows(s: Any, w: Window) -> list[dict[str, Any]]:
         dur = (_naive(t.finished_at) - _naive(t.started_at)).total_seconds() if t.started_at and t.finished_at else None
         st = [x.get("stage") for x in (t.stages or []) if isinstance(x, dict)]
         rows.append({"id": t.id, "kind": t.kind, "ref": t.ref or "", "at": at, "outcome": oc, "duration": dur, "attempts": t.attempts or 0, "stage": st[-1] if st else "",
-                     "has_stages": t.stages is not None, "reason": _reason(t.kind, t.status, t.result, t.error) if oc in ("failed", "interrupted") else "",
+                     "has_stages": t.stages is not None, **({"why": failure(t.kind, t.status, t.result, t.error)} if oc in ("failed", "interrupted") else {"why": None}),
+                     "reason": failure(t.kind, t.status, t.result, t.error)["message"] if oc in ("failed", "interrupted") else "",
                      "result": t.result or {}, "auto_retry": bool((t.payload or {}).get("_limit_retries") or (t.payload or {}).get("_down_retries"))})
     # a filling task from before stages were kept: the last step of its run says how far it got
     old = [r["id"] for r in rows if r["kind"] == "execute" and not r["stage"]]
@@ -297,7 +321,8 @@ def _run_row(r: dict[str, Any], ai: dict[int, dict[str, Any]], subject: str) -> 
     """One run as the page lists it."""
     a = ai.get(r["id"])
     return {"id": r["id"], "kind": r["kind"], "label": metering.workflow_label(r["kind"]), "subject": subject, "at": r["at"].isoformat(), "outcome": r["outcome"],
-            "outcome_label": OUTCOMES[r["outcome"]], "duration_s": r["duration"], "attempts": r["attempts"], "reason": r["reason"], "stage": stage_label(r["stage"]) if r["stage"] else "",
+            "outcome_label": OUTCOMES[r["outcome"]], "duration_s": r["duration"], "attempts": r["attempts"], "reason": r["reason"], "reason_label": (r["why"] or {}).get("label", ""),
+            "stage": stage_label(r["stage"]) if r["stage"] else "",
             "requests": a["requests"] if a else 0, "tokens": a["tokens"] if a else 0, "cost": (a["cost"] if a["priced"] else None) if a else None,
             "cost_partial": bool(a["unknown"]) if a else False, "ref": r["ref"]}
 
@@ -349,14 +374,20 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
                         "cost_per_success": round(a["cost"] / c["success"]) if a["cost"] is not None and c["success"] else None,
                         "waits_for_you": k == "execute"})
     bad = [r for r in shown if r["outcome"] in ("failed", "interrupted")]
+    # Every failure is in exactly one category; inside it, the sentences the program shows are counted one by one and an
+    # example of the raw text is kept, so nothing of the old list is lost - it is one level down.
     reasons: dict[str, dict[str, Any]] = {}
     for r in bad:
-        e = reasons.setdefault(r["reason"] or "没有记录原因", {"reason": r["reason"] or "没有记录原因", "n": 0, "kinds": set()})
+        w_ = r["why"]
+        e = reasons.setdefault(w_["key"], {"key": w_["key"], "reason": w_["label"], "n": 0, "kinds": set(), "messages": {}})
         e["n"] += 1
         e["kinds"].add(metering.workflow_label(r["kind"]))
-    by_stage: dict[str, int] = defaultdict(int)
+        m = e["messages"].setdefault(w_["message"] or w_["label"], {"message": w_["message"] or w_["label"], "n": 0, "raw": w_["raw"]})
+        m["n"] += 1
+    by_stage: dict[str, dict[str, Any]] = {}
     for r in bad:
-        by_stage[stage_label(r["stage"]) if r["stage"] else "没有记录到哪一步"] += 1
+        e = by_stage.setdefault(r["stage"], {"key": r["stage"], "stage": stage_label(r["stage"]) if r["stage"] else "没有记录到哪一步", "n": 0, "recorded": bool(r["stage"])})
+        e["n"] += 1
     # the same thing run again: how often, and how many of those were the program's own retries
     per_obj: dict[tuple[str, str], int] = defaultdict(int)
     for r in shown:
@@ -372,8 +403,8 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     return {
         "window": w.describe(), "total": total, "previous": {"total": prev_n} if prev_n is not None and not kind else None, "ai": a_all,
         "kinds": [{"kind": k, "label": metering.workflow_label(k)} for k in kinds], "by_kind": by_kind, "bucket": size, "trend": list(trend.values()),
-        "reasons": sorted(({**v, "kinds": sorted(v["kinds"])} for v in reasons.values()), key=lambda v: -v["n"])[:8],
-        "stages": sorted(({"stage": k, "n": v} for k, v in by_stage.items()), key=lambda v: -v["n"])[:8], "stages_recorded": any(r["has_stages"] for r in bad) if bad else None,
+        "reasons": sorted(({**v, "kinds": sorted(v["kinds"]), "messages": sorted(v["messages"].values(), key=lambda m: -m["n"])} for v in reasons.values()), key=lambda v: -v["n"]),
+        "stages": sorted(by_stage.values(), key=lambda v: (not v["recorded"], -v["n"])), "stages_recorded": any(r["has_stages"] for r in bad) if bad else None,
         "repeats": {"objects": sum(1 for v in per_obj.values() if v > 1), "extra_runs": sum(v - 1 for v in per_obj.values() if v > 1),
                     "auto_retries": sum(1 for r in shown if r["auto_retry"]), "restarted": sum(1 for r in shown if r["attempts"] > 1)},
         "outcomes": OUTCOMES,

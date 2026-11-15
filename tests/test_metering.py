@@ -225,7 +225,9 @@ def test_the_automation_view_tells_done_from_handed_over_from_failed(app_env):
     assert (recon["total"], recon["success"], recon["failed"], recon["cost"], recon["cost_per_success"]) == (2, 1, 1, 100000, 100000)
     fill = next(k for k in d["by_kind"] if k["kind"] == "execute")
     assert fill["success"] == 0 and fill["handed"] == 1 and fill["cost"] == 9000 and fill["cost_unknown_requests"] == 2 and fill["cost_per_success"] is None
-    assert d["reasons"][0]["n"] == 1 and d["stages"] == [{"stage": "探索申请表", "n": 1}]      # where the failed task had got to
+    # why it failed: a short category, with the sentence and the raw text one level down; and where it had got to
+    assert [(r["key"], r["reason"], r["n"]) for r in d["reasons"]] == [("site_down", "网站打不开", 1)] and "Page.goto" in d["reasons"][0]["messages"][0]["raw"]
+    assert d["stages"] == [{"key": "explore_form", "stage": "探索申请表", "n": 1, "recorded": True}]
     assert d["repeats"] == {"objects": 1, "extra_runs": 1, "auto_retries": 0, "restarted": 0}
     row = next(r for r in d["recent"] if r["id"] == ids["fill"])
     assert (row["outcome"], row["requests"], row["cost"], row["cost_partial"]) == ("handed", 3, 9000, True)

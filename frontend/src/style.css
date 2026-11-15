@@ -526,7 +526,10 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .card-foot { margin-top: auto; padding-top: var(--s3); display: flex; gap: var(--s2) var(--s3); align-items: center; flex-wrap: wrap; }
 .card-foot .hint { flex: 1; min-width: 180px; }
 .an-view .empty { padding: var(--s4) var(--s3); }
-@container (max-width: 1040px) { .an-row.c21, .an-row.c32 { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 1040px) { .an-row.c21:not(.tight), .an-row.c32:not(.tight) { grid-template-columns: minmax(0, 1fr); } }
+/* a row of two compact cards (a chart and a short list) stays side by side much longer than a row that holds a table */
+@container (max-width: 700px) { .an-row.tight { grid-template-columns: minmax(0, 1fr); } }
+.an-row.tight > .card > .card-sub { margin-bottom: var(--s2); }
 @container (max-width: 900px) { .an-row.c11 { grid-template-columns: minmax(0, 1fr); } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: 520px) { .kpis { grid-template-columns: minmax(0, 1fr); } .missed { grid-template-columns: minmax(0, 1fr); } .hbars.even { --lab: 6.5em; } }
 /* detail: opened below the row it belongs to, across the whole page width - never inside an overview card */
@@ -555,3 +558,22 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .card-head .seg button svg { width: 14px; height: 14px; }
 .legend.rows.single { grid-template-columns: minmax(0, 1fr); }
 .figs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* reasons: one compact line each - a short name, a small bar, the count */
+.reason { display: grid; grid-template-columns: minmax(0, 1fr) 96px 2.6em; gap: 12px; align-items: center; min-height: 32px; border-bottom: 1px solid var(--border); }
+.reason .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reason .bar { display: block; height: 6px; border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; }
+.reason .bar i { display: block; height: 100%; min-width: 3px; background: var(--bad); border-radius: var(--r-pill); }
+.reason .n { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+.reason.rest { border-bottom: 0; color: var(--text-2); } .reason.rest .n { font-weight: 550; }
+.reason-full { padding: 6px 0 12px; border-bottom: 1px solid var(--border); } .reason-full:last-child { border-bottom: 0; }
+.reason-full .msg { padding: 4px 0 4px 12px; font-size: var(--fs-sm); color: var(--text-2); }
+.reason-full .msg .n { display: inline-block; min-width: 3.4em; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* where failed runs had got to: a strip of small blocks, not a chart */
+.stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: var(--s3); }
+.stage { display: flex; flex-direction: column; min-width: 0; background: var(--surface-2); border-radius: var(--r-md); padding: 8px 10px 10px; }
+.stage .v { font-size: var(--fs-xl); font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stage .k { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.3; padding-bottom: 6px; }
+.stage .meter { display: block; height: 3px; border-radius: var(--r-pill); background: var(--border); margin-top: auto; overflow: hidden; }
+.stage .meter i { display: block; height: 100%; min-width: 3px; border-radius: var(--r-pill); background: var(--bad); }
+.stage.unknown .v { color: var(--text-2); } .stage.unknown .meter i { background: var(--chart-other); }
+@container (max-width: 520px) { .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reason { grid-template-columns: minmax(0, 1fr) 64px 2.6em; } }
