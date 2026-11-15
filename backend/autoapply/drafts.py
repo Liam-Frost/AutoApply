@@ -510,7 +510,9 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
             open_n = len(d.unresolved or [])
             if out.get("status") == "scouted" and out.get("reached_review"):
                 notes.append(f"The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted. "
-                             f"{out.get('added', 0)} answer(s) were added from your profile; {out.get('held', 0)} answer(s) the employer's site already holds were "
+                             # the draft's totals, not this walk's: a later walk finds nothing new and must not say "0"
+                             f"{sum(1 for a in d.answers if a.get('source') == 'agent_added')} answer(s) were added from your profile; "
+                             f"{sum(1 for a in d.answers if a.get('held'))} answer(s) the employer's site already holds were "
                              f"read into the draft; {open_n} question(s) need your answer.")
             elif out.get("status") == "scouted":
                 notes.append(f"Reading the later steps stopped at \"{out.get('stopped_at') or '?'}\": {open_n} question(s) there need your answer. "
