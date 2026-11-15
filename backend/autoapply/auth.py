@@ -374,6 +374,30 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     manager would). Nothing typed is logged.
     """
     from .ats import registry
+    from . import browser_policy
+
+    selected = browser_policy.select(tenant_key, url, "login")
+    if selected.backend == "nodriver":
+        check = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
+        with browser.open_page(tenant_key, headless=False, url=url, operation="login") as page:
+            page.goto(url, wait_until="domcontentloaded")
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                pages = page.context.pages
+                if not pages:
+                    return {"ok": False, "reason": "window closed before sign-in was verified"}
+                if check and any(check(p.url) for p in pages):
+                    browser.save_state(tenant_key, page.context)
+                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                    notify.close_todos("takeover", f"account:{tenant_key}")
+                    return {"ok": True, "credentials_saved": False}
+                if not check and driver and ref and driver.is_logged_in(page, ref, navigate=False):
+                    browser.save_state(tenant_key, page.context)
+                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                    notify.close_todos("takeover", f"account:{tenant_key}")
+                    return {"ok": True, "credentials_saved": False}
+                time.sleep(1)
+        return {"ok": False, "reason": "sign-in verification timed out"}
 
     plain = getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
     if plain is not None:  # this site refuses sign-in to an automated browser: plain window, human login

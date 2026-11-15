@@ -6,6 +6,7 @@ import EmployersPanel from '../components/EmployersPanel.vue'
 import MailboxPanel from '../components/MailboxPanel.vue'
 import Icon from '../components/Icon.vue'
 import NetworkPanel from '../components/NetworkPanel.vue'
+import BrowserPanel from '../components/BrowserPanel.vue'
 import PromptsPanel from '../components/PromptsPanel.vue'
 import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
@@ -184,6 +185,7 @@ onMounted(load)
 
     <PromptsPanel v-if="tab === 'prompts'" />
     <NetworkPanel v-if="tab === 'network'" ref="netPanel" :s="s" :sec="sec" :has-password="!!info.secrets.proxy_password" />
+    <BrowserPanel v-if="tab === 'network'" :s="s" />
 
     <!-- 通知与邮箱 -->
     <template v-if="tab === 'notify'">

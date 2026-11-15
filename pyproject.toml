@@ -46,6 +46,7 @@ Changelog = "https://github.com/Liam-Frost/AutoApply/blob/master/CHANGELOG.md"
 Issues = "https://github.com/Liam-Frost/AutoApply/issues"
 
 [project.optional-dependencies]
+nodriver = ["nodriver==0.50.99"]
 chatgpt = ["openai-codex>=0.1.0b2"]  # ChatGPT subscription through the official Codex SDK (ships a ~190 MB runtime)
 
 [dependency-groups]
