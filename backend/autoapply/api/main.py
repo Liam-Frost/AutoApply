@@ -615,7 +615,8 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from datetime import datetime
     from ..models import Draft
 
-    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem"}
+    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+           "mail_unmatched": "answer"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
         for r in rows:
@@ -628,6 +629,18 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                 j = a.job
             elif p.get("job_url"):
                 j = by_url.get(p["job_url"])
+            if r["kind"] == "mail_unmatched":      # the applications the applicant can say it belongs to
+                from ..models import MailEvent
+
+                me = s.query(MailEvent).filter_by(message_id=str(p.get("message_id") or r["ref"][5:])).first()
+                ids = mail.candidates(me.company_guess) if me is not None else []
+                near = bool(ids)
+                if not ids:      # the employer was not recognised: every application that was sent, the latest first
+                    ids = [a.id for a in s.query(Application).filter(Application.submitted_at.isnot(None)).order_by(Application.submitted_at.desc()).limit(60)]
+                r["candidates"] = [{"id": a.id, "label": f"{a.job.company} · {a.job.title}", "status": a.status,
+                                    "site_status": ((a.evidence or {}).get("site_status") or {}).get("text", "")}
+                                   for a in (s.get(Application, i) for i in ids[:60]) if a is not None]
+                r["candidates_near"] = near
             # cards made before "blocked" existed: a sign-in card whose reason is not about signing in
             m = re.match(r"^\w+: (\w+) required", r["body"] or "")
             if r["kind"] in ("takeover", "login") and m and m.group(1) not in ("login", "captcha", "mfa", "account", "verification", "register") and j is not None:
@@ -683,6 +696,20 @@ def todos_bulk(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 t.status, t.done_at = "dismissed", now()
                 n += 1
     return {"done": n}
+
+
+@app.post("/api/todos/{todo_id}/link")
+def todo_link(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant says which application(s) an e-mail is about."""
+    ids = [int(i) for i in (body.get("application_ids") or [body.get("application_id")]) if i]
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.kind != "mail_unmatched" or not ids:
+            raise HTTPException(400, "choose the application this e-mail belongs to")
+        if any(s.get(Application, i) is None for i in ids):
+            raise HTTPException(404, "no such application")
+        mid = str((t.payload or {}).get("message_id") or t.ref[5:])
+    return {"updated": mail.link(mid, ids, by="user")}
 
 
 @app.post("/api/todos/{todo_id}/done")

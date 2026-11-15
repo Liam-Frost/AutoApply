@@ -123,6 +123,14 @@ def _mail(t: Task) -> dict[str, Any]:
         return {"skipped": str(e)}
 
 
+@handler("site_status")
+def _site_status(t: Task) -> dict[str, Any]:
+    """An e-mail that names no posting: read the employer's own list of the applicant's applications to tell which it is."""
+    from . import sitestatus
+
+    return sitestatus.resolve(str(t.payload["message_id"]))
+
+
 @handler("canary")
 def _canary(t: Task) -> dict[str, Any]:
     """The self-check: the coded reading of each system against an open posting, and the saved form pages against the

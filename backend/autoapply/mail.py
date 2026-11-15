@@ -265,6 +265,64 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
 
+def _same_company(c: str, jc: str) -> bool:
+    return bool(c and jc and (c in jc or jc in c or set(c.split()) & set(jc.split()) - {"inc", "ltd", "corp", "the", "technologies", "group"}))
+
+
+def candidates(company: str) -> list[int]:
+    """The applications an e-mail from this employer can be about: those at the employer that were sent (an e-mail about
+    an application is not about one that is still a draft), the latest first."""
+    c = _norm(company)
+    with db.session() as s:
+        rows = [(a.submitted_at or a.created_at, a.id) for a in s.query(Application).join(Job).all()
+                if _same_company(c, _norm(a.job.company)) and (a.submitted_at is not None or RANK.get(a.status, 0) >= 1)]
+    return [i for _, i in sorted(rows, reverse=True)]
+
+
+def link(message_id: str, application_ids: list[int], *, by: str = "user") -> int:
+    """This e-mail is about these applications (said by the applicant on the card, or found on the employer's site).
+    Each gets what the e-mail says - the same as if the e-mail had named it. Returns how many changed state."""
+    with db.session() as s:
+        me = s.query(MailEvent).filter_by(message_id=message_id).first()
+        if me is None or not application_ids:
+            return 0
+        me.application_id = int(application_ids[0])
+        category, summary, received = me.category, me.summary, me.received_at
+    changed = 0
+    for app_id in application_ids:
+        updated, early, title = _record(int(app_id), category, summary, received, message_id)
+        changed += updated
+        if not early:
+            notify.send("status_update", messages.mail_update(category, title, summary), ref=f"application:{app_id}", tag=category)
+    notify.close_todos("mail_unmatched", f"mail:{message_id}")
+    log.info("mail %s linked to application(s) %s (%s)", message_id[:12], application_ids, by)
+    return changed
+
+
+def _record(app_id: int, category: str, summary: str, received: datetime | None, mid: str) -> tuple[int, bool, str]:
+    """Put what an e-mail says on its application. Returns (1 if the state changed, was it too early to believe, title)."""
+    new_status, updated = STATUS_FOR.get(category), 0
+    with db.session() as s:
+        a = s.get(Application, app_id)
+        title = f"{a.job.company} · {a.job.title}"
+        a.last_event = f"{category}: {summary}"[:500]
+        # A confirmation confirms a submission. An application this program is still preparing (no submission by it, none
+        # reported by the user) is not turned into "confirmed" by an e-mail: sites send "we have your application" style
+        # mail when an application is merely started. The mail is kept on the record and shown; the status stays.
+        early = category == "confirmation" and a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received)
+        if early:
+            a.last_event = f"收到一封像确认信的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{summary}"[:500]
+        elif new_status and RANK.get(new_status, 0) > RANK.get(a.status, 0):
+            a.status = new_status
+            if a.submitted_at is None:      # the program had not seen the submission; the employer has
+                a.submitted_at = received
+                a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
+            updated = 1
+        if category == "confirmation" and not early:
+            a.evidence = {**(a.evidence or {}), "mail_id": mid}
+    return updated, early, title
+
+
 def match_application(company: str, title: str, received: datetime | None) -> int | None:
     """Best application for an e-mail: company must match; title breaks ties."""
     c = _norm(company)
@@ -274,7 +332,7 @@ def match_application(company: str, title: str, received: datetime | None) -> in
         cands = []
         for a in s.query(Application).join(Job).all():
             jc = _norm(a.job.company)
-            if not jc or not (c in jc or jc in c or set(c.split()) & set(jc.split()) - {"inc", "ltd", "corp", "the", "technologies", "group"}):
+            if not _same_company(c, jc):
                 continue
             t, jt = set(_norm(title).split()), set(_norm(a.job.title).split())
             overlap = len(t & jt) / max(1, len(t | jt))
@@ -361,26 +419,14 @@ def track(days: int = 3, max_results: int = 80) -> dict[str, int]:
         if app_id is None:
             unmatched += 1
             notify.add_todo("mail_unmatched", subj[:80], body=f"{messages.MAIL.get(t['category'], ('', t['category']))[1]}：{t['summary']}", ref=f"mail:{mid}", payload={"message_id": mid, "category": t["category"]})
+            if db.get_setting("mail.site_lookup") and candidates(t["company"]):
+                # the e-mail does not say which application; the employer's site does - look there before the applicant has to
+                from . import tasks
+
+                tasks.enqueue("site_status", ref=f"mail:{mid}", payload={"message_id": mid}, priority=60)
             continue
-        new_status = STATUS_FOR.get(t["category"])
-        with db.session() as s:
-            a = s.get(Application, app_id)
-            title = f"{a.job.company} · {a.job.title}"
-            a.last_event = f"{t['category']}: {t['summary']}"[:500]
-            # A confirmation confirms a submission. An application this program is still preparing (no submission by it, none
-            # reported by the user) is not turned into "confirmed" by an e-mail: sites send "we have your application" style
-            # mail when an application is merely started. The mail is kept on the record and shown; the status stays.
-            early = t["category"] == "confirmation" and a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received)
-            if early:
-                a.last_event = f"收到一封像确认信的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{t['summary']}"[:500]
-            elif new_status and RANK.get(new_status, 0) > RANK.get(a.status, 0):
-                a.status = new_status
-                if a.submitted_at is None:      # the program had not seen the submission; the employer has
-                    a.submitted_at = received
-                    a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
-                updated += 1
-            if t["category"] == "confirmation" and not early:
-                a.evidence = {**(a.evidence or {}), "mail_id": mid}
+        changed, early, title = _record(app_id, t["category"], t["summary"], received, mid)
+        updated += changed
         if early:
             continue
         notify.send("status_update", messages.mail_update(t["category"], title, t["summary"]), ref=f"application:{app_id}", tag=t["category"])

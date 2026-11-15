@@ -717,6 +717,41 @@ def sign_in(page: Page, ref: JobRef, title: str, form_url: str, run_dir: Path) -
     return out
 
 
+ACCOUNT_OFFER = re.compile(r"sign up|create (your|an|a) (career )?(account|profile)|log ?in|sign ?in|已有账号|注册|登录", re.I)
+
+
+def account_after_submit(page: Page, ref: JobRef, run_dir: Path) -> dict[str, Any]:
+    """The application is sent, and the page that says so offers the applicant an account ("Sign up for a Career Profile",
+    "Already have one? Log in"). Some sites only let one sign in at this point. The applicant wants the account - it is
+    how the application is followed afterwards - so the same account tools are used here: sign in when an account is
+    saved, create one when not. Nothing about the application can be changed any more, and nothing else is started.
+    Returns {"ok", "notes"}; never raises for the site's sake - the submission stands whatever happens here."""
+    out: dict[str, Any] = {"ok": False, "notes": ""}
+
+    def finished(ok: bool, notes: str = "") -> str:
+        out.update(ok=bool(ok), notes=notes[:400])
+        return "recorded"
+
+    s = lambda **p: {"type": "object", "properties": p, "additionalProperties": False}  # noqa: E731
+    done = llm.Tool("finish", "Report whether the applicant is now signed in to their account on this site. Stop after this.",
+                    {**s(ok={"type": "boolean"}, notes={"type": "string"}), "required": ["ok"]}, finished)
+    goal = ("The application has just been submitted - this page confirms it. Do not apply again and do not open any other posting.\n"
+            "The page also offers the applicant an account on this site (sign up / log in). The applicant wants to have it. Your ONLY task:\n"
+            "call account_info first and do what it says - log in when an account is saved (use the page's 'Log in' / 'Already have an account' "
+            "way, not sign-up), create one when none is saved (prefer a password over a one-time code when both are offered), finish the "
+            "e-mail verification with email_verification if the site asks for it, record the outcome with account_result, then call "
+            "finish(ok=true) once the page shows the applicant signed in. If the page offers no account after all, or you cannot get in, "
+            "call finish(ok=false) and say why in notes.")
+    acct_state: dict[str, Any] = {}
+    keep = ("read_page", "list_controls", "screenshot", "click", "press", "type_keys", "finish")      # looking and moving about; no form filling, no uploads
+    tools = [t for t in l0_tools(page, run_dir, {}, finish_tool=done) if t.name in keep] + account_tools(page, ref, acct_state)
+    res = llm.agent(goal, tools, system=prompts.get("generic_agent"), max_steps=30)
+    (run_dir / "account_after_submit_trace.json").write_text(json.dumps(res.steps, ensure_ascii=False, default=str)[:300000], encoding="utf-8")
+    if out["ok"]:
+        browser.save_state(acct_state.get("account_site") or ref.tenant_key, page.context)
+    return out
+
+
 class _Refused(Exception):
     """The site answered the hidden window with a bare refusal."""
 

@@ -818,7 +818,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     raise DriverError("no confirmation after submit", seen="; ".join(errs)[:500] or page.url)
                 outcome = {"status": "submitted", "evidence": {**conf, **shots}}
             if generic and outcome.get("status") == "submitted":
-                _finish_account(page, ref, step)
+                _finish_account(page, ref, step, run_dir)
             if driver.requires_login:
                 browser.save_state(ref.tenant_key, page.context)
         ok = outcome.get("status") == "submitted"
@@ -1118,10 +1118,24 @@ def _drift_text(diff: dict[str, Any]) -> str:
     return "\n".join(parts)[:800]
 
 
-def _finish_account(page: Any, ref: JobRef, step: Any) -> None:
+def _finish_account(page: Any, ref: JobRef, step: Any, run_dir: Any = None) -> None:
     """The application created the applicant's account on the site (a password was set on the form). Sites finish that
     with a confirmation mail: its link is opened when it is the site's own (mail.link_refusal), and the account is then
-    ready for the next application there. Never a reason to fail a submission that went through."""
+    ready for the next application there. Never a reason to fail a submission that went through.
+
+    Some sites take the sign-in only now ("You can log in after submitting your application"): the page that confirms
+    the application offers it. An account that is not known to work yet is signed in to, or created, right there."""
+    try:
+        from . import generic as _generic
+
+        acct = auth.account(auth.key_for(ref.tenant_key)) or {}
+        if run_dir is not None and acct.get("status") != "ok" and repair.enabled() and _generic.ACCOUNT_OFFER.search(page.inner_text("body")[:6000]):
+            got = _generic.account_after_submit(page, ref, run_dir)
+            step("account_after_submit", ok=got["ok"], notes=got["notes"][:200])
+            if got["ok"]:
+                return
+    except Exception as e:  # noqa: BLE001
+        log.info("the account offered after the submission was not completed: %s", e)
     try:
         acct = auth.account(ref.tenant_key) or {}
         if acct.get("status") != "pending" or not secrets.get_password(ref.tenant_key):
