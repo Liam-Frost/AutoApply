@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import Locator, Page
+from playwright.sync_api import Locator, Page, TimeoutError as PWTimeout
 
 from . import widgets as w
 from .base import DriverError, FormSchema, JobRef, PasswordPolicy, Question, norm_question
@@ -253,7 +253,12 @@ def set_value(page: Page, q: Question, value: Any) -> None:
             elif tag == "button":
                 w.workday_listbox(page, loc, str(v))
             else:
-                w.react_select(page, loc, str(v))
+                try:
+                    w.react_select(page, loc, str(v))
+                except (DriverError, PWTimeout):
+                    # not a list that shows its entries when opened: one that is searched (a location or school picker)
+                    page.keyboard.press("Escape")
+                    w.search_pick(page, loc, str(v))
     elif tag == "input" and _autocomplete(page, loc, q, str(value)):
         pass
     else:

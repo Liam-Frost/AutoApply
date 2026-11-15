@@ -178,7 +178,7 @@ def test_the_page_route_serves_only_the_built_interface(app_env):
     if other is not None:
         assert c.get("/" + other.name).content == other.read_bytes()
     assert c.get("/drafts/12").text == index and c.get("/no-such-file.png").text == index
-    for path in ("/..%2Fpackage.json", "/..%2F..%2Fpyproject.toml", "/assets/..%2F..%2F..%2Fpyproject.toml", "/%2e%2e/%2e%2e/pyproject.toml", "/..\..\pyproject.toml"):
+    for path in ("/..%2Fpackage.json", "/..%2F..%2Fpyproject.toml", "/assets/..%2F..%2F..%2Fpyproject.toml", "/%2e%2e/%2e%2e/pyproject.toml", "/..%5C..%5Cpyproject.toml"):
         r = c.get(path)
         assert "autoapply-frontend" not in r.text and "[project]" not in r.text, path
         assert r.status_code == 404 or r.text == index, path
@@ -633,3 +633,59 @@ def test_a_saved_sign_in_is_found_when_the_same_site_is_reached_from_another_add
     assert browser._state_path("generic:jobs.acme.com") == browser._state_path("eightfold:acme")       # one session for both
     assert secrets.get_password(auth.key_for("generic:jobs.acme.com")) == "pw"
     assert auth.adopt("generic:jobs.acme.com", "acme.wd5.myworkdayjobs.com") is None       # already linked
+
+
+SEARCHED_LIST = """<main><label id="l">Current location</label>
+  <div role="combobox" id="loc" tabindex="0" aria-labelledby="l" style="min-height: 32px; border: 1px solid #888" onclick="document.getElementById('pop').hidden = false; document.getElementById('s').focus()">
+    <span id="shown"></span></div>
+  <div id="pop" hidden><input id="s" placeholder="Search"><div id="list"></div></div>
+  <script>
+    const ALL = ['Menlo Park, CA', 'New York, NY', 'Seattle, WA', 'Sunnyvale, CA', 'Aiken, SC', 'Vancouver, Canada', 'Vancouver, WA', 'North Vancouver, Canada'];
+    const list = document.getElementById('list'); let typed = '';
+    const draw = (items) => { list.innerHTML = ''; for (const t of items) { const d = document.createElement('div'); d.textContent = t; d.className = 'entry';
+      d.onclick = () => { document.getElementById('shown').textContent = t; document.getElementById('pop').hidden = true; }; list.appendChild(d); } };
+    draw(ALL.slice(0, 5));      // what it shows before anything is typed: its first five
+    // it searches on key presses only - a value set by program does nothing, as on the real one
+    document.getElementById('s').addEventListener('keydown', (e) => { if (e.key.length === 1) typed += e.key; if (e.key === 'Backspace') typed = typed.slice(0, -1);
+      setTimeout(() => draw(typed ? ALL.filter((x) => x.toLowerCase().includes(typed.toLowerCase())) : ALL.slice(0, 5)), 150); });
+  </script></main>"""
+
+
+def test_a_list_that_is_searched_is_searched_by_typing_and_the_right_entry_is_chosen(app_env, tmp_path):
+    """A location picker shows five places and a search box. The applicant's city is not among the five, and the box
+    reacts to key presses only. Both the driver and the agent's tools have to be able to do what a person does: type the
+    city, see what comes up, choose the one that is theirs - "Vancouver, Canada" for "Vancouver, BC, Canada", not the
+    Vancouver in Washington."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import generic
+    from autoapply.ats import generic_driver as g
+    from autoapply.ats.base import DriverError, FormSchema, Question
+
+    q = Question(id="#loc", label="Current location", type="select", locator={"selector": "#loc"})
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+
+        def fresh():      # a new page each time: the form's script declares its names once
+            page = b.new_page()
+            page.set_content(SEARCHED_LIST)
+            return page, {t.name: t for t in generic.l0_tools(page, tmp_path, {})}
+
+        page, _ = fresh()
+        g.GenericDriver(FormSchema(ats="generic", tenant="x.test", source="agent", questions=[q])).fill_questions(page, [q], {q.id: "Vancouver, BC, Canada"})
+        assert page.inner_text("#shown") == "Vancouver, Canada"
+
+        page, tools = fresh()
+        found = tools["options"].fn(selector="#loc", search="Vancouver")
+        assert "Vancouver, Canada" in found and "Vancouver, WA" in found and "Seattle" not in found
+        page, tools = fresh()
+        assert tools["select"].fn(selector="#loc", option="Vancouver, Canada").startswith("chose 'Vancouver, Canada'") and page.inner_text("#shown") == "Vancouver, Canada"
+        # and the plain primitive, for a control none of the helpers know: real key presses
+        page, tools = fresh()
+        tools["click"].fn(selector="#loc")
+        assert tools["type_keys"].fn(text="Sunny") == "typed" and page.locator(".entry").all_inner_texts() == ["Sunnyvale, CA"]
+        # an answer the list has two entries for is not guessed at
+        page, _ = fresh()
+        with pytest.raises(DriverError):
+            g.set_value(page, q, "Vancouver")
+        b.close()

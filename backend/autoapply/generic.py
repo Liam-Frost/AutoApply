@@ -154,28 +154,47 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         elif tag == "button":
             w.workday_listbox(page, loc, option)
         else:
-            w.react_select(page, loc, option)
+            try:
+                w.react_select(page, loc, option)
+            except Exception:  # noqa: BLE001 - a list that is searched, not one that shows its entries when opened
+                page.keyboard.press("Escape")
+                return f"chose '{w.search_pick(page, loc, option)}' (found by searching the list)"
         return "ok"
 
     def options(selector: str, search: str = "") -> str:
         loc = page.locator(selector).first
         if loc.evaluate("(e) => e.tagName.toLowerCase()") == "select":
             return json.dumps(loc.evaluate("(e) => [...e.options].map(o => o.text.trim()).filter(Boolean)")[:120], ensure_ascii=False)
+        if search:
+            # typed, key by key, into whatever the list takes typing in (its own search box when it has one)
+            found = w.search_entries(page, loc, search[:30])
+            for _ in range(len(search[:30])):
+                page.keyboard.press("Backspace")
+            page.keyboard.press("Escape")
+            return json.dumps(found[:80], ensure_ascii=False) if found else f"the list offers nothing for '{search}'; try a shorter or different search term"
         loc.scroll_into_view_if_needed(timeout=w.T)
         loc.click(timeout=w.T)
-        if search:
-            loc.press_sequentially(search[:30], delay=20)
         page.wait_for_timeout(900)
         texts = [t.strip() for t in page.locator("[role=option]:visible, [role=listbox]:visible li:visible").all_inner_texts() if t.strip()]
         seen: list[str] = []
         for t in texts:
             if t not in seen:
                 seen.append(t)
-        if search:  # leave the box as it was found
-            for _ in range(len(search[:30])):
-                loc.press("Backspace")
         page.keyboard.press("Escape")
         return json.dumps(seen[:80], ensure_ascii=False) if seen else "no options are showing; take a screenshot to see what this control is"
+
+    def type_keys(text: str, selector: str = "") -> str:
+        """Real key presses - what a search box, an autocomplete or a masked field reacts to, where setting the value does not."""
+        if selector:
+            box = page.locator(selector).first
+            if (box.get_attribute("type") or "") == "password":
+                raise PermissionError("refused: the agent does not type passwords")
+            box.click(timeout=w.T)
+        elif page.evaluate("() => (document.activeElement || {}).type === 'password'"):
+            raise PermissionError("refused: the agent does not type passwords")
+        page.keyboard.type(str(text)[:200], delay=60)
+        page.wait_for_timeout(900)
+        return "typed"
 
     def press(key: str, selector: str = "") -> str:
         allowed = {"Tab", "Shift+Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Backspace", "Delete", "Space", "Home", "End", "PageDown", "PageUp", "Enter"}
@@ -254,6 +273,9 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         llm.Tool("click", "Click by CSS selector, or by visible button/link text. Submit-like buttons are refused.", s(selector=st, text=st), click),
         llm.Tool("fill", "Type into a text input or textarea (not passwords).", {**s(selector=st, value=st), "required": ["selector", "value"]}, fill),
         llm.Tool("select", "Choose an option in a dropdown (native, react-select, or listbox button).", {**s(selector=st, option=st), "required": ["selector", "option"]}, select),
+        llm.Tool("type_keys", "Type text as real key presses, into `selector` or into whatever has the focus. Use it where `fill` has no effect: the search box "
+                              "of a pick-list, an autocomplete that only reacts to typing, a masked date or phone field. Then read the page or click the entry that appeared.",
+                 {**s(text=st, selector=st), "required": ["text"]}, type_keys),
         llm.Tool("press", "Press one key (Tab, Escape, the arrow keys, Backspace, Space; Enter only while a list of options is open), in a control or wherever the "
                           "focus is. Tab out of a field to make the form validate it.", {**s(key=st, selector=st), "required": ["key"]}, press),
         llm.Tool("options", "Open a dropdown and read its entries word for word (up to 80), then close it without choosing. For a long searchable list "
