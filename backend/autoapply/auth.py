@@ -462,12 +462,14 @@ def tenant_key_for_url(url: str) -> str | None:
     host = urlparse(url if "//" in url else f"https://{url}").netloc.lower()
     if not host:
         return None
-    if host.endswith("myworkdayjobs.com") or host.endswith("myworkdaysite.com"):
+    from .ats.base import host_is
+
+    if host_is(host, "myworkdayjobs.com") or host_is(host, "myworkdaysite.com"):
         return f"workday:{host.split('.myworkday')[0]}"
     for suffix, ats in registry.KNOWN_HOSTS.items():
-        if host.endswith(suffix):
+        if host_is(host, suffix):
             return f"{ats}:{host.split('.')[0]}"
-    if host.endswith("ashbyhq.com") or host.endswith("greenhouse.io"):
+    if host_is(host, "ashbyhq.com") or host_is(host, "greenhouse.io"):
         return None  # no accounts on these
     return None
 

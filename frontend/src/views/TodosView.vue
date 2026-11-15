@@ -136,6 +136,13 @@ onUnmounted(() => clearInterval(timer))
         <b>这几项草案里没有（选了某个答案之后才出现），AI 按你的个人资料填上了，请确认：</b>
         <div v-for="m in t.payload.added" :key="m.label" style="margin-top: 4px">「{{ m.label }}」填了 <b>{{ m.value }}</b><span v-if="m.basis" class="muted">（依据：{{ m.basis }}）</span></div>
       </div>
+      <div v-if="t.payload && t.payload.adapted" class="callout" style="display: block">
+        <b>这几项答案按表单的限制改写过，提交前请过目</b>
+        <div v-for="m in t.payload.adapted" :key="m.label" style="margin-top: 6px">「{{ m.label }}」<span v-if="m.max_chars" class="muted">（表单最多收 {{ m.max_chars }} 个字符）</span>
+          <div style="margin-top: 2px" data-notr>{{ m.entered }}</div>
+          <details class="tech"><summary>改写前的答案</summary><pre data-notr>{{ m.approved }}</pre></details>
+        </div>
+      </div>
       <div v-if="t.payload && t.payload.mapped" class="callout" style="display: block">
         <b>这几项按表单上的实际选项填了，请确认意思没变：</b>
         <div v-for="m in t.payload.mapped" :key="m.label" style="margin-top: 4px">「{{ m.label }}」你的答案 <b>{{ m.approved }}</b> → 表单选项 <b>{{ m.chosen }}</b></div>

@@ -1,0 +1,34 @@
+name: An idea or a request
+description: Something the program should do, or do differently.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A few things are fixed and not up for discussion, because the program acts in a person's name:
+        it does not invent anything about the applicant, does not submit what the user has not approved, and does not
+        get around a site's protections (CAPTCHAs, bot detection). Requests for those will be closed.
+
+        Adding **one employer, job board, sign-in provider, mailbox, region or translation** needs no issue:
+        [CONTRIBUTING.md](https://github.com/Liam-Frost/AutoApply/blob/master/CONTRIBUTING.md) shows which file to edit.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, not the solution. "I apply to university jobs and every form asks for three referees" is more useful than "add a referee importer".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+  - type: textarea
+    id: now
+    attributes:
+      label: What do you do today instead?
+  - type: dropdown
+    id: who
+    attributes:
+      label: Who are you applying as?
+      description: The program adapts to the kind of applicant; this tells who the request is for.
+      options: [Student (internship / co-op), New graduate, Early career, Experienced, Senior / management, Not about a kind of applicant]

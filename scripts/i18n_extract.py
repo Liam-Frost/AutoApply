@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CJK = re.compile(r"[一-鿿]")
 SERVER = ["humanize.py", "stages.py", "intake.py", "persona.py", "employers.py", "mailbox.py", "browser.py", "prompts.py", "llm_openai.py", "llm_codex.py", "outlook.py",
-          "convert.py", "tailor.py", "handlers.py", "tasks.py", "discover.py", "drafts.py", "auth.py", "executor.py", "api/main.py", "net.py", "messages.py", "scoring.py"]
+          "convert.py", "tailor.py", "handlers.py", "tasks.py", "discover.py", "drafts.py", "auth.py", "executor.py", "api/main.py", "net.py", "messages.py", "scoring.py", "metering.py", "analytics.py"]
 
 
 def norm(s: str) -> str:
@@ -52,6 +52,8 @@ def with_slots(s: str, opener: str, closer: str) -> str:
 
 def keep(s: str) -> bool:
     bare = re.sub(r"\{\d+\}", "", s)
+    if re.search(r"[A-Za-z0-9_)\]]\||\|[A-Za-z\(]", s) or s.count("|") >= 3:      # a regular expression that matches error text, not wording anyone reads
+        return False
     return bool(CJK.search(bare)) and len(s) <= 400
 
 

@@ -1,0 +1,81 @@
+name: Something does not work
+description: The program did something wrong, or did not do something it should have.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time. **Before attaching anything, remove what is personal**: screenshots, logs and
+        files in `data/runs` contain your name, e-mail, answers and the pages you were on.
+        For a security problem, do not open an issue: see [SECURITY.md](https://github.com/Liam-Frost/AutoApply/blob/master/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → Advanced shows it, and so does the installer.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: System
+      options: [Windows 11, Windows 10, macOS, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed with
+      options: [Windows installer (.exe), macOS disk image (.dmg), Linux installer (.run), Portable zip, From source]
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - Installing, starting, the tray icon
+        - Finding postings
+        - Scoring
+        - Preparing a draft (reading a form, answers)
+        - Filling in a form
+        - Signing in to a site
+        - Mail tracking
+        - AI service (sign-in, backups, allowance)
+        - The interface
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: site
+    attributes:
+      label: Job site or system, if one is involved
+      description: The system (Greenhouse, Workday, …) or the careers site's address. Not the posting you applied to, unless you are happy for it to be public.
+  - type: input
+    id: ai
+    attributes:
+      label: AI service in use
+      placeholder: "Claude subscription / ChatGPT subscription / DeepSeek API / …"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected instead. The exact message the program showed helps most; "Technical details" under a failed task can be pasted here after removing personal parts.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to see it again
+      placeholder: |
+        1. …
+        2. …
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I removed personal information from everything I attached.
+          required: true
+        - label: I looked for an existing issue about this.

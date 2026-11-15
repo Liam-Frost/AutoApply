@@ -91,6 +91,8 @@ The applicant's answers are later chosen from exactly these texts, so "Yes / No"
 Questions that only appear after an answer is chosen ("Legal first name" after "Is your legal name the same as your preferred name? No"):
 when the notes from earlier applications name such fields, include them too, on the page where they appear, with the selector written as
 @label:<the field's label> (it has no control yet; it is found by its label once it is there).
+A text field with a length limit (maxlength in list_controls, a counter such as "0 / 200", a hint such as "max. 500 characters", or a limit
+the notes from earlier applications name): give it as max_length, so that the answer is written to fit.
 For multi-page forms also give next_buttons: the exact text of the button that leads from each page to the next.
 If the form only appeared after you clicked a button on the posting ("Apply for This Job"), give that button's exact text as apply_button."""
 
@@ -250,7 +252,8 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
             s(
                 questions={"type": "array", "items": {"type": "object", "properties": {
                     "label": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date"]},
-                    "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st},
+                    "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st,
+                    "max_length": {"type": "integer"}},
                     "required": ["label", "type", "required", "page", "selector"]}},
                 pages={"type": "array", "items": st}, blocked=st, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
             ),
@@ -550,6 +553,21 @@ def form_present(page: Page, schema: FormSchema, page_index: int = 0, *, wait_s:
     sels = [q.locator.get("selector") for q in schema.questions if q.page == page_index and q.locator.get("selector")]
     if not sels:
         return True
+    if len(schema.pages or []) > 1:
+        # a wizard resumes wherever it stopped: any of its questions, or its own forward / submit button, means the form is open
+        from .ats.generic_driver import FORWARD_RE, SUBMIT_RE, _loc as _find
+
+        for _ in range(int(wait_s // 1.5) + 1):
+            try:
+                if any(_find(page, q).count() for q in schema.questions[:60]):
+                    return True
+                texts = [(b.inner_text() or "").strip() for b in page.get_by_role("button").all()[:40] if b.is_visible()]
+                if any(FORWARD_RE.match(t) or SUBMIT_RE.search(t) for t in texts) and not page.locator("input[type=password]:visible").count():
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+            page.wait_for_timeout(1500)
+        return False
     waited = 0.0
     while True:
         found = 0
@@ -662,7 +680,8 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         raise DriverError("the agent could not determine the form structure", seen=(out.final_text or out.stopped)[:300])
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])
     qs = [
-        Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]})
+        Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]},
+                 max_length=max(0, int(q.get("max_length") or 0)))
         for qid, q in zip(ids, result["questions"])
     ]
     schema = FormSchema(ats=ref.ats, tenant=ref.tenant, url=final_url, source="agent", pages=result.get("pages") or ["Application"], questions=qs, extra={"notes": result.get("notes", ""), "next_buttons": result.get("next_buttons") or [], "apply_button": result.get("apply_button") or ""})

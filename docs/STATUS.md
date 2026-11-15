@@ -8,7 +8,7 @@ A feature is only as good as the last time it was actually used. This page separ
 
 Keep this distinction when you change something: say what you ran it against.
 
-Last updated for 1.0.0 (November 2026). The author uses the program on Windows with a Claude subscription.
+Last updated for 1.0.1 (November 2026). The author uses the program on Windows with a Claude subscription.
 
 ## The application chain
 
@@ -21,13 +21,23 @@ Last updated for 1.0.0 (November 2026). The author uses the program on Windows w
 | Greenhouse driver | Used for real: applications submitted and confirmed by mail |
 | Forms explored by the AI (no dedicated driver) | Used for real: applications submitted on Microsoft Careers (Eightfold), a BambooHR site and a JazzHR site |
 | The fallback chain (driver → the form's own verdict → AI take-over → verdict → you) | Used for real on Microsoft Careers: the AI filled fields that appeared after an answer and corrected a phone entry the form rejected. Second run of the same draft without AI help: unit-tested only |
+| Forms with several steps, walked by what is on the screen (resumed forms, optional steps in between, a review page at the end) | Used for real on Amazon's application form up to its "Job-specific questions" step: the optional text-message step was skipped, the step was filled by the driver and the AI with the approved answers, and the form was handed over where it refused an answer longer than it allows; on a second posting it went on through "Work Eligibility" to the review page. Rewriting an answer to fit a length limit: used for real on that form (1,400 characters to 186, the form went on). A question only the applicant can answer joining the draft, and being filled on the next run: unit-tested only. Recognising the review page before filling, noticing a submission the user makes in the window during the run, and the comparison of earlier answers with the review page: unit-tested only |
+| Reading a form's later steps before approval, by walking it with the draft's answers (never submits) | Used for real on one Amazon draft, three walks in a hidden window: the first two used the AI (the second read 12 answers the site already held on "Work Eligibility" and 7 more from the review page for three steps the site never opened again, three AI calls); the later ones needed no AI call - the driver filled the two radio questions from where the take-over had found them, reached the review page in about half a minute, unfolded its seven folded sections and found all 18 answers of the first step there. Nothing was submitted. A question only the applicant can answer stopping the walk, and the walk going on after the answer: unit-tested only. Starting the walk automatically right after a new draft is made: unit-tested only (the real draft predates it and was started by hand). |
 | Ashby driver | Run end to end on real forms (filled, read back, not submitted) |
 | Workday driver | Listing and the sign-in page elements used for real; filling after sign-in, registration and the review page are written from earlier manual applications and have not been run |
 | UBC PD Portal | Importing postings with the bookmarklet: used for real. Applying through the portal: not run; the portal refuses automated browsers, which the program does not work around |
 | Sign-in with Google / Microsoft / LinkedIn and others | Microsoft: used for real. Google refuses sign-in inside an automated browser; the program hands that step to you |
+| The analysis page: applications, automation, AI cost | Applications and automation: run on the author's own data. AI cost: run on made-up data (the demo copy) and on the author's records from before requests were kept, which carry no cost; real requests recorded by this version have not accumulated yet |
+| Recording model requests (usage, cost) | Claude subscription: used for real (a connection test was recorded with its tokens by kind and the cost the command line reported); a full task with many requests has not been looked at yet. Anthropic API, ChatGPT subscription and OpenAI-compatible services: unit-tested with stand-ins that report usage, not checked against what a real service bills. The ChatGPT subscription reports usage only with an answer, so a failed turn has none |
 | Mail tracking with Gmail | Used for real |
 | Mail tracking with Outlook and generic IMAP | Unit-tested only |
 | Telegram notifications | Chinese: used for real. English: checked for untranslated text, not sent |
+
+## The local server
+
+| Part | Status |
+|---|---|
+| Refusing requests from other websites and foreign `Host` headers | Unit-tested only (requests with the headers a browser would send); not attacked from a real page |
 
 ## AI services
 

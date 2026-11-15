@@ -640,3 +640,77 @@ def test_first_start_language_without_installer_uses_the_system_and_leaves_exist
     monkeypatch.setattr(i18n, "system_lang", lambda: "en-us")
     i18n.first_run_lang()
     assert row() is None and db.get_setting("ui.lang") == "zh"
+
+
+def test_only_this_programs_own_pages_can_use_the_local_server(app_env):
+    """The server has no login. A web page open in the user's browser must not be able to approve a draft, read the
+    profile or change a setting by sending requests to 127.0.0.1."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app
+
+    c = TestClient(app)
+    # the program's own page, and programs on this computer (no Origin at all)
+    assert c.get("/api/overview").status_code == 200
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}).status_code == 200
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "zh"}}, headers={"origin": "http://127.0.0.1:8000", "host": "127.0.0.1:8000"}).status_code == 200
+    assert c.get("/api/overview", headers={"host": "localhost:8000"}).status_code == 200
+    assert c.get("/api/overview", headers={"host": "[::1]:8000"}).status_code == 200
+    # a page served by another program on this computer (another port) is not this program's page either
+    other_port = {"origin": "http://127.0.0.1:9999", "host": "127.0.0.1:8000"}
+    assert c.post("/api/drafts/1/approve", headers=other_port).status_code == 403
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}, headers=other_port).status_code == 403
+    assert c.post("/api/drafts/1/approve", headers={"origin": "https://127.0.0.1:8000", "host": "127.0.0.1:8000"}).status_code == 403    # another scheme
+    assert c.get("/api/profile", headers={"sec-fetch-site": "same-site"}).status_code == 403
+    # another site's page: changing something, with or without a JSON body
+    evil = {"origin": "https://evil.example"}
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}, headers=evil).status_code == 403
+    assert c.post("/api/drafts/1/approve", headers=evil).status_code == 403
+    assert c.post("/api/drafts/1/approve", headers={"origin": "null"}).status_code == 403           # a sandboxed frame or a local file
+    assert db.get_setting("ui.lang") == "zh"
+    # another site's page: reading, or triggering work, through an API address
+    assert c.get("/api/profile", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    assert c.get("/api/llm/quota?refresh=true", headers=evil).status_code == 403
+    # a domain name pointed at 127.0.0.1 (DNS rebinding): the page would be "same-origin" for the browser, the Host header gives it away
+    assert c.get("/api/profile", headers={"host": "attacker.example:8000"}).status_code == 403
+    assert c.get("/", headers={"host": "attacker.example:8000"}).status_code == 403
+    # opening the page itself from a link elsewhere (a Telegram message, a bookmark) is ordinary navigation
+    assert c.get("/api/overview", headers={"sec-fetch-site": "same-origin"}).status_code == 200
+    assert c.get("/", headers={"sec-fetch-site": "cross-site"}).status_code in (200, 404)             # 404 only when the interface has not been built
+    # the address the user set for links counts as their own
+    db.set_setting("app.base_url", "http://my-pc.lan:8000")
+    assert c.get("/api/overview", headers={"host": "my-pc.lan:8000", "origin": "http://my-pc.lan:8000"}).status_code == 200
+    assert c.get("/api/overview", headers={"host": "my-pc.lan:8000", "origin": "http://my-pc.lan:9000"}).status_code == 403
+    # the interface's dev server is allowed only when it is named
+    dev = {"origin": "http://localhost:5173", "host": "127.0.0.1:8000"}
+    assert c.get("/api/overview", headers=dev).status_code == 403
+    import os
+
+    os.environ["AUTOAPPLY_DEV_ORIGINS"] = "http://localhost:5173"
+    try:
+        assert c.get("/api/overview", headers=dev).status_code == 200
+    finally:
+        del os.environ["AUTOAPPLY_DEV_ORIGINS"]
+    # the portal importer is the one page elsewhere that may post, and only to its own endpoint
+    portal = {"origin": "https://pdportal.apsc.ubc.ca"}
+    assert c.options("/api/import/pdportal", headers=portal).status_code == 204
+    assert c.put("/api/settings", json={"settings": {"ui.lang": "en"}}, headers=portal).status_code == 403
+
+
+def test_postings_read_from_pages_keep_their_identity_when_the_id_scheme_changes(app_env):
+    import hashlib
+
+    from autoapply import db
+    from autoapply.models import Job
+    from autoapply.sources import watch
+
+    url = "https://careers.example.test/jobs/42"
+    old = hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()[:16]     # how such a posting was stored before
+    with db.session() as s:
+        s.add(Job(source="page", source_id=old, tenant="emp1", company="A", title="B", apply_url=url, jd_text="x"))
+        s.add(Job(source="greenhouse", source_id="acme:1", company="A", title="C", apply_url="https://boards.greenhouse.io/acme/jobs/1", jd_text="x"))
+    assert watch.migrate_ids() == 1 and watch.migrate_ids() == 0
+    with db.session() as s:
+        ids = {j.source: j.source_id for j in s.query(Job)}
+    assert ids["page"] == watch._sid(url) != old and ids["greenhouse"] == "acme:1"

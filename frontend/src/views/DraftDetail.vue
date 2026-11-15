@@ -80,6 +80,23 @@ async function sendComment() {
     }, 3000)
   } catch (e) { toast(e.message, 'bad'); busy.value = false }
 }
+const scouting = ref(false)
+async function scout() {
+  scouting.value = true
+  try {
+    const { task_id } = await api.post(`/drafts/${props.id}/scout`)
+    for (let i = 0; i < 400; i++) {       // a walk through a form takes a few minutes
+      await new Promise((r) => setTimeout(r, 3000))
+      const t = (await api.get('/tasks?limit=30')).find((x) => x.id === task_id)
+      if (t && ['done', 'failed', 'waiting_human'].includes(t.status)) {
+        await load()
+        if (t.status !== 'done') toast(t.explained && t.explained.message ? t.explained.message : '没有读成，请稍后再试', 'bad')
+        else toast(t.result && t.result.reached_review ? '后面的步骤读完了，新问到的内容已经加进草案' : '读到一处需要你回答的问题，已经加进草案')
+        break
+      }
+    }
+  } catch (e) { toast(e.message, 'bad') } finally { scouting.value = false }
+}
 const reasking = ref(false)
 async function reanswer() {
   reasking.value = true
@@ -146,6 +163,16 @@ onUnmounted(() => clearInterval(timer))
         <span class="muted small">刚补充过个人资料，或觉得这些问题资料里明明有答案时用。已经有答案的不会动。</span></div>
     </div>
 
+    <div v-if="d.review_status === 'pending' && ((d.unseen && d.unseen.length) || d.walk_open)" class="callout" style="display: block">
+      <b v-if="d.unseen && d.unseen.length">这张表还有 {{ d.unseen.length }} 步没读到</b><b v-else>上一次往下读没有走到确认页</b>
+      <div class="small" style="margin-top: 4px">这些步骤要先填完前面的才打得开。程序可以带着这份草案的答案在隐藏窗口里一步步往下填，把后面问到的问题读回来加进草案；不会提交。
+        填进去的内容雇主网站可能会自动保存为未完成的申请。</div>
+      <div class="row" style="margin-top: 8px">
+        <button :disabled="scouting || d.application.status === 'recon' || d.unresolved.length > 0" @click="scout"><Icon name="play" />{{ scouting || d.application.status === 'recon' ? '正在往下读…' : '带着答案读完后面的步骤' }}</button>
+        <span v-if="d.unresolved.length" class="muted small">先回答上面没有答案的问题。</span>
+      </div>
+    </div>
+
     <div v-if="d.notes_display.length" class="callout warn" style="display: block">
       <b>请留意</b>
       <ul style="margin: 6px 0 0; padding-left: 20px"><li v-for="(n, i) in d.notes_display" :key="i">{{ n }}</li></ul>
@@ -163,6 +190,7 @@ onUnmounted(() => clearInterval(timer))
             <td>
               {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
               <span v-if="a.delta" class="tag warn" style="margin-left: 4px">{{ a.delta === 'new' ? '新增' : '有变化' }}</span>
+              <span v-if="a.held" class="tag" style="margin-left: 4px" title="这个答案已经存在雇主网站上，程序不会改动它。你在这里修改后，程序会按你改的去填。">网站上已有</span>
               <div v-if="a.sensitive" class="small"><span class="tag" :class="a.sensitive_confirmed ? '' : 'warn'">{{ SENS[a.sensitive] || a.sensitive }}{{ a.sensitive_confirmed ? '（已确认过）' : '（第一次遇到，请确认）' }}</span></div>
               <div v-if="d.pages.length > 1" class="muted small">第 {{ a.page + 1 }} 页 · {{ d.pages[a.page] }}</div>
             </td>

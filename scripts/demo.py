@@ -166,6 +166,7 @@ def seed(lang: str) -> None:
             apps[company].last_event = f"{cat}: {t['mail'][k]}"
             s.add(MailEvent(message_id=f"demo-mail-{k}", sender=f"careers@{company.split()[0].lower()}.example", subject=subj, received_at=now - timedelta(hours=5 + 20 * k), category=cat,
                             application_id=apps[company].id, company_guess=company, summary=t["mail"][k]))
+        seed_history(s, now, lang)
 
 
 SERVE = """
@@ -197,7 +198,136 @@ def start(lang: str, port: int) -> tuple[subprocess.Popen, Path]:
     raise RuntimeError("the demo server did not start")
 
 
-def shots(out: Path, lang: str, port: int = 8021) -> None:
+def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
+    """What the analysis page shows: four months of earlier applications, five weeks of the program's tasks, and the
+    model requests those tasks made. Made up like everything else here, and drawn from a fixed seed so that two demo
+    copies look the same. Costs are computed from the built-in price list, exactly as for real requests."""
+    import random
+
+    from autoapply import metering
+    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Task
+
+    rnd = random.Random(7)
+    firms = ["Alder", "Birchwood", "Cedar Point", "Dunmore", "Eastgate", "Fairhaven", "Glenrock", "Highfield", "Ironbridge", "Juniper", "Kingsley", "Larkspur"]
+    kinds = ["Analytics", "Logistics", "Health", "Energy", "Retail", "Software"]
+    roles = [("Data Analyst", "数据分析"), ("Business Analyst", "商业分析"), ("Operations Analyst", "运营分析"), ("Reporting Analyst", "数据分析"), ("BI Developer", "商业智能")]
+    if lang == "en":
+        names = {"数据分析": "Data analysis", "商业分析": "Business analysis", "运营分析": "Operations analysis", "商业智能": "Business intelligence"}
+        roles = [(t_, names[d_]) for t_, d_ in roles]
+    n = 0
+    for month_back, count in ((4, 6), (3, 11), (2, 16), (1, 13)):
+        for _ in range(count):
+            n += 1
+            firm, (title, direction) = f"{firms[n % len(firms)]} {kinds[(n * 5) % len(kinds)]}", roles[n % len(roles)]
+            score = rnd.choice([6.0, 6.5, 7.0, 7.5, 7.5, 8.0, 8.0, 8.5, 9.0, 9.5])
+            sent = now - timedelta(days=month_back * 30 - rnd.randint(0, 27), hours=rnd.randint(0, 9))
+            roll = rnd.random() + (score - 7.5) * 0.06          # better-scored postings answer a little more often
+            status = "interview" if roll > 0.97 else "assessment" if roll > 0.93 else "rejected" if roll > 0.62 else "confirmed" if roll > 0.36 else "submitted"
+            j = Job(source="greenhouse" if n % 3 else "lever", source_id=f"demo-old{n}", company=firm, title=title, direction=direction, location="Vancouver, BC", score=score,
+                    apply_url=f"https://careers.{firm.split()[0].lower()}.example/jobs/{n}", channel="employer site", ats="greenhouse" if n % 3 else "lever", status="applied", online=0,
+                    jd_text="x" * 300, first_seen=sent - timedelta(days=rnd.randint(1, 9)), archived_at=now - timedelta(days=5))
+            s.add(j)
+            s.flush()
+            a = Application(job_id=j.id, status=status, channel="employer site", submitted_at=sent, created_at=sent - timedelta(hours=2))
+            s.add(a)
+            s.flush()
+            if status != "submitted":
+                s.add(MailEvent(message_id=f"demo-old-c{n}", sender="careers@employer.example", subject="Application received", received_at=sent + timedelta(minutes=3), category="confirmation", application_id=a.id))
+            if status in ("rejected", "interview", "assessment"):
+                went_far = status != "rejected" or rnd.random() < 0.15       # some rejections came after an interview
+                if went_far:
+                    s.add(MailEvent(message_id=f"demo-old-i{n}", sender="careers@employer.example", subject="Next step", received_at=sent + timedelta(days=rnd.randint(4, 12)),
+                                    category="interview" if status != "assessment" else "assessment", application_id=a.id))
+                    s.add(ApplicationEvent(application_id=a.id, at=sent + timedelta(days=6), old="confirmed", new="interview" if status != "assessment" else "assessment"))
+                if status == "rejected":
+                    s.add(MailEvent(message_id=f"demo-old-r{n}", sender="careers@employer.example", subject="Update on your application", received_at=sent + timedelta(days=rnd.randint(9, 30)),
+                                    category="rejection", application_id=a.id))
+
+    for k, (firm, title, score, days_ago, gone) in enumerate([("Marlow Analytics", "Junior Data Analyst", 9.0, 12, "deadline"), ("Northgate Health", "Reporting Analyst", 8.5, 20, "offline"),
+                                                              ("Orchard Logistics", "Operations Analyst", 8.0, 31, "deadline"), ("Peregrine Software", "BI Analyst", 7.5, 44, "offline")]):
+        s.add(Job(source="greenhouse", source_id=f"demo-missed{k}", company=firm, title=title, direction=roles[0][1], location="Vancouver, BC", score=score, status="scored",
+                  apply_url=f"https://careers.{firm.split()[0].lower()}.example/jobs/{k}", channel="employer site", ats="greenhouse", online=0 if gone == "offline" else 1,
+                  deadline=(now - timedelta(days=days_ago - 9)).strftime("%Y-%m-%d 23:59"), jd_text="x" * 300, first_seen=now - timedelta(days=days_ago)))
+
+    # --- the program's tasks of the last five weeks, and their model requests --------------------------------------------
+    OPUS, HAIKU, SONNET = "claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"
+    job_ids = [j.id for j in s.query(Job).order_by(Job.id)]
+    app_ids = [a.id for a in s.query(Application).order_by(Application.id)]
+
+    def request(task: Task, at: datetime, feature: str, model: str, kind: str, tokens: tuple[int, int, int, int], *, turns: int = 1, ok: bool = True, backup: bool = False, call: str = "") -> None:
+        provider = "anthropic" if backup else "claude_subscription"
+        tk = metering.Tokens(*tokens) if ok else metering.Tokens(detail="none")
+        price = metering.price_for(provider, model)
+        cost = metering.cost_micros(tk, price, turns=turns)
+        s.add(LLMRequest(request_id=f"demo-{task.id}-{feature}-{rnd.random()}", call_id=call or f"demo-{task.id}-{feature}-{rnd.random()}", attempt=1 if backup else 0, started_at=at,
+                         latency_ms=int(900 * turns * rnd.uniform(0.7, 1.6)), provider=provider, model=model, billing="metered" if backup else "subscription", kind=kind, feature=feature,
+                         task_id=task.id, workflow=task.kind, ref=task.ref, status="ok" if ok else "rate_limited", error="" if ok else "usage limit reached", turns=turns,
+                         input_tokens=tk.input, cache_read_tokens=tk.cache_read, cache_write_tokens=tk.cache_write, output_tokens=tk.output, detail=tk.detail,
+                         cost_micros=cost, cost_source="list_price" if cost is not None else "", pricing_version=price["version"] if price and cost is not None else "", source="live"))
+
+    def task(kind: str, ref: str, at: datetime, status: str, minutes: float, *, result: dict | None = None, error: str = "", stages: list[str] | None = None) -> Task:
+        t_ = Task(kind=kind, ref=ref, status=status, result=result or {}, error=error, attempts=1, created_at=at, started_at=at, finished_at=at + timedelta(minutes=minutes),
+                  stages=[{"stage": x, "at": at.isoformat()} for x in (stages or [])])
+        s.add(t_)
+        s.flush()
+        return t_
+
+    for day in range(34, -1, -1):
+        base = now - timedelta(days=day, hours=rnd.randint(1, 6))
+        busy = 0.55 + 0.45 * (1 - day / 34)                                   # the program is used a little more as the weeks go by
+        if day % 2 == 0:                                                        # scan and score
+            task("discover", "schedule", base, "done", rnd.uniform(1, 3), result={"total": {"seen": 40, "new": rnd.randint(2, 9)}})
+            n_scored = rnd.randint(3, 12)
+            t_ = task("score", "unscored", base + timedelta(minutes=4), "done", n_scored * 0.3, result={"scored": n_scored})
+            for i in range(n_scored):
+                request(t_, base + timedelta(minutes=4, seconds=18 * i), "scoring", OPUS, "json", (rnd.randint(300, 700), rnd.randint(5200, 6400), rnd.randint(0, 400), rnd.randint(350, 620)))
+        new_mail = rnd.randint(0, 4)
+        t_ = task("mail", "schedule", base + timedelta(hours=2), "done", 0.6, result={"new_mail": new_mail})
+        for i in range(new_mail):
+            request(t_, t_.started_at + timedelta(seconds=9 * i), "mail_triage", HAIKU, "json", (rnd.randint(900, 2200), 0, 0, rnd.randint(120, 260)))
+        for _ in range(rnd.choice([0, 1, 1, 2]) if rnd.random() < busy else 0):           # drafts
+            jid = rnd.choice(job_ids)
+            at = base + timedelta(hours=rnd.uniform(2.5, 5))
+            roll = rnd.random()
+            if roll < 0.18:
+                err = rnd.choice(["网站暂时打不开：ERR_CONNECTION_TIMED_OUT；30 分钟后自动重试", "岗位在雇主官网上已关闭或链接失效，没有生成草案", "Claude subscription usage limit reached: resets 3pm"])
+                t_ = task("recon", f"job:{jid}", at, "failed", rnd.uniform(0.5, 2), error=err, stages=["read_form"] if "usage" not in err else ["read_form", "explore_form"])
+                if "usage" in err:
+                    request(t_, at, "explore_form", OPUS, "agent", (0, 0, 0, 0), ok=False)
+                continue
+            explored = rnd.random() < 0.45                                     # a site without a driver: the AI explores the form
+            t_ = task("recon", f"job:{jid}", at, "done", rnd.uniform(1.5, 6), result={"draft_id": 1}, stages=["read_form"] + (["explore_form"] if explored else []) + ["cover_letter", "tailor_resume", "answers"])
+            if explored:
+                turns = rnd.randint(14, 34)
+                if rnd.random() < 0.08:
+                    turns *= 3                                                  # the odd form that takes far longer than the others
+                request(t_, at, "explore_form", OPUS, "agent", (turns * 900, turns * 21000, turns * 2600, turns * 380), turns=turns)
+            request(t_, at + timedelta(minutes=1), "cover_letter", OPUS, "json", (rnd.randint(2500, 4000), rnd.randint(3000, 5000), 0, rnd.randint(900, 1400)))
+            request(t_, at + timedelta(minutes=1, seconds=40), "tailor_resume", OPUS, "json", (rnd.randint(2800, 4200), rnd.randint(3000, 5000), 0, rnd.randint(1200, 2100)))
+            call = f"demo-answers-{t_.id}"
+            if rnd.random() < 0.07:                                             # the subscription ran out: the same call is made again on the backup
+                request(t_, at + timedelta(minutes=2), "answers", OPUS, "json", (0, 0, 0, 0), ok=False, call=call)
+                request(t_, at + timedelta(minutes=2, seconds=20), "answers", SONNET, "json", (rnd.randint(7000, 11000), 0, 0, rnd.randint(1500, 2600)), backup=True, call=call)
+            else:
+                request(t_, at + timedelta(minutes=2), "answers", OPUS, "json", (rnd.randint(1500, 2600), rnd.randint(6000, 9000), 0, rnd.randint(1500, 2600)), call=call)
+        if rnd.random() < 0.5 * busy:                                           # filling a form
+            aid = rnd.choice(app_ids)
+            at = base + timedelta(hours=rnd.uniform(5, 8))
+            roll = rnd.random()
+            outcome_ = "submitted" if roll < 0.52 else "ready_to_submit" if roll < 0.82 else "failed"
+            helped = rnd.random() < 0.5 or outcome_ == "failed"
+            stages = ["ensure_session", "open", "fill_page"] + (["form_reports", "repair"] if helped else []) + ["read_back"] + (["submit"] if outcome_ == "submitted" else ["handed_over"] if outcome_ == "ready_to_submit" else [])
+            res = {"status": outcome_, **({"error": rnd.choice(["could not advance to the next page", "values on the form differ from the approved draft"])} if outcome_ == "failed" else {})}
+            t_ = task("execute", f"application:{aid}", at, "done", rnd.uniform(1.2, 4) if outcome_ != "ready_to_submit" else rnd.uniform(6, 18), result=res, stages=stages)
+            if helped:
+                turns = rnd.randint(5, 16)
+                request(t_, at + timedelta(seconds=50), "take_over", OPUS, "agent", (turns * 700, turns * 15000, turns * 1800, turns * 260), turns=turns)
+        if day % 9 == 4:
+            t_ = task("revise", f"draft:{rnd.randint(1, 3)}", base + timedelta(hours=9), "done", 0.8, result={"draft_id": 1})
+            request(t_, t_.started_at, "revise_draft", OPUS, "json", (rnd.randint(2000, 3200), rnd.randint(7000, 9000), 0, rnd.randint(700, 1300)))
+
+
+def shots(out: Path, lang: str, port: int = 8021, only: str = "") -> None:
     from PIL import Image
     from playwright.sync_api import sync_playwright
 
@@ -212,6 +342,8 @@ def shots(out: Path, lang: str, port: int = 8021) -> None:
             page = ctx.new_page()
 
             def snap(name: str, path: str, *, element: str = "", before=None, full: bool = False) -> None:  # noqa: ANN001
+                if only and name != only:
+                    return
                 page.goto(base + path, wait_until="networkidle")
                 page.wait_for_timeout(1500)       # the English dictionary is applied after the page has drawn
                 if before:
@@ -240,6 +372,8 @@ def shots(out: Path, lang: str, port: int = 8021) -> None:
                 page.add_style_tag(content=".pr-nav { visibility: hidden }")    # the side list is sticky and would cover the corner of the card
 
             snap("failover", "/settings", element=".pr > .card:last-child", before=to_ai)
+            page.set_viewport_size({"width": 1360, "height": 1040})
+            snap("analytics", "/analytics?view=ai")
             b.close()
     finally:
         p.kill()
@@ -251,11 +385,12 @@ def main() -> None:
     ap.add_argument("--serve", type=int, metavar="PORT")
     ap.add_argument("--shots", metavar="DIR")
     ap.add_argument("--lang", default="zh", choices=["zh", "en"])
+    ap.add_argument("--only", default="", metavar="NAME", help="with --shots: take only this screenshot (overview, jobs, draft, todos, failover, analytics)")
     a = ap.parse_args()
     if a.seed:
         seed(a.seed)
     elif a.shots:
-        shots(Path(a.shots), a.lang)
+        shots(Path(a.shots), a.lang, only=a.only)
     elif a.serve:
         p, home = start(a.lang, a.serve)
         print(f"demo at http://127.0.0.1:{a.serve}  (data in {home}; Ctrl+C stops it)")

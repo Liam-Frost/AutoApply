@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from .base import Driver, JobRef
+from .base import Driver, JobRef, host_is
 
 
 def drivers() -> dict[str, Driver]:
@@ -34,7 +34,7 @@ def detect(url: str) -> JobRef | None:
             return ref
     host = urlparse(url).netloc.lower()
     for suffix, ats in KNOWN_HOSTS.items():
-        if host.endswith(suffix):
+        if host_is(host, suffix):
             return JobRef(ats, host.split(".")[0], "", url, host)
     return JobRef("generic", host, "", url, host) if host else None
 

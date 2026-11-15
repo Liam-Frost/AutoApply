@@ -32,7 +32,27 @@ SYSTEM = ("You are given the links found on an employer's careers page. Pick the
 
 
 def _sid(url: str) -> str:
-    return hashlib.sha1(url.split("#")[0].encode()).hexdigest()[:16]
+    return hashlib.sha256(url.split("#")[0].encode()).hexdigest()[:16]   # an identifier for de-duplication
+
+
+def migrate_ids() -> int:
+    """Postings read from careers pages were identified by a SHA-1 of their address; they are now identified by a SHA-256.
+    Re-key the stored ones once, so that the next scan recognises them instead of taking every posting for a new one."""
+    from sqlalchemy.exc import IntegrityError
+
+    n = 0
+    with db.session() as s:
+        for j in s.query(Job).filter(Job.source == "page"):
+            want = _sid(j.apply_url or "")
+            if j.apply_url and j.source_id != want:
+                j.source_id = want
+                n += 1
+        try:
+            s.flush()
+        except IntegrityError:      # two stored rows for one address: leave them as they are
+            s.rollback()
+            return 0
+    return n
 
 
 def links(page) -> list[dict[str, str]]:  # noqa: ANN001
@@ -85,6 +105,6 @@ def scan(employer: dict[str, Any], keep: Callable[..., bool] = lambda *a: True) 
                 page.wait_for_timeout(1800)
                 jd = re.sub(r"[ \t]+", " ", page.evaluate("() => (document.querySelector('main, [role=main], article') || document.body).innerText") or "")[:15000]
             except Exception as e:  # noqa: BLE001 - one posting that will not open does not stop the rest
-                log.info("posting %s did not open: %s", href, type(e).__name__)
+                log.info("a posting did not open: %s", type(e).__name__)
                 jd = ""
             yield {**row, "jd_text": jd}

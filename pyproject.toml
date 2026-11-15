@@ -1,7 +1,21 @@
 [project]
 name = "autoapply"
-version = "1.0.0"
-description = "Local-first job application agent: discover, score, draft, approve, execute, track."
+version = "1.0.1"
+description = "A job-search assistant that runs on your own computer: it finds postings, scores them, drafts each application and fills in the form after you approve it."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Liam Frost" }]
+keywords = ["job-search", "job-application", "automation", "ai-agent", "playwright"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: End Users/Desktop",
+  "License :: Other/Proprietary License",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business",
+]
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",
@@ -24,6 +38,12 @@ dependencies = [
   "pillow>=10",
 ]
 
+
+[project.urls]
+Homepage = "https://github.com/Liam-Frost/AutoApply"
+Releases = "https://github.com/Liam-Frost/AutoApply/releases"
+Changelog = "https://github.com/Liam-Frost/AutoApply/blob/master/CHANGELOG.md"
+Issues = "https://github.com/Liam-Frost/AutoApply/issues"
 
 [project.optional-dependencies]
 chatgpt = ["openai-codex>=0.1.0b2"]  # ChatGPT subscription through the official Codex SDK (ships a ~190 MB runtime)

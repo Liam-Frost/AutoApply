@@ -207,6 +207,7 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
         listing = "\n".join(
             f"- id={k} | type={q.type} | required={q.required} | page={q.page + 1} | label={q.label!r}"
             + (f" | options={q.options}" if q.options else "")
+            + (f" | at most {q.max_length} characters (the form refuses more)" if q.max_length else "")
             + (f" | help={q.help[:200]!r}" if q.help else "")
             for k, q in keys.items()
         )
@@ -224,6 +225,11 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
         if region:  # how forms in this country ask; it explains the questions, the answers still come from the profile only
             prompt += ("\n\n<region_notes>\nHow application forms in the country of this job usually ask. Use this to understand what a question means and "
                        "which format it wants. It is never a source of answers: those come from the profile.\n" + region + "\n</region_notes>")
+        site = knowledge.playbook(f"site-{schema.tenant}") if schema.source == "agent" and schema.tenant else ""
+        if site:  # what earlier applications on this site found out: limits the form enforces, how its lists are worded
+            prompt += ("\n\n<site_notes>\nWhat earlier work on this employer's form found out. Use it for the shape of an answer: a length limit "
+                       "the form enforces (keep the answer within it), a date format, the wording of a list's entries. It is never a source of "
+                       "answers: those come from the profile.\n" + site[:4000] + "\n</site_notes>")
         out = llm.json(prompt, ANSWER_SCHEMA, system=prompts.get("answers"))
         by_key = {str(a["id"]).strip(): a for a in out["answers"]}
         missing = [k for k in keys if k not in by_key]
@@ -232,6 +238,16 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
             try:
                 more = llm.json(prompt.replace(listing, again), ANSWER_SCHEMA, system=prompts.get("answers"))
                 by_key.update({str(a["id"]).strip(): a for a in more["answers"] if str(a["id"]).strip() in missing})
+            except llm.LLMError:
+                pass
+        # an answer over a limit the form is known to enforce: asked once more for exactly those, with the count
+        long = [k for k, q in keys.items() if q.max_length and k in by_key and by_key[k].get("resolved") and isinstance(by_key[k].get("value"), str) and len(by_key[k]["value"]) > q.max_length]
+        if long:
+            again = "\n".join(ln + f" | YOUR ANSWER HAD {len(by_key[ln.split(' | ')[0][5:]]['value'])} CHARACTERS: REWRITE IT WITHIN THE LIMIT"
+                              for ln in listing.splitlines() if ln.split(" | ")[0][5:] in long)
+            try:
+                more = llm.json(prompt.replace(listing, again), ANSWER_SCHEMA, system=prompts.get("answers"))
+                by_key.update({str(a["id"]).strip(): a for a in more["answers"] if str(a["id"]).strip() in long})
             except llm.LLMError:
                 pass
         by_id = {keys[k].id: a for k, a in by_key.items() if k in keys}

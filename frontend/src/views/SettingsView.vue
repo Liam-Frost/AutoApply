@@ -352,7 +352,8 @@ var s=document.createElement('script');s.src='{{ s['app.base_url'] }}/pdportal-i
       <div class="card">
         <div class="card-title">其他</div>
         <div class="kv" style="margin-top: 12px">
-          <label>填写出错时让 AI 接手</label><div><input v-model="s['repair.enabled']" type="checkbox" /> <span class="hint">AI 只能把你批准过的内容填进去，不能改答案，也不能点提交；填完仍要逐项核对。</span></div>
+          <label>填写出错时让 AI 接手</label><div><input v-model="s['repair.enabled']" type="checkbox" /> <span class="hint">AI 只能把你批准过的内容填进去，不能编新答案，也不能点提交；表单限制字数或格式时，它会把批准过的答案改写到符合要求，提交前给你看改写前后的内容。</span></div>
+          <label>审批前先把分步表单读完</label><div><input v-model="s['recon.walk']" type="checkbox" /> <span class="hint">有些表单要填完前一步才打得开后一步。打开后，程序会带着草案的答案在隐藏窗口里一步步填到确认页，把后面问到的问题加进草案，不会提交；填进去的内容雇主网站可能会存成未完成的申请。</span></div>
           <label>自检间隔</label><div>每 <input v-model.number="s['schedule.canary_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">定期检查各招聘系统的适配是否还正常，填 0 关闭</span></div>
           <label>UBC PD Portal</label><div><input v-model="s['sources.pdportal']" type="checkbox" /> <span class="hint">目前门户不允许程序自动访问，这一项暂时不起作用</span></div>
           <label>通知里的链接指向</label><input v-model="s['app.base_url']" />

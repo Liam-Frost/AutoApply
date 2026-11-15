@@ -21,7 +21,7 @@ ATS = {
     "icims": "iCIMS", "successfactors": "SAP SuccessFactors", "jazzhr": "JazzHR", "": "",
 }
 TASK = {
-    "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
+    "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
     "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检",
 }
 TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn")}
@@ -116,6 +116,16 @@ _NOTES: list[tuple[str, str]] = [
     (r"^(?:Required file|File) '(.+?)' has no matching document\.( No résumé has been uploaded yet.*)?$", r"「\1」这一栏没有可以上传的文件。"),
     (r"^The form has no transcript field; the transcript goes in the Cover Letter slot\.$", "表单上没有成绩单栏，成绩单会放在求职信那一栏上传。"),
     (r"^Cover letter still has open issues: (.*)$", r"求职信还有没解决的问题：\1"),
+    (r"^The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted\. (\d+) answer\(s\) were added from your profile; "
+     r"(\d+) answer\(s\) the employer's site already holds were read into the draft; (\d+) question\(s\) need your answer\.$",
+     r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，读回了雇主网站上已经存着的 \2 个答案，有 \3 个问题需要你回答。"),
+    (r"^The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted\. (\d+) answer\(s\) were added from your profile; (\d+) question\(s\) need your answer\.$",
+     r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，有 \2 个问题需要你回答。"),
+    (r"^Reading the later steps stopped at \"(.*)\": (\d+) question\(s\) there need your answer\. Answer them and the reading goes on from there; nothing was submitted\.$",
+     r"读后面的步骤时停在了「\1」：那里有 \2 个问题需要你回答。回答之后会从那里接着读；没有提交。"),
+    (r"^Reading the later steps did not work this time; .*$", r"这次没能读到后面的步骤；填表时会读到，问到的新问题会加进这份草案。"),
+    (r"^Steps of this form that could not be read yet: (.*?)\. The form shows them only after the earlier steps are filled; .*$",
+     r"这张表有几步在生成草案时还读不到：\1。要先填完前面的步骤，表单才显示它们；第一次填表时会读到，问到的新问题会加进这份草案，需要你回答的会退回给你。"),
 ]
 _BASIS: list[tuple[str, str]] = [
     (r"^carried over from approved draft v(\d+)$", r"沿用你批准过的第 \1 版草案"),

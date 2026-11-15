@@ -20,10 +20,10 @@ jobs:
     name: Tests (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
       - name: Dependencies
         run: |
           uv sync
@@ -40,22 +40,22 @@ jobs:
     name: Portable zip and Linux package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
       - name: Build
         run: |
           python scripts/make_release.py
           python scripts/make_linux.py
           ls -la dist-release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portable
           path: dist-release/AutoApply-*.zip
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: dist-release/AutoApply-*-linux.run
@@ -66,7 +66,7 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: linux }
       - name: Install without questions
         run: |
@@ -99,10 +99,10 @@ jobs:
     needs: package
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: portable, path: dist-release }
       - name: Build the installer
         run: python scripts/make_installer.py
@@ -146,7 +146,7 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode install -Silent -NoIntegrate -Dir $dir
           powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode uninstall -Moved -Silent -NoIntegrate -DeleteData -Dir $dir
           if (Test-Path $dir) { throw 'uninstall (delete data) left the folder' }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist-release/AutoApply-Setup-*.exe
@@ -157,8 +157,8 @@ jobs:
     needs: package
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with: { name: portable, path: dist-release }
       - name: Build the disk image
         run: bash scripts/make_macos.sh
@@ -181,8 +181,35 @@ jobs:
           curl -fsS http://127.0.0.1:8765/ | grep -q 'id="app"'
           .venv/bin/python -c "from autoapply import launcher; launcher.make_icon('running'); import pystray; print('menu-bar support:', pystray.Icon.__module__)"
           pkill -f "autoapply.cli serve" || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: dist-release/AutoApply-*-macos.dmg
           if-no-files-found: error
+
+  collect:
+    name: Rehearse the release (collect, checksum, notes)
+    needs: [test, linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Every package is there, once
+        run: |
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
+          cd packages
+          ls -la
+          for f in "AutoApply-$version.zip" "AutoApply-Setup-$version.exe" "AutoApply-$version-macos.dmg" "AutoApply-$version-linux.run"; do
+            test -s "$f" || { echo "::error::missing package $f"; exit 1; }
+          done
+          test "$(ls | wc -l)" = 4
+          sha256sum AutoApply-* | tee SHA256SUMS.txt
+      - name: The changelog has a section for this version
+        run: |
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
+          awk -v v="$version" '$0 ~ "^## \\[?" v "\\]?" { on = 1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "::error::CHANGELOG.md has no section for $version"; exit 1; }
+          head -20 notes.md

@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import db, llm, notify
+from . import db, llm, metering, notify
 from .ats.base import NeedsHuman, SiteDown
 from .models import Run, Task, now
 
@@ -72,6 +72,7 @@ def _claim() -> Task | None:
 def run_one(t: Task) -> None:
     fn = _handlers.get(t.kind)
     usage = llm.reset_usage()
+    metering.begin_task(t.id, t.kind, t.ref)     # every model request until the task ends belongs to it
     status, result, error = "done", {}, ""
     try:
         if fn is None:
@@ -102,9 +103,11 @@ def run_one(t: Task) -> None:
             from . import messages
 
             notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
+    stages = metering.end_task()
     with db.session() as s:
         row = s.get(Task, t.id)
         row.status, row.result, row.error, row.finished_at = status, result, error, now()
+        row.stages = stages
         if usage.calls:
             s.add(Run(task_id=t.id, kind="llm", ref=t.ref, ok=int(status == "done"), llm_calls=usage.calls,
                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))
@@ -143,6 +146,15 @@ def recover() -> None:
             t.status = "queued" if t.attempts < 2 else "failed"
             if t.status == "failed":
                 t.error = "interrupted twice"
+        s.flush()
+        # An application whose filling was cut off and will not be taken up again is not "being filled": say so, so that
+        # it can be started again instead of showing "filling in" for ever.
+        from .models import Application
+
+        waiting = {t.ref for t in s.query(Task).filter(Task.kind == "execute", Task.status.in_(("queued", "running")))}
+        for a in s.query(Application).filter_by(status="executing"):
+            if f"application:{a.id}" not in waiting:
+                a.status, a.last_event = "failed", "填写被中断（程序在填写途中被关闭），可以重新开始"
 
 
 def retry(task_id: int) -> None:

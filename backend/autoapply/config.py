@@ -38,6 +38,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "llm.provider": "",
     # per service, for the OpenAI-compatible ones and chatgpt: {"openai": {"base_url": "", "model": "", "small_model": ""}}; keys are kept with the secrets
     "llm.providers": {},
+    "recon.walk": True,  # read the later steps of a form by walking it with the draft's answers before approval (never submits)
     "repair.enabled": True,  # let the agent take over a page the driver could not fill (it can never submit)
     "llm.model": "claude-opus-5-5",
     "llm.small_model": "claude-haiku-5-5",
@@ -52,6 +53,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "cover_letter.replace": [],      # [{"find": "...", "with": "..."}] fixed text of the template to correct
     # allowance of the AI services that report one (quota.py): checked on a timer, warned about once per window
     "llm.quota_check_minutes": 30,
+    "llm.prices": [],   # the user's own prices per million tokens: [{model, provider?, input, output, cache_read?, cache_write?}] in US dollars
     "llm.quota_warn_percent": 80,      # a usage window counts as running low from this share used
     "llm.quota_warn_balance": 1.0,     # a prepaid balance counts as running low below this amount (in the service's currency)
     "llm.quota_notify": True,

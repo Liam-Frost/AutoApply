@@ -18,6 +18,7 @@ import base64
 import json as _json
 import logging
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -27,7 +28,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import db, llm_codex, llm_openai, llm_sdk, secrets
+from . import db, llm_codex, llm_openai, llm_sdk, metering, secrets
 
 log = logging.getLogger("autoapply.llm")
 
@@ -73,6 +74,25 @@ def usage() -> Usage:
 def reset_usage() -> Usage:
     _tls.usage = Usage()
     return _tls.usage
+
+
+feature = metering.feature      # ``with llm.feature("name"):`` names the feature for the calls inside
+
+
+def _status(err: BaseException) -> str:
+    """How a failed request ended, for the usage record."""
+    if isinstance(err, LLMRefused):
+        return "refused"
+    msg = str(err).lower()
+    if re.search(r"time.?out|timed out|no answer from|超时", msg):
+        return "timeout"
+    if re.search(r"rate.?limit|\b429\b|usage limit|limit reached|quota|额度|欠费", msg):
+        return "rate_limited"
+    return "unavailable" if isinstance(err, LLMUnavailable) else "error"
+
+
+def _failed(model: str, t0: float, err: BaseException, **kw: Any) -> None:
+    metering.record(provider=provider(), model=model, started=t0, status=_status(err), error=str(err), error_type=type(err).__name__, **kw)
 
 
 _client: anthropic.Anthropic | None = None
@@ -269,8 +289,9 @@ def _failover(call: Callable[[], Any]) -> Any:
     ready = [e for e in entries if _down.get(_key(e), (0.0, ""))[0] <= now_]
     order = ready + [e for e in entries if e not in ready]     # a resting service is still tried last: better than giving up
     failed: list[tuple[dict[str, str], LLMError]] = []
-    for e in order:
+    for n, e in enumerate(order):
         _tls.entry = e
+        metering.attempt(n)
         try:
             out = call()
         except LLMError as err:
@@ -304,7 +325,8 @@ def try_entry(e: dict[str, str]) -> dict[str, Any]:
     for kind, small in (("main", False), ("small", True)):
         _tls.entry = e
         try:
-            out[kind] = {"ok": True, "model": _models_of(e)[1 if small else 0], "reply": _text("Reply with the single word: OK", system=None, small=small, max_tokens=50, effort=None)[:80]}
+            with metering.call("text", "connection_test"):
+                out[kind] = {"ok": True, "model": _models_of(e)[1 if small else 0], "reply": _text("Reply with the single word: OK", system=None, small=small, max_tokens=50, effort=None)[:80]}
         except LLMError as err:
             out[kind] = {"ok": False, "model": _models_of(e)[1 if small else 0], "error": str(err)[:300]}
         finally:
@@ -325,6 +347,10 @@ def _oa(fn: Callable[[llm_openai.Client, str], Any], *, small: bool = False) -> 
             u.calls += c.calls
             u.input_tokens += c.input_tokens
             u.output_tokens += c.output_tokens
+            for r in c.log:      # every HTTP request of this call, the failed ones too
+                cost = (r["usage"] or {}).get("cost") if isinstance(r.get("usage"), dict) else None      # some services (OpenRouter) say what the request cost
+                metering.record(provider=p, model=r.get("model") or model, started=r["t0"], latency_ms=r.get("ms"), tokens=metering.openai_usage(r.get("usage")), raw=r.get("usage"),
+                                reported_cost_usd=cost if isinstance(cost, (int, float)) else None, provider_request_id=r.get("id", ""), status=r.get("status", "ok"), error=r.get("error", ""))
             c.http.close()
     except llm_openai.Unavailable as e:
         raise LLMUnavailable(str(e)) from e
@@ -339,36 +365,50 @@ def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, An
         prompt = llm_openai._content(prompt)
         if not isinstance(prompt, str):
             raise LLMError("用 ChatGPT 登录时不能发送图片。")
+    t0 = time.time()
     try:
         out, steps, used = llm_codex.run(prompt, system=system, model=model, schema=schema, tools=tools, on_step=on_step,
                                          base_url=str(db.get_setting("app.base_url") or "http://127.0.0.1:8000"))
-    except llm_codex.Unavailable as e:
-        raise LLMUnavailable(str(e)) from e
-    except llm_codex.Failed as e:
-        raise LLMError(str(e)) from e
+    except (llm_codex.Unavailable, llm_codex.Failed) as e:
+        err = (LLMUnavailable if isinstance(e, llm_codex.Unavailable) else LLMError)(str(e))
+        _failed(model, t0, err)       # the command line reports usage only with an answer: what a failed turn used is not known
+        raise err from e
     u = usage()
     u.calls += 1 + len(steps)
     u.input_tokens += used.get("input", 0)
     u.output_tokens += used.get("output", 0)
+    metering.record(provider=provider(), model=model, started=t0, tokens=metering.codex_usage(used), raw=used, turns=1 + len(steps))
     return out, steps
 
 
 def _sdk(content: Any, *, small: bool, system: str | None, effort: str | None, **kw: Any) -> llm_sdk.SDKResult:
     eff = effort or (None if small else str(db.get_setting("llm.effort")))
+    model, t0 = _model(small), time.time()
+
+    def used(r: Any) -> dict[str, Any]:      # what the command line reported for this query, for the usage record
+        if r is None or r.usage is None:
+            return {}
+        return {"tokens": metering.anthropic_usage(r.usage), "raw": {"usage": r.usage, "model_usage": r.model_usage, "api_ms": r.api_ms, "session": r.session_id},
+                "reported_cost_usd": r.cost_usd, "turns": max(1, r.turns), "provider_request_id": r.session_id}
+
     try:
-        res = llm_sdk.call(content, system=system, model=_model(small), effort=eff, token=secrets.get(secrets.CLAUDE_OAUTH_TOKEN), **kw)
+        res = llm_sdk.call(content, system=system, model=model, effort=eff, token=secrets.get(secrets.CLAUDE_OAUTH_TOKEN), **kw)
     except llm_sdk.SDKError as e:
         if e.refused:
-            raise LLMRefused(str(e)) from e
-        if e.unavailable:
-            raise LLMUnavailable(f"Claude subscription login is not usable ({e}). Run `autoapply claude-login` or check Settings.") from e
-        if e.status == 429 or "limit" in str(e).lower():
-            raise LLMUnavailable(f"Claude subscription usage limit reached: {e}") from e
-        raise LLMError(f"Claude (subscription) error: {e}") from e
+            err: LLMError = LLMRefused(str(e))
+        elif e.unavailable:
+            err = LLMUnavailable(f"Claude subscription login is not usable ({e}). Run `autoapply claude-login` or check Settings.")
+        elif e.status == 429 or "limit" in str(e).lower():
+            err = LLMUnavailable(f"Claude subscription usage limit reached: {e}")
+        else:
+            err = LLMError(f"Claude (subscription) error: {e}")
+        _failed(model, t0, err, **used(getattr(e, "partial", None)))     # a query that failed part-way has still used what it reports
+        raise err from e
     u = usage()
     u.calls += max(1, res.turns)
     u.input_tokens += res.input_tokens
     u.output_tokens += res.output_tokens
+    metering.record(provider=provider(), model=model, started=t0, **(used(res) or {"turns": max(1, res.turns)}))
     return res
 
 
@@ -388,22 +428,33 @@ def _create(*, small: bool, max_tokens: int, system: str | None, messages: list,
     if not small and db.get_setting("llm.fallbacks"):
         betas.append(FALLBACK_BETA)
         kwargs["fallbacks"] = "default"
+    t0 = time.time()
     try:
-        if betas:
-            resp = client().beta.messages.create(betas=betas, **kwargs)
-        else:
-            resp = client().messages.create(**kwargs)
-    except anthropic.AuthenticationError as e:
-        raise LLMUnavailable("Claude API key is missing or invalid. Set it in Settings.") from e
-    except anthropic.RateLimitError as e:
-        raise LLMError(f"rate limited: {e.message}") from e
-    except anthropic.APIStatusError as e:
-        raise LLMError(f"Claude API error {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise LLMUnavailable(f"cannot reach the Claude API: {e}") from e
-    except TypeError as e:  # e.g. "Could not resolve authentication method"
-        raise LLMUnavailable(str(e)) from e
+        try:
+            if betas:
+                resp = client().beta.messages.create(betas=betas, **kwargs)
+            else:
+                resp = client().messages.create(**kwargs)
+        except anthropic.AuthenticationError as e:
+            raise LLMUnavailable("Claude API key is missing or invalid. Set it in Settings.") from e
+        except anthropic.RateLimitError as e:
+            raise LLMError(f"rate limited: {e.message}") from e
+        except anthropic.APIStatusError as e:
+            raise LLMError(f"Claude API error {e.status_code}: {e.message}") from e
+        except anthropic.APIConnectionError as e:
+            raise LLMUnavailable(f"cannot reach the Claude API: {e}") from e
+        except TypeError as e:  # e.g. "Could not resolve authentication method"
+            raise LLMUnavailable(str(e)) from e
+    except LLMError as err:
+        _failed(model, t0, err)        # nothing came back: whether it was billed is not known, so no usage and no cost are recorded
+        raise
     usage().add(resp)
+    try:
+        raw = resp.usage.to_dict() if hasattr(resp.usage, "to_dict") else dict(getattr(resp.usage, "__dict__", {}) or {})
+    except Exception:  # noqa: BLE001
+        raw = None
+    metering.record(provider=provider(), model=str(getattr(resp, "model", "") or model), started=t0, tokens=metering.anthropic_usage(raw), raw=raw,
+                    provider_request_id=str(getattr(resp, "_request_id", "") or getattr(resp, "id", "") or ""), status="refused" if resp.stop_reason == "refusal" else "ok")
     if resp.stop_reason == "refusal":
         raise LLMRefused("the model declined this request")
     return resp
@@ -414,7 +465,8 @@ def _text_of(resp: Any) -> str:
 
 
 def text(prompt: str | list, *, system: str | None = None, small: bool = False, max_tokens: int = 16000, effort: str | None = None) -> str:
-    return _failover(lambda: _text(prompt, system=system, small=small, max_tokens=max_tokens, effort=effort))
+    with metering.call("text", metering.caller_feature(sys._getframe(1))):
+        return _failover(lambda: _text(prompt, system=system, small=small, max_tokens=max_tokens, effort=effort))
 
 
 def _text(prompt: str | list, *, system: str | None, small: bool, max_tokens: int, effort: str | None) -> str:
@@ -440,7 +492,8 @@ def json(
     effort: str | None = None,
 ) -> Any:
     """Schema-constrained JSON. ``prompt`` may be a content-block list (documents, images)."""
-    return _failover(lambda: _json_call(prompt, schema, system=system, small=small, max_tokens=max_tokens, effort=effort))
+    with metering.call("json", metering.caller_feature(sys._getframe(1))):
+        return _failover(lambda: _json_call(prompt, schema, system=system, small=small, max_tokens=max_tokens, effort=effort))
 
 
 def _json_call(prompt: str | list, schema: dict[str, Any], *, system: str | None, small: bool, max_tokens: int, effort: str | None) -> Any:
@@ -549,7 +602,8 @@ def agent(
                                                 "(read the page, list the controls) and carry on from there; do not repeat what is already done.]")
         return _agent(g, watched, system=system, max_steps=max_steps, on_step=on_step)
 
-    return _failover(attempt)
+    with metering.call("agent", metering.caller_feature(sys._getframe(1))):
+        return _failover(attempt)
 
 
 def _agent(goal: str, tools: list[Tool], *, system: str, max_steps: int, on_step: Callable[[dict[str, Any]], None] | None) -> AgentResult:

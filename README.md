@@ -31,6 +31,7 @@
 - [What the previous version got wrong, and what changed](#what-the-previous-version-got-wrong-and-what-changed)
 - [What has been verified](#what-has-been-verified)
 - [Development](#development)
+- [Community](#community)
 - [License](#license)
 
 ## What it does
@@ -54,6 +55,9 @@ It adapts to who you are: a first-run guide asks your career stage (internship, 
 <tr>
 <td><img src="docs/images/jobs-en.webp" alt="Postings"><br><sub><b>Postings</b>, scored and sorted, with where each application stands.</sub></td>
 <td><img src="docs/images/failover-en.webp" alt="Backup AI services"><br><sub><b>Backup AI services</b> with the allowance each one has left.</sub></td>
+</tr>
+<tr>
+<td colspan="2"><img src="docs/images/analytics-en.webp" alt="AI cost"><br><sub><b>What the AI costs.</b> Every model request is recorded: tokens by kind, cost by model and feature, cost per result, and what failures cost.</sub></td>
 </tr>
 </table>
 
@@ -153,7 +157,7 @@ The Claude subscription is the best-tested service. Others work through the same
 - Everything is on your computer: a SQLite database, your files, and a few Markdown documents you can read and edit (your profile, the scoring rules, notes about sites).
 - Passwords and API keys are in the system keyring. Saved sign-ins are encrypted.
 - Nothing is sent anywhere except to the AI service you chose and to the job sites themselves. There is no telemetry and no account.
-- The server listens on `127.0.0.1` only.
+- The server listens on `127.0.0.1` only and answers only its own pages: requests from other websites open in your browser are refused.
 - *Settings → Advanced → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
 
 ## What the previous version got wrong, and what changed
@@ -220,6 +224,13 @@ git tag v1.2.3 && git push origin v1.2.3
 The release workflow runs the tests, builds the four packages, installs and starts each one on Windows, macOS and Linux, and only then publishes the release.
 
 Contributions that add one entry to a list (an employer, a job board, a sign-in provider, a mailbox, a region pack, a translation) need no knowledge of the whole program: see [CONTRIBUTING.md](CONTRIBUTING.md). The interface follows [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
+
+## Community
+
+- Something does not work, or you have an idea: [open an issue](https://github.com/Liam-Frost/AutoApply/issues/new/choose).
+- A security problem: privately, as described in [SECURITY.md](SECURITY.md).
+- How to take part: [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+- What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

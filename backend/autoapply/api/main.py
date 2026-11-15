@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import mimetypes
 import re
 
@@ -34,8 +35,27 @@ async def lifespan(app: FastAPI):
     db.init_db()
     persona.migrate()
     from .. import i18n as _i18n
+    from ..sources import watch as _watch
 
     _i18n.first_run_lang()
+    if not db.get_setting("migrated.page_ids"):
+        _watch.migrate_ids()
+        db.set_setting("migrated.page_ids", True)
+    if not db.get_setting("migrated.llm_runs"):
+        # per-task totals from before every model request was recorded: carried over once, marked as history
+        from .. import metering as _metering
+
+        _metering.import_legacy()
+        db.set_setting("migrated.llm_runs", True)
+    if not db.get_setting("migrated.generic_patch_cards"):
+        # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
+        from ..models import Todo, now
+
+        with db.session() as s:
+            for td in s.query(Todo).filter_by(kind="driver_patch", status="open"):
+                if (td.payload or {}).get("ats") == "generic":
+                    td.status, td.done_at = "done", now()
+        db.set_setting("migrated.generic_patch_cards", True)
     net.apply()
     tasks.start()
     yield
@@ -52,10 +72,76 @@ app = FastAPI(title="AutoApply", lifespan=lifespan)
 PORTAL_ORIGIN = "https://pdportal.apsc.ubc.ca"
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
+
+
+def _own_hosts() -> set[str]:
+    """Host names under which this server is the user's own: this computer, and the address the user set for links."""
+    from urllib.parse import urlparse
+
+    hosts = set(LOCAL_HOSTS)
+    try:
+        h = urlparse(str(db.get_setting("app.base_url") or "")).hostname
+        if h:
+            hosts.add(h.lower())
+    except Exception:  # noqa: BLE001
+        pass
+    return hosts
+
+
+def _host_of(value: str) -> str:
+    """'127.0.0.1:8000' -> '127.0.0.1'; '[::1]:8000' -> '::1'."""
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        return v[1:].split("]", 1)[0]
+    return v.rsplit(":", 1)[0] if ":" in v else v
+
+
+def _foreign(request) -> str:  # noqa: ANN001
+    """Why this request does not come from the user's own pages ('' when it does).
+
+    The server has no login: it listens on 127.0.0.1 and trusts whoever can reach it. A web page the user happens to
+    have open can reach it too - the browser will send a request to 127.0.0.1 for any site - so two things are checked:
+    the Host header is this computer's (a page cannot get around the browser's same-origin rule by pointing its own
+    domain name at 127.0.0.1), and a request that changes something, or any API call the browser itself marks as
+    cross-site, comes from one of this program's own pages. Programs on this computer (the tray launcher, the AI
+    tool bridge, curl) send no Origin and are not affected."""
+    from urllib.parse import urlparse
+
+    own = _own_hosts()
+    host = request.headers.get("host", "")
+    if _host_of(host) not in own:
+        return "host"
+    path = request.url.path
+    if not (path.startswith("/api/") or path.startswith("/mcp/")):
+        return ""
+    origin = request.headers.get("origin")
+    if path.startswith("/api/import/pdportal") and origin == PORTAL_ORIGIN:
+        return ""          # the one deliberate exception: the importer the user runs on the portal's page
+    if origin is not None:
+        # The whole origin has to be ours - scheme, host and port. Another program on this computer can serve a page
+        # at 127.0.0.1 on its own port; the same host name does not make that page this program's.
+        mine = {f"{request.url.scheme}://{host}".lower().rstrip("/")}
+        base = str(db.get_setting("app.base_url") or "").strip().lower().rstrip("/")
+        if base:
+            u = urlparse(base)
+            mine.add(f"{u.scheme}://{u.netloc}")
+        mine.update(o.strip().lower().rstrip("/") for o in os.environ.get("AUTOAPPLY_DEV_ORIGINS", "").split(",") if o.strip())   # the interface's dev server, when developing
+        if origin.lower().rstrip("/") not in mine:
+            return "origin"
+    elif request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
+        return "cross-site"     # same-site covers another port of this computer
+    return ""
+
+
 @app.middleware("http")
 async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
-    from fastapi.responses import Response
+    from fastapi.responses import JSONResponse, Response
 
+    why = _foreign(request)
+    if why:
+        log.warning("refused a request that did not come from this program's own pages (%s): %s %s", why, request.method, request.url.path)
+        return JSONResponse({"detail": "This request did not come from AutoApply's own page and was refused."}, status_code=403)
     if request.url.path.startswith("/api/import/pdportal") and request.headers.get("origin") == PORTAL_ORIGIN:
         hdr = {"Access-Control-Allow-Origin": PORTAL_ORIGIN, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type",
                "Access-Control-Allow-Private-Network": "true", "Access-Control-Max-Age": "600", "Vary": "Origin"}
@@ -339,6 +425,23 @@ def get_draft(draft_id: int) -> dict[str, Any]:
 def edit_answer(draft_id: int, qid: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     drafts.edit_answer(draft_id, qid, body.get("value"), save_rule=body.get("save_rule", ""), remember=bool(body.get("remember")))
     return get_draft(draft_id)
+
+
+@app.post("/api/drafts/{draft_id}/scout")
+def scout_draft(draft_id: int) -> dict[str, Any]:
+    """Read the steps of the form that open only once the earlier ones are filled, by walking it with this draft's
+    answers in a hidden window. Nothing is submitted; what the steps ask is added to the draft."""
+    with db.session() as s:
+        d = _404(s.get(Draft, draft_id))
+        if d.review_status != "pending":
+            raise HTTPException(400, "只有待审批的草案可以接着读后面的步骤")
+        if d.unresolved:
+            raise HTTPException(400, "先回答草案里还没有答案的问题，程序才能带着答案往下走")
+        sch = dict(d.schema)
+        sch["extra"] = {**(sch.get("extra") or {}), "scouted": 0}      # asked for by hand: the count of automatic rounds starts over
+        d.schema = sch
+        d.application.status = "recon"
+    return {"task_id": tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)}
 
 
 @app.post("/api/drafts/{draft_id}/reanswer")
@@ -1212,68 +1315,67 @@ def pdportal_bookmarklet() -> dict[str, Any]:
 
 
 @app.get("/api/analytics")
-def analytics(days: int = 0) -> dict[str, Any]:
-    """Numbers for the analysis page. ``days`` limits to applications sent in the last N days (0 = all).
-    Archived jobs are included: this page is about what happened, not about what is still open."""
-    from collections import defaultdict
-    from datetime import timedelta
+def analytics(days: int = 0, start: str = "", end: str = "") -> dict[str, Any]:
+    """What came of the applications sent in the window: the last ``days`` days, or local dates ``start``..``end``
+    (inclusive), or everything. The other two views of the analysis page are below."""
+    from .. import analytics as an
 
-    cut = now().replace(tzinfo=None) - timedelta(days=days) if days else None
-    REPLIED = ("confirmed", "assessment", "interview", "offer", "rejected")
-    POSITIVE = ("assessment", "interview", "offer")
-    with db.session() as s:
-        apps = []
-        for a in s.query(Application).filter(Application.submitted_at.isnot(None)):
-            sub_at = a.submitted_at.replace(tzinfo=None)
-            if cut and sub_at < cut:
-                continue
-            j = a.job
-            first_mail = s.query(func.min(MailEvent.received_at)).filter(MailEvent.application_id == a.id, MailEvent.category.notin_(("other", "confirmation"))).scalar()  # an automatic receipt is not an answer
-            wait = (first_mail.replace(tzinfo=None) - sub_at).days if first_mail and first_mail.replace(tzinfo=None) >= sub_at else None
-            lead = (sub_at - j.first_seen.replace(tzinfo=None)).days if j.first_seen else None
-            apps.append({"status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or "未标注",
-                         "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
-                         "auto": bool(a.auto_approved), "wait": wait, "lead": lead, "month": sub_at.strftime("%Y-%m")})
+    return an.applications(an.window(days, start, end))
 
-        def rate(rows: list[dict[str, Any]]) -> dict[str, Any]:
-            n = len(rows)
-            return {"n": n, "replied": sum(1 for r in rows if r["status"] in REPLIED), "positive": sum(1 for r in rows if r["status"] in POSITIVE),
-                    "rejected": sum(1 for r in rows if r["status"] == "rejected")}
 
-        def by(key, order=None):  # noqa: ANN001, ANN202
-            g: dict[str, list] = defaultdict(list)
-            for r in apps:
-                g[key(r)].append(r)
-            keys = order or sorted(g, key=lambda k: -len(g[k]))
-            return [{"label": k, **rate(g[k])} for k in keys if k in g]
+@app.get("/api/analytics/automation")
+def analytics_automation(days: int = 0, start: str = "", end: str = "", kind: str = "") -> dict[str, Any]:
+    """What the program's tasks did: how they ended, how long they took, where they failed, what they cost in AI."""
+    from .. import analytics as an
 
-        band = lambda r: "没评分" if r["score"] is None else "9–10" if r["score"] >= 9 else "8–8.5" if r["score"] >= 8 else "7–7.5" if r["score"] >= 7 else "6–6.5" if r["score"] >= 6 else "6 以下"  # noqa: E731
-        waits = sorted(r["wait"] for r in apps if r["wait"] is not None)
-        leads = sorted(r["lead"] for r in apps if r["lead"] is not None and r["lead"] >= 0)  # rows imported after the fact have no meaningful lead time
-        med = lambda xs: xs[len(xs) // 2] if xs else None  # noqa: E731
-        wait_hist = [{"label": lab, "value": sum(1 for w in waits if lo <= w <= hi)} for lab, lo, hi in
-                     (("当天", 0, 0), ("1–3 天", 1, 3), ("4–7 天", 4, 7), ("8–14 天", 8, 14), ("15–30 天", 15, 30), ("30 天以上", 31, 10**6))]
-        # chances that were not taken: good postings that closed without an application
-        missed = []
-        for j in s.query(Job).filter(Job.duplicate_of.is_(None), Job.score >= 7.5):
-            st = stages.stage(j.status, bool(j.online), j.deadline or "", j.application.status if j.application else None)
-            if st in ("expired", "offline") and (not cut or (j.first_seen and j.first_seen.replace(tzinfo=None) >= cut)):
-                missed.append({"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline, "why": "没有申请链接" if not j.apply_url else "已截止或下线时还没投"})
-        missed.sort(key=lambda r: -(r["score"] or 0))
-        runs = s.query(Run).filter(Run.kind == "execute").all()
-        by_sys: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-        for r in runs:
-            by_sys[humanize.ats_name(r.ats) or "其他"][0 if r.ok else 1] += 1
-        llm = s.query(func.sum(Run.llm_calls), func.sum(Run.input_tokens), func.sum(Run.output_tokens)).first()
-    return {
-        "total": rate(apps), "median_wait_days": med(waits), "median_lead_days": med(leads), "waited": len(waits),
-        "by_score": by(band, ["9–10", "8–8.5", "7–7.5", "6–6.5", "6 以下", "没评分"]), "by_channel": by(lambda r: r["channel"]), "by_direction": by(lambda r: r["direction"])[:8],
-        "by_month": by(lambda r: r["month"], sorted({r["month"] for r in apps})), "wait_hist": wait_hist,
-        "auto": {"auto": sum(1 for r in apps if r["auto"]), "manual": sum(1 for r in apps if not r["auto"])},
-        "missed": missed[:12], "missed_total": len(missed),
-        "automation": [{"label": k, "ok": v[0], "failed": v[1]} for k, v in sorted(by_sys.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))],
-        "llm": {"calls": llm[0] or 0, "input_tokens": llm[1] or 0, "output_tokens": llm[2] or 0},
-    }
+    return an.automation(an.window(days, start, end), kind=kind)
+
+
+@app.get("/api/analytics/automation/runs")
+def analytics_runs(days: int = 0, start: str = "", end: str = "", kind: str = "", outcome: str = "", offset: int = 0, limit: int = 15) -> dict[str, Any]:
+    """The runs of the window, newest first, a page at a time."""
+    from .. import analytics as an
+
+    return an.runs(an.window(days, start, end), kind=kind, outcome=outcome, offset=offset, limit=limit)
+
+
+@app.get("/api/analytics/ai")
+def analytics_ai(days: int = 0, start: str = "", end: str = "", group: str = "model", bucket: str = "", provider: str = "", model: str = "", feature: str = "") -> dict[str, Any]:
+    """What the model calls used and cost: by time, model, service and feature, per result, and what failures cost."""
+    from .. import analytics as an
+
+    return an.ai(an.window(days, start, end), group=group, bucket=bucket, provider=provider, model=model, feature=feature)
+
+
+@app.get("/api/analytics/ai/requests")
+def analytics_ai_requests(task_id: int) -> dict[str, Any]:
+    """The model requests of one task: from a total down to what it is made of."""
+    from .. import analytics as an
+
+    return {"requests": an.requests_of(task_id=task_id)}
+
+
+@app.put("/api/analytics/ai/prices")
+def analytics_ai_prices(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The user's own prices (US dollars per million tokens) for models the built-in list does not cover. Saving them
+    estimates again every request whose cost comes from a price list; a cost a service reported itself is left alone."""
+    from .. import metering
+
+    out = []
+    for p in (body.get("prices") or [])[:100]:
+        model = str((p or {}).get("model") or "").strip()
+        try:
+            row = {"model": model, "provider": str(p.get("provider") or ""), "input": float(p["input"]), "output": float(p["output"])}
+            for k in ("cache_read", "cache_write"):
+                if p.get(k) not in (None, ""):
+                    row[k] = float(p[k])
+        except (KeyError, TypeError, ValueError) as e:
+            raise HTTPException(400, f"「{model or '?'}」的价格不完整：输入和输出价格都要填数字") from e
+        if not model or min(v for k, v in row.items() if k not in ("model", "provider")) < 0:
+            raise HTTPException(400, "模型名不能为空，价格不能是负数")
+        out.append(row)
+    db.set_setting("llm.prices", out)
+    return {"ok": True, "repriced": metering.reprice()}
 
 
 @app.get("/api/sources/last-scan")
@@ -1738,14 +1840,6 @@ def gmail_authorize() -> dict[str, Any]:
     return {"started": True}
 
 
-@app.post("/api/import-tsv")
-def import_tsv(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from .. import importer
-
-    p = Path(body["path"])
-    if not p.exists():
-        raise HTTPException(400, "file not found")
-    return importer.import_tsv(p)
 
 
 # --- frontend ------------------------------------------------------------------------------

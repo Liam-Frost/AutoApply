@@ -83,7 +83,14 @@ _JS = r"""() => {
     out.push({ kind: 'empty_required', label: clean(labelOf(e)), message: '', selector: selOf(e), value: '' });
   }
   for (const g of document.querySelectorAll('[role=radiogroup][aria-required="true"], [role=group][aria-required="true"]')) {
-    if (!vis(g) || g.querySelector('input:checked, [aria-checked="true"]')) continue;
+    if (!vis(g)) continue;
+    if (g.querySelector('input[type=radio], input[type=checkbox], [role=radio], [role=checkbox]')) {
+      if (g.querySelector('input:checked, [aria-checked="true"]')) continue;
+    } else {
+      // a group without tick boxes is a pick-list that shows what was chosen as chips or text (multi-select widgets)
+      const shown = txt(g).replace(/[×✕]/g, '').trim();
+      if (shown && !PLACEHOLDER.test(shown)) continue;
+    }
     const label = clean(byIds(g.getAttribute('aria-labelledby')) || g.getAttribute('aria-label') || txt(g.querySelector('legend, label')));
     if (flagged.has(label)) continue; flagged.add(label);
     out.push({ kind: 'empty_required', label, message: '', selector: g.id ? `[id="${g.id}"]` : '', value: '' });
@@ -109,6 +116,14 @@ def describe(issue: dict[str, Any]) -> str:
     if label and msg:
         return f"{label}: {msg}"
     return msg or f"{label}: the form marks this field as invalid"
+
+
+def not_stale(now: list[dict[str, Any]], before: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """What the form reports now, without free-standing messages that were already there before the fields were changed.
+    Such a message says what was wrong when the form last checked; many forms leave it until they are asked again. A
+    field the form marks invalid, or a required field that is empty, is read from the control itself and always counts."""
+    old = {describe(it) for it in before if it.get("kind") == "message"}
+    return [it for it in now if not (it.get("kind") == "message" and describe(it) in old)]
 
 
 def texts(issues: list[dict[str, Any]]) -> list[str]:

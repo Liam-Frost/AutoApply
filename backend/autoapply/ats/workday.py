@@ -23,7 +23,7 @@ from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from . import widgets as w
-from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, SiteDown
+from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, SiteDown, host_is
 
 A = "[data-automation-id='{}']"
 
@@ -42,7 +42,7 @@ class WorkdayDriver:
     def detect(self, url: str) -> JobRef | None:
         u = urlparse(url)
         host = u.netloc.lower()
-        if not (host.endswith("myworkdayjobs.com") or host.endswith("myworkdaysite.com")):
+        if not (host_is(u.hostname or "", "myworkdayjobs.com") or host_is(u.hostname or "", "myworkdaysite.com")):
             return None
         tenant = host.split(".myworkday")[0]  # e.g. "altera.wd1"
         parts = [p for p in u.path.split("/") if p]

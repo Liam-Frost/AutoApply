@@ -210,6 +210,7 @@ def describe_inputs(page: Page, root: str = "body") -> list[dict[str, Any]]:
                 visible: !!(e.offsetParent || st.position === 'fixed') || type === 'file',
                 options: e.tagName === 'SELECT' ? [...e.options].map(o => o.text.trim()).filter(Boolean) : [],
                 role: e.getAttribute('role') || '',
+                maxlength: e.maxLength > 0 && e.maxLength < 100000 ? e.maxLength : 0,
                 value: type === 'checkbox' || type === 'radio' ? e.checked : type === 'file' ? [...(e.files||[])].map(f => f.name).join('|') : type === 'listbox' ? e.innerText.trim() : type === 'password' ? '' : (e.value || ''),
             });
         }

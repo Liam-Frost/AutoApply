@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -200,6 +200,7 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stages: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)  # [{stage, at}] the task went through (None on tasks from before this was kept)
 
 
 class Run(Base):
@@ -218,6 +219,61 @@ class Run(Base):
     human_interventions: Mapped[int] = mapped_column(Integer, default=0)
     dir: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class LLMRequest(Base):
+    """One request to an AI service: who asked, what it used, what it cost (see metering.py)."""
+
+    __tablename__ = "llm_requests"
+    __table_args__ = (Index("ix_llm_requests_started", "started_at"), Index("ix_llm_requests_task", "task_id"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String)                      # ours, unique per row
+    call_id: Mapped[str] = mapped_column(String, default="")             # one llm.text / json / agent: its requests and retries share it
+    attempt: Mapped[int] = mapped_column(Integer, default=0)             # 0 = the service in use; 1.. = a backup tried after it failed
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider: Mapped[str] = mapped_column(String, default="")
+    model: Mapped[str] = mapped_column(String, default="")
+    billing: Mapped[str] = mapped_column(String, default="unknown")      # subscription | metered | local | unknown
+    kind: Mapped[str] = mapped_column(String, default="")                # text | json | agent
+    feature: Mapped[str] = mapped_column(String, default="")             # which part of the program asked (metering.FEATURES)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)   # the workflow execution
+    workflow: Mapped[str] = mapped_column(String, default="")            # that task's kind
+    ref: Mapped[str] = mapped_column(String, default="")
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    application_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="ok")            # ok | error | refused | timeout | rate_limited | unavailable | unknown
+    error_type: Mapped[str] = mapped_column(String, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    turns: Mapped[int] = mapped_column(Integer, default=1)               # model turns inside this request (subscription command lines run several)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)        # prompt tokens neither read from nor written to a cache
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_write_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)       # reasoning included
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)    # part of output_tokens
+    detail: Mapped[str] = mapped_column(String, default="full")          # full | no_cache_split | none (the service reported no usage)
+    cost_micros: Mapped[int | None] = mapped_column(Integer, nullable=True)         # millionths of `currency`; None = cannot be told
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    cost_source: Mapped[str] = mapped_column(String, default="")         # provider (the service reported it) | list_price | user_price | ""
+    pricing_version: Mapped[str] = mapped_column(String, default="")
+    provider_request_id: Mapped[str] = mapped_column(String, default="")
+    raw: Mapped[Any] = mapped_column(JSON, nullable=True)                # the usage exactly as the service reported it
+    source: Mapped[str] = mapped_column(String, default="live")          # live | legacy (a per-task total from before requests were recorded)
+
+
+class ApplicationEvent(Base):
+    """Every change of an application's status, with the time. The status alone only says where an application is now;
+    this says where it has been (an interview before a rejection)."""
+
+    __tablename__ = "application_events"
+    __table_args__ = (Index("ix_application_events_app", "application_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"))
+    at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    old: Mapped[str] = mapped_column(String, default="")
+    new: Mapped[str] = mapped_column(String, default="")
 
 
 class Contact(Base):

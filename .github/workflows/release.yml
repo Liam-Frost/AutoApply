@@ -17,7 +17,7 @@ jobs:
     name: Tag matches the version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: |
           version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
@@ -34,8 +34,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: packages
           merge-multiple: true

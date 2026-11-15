@@ -61,6 +61,7 @@ class Question:
     locator: dict[str, Any] = field(default_factory=dict)  # driver-specific hints
     depends_on: str = ""  # id of the question whose answer reveals this one
     accept_text: bool = False  # file question that also accepts pasted text
+    max_length: int = 0  # the most characters the form accepts for this answer (0 = no limit known); learned when the form refuses a longer one
 
     def key(self) -> tuple[str, str]:
         return norm_question(self.label), options_hash(self.options)
@@ -211,6 +212,23 @@ class Driver(Protocol):
     def login(self, page: Any, ref: JobRef, email: str, password: str) -> None: ...
     def register(self, page: Any, ref: JobRef, email: str, password: str) -> str: ...  # "ok" | "verify_email" | "exists"
     def login_url(self, ref: JobRef) -> str: ...
+
+
+def host_is(host: str, domain: str) -> bool:
+    """Is ``host`` that site or one of its subdomains? "jobs.ashbyhq.com" is ashbyhq.com; "notashbyhq.com" and
+    "ashbyhq.com.evil.example" are not. Sites are told apart by this, never by looking for a name inside an address."""
+    host, domain = (host or "").lower().split(":")[0].rstrip("."), domain.lower()
+    return host == domain or host.endswith("." + domain)
+
+
+def url_host(url: str) -> str:
+    """The host of an address, lower case, without the port ('' when there is none)."""
+    from urllib.parse import urlparse
+
+    try:
+        return (urlparse(url if "//" in (url or "") else f"https://{url}").hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def values_equal(expected: Any, actual: Any) -> bool:

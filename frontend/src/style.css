@@ -447,3 +447,133 @@ button.danger.solid { background: var(--bad); border-color: var(--bad); color: #
 .emp-cat { margin-top: 14px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-md); }
 button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--surface); }
 .seg.lang { margin-bottom: 8px; width: 100%; } .seg.lang button { flex: 1; padding: 3px 8px; font-size: var(--fs-xs); }
+
+/* ───────────────────────── 7. Analysis page ───────────────────────── */
+/* Several series: six hues in a fixed order, checked as a set on both surfaces (docs/DESIGN_SYSTEM.md). Never cycled:
+   a seventh series is folded into "other". Text beside a mark wears text tokens, never these. */
+:root { --chart-2: #eb6834; --chart-3: #1baf7a; --chart-4: #eda100; --chart-5: #e87ba4; --chart-6: #008300; --chart-other: #a7b1c0; --chart-soft: #86b6ef; --chart-deep: #104281; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --chart-2: #d95926; --chart-3: #199e70; --chart-4: #c98500; --chart-5: #d55181; --chart-6: #008300; --chart-other: #5d6b80; --chart-soft: #1c5cab; --chart-deep: #86b6ef; }
+}
+:root[data-theme="dark"] { --chart-2: #d95926; --chart-3: #199e70; --chart-4: #c98500; --chart-5: #d55181; --chart-6: #008300; --chart-other: #5d6b80; --chart-soft: #1c5cab; --chart-deep: #86b6ef; }
+
+.an-bar { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin-bottom: var(--s4); }
+.an-bar input[type=date] { padding: 5px 8px; font-size: var(--fs-sm); }
+/* KPI tiles: the figure, what it is, and - only when there is something to compare with - the change */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s3) var(--s4); box-shadow: var(--shadow-sm); min-width: 0; }
+.kpi .n { font-size: var(--fs-2xl); font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi .n.ok { color: var(--ok); } .kpi .n.na { color: var(--text-3); }
+.kpi .l { color: var(--text-2); font-size: var(--fs-sm); margin-top: 2px; }
+.kpi .d { color: var(--text-3); font-size: var(--fs-xs); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi[title] .l::after { content: " ⓘ"; color: var(--text-3); font-size: 11px; }
+.card-sub { color: var(--text-2); font-size: var(--fs-xs); margin: 2px 0 var(--s3); }
+.card-head { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+.card-head .card-title { flex: 1; min-width: 0; }
+/* one bar split into parts that add up to the whole; a 2px gap of the surface colour separates the parts */
+.splitbar { display: flex; height: 14px; gap: 2px; border-radius: 4px; overflow: hidden; background: var(--surface); }
+.splitbar > i { display: block; height: 100%; min-width: 3px; }
+.splitbar.empty { background: var(--neutral-soft); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--s2); }
+.legend > span, .legend > button { display: inline-flex; align-items: center; gap: 6px; }
+.legend > button { border: 0; background: transparent; padding: 0; font-weight: 400; color: var(--text-2); font-size: var(--fs-sm); }
+.legend > button:hover { background: transparent; color: var(--text); } .legend > button.off { opacity: 0.45; text-decoration: line-through; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
+.legend b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.legend.rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+/* stacked columns */
+.chart.stack .col .stackcol { width: min(24px, 70%); display: flex; flex-direction: column-reverse; gap: 2px; justify-content: flex-start; }
+.chart.stack .col .stackcol > i { display: block; width: 100%; min-height: 2px; }
+.chart.stack .col .stackcol > i:last-child { border-radius: 4px 4px 0 0; }
+.chart.stack .col:hover .stackcol { opacity: 0.85; }
+.chart .tip.multi { white-space: normal; min-width: 170px; text-align: left; line-height: 1.5; }
+.chart .tip.multi .r { display: flex; justify-content: space-between; gap: 14px; } .chart .tip.multi .r i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 6px; }
+.chart .tip.multi .h { font-weight: 650; margin-bottom: 2px; }
+/* compact tables inside cards */
+.an-table { font-size: var(--fs-sm); }
+.an-table th { position: static; background: transparent; padding: 8px 10px; border-bottom: 1px solid var(--border-strong); vertical-align: bottom; line-height: 1.3; }
+.an-table td { padding: 9px 10px; vertical-align: middle; line-height: 1.4; }
+.an-table .num, .an-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.an-table .name { font-weight: 550; overflow-wrap: anywhere; }
+.an-table .splitbar { height: 8px; min-width: 90px; }
+.an-scroll { overflow-x: auto; }
+.share { display: inline-block; width: 64px; height: 6px; border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; vertical-align: middle; margin-right: 8px; }
+.share > i { display: block; height: 100%; background: var(--chart-1); border-radius: var(--r-pill); }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3) var(--s4); }
+.figs .v { font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; } .figs .v.na { color: var(--text-3); }
+.figs .k { color: var(--text-2); font-size: var(--fs-xs); }
+.hbars.tight { gap: 8px 12px; } .hbars .fill.bad { background: var(--bad); } .hbars .fill.ok { background: var(--ok); }
+.missed { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 var(--s5); }
+.missed a { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); color: inherit; }
+.missed a:hover { text-decoration: none; } .missed a:hover .main { color: var(--primary); }
+.missed .main { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .missed .sub { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skel { height: 120px; border-radius: var(--r-md); background: linear-gradient(90deg, var(--surface-2), var(--neutral-soft), var(--surface-2)); background-size: 200% 100%; animation: skel 1.4s ease-in-out infinite; margin-bottom: var(--s4); }
+@keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+/* Rows of cards. The page is a column of rows; a row is as tall as its content needs and its cards share that height,
+   so tops and bottoms line up within a row and rows differ from each other. The layout decides the widths (.c11 one to
+   one, .c32 three to two, .c21 two to one); a card only holds its content. Nothing has a fixed height, and a chart keeps
+   its own height when its card is stretched: what is left over sits above the card's footer. Widths are judged against
+   the page's own width (a container query), not the window's, so the side bar does not matter. */
+.an-view { container-type: inline-size; }
+.an-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-items: stretch; margin-bottom: var(--s4); }
+.an-row.c11 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.an-row.c32 { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.an-row.c21 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.an-row > .card { margin: 0; min-width: 0; display: flex; flex-direction: column; }
+.an-row > .an-detail { grid-column: 1 / -1; }
+.card-foot { margin-top: auto; padding-top: var(--s3); display: flex; gap: var(--s2) var(--s3); align-items: center; flex-wrap: wrap; }
+.card-foot .hint { flex: 1; min-width: 180px; }
+.an-view .empty { padding: var(--s4) var(--s3); }
+@container (max-width: 1040px) { .an-row.c21:not(.tight), .an-row.c32:not(.tight) { grid-template-columns: minmax(0, 1fr); } }
+/* a row of two compact cards (a chart and a short list) stays side by side much longer than a row that holds a table */
+@container (max-width: 700px) { .an-row.tight { grid-template-columns: minmax(0, 1fr); } }
+.an-row.tight > .card > .card-sub { margin-bottom: var(--s2); }
+@container (max-width: 900px) { .an-row.c11 { grid-template-columns: minmax(0, 1fr); } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 520px) { .kpis { grid-template-columns: minmax(0, 1fr); } .missed { grid-template-columns: minmax(0, 1fr); } .hbars.even { --lab: 6.5em; } }
+/* detail: opened below the row it belongs to, across the whole page width - never inside an overview card */
+.an-detail { border-color: var(--border-strong); }
+.an-fade-enter-active, .an-fade-leave-active { transition: opacity 0.16s ease, transform 0.16s ease; }
+.an-fade-enter-from, .an-fade-leave-to { opacity: 0; transform: translateY(-4px); }
+@media (prefers-reduced-motion: reduce) { .an-fade-enter-active, .an-fade-leave-active { transition: none; } }
+.pager { display: flex; gap: var(--s2); align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: var(--s3); }
+.pager .where { margin-right: auto; color: var(--text-2); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.drawer.wide { width: min(980px, 100vw); }
+.drawer-head { display: flex; gap: var(--s2); align-items: flex-start; margin-bottom: var(--s3); }
+.drawer-head h3 { margin: 0; font-size: var(--fs-xl); }
+/* bars whose labels, tracks and figures line up from row to row and from card to card */
+.hbars.even { grid-template-columns: var(--lab, 8.5em) minmax(0, 1fr) var(--numw, 5.6em); }
+.hbars.even .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbars.even .lab.two { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+/* tables */
+.an-table .name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.an-table .one { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.an-table td.grow, .an-table th.grow { width: 99%; min-width: 150px; max-width: 0; }
+.an-table td.note { max-width: 260px; }
+.an-table tr.clickable:focus-visible td { background: var(--surface-2); }
+.sharecell { display: flex; align-items: center; gap: 10px; }
+.sharecell .share { flex: 1; width: auto; min-width: 60px; margin: 0; }
+.sharecell .pc { width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.card-head .seg button svg { width: 14px; height: 14px; }
+.legend.rows.single { grid-template-columns: minmax(0, 1fr); }
+.figs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* reasons: one compact line each - a short name, a small bar, the count */
+.reason { display: grid; grid-template-columns: minmax(0, 1fr) 96px 2.6em; gap: 12px; align-items: center; min-height: 32px; border-bottom: 1px solid var(--border); }
+.reason .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reason .bar { display: block; height: 6px; border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; }
+.reason .bar i { display: block; height: 100%; min-width: 3px; background: var(--bad); border-radius: var(--r-pill); }
+.reason .n { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+.reason.rest { border-bottom: 0; color: var(--text-2); } .reason.rest .n { font-weight: 550; }
+.reason-full { padding: 6px 0 12px; border-bottom: 1px solid var(--border); } .reason-full:last-child { border-bottom: 0; }
+.reason-full .msg { padding: 4px 0 4px 12px; font-size: var(--fs-sm); color: var(--text-2); }
+.reason-full .msg .n { display: inline-block; min-width: 3.4em; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* where failed runs had got to: a strip of small blocks, not a chart */
+.stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: var(--s3); }
+.stage { display: flex; flex-direction: column; min-width: 0; background: var(--surface-2); border-radius: var(--r-md); padding: 8px 10px 10px; }
+.stage .v { font-size: var(--fs-xl); font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stage .k { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.3; padding-bottom: 6px; }
+.stage .meter { display: block; height: 3px; border-radius: var(--r-pill); background: var(--border); margin-top: auto; overflow: hidden; }
+.stage .meter i { display: block; height: 100%; min-width: 3px; border-radius: var(--r-pill); background: var(--bad); }
+.stage.unknown .v { color: var(--text-2); } .stage.unknown .meter i { background: var(--chart-other); }
+@container (max-width: 520px) { .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reason { grid-template-columns: minmax(0, 1fr) 64px 2.6em; } }
