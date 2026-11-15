@@ -175,8 +175,9 @@ def anthropic_usage(u: dict[str, Any] | None) -> Tokens:
     """The Anthropic API and the Claude command line: ``input_tokens`` already excludes cached tokens."""
     if not u:
         return Tokens(detail="none")
+    thinking = (u.get("output_tokens_details") or {}).get("thinking_tokens") if isinstance(u.get("output_tokens_details"), dict) else None
     return Tokens(input=_i(u.get("input_tokens")), cache_read=_i(u.get("cache_read_input_tokens")), cache_write=_i(u.get("cache_creation_input_tokens")),
-                  output=_i(u.get("output_tokens")))
+                  output=_i(u.get("output_tokens")), reasoning=_i(thinking) if thinking is not None else None)
 
 
 def openai_usage(u: dict[str, Any] | None) -> Tokens:

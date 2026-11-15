@@ -56,6 +56,9 @@ It adapts to who you are: a first-run guide asks your career stage (internship, 
 <td><img src="docs/images/jobs-en.webp" alt="Postings"><br><sub><b>Postings</b>, scored and sorted, with where each application stands.</sub></td>
 <td><img src="docs/images/failover-en.webp" alt="Backup AI services"><br><sub><b>Backup AI services</b> with the allowance each one has left.</sub></td>
 </tr>
+<tr>
+<td colspan="2"><img src="docs/images/analytics-en.webp" alt="AI cost"><br><sub><b>What the AI costs.</b> Every model request is recorded: tokens by kind, cost by model and feature, cost per result, and what failures cost.</sub></td>
+</tr>
 </table>
 
 ## What it will not do

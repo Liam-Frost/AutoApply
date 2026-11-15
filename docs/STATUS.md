@@ -8,7 +8,7 @@ A feature is only as good as the last time it was actually used. This page separ
 
 Keep this distinction when you change something: say what you ran it against.
 
-Last updated for 1.0.0 (November 2026). The author uses the program on Windows with a Claude subscription.
+Last updated for 1.0.1 (November 2026). The author uses the program on Windows with a Claude subscription.
 
 ## The application chain
 
@@ -26,6 +26,8 @@ Last updated for 1.0.0 (November 2026). The author uses the program on Windows w
 | Workday driver | Listing and the sign-in page elements used for real; filling after sign-in, registration and the review page are written from earlier manual applications and have not been run |
 | UBC PD Portal | Importing postings with the bookmarklet: used for real. Applying through the portal: not run; the portal refuses automated browsers, which the program does not work around |
 | Sign-in with Google / Microsoft / LinkedIn and others | Microsoft: used for real. Google refuses sign-in inside an automated browser; the program hands that step to you |
+| The analysis page: applications, automation, AI cost | Applications and automation: run on the author's own data. AI cost: run on made-up data (the demo copy) and on the author's records from before requests were kept, which carry no cost; real requests recorded by this version have not accumulated yet |
+| Recording model requests (usage, cost) | Claude subscription: used for real (a connection test was recorded with its tokens by kind and the cost the command line reported); a full task with many requests has not been looked at yet. Anthropic API, ChatGPT subscription and OpenAI-compatible services: unit-tested with stand-ins that report usage, not checked against what a real service bills. The ChatGPT subscription reports usage only with an answer, so a failed turn has none |
 | Mail tracking with Gmail | Used for real |
 | Mail tracking with Outlook and generic IMAP | Unit-tested only |
 | Telegram notifications | Chinese: used for real. English: checked for untranslated text, not sent |

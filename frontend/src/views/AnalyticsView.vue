@@ -1,129 +1,84 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+// The analysis page: three views over one time range. Each view asks the server for its own numbers; this file only
+// holds what they share - which view, which range - and the loading / error states around them.
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
-import ColumnChart from '../components/ColumnChart.vue'
+import { rangeQuery } from '../analytics'
 import EmptyState from '../components/EmptyState.vue'
+import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import AppsPanel from './analytics/AppsPanel.vue'
+import AutoPanel from './analytics/AutoPanel.vue'
+import CostPanel from './analytics/CostPanel.vue'
 
-const d = ref(null)
-const days = ref(0)
-const RANGES = [[0, '全部'], [90, '最近 90 天'], [30, '最近 30 天']]
+const VIEWS = [['apps', '求职成效'], ['auto', '自动化效率'], ['ai', 'AI 成本']]
+const RANGES = [['0', '全部'], ['90', '最近 90 天'], ['30', '最近 30 天'], ['custom', '自定义']]
+const SUBS = {
+  apps: '投出去的申请结果怎么样，什么样的岗位更容易有回音，哪些机会错过了。按投递日期统计。',
+  auto: '程序的每一类任务跑了多少次、成了多少、卡在哪里、花了多少 AI。按任务开始的日期统计。',
+  ai: '模型调用用了多少 Token、折合多少钱，花在哪个模型和哪项功能上。按调用发生的日期统计。',
+}
+const route = useRoute()
+const router = useRouter()
+const view = ref(VIEWS.some(([k]) => k === route.query.view) ? route.query.view : 'apps')
+const range = reactive({ mode: '0', start: '', end: '' })
+const params = reactive({ auto: { kind: '' }, ai: { group: 'model', bucket: '', provider: '', model: '', feature: '' } })
+const state = reactive({ apps: { data: null, error: '', loading: false }, auto: { data: null, error: '', loading: false }, ai: { data: null, error: '', loading: false } })
+const PATH = { apps: '/analytics', auto: '/analytics/automation', ai: '/analytics/ai' }
+const ready = computed(() => range.mode !== 'custom' || (range.start && range.end && range.start <= range.end))
 
-async function load() { d.value = await api.get('/analytics?days=' + days.value) }
-watch(days, load)
+let seq = 0
+async function load() {
+  if (!ready.value) return
+  const v = view.value
+  const st = state[v]
+  const mine = ++seq
+  st.loading = true
+  st.error = ''
+  try {
+    const d = await api.get(PATH[v] + rangeQuery(range, params[v] || {}))
+    if (mine === seq) st.data = d
+  } catch (e) {
+    if (mine === seq) st.error = e.message || '没有读到数据'
+  } finally {
+    if (mine === seq) st.loading = false
+  }
+}
+function pick(v) {
+  view.value = v
+  router.replace({ query: v === 'apps' ? {} : { view: v } })
+}
+watch([view, () => range.mode, () => range.start, () => range.end, () => ({ ...params.auto }), () => ({ ...params.ai })], load, { deep: true })
 onMounted(load)
-
-// "A reply" here means a human decision (test, interview, offer or rejection); an automatic receipt is counted separately.
-const real = (r) => r.positive + r.rejected
-const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
-const t = computed(() => d.value.total)
-const funnel = computed(() => [
-  { label: '投出', value: t.value.n },
-  { label: '收到确认信或任何回复', value: t.value.replied },
-  { label: '有明确结果（进展或被拒）', value: real(t.value) },
-  { label: '笔试 / 面试 / Offer', value: t.value.positive },
-])
-const monthly = computed(() => d.value.by_month.map((m) => ({ label: m.label.slice(2).replace('-', '/'), value: m.n, tip: m.label + ' 投出' })))
-const thin = (r) => r.n < 5
+const cur = computed(() => state[view.value])
 </script>
 
 <template>
-  <PageHead title="数据分析" sub="投出去的申请结果怎么样，什么样的岗位更容易有回音，以及哪些机会错过了。">
-    <div class="seg"><button v-for="[v, l] in RANGES" :key="v" :class="{ on: days === v }" @click="days = v">{{ l }}</button></div>
+  <PageHead title="数据分析" :sub="SUBS[view]">
+    <div class="seg"><button v-for="[v, l] in RANGES" :key="v" :class="{ on: range.mode === v }" @click="range.mode = v">{{ l }}</button></div>
   </PageHead>
 
-  <template v-if="d && t.n">
-    <div class="grid-4" style="margin-bottom: 16px">
-      <div class="stat"><div class="n">{{ t.n }}</div><div class="l">个申请已投出</div></div>
-      <div class="stat"><div class="n">{{ pct(real(t), t.n) }}%</div><div class="l">有明确结果（{{ real(t) }} 个）</div></div>
-      <div class="stat"><div class="n" :style="t.positive ? 'color: var(--ok)' : ''">{{ pct(t.positive, t.n) }}%</div><div class="l">进入笔试 / 面试（{{ t.positive }} 个）</div></div>
-      <div class="stat"><div class="n">{{ d.median_wait_days == null ? '—' : d.median_wait_days ? d.median_wait_days + ' 天' : '当天' }}</div><div class="l">通常多久等到结果（不算自动确认信<span v-if="d.waited">，{{ d.waited }} 个有记录</span>）</div></div>
+  <div class="an-bar">
+    <div class="seg" role="tablist">
+      <button v-for="[v, l] in VIEWS" :key="v" role="tab" :aria-selected="view === v" :class="{ on: view === v }" @click="pick(v)">{{ l }}</button>
     </div>
+    <template v-if="range.mode === 'custom'">
+      <span class="grow"></span>
+      <label class="small muted">从 <input v-model="range.start" type="date" :max="range.end || undefined" aria-label="开始日期" /></label>
+      <label class="small muted">到 <input v-model="range.end" type="date" :min="range.start || undefined" aria-label="结束日期" /></label>
+    </template>
+  </div>
 
-    <div class="cols">
-      <div class="card">
-        <div class="card-title">申请漏斗</div>
-        <p class="muted small" style="margin: 2px 0 14px">每一步还剩多少个申请</p>
-        <div class="hbars">
-          <template v-for="r in funnel" :key="r.label">
-            <span class="lab">{{ r.label }}</span>
-            <div class="track" :title="`${r.label}：${r.value} 个`"><div class="fill" :class="{ zero: !r.value }" :style="{ width: pct(r.value, t.n) + '%' }"></div></div>
-            <span class="num">{{ r.value }} <span class="muted small" style="font-weight: 400">{{ pct(r.value, t.n) }}%</span></span>
-          </template>
-        </div>
-        <p class="hint" style="margin-top: 14px">被拒 {{ t.rejected }} 个 · 还没有任何回音 {{ t.n - t.replied }} 个</p>
-      </div>
-
-      <div class="card">
-        <div class="card-title">每个月投了多少</div>
-        <p class="muted small" style="margin: 2px 0 14px">按提交月份</p>
-        <ColumnChart :data="monthly" unit=" 个" table-label="月份" />
-      </div>
-    </div>
-
-    <div class="cols">
-      <div class="card">
-        <div class="card-title">评分高的岗位更容易有回音吗</div>
-        <p class="muted small" style="margin: 2px 0 14px">各评分段里，有明确结果的申请占多少。用来检验评分规则准不准。</p>
-        <div class="hbars">
-          <template v-for="r in d.by_score" :key="r.label">
-            <span class="lab">{{ r.label }} 分</span>
-            <div class="track rate" :title="`${r.label} 分：投 ${r.n} 个，${real(r)} 个有明确结果，其中 ${r.positive} 个进展`"><div class="fill" :class="{ zero: !real(r) }" :style="{ width: pct(real(r), r.n) + '%' }"></div></div>
-            <span class="num">{{ thin(r) ? '—' : pct(real(r), r.n) + '%' }} <span class="muted small" style="font-weight: 400">{{ real(r) }}/{{ r.n }}</span></span>
-          </template>
-        </div>
-        <p class="hint" style="margin-top: 14px">少于 5 个申请的评分段不算比例，样本太少。</p>
-      </div>
-
-      <div class="card">
-        <div class="card-title">在哪里投的更容易有回音</div>
-        <p class="muted small" style="margin: 2px 0 14px">按投递渠道</p>
-        <div class="hbars">
-          <template v-for="r in d.by_channel" :key="r.label">
-            <span class="lab">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${real(r)} 个有明确结果`"><div class="fill" :class="{ zero: !real(r) }" :style="{ width: pct(real(r), r.n) + '%' }"></div></div>
-            <span class="num">{{ thin(r) ? '—' : pct(real(r), r.n) + '%' }} <span class="muted small" style="font-weight: 400">{{ real(r) }}/{{ r.n }}</span></span>
-          </template>
-        </div>
-        <div class="card-title" style="margin-top: 22px">按方向</div>
-        <div class="hbars" style="margin-top: 12px">
-          <template v-for="r in d.by_direction" :key="r.label">
-            <span class="lab">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${real(r)} 个有明确结果`"><div class="fill" :class="{ zero: !real(r) }" :style="{ width: pct(real(r), r.n) + '%' }"></div></div>
-            <span class="num">{{ thin(r) ? '—' : pct(real(r), r.n) + '%' }} <span class="muted small" style="font-weight: 400">{{ real(r) }}/{{ r.n }}</span></span>
-          </template>
-        </div>
-      </div>
-    </div>
-
-    <div class="cols">
-      <div class="card">
-        <div class="row"><span class="card-title grow">错过的好岗位</span><span class="badge" :class="d.missed_total ? 'warn' : 'ok'">{{ d.missed_total }} 个</span></div>
-        <p class="muted small" style="margin: 2px 0 10px">评分 7.5 以上、但截止或下线时还没投的。</p>
-        <div class="list">
-          <router-link v-for="m in d.missed" :key="m.id" :to="{ path: '/jobs', query: { open: m.id } }" class="item" style="color: inherit; text-decoration: none">
-            <span class="score hi" style="min-width: 28px">{{ m.score.toFixed(1) }}</span>
-            <div><div class="main">{{ m.company }}</div><div class="sub">{{ m.title }}</div></div>
-            <span class="small muted nowrap">{{ m.why }}</span>
-          </router-link>
-        </div>
-        <EmptyState v-if="!d.missed.length" icon="check" title="没有错过高分岗位" />
-      </div>
-
-      <div class="card">
-        <div class="card-title">程序替你做了多少</div>
-        <div class="grid-3" style="margin: 12px 0 16px">
-          <div><div style="font-size: 22px; font-weight: 700">{{ d.automation.reduce((a, r) => a + r.ok, 0) }}</div><div class="small muted">次自动填表成功</div></div>
-          <div><div style="font-size: 22px; font-weight: 700">{{ d.automation.reduce((a, r) => a + r.failed, 0) }}</div><div class="small muted">次没有完成</div></div>
-          <div><div style="font-size: 22px; font-weight: 700">{{ d.llm.calls }}</div><div class="small muted">次 AI 调用</div></div>
-        </div>
-        <table v-if="d.automation.length">
-          <thead><tr><th>招聘系统</th><th>成功</th><th>没完成</th></tr></thead>
-          <tbody><tr v-for="r in d.automation" :key="r.label"><td>{{ r.label }}</td><td>{{ r.ok }}</td><td>{{ r.failed }}</td></tr></tbody>
-        </table>
-        <p class="hint" style="margin-top: 12px">大部分已投的申请是在用这个程序之前手动投的，所以这里的次数还很少。</p>
-      </div>
-    </div>
+  <div v-if="!ready" class="card"><EmptyState icon="activity" title="选一个开始日期和结束日期" text="两个日期都算在内。" /></div>
+  <div v-else-if="cur.error" class="callout bad"><Icon name="alert" /><div><b>这一页的数据没有读出来</b><div class="small">{{ cur.error }}</div><button class="sm" style="margin-top: 8px" @click="load">再试一次</button></div></div>
+  <template v-else-if="!cur.data">
+    <div class="kpis"><div v-for="i in 4" :key="i" class="skel" style="height: 84px; margin: 0"></div></div>
+    <div class="skel" style="height: 240px"></div>
   </template>
-  <div v-else-if="d" class="card"><EmptyState icon="activity" title="这段时间没有投出申请" text="换一个时间范围看看。" /></div>
+  <div v-else :style="{ opacity: cur.loading ? 0.55 : 1, transition: 'opacity 0.15s' }" :aria-busy="cur.loading">
+    <AppsPanel v-if="view === 'apps'" :d="state.apps.data" />
+    <AutoPanel v-else-if="view === 'auto'" :d="state.auto.data" :params="params.auto" />
+    <CostPanel v-else :d="state.ai.data" :params="params.ai" @reload="load" />
+  </div>
 </template>

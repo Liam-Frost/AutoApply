@@ -263,7 +263,7 @@ def test_the_ai_view_adds_up_and_keeps_unknown_apart_from_zero(app_env):
     units = {u["kind"]: u for u in d["units"]}
     assert (units["score"]["results"], units["score"]["per_result"]) == (10, 400)
     assert (units["recon"]["runs"], units["recon"]["failed_runs"], units["recon"]["results"], units["recon"]["cost"], units["recon"]["per_result"]) == (2, 1, 1, 100000, 100000)
-    assert units["execute"]["partial"] is True and units["execute"]["per_result"] is None      # some of its requests have no cost: no figure rather than a low one
+    assert units["execute"]["partial"] is True and units["execute"]["per_result"] == 9000     # some of its requests have no cost: a lower bound, marked as one
     # what failures and repeats cost
     w = d["waste"]
     assert w["failed_requests"] == {"requests": 2, "cost": 30000, "unknown": 1} and w["backup_attempts"] == {"requests": 1, "cost": 9000, "unknown": 0}

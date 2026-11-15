@@ -447,3 +447,77 @@ button.danger.solid { background: var(--bad); border-color: var(--bad); color: #
 .emp-cat { margin-top: 14px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-md); }
 button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--surface); }
 .seg.lang { margin-bottom: 8px; width: 100%; } .seg.lang button { flex: 1; padding: 3px 8px; font-size: var(--fs-xs); }
+
+/* ───────────────────────── 7. Analysis page ───────────────────────── */
+/* Several series: six hues in a fixed order, checked as a set on both surfaces (docs/DESIGN_SYSTEM.md). Never cycled:
+   a seventh series is folded into "other". Text beside a mark wears text tokens, never these. */
+:root { --chart-2: #eb6834; --chart-3: #1baf7a; --chart-4: #eda100; --chart-5: #e87ba4; --chart-6: #008300; --chart-other: #a7b1c0; --chart-soft: #86b6ef; --chart-deep: #104281; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --chart-2: #d95926; --chart-3: #199e70; --chart-4: #c98500; --chart-5: #d55181; --chart-6: #008300; --chart-other: #5d6b80; --chart-soft: #1c5cab; --chart-deep: #86b6ef; }
+}
+:root[data-theme="dark"] { --chart-2: #d95926; --chart-3: #199e70; --chart-4: #c98500; --chart-5: #d55181; --chart-6: #008300; --chart-other: #5d6b80; --chart-soft: #1c5cab; --chart-deep: #86b6ef; }
+
+.an-bar { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin-bottom: var(--s4); }
+.an-bar input[type=date] { padding: 5px 8px; font-size: var(--fs-sm); }
+/* KPI tiles: the figure, what it is, and - only when there is something to compare with - the change */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s3) var(--s4); box-shadow: var(--shadow-sm); min-width: 0; }
+.kpi .n { font-size: var(--fs-2xl); font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi .n.ok { color: var(--ok); } .kpi .n.na { color: var(--text-3); }
+.kpi .l { color: var(--text-2); font-size: var(--fs-sm); margin-top: 2px; }
+.kpi .d { color: var(--text-3); font-size: var(--fs-xs); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi[title] .l::after { content: " ⓘ"; color: var(--text-3); font-size: 11px; }
+/* cards sized by what is in them: a grid of twelve, rows that do not stretch their neighbours */
+.an-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--s4); align-items: start; margin-bottom: var(--s4); }
+.an-grid > .card { margin: 0; min-width: 0; }
+.an-grid > .w4 { grid-column: span 4; } .an-grid > .w5 { grid-column: span 5; } .an-grid > .w6 { grid-column: span 6; } .an-grid > .w7 { grid-column: span 7; }
+.an-grid > .w8 { grid-column: span 8; } .an-grid > .w12 { grid-column: span 12; }
+.card-sub { color: var(--text-2); font-size: var(--fs-xs); margin: 2px 0 var(--s3); }
+.card-head { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+.card-head .card-title { flex: 1; min-width: 0; }
+/* one bar split into parts that add up to the whole; a 2px gap of the surface colour separates the parts */
+.splitbar { display: flex; height: 14px; gap: 2px; border-radius: 4px; overflow: hidden; background: var(--surface); }
+.splitbar > i { display: block; height: 100%; min-width: 3px; }
+.splitbar.empty { background: var(--neutral-soft); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--s2); }
+.legend > span, .legend > button { display: inline-flex; align-items: center; gap: 6px; }
+.legend > button { border: 0; background: transparent; padding: 0; font-weight: 400; color: var(--text-2); font-size: var(--fs-sm); }
+.legend > button:hover { background: transparent; color: var(--text); } .legend > button.off { opacity: 0.45; text-decoration: line-through; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
+.legend b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.legend.rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; }
+/* stacked columns */
+.chart.stack .col .stackcol { width: min(24px, 70%); display: flex; flex-direction: column-reverse; gap: 2px; justify-content: flex-start; }
+.chart.stack .col .stackcol > i { display: block; width: 100%; min-height: 2px; }
+.chart.stack .col .stackcol > i:last-child { border-radius: 4px 4px 0 0; }
+.chart.stack .col:hover .stackcol { opacity: 0.85; }
+.chart .tip.multi { white-space: normal; min-width: 170px; text-align: left; line-height: 1.5; }
+.chart .tip.multi .r { display: flex; justify-content: space-between; gap: 14px; } .chart .tip.multi .r i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 6px; }
+.chart .tip.multi .h { font-weight: 650; margin-bottom: 2px; }
+/* compact tables inside cards */
+.an-table { font-size: var(--fs-sm); }
+.an-table th { position: static; background: transparent; padding: 6px 10px; border-bottom: 1px solid var(--border-strong); }
+.an-table td { padding: 8px 10px; vertical-align: middle; }
+.an-table .num, .an-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.an-table .name { font-weight: 550; overflow-wrap: anywhere; }
+.an-table td:first-child { min-width: 170px; }
+.an-grid .empty, .an-tight .empty { padding: var(--s4) var(--s3); }
+.an-table .splitbar { height: 8px; min-width: 90px; }
+.an-scroll { overflow-x: auto; }
+.share { display: inline-block; width: 64px; height: 6px; border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; vertical-align: middle; margin-right: 8px; }
+.share > i { display: block; height: 100%; background: var(--chart-1); border-radius: var(--r-pill); }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3) var(--s4); }
+.figs .v { font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; } .figs .v.na { color: var(--text-3); }
+.figs .k { color: var(--text-2); font-size: var(--fs-xs); }
+.hbars.tight { gap: 8px 12px; } .hbars .fill.bad { background: var(--bad); } .hbars .fill.ok { background: var(--ok); }
+.hbars .lab.wrap { max-width: 230px; white-space: normal; }
+.missed { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 var(--s5); }
+.missed a { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); color: inherit; }
+.missed a:hover { text-decoration: none; } .missed a:hover .main { color: var(--primary); }
+.missed .main { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .missed .sub { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skel { height: 120px; border-radius: var(--r-md); background: linear-gradient(90deg, var(--surface-2), var(--neutral-soft), var(--surface-2)); background-size: 200% 100%; animation: skel 1.4s ease-in-out infinite; margin-bottom: var(--s4); }
+@keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+tr.sub-row > td { background: var(--surface-2); padding: 10px 14px; }
+@media (max-width: 1100px) { .an-grid > .w4, .an-grid > .w5, .an-grid > .w6, .an-grid > .w7, .an-grid > .w8 { grid-column: span 12; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .kpis { grid-template-columns: 1fr; } .hbars .lab.wrap { max-width: 150px; } .missed { grid-template-columns: 1fr; } }

@@ -4,6 +4,43 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-15
+
+### The analysis page
+
+The page is now three views over one time range (everything, the last 30 or 90 days, or your own dates), each with the
+change against the period before where there is one to compare with.
+
+- **Applications.** The funnel counts what an application *has been* (an interview before a rejection still counts as
+  an interview), each step a part of the one before; next to it, where every application stands now, adding up to the
+  total. Months follow local time. Groups with fewer than five applications show counts, not percentages. Replies by
+  the month they arrived are shown apart from outcomes by the month of sending. Missed postings show why and when.
+- **Automation.** What the program's tasks did: done, not finished (handed to you, waiting for you, still running) and
+  failed are told apart - a filling task that handed the form over is not a failure and not a success. Success rate,
+  typical duration, why tasks failed and how far they had got, repeats and retries, and the AI cost per success. Each
+  run opens to the model requests it made. There is no "hours saved": the program has no record of how long the same
+  work takes by hand.
+- **AI cost.** What the model calls used and what that comes to, over time and by model, service and feature; tokens
+  by kind (input, cache read, cache write, output) by count and by cost; cost per result (everything a kind of task
+  spent, failed runs included, over what it produced); what failures, retries on a backup service and repeated runs
+  cost; and the runs and requests far above the others of their kind (by Tukey's fence, not a made-up threshold).
+
+### Recording what the AI costs
+
+- Every request to an AI service is recorded: service, model, the feature and the task that asked, how long it took,
+  how it ended, and tokens by kind. Failed requests are kept too, and a retry on a backup service is tied to the call
+  it repeats.
+- Tokens are counted one way for every service. Cached tokens that a service includes in its prompt count are taken
+  out; reasoning tokens are part of the output and not added to it. What the service reported is kept word for word.
+- Cost is an estimate at list price unless the service reports a cost itself (the Claude subscription's command line
+  does). Claude models have built-in prices; for other models you enter your own on the page, and earlier requests
+  are estimated again. A call within a subscription costs nothing extra: its figure is what it would cost on the
+  pay-as-you-go API, and is shown apart from pay-as-you-go cost. A request whose usage or price is not known has no
+  cost - it is listed as such and never counted as zero.
+- Every change of an application's status is kept from now on, and tasks remember the steps they went through.
+- Totals from before (calls and tokens per task) are carried over as history, without a model and without a cost:
+  neither was recorded then, and neither is made up.
+
 ### Security
 
 - The local server now refuses requests that do not come from its own pages. It has no login and relies on being reachable

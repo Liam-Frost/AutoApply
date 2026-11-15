@@ -1301,20 +1301,9 @@ def pdportal_bookmarklet() -> dict[str, Any]:
 def analytics(days: int = 0, start: str = "", end: str = "") -> dict[str, Any]:
     """What came of the applications sent in the window: the last ``days`` days, or local dates ``start``..``end``
     (inclusive), or everything. The other two views of the analysis page are below."""
-    from collections import defaultdict
-
     from .. import analytics as an
 
-    out = an.applications(an.window(days, start, end))
-    # the two blocks the page showed before the automation and AI views existed; kept until the page stops reading them
-    with db.session() as s:
-        by_sys: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-        for r in s.query(Run).filter(Run.kind == "execute"):
-            by_sys[humanize.ats_name(r.ats) or "其他"][0 if r.ok else 1] += 1
-        calls = s.query(func.sum(Run.llm_calls), func.sum(Run.input_tokens), func.sum(Run.output_tokens)).first()
-    out["automation"] = [{"label": k, "ok": v[0], "failed": v[1]} for k, v in sorted(by_sys.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))]
-    out["llm"] = {"calls": calls[0] or 0, "input_tokens": calls[1] or 0, "output_tokens": calls[2] or 0}
-    return out
+    return an.applications(an.window(days, start, end))
 
 
 @app.get("/api/analytics/automation")

@@ -287,7 +287,7 @@ def _bucket_fn(w: Window, firsts: list[datetime], bucket: str = "") -> tuple[str
             return d.strftime("%Y-%m-%d"), d.strftime("%m/%d")
         if size == "week":
             mon = d - timedelta(days=d.weekday())
-            return mon.strftime("%Y-%m-%d"), mon.strftime("%m/%d") + " 起"
+            return mon.strftime("%Y-%m-%d"), mon.strftime("%m/%d")
         return d.strftime("%Y-%m"), d.strftime("%y/%m")
 
     return size, key
@@ -323,7 +323,8 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         by_kind.append({"kind": k, "label": metering.workflow_label(k), **c, "median_s": _median(ran), "p90_s": ran[int(len(ran) * 0.9)] if len(ran) >= 10 else None,
                         "retried": sum(1 for r in rs if r["attempts"] > 1), **a,
                         # everything spent on this kind of task, the failed runs included, over the ones that succeeded
-                        "cost_per_success": round(a["cost"] / c["success"]) if a["cost"] is not None and c["success"] and not a["cost_unknown_requests"] else None,
+                        # (a lower bound when some of its requests have no cost: the page shows it as "at least")
+                        "cost_per_success": round(a["cost"] / c["success"]) if a["cost"] is not None and c["success"] else None,
                         "waits_for_you": k == "execute"})
     bad = [r for r in shown if r["outcome"] in ("failed", "interrupted")]
     reasons: dict[str, dict[str, Any]] = {}
@@ -507,23 +508,24 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
                 c["cost"] += r.cost_micros
     in_window = [t for t in tasks.values() if w.has(t["at"])]
 
-    def unit(kind: str, label: str, unit_name: str, achieved: Callable[[dict[str, Any]], int]) -> dict[str, Any] | None:
+    def unit(kind: str, label: str, unit_name: str, per_label: str, achieved: Callable[[dict[str, Any]], int]) -> dict[str, Any] | None:
         ts = [t for t in in_window if t["kind"] == kind]
         spent = [cost_by_task[t["id"]] for t in ts if t["id"] in cost_by_task]
         done = sum(achieved(t) for t in ts)
         if not spent:
             return None
         cost, unknown = sum(c["cost"] for c in spent), sum(c["unknown"] for c in spent)
-        return {"kind": kind, "label": label, "unit": unit_name, "results": done, "runs": len(ts), "failed_runs": sum(1 for t in ts if t["outcome"] in ("failed", "interrupted")),
-                "requests": sum(c["requests"] for c in spent), "cost": cost, "partial": bool(unknown), "per_result": round(cost / done) if done and not unknown else None}
+        return {"kind": kind, "label": label, "unit": unit_name, "per_label": per_label, "results": done, "runs": len(ts), "failed_runs": sum(1 for t in ts if t["outcome"] in ("failed", "interrupted")),
+                "requests": sum(c["requests"] for c in spent), "cost": cost if any(c["cost"] for c in spent) or not unknown else None, "partial": bool(unknown),
+                "per_result": round(cost / done) if done and (cost or not unknown) else None}       # with ``partial``: at least this much
 
     ok = lambda t: 1 if t["outcome"] == "success" else 0  # noqa: E731
     units = [u for u in (
-        unit("score", "给岗位评分", "个评完分的岗位", lambda t: int(t["result"].get("scored") or (1 if t["outcome"] == "success" and "score" in t["result"] else 0))),
-        unit("recon", "读取申请表、生成草案", "份生成的草案", ok),
-        unit("execute", "填写申请表", "份填好的申请表（已提交或交给你提交）", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
-        unit("revise", "按意见修改草案", "次完成的修改", ok), unit("tailor", "按岗位调整简历", "份调整好的简历", ok),
-        unit("mail", "查收邮件", "封处理的新邮件", lambda t: int(t["result"].get("new_mail") or 0)),
+        unit("score", "给岗位评分", "评完分的岗位", "每个评完分的岗位", lambda t: int(t["result"].get("scored") or (1 if t["outcome"] == "success" and "score" in t["result"] else 0))),
+        unit("recon", "读取申请表、生成草案", "生成的草案", "每份生成的草案", ok),
+        unit("execute", "填写申请表", "填好的申请表（已提交或交给你提交）", "每份填好的申请表", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("revise", "按意见修改草案", "完成的修改", "每次完成的修改", ok), unit("tailor", "按岗位调整简历", "调整好的简历", "每份调整好的简历", ok),
+        unit("mail", "查收邮件", "处理的新邮件", "每封处理的新邮件", lambda t: int(t["result"].get("new_mail") or 0)),
     ) if u]
 
     # --- what failures and repeats cost -----------------------------------------------------------
@@ -544,7 +546,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
     fail_by_feature = table(lambda r: r.feature if r.task_id in failed_tasks else None, lambda k, rs: {"feature": k, "label": metering.feature_label(k) if k is not None else ""})
     waste = {"failed_requests": spent(r for r in live if r.status != "ok"), "backup_attempts": spent(r for r in live if r.attempt > 0),
              "failed_tasks": spent(r for r in live if r.task_id in failed_tasks), "repeated_tasks": spent(r for r in live if r.task_id in repeat_tasks),
-             "by_feature": [{"feature": f["feature"], "label": f["label"], "requests": f["requests"], "cost": f["cost"]} for f in fail_by_feature if f["feature"] is not None][:6]}
+             "by_feature": [{"feature": f["feature"], "label": f["label"], "requests": f["requests"], "cost": f["cost"]} for f in fail_by_feature if f["feature"] is not None and f["cost"]][:6]}
 
     # --- unusually expensive: far above the others of the same kind (Tukey's fence), not above a made-up number ---------------
     per_kind: dict[str, list[tuple[int, int]]] = defaultdict(list)
@@ -561,7 +563,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
                            "tokens": cost_by_task[tid]["tokens"], "outcome": tasks[tid]["outcome"], "outcome_label": OUTCOMES[tasks[tid]["outcome"]], "at": tasks[tid]["at"].isoformat(),
                            "ref": tasks[tid]["ref"]})
     costly.sort(key=lambda r: -r["cost"])
-    costly = costly[:10]
+    costly = costly[:6]
     per_feature: dict[str, list[Any]] = defaultdict(list)
     for r in live:
         if r.detail != "none":
@@ -582,7 +584,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
         "series": series, "trend": [{**b, "values": dict(b["values"]), "token_values": dict(b["token_values"])} for _, b in sorted(buckets.items())],
         "token_kinds": [{"key": k, "label": lab, "tokens": total["tokens"][k], "cost": kind_cost.get(k) if split_rows else None} for k, lab in TOKEN_KINDS],
         "token_cost_requests": split_rows, "billing_labels": BILLING,
-        "by_model": by_model, "by_provider": by_provider, "by_feature": by_feature, "units": units, "waste": waste, "costly": costly, "heavy": heavy[:8],
+        "by_model": by_model, "by_provider": by_provider, "by_feature": by_feature, "units": units, "waste": waste, "costly": costly, "heavy": heavy[:5],
         "filters": {"providers": opts(lambda r: r.provider, _provider_label), "models": opts(lambda r: r.model, lambda k: k), "features": opts(lambda r: r.feature, metering.feature_label),
                     "provider": provider, "model": model, "feature": feature},
         "pricing": {"version": metering.price_table()["version"], "user": metering.user_prices(),

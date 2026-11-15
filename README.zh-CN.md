@@ -56,6 +56,9 @@
 <td><img src="docs/images/jobs-zh.webp" alt="岗位"><br><sub><b>岗位</b>，评分排序，每份申请到了哪一步一目了然。</sub></td>
 <td><img src="docs/images/failover-zh.webp" alt="备用 AI 服务"><br><sub><b>备用 AI 服务</b>，以及每家还剩多少额度。</sub></td>
 </tr>
+<tr>
+<td colspan="2"><img src="docs/images/analytics-zh.webp" alt="AI 成本"><br><sub><b>AI 花了多少。</b>每次模型请求都有记录：各类 Token、按模型和功能的成本、每个成果的成本、失败花掉的钱。</sub></td>
+</tr>
 </table>
 
 ## 它不做什么
