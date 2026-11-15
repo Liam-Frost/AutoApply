@@ -93,6 +93,12 @@ def _reanswer(t: Task) -> dict[str, Any]:
     return drafts.reanswer(int(t.payload["draft_id"]))
 
 
+@handler("scout")
+def _scout(t: Task) -> dict[str, Any]:
+    """Read the later steps of a form by walking it with the draft's answers (nothing is submitted)."""
+    return drafts.scout(int(t.payload["draft_id"]), task_id=t.id)
+
+
 @handler("revise")
 def _revise(t: Task) -> dict[str, Any]:
     return drafts.revise(int(t.payload["draft_id"]), t.payload["comment"])

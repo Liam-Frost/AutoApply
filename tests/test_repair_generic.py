@@ -1051,3 +1051,156 @@ def test_a_draft_names_the_steps_that_could_not_be_read(app_env):
             "they are read the first time the form is filled, and what they ask is added to this draft.")
     zh = humanize.notes([note])[0] if hasattr(humanize, "notes") else humanize.note(note)
     assert "Work Eligibility (not yet visible); Acknowledgement" in zh and "读不到" in zh
+
+
+LOCKED_STEPS = r"""<main><h1 id="t"></h1><div id="pane"></div>
+<script>
+  window.submitted = false; const saved = {};
+  const steps = {
+    contact: () => ['Contact information', '<label for="a">City</label><input id="a" required><button onclick="if (document.getElementById(\'a\').value) { saved.city = document.getElementById(\'a\').value; go(\'work\') }">Continue</button>'],
+    work: () => ['Work Eligibility', '<label for="legal">Legal First Name</label><input id="legal" required>'
+        + '<fieldset role="radiogroup" aria-required="true"><legend>Have you been a government employee in the past three years?</legend>'
+        + '<label><input type="radio" name="gov" value="no">No, never</label> <label><input type="radio" name="gov" value="yes">Yes</label></fieldset>'
+        + '<div id="err" role="alert"></div><button onclick="nextw()">Continue</button>'],
+    review: () => ['Review & submit', '<p>City: ' + saved.city + '</p><p>Legal First Name: ' + saved.legal + '</p><p>Government employee: ' + saved.gov + '</p><button onclick="window.submitted = true">Submit application</button>'],
+  };
+  function nextw() {
+    const g = document.querySelector('input[name=gov]:checked'), l = document.getElementById('legal').value;
+    if (!l || !g) { document.getElementById('err').textContent = 'This field is required'; return; }
+    saved.legal = l; saved.gov = g.value; go('review');
+  }
+  function go(name) { const [t, html] = steps[name](); document.getElementById('t').textContent = t; document.getElementById('pane').innerHTML = html; }
+  go('contact');
+</script></main>"""
+
+
+def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answers(app_env, tmp_path, monkeypatch):
+    """The second step of this form opens only once the first is filled, so reading the form without filling anything saw
+    one step. Before the applicant approves anything, the form is walked with the draft's own answers: the next step is
+    read, what the profile answers is added, what only the applicant can answer comes back as an open question - and when
+    they answer it, the walk goes on to the review page. Nothing is submitted and no window is handed to anyone."""
+    from autoapply import db, drafts, executor, knowledge, llm
+    from autoapply.ats.base import FormSchema, JobRef, Question
+    from autoapply.models import Application, Draft, Job, Run, Task, Todo
+
+    form = tmp_path / "locked.html"
+    form.write_text(LOCKED_STEPS, encoding="utf-8")
+    knowledge.write("profile", "# Profile\n\n- Name on documents: Alexander Chen\n")
+    schema = FormSchema(ats="generic", tenant="locked.example.test", url=form.as_uri(), source="agent", pages=["Contact information", "Work Eligibility (not yet visible)", "Review & submit"],
+                        questions=[Question(id="#a", label="City", type="text", required=True, page=0, locator={"selector": "#a"})])
+    assert drafts.unseen_steps(schema) == ["Work Eligibility (not yet visible)"]
+    schema.extra["unseen"] = drafts.unseen_steps(schema)
+    ref = JobRef(ats="generic", tenant="locked.example.test", job_id="", url=form.as_uri(), host="locked.example.test")
+    with db.session() as s:
+        job = Job(source="manual", source_id="lock1", company="Acme", title="Analyst", apply_url=form.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        app = Application(job_id=job.id, status="recon")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, schema={**schema.to_dict(), "_ref": ref.__dict__}, review_status="pending", notes=["Steps of this form that could not be read yet: Work Eligibility (not yet visible). x"],
+                  answers=[{"id": "#a", "label": "City", "type": "text", "options": [], "required": True, "page": 0, "value": "Vancouver", "basis": "profile",
+                            "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+        s.add(d)
+        s.flush()
+        app_id, did = app.id, d.id
+    db.set_setting("repair.enabled", True)
+    label = "Have you been a government employee in the past three years?"
+    calls = []
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        t = {x.name: x for x in tools}
+        calls.append("fix" if "check_form" in t else "nav")
+        t["fill"].fn(selector="#legal", value="Alexander")
+        t["done"].fn(fixed=[], unfixed=[], cause="A step the draft had not seen.", suggestion="",
+                     added=[{"label": "Legal First Name", "value": "Alexander", "basis": "Name on documents: Alexander Chen", "type": "text"}],
+                     needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
+        return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("a scouting walk never hands a window to the applicant")))
+    out = drafts.scout(did)
+
+    assert (out["status"], out["reached_review"], out["stopped_at"], out["added"], out["asked"]) == ("scouted", False, "Work Eligibility", 1, 1) and calls == ["fix"]
+    with db.session() as s:
+        d = s.get(Draft, did)
+        by = {a["label"]: a for a in d.answers}
+        assert by["Legal First Name"]["value"] == "Alexander" and by["Legal First Name"]["source"] == "agent_added"      # read from the step and answered from the profile
+        assert by[label]["source"] == "unresolved" and [u["label"] for u in d.unresolved] == [label]                   # only the applicant can answer this one
+        assert d.review_status == "pending" and s.get(Application, app_id).status == "needs_input"                     # the draft is shown with its open question, not as ready
+        assert any(n.startswith('Reading the later steps stopped at "Work Eligibility"') for n in d.notes) and not any(n.startswith("Steps of this form that could not") for n in d.notes)
+        assert d.schema["extra"]["unseen"] and s.query(Todo).filter_by(kind="answer", ref=f"draft:{did}", status="open").count() == 1
+        assert s.query(Run).filter_by(kind="scout").count() == 1 and s.query(Run).filter_by(kind="execute").count() == 0
+
+    # the applicant answers: the walk is queued again by itself and now reaches the review page without any agent
+    drafts.edit_answer(did, "@label:" + label, "No, never")
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="scout", ref=f"draft:{did}", status="queued").count() == 1 and s.get(Application, app_id).status == "recon"
+    monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no agent is needed once every question has an answer")))
+    out = drafts.scout(did)
+    assert (out["status"], out["reached_review"]) == ("scouted", True)
+    with db.session() as s:
+        d = s.get(Draft, did)
+        assert d.schema["extra"]["unseen"] == [] and d.unresolved == [] and s.get(Application, app_id).status == "draft_ready"
+        assert any(n.startswith("The later steps of this form were read") for n in d.notes)
+
+    # approved, the form is filled without an agent and the applicant gets it at the review page - still not submitted by the program
+    drafts.approve(did)
+    handed = {}
+
+    def user_window(driver, page, title, application_id, draft_id=None, **kw):
+        handed.update(kw)
+        handed["state"] = page.evaluate("({title: document.getElementById('t').textContent, submitted: window.submitted, gov: saved.gov, legal: saved.legal})")
+        return {"status": "ready_to_submit", "error": "window closed"}
+
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", user_window)
+    executor.execute(app_id, did)
+    assert handed["state"] == {"title": "Review & submit", "submitted": False, "gov": "no", "legal": "Alexander"} and [x for x in handed["leftovers"] if x["kind"] in ("fix", "form")] == []
+
+
+def test_the_walk_can_be_started_by_hand_for_a_draft_made_before_it_existed(app_env):
+    """A draft from before unread steps were kept says which steps are unread (worked out from its pages), and the walk
+    can be asked for on it - only while it waits for approval and has an answer for every question."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import db, drafts
+    from autoapply.api.main import app
+    from autoapply.models import Application, Draft, Job, Task
+
+    pages = ["Job-specific questions", "Work Eligibility (not yet visible)", "Voluntary Self-Identification (not yet visible)", "Review & submit"]
+    q = {"id": "#a", "label": "City", "type": "text", "required": True, "options": [], "page": 0, "locator": {"selector": "#a"}}
+    answer = {**q, "value": "Vancouver", "basis": "profile", "confidence": "high", "source": "profile", "sensitive": "", "sensitive_confirmed": False}
+    with db.session() as s:
+        job = Job(source="manual", source_id="old1", company="Acme", title="Analyst", apply_url="https://old.example.test/apply", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        a = Application(job_id=job.id, status="draft_ready")
+        s.add(a)
+        s.flush()
+        d = Draft(application_id=a.id, review_status="pending", answers=[answer], notes=[],
+                  schema={"ats": "generic", "tenant": "old.example.test", "url": "https://old.example.test/apply", "source": "agent", "pages": pages, "questions": [q], "extra": {"notes": "x"}})
+        s.add(d)
+        s.flush()
+        app_id, did = a.id, d.id
+    c = TestClient(app)
+    assert c.get(f"/api/drafts/{did}").json()["unseen"] == pages[1:3]            # the review page is not a step to read
+
+    with db.session() as s:      # an open question first: there is nothing to walk the form with
+        s.get(Draft, did).unresolved = [{"id": "@label:Why us?", "label": "Why us?"}]
+    assert c.post(f"/api/drafts/{did}/scout").status_code == 400
+    with db.session() as s:
+        s.get(Draft, did).unresolved = []
+    out = c.post(f"/api/drafts/{did}/scout")
+    assert out.status_code == 200
+    with db.session() as s:
+        t = s.get(Task, out.json()["task_id"])
+        assert (t.kind, t.ref, t.status) == ("scout", f"draft:{did}", "queued") and s.get(Application, app_id).status == "recon"
+
+    with db.session() as s:      # six automatic rounds are the end of walking by itself; the draft does not stay "being read"
+        d = s.get(Draft, did)
+        d.schema = {**d.schema, "extra": {**d.schema["extra"], "scouted": 6}}
+    assert drafts.scout(did) == {"skipped": "walked six times already"}
+    with db.session() as s:
+        assert s.get(Application, app_id).status == "draft_ready"
+        s.get(Draft, did).review_status = "approved"
+    assert c.post(f"/api/drafts/{did}/scout").status_code == 400                    # an approved draft is filled, not read

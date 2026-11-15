@@ -188,9 +188,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
     if schema.source == "agent" and len(schema.pages) > 1:
         # A form with several steps often shows a step only after the ones before it are filled. Steps that had no
         # questions to read are named, so that the draft does not look complete when it is not.
-        unseen = [str(name)[:80] for i, name in enumerate(schema.pages) if not any(q.page == i for q in schema.questions)
-                  and not re.search(r"review|submit|summary|confirm", str(name), re.I)]
+        unseen = unseen_steps(schema)
         if unseen:
+            schema.extra["unseen"] = unseen
             notes.append("Steps of this form that could not be read yet: " + "; ".join(unseen[:8]) + ". The form shows them only after the earlier steps are filled; "
                          "they are read the first time the form is filled, and what they ask is added to this draft.")
     driver = registry.get(ref.ats)
@@ -222,10 +222,20 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         app.status = "needs_input" if res["unresolved"] else "draft_ready"
         s.flush()
         draft_id = d.id
+        to_scout = bool(schema.extra.get("unseen")) and bool(db.get_setting("recon.walk")) and not res["unresolved"]
+        if to_scout:
+            app.status = "recon"      # still being read: the later steps are next
     for old_id in stale:  # their open questions belong to a draft that no longer exists
         notify.close_todos("answer", f"draft:{old_id}")
     if any("No résumé has been uploaded" in n for n in notes):
         notify.add_todo("config", "还没有上传简历", body="草案里的简历栏是空的。请在“个人资料 → 材料”里上传简历，然后重新生成草案。", ref="config:resume")
+    if to_scout:
+        # The form opens its later steps only once the earlier ones are filled: walk it with this draft's answers (no
+        # submitting) to read them, before the applicant is asked to approve anything. The task finishes the draft.
+        from . import tasks
+
+        tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(job.deadline))
+        return draft_id
     if res["unresolved"]:
         qs = "\n".join("· " + str(u["label"])[:90] for u in res["unresolved"][:6])
         notify.add_todo("answer", f"{job.company} · {job.title}", body=f"{len(res['unresolved'])} 个问题没有答案：\n{qs}", ref=f"draft:{draft_id}", payload={"draft_id": draft_id})
@@ -400,11 +410,103 @@ def get(draft_id: int) -> dict[str, Any]:
             "job": {"id": job.id, "company": job.company, "title": job.title, "deadline": job.deadline, "score": job.score,
                     "score_reason": job.score_reason, "apply_url": job.apply_url, "ats": job.ats, "source_id": job.source_id},
             "pages": d.schema.get("pages", []),
+            # steps of the form that have not been read yet (they open only once the earlier ones are filled)
+            "unseen": _unseen_of(d),
             "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": d.plan, "notes": d.notes,
             "auto_approve_check": d.auto_approve_check,
             "submit_mode": _submit_mode(d.schema.get("ats", ""), job.company, d.answers),
             "comments": [{"comment": c.comment, "result": c.result, "created_at": c.created_at.isoformat()} for c in d.comments],
         }
+
+
+def _unseen_of(d: Draft) -> list[str]:
+    extra = d.schema.get("extra") or {}
+    if "unseen" in extra:
+        return list(extra["unseen"] or [])
+    try:      # a draft from before unread steps were kept: work it out from what it recorded
+        raw = {k: v for k, v in d.schema.items() if k != "_ref"}
+        return unseen_steps(FormSchema.from_dict(raw))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def unseen_steps(schema: FormSchema) -> list[str]:
+    """Steps of an explored form that had nothing to read (they open only once the earlier ones are filled)."""
+    if schema.source != "agent" or len(schema.pages or []) < 2:
+        return []
+    return [str(name)[:80] for i, name in enumerate(schema.pages) if not any(q.page == i for q in schema.questions) and not re.search(r"review|submit|summary|confirm", str(name), re.I)]
+
+
+SCOUT_NOTES = ("Steps of this form that could not be read yet", "The later steps of this form were read", "Reading the later steps")
+
+
+def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
+    """Walk the form with the draft's answers to read the steps that were not readable (see executor.execute, scout).
+    Updates the draft with what was found and decides what the applicant sees next: the draft to approve, or the
+    questions only they can answer. Answering those starts the walk again from where it stopped."""
+    from . import executor
+
+    with db.session() as s:
+        d = s.get(Draft, draft_id)
+        if d is None or d.review_status != "pending":
+            return {"skipped": "the draft is no longer pending"}
+        app_id = d.application_id
+        rounds = int((d.schema.get("extra") or {}).get("scouted") or 0)
+        if "unseen" not in (d.schema.get("extra") or {}):      # a draft from before unread steps were kept
+            sch0 = dict(d.schema)
+            sch0["extra"] = {**(sch0.get("extra") or {}), "unseen": _unseen_of(d)}
+            d.schema = sch0
+    if rounds >= 6:      # answering starts the walk again by itself; this is the end of that, not of a walk asked for by hand
+        with db.session() as s:
+            d = s.get(Draft, draft_id)
+            if d.application.status == "recon":      # not left as "being read" for ever
+                d.application.status = "needs_input" if d.unresolved else "draft_ready"
+        return {"skipped": "walked six times already"}
+    try:
+        out = executor.execute(app_id, draft_id, task_id=task_id, scout=True)
+    except NeedsHuman:
+        out = {"status": "needs_human"}
+        raise
+    except Exception as e:  # noqa: BLE001 - the draft must not stay "being read" for ever
+        out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
+    finally:
+        with db.session() as s:
+            d = s.get(Draft, draft_id)
+            app, job = d.application, d.application.job
+            sch = dict(d.schema)
+            extra = dict(sch.get("extra") or {})
+            extra["scouted"] = rounds + 1
+            if out.get("reached_review"):
+                extra["unseen"] = []
+            sch["extra"] = extra
+            d.schema = sch
+            notes = [n for n in (d.notes or []) if not n.startswith(SCOUT_NOTES)]
+            open_n = len(d.unresolved or [])
+            if out.get("status") == "scouted" and out.get("reached_review"):
+                notes.append(f"The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted. "
+                             f"{out.get('added', 0)} answer(s) were added from your profile; {open_n} question(s) need your answer.")
+            elif out.get("status") == "scouted":
+                notes.append(f"Reading the later steps stopped at \"{out.get('stopped_at') or '?'}\": {open_n} question(s) there need your answer. "
+                             "Answer them and the reading goes on from there; nothing was submitted.")
+            elif out.get("status") != "skipped":
+                notes.append("Reading the later steps did not work this time; they are read when the form is filled, and what they ask is added to this draft.")
+            d.notes = notes
+            d.auto_approve_check = {**(d.auto_approve_check or {}), "eligible": False}      # the check was made before these answers existed
+            if d.review_status == "pending" and app.status in ("recon", "draft_ready", "needs_input"):
+                app.status = "needs_input" if d.unresolved else "draft_ready"
+            title, unresolved = f"{job.company} · {job.title}", list(d.unresolved or [])
+            answers = list(d.answers)
+        notify.close_todos("answer", f"draft:{draft_id}")
+        if unresolved:
+            qs = "\n".join("· " + str(u["label"])[:90] for u in unresolved[:6])
+            notify.add_todo("answer", title, body=f"{len(unresolved)} 个问题没有答案：\n{qs}", ref=f"draft:{draft_id}", payload={"draft_id": draft_id})
+        else:
+            from pathlib import Path
+
+            files = [Path(str(v)).name for a in answers if a["type"] == "file" and (v := a.get("value"))]
+            n_ans = sum(1 for a in answers if a["type"] != "file" and a.get("value") not in ("", None, []))
+            notify.send("todo", messages.draft_ready(title, draft_id, answers=n_ans, files=files, why_not_auto=["no_unusual_notes"]), ref=f"draft:{draft_id}")
+    return out
 
 
 def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", remember: bool = False) -> None:
@@ -422,8 +524,16 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         resolved_all = not d.unresolved and d.application.status == "needs_input"
         if resolved_all:
             d.application.status = "draft_ready"
+        # every open question is answered and the form still has steps that were not read: the walk goes on from there
+        walk_on = resolved_all and d.review_status == "pending" and bool((d.schema.get("extra") or {}).get("unseen")) and bool(db.get_setting("recon.walk"))
+        if walk_on:
+            d.application.status = "recon"
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
+    if walk_on:
+        from . import tasks
+
+        tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=20)
     shown = "; ".join(map(str, value)) if isinstance(value, list) else {True: "Yes (tick the box)", False: "No (leave the box unticked)"}.get(value, str(value)) if isinstance(value, bool) else str(value)
     note = save_rule.strip()
     if remember or note:

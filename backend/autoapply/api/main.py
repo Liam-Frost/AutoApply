@@ -427,6 +427,23 @@ def edit_answer(draft_id: int, qid: str, body: dict[str, Any] = Body(...)) -> di
     return get_draft(draft_id)
 
 
+@app.post("/api/drafts/{draft_id}/scout")
+def scout_draft(draft_id: int) -> dict[str, Any]:
+    """Read the steps of the form that open only once the earlier ones are filled, by walking it with this draft's
+    answers in a hidden window. Nothing is submitted; what the steps ask is added to the draft."""
+    with db.session() as s:
+        d = _404(s.get(Draft, draft_id))
+        if d.review_status != "pending":
+            raise HTTPException(400, "只有待审批的草案可以接着读后面的步骤")
+        if d.unresolved:
+            raise HTTPException(400, "先回答草案里还没有答案的问题，程序才能带着答案往下走")
+        sch = dict(d.schema)
+        sch["extra"] = {**(sch.get("extra") or {}), "scouted": 0}      # asked for by hand: the count of automatic rounds starts over
+        d.schema = sch
+        d.application.status = "recon"
+    return {"task_id": tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)}
+
+
 @app.post("/api/drafts/{draft_id}/reanswer")
 def reanswer_draft(draft_id: int) -> dict[str, Any]:
     """Ask the AI again for the questions of this draft that have no answer yet."""

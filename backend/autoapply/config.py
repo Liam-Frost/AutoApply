@@ -38,6 +38,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "llm.provider": "",
     # per service, for the OpenAI-compatible ones and chatgpt: {"openai": {"base_url": "", "model": "", "small_model": ""}}; keys are kept with the secrets
     "llm.providers": {},
+    "recon.walk": True,  # read the later steps of a form by walking it with the draft's answers before approval (never submits)
     "repair.enabled": True,  # let the agent take over a page the driver could not fill (it can never submit)
     "llm.model": "claude-opus-5-5",
     "llm.small_model": "claude-haiku-5-5",

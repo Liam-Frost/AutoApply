@@ -198,7 +198,7 @@ UNFINISHED = ("handed", "waiting", "rerun", "running")       # not a failure: th
 STAGES = {"read_form": "读取申请表", "ensure_session": "登录网站", "open": "打开申请表", "sign_in": "登录网站", "reopen": "打开申请表", "walk": "逐步填写", "fill_step": "填写",
           "fill_page": "填写", "form_reports": "表单校验", "repair": "AI 接手", "repair_skipped": "AI 接手", "read_back": "和草案核对", "unverified": "和草案核对",
           "next": "翻页", "advance": "翻页", "cannot_advance": "翻页", "stuck": "翻页", "not_asked": "和确认页核对", "review_step": "确认页", "handed_over": "交给你提交",
-          "submit": "提交", "email_code": "邮箱验证码", "submitted_in_window": "你已提交", "window_closed": "窗口被关闭"}
+          "submit": "提交", "scouted": "读完后面的步骤", "email_code": "邮箱验证码", "submitted_in_window": "你已提交", "window_closed": "窗口被关闭"}
 
 
 def stage_label(key: str) -> str:
@@ -218,6 +218,8 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
     if kind == "execute":
         st = str((result or {}).get("status") or "")
         return {"submitted": "success", "ready_to_submit": "handed", "needs_human": "waiting", "approved": "rerun"}.get(st, "failed" if st in ("failed", "drifted") else "success")
+    if kind == "scout" and str((result or {}).get("status") or "") in ("failed", "needs_human"):      # the walk itself did not work
+        return "failed"
     return "success"
 
 

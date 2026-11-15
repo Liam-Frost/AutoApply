@@ -106,8 +106,16 @@ runs, a single run with its model requests, and the price editor open in a drawe
   from the page, written into the draft and remembered in your profile, so no form asks it twice. If you do not, the
   draft comes back to you with the question in it (pending again, "needs your answer"); answering and approving it
   starts the filling again.
-- A draft made from a form whose later steps could not be read yet (they open only after the earlier ones are filled)
-  names those steps instead of looking complete.
+- A form whose later steps open only after the earlier ones are filled is now read to the end before you are asked to
+  approve anything. Reading without filling saw only the first step, so the draft looked complete and the rest came up
+  in the middle of filling. Now, once the first draft has an answer for every question, the form is walked in a hidden
+  window with the draft's own answers, step by step, up to the review page; nothing is submitted and no window is handed
+  to you. What the later steps ask joins the draft: answered from your profile where it says, and as an open question
+  where only you can answer. Answering it starts the walk again from there. The draft is shown as ready only when the
+  walk reached the review page or cannot go further without you, and such a draft is never approved by itself. The
+  walk fills in the employer's form, which may keep what was entered as an unfinished application; it can be turned
+  off (`recon.walk`), and started by hand on the draft's page for a draft made before this version. The draft names
+  the steps that are still unread.
 - A control is found by its label only when the label is the question. A label that merely contains the question's
   words is another question: "First Name" was filled into "Legal First Name" when its own field was not on the page.
 

@@ -59,7 +59,7 @@ FEATURES: dict[str, str] = {
 }
 WORKFLOWS: dict[str, str] = {
     "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "tailor": "按岗位调整简历", "revise": "按意见修改草案",
-    "reanswer": "重新回答问题", "execute": "填写申请表", "mail": "查收邮件", "canary": "驱动巡检", "": "任务之外",
+    "reanswer": "重新回答问题", "scout": "带着答案读完后面的步骤", "execute": "填写申请表", "mail": "查收邮件", "canary": "驱动巡检", "": "任务之外",
 }
 SUBSCRIPTIONS = ("claude_subscription", "chatgpt")
 

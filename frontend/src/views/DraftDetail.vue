@@ -80,6 +80,23 @@ async function sendComment() {
     }, 3000)
   } catch (e) { toast(e.message, 'bad'); busy.value = false }
 }
+const scouting = ref(false)
+async function scout() {
+  scouting.value = true
+  try {
+    const { task_id } = await api.post(`/drafts/${props.id}/scout`)
+    for (let i = 0; i < 400; i++) {       // a walk through a form takes a few minutes
+      await new Promise((r) => setTimeout(r, 3000))
+      const t = (await api.get('/tasks?limit=30')).find((x) => x.id === task_id)
+      if (t && ['done', 'failed', 'waiting_human'].includes(t.status)) {
+        await load()
+        if (t.status !== 'done') toast(t.explained && t.explained.message ? t.explained.message : '没有读成，请稍后再试', 'bad')
+        else toast(t.result && t.result.reached_review ? '后面的步骤读完了，新问到的内容已经加进草案' : '读到一处需要你回答的问题，已经加进草案')
+        break
+      }
+    }
+  } catch (e) { toast(e.message, 'bad') } finally { scouting.value = false }
+}
 const reasking = ref(false)
 async function reanswer() {
   reasking.value = true
@@ -144,6 +161,16 @@ onUnmounted(() => clearInterval(timer))
     
       <div class="row" style="margin-top: 10px"><button :disabled="reasking" @click="reanswer"><Icon name="refresh" />{{ reasking ? '正在重新回答…' : '让 AI 按我的资料再答一次' }}</button>
         <span class="muted small">刚补充过个人资料，或觉得这些问题资料里明明有答案时用。已经有答案的不会动。</span></div>
+    </div>
+
+    <div v-if="d.review_status === 'pending' && d.unseen && d.unseen.length" class="callout" style="display: block">
+      <b>这张表还有 {{ d.unseen.length }} 步没读到</b>
+      <div class="small" style="margin-top: 4px">这些步骤要先填完前面的才打得开。程序可以带着这份草案的答案在隐藏窗口里一步步往下填，把后面问到的问题读回来加进草案；不会提交。
+        填进去的内容雇主网站可能会自动保存为未完成的申请。</div>
+      <div class="row" style="margin-top: 8px">
+        <button :disabled="scouting || d.application.status === 'recon' || d.unresolved.length > 0" @click="scout"><Icon name="play" />{{ scouting || d.application.status === 'recon' ? '正在往下读…' : '带着答案读完后面的步骤' }}</button>
+        <span v-if="d.unresolved.length" class="muted small">先回答上面没有答案的问题。</span>
+      </div>
     </div>
 
     <div v-if="d.notes_display.length" class="callout warn" style="display: block">

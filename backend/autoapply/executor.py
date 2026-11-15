@@ -106,13 +106,18 @@ def verify(schema: FormSchema, draft_answers: list[dict[str, Any]], back: dict[s
     return bad
 
 
-def execute(application_id: int, draft_id: int, *, task_id: int | None = None, force_manual: str = "") -> dict[str, Any]:
+def execute(application_id: int, draft_id: int, *, task_id: int | None = None, force_manual: str = "", scout: bool = False) -> dict[str, Any]:
+    """Fill the form of an approved draft. With ``scout``: walk the form of a draft that is still pending with its own
+    answers, to read the steps that open only once the earlier ones are filled - in a hidden window, up to the review
+    page at most, never submitting and never handing a window to the applicant. What the walk finds goes into the draft."""
     with db.session() as s:
         d = s.get(Draft, draft_id)
         app = s.get(Application, application_id)
         if d is None or app is None or d.application_id != application_id:
             raise KeyError("draft/application mismatch")
-        if d.review_status != "approved":
+        if scout and d.review_status != "pending":
+            return {"status": "skipped", "note": "the draft is no longer pending"}
+        if not scout and d.review_status != "approved":
             raise PermissionError("draft is not approved")  # guard rail 4
         if app.status in ("submitted", "confirmed"):
             return {"status": app.status, "note": "already submitted"}  # idempotent
@@ -123,7 +128,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         job = app.job
         job_id = job.id
         title = f"{job.company} · {job.title}"
-        app.status = "executing"
+        if not scout:
+            app.status = "executing"
     ref = JobRef(**ref_d)
     driver = registry.get(ref.ats)
     mode = submit_mode(ref.ats, title.split(" · ")[0], draft_answers, has_driver=driver is not None)
@@ -138,16 +144,19 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
         driver = GenericDriver(schema)
         policy = "manual"  # guard rail: driverless forms are never submitted automatically
+    if scout and not (generic and len(schema.pages or []) > 1):
+        return {"status": "skipped", "note": "not an explored form with several steps"}
     fill = ans.to_fill_map(draft_answers)
     fill["_phone_country"] = "Canada"
     per_page = bool(getattr(driver, "verify_per_page", False))
     page_of = {a["id"]: int(a.get("page") or 0) for a in draft_answers}
-    run_dir = config.RUNS / f"exec_app_{application_id}_d{draft_id}"
+    run_dir = config.RUNS / f"{'scout' if scout else 'exec'}_app_{application_id}_d{draft_id}"
     steps: list[dict[str, Any]] = []
     def step(op: str, **kw: Any) -> None:
         steps.append({"op": op, "at": now().isoformat(), **kw})
         metering.stage(op)       # the task remembers how far it got
-    notify.send("task_started", messages.execute_started(title, ats=ref.ats, policy=policy, pages=len(schema.pages or []), reasons=mode["reasons"]), ref=f"application:{application_id}")
+    if not scout:
+        notify.send("task_started", messages.execute_started(title, ats=ref.ats, policy=policy, pages=len(schema.pages or []), reasons=mode["reasons"]), ref=f"application:{application_id}")
     outcome: dict[str, Any] = {}
     ok = False
     leftovers: list[dict[str, str]] = []   # what is left for the user in a visible, user-submitted run
@@ -486,7 +495,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         _apply(rep, i)
 
     try:
-        headless = policy != "manual"
+        headless = policy != "manual" or scout
         with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless) as page:
             st = auth.ensure_session(page, driver, ref)
             step("ensure_session", result=st)
@@ -585,9 +594,14 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 _checked(lambda: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, None, page_of, run_dir, step, title, application_id,
                                          after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1))))
             touched = any(st["op"] == "repair" for st in steps)
-            if policy != "manual" and touched:
+            if scout:
+                # the walk ends here: at the review page, or at a step that needs the applicant. Nothing is submitted, nobody is handed a window.
+                reached = any(st["op"] == "review_step" for st in steps)
+                outcome = {"status": "scouted", "reached_review": reached, "stopped_at": "" if reached or page.is_closed() else driver.step_title(page)}
+                step("scouted", reached_review=reached, stopped_at=outcome["stopped_at"])
+            elif policy != "manual" and touched:
                 raise NeedsVisibleRun("驱动没能独自填完，AI 接手处理过，这次请你过目后再提交")
-            if policy == "manual" and user_done.get("evidence"):
+            elif policy == "manual" and user_done.get("evidence"):
                 # the user submitted in the window while the program was still on the form: the confirmation page was seen
                 notify.close_todos("submit", f"application:{application_id}")
                 outcome = {"status": "submitted", "evidence": user_done["evidence"]}
@@ -653,6 +667,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         log.exception("execution crashed")
         outcome = {"status": "failed", "error": f"{type(e).__name__}: {e}"}
 
+    if scout:      # the application's status is not the walk's to change; what it found goes into the draft
+        with db.session() as s:
+            s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, dir=str(run_dir)))
+            if mapped or added or adapted or asked:
+                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False)
+        return {**{k: v for k, v in outcome.items() if k not in ("evidence", "driver_error", "mismatches", "diff")}, "added": len(added), "asked": len(asked), "adapted": len(adapted),
+                "mapped": len(mapped), "steps": sum(1 for st in steps if st["op"] == "fill_step")}
     with db.session() as s:
         app = s.get(Application, application_id)
         app.status = outcome["status"]
