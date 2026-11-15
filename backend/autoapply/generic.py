@@ -699,13 +699,6 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
                 refused = len(body) < 300 and bool(REFUSAL.search(body))
             except Exception:  # noqa: BLE001
                 refused = False
-        if result.get("questions") and not acct_state:
-            # The form was reached without signing in. An account that was begun for this site and never finished is not
-            # needed: say so, instead of leaving it as "being registered" for ever.
-            from . import auth as _auth
-
-            if (_auth.account(ref.tenant_key) or {}).get("status") == "pending":
-                _auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="not_needed", error="")
         browser.snapshot(page, run_dir, "agent_recon_end")
         (run_dir / "agent_trace.json").write_text(json.dumps(out.steps, ensure_ascii=False, default=str)[:500000], encoding="utf-8")
         final_url = page.url

@@ -54,23 +54,6 @@ async def lifespan(app: FastAPI):
         _lifecycle.settle_all()
     except Exception:  # noqa: BLE001 - never a reason not to start
         logging.getLogger("autoapply").exception("could not settle sent applications")
-    try:
-        # an account that was begun on a site and never finished, while the site's form has since been read without signing
-        # in: it is not needed, and no longer shown as "being registered"
-        from datetime import timedelta as _td
-
-        from ..models import Account as _Account, now as _now
-
-        with db.session() as s:
-            for acct in s.query(_Account).filter_by(status="pending"):
-                made = acct.created_at if acct.created_at.tzinfo else acct.created_at.replace(tzinfo=_now().tzinfo)
-                if _now() - made < _td(hours=6):
-                    continue
-                read_since = any((d.schema.get("_ref") or {}).get("host") == acct.host and d.schema.get("source") == "agent" for d in s.query(Draft).order_by(Draft.id.desc()).limit(200))
-                acct.status = "not_needed" if read_since else "unknown"
-                acct.last_error = "" if read_since else "注册没有完成（确认邮件里的链接没有打开）"
-    except Exception:  # noqa: BLE001
-        logging.getLogger("autoapply").exception("could not settle unfinished accounts")
     try:      # a newer price list came with the program: requests that had no price, or an older one, are estimated again
         import json as _json
 

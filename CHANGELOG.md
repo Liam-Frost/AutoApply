@@ -119,8 +119,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - A list that is searched (a location or school picker) is no longer taken for a list of its first few entries. The
   agent marks it as searched and looks the applicant's own value up in it; the answer is not limited to the entries
   it happened to see; and when editing a draft you can type a value that is not among the ones listed.
-- An account that was begun on a site whose form can be reached without signing in is shown as "no sign-in needed",
-  not as "being registered" for ever; one that was never finished and is needed says so.
+- A form that creates your account on the site together with the application ("Create a Career Profile account",
+  marked optional) gets that section filled: the agent chooses the password option and the program types a generated
+  password it keeps for you (never shown to the model). After the submission the site's confirmation e-mail is
+  completed under the rules for links, and the account is ready for the next application there; if that does not
+  work, the account page says what is missing. Before, the section was left empty and the account stayed "being
+  registered".
 
 - Calls through the ChatGPT sign-in have a cost: the list prices of `gpt-6.1-sol` and `gpt-5.6-luna` (OpenAI's price
   page, 2026-11-15, with the long-context tier) are built in, and requests recorded without a price are estimated

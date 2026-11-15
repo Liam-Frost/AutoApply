@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from . import answers as ans, messages
-from . import auth, browser, config, db, fixtures, knowledge, llm, metering, notify, repair
+from . import auth, browser, config, db, fixtures, knowledge, llm, metering, notify, repair, secrets
 from .ats import audit, registry
 from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .drafts import _stat
@@ -234,7 +234,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         """What the form itself reports on the open page, minus 'still empty' findings the driver's read-back contradicts
         (a custom control whose value only the driver knows how to read)."""
         found = audit.page_issues(page)
-        if not found:
+        if not found and not generic:
             return []
         try:
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
@@ -242,6 +242,17 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             back = {}
         known = {norm_question(q.label): q for q in schema.questions if i is None or q.page == i}
         out = []
+        if generic and not scout:
+            # The form offers to create the applicant's account with the application and its password boxes are empty:
+            # that is a part of the form still to be done (by the take-over, which has the tool that types the password).
+            try:
+                boxes = page.locator("input[type=password]:visible")
+                empty = [k for k in range(boxes.count()) if not boxes.nth(k).input_value(timeout=2000)]
+            except Exception:  # noqa: BLE001
+                empty = []
+            if empty and (secrets.get_password(ref.tenant_key) or auth.may_register(ref)[0]):
+                out.append({"kind": "message", "label": "Account", "selector": "", "value": "",
+                            "message": "the form's account section is not filled in: its password boxes are empty"})
         for it in found:
             q = known.get(norm_question(it["label"])) if it.get("label") else None
             if it["kind"] == "empty_required" and q is not None and (q.type == "file" or back.get(q.id) not in ("", None, [], False)):
@@ -315,7 +326,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         if page.is_closed():
             return None
         rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids, read=read, unread=unread,
-                      stand_in=scout and bool(db.get_setting("recon.provisional")))
+                      stand_in=scout and bool(db.get_setting("recon.provisional")), site=ref if generic else None)
         if rep is None:
             step("repair_skipped", why=_repair_note.get("why") or "repair is switched off")
             return None
@@ -798,6 +809,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     errs = _errors(driver, page)
                     raise DriverError("no confirmation after submit", seen="; ".join(errs)[:500] or page.url)
                 outcome = {"status": "submitted", "evidence": {**conf, **shots}}
+            if generic and outcome.get("status") == "submitted":
+                _finish_account(page, ref, step)
             if driver.requires_login:
                 browser.save_state(ref.tenant_key, page.context)
         ok = outcome.get("status") == "submitted"
@@ -988,13 +1001,13 @@ _repair_note: dict[str, str] = {}   # why the last take-over did not happen (sho
 
 def _repair(page: Any, schema: FormSchema, i: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
             only_ids: list[str] | None, title: str, application_id: int, *, issues: list[dict[str, Any]] | None = None,
-            on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None, stand_in: bool = False) -> dict[str, Any] | None:
+            on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None, stand_in: bool = False, site: Any = None) -> dict[str, Any] | None:
     """Agent takeover of one page. None when repair is off or no model is available (the caller re-raises)."""
     if not repair.enabled():
         return None
     try:
         return repair.fix_page(page, schema, i, fill, problem, run_dir, only_ids=only_ids, issues=issues, title=title, ref=f"application:{application_id}", on_ids=on_ids,
-                               read=read, unread=unread, stand_in=stand_in)
+                               read=read, unread=unread, stand_in=stand_in, site=site)
     except llm.LLMError as e:
         log.warning("repair unavailable: %s", e)
         _repair_note["why"] = str(e)[:300]
@@ -1095,6 +1108,33 @@ def _drift_text(diff: dict[str, Any]) -> str:
     parts = [f"新增必填：{q['label']}" for q in diff["added"] if q.get("required")]
     parts += [f"有变化：{c['after']['label']}" for c in diff["changed"]]
     return "\n".join(parts)[:800]
+
+
+def _finish_account(page: Any, ref: JobRef, step: Any) -> None:
+    """The application created the applicant's account on the site (a password was set on the form). Sites finish that
+    with a confirmation mail: its link is opened when it is the site's own (mail.link_refusal), and the account is then
+    ready for the next application there. Never a reason to fail a submission that went through."""
+    try:
+        acct = auth.account(ref.tenant_key) or {}
+        if acct.get("status") != "pending" or not secrets.get_password(ref.tenant_key):
+            return
+        from . import mail
+
+        since = datetime.now(timezone.utc) - timedelta(minutes=3)
+        got = mail.wait_for_verification(sender_hint=ref.host, timeout=120, since=since, site_host=ref.host)
+        if got and got.startswith("http"):
+            page.goto(got, wait_until="domcontentloaded")
+            page.wait_for_timeout(3000)
+            if not mail.link_refusal(page.url, ref.host):
+                auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="ok")
+                browser.save_state(ref.tenant_key, page.context)
+                step("account_confirmed", host=ref.host)
+                return
+        why = got[9:] if got and got.startswith("refused:") else ("没有收到确认邮件" if not got else "确认邮件里是验证码，不是链接")
+        auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, error=f"账号随申请建好了，邮箱确认还没完成：{why}"[:300])
+        step("account_unconfirmed", why=why[:120])
+    except Exception as e:  # noqa: BLE001
+        log.info("account confirmation after the submission did not complete: %s", e)
 
 
 def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: int, draft_id: int | None = None, *,

@@ -106,6 +106,14 @@ found its control, report where it is under `located` (id, selector) in the same
 
 """
 
+ACCOUNT = """This form creates the applicant's account on the site together with the application (password boxes, "Create an account",
+often marked optional). The applicant wants that account: it is how they follow the application afterwards. Choose the password
+option and fill every password box with fill_account_password(selector, new=true) - the password is generated, kept by the program
+and never shown to you; the same call fills "confirm password" with the same one. Do not type anything into a password box
+yourself, and do not pick "one-time code" or "already have an account" unless a stored account exists (the tool says so).
+
+"""
+
 SHOWS = """A field that is reported as "required, still empty" although you can see its answer on the page (a pill, a chip, "1 item
 selected", a box the site draws as ticked): that report is this program's reading, not the form's. Do not touch the field; list
 it under `shows` with its label and what it shows. It then counts as answered. Never list such a field under `unfixed`.
@@ -215,7 +223,8 @@ def site_key(schema: FormSchema) -> str:
 
 def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
              *, only_ids: list[str] | None = None, issues: list[dict[str, Any]] | None = None, title: str = "", ref: str = "",
-             on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None, stand_in: bool = False) -> dict[str, Any]:
+             on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None, stand_in: bool = False,
+             site: Any = None) -> dict[str, Any]:
     """Let the agent finish the page. ``read``: "step" - the step has not been read before, so besides finishing it the
     agent lists every question on it that the draft does not have; "review" - the review page, read for the steps the
     form did not show again (``unread``).
@@ -348,6 +357,14 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                                                                                                   "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
     tools = [t for t in generic.l0_tools(page, run_dir, {}, files=files, finish_tool=done_tool) if t.name != "goto"]
+    account = False
+    if site is not None:
+        try:      # a form that creates the applicant's account along with the application has password boxes on it
+            account = page.locator("input[type=password]:visible").count() > 0
+        except Exception:  # noqa: BLE001
+            account = False
+        if account:      # the one tool that types the site's password (never shown to the model); nothing else of the sign-in tools
+            tools += [t for t in generic.account_tools(page, site, {}) if t.name == "fill_account_password"]
 
     def counted(fn: Any) -> Any:
         def run(**kw: Any) -> Any:
@@ -372,6 +389,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
            "on this step: when a field here asks one of them, enter exactly that approved value (never an answer of your own) and list its id "
            "under `fixed`. Ignore the ones that are not on this step.\n" + "\n".join(elsewhere_lines) + "\n\n" if elsewhere_lines else "")
         + (DOCUMENTS.format(docs="; ".join([*on_file, *[f"for this application: {n}" for n in files if not any(n in x for x in on_file)]])) if files else "")
+        + (ACCOUNT if account else "")
         + (STAND_IN if stand_in and read == "step" else "")
         + (SHOWS if issues else "")
         + ((OPTIONAL_FILL if db.get_setting("fill.optional") else OPTIONAL_SKIP) if read == "step" else "")
