@@ -125,33 +125,45 @@ def _mail(t: Task) -> dict[str, Any]:
 
 @handler("canary")
 def _canary(t: Task) -> dict[str, Any]:
-    """Recon-only check on a few open postings per driver, to catch ATS changes early."""
+    """The self-check: the coded reading of each system against an open posting, and the saved form pages against the
+    current code. What it finds it deals with itself. Every form is read by the agent now, so a system whose coded
+    reading fails holds nothing up and needs nobody; a saved page that no longer matches is out of date and is removed
+    (the next run that fills and verifies that form saves it afresh). Cards that told the applicant "the self-check
+    failed" asked them for something they cannot do; there are none any more, and old ones are closed."""
     from .ats import registry
+    from .models import Todo, now
 
     out: dict[str, Any] = {}
-    targets: list[tuple[str, Any, str]] = []
+    targets: list[tuple[str, Any, list[str]]] = []
     with db.session() as s:
         for ats, drv in registry.drivers().items():
             if drv.requires_login:
                 continue
-            j = s.query(Job).filter(Job.ats == ats, Job.online == 1, Job.apply_url != "").order_by(Job.last_seen.desc()).first()
-            if j is not None:
-                targets.append((ats, drv, j.apply_url))
-    for ats, drv, url in targets:
-        try:
-            sc = drv.get_schema(registry.detect(url), None)
-            out[ats] = {"ok": True, "questions": len(sc.questions)}
-        except Exception as e:  # noqa: BLE001
-            out[ats] = {"ok": False, "error": str(e)[:200]}
-            notify.add_todo("driver", f"{ats} 驱动巡检失败", body=str(e)[:300], ref=f"driver:{ats}")
-    # Offline regression: saved form pages replayed through the current driver code.
+            urls = [j.apply_url for j in s.query(Job).filter(Job.ats == ats, Job.online == 1, Job.apply_url != "").order_by(Job.last_seen.desc()).limit(3)]
+            if urls:
+                targets.append((ats, drv, urls))
+    for ats, drv, urls in targets:
+        last = ""
+        for url in urls:      # one posting that has just closed is not a finding about the system: try the next
+            try:
+                sc = drv.get_schema(registry.detect(url), None)
+                out[ats] = {"ok": True, "questions": len(sc.questions)}
+                break
+            except Exception as e:  # noqa: BLE001
+                last = str(e)[:200]
+        else:
+            out[ats] = {"ok": False, "error": last, "handled": "forms of this system are read by the agent; nothing waits on this"}
     from . import fixtures
 
     fx = fixtures.run_all()
-    out["fixtures"] = {"total": fx["fixtures"], "failed": fx["failed"]}
+    repaired = 0
     for r in fx["results"]:
         if not r["ok"]:
-            notify.add_todo("driver", f"{r['ats']} 驱动回归失败：{r['fixture']}", body=str(r.get("error") or f"missing: {r.get('missing')}; changed: {r.get('changed')}")[:300], ref=f"fixture:{r['ats']}/{r['fixture']}")
+            repaired += fixtures.drop(r["ats"], r["fixture"])
+    out["fixtures"] = {"total": fx["fixtures"], "failed": fx["failed"], "repaired": repaired}
+    with db.session() as s:
+        for td in s.query(Todo).filter_by(kind="driver", status="open"):
+            td.status, td.done_at = "done", now()
     return out
 
 

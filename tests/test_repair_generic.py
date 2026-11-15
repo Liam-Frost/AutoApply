@@ -13,8 +13,8 @@ from test_pipeline import _status, pipeline  # noqa: F401 - fixture
 def _the_applicant_submits(request):
     """The tests of this module are about what is handed to the applicant in the window; that happens when they keep
     the last click for themselves. (That the program submits an approved draft when they do not is tested in test_sent.)"""
-    if "app_env" in request.fixturenames or "pipeline" in request.fixturenames:
-        request.getfixturevalue("app_env" if "app_env" in request.fixturenames else "pipeline")
+    if "app_env" in request.fixturenames and "pipeline" not in request.fixturenames:      # (the pipeline tests are about the coded driver and say what they need)
+        request.getfixturevalue("app_env")
         from autoapply import db
 
         db.set_setting("policy.default", "manual")
@@ -72,16 +72,16 @@ def test_repair_completes_page_and_proposes_patch(pipeline, monkeypatch):  # noq
     tasks.drain()
     status, evidence, _ = _status(pipeline["job_id"])
     assert status == "submitted" and "REF-123" in evidence["text"]
-    # a run the agent had to rescue is never auto-submitted: it is repeated in a visible window for the user
-    assert len(waits) == 1 and pipeline["driver"].submits == 1
+    # The agent rescued the page, the values were read back and equal the approved draft, nothing is left for the applicant:
+    # the program submits, in the same run. That the AI worked on a form is not a reason to hold it back.
+    assert waits == [] and pipeline["driver"].submits == 1
     assert log["submit_refused"] and log["foreign_upload_refused"]
     assert "goto" not in log["tools"] and "finish" not in log["tools"]  # cannot leave the page or redefine the form
     assert "approved value='Yes'" in log["goal"]
     with db.session() as s:
-        first, second = s.query(Run).filter_by(kind="execute").order_by(Run.id).all()
-        assert "submit" not in [x["op"] for x in first.steps]
-        ops = [x["op"] for x in second.steps]
-        assert ops.index("repair") < ops.index("read_back")
+        only = s.query(Run).filter_by(kind="execute").one()
+        ops = [x["op"] for x in only.steps]
+        assert ops.index("repair") < ops.index("read_back") < ops.index("submit")
         t = s.query(Todo).filter_by(kind="driver_patch", status="open").one()
         assert "native select" in t.body and t.payload["report"]["suggestion"]
         assert t.payload["fixture"].endswith(".html")
@@ -158,9 +158,7 @@ def test_generic_driver_replays_selectors(app_env, tmp_path):
         back = drv.read_back(page, schema, 0)
         assert back == {"#first_name": "Liam", "#email": "liam@example.com", "#auth": "Yes", "#resume": "R.pdf", "#consent": True}
         assert drv.confirmation(page) is None
-        with pytest.raises(PermissionError):
-            drv.submit(page)  # driverless forms are submitted by the user
-        assert not drv.next_page(page)  # the only button is Submit, which is never clicked
+        assert not drv.next_page(page)  # the only button is Submit: going on never presses it (submitting is the executor's decision alone)
         assert page.evaluate("() => window.submitCount || 0") == 0
 
         schema.questions.append(Question(id="#gone", label="Vanished", type="text", required=True, locator={"selector": "#gone"}))
@@ -1036,7 +1034,7 @@ def test_what_the_applicant_answers_in_the_window_is_kept_and_remembered(app_env
                                               needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
         return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
 
-    real_wait = executor._wait_for_manual_submit
+    real_wait = executor.wait_for_the_applicant
 
     def applicant(driver, page, *a, **kw):
         page.check("input[name=gov][value=no]")                    # they answer the question ...
@@ -1212,9 +1210,11 @@ def test_the_walk_can_be_started_by_hand_for_a_draft_made_before_it_existed(app_
     c = TestClient(app)
     assert c.get(f"/api/drafts/{did}").json()["unseen"] == pages[1:3]            # the review page is not a step to read
 
-    with db.session() as s:      # an open question first: there is nothing to walk the form with
+    with db.session() as s:      # an open question, and stand-ins switched off: there is nothing to walk the form with
         s.get(Draft, did).unresolved = [{"id": "@label:Why us?", "label": "Why us?"}]
+    db.set_setting("recon.provisional", False)
     assert c.post(f"/api/drafts/{did}/scout").status_code == 400
+    db.set_setting("recon.provisional", True)
     with db.session() as s:
         s.get(Draft, did).unresolved = []
     out = c.post(f"/api/drafts/{did}/scout")

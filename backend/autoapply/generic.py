@@ -192,6 +192,14 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
     def upload(selector: str, file_name: str) -> str:
         if not files or file_name not in files:
             raise PermissionError(f"refused: only these files may be uploaded: {sorted(files or {})}")
+        # A form keeps what was uploaded on an earlier visit. Uploading "to be sure" adds a second, third, fourth copy.
+        try:
+            shown = page.inner_text("body", timeout=5000).count(file_name)
+        except Exception:  # noqa: BLE001
+            shown = 0
+        if shown:
+            return (f"not uploaded: the form already shows {file_name!r}" + (f" {shown} times - remove the extra copies with their delete buttons so that one is left" if shown > 1 else "")
+                    + ". It is attached; go on.")
         loc = page.locator(selector).first
         if loc.evaluate("(e) => e.tagName.toLowerCase() === 'input' && e.type === 'file'"):
             w.upload(loc, [files[file_name]])

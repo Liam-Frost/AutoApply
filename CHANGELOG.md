@@ -106,6 +106,16 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   file box. A step is named by the form's own "you are here" mark and read once it has stopped loading; before, the
   frame between two steps was read as a step with nothing on it, and three of them ended a walk as "going in circles".
 
+- A filled, correct form is no longer handed back to you over how a control reads. A search box whose choices show as
+  pills beside it counts as answered; a ticked box is a ticked box whatever the control calls it; and what still reads
+  differently from the draft is looked at by the agent on the page before you are told - only what it finds different
+  is reported, with what the form shows.
+- A document the form already shows is not uploaded again; every visit used to add another copy.
+- Optional questions and sections that take entries (work experience, education, languages, links) are filled from
+  your profile by default; "fill optional items too" on the settings page turns that off.
+- The self-check deals with what it finds instead of reminding you: it tries another posting before it blames a system,
+  removes saved pages that are out of date, raises no cards and closes the old ones.
+
 ### Security
 
 - The route that serves the interface could be made to return files outside its folder with an address such as

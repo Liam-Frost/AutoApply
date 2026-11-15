@@ -77,6 +77,14 @@ _JS = r"""() => {
         shown = shown.replace(e.getAttribute('placeholder') || '\u0000', '').replace(/[×✕]/g, '').trim();
         if (shown && !PLACEHOLDER.test(shown)) empty = false;
       }
+      if (empty) {
+        // a search box whose choices are shown as pills in the field around it (multi-select prompts): the box stays
+        // empty for ever, the field is answered
+        const field = e.closest("[data-automation-id^='formField'], [class*='form-group'], [class*='field'], fieldset") || e.parentElement;
+        if (field && field.querySelector("[data-automation-id='selectedItem'], [data-automation-id*='selectedItem'], [class*='pill'], [class*='chip'], [class*='token'], "
+                                         + "[class*='tag']:not(label), [role=listitem], [role=option][aria-selected='true']")) empty = false;
+        if (empty && field && /\b\d+ items? selected\b/i.test(field.innerText || '')) empty = false;
+      }
     }
     if (!empty) continue;
     const key = selOf(e) || labelOf(e); if (flagged.has(key)) continue; flagged.add(key);

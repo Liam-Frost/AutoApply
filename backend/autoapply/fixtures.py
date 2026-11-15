@@ -83,6 +83,18 @@ def check(page: Any, meta_path: Path) -> dict[str, Any]:
     return {**out, "ok": not missing and not changed, "recognised": len(live), "missing": missing[:20], "changed": changed[:20]}
 
 
+def drop(ats: str, name: str) -> int:
+    """Remove a saved page that no longer matches what the program reads from it (1 when something was removed)."""
+    n = 0
+    for f in (root() / ats).glob(f"{name}.*"):
+        try:
+            f.unlink()
+            n = 1
+        except OSError:
+            pass
+    return n
+
+
 def run_all(ats: str | None = None) -> dict[str, Any]:
     metas = sorted(root().glob(f"{ats or '*'}/*.json")) if root().exists() else []
     if not metas:

@@ -121,7 +121,7 @@ def test_pressing_submit_loads_another_page_and_that_is_not_a_closed_window(app_
             return {"url": page.url, "text": "Thank you for your application"} if "summary" in page.url else None
 
     monkeypatch.setattr(executor.time, "sleep", lambda s: None)
-    out = executor._wait_for_manual_submit(Driver(), Page(), "Acme", 1)
+    out = executor.wait_for_the_applicant(Driver(), Page(), "Acme", 1)
     assert out == {"status": "submitted", "evidence": {"url": "https://x.test/applicant/jobs/1/summary", "text": "Thank you for your application"}}
 
 
@@ -534,3 +534,70 @@ def test_a_run_that_leaves_something_for_the_applicant_is_not_submitted_by_the_p
         assert s.get(Application, app_id).status != "submitted"
         ts = s.query(Task).filter_by(kind="execute").order_by(Task.id).all()
         assert ts[-1].status == "queued" and "Visa status" in str(ts[-1].payload)
+
+
+def test_a_correct_form_is_not_sent_to_the_applicant_over_how_a_control_reads(app_env, tmp_path, monkeypatch):
+    """Three things that reached the applicant as "not filled in" on a form that was right: a search box whose choice is a
+    pill beside it ("required, still empty"), a ticked box that reads True against the draft's "checked", and a group of
+    tick boxes that reads "on". The first two are settled by the program; the third by the agent looking at the page."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import db, executor, llm, repair
+    from autoapply.ats import audit
+    from autoapply.ats.base import FormSchema, Question
+
+    html = """<main><div data-automation-id="formField-code"><label for="code">Country Phone Code</label>
+        <ul><li data-automation-id="selectedItem">Canada (+1)</li></ul><input id="code" required></div>
+      <div class="form-group"><label for="city">City</label><input id="city" required></div></main>"""
+    qs = [Question(id="#terms", label="I consent", type="checkbox", locator={"selector": "#terms"}), Question(id="#len", label="How long?", type="multiselect", locator={"selector": "#len"}),
+          Question(id="#gpa", label="GPA", type="select", locator={"selector": "#gpa"})]
+    schema = FormSchema(ats="generic", tenant="x.test", source="agent", questions=qs)
+    bad = [{"id": "#terms", "label": "I consent", "expected": "checked", "actual": True}, {"id": "#len", "label": "How long?", "expected": ["4 months", "8 months"], "actual": "on"},
+           {"id": "#gpa", "label": "GPA", "expected": "75-79%", "actual": "80-84%"}]
+    db.set_setting("repair.enabled", True)
+    asked = []
+
+    def agent(goal, tools, *, system, max_steps=20, on_step=None):
+        t = {x.name: x for x in tools}
+        assert sorted(t) == ["list_controls", "options", "read_page", "screenshot", "verdict"]      # it looks; it cannot change anything
+        asked.append(goal)
+        t["verdict"].fn(fields=[{"id": "#len", "same": True, "seen": "4 months and 8 months are ticked"}, {"id": "#gpa", "same": False, "seen": "80-84% is selected"}])
+        return llm.AgentResult(final_text="done", steps=[])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content(html)
+        assert audit.texts(audit.page_issues(page)) == ["City: required, still empty"]      # the pill counts; a really empty field still does not
+        left = executor._really_different(page, schema, bad)
+        b.close()
+    assert [(x["id"], x["actual"]) for x in left] == [("#gpa", "80-84% is selected")] and "#terms" not in asked[0] and "#len" in asked[0]
+    assert "shows" in repair.SHOWS and "Work Experience" in repair.OPTIONAL_FILL
+
+
+def test_a_document_the_form_already_shows_is_not_uploaded_again(app_env, tmp_path):
+    """Every visit to a form that keeps its uploads added another copy of the transcript - four in the end."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import generic
+    from autoapply.ats import generic_driver as g
+    from autoapply.ats.base import FormSchema, Question
+
+    doc = tmp_path / "Student_Transcript.pdf"
+    doc.write_bytes(b"%PDF-1.4")
+    q = Question(id="#tr", label="Please upload your most recent transcript.", type="file", locator={"selector": "#tr"})
+    schema = FormSchema(ats="generic", tenant="x.test", source="agent", questions=[q])
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content('<main><label for="tr">Please upload your most recent transcript.</label><input type="file" id="tr"><ul id="have"></ul></main>')
+        files = "document.getElementById('tr').files.length"
+        tools = {t.name: t for t in generic.l0_tools(page, tmp_path, {}, files={doc.name: str(doc)})}
+        assert tools["upload"].fn(selector="#tr", file_name=doc.name) == "uploaded" and page.evaluate(files) == 1
+        # the next visit: the form shows the file it kept, and its file box is empty again
+        page.set_content('<main><label for="tr">Please upload your most recent transcript.</label><input type="file" id="tr"><ul><li>Student_Transcript.pdf 24 KB</li></ul></main>')
+        g.GenericDriver(schema).fill_questions(page, [q], {q.id: str(doc)})
+        assert page.evaluate(files) == 0
+        assert tools["upload"].fn(selector="#tr", file_name=doc.name).startswith("not uploaded: the form already shows") and page.evaluate(files) == 0
+        b.close()

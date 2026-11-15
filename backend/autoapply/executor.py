@@ -1028,7 +1028,20 @@ def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) 
     from .ats.generic_driver import value_visible
 
     by_id = {q.id: q for q in schema.questions}
-    return [b for b in bad if not (b["actual"] in ("", None, []) and b["id"] in by_id and value_visible(page, by_id[b["id"]], b["expected"]))]
+    bad = [b for b in bad if not (b["actual"] in ("", None, []) and b["id"] in by_id and value_visible(page, by_id[b["id"]], b["expected"]))]
+    # a ticked box is a ticked box, whatever the control calls it
+    yes = {"true", "on", "yes", "checked", "1"}
+    bad = [b for b in bad if not (b["id"] in by_id and by_id[b["id"]].type == "checkbox" and not isinstance(b["expected"], list)
+                                  and (str(b["expected"]).strip().lower() in yes) == (str(b["actual"]).strip().lower() in yes))]
+    if bad and repair.enabled():
+        # What is left is looked at by the agent before anyone is told that the form differs from the draft: a program
+        # reads a custom control badly ("on" for two ticked boxes, nothing for a row of pills); looking at the page settles it.
+        try:
+            seen = repair.confirm(page, bad, config.RUNS / "confirm")
+        except llm.LLMError:
+            seen = {}
+        bad = [{**b, **({"actual": seen[b["id"]]["seen"]} if b["id"] in seen and seen[b["id"]]["seen"] else {})} for b in bad if not seen.get(b["id"], {}).get("same")]
+    return bad
 
 
 def _keep_fixture(schema: FormSchema, page: Any, i: int) -> None:

@@ -593,6 +593,8 @@ class GenericDriver:
         files = [q for q in todo if q.type == "file"]
         for q in files + [q for q in todo if q.type != "file"]:
             try:
+                if q.type == "file" and Path(str(answers[q.id])).name in page.inner_text("body", timeout=5000):
+                    continue      # the form already shows this very file name (kept from an earlier visit): not uploaded a second time
                 set_value(page, q, answers[q.id])
                 if q.type == "file" and q is files[-1]:
                     try:

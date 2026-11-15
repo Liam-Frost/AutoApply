@@ -43,6 +43,21 @@ def app_env(tmp_path, monkeypatch):
     # The coded drivers are tested as what they are - tools. In the program every site is read by the agent ("*");
     # a test that is about that says so itself.
     db.set_setting("agent.reads", [])
+    # Tests never show a window and never wait for a person. A run that hands the form to the applicant does so in a
+    # visible window and waits up to twenty minutes; a test that gets there without saying what the applicant does would
+    # sit on the screen of whoever runs the tests. So: every window is hidden, and that wait fails at once unless the
+    # test replaces it.
+    from autoapply import browser, executor
+
+    real_open = browser.open_page
+    monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None: real_open(tenant_key, headless=True, downloads=downloads))
+
+    def nobody_is_there(*a, **k):
+        raise AssertionError("this run handed the form to the applicant, and the test does not say what the applicant does")
+
+    if not hasattr(executor, "wait_for_the_applicant"):      # the real thing, for the tests that are about it
+        executor.wait_for_the_applicant = executor._wait_for_manual_submit
+    monkeypatch.setattr(executor, "_wait_for_manual_submit", nobody_is_there)
     # Tests never reach a real model: anything not stubbed by a test behaves as "no credentials".
     from autoapply import llm, llm_sdk
 
