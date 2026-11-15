@@ -219,6 +219,10 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
             f"Salary posted: {job.salary}\n\n{job.jd_text or job.summary}\n</job>\n\n"
             f"<form ats=\"{schema.ats}\">\nAll field labels on this form: {all_labels}\n\nQuestions to answer:\n{listing}\n</form>"
         )
+        docs = [f"{what}: {d['name']}" for kind, what in (("transcript", "transcript"), ("resume_site", "résumé")) if (d := _active_doc(kind))]
+        if docs:
+            prompt += ("\n\n<documents>\nOn file and attached where the form has a place for them: " + "; ".join(docs) + ". A question about a document "
+                       "(\"Did you attach your transcript?\", \"Is your résumé up to date?\") is answered from this, not handed to the applicant.\n</documents>")
         from . import regions
 
         region = regions.for_location(job.location or "")

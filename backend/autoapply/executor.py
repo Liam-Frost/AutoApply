@@ -163,7 +163,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     if force_manual:
         mode = {"mode": "manual", "reasons": [force_manual]}
     policy = "manual" if mode["mode"] == "manual" else "approve_then_submit"
-    generic = driver is None
+    signer = driver if (driver is not None and schema.source == "agent" and getattr(driver, "requires_login", False)) else None
+    generic = driver is None or schema.source == "agent"      # a form the agent read is filled the way it was read
     if generic:
         if schema.source != "agent":
             raise DriverError(f"no driver for {ref.ats}")
@@ -257,7 +258,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     located: dict[str, str] = {}         # question id -> where the take-over found its control (the driver fills it alone next time)
     read_now: list[str] = []             # steps read completely on this walk, by their title
     review_read: dict[str, bool] = {}    # the review page was read for the steps the form did not show again
-    held_ids = {a["id"] for a in draft_answers if a.get("held")}   # answers that are the site's own: never set again, nothing to confirm
+    held_ids = {a["id"] for a in draft_answers if a.get("held")}
+    reordered: set[str] = set()          # answers whose entries the form holds in another order: the draft takes the form's order   # answers that are the site's own: never set again, nothing to confirm
 
     def _apply(rep: dict[str, Any], i: int) -> None:
         """Take the agent's report into the state of this run."""
@@ -290,7 +292,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     a["value"] = ""
         for a in rep.get("added") or []:
             if not any(x["label"] == a["label"] for x in added):
-                added.append({"label": a["label"], "value": a["value"], "basis": a.get("basis") or "", "type": a.get("type") or "text", "page": i, "selector": a.get("selector") or ""})
+                val = (rep.get("files") or {}).get(str(a["value"]), a["value"]) if a.get("type") == "file" else a["value"]      # a document: its place on disk
+                added.append({"label": a["label"], "value": val, "basis": a.get("basis") or "", "type": a.get("type") or "text", "page": i, "selector": a.get("selector") or ""})
         for x in rep.get("located") or []:
             located[x["id"]] = x["selector"]
         for h in rep.get("held") or []:
@@ -302,7 +305,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             _left("fix", n["label"], "", n.get("why") or "资料里没有这一项，需要你来填")
             if n.get("type") and not any(norm_question(x["label"]) == norm_question(n["label"]) for x in asked):
                 asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": n["type"], "options": [str(o) for o in n.get("options") or []][:60], "page": i,
-                              "selector": n.get("selector") or ""})
+                              "selector": n.get("selector") or "", "provisional": str(n.get("provisional") or "")[:200] if scout else ""})
         for qid in rep.get("unfixed") or []:
             _left("fix", lab.get(qid, qid), str(fill.get(qid, ""))[:120], "表单上的选项和草案里的答案对不上，或控件没法自动操作")
         skip_verify.update(rep.get("unfixed") or [])
@@ -312,7 +315,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         _repair_note.clear()
         if page.is_closed():
             return None
-        rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids, read=read, unread=unread)
+        rep = _repair(page, schema, i, fill, problem, run_dir, only, title, application_id, issues=issues, on_ids=on_ids, read=read, unread=unread,
+                      stand_in=scout and bool(db.get_setting("recon.provisional")))
         if rep is None:
             step("repair_skipped", why=_repair_note.get("why") or "repair is switched off")
             return None
@@ -395,6 +399,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         seen: dict[str, int] = {}
         still: list[dict[str, Any]] = []
         for n in range(40):
+            if hasattr(driver, "settle"):
+                driver.settle(page)      # the step as it is once it has finished loading
             sig = driver.signature(page)
             seen[sig] = seen.get(sig, 0) + 1
             if seen[sig] > 2:      # the same step for the third time: going round in circles
@@ -422,6 +428,14 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 except DriverError as e:
                     browser.snapshot(page, run_dir, f"fill_failed_step_{n + 1}")
                     fill_error = e
+                for qid, val in (getattr(driver, "kept", None) or {}).items():
+                    # entries the form holds in another order than the draft listed them: the draft follows the form
+                    for row in draft_answers:
+                        if row["id"] == qid:
+                            row["value"] = val
+                    reordered.add(qid)
+                if getattr(driver, "kept", None):
+                    step("kept_as_on_form", step=n, fields=len(driver.kept))
             # 2. the form's own verdict; 3. the agent finishes what is left (also fields of this step the draft does not know)
             issues = _issues(None)
             if issues:
@@ -429,7 +443,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             rounds = 0
             told: list[dict[str, Any]] = []     # what a take-over of this step has been shown
             waits = False                       # a take-over has handed something on this step to the applicant
-            hands = lambda rep: bool(rep and (rep.get("needs_user") or rep.get("unfixed")))  # noqa: E731
+            # A question that got a stand-in answer on a walk does not hold the step: the walk reads on, the applicant is asked once.
+            hands = lambda rep: bool(rep and (rep.get("unfixed") or any(not (scout and n.get("provisional")) for n in rep.get("needs_user") or [])))  # noqa: E731
             seen_before = lambda it: audit.describe(it) in {audit.describe(x) for x in told}  # noqa: E731
             if fill_error is not None or issues or to_read:
                 failed = list(getattr(fill_error, "failures", [])) if fill_error is not None else []
@@ -579,7 +594,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     try:
         headless = policy != "manual" or scout
         with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless) as page:
-            st = auth.ensure_session(page, driver, ref)
+            st = auth.ensure_session(page, signer or driver, ref)      # a site with a coded sign-in uses it, whoever fills the form
             step("ensure_session", result=st)
             if driver.requires_login and driver.already_applied(page, ref):
                 raise AlreadyApplied()
@@ -760,7 +775,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     if scout:      # the application's status is not the walk's to change; what it found goes into the draft
         with db.session() as s:
             s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, dir=str(run_dir)))
-            if mapped or added or adapted or asked or held or located:
+            if mapped or added or adapted or asked or held or located or reordered:
                 _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False,
                               held=held, located=located)
         return {**{k: v for k, v in outcome.items() if k not in ("evidence", "driver_error", "mismatches", "diff")}, "added": len(added), "asked": len(asked), "adapted": len(adapted),
@@ -777,7 +792,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             app.detail = f"submitted {now().date().isoformat()} via {ref.ats}" + (" (auto-approved)" if app.auto_approved else "")
         s.add(Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, dir=str(run_dir)))
         new_questions = 0
-        if mapped or added or adapted or asked or located:
+        if mapped or added or adapted or asked or located or reordered:
             back = outcome["status"] != "submitted"
             new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=back,
                                           located=located) or 0
@@ -868,7 +883,7 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
                                       locator={"selector": a.get("selector") or qid}).__dict__)
     for a in added:
         qid = f"@label:{a['label']}"
-        row = {"id": qid, "label": a["label"], "type": a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date") else "text", "options": [],
+        row = {"id": qid, "label": a["label"], "type": a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "file", "multiselect") else "text", "options": [],
                "required": True, "page": a["page"], "value": a["value"], "basis": ("填表时 AI 按你的资料补填：" + a["basis"])[:300], "confidence": "medium",
                "source": "agent_added", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": False}
         rows = [r for r in rows if r["id"] != qid] + [row]
@@ -889,7 +904,9 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
         if old is not None and (not given or old.get("value") not in ("", None, [])):
             continue
         row = {"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": True, "page": a["page"], "value": a["value"] if given else "",
-               "basis": "你在申请窗口里填的" if given else ("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:300], "confidence": "high" if given else "low",
+               "basis": "你在申请窗口里填的" if given else (("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:240]
+                                                      + (f"（为了读完后面的步骤，表单里临时填了「{a['provisional']}」，不会提交；你回答后会换成你的答案）" if a.get("provisional") else "")),
+               "confidence": "high" if given else "low",
                "source": "profile" if given else "unresolved", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": given}
         rows = [r for r in rows if r is not old] + [row]
         if generic and not any(q["id"] == qid for q in questions):
@@ -910,13 +927,13 @@ _repair_note: dict[str, str] = {}   # why the last take-over did not happen (sho
 
 def _repair(page: Any, schema: FormSchema, i: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
             only_ids: list[str] | None, title: str, application_id: int, *, issues: list[dict[str, Any]] | None = None,
-            on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None) -> dict[str, Any] | None:
+            on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None, stand_in: bool = False) -> dict[str, Any] | None:
     """Agent takeover of one page. None when repair is off or no model is available (the caller re-raises)."""
     if not repair.enabled():
         return None
     try:
         return repair.fix_page(page, schema, i, fill, problem, run_dir, only_ids=only_ids, issues=issues, title=title, ref=f"application:{application_id}", on_ids=on_ids,
-                               read=read, unread=unread)
+                               read=read, unread=unread, stand_in=stand_in)
     except llm.LLMError as e:
         log.warning("repair unavailable: %s", e)
         _repair_note["why"] = str(e)[:300]

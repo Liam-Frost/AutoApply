@@ -2053,6 +2053,7 @@
 "一次调用可以包含多次请求。成功率看调用的最后一次尝试是否成功。点一行只看这项功能。": "One call can contain several requests. A call counts as successful when its last attempt succeeded. Click a row to show only that feature.",
 "投出去的申请结果怎么样，什么样的岗位更容易有回音，哪些机会错过了。按投递日期统计。": "What came of the applications you sent, which postings answer more often, and which chances were missed. By the day of sending.",
 "步骤从这个版本开始记录；之前的任务只有填表有步骤，其余显示为“没有记录到哪一步”。": "Steps are recorded from this version on; earlier tasks have them only for filling, the rest show “step not recorded”.",
+"（为了读完后面的步骤，表单里临时填了「{0}」，不会提交；你回答后会换成你的答案）": " (to read the steps after it, “{0}” was entered as a stand-in; it is never submitted, and your answer replaces it)",
 "估算成本 ÷ 调用次数。一次调用可以包含多次请求（代理的多轮、换到备用服务的重试）。": "Estimated cost ÷ calls. One call can contain several requests (an agent's turns, a retry on a backup service).",
 "同一家公司同名的岗位，如果两次出现相隔超过这么久，就当成新的岗位，而不是和旧的合并。": "Postings with the same title at the same company are treated as new, not merged, if they appear more than this far apart.",
 "在 Chrome 里登录 PD Portal，打开 Job Postings 页面。": "Sign in to PD Portal in Chrome and open the Job Postings page.",

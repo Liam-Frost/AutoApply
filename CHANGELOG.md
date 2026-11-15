@@ -4,6 +4,22 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Forms that are a walk through several steps are read and filled by the AI agent, not by coded steps.** On such sites
+  (Workday for now; the list is the setting `agent.reads`) the coded driver signs in and hands over; the agent looks at
+  each page and decides what to do there, and the program's own rules stay what they were: nothing is made up, nothing
+  is submitted without the approved draft, every value is read back and compared, the run keeps its evidence. Coded
+  reading of these forms broke on every new site - a list that opens late, a notice taken for an error, a field without
+  a name - and each break came back to you as one more draft.
+- **A form is read to its end before you are asked anything, and you are asked once.** Where a required question that
+  only you can answer would stop the reading, the agent enters a stand-in to get past it and says so in the draft. A
+  stand-in is never submitted: the draft cannot be approved until you have answered, and your answer replaces it
+  (setting `recon.provisional`).
+- The agent knows which documents you have on file and can attach them. A form that asks for a transcript on a later
+  step gets it; "Did you attach your transcript?" is answered by attaching it, not by asking you.
+- A form whose application is filled by the agent is submitted by you in the window, as explored forms always were.
+
 ### Fixed
 
 - Pressing Submit in the program's window no longer closes it. Between the review page and the page that follows there
@@ -53,6 +69,18 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   and you decide which one goes in.
 - A card that asks you to sign in to a site is closed as soon as the program is signed in there, however that came
   about. A draft that is built clears the "failed" note of the attempt before it.
+
+- A confirmation link in an e-mail ("confirm your e-mail address to finish signing up") is opened by the program -
+  when, and only when, it is the site's own: the program is signing up or in on that site at that moment, the link is
+  https and leads to that same site (another domain, a mail service's redirect, a look-alike host, an address with a
+  user name, a port or a bare IP in it are not opened), and the address is in the mail word for word. The address,
+  which carries a one-time token, is not shown to the model or written to a log. If the link leads away from the site,
+  the window goes back and nothing is typed there. A link that is not opened is reported, and the account is marked as
+  needing you. The site's password is typed on the site's own pages only.
+- Entries a form already holds in another order than the draft lists them are left where they are, and the draft takes
+  the form's order. An upload that was read as "the file box" is made on the step it was read on, not on another step's
+  file box. A step is named by the form's own "you are here" mark and read once it has stopped loading; before, the
+  frame between two steps was read as a step with nothing on it, and three of them ended a walk as "going in circles".
 
 ### Security
 

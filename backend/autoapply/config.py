@@ -38,6 +38,12 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "llm.provider": "",
     # per service, for the OpenAI-compatible ones and chatgpt: {"openai": {"base_url": "", "model": "", "small_model": ""}}; keys are kept with the secrets
     "llm.providers": {},
+    # Sites whose form is a walk through several steps are read and filled by the agent (it looks at the page and decides);
+    # the coded driver signs in and is otherwise out of the way. Coded reading of such forms broke on every new site.
+    "agent.reads": ["workday"],
+    # While reading, a required question only the applicant can answer gets a stand-in answer so that the steps after it
+    # can be read too; it is never submitted - the draft cannot be approved until the applicant has answered.
+    "recon.provisional": True,
     "recon.walk": True,  # read the later steps of a form by walking it with the draft's answers before approval (never submits)
     "repair.enabled": True,  # let the agent take over a page the driver could not fill (it can never submit)
     "llm.model": "claude-opus-5-5",

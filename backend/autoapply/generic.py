@@ -24,7 +24,7 @@ from playwright.sync_api import Page
 from . import browser, knowledge, llm
 from . import prompts
 from .ats import widgets as w
-from .ats.base import DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
+from .ats.base import url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
 from .models import Job
 
 SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
@@ -463,6 +463,11 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         return "filled"
 
     def fill_account_password(selector: str, new: bool = False) -> str:
+        # The site's password is typed on the site's own pages only - wherever a link or a redirect has taken the window.
+        here = mail.site_domain(url_host(page.url))
+        home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
+        if home and here not in home:
+            raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
         pw = secrets.get_password(key)
         if not pw:
             if not new:
@@ -491,13 +496,31 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         return f"clicked '{label[:60]}'; now at {page.url}"
 
     def email_verification(selector: str = "") -> str:
-        got = mail.wait_for_verification(sender_hint=ref.host, timeout=180, since=state["since"])
+        site = url_host(page.url) or ref.host
+        if not (mail.site_domain(site) and mail.site_domain(site) == mail.site_domain(ref.host or site)):
+            site = ref.host       # the page has wandered off the site: the link must be the site's, not this page's
+        got = mail.wait_for_verification(sender_hint=ref.host, timeout=180, since=state["since"], site_host=site)
         if got is None:
             return "no verification e-mail arrived within 3 minutes"
+        if got.startswith("refused:"):
+            # not opened: the applicant does this one themselves, and is told so
+            state["link_refused"] = got[9:]
+            return (f"The e-mail has a confirmation link, but it is not opened by the program ({got[9:]}). Do not look for another way: "
+                    "call account_result('failed', 'the confirmation link in the e-mail has to be opened by the applicant') and finish with blocked='login'.")
         if got.startswith("http"):
-            page.goto(got, wait_until="domcontentloaded")
+            before = page.url
+            page.goto(got, wait_until="domcontentloaded")      # the address carries a one-time token: it is not shown to the model or written to a log
             page.wait_for_timeout(2500)
-            return f"opened the verification link; now at {page.url}"
+            landed = url_host(page.url)
+            if mail.link_refusal(f"https://{landed}/", site):
+                # the site's link sent the window somewhere else: nothing is typed there
+                try:
+                    page.goto(before, wait_until="domcontentloaded")
+                except Exception:  # noqa: BLE001
+                    pass
+                return f"The link led away from the site (to {landed}); the window is back where it was. Report account_result('failed', ...) with that."
+            state["link_opened"] = True
+            return f"opened the confirmation link from the e-mail; now on {landed}{page.url.split(landed, 1)[-1].split('?')[0][:80]}. Read the page to see whether the address is confirmed."
         if not selector:
             return "the e-mail contains a code: call again with the selector of the code box"
         box = page.locator(selector).first

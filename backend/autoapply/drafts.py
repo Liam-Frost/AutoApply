@@ -55,6 +55,15 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
             with browser.open_page() as page:
                 return ref, driver.get_schema(ref, page)
         return ref, driver.get_schema(ref, None)
+    if ref.ats in (db.get_setting("agent.reads") or []):
+        # A form that is a walk through several steps is read by the agent: it looks at each page and decides what to do
+        # there. The coded driver does what code does well - signing in with the saved session or password - and hands over.
+        from . import generic
+
+        if driver.requires_login:
+            with browser.open_page(ref.tenant_key) as page:
+                auth.ensure_session(page, driver, ref)
+        return generic.recon(job, ref, run_dir)
     with browser.open_page(ref.tenant_key if driver.requires_login else None) as page:
         if not ref.tenant and hasattr(driver, "resolve_board"):
             ref = driver.resolve_board(page, ref)  # type: ignore[attr-defined]

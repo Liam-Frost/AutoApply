@@ -128,13 +128,60 @@ def extract_verification(subject: str, body: str) -> str | None:
     return m.group(1) if m else None
 
 
-def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: datetime | None = None) -> str | None:
-    """Poll for a fresh verification e-mail. Returns the code or link, or None on timeout."""
+_TWO_PART = {"co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.nz", "co.jp", "co.kr", "co.in", "com.cn", "com.hk", "com.sg", "com.br",
+             "com.mx", "com.tw", "co.za", "com.tr"}
+
+
+def site_domain(host: str) -> str:
+    """The part of a host that names the site's owner: metacareers.com for www.metacareers.com, acme.co.uk for jobs.acme.co.uk.
+    On a host shared by many employers the employer's own name is kept: ciena.wd5.myworkdayjobs.com stays whole."""
+    host = (host or "").lower().split(":")[0].strip(".")
+    parts = host.split(".")
+    if len(parts) < 2 or re.fullmatch(r"[\d.]+", host):
+        return ""
+    if re.search(r"(myworkdayjobs|myworkdaysite|icims|greenhouse|lever|ashbyhq|smartrecruiters|bamboohr|taleo|oraclecloud|successfactors|jobvite|workable)\.", host):
+        return host
+    n = 3 if ".".join(parts[-2:]) in _TWO_PART else 2
+    return ".".join(parts[-n:])
+
+
+def link_refusal(url: str, site_host: str) -> str:
+    """Why a link from an e-mail must not be opened by the program ('' when it may be).
+
+    A confirmation link is opened only when it is plainly the site's own: the program is in the middle of signing up or in
+    there, and the link leads to that same site over https. Anything else - another domain, a mail service's redirect, an
+    address with a user name or a port in it, a bare IP - is left to the applicant: a link in a mail is the oldest way to
+    send someone to a look-alike page, and this program types passwords."""
+    from urllib.parse import urlparse
+
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return "not an address"
+    host = (u.hostname or "").lower()
+    if u.scheme != "https":
+        return "not https"
+    if u.username or u.password or (u.port not in (None, 443)):
+        return "has a user name or a port in it"
+    if not host or re.fullmatch(r"[\d.]+", host) or host.startswith("xn--") or ".xn--" in host:
+        return "not a plain host name"
+    want = site_domain(site_host)
+    if not want:
+        return "the site is not known"
+    if not (host == want or host.endswith("." + want)):
+        return f"leads to {host}, not to {want}"
+    return ""
+
+
+def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: datetime | None = None, site_host: str = "") -> str | None:
+    """Poll for a fresh verification e-mail. Returns the code or link, or None on timeout. With ``site_host``, a link is
+    returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
     since = since or (datetime.now(timezone.utc) - timedelta(minutes=3))
     hint = re.sub(r"^(www|jobs|careers)\.", "", sender_hint).split(".")[0] if sender_hint else ""
     from . import mailbox
 
     deadline = time.time() + timeout
+    refused = ""
     while time.time() < deadline:
         try:
             msgs = mailbox.fetch(since, 10)
@@ -145,6 +192,15 @@ def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: d
             if hint and hint.lower() not in (frm + subj + body[:2000]).lower():
                 continue
             found = extract_verification(subj, body)
+            if found is None and site_host and re.search(r"confirm|verif|activate", subj, re.I):
+                # a confirmation mail whose link does not say so in its address: the site's own link if there is exactly one
+                links = [m.group(0).rstrip(").,") for m in _LINK.finditer(body) if not re.search(r"unsubscribe|privacy|/help|support|terms|\.(png|jpe?g|gif|css)\b", m.group(0), re.I)]
+                own = [u for u in links if not link_refusal(u, site_host)]
+                if len(own) == 1:
+                    found = own[0]
+                elif links and not own:
+                    refused = f"refused: {link_refusal(links[0], site_host)}"
+                    continue
             if found is None and re.search(r"verif|code|confirm|password|passcode|otp|one[- ]time", subj, re.I):
                 try:
                     out = llm.json(
@@ -155,8 +211,16 @@ def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: d
                     found = out["value"] if out["found"] else None
                 except llm.LLMError:
                     found = None
+            if found and str(found).startswith("http"):
+                if str(found) not in body:      # a model read it out of the mail: it has to be in there word for word
+                    found = None
+                elif site_host and (why := link_refusal(str(found), site_host)):
+                    refused = f"refused: {why}"
+                    found = None
             if found:
                 return found
+        if refused:
+            return refused
         time.sleep(8)
     return None
 

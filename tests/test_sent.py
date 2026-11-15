@@ -309,3 +309,31 @@ def test_saving_the_settings_page_is_not_refused_over_the_programs_own_bookkeepi
     got = c.get("/api/settings").json()["settings"]
     assert "migrated.page_ids" not in got and "draft.min_score" in got or "migrated.page_ids" not in got
     assert c.put("/api/settings", json={"settings": {**got, "migrated.page_ids": True}}).status_code == 200
+
+
+def test_a_confirmation_link_from_an_e_mail_is_opened_only_when_it_is_the_sites_own(app_env, monkeypatch):
+    """Signing up often ends with "click the link we sent you". The program opens it - when it leads to the very site it
+    is signing up on, over https. A link to another domain, a mail service's redirect, a look-alike host: not opened, and
+    the applicant is told to do it. The site's password is typed on the site's own pages only."""
+    from datetime import datetime, timezone
+
+    from autoapply import mail, mailbox
+
+    ok = [("https://www.metacareers.com/confirm?token=abc", "www.metacareers.com"), ("https://auth.metacareers.com/v/1", "www.metacareers.com"),
+          ("https://ciena.wd5.myworkdayjobs.com/activate/1", "ciena.wd5.myworkdayjobs.com"), ("https://jobs.acme.co.uk/verify", "careers.acme.co.uk")]
+    bad = [("http://www.metacareers.com/confirm", "www.metacareers.com"), ("https://metacareers.com.evil.io/confirm", "www.metacareers.com"),
+           ("https://click.mailservice.net/ls/click?upn=1", "www.metacareers.com"), ("https://other.wd5.myworkdayjobs.com/activate", "ciena.wd5.myworkdayjobs.com"),
+           ("https://user:pw@www.metacareers.com/confirm", "www.metacareers.com"), ("https://10.0.0.5/confirm", "www.metacareers.com"),
+           ("https://www.metacareers.com:8443/confirm", "www.metacareers.com"), ("https://evil.co.uk/verify", "careers.acme.co.uk")]
+    assert [mail.link_refusal(u, h) for u, h in ok] == [""] * len(ok)
+    assert all(mail.link_refusal(u, h) for u, h in bad)
+
+    now = datetime.now(timezone.utc)
+    box = {"msgs": [mailbox.Message(id="1", sender="Meta Careers <no-reply@metacareers.com>", subject="Confirm your Career Profile email address",
+                                    body="Hi, confirm here: https://click.mailservice.net/ls/click?upn=1 thanks", date=now)]}
+    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False: box["msgs"])
+    monkeypatch.setattr(mail.time, "sleep", lambda s: None)
+    got = mail.wait_for_verification(sender_hint="www.metacareers.com", timeout=1, since=now, site_host="www.metacareers.com")
+    assert got.startswith("refused: leads to click.mailservice.net")
+    box["msgs"][0].body = "Hi, confirm here: https://www.metacareers.com/confirm?token=abc thanks"
+    assert mail.wait_for_verification(sender_hint="www.metacareers.com", timeout=1, since=now, site_host="www.metacareers.com") == "https://www.metacareers.com/confirm?token=abc"

@@ -29,7 +29,7 @@ from typing import Any
 
 from playwright.sync_api import Page
 
-from . import db, fixtures, generic, knowledge, llm, notify
+from . import answers, db, fixtures, generic, knowledge, llm, notify
 from . import prompts
 from .ats import audit
 from .ats.base import FormSchema
@@ -106,6 +106,21 @@ found its control, report where it is under `located` (id, selector) in the same
 
 """
 
+DOCUMENTS = """Documents the applicant has on file: {docs}. Use the upload tool to attach one where the form asks for it (a transcript
+upload, "attach your transcript to the résumé section", ...), and report it under `added` with type "file" and the file's name as
+its value. A question about a document ("Did you attach your transcript?") is yours to answer truthfully from what you did: attach
+it if the form has a place for it, then answer; never hand such a question to the applicant while the document is on file.
+
+"""
+
+STAND_IN = """Reading on past a question only the applicant can answer. The applicant is asked ONCE, after the whole form has been read,
+so a required question that only they can answer must not end the reading: report it under `needs_user` as always, and if the step
+cannot be left without an answer, enter a stand-in to get past it and name it in that entry's `provisional` (for a choice: the most
+neutral option; for text: "TBD"). A stand-in is never submitted: the draft cannot be approved before the applicant has answered, and
+their answer replaces it. Use a stand-in only where the form insists; an optional question is simply left empty.
+
+"""
+
 READ_STEP = """THIS STEP HAS NOT BEEN READ BEFORE. Besides finishing it, read it completely. Every question of this step that is not among
 the approved answers above is reported, each one once:
 - the form already shows an answer to it (kept by the site from an earlier application or from the applicant's account there):
@@ -139,7 +154,7 @@ def site_key(schema: FormSchema) -> str:
 
 def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
              *, only_ids: list[str] | None = None, issues: list[dict[str, Any]] | None = None, title: str = "", ref: str = "",
-             on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None) -> dict[str, Any]:
+             on_ids: list[str] | None = None, read: str = "", unread: list[str] | None = None, stand_in: bool = False) -> dict[str, Any]:
     """Let the agent finish the page. ``read``: "step" - the step has not been read before, so besides finishing it the
     agent lists every question on it that the draft does not have; "review" - the review page, read for the steps the
     form did not show again (``unread``).
@@ -156,6 +171,14 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
     if not qs and not issues and not read:
         return empty
     files: dict[str, str] = {}
+    # What the applicant has on file, whatever the draft planned to upload: a form that asks for a transcript on a later
+    # step, or asks "did you attach your transcript?", is answered by attaching it - not by asking the applicant.
+    on_file: list[str] = []
+    for kind, what in (("transcript", "transcript"), ("resume_site", "résumé")):
+        doc = answers._active_doc(kind)
+        if doc and Path(doc["path"]).exists():
+            files.setdefault(doc["name"], doc["path"])
+            on_file.append(f"{what}: {doc['name']}")
 
     def line(q: Any) -> str:
         v = fill[q.id]
@@ -253,7 +276,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                                                                "required": ["label", "value"], "additionalProperties": False}},
                                                            "needs_user": {"type": "array", "items": {"type": "object", "properties": {
                                                                "label": st, "why": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
-                                                               "options": arr, "selector": st}, "required": ["label", "why"], "additionalProperties": False}},
+                                                               "options": arr, "selector": st, "provisional": st}, "required": ["label", "why"], "additionalProperties": False}},
                                                            "adapted": {"type": "array", "items": {"type": "object", "properties": {"id": st, "value": st, "max_chars": {"type": "integer"}, "why": st},
                                                                                                   "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
@@ -281,6 +304,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         + ("Approved answers to the other questions of this application. The form shows its questions in its own order, so some of them may be "
            "on this step: when a field here asks one of them, enter exactly that approved value (never an answer of your own) and list its id "
            "under `fixed`. Ignore the ones that are not on this step.\n" + "\n".join(elsewhere_lines) + "\n\n" if elsewhere_lines else "")
+        + (DOCUMENTS.format(docs="; ".join([*on_file, *[f"for this application: {n}" for n in files if not any(n in x for x in on_file)]])) if files else "")
+        + (STAND_IN if stand_in and read == "step" else "")
         + (WHERE if on_ids is not None else "")
         + (READ_STEP if read == "step" else READ_REVIEW.format(steps="; ".join(unread or []) or "(not named)") if read == "review" else "")
         + (f"Notes from earlier work on this site:\n{notes[:3000]}\n\n" if notes else "")
@@ -296,6 +321,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
     for k in ("mapped", "absent", "added", "needs_user", "adapted", "held", "located"):
         report.setdefault(k, [])
     labels = {q.id: q.label for q in [*on_page, *elsewhere]}
+    report["files"] = dict(files)
     report["labels"] = {i: labels.get(i, i) for i in [*report["unfixed"], *report["absent"], *[m["id"] for m in report["mapped"]], *[a["id"] for a in report["adapted"]]]}
     report["left"] = audit.page_issues(page)  # the form's verdict after the agent, whatever the agent said
     _learn(schema, page_index, report)
