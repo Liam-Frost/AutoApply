@@ -601,3 +601,20 @@ def test_a_document_the_form_already_shows_is_not_uploaded_again(app_env, tmp_pa
         assert page.evaluate(files) == 0
         assert tools["upload"].fn(selector="#tr", file_name=doc.name).startswith("not uploaded: the form already shows") and page.evaluate(files) == 0
         b.close()
+
+
+def test_a_saved_sign_in_is_found_when_the_same_site_is_reached_from_another_address(app_env):
+    """An employer's postings appear under two addresses (a careers site and its own domain), and both send the applicant
+    to the same sign-in page. The sign-in saved for one is the account for the other: found by the host of the sign-in
+    page - exactly that host, and only an account that has something saved."""
+    from autoapply import auth, browser, db, secrets
+
+    auth.upsert_account("eightfold:acme", ats="eightfold", host="acme.wd5.myworkdayjobs.com", email="me@example.test", password="pw", status="ok")
+    auth.upsert_account("workday:other", ats="workday", host="other.wd5.myworkdayjobs.com", email="me@example.test", status="ok")       # nothing saved for it
+    assert auth.adopt("generic:jobs.acme.com", "evil.wd5.myworkdayjobs.com") is None
+    assert auth.adopt("generic:jobs.acme.com", "other.wd5.myworkdayjobs.com") is None
+    assert auth.adopt("generic:jobs.acme.com", "acme.wd5.myworkdayjobs.com") == "eightfold:acme"
+    assert auth.key_for("generic:jobs.acme.com") == "eightfold:acme" and auth.key_for("generic:elsewhere.example") == "generic:elsewhere.example"
+    assert browser._state_path("generic:jobs.acme.com") == browser._state_path("eightfold:acme")       # one session for both
+    assert secrets.get_password(auth.key_for("generic:jobs.acme.com")) == "pw"
+    assert auth.adopt("generic:jobs.acme.com", "acme.wd5.myworkdayjobs.com") is None       # already linked

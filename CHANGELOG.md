@@ -136,6 +136,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   version has its own column; and a draft shows one state in plain words (the second, internal one beside it is gone).
 - The analysis page has "last 7 days" and "today" (the local calendar day).
 
+- A saved sign-in is found when the same employer's sign-in page is reached from another address. An employer whose
+  postings appear under two addresses (a careers site and its own domain) was asked for a new sign-in under the
+  second one, although the sign-in page - and the saved account - was the same. The account is now found by the host
+  of the sign-in page (exactly that host), and both addresses share its saved session and password.
+- A search on the jobs page says how many matching postings are in the other groups (applied, not applying), with
+  one click to see them all.
+
 ### Security
 
 - The route that serves the interface could be made to return files outside its folder with an address such as

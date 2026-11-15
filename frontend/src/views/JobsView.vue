@@ -56,6 +56,14 @@ const groupStages = computed(() => stages.value.filter((x) => group.value === 'a
 const groupCount = (g) => jobs.value.filter((j) => inGroup(j, g)).length
 function pickGroup(k) { group.value = k; f.stage = ''; picked.value = new Set() }
 
+// A search looks in the group that is open. What it would find in the other groups is counted, so that "one result"
+// does not read as "this posting is not in the library" when it sits under "not applying" or "applied".
+const elsewhere = computed(() => {
+  const needle = f.q.trim().toLowerCase()
+  if (!needle || group.value === 'all') return 0
+  return jobs.value.filter((j) => !inGroup(j, group.value) && (showArchived.value || !j.archived)
+    && `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)).length
+})
 function daysTo(dl) { return dl ? Math.ceil((new Date(dl.replace(' ', 'T')).getTime() - Date.now()) / 86400000) : null }
 const rows = computed(() => {
   const needle = f.q.trim().toLowerCase()
@@ -196,6 +204,9 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
         </tr>
       </tbody>
     </table>
+    <div v-if="elsewhere" class="callout" style="margin: 10px 0 0">
+      <Icon name="info" /><div>另有 {{ elsewhere }} 个符合搜索的岗位在别的分组里（已投递、不投递等）。 <button class="ghost sm" @click="pickGroup('all')">在全部岗位里看</button></div>
+    </div>
     <EmptyState v-if="!rows.length" icon="briefcase" title="没有符合条件的岗位" :text="activeFilters ? '试试清空筛选条件。' : '换一个分组看看，或者扫描新岗位。'">
       <button v-if="activeFilters" @click="clearFilters">清空筛选</button>
     </EmptyState>

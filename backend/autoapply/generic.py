@@ -328,13 +328,35 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
 
     from . import auth, mail, messages, notify, secrets
 
-    key = ref.tenant_key
+    key = auth.key_for(ref.tenant_key)
     _a = auth.account(key) or {}
+
+    def _own_account() -> str:
+        """The key this site's sign-in is kept under - found out at the sign-in page: the page may be another site's, for
+        which a sign-in is already saved (an employer whose postings appear under two addresses). Its cookies are put
+        into the window too, so that a session that is still good is used before any password."""
+        nonlocal key
+        got = auth.adopt(ref.tenant_key, url_host(page.url))
+        if got:
+            key = got
+            try:
+                st = browser.load_state(got) or {}
+                if st.get("cookies"):
+                    page.context.add_cookies(st["cookies"])
+            except Exception:  # noqa: BLE001
+                pass
+            state["adopted"] = got
+        return key
     if _a.get("status") == "pending" and _a.get("created_at"):
         state.setdefault("since", datetime.fromisoformat(_a["created_at"]).replace(tzinfo=timezone.utc))  # the link was mailed back then
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
+        if _own_account() != ref.tenant_key and secrets.get_password(key):
+            plan = {"do": "password", "why": "an account for this sign-in page is already saved (the same employer's site under another address): "
+                                             "fill the e-mail and call fill_account_password; if the page turns out to be signed in already after a reload, go on"}
+            state["plan"] = plan
+            return plan
         plan = auth.sign_in_plan(ref, [str(p).lower() for p in (offered or [])])
         state["plan"] = plan
         return plan
@@ -478,9 +500,11 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     def fill_account_password(selector: str, new: bool = False) -> str:
         # The site's password is typed on the site's own pages only - wherever a link or a redirect has taken the window.
         here = mail.site_domain(url_host(page.url))
+        _own_account()
         home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
         if home and here not in home:
             raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
+        _own_account()
         pw = secrets.get_password(key)
         if not pw:
             if not new:

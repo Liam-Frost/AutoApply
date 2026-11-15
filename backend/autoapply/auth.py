@@ -62,6 +62,31 @@ def upsert_account(tenant_key: str, *, ats: str = "", host: str = "", email: str
             notify.close_todos(kind, f"account:{tenant_key}")
 
 
+def key_for(tenant_key: str) -> str:
+    """The key a site's sign-in is kept under: its own, or the one of the site it turned out to sign in on."""
+    return str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
+
+
+def adopt(tenant_key: str, host: str) -> str | None:
+    """A sign-in page on ``host`` was reached while working for ``tenant_key``, which has no sign-in of its own. If a
+    sign-in for exactly that host is saved under another key (the same employer's postings were found under another
+    address before), that is the account: remember the link and return its key. Only an exact host, only an account
+    that has a password or a saved session, never across employers."""
+    host = (host or "").lower().strip()
+    if not host or key_for(tenant_key) != tenant_key or secrets.get_password(tenant_key):
+        return None
+    from . import browser
+
+    with db.session() as s:
+        rows = [(a.tenant_key, a.has_password) for a in s.query(Account).filter(Account.host == host, Account.tenant_key != tenant_key)]
+    for key, has_pw in rows:
+        if (has_pw and secrets.get_password(key)) or browser.load_state(key):
+            db.set_setting("accounts.alias", {**(db.get_setting("accounts.alias") or {}), tenant_key: key})
+            log.info("%s signs in on %s, where a sign-in is saved as %s: using it", tenant_key, host, key)
+            return key
+    return None
+
+
 def account(tenant_key: str) -> dict[str, Any] | None:
     with db.session() as s:
         a = s.get(Account, tenant_key)
