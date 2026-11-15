@@ -14,6 +14,7 @@ the user submits.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -351,13 +352,35 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     from . import auth, mail, messages, notify, secrets
 
     key = auth.key_for(ref.tenant_key)
+    aref = ref      # the site the account is on: the posting's own, unless the sign-in turns out to be elsewhere
     _a = auth.account(key) or {}
 
     def _own_account() -> str:
         """The key this site's sign-in is kept under - found out at the sign-in page: the page may be another site's, for
         which a sign-in is already saved (an employer whose postings appear under two addresses). Its cookies are put
         into the window too, so that a session that is still good is used before any password."""
-        nonlocal key
+        nonlocal key, aref
+        host = url_host(page.url)
+        saved = (auth.account(key) or {}).get("host") or ""
+        if host and saved and secrets.get_password(key) and mail.site_domain(saved) != mail.site_domain(host) \
+                and mail.site_domain(host) != mail.site_domain(aref.host) and not any(_on_provider(page, p) for p in browser.identities()):
+            # The saved account is another site's: the same employer, but this posting signs in somewhere else (its
+            # postings are listed on one system and applied for on another). That password is not this site's - the
+            # account here is its own: the one saved for this very host, or none yet.
+            from .ats import registry
+
+            here = registry.detect(page.url)
+            if here is not None and here.tenant_key != key:
+                aref, key = here, here.tenant_key
+                state["account_site"] = key
+                try:
+                    st = browser.load_state(key) or {}
+                    if st.get("cookies"):
+                        page.context.add_cookies(st["cookies"])
+                except Exception:  # noqa: BLE001
+                    pass
+                logging.getLogger("autoapply.generic").info("%s signs in on %s, not where its saved account is: the account there is %s", ref.tenant_key, host, key)
+            return key
         got = auth.adopt(ref.tenant_key, url_host(page.url))
         if got:
             key = got
@@ -374,12 +397,12 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
-        if _own_account() != ref.tenant_key and secrets.get_password(key):
+        if _own_account() != ref.tenant_key and aref is ref and secrets.get_password(key):
             plan = {"do": "password", "why": "an account for this sign-in page is already saved (the same employer's site under another address): "
                                              "fill the e-mail and call fill_account_password; if the page turns out to be signed in already after a reload, go on"}
             state["plan"] = plan
             return plan
-        plan = auth.sign_in_plan(ref, [str(p).lower() for p in (offered or [])])
+        plan = auth.sign_in_plan(aref, [str(p).lower() for p in (offered or [])], also=ref.tenant_key)
         state["plan"] = plan
         return plan
 
@@ -523,20 +546,19 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         # The site's password is typed on the site's own pages only - wherever a link or a redirect has taken the window.
         here = mail.site_domain(url_host(page.url))
         _own_account()
-        home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
+        home = {mail.site_domain(h) for h in (aref.host, url_host(aref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
         if home and here not in home:
             raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
-        _own_account()
         pw = secrets.get_password(key)
         if not pw:
             if not new:
                 raise ValueError("no stored password for this site; pass new=true only on a sign-up form")
-            ok, why = auth.may_register(ref)
+            ok, why = auth.may_register(aref, ref.tenant_key)
             if not ok:
                 raise PermissionError(f"registration is not allowed here: {why}")
             pw = secrets.generate_password(16)
             # saved before the form is sent, so the password cannot be lost mid-flow
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, email=auth.login_email(), password=pw, status="pending", created_by="agent")
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, email=auth.login_email(), password=pw, status="pending", created_by="agent")
             state["created"] = True
         loc = page.locator(selector).first
         if (loc.get_attribute("type") or "").lower() not in ("password", "text"):
@@ -590,16 +612,16 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     def account_result(outcome: str, notes: str = "") -> str:
         state["outcome"] = outcome
         if outcome in ("registered", "logged_in"):
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, status="ok", **({"created_by": f"sso:{state['sso']}"} if state.get("sso") else {}))
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="ok", **({"created_by": f"sso:{state['sso']}"} if state.get("sso") else {}))
             browser.save_state(key, page.context)
             if outcome == "registered":
                 notify.send("task_result", messages.registered(key), ref=f"account:{key}")
         elif outcome == "exists":
             if state.get("created"):
                 secrets.delete_password(key)
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, status="needs_human", error="account already exists")
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error="account already exists")
         else:
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, status="needs_human", error=f"registration failed: {notes[:200]}")
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error=f"registration failed: {notes[:200]}")
         return "recorded"
 
     s = lambda **p: {"type": "object", "properties": p, "additionalProperties": False}  # noqa: E731
@@ -722,7 +744,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     hidden = ref.tenant_key not in (db.get_setting("browser.visible_sites") or [])
     refused = False
     result: dict[str, Any] = {}
-    with browser.open_page(ref.tenant_key) as page:
+    with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
         try:
             resp = page.goto(ref.url, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:  # noqa: BLE001 - timeout, DNS, connection reset: the site, not the form

@@ -78,7 +78,9 @@ def run_one(t: Task) -> None:
     try:
         if fn is None:
             raise KeyError(f"no handler for task kind {t.kind}")
-        result = fn(t) or {}
+        from .browser_policy import task_backend
+        with task_backend(t.payload.get("browser_backend")):
+            result = fn(t) or {}
     except NeedsHuman as e:
         status, error = "waiting_human", e.reason
     except llm.LLMUnavailable as e:

@@ -141,6 +141,13 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # acknowledge it and go on. Such notices are a condition of applying at all; the answers on the form itself are not touched.
     "consent.acknowledge_notices": True,
     "browser.visible_sites": [],   # tenant keys whose pages are refused in a hidden window: these run in a visible one (found out automatically)
+    "browser.nodriver_enabled": False,
+    "browser.executable": "",
+    "browser.rules": [
+        {"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
+        {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
+        {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]},
+    ],
     # network (net.py)
     "proxy.mode": "system",   # system: whatever this computer is set to use | none: connect directly | custom: proxy.url
     "proxy.url": "",          # http://127.0.0.1:7890, socks5://127.0.0.1:1080

@@ -683,13 +683,40 @@ class GenericDriver:
         if len(hits) != 1:
             raise DriverError("could not tell which button submits the application", seen=f"{len(hits)} candidates")
         btns.nth(hits[0]).click(timeout=w.T)
-        for _ in range(60):      # the page after it: a confirmation, or the form saying what is wrong
+        # The page after it: a confirmation, or the form saying what is wrong. A form that sends in place shows neither
+        # for a while - its button reads "Sending..." and nothing else has changed. That is not "the form is gone":
+        # deciding then (it once took the program 0.6 s) reports a failure for an application that is on its way.
+        quiet = 0
+        for i in range(120):
             page.wait_for_timeout(500)
             try:
-                if self.confirmation(page) is not None or self.form_gone(page, {}):
+                if self.confirmation(page) is not None:
                     break
+                busy = self.sending(page)
+                if not busy and i >= 6 and self.form_gone(page, {}):
+                    break
+                if not busy and any(SUBMIT_RE.search(t) for t in self._buttons(page)):
+                    quiet += 1      # the button is back as it was: the site answered (an error under a field, most likely)
+                    if quiet >= 8:
+                        break
+                else:
+                    quiet = 0
             except Exception:  # noqa: BLE001 - between two pages
                 continue
+
+    @staticmethod
+    def sending(page: Page) -> bool:
+        """Is the form in the middle of sending: a button that says so, or a busy mark on the form?"""
+        try:
+            return bool(page.evaluate("""() => {
+              const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+              const said = [...document.querySelectorAll('button, [role=button], input[type=submit]')].some((e) => vis(e)
+                && /^(sending|submitting|processing|uploading|please wait|loading|saving)\\b|正在(提交|发送)|提交中|发送中/i.test((e.innerText || e.value || '').trim()));
+              const busy = [...document.querySelectorAll('form[aria-busy=true], [role=progressbar], [aria-busy=true] button')].some(vis);
+              return said || busy;
+            }"""))
+        except Exception:  # noqa: BLE001
+            return True
 
     def confirmation(self, page: Page) -> dict[str, Any] | None:
         body = page.inner_text("body")

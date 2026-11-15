@@ -689,3 +689,53 @@ def test_a_list_that_is_searched_is_searched_by_typing_and_the_right_entry_is_ch
         with pytest.raises(DriverError):
             g.set_value(page, q, "Vancouver")
         b.close()
+
+
+def test_a_saved_account_of_another_site_is_not_offered_where_this_posting_signs_in(app_env):
+    """The employer lists its postings on one system and takes this application on another. The account saved for the
+    first is not an account on the second: its password is neither announced nor typed there."""
+    import pytest
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import auth, db, generic, secrets
+    from autoapply.ats.base import JobRef
+
+    auth.upsert_account("eightfold:acme", ats="eightfold", host="jobs.acme.com", email="me@example.test", password="first-site-pw", status="ok")
+    db.set_setting("accounts.alias", {"generic:jobs.acme.com": "eightfold:acme"})
+    ref = JobRef("generic", "jobs.acme.com", "", "https://jobs.acme.com/careers/job/1", "jobs.acme.com")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.route("**/*", lambda r: r.fulfill(content_type="text/html", body='<main><h1>Sign in</h1><input id="e" type="email"><input id="p" type="password"></main>'))
+        page.goto("https://acme.wd5.myworkdayjobs.com/en-US/Site/login")
+        tools = {t.name: t for t in generic.account_tools(page, ref, {})}
+        plan = tools["account_info"].fn(offered=[])
+        assert plan.get("has_password") is False and plan["do"] != "password"
+        with pytest.raises(ValueError):
+            tools["fill_account_password"].fn(selector="#p")
+        assert page.input_value("#p") == ""
+        # on the first site's own page the saved account is the account
+        page.goto("https://jobs.acme.com/login")
+        tools = {t.name: t for t in generic.account_tools(page, ref, {})}
+        assert tools["account_info"].fn(offered=[])["do"] == "password"
+        assert tools["fill_account_password"].fn(selector="#p").startswith("filled") and page.input_value("#p") == "first-site-pw"
+        b.close()
+    assert secrets.get_password("eightfold:acme") == "first-site-pw"
+
+
+def test_a_form_that_is_still_sending_is_waited_for(app_env):
+    """The button reads "Sending..." for a while and the thank-you comes after: that is a submitted application."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats.base import FormSchema
+    from autoapply.ats.generic_driver import GenericDriver
+
+    d = GenericDriver(FormSchema(ats="generic", tenant="x", source="agent"))
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content("""<main><form onsubmit="return false"><input id="n" value="A"><button id="go" onclick="this.textContent = 'Sending…';
+          setTimeout(() => { document.querySelector('main').innerHTML = '<h1>Thank you for applying</h1><p>Your application has been received.</p>'; }, 4000)">Submit application</button></form></main>""")
+        d.submit(page)
+        assert d.confirmation(page) is not None
+        b.close()
