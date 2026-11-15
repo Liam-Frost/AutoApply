@@ -54,6 +54,12 @@ async def lifespan(app: FastAPI):
         _lifecycle.settle_all()
     except Exception:  # noqa: BLE001 - never a reason not to start
         logging.getLogger("autoapply").exception("could not settle sent applications")
+    if not db.get_setting("migrated.agent_reads_all"):
+        # the first version of "the agent reads the form" covered one system; a settings page saved since then has stored
+        # that list. Every site is read by the agent now.
+        if db.get_setting("agent.reads") == ["workday"]:
+            db.set_setting("agent.reads", ["*"])
+        db.set_setting("migrated.agent_reads_all", True)
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
         from ..models import Todo, now
