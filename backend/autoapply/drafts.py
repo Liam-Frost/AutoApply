@@ -13,9 +13,9 @@ from typing import Any
 
 from . import answers as ans, messages
 from . import prompts
-from . import auth, browser, config, db, knowledge, llm, materials, metering, notify
+from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
-from .ats.base import DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
+from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
 from .models import Application, Draft, DraftComment, DriverStat, Job, now
 
 log = logging.getLogger("autoapply.drafts")
@@ -60,6 +60,7 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
         if driver.requires_login:
             with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
                 auth.ensure_session(page, driver, ref)
+                _applied_there(driver, page, ref)
         return generic.recon(job, ref, run_dir)
     if not driver.requires_login and ref.tenant:
         if getattr(driver, "page_extras", False):  # the API misses blocks that only the page shows
@@ -71,10 +72,26 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
             ref = driver.resolve_board(page, ref)  # type: ignore[attr-defined]
             return ref, driver.get_schema(ref, None)
         auth.ensure_session(page, driver, ref)
+        _applied_there(driver, page, ref)
         # Walk with profile-derived answers so conditional questions appear.
         schema = driver.get_schema(ref, page, answers=_walk_answerer(job, given))
         browser.snapshot(page, run_dir, "recon_last_page")
         return ref, schema
+
+
+def _applied_there(driver: Any, page: Any, ref: JobRef) -> None:
+    """Signed in on a site that keeps a list of your applications: a posting that is on it is not read again."""
+    if not driver.requires_login:
+        return
+    try:
+        there = driver.already_applied(page, ref)
+    except (NeedsHuman, SiteDown):
+        raise
+    except Exception:  # noqa: BLE001 - the list could not be read: the form itself will say so if it has been applied for
+        log.info("could not check the list of applications on %s", ref.tenant_key, exc_info=True)
+        return
+    if there:
+        raise AlreadyApplied({"url": page.url, "text": "The site lists this posting among your applications.", "already_applied": "yes"})
 
 
 def _walk_answerer(job: Job, given: dict[str, Any] | None = None):
@@ -168,6 +185,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
     given = _given(app_id)
     try:
         ref, schema = recon(job, run_dir, given)
+    except AlreadyApplied as e:      # the same answer as when it is met while filling: this application is a sent one
+        lifecycle.applied_before(app_id, e.args[0] if e.args else None)
+        raise
     except NeedsHuman as e:
         _set_app(app_id, "needs_human", f"recon blocked: {e.reason}")
         raise

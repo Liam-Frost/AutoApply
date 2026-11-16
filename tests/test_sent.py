@@ -757,3 +757,113 @@ def test_a_form_that_is_still_sending_is_waited_for(app_env):
         d.submit(page)
         assert d.confirmation(page) is not None
         b.close()
+
+
+def test_a_site_that_says_already_applied_while_the_form_is_being_read_is_a_sent_application_too(app_env, tmp_path, monkeypatch):
+    """Reading the form of a posting that had been applied for by hand, the agent reported blocked="already_applied". That
+    became "the program cannot work this site's application page", a card for the applicant - while the same answer met
+    during filling was understood. It is one answer wherever it is met: the application is sent, and nothing waits."""
+    from autoapply import db, handlers, llm
+    from autoapply.models import Application, Job, Task, Todo
+
+    page = tmp_path / "dup.html"
+    page.write_text("<title>Careers</title><main><h1>Software Engineer Intern</h1><p>You applied on Nov 3, 2026.</p></main>", encoding="utf-8")
+    with db.session() as s:
+        job = Job(source="manual", source_id="dup2", company="Acme", title="Software Engineer Intern", apply_url=page.as_uri(), channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        t = Task(kind="recon", ref=f"job:{job.id}", payload={"job_id": job.id})
+        s.add(t)
+        s.add(Todo(kind="blocked", title="Acme", ref=f"job:{job.id}", payload={"job_id": job.id}))     # left by an earlier reading
+        s.flush()
+        job_id = job.id
+        s.expunge(t)
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        assert 'blocked="already_applied"' in system
+        {x.name: x for x in tools}["finish"].fn(blocked="already_applied", notes="The page says: You applied on Nov 3, 2026.")
+        return llm.AgentResult(final_text="done", steps=[])
+
+    from autoapply.ats import registry
+    from autoapply.ats.base import JobRef
+
+    monkeypatch.setattr(llm, "agent", agent)
+    monkeypatch.setattr(registry, "detect", lambda url: JobRef(ats="generic", tenant="dup.example.test", job_id="", url=page.as_uri(), host="dup.example.test"))
+    assert handlers._recon(t) == {"already_applied": True}
+    with db.session() as s:
+        a = s.query(Application).filter_by(job_id=job_id).one()
+        assert a.status == "submitted" and "已经申请过" in a.last_event and a.evidence["already_applied"] == "yes" and not a.drafts
+        assert (a.submitted_at.year, a.submitted_at.month, a.submitted_at.day) == (2026, 11, 3)      # the site's date, not today's
+        assert s.get(Job, job_id).status == "applied"
+        assert [(c.kind, c.status) for c in s.query(Todo)] == [("blocked", "done")]
+
+
+def test_a_site_that_lists_the_posting_among_your_applications_is_not_read_again(app_env, monkeypatch):
+    from autoapply import auth, browser, db, drafts, lifecycle
+    from autoapply.ats import registry
+    from autoapply.ats.base import AlreadyApplied
+    from autoapply.models import Application, Job
+    from contextlib import contextmanager
+
+    class Site:
+        requires_login, ats = True, "listed"
+
+        def already_applied(self, page, ref):
+            return True
+
+        def get_schema(self, *a, **k):
+            raise AssertionError("a posting that has been applied for has no form to read")
+
+    class Page:
+        url = "https://jobs.example.test/home"
+
+    @contextmanager
+    def open_page(*a, **k):
+        yield Page()
+
+    monkeypatch.setattr(registry, "get", lambda ats: Site())
+    monkeypatch.setattr(browser, "open_page", open_page)
+    monkeypatch.setattr(auth, "ensure_session", lambda *a, **k: None)
+    db.set_setting("agent.reads", [])
+    with db.session() as s:
+        job = Job(source="manual", source_id="l1", company="Acme", title="Analyst", apply_url="https://jobs.example.test/p/1", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        job_id = job.id
+    try:
+        drafts.build(job_id)
+    except AlreadyApplied:
+        pass
+    else:
+        raise AssertionError("the reading went on")
+    with db.session() as s:
+        a = s.query(Application).filter_by(job_id=job_id).one()
+        assert a.status == "submitted" and a.submitted_at is None and a.last_event == lifecycle.APPLIED_BEFORE      # when is not known: no date is made up
+
+
+def test_the_portal_says_what_it_shows_when_its_list_of_postings_is_not_there(app_env):
+    """The portal's address was right and the page did not say "Not Logged In", so the driver reached for the search form
+    of a page that was a human-verification screen: "Cannot read properties of null (reading 'widget1Keyword')"."""
+    import pytest
+    from autoapply.ats.base import DriverError, JobRef
+    from autoapply.ats.pdportal import POSTINGS, PDPortalDriver
+
+    class Page:
+        url = POSTINGS
+
+        def goto(self, *a, **k): ...
+
+        def title(self):
+            return "Just a moment..."
+
+        def inner_text(self, sel, **k):
+            return "Verifying you are human. This may take a few seconds."
+
+        def wait_for_selector(self, sel, **k):
+            raise TimeoutError(sel)
+
+        def evaluate(self, *a, **k):
+            raise AssertionError("there is no list to search")
+
+    with pytest.raises(DriverError, match="人机验证"):
+        PDPortalDriver()._open_posting(Page(), JobRef("pdportal", "ubc", "150971", POSTINGS + "#posting=150971", "pdportal.apsc.ubc.ca"))

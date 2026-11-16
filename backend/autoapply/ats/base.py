@@ -161,8 +161,14 @@ class NeedsHuman(Exception):
         self.reason, self.kind, self.url = reason, kind, url
 
 
+# the site says an application for this posting exists already: there is no form to fill, and nothing to send again
+ALREADY_RE = re.compile(r"you(.ve| have) already (applied|submitted)|already (applied|submitted an application) (for|to) this|"
+                        r"you(.ve| have) previously applied (for|to) this|application (has )?already (been )?(received|submitted)|你已(经)?申请过", re.I)
+
+
 class AlreadyApplied(Exception):
-    pass
+    """The employer's site shows this posting as applied for. Whoever meets it - reading the form, walking it, filling
+    it - raises this with what the site showed ({"url", "text"}); the application is then a sent one (lifecycle.applied_before)."""
 
 
 # --- driver interface ----------------------------------------------------------

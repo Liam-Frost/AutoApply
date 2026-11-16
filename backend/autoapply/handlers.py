@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from . import config, db, discover, drafts, executor, mail, messages, notify, scoring, tasks
-from .ats.base import NeedsHuman
+from .ats.base import AlreadyApplied, NeedsHuman
 from .models import Application, Job, Task
 from .tasks import enqueue, handler
 
@@ -40,6 +40,8 @@ def _recon(t: Task) -> dict[str, Any]:
                 return {"draft_id": newer[-1].id, "reused": True}
     try:
         draft_id = drafts.build(job_id, run_dir=config.RUNS / f"recon_job_{job_id}_t{t.id}", instructions=t.payload.get("instructions", ""))
+    except AlreadyApplied:      # drafts.build has recorded it as sent and closed what waited on it: nothing is left to draft
+        return {"already_applied": True}
     except NeedsHuman as e:
         from .ats import registry
         from .models import Job

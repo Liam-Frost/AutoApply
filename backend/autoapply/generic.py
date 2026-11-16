@@ -25,7 +25,7 @@ from playwright.sync_api import Page
 from . import browser, knowledge, llm
 from . import prompts
 from .ats import widgets as w
-from .ats.base import url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
+from .ats.base import ALREADY_RE, AlreadyApplied, url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
 from .models import Job
 
 SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
@@ -70,6 +70,8 @@ How to work:
   After signing in or registering, continue to the application form.
 - If the posting no longer exists (404, "position filled", "no longer accepting applications"), stop and call finish with blocked="closed".
   Do not look for a similar posting to use instead.
+- If the site says you have already applied to this posting (instead of a form, or on your list of applications there), stop and
+  call finish with blocked="already_applied" and, in notes, the site's own sentence - with the date it gives, if it gives one.
 - Never type passwords. Never click a button that submits the application; the tool refuses those anyway.
 - A dialog that only informs about data privacy / data handling and blocks the form ("I understand", "Accept", "Agree"): acknowledge it
   and carry on. The applicant accepts such notices as part of applying.
@@ -807,6 +809,9 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         final_url = page.url
     if re.search(r"unavailable|closed|not.?found|404|expired|filled", str(result.get("blocked") or ""), re.I):
         raise DriverError(f"posting not found or closed: {result.get('notes', '')}"[:300], seen=final_url)
+    said = f"{result.get('blocked') or ''} {result.get('notes') or ''}"
+    if result.get("blocked") and result["blocked"] != "captcha" and (re.search(r"already|duplicate|applied", str(result["blocked"]), re.I) or ALREADY_RE.search(said)):
+        raise AlreadyApplied({"url": final_url, "text": str(result.get("notes") or "The site shows this job as already applied.")[:300], "already_applied": "yes"})
     if refused:
         raise _Refused()
     if result.get("blocked") and re.search(r"unreach|site_error|not_loading|outage|maintenance|down", str(result["blocked"]), re.I) \

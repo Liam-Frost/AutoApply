@@ -4,6 +4,17 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- **"You have already applied" is one answer, wherever the program meets it.** Met while a form was being filled, it
+  was understood; met while the form was being read - the AI reporting it, or the site's own list of your applications
+  showing the posting - it became a card saying the program could not work the site. Now the application is recorded
+  as sent, with what the site showed (and its date, when the site gives one; no date is made up), and the cards and
+  drafts that waited on it are closed.
+- **The university's co-op portal is worked in the ordinary browser for everything**, not only for signing in: a
+  browser rule saved by an earlier version sent reading and applying to the automated browser, which the portal turns
+  away. When its list of postings is not on the page, the error now says what the page showed.
+
 ## [1.0.3] - 2026-11-16
 
 ### Added
