@@ -328,6 +328,10 @@ def record(*, provider: str, model: str, started: float, tokens: Tokens | None =
         from .models import LLMRequest
 
         c = _ctx()
+        from . import timing
+
+        timing.mark("ai", str(c.get("call_feature") or c.get("feature") or c.get("kind") or "request"),
+                    latency_ms if latency_ms is not None else max(0.0, (time.time() - started) * 1000.0), ok=status == "ok")
         tk = tokens or Tokens(detail="none")
         price = price_for(provider, model)
         cost, source, version = None, "", ""

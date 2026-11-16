@@ -420,6 +420,54 @@ BILLING = {"metered": "按量计费", "subscription": "订阅内（不另收费�
 TOKEN_KINDS = (("input", "输入"), ("cache_read", "缓存读取"), ("cache_write", "缓存写入"), ("output", "输出"))
 
 
+# --- where the time of the runs went (timing.py), and what was learned from it (learned.py) ---
+
+
+def timing_overview(w: Window, *, ats: str = "", limit: int = 40) -> dict[str, Any]:
+    """Runs that filled a form, in the window: how long they took without the applicant's own time, by what the
+    time was spent on, per system over time, and the runs themselves."""
+    from . import humanize, learned, timing
+    from .models import Run
+
+    with db.session() as s:
+        rows = [r for r in s.query(Run).filter(Run.kind == "execute", Run.spans.isnot(None)).order_by(Run.id.desc()).limit(2000) if w.has(_naive(r.created_at)) and (not ats or r.ats == ats)]
+        runs = [{"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "learned": list(r.learned or []),
+                 "working_ms": timing.working_ms(r.spans or []), "totals": timing.totals(r.spans or []), "takeovers": sum(1 for st in (r.steps or []) if st.get("op") == "repair")} for r in rows]
+    systems: dict[str, list[dict[str, Any]]] = {}
+    for r in runs:
+        systems.setdefault(r["ats"], []).append(r)
+    by_system = []
+    for name, rs in sorted(systems.items(), key=lambda kv: -len(kv[1])):
+        weeks: dict[str, list[dict[str, Any]]] = {}
+        for r in rs:
+            local = _local(datetime.fromisoformat(r["at"]))
+            start = (local - timedelta(days=local.weekday())).date().isoformat()
+            weeks.setdefault(start, []).append(r)
+        trend = [{"week": k, "runs": len(v), "median_ms": int(_median([x["working_ms"] for x in v]) or 0), "ok": sum(1 for x in v if x["ok"]),
+                  **{kind: int(_median([x["totals"][kind] for x in v]) or 0) for kind in ("site", "driver", "ai", "tool")}} for k, v in sorted(weeks.items())]
+        by_system.append({"ats": name, "runs": len(rs), "ok": sum(1 for x in rs if x["ok"]), "median_ms": int(_median([x["working_ms"] for x in rs]) or 0),
+                          "takeovers": round(sum(x["takeovers"] for x in rs) / len(rs), 1), "trend": trend})
+    revs = [{**{k: v.get(k) for k in ("id", "kind", "target", "title", "why", "expected", "status", "why_status", "created", "from_run", "version", "strikes", "baseline")},
+             "trials": len(v.get("trials") or []), "good": sum(1 for t in v.get("trials") or [] if t.get("ok") and t.get("used")),
+             "median_ms": int(_median([t["ms"] for t in v.get("trials") or [] if t.get("ok") and t.get("used")]) or 0)} for v in reversed(learned.revisions())]
+    return {"window": w.describe(), "runs": runs[:limit], "count": len(runs), "systems": by_system, "learned": revs,
+            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled"))}
+
+
+def timing_run(run_id: int) -> dict[str, Any]:
+    """One run: its spans in order, what stands out in it, and what was learned that was in force."""
+    from . import humanize, improve, learned
+    from .models import Run
+
+    with db.session() as s:
+        r = s.get(Run, run_id)
+        if r is None or r.spans is None:
+            raise KeyError(run_id)
+        out = {"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "spans": list(r.spans or []),
+               "learned": [{"id": i, "title": (learned.get(i) or {}).get("title", ""), "status": (learned.get(i) or {}).get("status", "")} for i in (r.learned or [])]}
+    return {**out, "review": improve.review(run_id)}
+
+
 def _provider_label(p: str) -> str:
     return llm.label(p) if p else "改造前的记录"
 

@@ -1593,6 +1593,48 @@ def analytics_runs(days: int = 0, start: str = "", end: str = "", kind: str = ""
     return an.runs(an.window(days, start, end), kind=kind, outcome=outcome, offset=offset, limit=limit)
 
 
+@app.get("/api/analytics/timing")
+def analytics_timing(days: int = 0, start: str = "", end: str = "", ats: str = "") -> dict[str, Any]:
+    """Where the time of the form-filling runs went, per system over time, and what the program learned from it."""
+    from .. import analytics as an
+
+    return an.timing_overview(an.window(days, start, end), ats=ats)
+
+
+@app.get("/api/analytics/timing/runs/{run_id}")
+def analytics_timing_run(run_id: int) -> dict[str, Any]:
+    from .. import analytics as an
+
+    try:
+        return an.timing_run(run_id)
+    except KeyError:
+        raise HTTPException(404, "这次运行没有耗时记录。") from None
+
+
+@app.get("/api/learned/{rev_id}")
+def learned_one(rev_id: str) -> dict[str, Any]:
+    """One thing the program learned: what it is, why, its text (recipe or code), and how its trials went."""
+    from .. import learned
+
+    rev = learned.get(rev_id)
+    if rev is None:
+        raise HTTPException(404, "没有这一项。")
+    return {**rev, "content": learned.content(rev)}
+
+
+@app.post("/api/learned/{rev_id}/{action}")
+def learned_decide(rev_id: str, action: str) -> dict[str, Any]:
+    """The applicant's word on something the program learned: approve, reject, revert, retry."""
+    from .. import learned
+
+    try:
+        return learned.decide(rev_id, action)
+    except KeyError:
+        raise HTTPException(404, "没有这一项。") from None
+    except learned.Refused as e:
+        raise HTTPException(409, str(e)) from e
+
+
 @app.get("/api/analytics/ai")
 def analytics_ai(days: int = 0, start: str = "", end: str = "", group: str = "model", bucket: str = "", provider: str = "", model: str = "", feature: str = "") -> dict[str, Any]:
     """What the model calls used and cost: by time, model, service and feature, per result, and what failures cost."""

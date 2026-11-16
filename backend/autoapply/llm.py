@@ -28,7 +28,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import db, llm_codex, llm_openai, llm_sdk, metering, secrets
+from . import db, llm_codex, llm_openai, llm_sdk, metering, secrets, timing
 
 log = logging.getLogger("autoapply.llm")
 
@@ -633,6 +633,7 @@ def _agent(goal: str, tools: list[Tool], *, system: str, max_steps: int, on_step
         for call in calls:
             step: dict[str, Any] = {"tool": call.name, "input": call.input}
             tool = by_name.get(call.name)
+            began = time.monotonic()
             try:
                 if tool is None:
                     raise KeyError(f"unknown tool {call.name}")
@@ -647,6 +648,8 @@ def _agent(goal: str, tools: list[Tool], *, system: str, max_steps: int, on_step
                 tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": step["output"], "is_error": True})
             if isinstance(step.get("output"), str):
                 step["output"] = step["output"][:2000]
+            step["ms"] = int((time.monotonic() - began) * 1000)
+            timing.mark("tool", call.name, step["ms"], started=began, ok=step["ok"])
             result.steps.append(step)
             if on_step:
                 on_step(step)
