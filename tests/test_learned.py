@@ -510,7 +510,7 @@ def test_a_drivers_that_held_up_is_offered_to_the_project_and_nothing_is_sent_by
     u = urlparse(got["url"])
     q = parse_qs(u.query)
     assert (u.netloc, u.path) == ("github.com", "/Liam-Frost/AutoApply/issues/new") and q["title"] == ["Learned driver: careers.example.org"]
-    assert RECIPE in q["body"][0] and "careers.example.org" in q["body"][0] and got["whole"] and got["preference"] == "ask"
+    assert RECIPE in q["body"][0] and q["body"][0].splitlines()[2] == "- Site: `careers.example.org`" and got["whole"] and got["preference"] == "ask"
     with db.session() as s:
         assert s.query(Todo).filter_by(kind="share", status="open").count() == 0
     assert learned.get(rev["id"])["shared"] == "opened"
