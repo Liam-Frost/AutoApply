@@ -70,6 +70,9 @@ async function decide(v, action, question) {
   if (question && !(await ask(question, { ok: '确定', danger: false }))) return
   try { await api.post(`/learned/${v.id}/${action}`); rev.value = null; emit('reload') } catch (e) { toast(e.message, 'bad') }
 }
+async function setShare(v) {
+  try { await api.put('/settings', { settings: { 'learned.share': v } }); emit('reload') } catch (e) { toast(e.message, 'bad') }
+}
 async function setMode(mode) {
   try { await api.put('/settings', { settings: { 'learned.mode': mode } }); emit('reload') } catch (e) { toast(e.message, 'bad') }
 }
@@ -159,6 +162,8 @@ const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median
         <label class="row" style="gap: 6px"><input type="checkbox" :checked="d.enabled" @change="setEnabled($event.target.checked)" />让程序从运行里学习</label>
         <span class="small muted">学到之后</span>
         <AaSelect :value="d.mode" small aria-label="学到之后" @change="setMode($event.target.value)"><option value="auto">通过检查就自动试用</option><option value="ask">先问我</option></AaSelect>
+        <span class="small muted">为新网站写的驱动稳定之后</span>
+        <AaSelect :value="d.share || 'ask'" small aria-label="为新网站写的驱动稳定之后" @change="setShare($event.target.value)"><option value="ask">问我要不要分享给项目</option><option value="always">直接准备好 issue</option><option value="never">不分享</option></AaSelect>
       </div>
       <EmptyState v-if="!d.learned.length" icon="wrench" title="还没有学到什么" text="有运行出现不寻常的地方之后，这里会列出程序学到的每一项做法、原因和效果。" />
       <div v-else class="an-scroll">
@@ -184,7 +189,7 @@ const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median
                 <td colspan="7" style="background: var(--surface-2)">
                   <div class="small"><b>为什么：</b>{{ rev.why }}</div>
                   <div v-if="rev.expected" class="small" style="margin-top: 4px"><b>预期：</b>{{ rev.expected }}</div>
-                  <div class="small muted" style="margin-top: 4px">{{ rev.why_status }}<template v-if="rev.from_run"> · 来自第 {{ rev.from_run }} 次运行</template><template v-if="rev.origin === 'driver'"> · 第三次投递后为这个网站写的驱动</template> · 在 {{ rev.version || '?' }} 版上通过检查</div>
+                  <div class="small muted" style="margin-top: 4px">{{ rev.why_status }}<template v-if="rev.from_run"> · 来自第 {{ rev.from_run }} 次运行</template><template v-if="rev.origin === 'driver'"> · 第一次投完后为这个网站写的驱动</template> · 在 {{ rev.version || '?' }} 版上通过检查</div>
                   <pre class="code" data-notr style="margin-top: 8px; max-height: 260px; overflow: auto">{{ rev.content }}</pre>
                   <div v-if="rev.history && rev.history.length" class="small muted" style="margin-top: 6px">
                     <span v-for="(h, i) in rev.history" :key="i">{{ i ? ' → ' : '' }}{{ (STATUS[h.status] || [h.status])[0] }}（{{ (h.at || '').slice(5, 16).replace('T', ' ') }}）</span>

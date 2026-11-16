@@ -451,7 +451,7 @@ def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str,
              "trials": len(v.get("trials") or []), "good": sum(1 for t in v.get("trials") or [] if t.get("ok") and t.get("used")),
              "median_ms": int(_median([t["ms"] for t in v.get("trials") or [] if t.get("ok") and t.get("used")]) or 0)} for v in reversed(learned.revisions())]
     return {"window": w.describe(), "runs": runs[:limit], "count": len(runs), "systems": by_system, "learned": revs,
-            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled"))}
+            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled")), "share": db.get_setting("learned.share") or "ask"}
 
 
 def timing_run(run_id: int) -> dict[str, Any]:

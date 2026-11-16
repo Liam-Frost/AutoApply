@@ -84,6 +84,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # that follow, taken out again when it fails. "ask": it waits for the applicant first.
     "learned.enabled": True,
     "learned.mode": "auto",
+    "learned.share": "ask",   # a site's driver that held up: "ask" whether to report it to the project | "always" have it ready | "never" (share.py)
     "learned.drivers_written": [],  # sites without a driver of their own for which the agent has been asked to write one (once per site)
     "auto_approve.per_ats": {},  # {"greenhouse": true}
     "auto_approve.min_score": 8.0,

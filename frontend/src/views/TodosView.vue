@@ -5,7 +5,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { fmtTime, run as runAction } from '../ui'
+import { fmtTime, run as runAction, toast } from '../ui'
 
 const todos = ref([])
 const saveCred = ref(true)
@@ -33,6 +33,7 @@ const VIEW = {
   failed: { icon: 'alert', tone: 'bad', title: (t) => t.title, what: (t) => t.explained.message },
   learned: { icon: 'wrench', tone: '', title: (t) => t.title, what: (t) => t.body || '程序从一次运行里学到了一个新做法，等你决定要不要采用。',
              next: () => '在“数据分析 → 耗时与优化”里可以看到它的内容，决定采用或不采用。' },
+  share: { icon: 'wrench', tone: 'info', title: (t) => t.title, what: (t) => t.body },
   driver_patch: { icon: 'wrench', tone: 'none', title: () => '自动修复了一处填写问题', what: (t) => `填写${t.subject ? '「' + t.subject + '」' : '申请表'}时，有一步没按预期完成，程序已改用另一种方式填完并核对过，这次申请不受影响。这条只是记录，你不需要做什么。` },
   driver: { icon: 'wrench', tone: 'none', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
@@ -83,6 +84,20 @@ const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
+// a driver the program wrote: the issue opens in the applicant's own browser, filled in, for them to read and submit
+async function share(t, choice) {
+  const tab = ['once', 'always'].includes(choice) ? window.open('', '_blank') : null      // opened in the click itself, or the browser blocks it
+  try {
+    const r = await api.post(`/learned/${t.payload.id}/share`, { choice })
+    if (tab && r.url) tab.location = r.url
+    else if (tab) tab.close()
+    if (r.url && !r.whole) { try { await navigator.clipboard.writeText(r.body) } catch { /* the page shows what fits */ } }
+    toast(choice === 'once' || choice === 'always'
+      ? (r.whole ? '已在浏览器里打开 GitHub，内容已填好，确认后点提交即可' : '已打开 GitHub。驱动内容太长没放全，完整内容已复制到剪贴板，请粘贴到正文里再提交')
+      : choice === 'never' ? '好的，以后不再询问。可以在“数据分析 → 耗时与优化”里改回来' : '好的，这次不提')
+    load()
+  } catch (e) { if (tab) tab.close(); toast(e.message, 'bad') }
+}
 const markSubmitted = (t) => act(() => api.post(`/applications/${t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 onMounted(() => { load(); timer = setInterval(load, 6000) })
 onUnmounted(() => clearInterval(timer))
@@ -192,6 +207,12 @@ onUnmounted(() => clearInterval(timer))
           </AaSelect>
           <button class="primary" :disabled="!picked[t.id]" @click="linkMail(t)"><Icon name="check" />关联到这个申请</button>
           <button class="ghost" @click="dismiss(t)">和申请无关，关闭</button>
+        </template>
+        <template v-else-if="t.kind === 'share'">
+          <button class="primary" @click="share(t, 'once')"><Icon name="external" />{{ t.payload.ready ? '打开并提交' : '提这一次' }}</button>
+          <button v-if="!t.payload.ready" @click="share(t, 'always')">以后都提</button>
+          <button class="ghost" @click="share(t, 'skip')">这次不提</button>
+          <button class="ghost" @click="share(t, 'never')">永久不提</button>
         </template>
         <template v-else-if="['driver_patch', 'driver'].includes(t.kind)">
           <button @click="dismiss(t)">知道了</button>

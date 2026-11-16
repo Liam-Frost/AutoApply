@@ -12,9 +12,10 @@ After every run that filled a form:
                 setting learned.mode is "ask".
 
 A site that has no driver of its own (its form was explored by the agent, and the generic driver fills it) gets one
-written the third time it is filled: by then the runs show what is the site and what was chance. The agent is given
-all three runs, the notes kept about the site and the steps of its form, and writes what the generic driver needs to
-fill that site without it - the same kinds of revision, through the same gate and trial. Once per site.
+written as soon as an application there has gone through: the agent is given that run (and any earlier attempts), the
+notes kept about the site and the steps of its form, and writes what the generic driver needs to fill that site
+without it - the same kinds of revision, through the same gate and trial. Once per site: what was chance in that
+one run shows in the trial, which takes a revision out again, and what stands out later is still looked at.
 
 What a finding is, so that the agent is not sent after noise:
   - a kind of step that took much longer than it usually does on this site (several times the median, and seconds
@@ -42,7 +43,7 @@ ENOUGH = 3                  # ... and how many of them there must be before "usu
 TIMES = 3.0                 # a step is slow when it took this many times its usual ...
 AT_LEAST_MS = 8000          # ... and at least this much longer
 REPEATED = 3                # the same step this often in one run is a finding whatever it took
-THIRD = 3                   # a site without a driver of its own, filled this often: a driver is written for it
+RUNS_GIVEN = 3              # the runs on a site the agent is shown when it writes that site's driver (the newest ones)
 
 
 def _median(xs: list[int]) -> int:
@@ -105,6 +106,12 @@ def after_run(run_id: int, changed: list[dict[str, Any]]) -> None:
         for rev in changed:
             word = {"active": "已经稳定生效", "reverted": "已撤回"}.get(rev.get("status", ""), rev.get("status", ""))
             notify.send("task_result", f"程序学到的做法“{rev.get('title', '')}”{word}：{rev.get('why_status', '')}", ref=f"learned:{rev.get('id')}", path="/analytics?tab=timing")
+            try:
+                from . import share
+
+                share.offer(rev)        # a site's driver that has held up: ask whether to give it back to the project
+            except Exception:  # noqa: BLE001 - asking must not fail the run that has just been recorded
+                log.exception("could not offer to share %s", rev.get("id"))
     if not db.get_setting("learned.enabled"):
         return
     driver = driver_due(run_id)
@@ -124,16 +131,14 @@ def _filled(site: str, upto: int) -> list[Run]:
 
 
 def driver_due(run_id: int) -> bool:
-    """This run was the third (or a later one, where the third was missed) on a site that has no driver of its own,
-    and no driver has been asked for there yet."""
+    """This run got an application through on a site that has no driver of its own, and no driver has been asked for
+    there yet. (A run that did not get through is not written from: it does not show the whole form.)"""
     with db.session() as s:
         r = s.get(Run, run_id)
-        if r is None or r.kind != "execute":
+        if r is None or r.kind != "execute" or not r.ok or not r.spans:
             return False
         site = r.site or ""
-    if not site.startswith("site-") or site in (db.get_setting("learned.drivers_written") or []):
-        return False
-    return len(_filled(site, run_id)) >= THIRD
+    return site.startswith("site-") and site not in (db.get_setting("learned.drivers_written") or [])
 
 
 PROPOSAL = llm.obj({
@@ -204,17 +209,18 @@ def _reports(run_dir: str) -> list[dict[str, Any]]:
 DRIVER = """
 
 THIS TIME THE TASK IS LARGER: this site has no driver of its own - its form was explored, and a generic driver fills
-it, with a take-over agent stepping in where that fails. It has now been filled three times. Write the site's driver:
-the revisions (at most three, scope "site") that together let the generic driver fill this site without a take-over.
-Go through every take-over and every field the driver could not fill in all the runs given, and through the notes
-kept about the site: whatever was needed more than once, or is plainly how this site's controls work, belongs in it.
-A recipe for everything a recipe can say; a plugin only for the rest. If the runs went through without a take-over
-and without a failed field, the generic driver is this site's driver already: propose nothing and say so."""
+it, with a take-over agent stepping in where that fails. An application there has now gone through for the first
+time. Write the site's driver: the revisions (at most three, scope "site") that together let the generic driver fill
+this site without a take-over. Go through every take-over and every field the driver could not fill in the runs
+given, and through the notes kept about the site: whatever is plainly how this site's controls work belongs in it;
+what looks like a one-off (a slow moment, a field that failed once for no visible reason) does not. A recipe for
+everything a recipe can say; a plugin only for the rest. If the run went through without a take-over and without a
+failed field, the generic driver is this site's driver already: propose nothing and say so."""
 
 
 def propose(run_id: int, *, driver: bool = False) -> dict[str, Any]:
     """Have the agent look at a run and write what the program should do differently. Returns what became of it.
-    ``driver``: the run was the third on a site without a driver of its own - the agent writes one from all of them."""
+    ``driver``: the run got the first application through on a site without a driver of its own - the agent writes one."""
     found = review(run_id)
     with db.session() as s:
         r = s.get(Run, run_id)
@@ -234,7 +240,7 @@ def propose(run_id: int, *, driver: bool = False) -> dict[str, Any]:
         from . import knowledge, siteplan
 
         earlier = []
-        for old in _filled(site, run_id)[:THIRD]:
+        for old in _filled(site, run_id)[:RUNS_GIVEN]:
             sp = list(old.spans or [])
             earlier.append({"run": old.id, "finished": bool(old.ok), "time_by_kind_ms": timing.totals(sp),
                             "fields_not_filled_by_the_driver": sorted({str(x.get("label")) for x in sp if x.get("k") == "driver" and x.get("n") == "field" and str(x.get("ok")) == "False"})[:12],

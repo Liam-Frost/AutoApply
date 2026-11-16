@@ -284,26 +284,27 @@ def test_a_run_that_stood_out_is_looked_at_and_what_the_agent_writes_goes_throug
     assert tasks is not None
 
 
-def test_the_third_run_on_a_site_without_a_driver_has_one_written_from_all_three(store, tmp_path):
-    """The design: the agent does a site it has no driver for by hand, and the third time it writes the driver."""
+def test_the_first_application_that_goes_through_on_a_site_without_a_driver_has_one_written(store, tmp_path):
+    """The design: the agent does a site it has no driver for by hand, and then writes the driver. (It waited for the
+    third run at first; that left the second and third application on every new site to the take-over as well.)"""
     from autoapply import knowledge, llm
     from autoapply.models import Task
 
     site = "site-careers.example.org"
     knowledge.add_site_note(site, "The phone code list shows only +1 once chosen.")
     ids = []
-    for n in range(3):
+    for n, ok in enumerate((0, 1)):                       # an attempt that did not get through, then one that did
         d = tmp_path / f"r{n}"
         d.mkdir()
         (d / "repair_page_1.json").write_text(json.dumps({"problem": {"message": "values differ", "mismatches": [{"label": "Code"}]},
                                                          "report": {"cause": f"take-over {n}: the list shows only +1", "suggestion": "leave it"}, "steps": []}), encoding="utf-8")
         with db.session() as s:
-            r = Run(kind="execute", ref=f"application:{n}", ats="generic", ok=1, site=site, dir=str(d), steps=[{"op": "repair", "cause": "x"}],
+            r = Run(kind="execute", ref=f"application:{n}", ats="generic", ok=ok, site=site, dir=str(d), steps=[{"op": "repair", "cause": "x"}],
                     spans=[*usual_run(), {"k": "driver", "n": "field", "t": 0, "ms": 100, "ok": False, "label": "Code"}])
             s.add(r)
             s.flush()
             ids.append(r.id)
-        assert improve.driver_due(ids[-1]) is (n == 2)
+        assert improve.driver_due(ids[-1]) is bool(ok)     # not written from a run that did not show the whole form
     assert not improve.driver_due(run(usual_run(), site="workday", ats="workday"))       # a system with a driver of its own
     with db.session() as s:
         s.query(Task).delete()
@@ -314,11 +315,11 @@ def test_the_third_run_on_a_site_without_a_driver_has_one_written_from_all_three
 
     def answer(prompt, schema, *, system, **kw):
         seen.update(prompt=prompt, system=system)
-        return {"revisions": [{"kind": "recipe", "scope": "system", "title": "区号已显示就不再选", "why": "三次运行都因为区号接手", "expected": "不再接手", "recipe": RECIPE, "code": ""}], "nothing_because": ""}
+        return {"revisions": [{"kind": "recipe", "scope": "system", "title": "区号已显示就不再选", "why": "区号列表选过之后只显示 +1", "expected": "不再接手", "recipe": RECIPE, "code": ""}], "nothing_because": ""}
 
     store.setattr(llm, "json", answer)
     out = improve.propose(ids[-1], driver=True)
-    assert "Write the site's driver" in seen["system"] and "shows only +1 once chosen" in seen["prompt"] and all(f"take-over {n}" in seen["prompt"] for n in range(3))
+    assert "Write the site's driver" in seen["system"] and "shows only +1 once chosen" in seen["prompt"] and all(f"take-over {n}" in seen["prompt"] for n in range(2))
     assert out["driver_for"] == site and [r["status"] for r in out["revisions"]] == ["trial"]
     kept = learned.revisions()[-1]
     assert (kept["target"], kept["origin"]) == (site, "driver")           # a site's driver is the site's, whatever scope was said
@@ -478,3 +479,65 @@ def test_every_run_of_the_window_can_be_opened(store):
         run(usual_run())
     got = an.timing_overview(an.window(0, "", ""))
     assert got["count"] == 45 and len(got["runs"]) == 45
+
+
+# --- giving a driver back to the project ---
+
+
+def _driver(title="区号已显示就不再选"):
+    rev = learned.add("recipe", "site-careers.example.org", title, "区号列表选过之后只显示 +1", RECIPE, origin="driver")
+    return learned._update(rev["id"], status="active", trials=[{"used": True, "ok": True}, {"used": True, "ok": True}])
+
+
+def test_a_drivers_that_held_up_is_offered_to_the_project_and_nothing_is_sent_by_the_program(store):
+    from urllib.parse import parse_qs, urlparse
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import share
+    from autoapply.api.main import app
+    from autoapply.models import Todo
+
+    rev = _driver()
+    other = learned.add("recipe", "site-careers.example.org", "Not a driver", "w", RECIPE)        # something learned from a run that stood out
+    improve.after_run(run(usual_run()), [rev, learned._update(other["id"], status="active")])
+    with db.session() as s:
+        (card,) = s.query(Todo).filter_by(kind="share", status="open")
+        assert card.payload == {"id": rev["id"], "host": "careers.example.org", "ready": False} and "不含你的任何答案" in card.body
+    assert not share.offer(learned.get(rev["id"]))        # asked once per driver
+    c = TestClient(app)
+    got = c.post(f"/api/learned/{rev['id']}/share", json={"choice": "once"}).json()
+    u = urlparse(got["url"])
+    q = parse_qs(u.query)
+    assert (u.netloc, u.path) == ("github.com", "/Liam-Frost/AutoApply/issues/new") and q["title"] == ["Learned driver: careers.example.org"]
+    assert RECIPE in q["body"][0] and "careers.example.org" in q["body"][0] and got["whole"] and got["preference"] == "ask"
+    with db.session() as s:
+        assert s.query(Todo).filter_by(kind="share", status="open").count() == 0
+    assert learned.get(rev["id"])["shared"] == "opened"
+    assert c.post(f"/api/learned/{rev['id']}/share", json={"choice": "post it for me"}).status_code == 400
+
+
+def test_the_answer_can_be_for_every_driver_that_follows_and_is_a_setting(store):
+    from autoapply import share
+    from autoapply.models import Todo
+
+    a, b, c3 = _driver("A"), _driver("B"), _driver("C")
+    assert share.offer(a) and share.offer(b)
+    assert share.decide(a["id"], "never")["preference"] == "never" and db.get_setting("learned.share") == "never"
+    with db.session() as s:
+        assert s.query(Todo).filter_by(kind="share", status="open").count() == 0       # the one that was waiting goes too
+    assert not share.offer(c3)
+    db.set_setting("learned.share", "always")              # changed in the settings
+    assert share.offer(c3)
+    with db.session() as s:
+        assert s.query(Todo).filter_by(kind="share", status="open").one().payload["ready"] is True
+    assert share.decide(c3["id"], "skip") == {"choice": "skip", "preference": "always"} and learned.get(c3["id"])["shared"] == "declined"
+
+
+def test_a_driver_too_long_for_an_address_is_cut_there_and_whole_in_the_text(store):
+    from autoapply import share
+
+    code = "def set_value(page, q, value, w):\n" + "".join(f"    # step {i}: open the list, wait for it, choose the entry\n" for i in range(400)) + "    return False\n"
+    rev = learned.add("plugin", "site-careers.example.org", "Long", "w", code, origin="driver")
+    got = share.issue(learned._update(rev["id"], status="active"))
+    assert not got["whole"] and len(got["url"]) <= share.URL_LIMIT and "step 399" in got["body"] and "cut to fit the address" in got["url"].replace("%20", " ")

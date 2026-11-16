@@ -1622,6 +1622,20 @@ def learned_one(rev_id: str) -> dict[str, Any]:
     return {**rev, "content": learned.content(rev)}
 
 
+@app.post("/api/learned/{rev_id}/share")
+def learned_share(rev_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """The applicant's answer to "report this driver to the project?": once, always, skip, never. For once and always
+    the answer holds the address of GitHub's new-issue page with the text filled in - the applicant opens and submits it."""
+    from .. import share
+
+    try:
+        return share.decide(rev_id, str(body.get("choice") or ""))
+    except KeyError:
+        raise HTTPException(404, "没有这一项。") from None
+    except ValueError:
+        raise HTTPException(400, "不认识的选择。") from None
+
+
 @app.post("/api/learned/{rev_id}/{action}")
 def learned_decide(rev_id: str, action: str) -> dict[str, Any]:
     """The applicant's word on something the program learned: approve, reject, revert, retry."""

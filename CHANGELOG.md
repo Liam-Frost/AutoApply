@@ -20,11 +20,16 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   - By default this happens by itself; *Analysis -> Time & learning* has the switch to be asked first, and lists
     each thing learned with why, its text, how its trials went, and buttons to take it out or try it again.
   - The read-back against the approved draft and the rules about submitting are not something a revision can touch.
-- **A site without a driver of its own gets one written the third time it is filled.** Until then the generic driver
-  fills it and the AI steps in where that fails. After the third run the AI is given all three - every take-over, every
-  field the driver could not fill, the notes kept about the site, the steps of its form - and writes what the generic
-  driver needs to fill that site without help. It goes through the same check and trial as everything else learned,
-  and is asked for once per site.
+- **A site without a driver of its own gets one written as soon as an application there has gone through.** The
+  first time, the generic driver fills it and the AI steps in where that fails. Afterwards the AI is given that run -
+  every take-over, every field the driver could not fill, the notes kept about the site, the steps of its form - and
+  writes what the generic driver needs to fill that site without help. It goes through the same check and trial as
+  everything else learned (a trial that fails takes it out again), and is asked for once per site.
+- **A driver the program wrote can be given back to the project.** When a site's driver has held up in its trial, a
+  card asks whether to report it: this once, always, not this time, or never (the preference is also under *Analysis
+  -> Time & learning*). The program sends nothing itself: saying yes opens GitHub's new-issue page in your browser
+  with the text filled in - the site's address, the driver, the program's version; no answer of yours, nothing from
+  your profile - and it is yours to read and submit.
 - **Where a run's time goes** is recorded for every run: the program working the form (per field), waiting for the
   AI, tools the AI called, waiting for the site, and - shown but never counted - waiting for you. *Analysis -> Time &
   learning* shows it per application system over time, per run, and step by step for one run.
