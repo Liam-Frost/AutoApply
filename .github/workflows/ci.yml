@@ -344,10 +344,12 @@ jobs:
           curl -fsS -c jar -H 'Content-Type: application/json' --data @login.json http://127.0.0.1:8000/api/auth/login > /dev/null
           curl -fsS -b jar http://127.0.0.1:8000/api/overview > /dev/null
           test "$(curl -fsS -b jar http://127.0.0.1:8000/api/remote)" = "[]"
+          docker exec aa python -c "from autoapply import secrets; secrets.put('ci.probe', 'kept'); assert secrets.backend() == 'file', secrets.backend()"
           docker restart aa
           for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' aa)" = healthy ] && break; sleep 2; done
           curl -fsS -b jar http://127.0.0.1:8000/api/overview > /dev/null || { docker logs aa; exit 1; }
           docker exec aa sh -c 'ls /data/data/secrets.bin /data/data/access.json'
+          docker exec aa python -c "from autoapply import secrets; assert secrets.get('ci.probe') == 'kept'"      # a secret stored before the restart is read after it
           rm -f pw login.json jar
 
   collect:
