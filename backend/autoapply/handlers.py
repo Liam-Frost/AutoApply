@@ -116,7 +116,9 @@ def _execute(t: Task) -> dict[str, Any]:
 @handler("mail")
 def _mail(t: Task) -> dict[str, Any]:
     try:
-        out = mail.track(days=int(t.payload.get("days", 3)))
+        out = mail.track(days=int(t.payload.get("days", 3)), quick=bool(t.payload.get("quick")))
+        if out.get("skipped"):
+            return out
         fixed = mail.reconcile()      # a confirmation read while the application was taken for unsent
         return {**out, "status_updates": out["status_updates"] + fixed} if fixed else out
     except mail.MailNotConfigured as e:

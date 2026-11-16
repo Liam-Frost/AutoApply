@@ -100,10 +100,97 @@ def _hdr(msg: dict[str, Any], name: str) -> str:
     return ""
 
 
-def _list(query: str, max_results: int = 50) -> list[dict[str, Any]]:
+def _list(query: str, max_results: int = 50, *, skip: Any = None) -> list[dict[str, Any]]:
+    """The messages a search finds, in full. ``skip(id)`` says which ones are already known: those are not fetched
+    again - the list of ids is one request, each message is another."""
     svc = _service()
     ids = svc.users().messages().list(userId="me", q=query, maxResults=max_results).execute().get("messages", [])
-    return [svc.users().messages().get(userId="me", id=m["id"], format="full").execute() for m in ids]
+    return [svc.users().messages().get(userId="me", id=m["id"], format="full").execute() for m in ids if not (skip and skip(m["id"]))]
+
+
+# --- what arrived since the last look -------------------------------------------------
+#
+# Gmail keeps a numbered history of the mailbox. "What was added to the inbox after number N" is one small request,
+# and usually the answer is "nothing" - so the mailbox can be asked every couple of minutes instead of once an hour,
+# and a confirmation shows up when it arrives. Only messages that were *added* are asked for: reading a message,
+# archiving it or labelling it yourself changes nothing here, and nothing here marks a message as read (the scope is
+# read-only). The number is kept in the setting mail.gmail_history; the hourly pass over the last days still runs
+# and catches whatever this missed.
+
+HISTORY = "mail.gmail_history"
+
+
+def mark_history() -> str:
+    """Remember where the mailbox's history stands now: the next look starts from here."""
+    now_at = str(_service().users().getProfile(userId="me").execute().get("historyId") or "")
+    if now_at:
+        db.set_setting(HISTORY, now_at)
+    return now_at
+
+
+def anything_new() -> bool | None:
+    """Was anything added to the inbox since the last look? One request, and nothing is fetched. When nothing was,
+    the place in the history is moved on; when something was, it is left for added_since_last() to read from.
+    None: it cannot be told (no earlier look, or too long ago)."""
+    from googleapiclient.errors import HttpError
+
+    start = str(db.get_setting(HISTORY) or "")
+    if not start or not secrets.has(secrets.GMAIL_TOKEN):
+        return None
+    try:
+        page = _service().users().history().list(userId="me", startHistoryId=start, historyTypes=["messageAdded"], labelId="INBOX", maxResults=20).execute()
+    except HttpError as e:
+        if getattr(e.resp, "status", 0) == 404:
+            db.set_setting(HISTORY, "")
+            return None
+        raise
+    if any(h.get("messagesAdded") for h in page.get("history", [])) or page.get("nextPageToken"):
+        return True
+    if page.get("historyId"):
+        db.set_setting(HISTORY, str(page["historyId"]))
+    return False
+
+
+def added_since_last(limit: int = 50, *, skip: Any = None) -> list[dict[str, Any]] | None:
+    """Messages added to the inbox since the last look, in full, oldest first. None when that cannot be told - there
+    was no earlier look, or it is so long ago that Gmail no longer keeps the history - and the caller has to read
+    the last days instead. The place in the history is moved on only after the messages were fetched."""
+    from googleapiclient.errors import HttpError
+
+    start = str(db.get_setting(HISTORY) or "")
+    if not start:
+        return None
+    svc = _service()
+    ids: list[str] = []
+    latest, token = start, None
+    try:
+        while True:
+            page = svc.users().history().list(userId="me", startHistoryId=start, historyTypes=["messageAdded"], labelId="INBOX", pageToken=token).execute()
+            for h in page.get("history", []):
+                for added in h.get("messagesAdded", []):
+                    mid = added.get("message", {}).get("id")
+                    if mid and mid not in ids:
+                        ids.append(mid)
+            latest = str(page.get("historyId") or latest)
+            token = page.get("nextPageToken")
+            if not token:
+                break
+    except HttpError as e:
+        if getattr(e.resp, "status", 0) == 404:        # the number is older than what Gmail keeps (about a week)
+            db.set_setting(HISTORY, "")
+            return None
+        raise
+    out = []
+    for mid in ids[-limit:]:
+        if skip and skip(mid):
+            continue
+        try:
+            out.append(svc.users().messages().get(userId="me", id=mid, format="full").execute())
+        except HttpError as e:
+            if getattr(e.resp, "status", 0) != 404:    # deleted between the two requests: not there to read
+                raise
+    db.set_setting(HISTORY, latest)
+    return out
 
 
 # --- verification ----------------------------------------------------------------------
@@ -387,12 +474,25 @@ def reconcile() -> int:
     return fixed
 
 
-def track(days: int = 3, max_results: int = 80) -> dict[str, int]:
-    """Read recent mail, classify, link to applications, update statuses, notify."""
+def _known(message_id: str) -> bool:
+    with db.session() as s:
+        return s.query(MailEvent).filter_by(message_id=message_id).first() is not None
+
+
+def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[str, Any]:
+    """Read recent mail, classify, link to applications, update statuses, notify.
+
+    ``quick``: only what arrived since the last look (Gmail). When that cannot be told, nothing is read and the
+    answer says so; the pass over the last ``days`` is the one that sets the starting point."""
     from . import mailbox
 
     try:
-        msgs = mailbox.fetch(datetime.now(timezone.utc) - timedelta(days=days), max_results, job_related=True)
+        if quick:
+            msgs = mailbox.fetch_new(max_results, skip=_known)
+            if msgs is None:
+                return {"skipped": "no starting point yet: the next full pass sets one"}
+        else:
+            msgs = mailbox.fetch(datetime.now(timezone.utc) - timedelta(days=days), max_results, job_related=True, skip=_known)
     except mailbox.NotConfigured as e:
         raise MailNotConfigured(str(e)) from e
     new = updated = unmatched = 0

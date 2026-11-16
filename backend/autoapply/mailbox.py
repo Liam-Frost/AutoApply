@@ -187,8 +187,38 @@ def c_user(cfg: dict[str, Any] | None) -> str:
 # --- the one entry point -----------------------------------------------------------------------
 
 
-def fetch(since: datetime, limit: int = 50, *, job_related: bool = False) -> list[Message]:
-    """Messages received after ``since``, newest first. ``job_related`` keeps only mail that looks like it is about an application."""
+def _gmail_message(g: dict[str, Any]) -> Message:
+    from . import mail
+
+    try:
+        when = parsedate_to_datetime(mail._hdr(g, "Date"))
+    except Exception:  # noqa: BLE001
+        when = None
+    return Message(id=g["id"], sender=mail._hdr(g, "From"), subject=mail._hdr(g, "Subject"), body=mail._body(g["payload"]), date=when)
+
+
+def incremental() -> bool:
+    """Can this mailbox be asked for just what is new? (Gmail through its API.)"""
+    return (db.get_setting("mail.kind") or "gmail_api") == "gmail_api"
+
+
+def fetch_new(limit: int = 50, *, skip: Any = None) -> list[Message] | None:
+    """What arrived since the last look and looks like it is about an application. None when that cannot be told
+    (another kind of mailbox, no earlier look, too long ago): read the last days with fetch() instead."""
+    if not incremental():
+        return None
+    from . import mail
+
+    added = mail.added_since_last(limit, skip=skip)
+    if added is None:
+        return None
+    msgs = [_gmail_message(g) for g in added]
+    return [x for x in msgs if JOB_WORDS.search(x.subject + " " + x.body[:1500])]
+
+
+def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: Any = None) -> list[Message]:
+    """Messages received after ``since``, newest first. ``job_related`` keeps only mail that looks like it is about an
+    application. ``skip(id)``: messages already known, which need not be fetched again (Gmail)."""
     if kind() == "imap":
         msgs = _imap_fetch(since, limit * 3 if job_related else limit)
         if job_related:
@@ -198,13 +228,9 @@ def fetch(since: datetime, limit: int = 50, *, job_related: bool = False) -> lis
 
     days = max(1, (datetime.now(timezone.utc) - since).days + 1)
     q = f"newer_than:{days}d after:{int(since.timestamp())}" + (f" {mail.QUERY}" if job_related else "")
-    out = []
-    for g in mail._list(q, limit):
-        try:
-            when = parsedate_to_datetime(mail._hdr(g, "Date"))
-        except Exception:  # noqa: BLE001
-            when = None
-        out.append(Message(id=g["id"], sender=mail._hdr(g, "From"), subject=mail._hdr(g, "Subject"), body=mail._body(g["payload"]), date=when))
+    out = [_gmail_message(g) for g in mail._list(q, limit, skip=skip)]
+    if not mail.db.get_setting(mail.HISTORY):
+        mail.mark_history()        # from here on, "what is new" can be asked (fetch_new)
     return out
 
 
