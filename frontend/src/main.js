@@ -3,7 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import AaSelect from './components/Select.vue'
 import './style.css'
-import { loadPersona, persona } from './ui'
+import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
 import AnalyticsView from './views/AnalyticsView.vue'
 import FilesView from './views/FilesView.vue'
@@ -20,7 +20,7 @@ import RunsView from './views/RunsView.vue'
 import SettingsView from './views/SettingsView.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(new URL(document.baseURI).pathname),
   routes: [
     { path: '/', redirect: '/home' },
     { path: '/home', component: HomeView },
@@ -41,6 +41,7 @@ const router = createRouter({
 
 // a fresh install goes to the first-run guide before anything else
 router.beforeEach(async (to) => {
+  if (!session.in) return true      // the login is showing instead of the views; nothing is loaded for them
   if (!persona.loaded) await loadPersona()
   if (!persona.done && to.path !== '/welcome') return '/welcome'
 })

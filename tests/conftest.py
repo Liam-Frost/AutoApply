@@ -49,6 +49,9 @@ def app_env(tmp_path, monkeypatch):
     # test replaces it.
     from autoapply import browser, executor
 
+    from autoapply import access
+
+    monkeypatch.setattr(access, "enforced", lambda: False)      # the tests are about the program behind the login; test_access.py turns it on
     real_open = browser.open_page
     monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None, **kwargs: real_open(tenant_key, headless=True, downloads=downloads, **kwargs))
 

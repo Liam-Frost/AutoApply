@@ -150,16 +150,16 @@ def test_designed_tray_menu_renders_from_state_and_maps_clicks(app_env):
     st = tray_menu.demo_state(TEXT["zh"])
     img, regions = tray_menu.render(st, scale=1.0)
     keys = [r[0] for r in regions]
-    assert keys == ["open", "todos", "drafts", "pause", "restart", "autostart", "shortcut", "log", "quit"]
+    assert keys == ["open", "todos", "drafts", "pause", "restart", "autostart", "shortcut", "log", "reset_admin", "quit"]
     assert img.size[0] == tray_menu.W and all(0 <= x0 < x1 <= img.size[0] and 0 <= y0 < y1 <= img.size[1] for _, x0, y0, x1, y1 in regions)
     # twice the display scale: twice the pixels, the same rows
     img2, regions2 = tray_menu.render(st, scale=2.0, dark=True, hover="pause")
     assert img2.size == (img.size[0] * 2, img.size[1] * 2) and [r[0] for r in regions2] == keys
     # nothing waiting: no "needs you" rows; attached to a server started elsewhere: restart is not offered; server down: nothing to open or pause
     idle = tray_menu.demo_state(TEXT["en"], state="running", needs=0, drafts=0, attached=True, can_restart=False)
-    assert [r[0] for r in tray_menu.render(idle)[1]] == ["open", "pause", "autostart", "shortcut", "log", "quit"]
+    assert [r[0] for r in tray_menu.render(idle)[1]] == ["open", "pause", "autostart", "shortcut", "log", "reset_admin", "quit"]
     down = tray_menu.demo_state(TEXT["en"], state="stopped", up=False, needs=0, drafts=0)
-    assert [r[0] for r in tray_menu.render(down)[1]] == ["restart", "autostart", "shortcut", "log", "quit"]
+    assert [r[0] for r in tray_menu.render(down)[1]] == ["restart", "autostart", "shortcut", "log", "reset_admin", "quit"]
     assert tray_menu.render(idle)[0].size[1] < img.size[1]
     # every text the menu needs exists in both languages
     for lang in ("zh", "en"):

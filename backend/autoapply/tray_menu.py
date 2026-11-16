@@ -74,6 +74,10 @@ def _icon(d: Any, name: str, x: float, y: float, s: float, color: str) -> None:
         d.rounded_rectangle(box(1.5, 2.5, 14.5, 11), radius=1.6 * s, outline=color, width=w)
         line((5.5, 14), (10.5, 14))
         line((8, 11), (8, 14))
+    elif name == "key":
+        d.ellipse(box(2, 6, 7.5, 11.5), outline=color, width=w)
+        line((7.5, 8.75), (14, 8.75))
+        line((11.5, 8.75), (11.5, 11.2))
     elif name == "log":
         d.rounded_rectangle(box(3, 1.5, 13, 14.5), radius=1.6 * s, outline=color, width=w)
         line((5.6, 5.5), (10.4, 5.5))
@@ -111,6 +115,7 @@ def rows(st: dict[str, Any]) -> list[dict[str, Any]]:
     out.append({"kind": "row", "key": "autostart", "icon": "power", "label": t["autostart"], "switch": bool(st["autostart"]), "enabled": True})
     out.append({"kind": "row", "key": "shortcut", "icon": "shortcut", "label": t["shortcut"], "enabled": True})
     out.append({"kind": "row", "key": "log", "icon": "log", "label": t["log"], "enabled": True})
+    out.append({"kind": "row", "key": "reset_admin", "icon": "key", "label": t["reset_admin"], "enabled": True})
     out.append({"kind": "sep"})
     out.append({"kind": "row", "key": "quit", "icon": "quit", "label": t["quit_attached"] if st["attached"] else t["quit"], "enabled": True})
     return out

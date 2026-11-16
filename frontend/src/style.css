@@ -197,6 +197,16 @@ tr.clickable { cursor: pointer; }
 .seg .n { color: var(--text-3); font-weight: 500; margin-left: 4px; }
 
 /* callout: one message with a tone */
+/* the door: sign in / first set-up, centred on an otherwise empty page */
+.door { min-height: 100vh; display: grid; place-items: center; padding: var(--s5); background: var(--bg); }
+.door-card { width: min(420px, 100%); display: grid; gap: var(--s3); padding: var(--s6) var(--s6) var(--s5); margin: 0; }
+.door-brand { display: flex; align-items: center; gap: var(--s2); font-weight: 700; font-size: var(--fs-lg); margin-bottom: var(--s2); }
+.door-brand img { width: 28px; height: 28px; }
+.door-field { display: grid; gap: 6px; font-size: var(--fs-sm); color: var(--text-2); font-weight: 550; }
+.door-field input { width: 100%; }
+.door-error { display: flex; gap: var(--s2); align-items: center; color: var(--bad); font-size: var(--fs-sm); margin: 0; }
+.door-error svg { width: 16px; height: 16px; flex: none; }
+.door-go { justify-content: center; margin-top: var(--s2); padding: 9px 14px; }
 .callout { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--info-soft); color: var(--text); border: 1px solid transparent; margin-bottom: var(--s3); }
 .callout.warn { background: var(--warn-soft); } .callout.bad { background: var(--bad-soft); } .callout.ok { background: var(--ok-soft); }
 .callout svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }

@@ -12,14 +12,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="autoapply")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve")
-    s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--port", type=int, default=None, help="default: the port in the access settings (8000)")
+    s.add_argument("--host", default=None, help="default: the address in the access settings (127.0.0.1)")
+    sub.add_parser("reset-admin", help="forget the administrator's password: the next visit from this computer sets a new one")
     i = sub.add_parser("import-tsv")
     i.add_argument("path")
     t = sub.add_parser("task")
     t.add_argument("kind")
     sub.add_parser("drain")
     tr = sub.add_parser("tray", help="start the launcher: a tray icon that runs the server and shows its status")
-    tr.add_argument("--port", type=int, default=8000)
+    tr.add_argument("--port", type=int, default=None)
     tr.add_argument("--no-open", action="store_true")
     fx = sub.add_parser("fixtures", help="replay saved form pages through the current drivers")
     fx.add_argument("ats", nargs="?")
@@ -33,7 +35,13 @@ def main() -> None:
     if a.cmd == "tray":
         from . import launcher
 
-        return launcher.main(["--port", str(a.port)] + (["--no-open"] if a.no_open else []))
+        return launcher.main((["--port", str(a.port)] if a.port else []) + (["--no-open"] if a.no_open else []))
+    if a.cmd == "reset-admin":
+        from . import access
+
+        access.reset_admin()
+        print("The administrator account was removed and every login ended. Open AutoApply on this computer to set a new one.")
+        return None
     if a.cmd == "shortcut":
         from . import launcher
 
@@ -45,7 +53,10 @@ def main() -> None:
         from . import backup
 
         try:
-            urllib.request.urlopen("http://127.0.0.1:8000/api/overview", timeout=2)  # noqa: S310
+            from . import access as _access
+
+            # the one address that answers without a login; any answer at all means the program is running
+            urllib.request.urlopen(f"http://127.0.0.1:{_access.conf()['port']}/api/auth/state", timeout=2)  # noqa: S310
             raise SystemExit("AutoApply is running. Quit it first (tray icon -> Quit), then run restore again.")
         except OSError:
             pass
@@ -74,7 +85,17 @@ def main() -> None:
     if a.cmd == "serve":
         import uvicorn
 
-        uvicorn.run("autoapply.api.main:app", host="127.0.0.1", port=a.port, log_level="info")
+        import os
+
+        from . import access
+
+        c = access.conf()
+        host, port = a.host or c["host"], a.port or c["port"]
+        os.environ["AUTOAPPLY_LISTENING_HOST"], os.environ["AUTOAPPLY_LISTENING_PORT"] = host, str(port)
+        if access.exposed({"host": host}) and not access.has_admin():
+            logging.getLogger("autoapply").warning("listening on %s, and no administrator is set yet: open the page on this computer first to set one", host)
+        # proxy_headers off: who is calling is worked out by access.caller, from the proxies named in the settings
+        uvicorn.run("autoapply.api.main:app", host=host, port=port, log_level="info", proxy_headers=False)
     elif a.cmd == "import-tsv":
         from . import importer
 

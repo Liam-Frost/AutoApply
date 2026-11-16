@@ -157,7 +157,8 @@ The Claude subscription is the best-tested service. Others work through the same
 - Everything is on your computer: a SQLite database, your files, and a few Markdown documents you can read and edit (your profile, the scoring rules, notes about sites).
 - Passwords and API keys are in the system keyring. Saved sign-ins are encrypted.
 - Nothing is sent anywhere except to the AI service you chose and to the job sites themselves. There is no telemetry and no account.
-- The server listens on `127.0.0.1` only and answers only its own pages: requests from other websites open in your browser are refused.
+- The page asks for a login - one account, whose name and password you choose the first time you open it on the computer it runs on. Only a salted hash of the password is kept.
+- The server listens on `127.0.0.1` unless you change that under Settings -> Access & security, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
 - *Settings → Advanced → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
 
 ## What the previous version got wrong, and what changed

@@ -186,7 +186,7 @@ onMounted(load)
         <AaSelect v-model="upKind"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
         <label class="btn"><Icon name="inbox" />选择文件<input type="file" hidden @change="upload" /></label>
       </div>
-      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`/api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
+      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
       <h3>2. 补充说明（可选）</h3>
       <textarea v-model="notes" style="font-family: inherit" placeholder="简历上没有但申请表常问的信息：法定姓名和常用名、工作许可、是否需要签证担保、可工作时间、GPA、地址……"></textarea>
       <div class="row" style="margin-top: 8px"><button class="primary" :disabled="busy" @click="init">{{ busy ? '正在阅读你的资料…' : '3. 生成个人资料草稿' }}</button></div>

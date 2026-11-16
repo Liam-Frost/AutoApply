@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { api } from '../api'
+import { api, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
@@ -187,7 +187,7 @@ onMounted(load)
         </div>
         <div v-if="cur.problems.length" class="callout warn" style="margin-top: 10px; display: block"><b>自检发现的问题</b><div v-for="(x, k) in cur.problems" :key="k" class="small">{{ x }}</div></div>
         <div class="row" style="margin: 12px 0 8px">
-          <a :href="`/api/documents/${cur.id}/file`" :download="cur.name" class="btn sm"><Icon name="external" />下载</a>
+          <a :href="`api/documents/${cur.id}/file`" :download="cur.name" class="btn sm"><Icon name="external" />下载</a>
           <button v-if="!renaming" class="sm" @click="renaming = true; newName = cur.name"><Icon name="edit" />改名</button>
           <AaSelect v-if="!isGen(cur)" small :value="cur.kind" title="这个文件用作什么" @change="setKind($event.target.value)"><option v-for="k in UPLOADABLE" :key="k" :value="k">用作：{{ KINDS[k] }}</option></AaSelect>
           <button v-if="cur.active" class="sm" @click="setActive(false)">停用</button>
@@ -195,7 +195,7 @@ onMounted(load)
           <button class="sm ghost danger" @click="destroy">彻底删除</button>
         </div>
         <div v-if="cur.missing" class="empty"><div class="t">文件已经不在磁盘上了</div><div>只剩一条记录，可以直接删除。</div></div>
-        <PdfView v-else-if="previewable(cur)" :key="cur.id" :src="`/api/documents/${cur.id}/bytes`" />
+        <PdfView v-else-if="previewable(cur)" :key="cur.id" :src="`${ROOT}/api/documents/${cur.id}/bytes`" />
         <div v-else class="empty"><div class="t">这种文件不能在页面里预览</div><div>请点“下载”后查看。</div></div>
       </template>
       <EmptyState v-else icon="search" title="点一个文件来预览" text="PDF 和 Word 文件可以直接在这里看。" />

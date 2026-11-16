@@ -237,7 +237,7 @@ onUnmounted(() => clearInterval(timer))
         <div class="panel">
           <div v-for="m in d.materials" :key="m.slot" class="row" style="margin-bottom: 6px">
             <span class="tag info">{{ m.slot_label }}</span>
-            <a :href="`/api/documents/${m.document_id}/file`" target="_blank" rel="noopener">{{ m.name }}</a>
+            <a :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener">{{ m.name }}</a>
             <span class="muted small">{{ KIND[m.kind] || '' }}</span>
           </div>
           <div v-if="!d.materials.length" class="muted">这张申请表不需要上传文件。</div>

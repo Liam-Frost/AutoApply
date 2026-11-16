@@ -173,6 +173,8 @@ SERVE = """
 import os, sys
 sys.path.insert(0, r'{backend}')
 import uvicorn
+from autoapply import access
+access.enforced = lambda: False      # the demo copy holds made-up data and is opened by the screenshot script
 from autoapply import db, net, persona
 db.init_db(); net.apply()
 uvicorn.run('autoapply.api.main:app', host='127.0.0.1', port={port}, log_level='warning', lifespan='off')

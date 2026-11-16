@@ -4,6 +4,7 @@ import { api } from '../api'
 import AiPanel from '../components/AiPanel.vue'
 import EmployersPanel from '../components/EmployersPanel.vue'
 import MailboxPanel from '../components/MailboxPanel.vue'
+import AccessPanel from '../components/AccessPanel.vue'
 import Icon from '../components/Icon.vue'
 import NetworkPanel from '../components/NetworkPanel.vue'
 import BrowserPanel from '../components/BrowserPanel.vue'
@@ -35,7 +36,7 @@ const exportData = async (sessions) => {
 const checkUpdate = async () => {
   try { upd.value = await api.get('/system/update') } catch (e) { toast(e.message, 'bad') }
 }
-const TABS = { apply: '投递方式', materials: '申请材料', sources: '岗位来源', intake: '入库条件', notify: '通知与邮箱', ai: 'AI 模型', prompts: 'AI 提示词', network: '网络', advanced: '高级' }
+const TABS = { apply: '投递方式', materials: '申请材料', sources: '岗位来源', intake: '入库条件', notify: '通知与邮箱', ai: 'AI 模型', prompts: 'AI 提示词', network: '网络', access: '访问与安全', advanced: '高级' }
 const BIGTECH = [['amazon', 'Amazon'], ['apple', 'Apple'], ['google', 'Google'], ['microsoft', 'Microsoft'], ['meta', 'Meta'], ['nvidia', 'NVIDIA'], ['amd', 'AMD'], ['intel', 'Intel']]
 const COUNTRIES = [['CA', '加拿大'], ['US', '美国']]
 const scan = ref({ at: null, sources: [] })
@@ -99,7 +100,7 @@ onMounted(load)
 <template>
   <div v-if="s">
     <PageHead title="设置" sub="改完记得点右上角的“保存”。">
-      <button v-if="tab !== 'prompts'" class="primary" @click="save"><Icon name="check" />保存</button>
+      <button v-if="tab !== 'prompts' && tab !== 'access'" class="primary" @click="save"><Icon name="check" />保存</button>
     </PageHead>
     <div class="seg" style="margin-bottom: 16px">
       <button v-for="(l, k) in TABS" :key="k" :class="{ on: tab === k }" @click="tab = k">{{ l }}</button>
@@ -185,6 +186,7 @@ onMounted(load)
     </template>
 
     <PromptsPanel v-if="tab === 'prompts'" />
+    <AccessPanel v-if="tab === 'access'" />
     <NetworkPanel v-if="tab === 'network'" ref="netPanel" :s="s" :sec="sec" :has-password="!!info.secrets.proxy_password" />
     <BrowserPanel v-if="tab === 'network'" :s="s" />
 

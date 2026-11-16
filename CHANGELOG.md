@@ -4,6 +4,29 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Added
+
+- **A login.** The page asks for one, on this computer as well as from anywhere else: the program holds your profile,
+  your documents and your sign-ins to employers' sites. There is one account, the administrator's, and you choose its
+  name and password the first time you open the page on the computer the program runs on - nothing is generated, shown
+  or written to a log. Only a salted hash is kept. Five wrong passwords in a row close the door for a quarter of an
+  hour. Forgotten: the tray icon's "Reset the administrator password", or `autoapply reset-admin`. The tray icon and
+  the command line use a token kept beside the data instead of a login.
+- **Settings -> Access & security**: where the server listens (this computer only, every network, one address), the
+  port, a path prefix for serving it under a reverse proxy, how long a login lasts, the administrator's password, and
+  "sign out on every device". HTTPS is left to a reverse proxy: tell the program one is in front and the login is only
+  sent over HTTPS. The address, port and prefix are kept in `data/access.json`, so a wrong value can be repaired with
+  a text editor; they take effect when the server is restarted.
+- An e-mail that does not say which application it is about is matched on the employer's own site (read with the saved
+  sign-in, read-only), and the card for it lets you choose the application yourself.
+- An optional second browser backend (nodriver), chosen per site and operation; off by default.
+
+### Changed
+
+- Workday listings are read politely: descriptions only for postings that are new and that your rules keep, a pause
+  between requests, and "too many requests" is waited out and retried.
+- Nothing the program starts opens a console window on Windows.
+
 ### Fixed
 
 - A pick-list that has to be searched (a location or school picker that shows a few entries and a search box) is
