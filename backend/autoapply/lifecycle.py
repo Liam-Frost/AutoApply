@@ -66,20 +66,27 @@ _MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "j
 def applied_on(text: str) -> datetime | None:
     """The date in what the site said ("You applied on Nov 3, 2026"), if it gives one that can be a date of applying."""
     text = text or ""
-    found: tuple[int, int, int] | None = None
-    if m := re.search(r"\b(20\d\d)-(\d{1,2})-(\d{1,2})\b", text):
-        found = (int(m[1]), int(m[2]), int(m[3]))
-    elif m := re.search(r"\b([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?,? (20\d\d)\b", text):
-        found = (int(m[3]), _MONTHS.get(m[1].lower(), 0), int(m[2]))
-    elif m := re.search(r"\b(\d{1,2})(?:st|nd|rd|th)? ([A-Za-z]{3})[a-z]*\.?,? (20\d\d)\b", text):
-        found = (int(m[3]), _MONTHS.get(m[2].lower(), 0), int(m[1]))
-    if found is None:
-        return None
-    try:
-        day = datetime(*found)
-    except ValueError:
-        return None
-    return day if day <= now().replace(tzinfo=None) else None
+    dates: list[tuple[int, tuple[int, int, int]]] = []       # (where it stands in the text, year-month-day)
+    for m in re.finditer(r"\b(20\d\d)-(\d{1,2})-(\d{1,2})\b", text):
+        dates.append((m.start(), (int(m[1]), int(m[2]), int(m[3]))))
+    for m in re.finditer(r"\b([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?,? (20\d\d)\b", text):
+        dates.append((m.start(), (int(m[3]), _MONTHS.get(m[1].lower(), 0), int(m[2]))))
+    for m in re.finditer(r"\b(\d{1,2})(?:st|nd|rd|th)? ([A-Za-z]{3})[a-z]*\.?,? (20\d\d)\b", text):
+        dates.append((m.start(), (int(m[3]), _MONTHS.get(m[2].lower(), 0), int(m[1]))))
+    for at, found in sorted(dates):
+        # only a date the text ties to applying: "applied on ...", "submitted: ...". A deadline or a posting date next to
+        # "you have already applied" is not when the application was sent.
+        lead = text[max(0, at - 40):at]
+        tied = re.search(r"(applied|submitted|received|申请于|提交于)[^.;\n]*$", lead, re.I)
+        if not tied or re.search(r"deadline|closes?|closing|posted|due|expires?|until|截止", lead[tied.start():], re.I):
+            continue
+        try:
+            day = datetime(*found)
+        except ValueError:
+            continue
+        if day <= now().replace(tzinfo=None):
+            return day
+    return None
 
 
 def applied_before(application_id: int, seen: Any = None) -> None:

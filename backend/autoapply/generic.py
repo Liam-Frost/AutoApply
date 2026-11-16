@@ -809,8 +809,12 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         final_url = page.url
     if re.search(r"unavailable|closed|not.?found|404|expired|filled", str(result.get("blocked") or ""), re.I):
         raise DriverError(f"posting not found or closed: {result.get('notes', '')}"[:300], seen=final_url)
-    said = f"{result.get('blocked') or ''} {result.get('notes') or ''}"
-    if result.get("blocked") and result["blocked"] != "captcha" and (re.search(r"already|duplicate|applied", str(result["blocked"]), re.I) or ALREADY_RE.search(said)):
+    # (the blocker is a free word of the agent's: "already_registered" and "duplicate_account" are about an account, not
+    # about an application - only the blocker that says "applied", or the site's own sentence in the notes, counts)
+    why = re.sub(r"[^a-z]+", "_", str(result.get("blocked") or "").lower()).strip("_")
+    about_account = bool(re.search(r"regist|account|login|sign|captcha|password|verif", why))
+    if why and (re.fullmatch(r"(already_)?(applied|submitted)|duplicate_application|application_exists", why)
+                or (not about_account and ALREADY_RE.search(str(result.get("notes") or "")))):
         raise AlreadyApplied({"url": final_url, "text": str(result.get("notes") or "The site shows this job as already applied.")[:300], "already_applied": "yes"})
     if refused:
         raise _Refused()

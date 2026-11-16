@@ -867,3 +867,65 @@ def test_the_portal_says_what_it_shows_when_its_list_of_postings_is_not_there(ap
 
     with pytest.raises(DriverError, match="人机验证"):
         PDPortalDriver()._open_posting(Page(), JobRef("pdportal", "ubc", "150971", POSTINGS + "#posting=150971", "pdportal.apsc.ubc.ca"))
+
+
+def test_only_a_date_tied_to_applying_is_when_it_was_sent_and_an_account_that_exists_is_not_an_application():
+    from autoapply import lifecycle
+
+    on = lifecycle.applied_on
+    assert on("You applied on Nov 3, 2026.").day == 3 and on("Application submitted: 2026-10-28").month == 10
+    assert on("You have already applied. Application deadline: 2026-11-10.") is None
+    assert on("Posted 1 Nov 2026. You have already applied for this position.") is None
+    assert on("You have already applied for this position.") is None
+
+
+@pytest.mark.parametrize("blocked, notes, applied", [
+    ("already_applied", "", True), ("Already applied", "", True), ("duplicate_application", "", True),
+    ("other", "The page says: You have already applied for this position.", True),
+    ("already_registered", "This e-mail already has an account.", False), ("duplicate_account", "", False),
+    ("login", "An account exists. You have already applied to this job? Sign in to see.", False)])
+def test_what_the_reading_agent_calls_the_blocker_decides_whether_it_is_an_application(app_env, tmp_path, monkeypatch, blocked, notes, applied):
+    from autoapply import generic, llm
+    from autoapply.ats.base import AlreadyApplied, JobRef, NeedsHuman
+    from autoapply.models import Job
+
+    page = tmp_path / "p.html"
+    page.write_text("<title>Careers</title><main><h1>Analyst</h1></main>", encoding="utf-8")
+
+    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+        {x.name: x for x in tools}["finish"].fn(blocked=blocked, notes=notes)
+        return llm.AgentResult(final_text="done", steps=[])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    job = Job(source="manual", source_id="b1", company="Acme", title="Analyst", apply_url=page.as_uri(), channel="employer site", jd_text="x" * 300)
+    ref = JobRef(ats="generic", tenant="b.example.test", job_id="", url=page.as_uri(), host="b.example.test")
+    with pytest.raises(AlreadyApplied if applied else NeedsHuman):
+        generic.recon(job, ref, tmp_path / "run")
+
+
+def test_a_reading_that_is_given_up_twice_takes_the_empty_application_away_both_times(app_env, monkeypatch):
+    """The application of a posting that turned out closed is deleted, so that the job reads "not applied". Once it had
+    a record of status changes, the delete failed: FOREIGN KEY constraint failed."""
+    from autoapply import db, drafts
+    from autoapply.ats.base import DriverError
+    from autoapply.models import Application, ApplicationEvent, Job, MailEvent
+
+    with db.session() as s:
+        job = Job(source="manual", source_id="c1", company="Acme", title="Analyst", apply_url="https://jobs.example.test/p/9", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        job_id = job.id
+    monkeypatch.setattr(drafts, "recon", lambda *a, **k: (_ for _ in ()).throw(DriverError("posting not found or closed")))
+    for n in range(2):
+        with db.session() as s:                         # as an earlier attempt left it: an application with a history, and a mail linked to it
+            a = Application(job_id=job_id, status="needs_human")
+            s.add(a)
+            s.flush()
+            s.add(MailEvent(message_id=f"m{n}", sender="x", subject="y", category="other", application_id=a.id, company_guess="", summary=""))
+        with pytest.raises(DriverError):
+            drafts.build(job_id)
+        with db.session() as s:
+            assert s.query(Application).count() == 0 and s.query(ApplicationEvent).count() == 0
+            assert "已找不到这个岗位" in s.get(Job, job_id).note
+    with db.session() as s:
+        assert [m.application_id for m in s.query(MailEvent)] == [None, None]        # the mail is kept, without the link
