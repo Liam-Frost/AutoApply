@@ -336,6 +336,25 @@ def _window_place(for_person: bool, headless: bool, tenant_key: str | None, url:
 _env_lock = threading.RLock()
 
 
+class RefusedHidden(Exception):
+    """The site turned the browser away while it was hidden; it has been noted (needs_window) and the caller tries
+    once more - this time in a window."""
+
+
+def needs_window(tenant_key: str) -> bool:
+    """Note that this site refuses the hidden browser: from now on its pages open in a window (browser.visible_sites).
+    False when that was already known - then a window did not help either, and the caller says so instead of trying again."""
+    from . import browser_policy, db
+
+    key = browser_policy.canonical(tenant_key)
+    seen = list(db.get_setting("browser.visible_sites") or [])
+    if key in seen:
+        return False
+    db.set_setting("browser.visible_sites", [*seen, key])
+    logging.getLogger("autoapply.browser").info("%s refuses the hidden browser: its pages open in a window from now on", key)
+    return True
+
+
 def no_screen() -> bool:
     """remote.no_screen(), asked while no browser is being started with a borrowed screen in the process environment
     (_environment): a second window opened at that moment would otherwise take the first one's private screen for a
@@ -395,6 +414,14 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
         headless = False
     if selected.backend == "nodriver":
         from . import nodriver_backend
+
+        # The ordinary browser is always a window. Hidden ("headless") it is not the browser a person signed in with:
+        # it says so itself (HeadlessChrome), and a site that let the window in turns the hidden one away - the
+        # university portal's firewall did, for every scan. So a sign-in made in a window is used in a window; where
+        # nobody has to look, the window simply opens and closes by itself (on a server: on the virtual screen).
+        # (AUTOAPPLY_ORDINARY_HIDDEN=1 keeps it hidden - for the tests, which open hundreds.)
+        if not os.environ.get("AUTOAPPLY_ORDINARY_HIDDEN"):
+            headless = False
 
         executable = db.get_setting("browser.executable") or find_chrome()
         if not executable:

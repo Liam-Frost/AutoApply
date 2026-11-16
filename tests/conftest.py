@@ -1,4 +1,5 @@
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -57,6 +58,17 @@ def app_env(tmp_path, monkeypatch):
     monkeypatch.setattr(access, "enforced", lambda: False)      # the tests are about the program behind the login; test_access.py turns it on
     real_open = browser.open_page
     monkeypatch.setattr(browser, "real_open_page", real_open, raising=False)      # for the tests that are about windows
+    # AUTOAPPLY_TEST_BROWSER=nodriver: every page the program opens in a test is opened in the ordinary browser instead
+    # of the automated one. Whatever the program does to a form has to work in both - a site's work is done in the
+    # browser its sign-in lives in (browser_policy) - so the whole suite is the contract for the adapter.
+    if os.environ.get("AUTOAPPLY_TEST_BROWSER") == "nodriver":
+        from autoapply import browser_policy
+
+        from contextvars import ContextVar
+
+        db.set_setting("browser.nodriver_enabled", True)
+        monkeypatch.setenv("AUTOAPPLY_ORDINARY_HIDDEN", "1")       # hundreds of pages: not hundreds of windows on the screen
+        monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default="nodriver"))
     monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None, **kwargs: real_open(tenant_key, headless=True, downloads=downloads, **kwargs))
 
     def nobody_is_there(*a, **k):

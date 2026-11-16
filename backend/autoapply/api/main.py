@@ -891,7 +891,7 @@ def _open_remote_windows() -> list[dict[str, Any]]:
 
 def _mail_row(s: Any, m: MailEvent) -> dict[str, Any]:
     a = s.get(Application, m.application_id) if m.application_id else None
-    return {"subject": m.subject, "category": m.category, "summary": m.summary, "label": messages.MAIL.get(m.category, ("", m.category))[1],
+    return {"subject": m.subject, "category": m.category, "summary": m.summary, "label": messages.mail_label(m.category, m.event or "new")[1], "event": m.event or "new",
             "received_at": m.received_at.isoformat() if m.received_at else None, "job": f"{a.job.company} · {a.job.title}" if a else ""}
 
 

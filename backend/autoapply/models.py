@@ -179,6 +179,7 @@ class MailEvent(Base):
     subject: Mapped[str] = mapped_column(String, default="")
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     category: Mapped[str] = mapped_column(String, default="")  # confirmation|rejection|interview|assessment|info_request|other
+    event: Mapped[str] = mapped_column(String, default="new")  # what the mail says about it: new|changed|reminder|cancelled (mail.EVENTS)
     application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
     company_guess: Mapped[str] = mapped_column(String, default="")
     summary: Mapped[str] = mapped_column(Text, default="")

@@ -188,9 +188,23 @@ MAIL = {
 }
 
 
-def mail_update(category: str, title: str, summary: str, *, new_status: str = "") -> Card:
-    icon, heading = MAIL.get(category, ("✉️", "收到新邮件"))
-    hint = "请尽快查看原邮件并回复。" if category in ("interview", "assessment", "offer", "info_request") else ""
+# What an e-mail says ABOUT an interview, an assessment or an offer when it does not announce one (mail.EVENTS).
+MAIL_EVENT = {
+    ("interview", "cancelled"): ("⚠️", "面试被取消"), ("interview", "changed"): ("🗓️", "面试安排有变化"), ("interview", "reminder"): ("⏰", "面试提醒"),
+    ("assessment", "cancelled"): ("⚠️", "在线测评被取消"), ("assessment", "changed"): ("🗓️", "在线测评有变化"), ("assessment", "reminder"): ("⏰", "在线测评提醒"),
+    ("offer", "cancelled"): ("⚠️", "录用被撤回"), ("offer", "changed"): ("📝", "录用条件有更新"), ("offer", "reminder"): ("⏰", "录用通知待回复"),
+}
+
+
+def mail_label(category: str, event: str = "new") -> tuple[str, str]:
+    """(icon, heading) for an e-mail: by what it is about and what it says about it."""
+    return MAIL_EVENT.get((category, event)) or MAIL.get(category, ("✉️", category or "收到新邮件"))
+
+
+def mail_update(category: str, title: str, summary: str, *, new_status: str = "", event: str = "new") -> Card:
+    icon, heading = MAIL_EVENT.get((category, event)) or MAIL.get(category, ("✉️", "收到新邮件"))
+    hint = ("请查看原邮件，确认是否需要重新安排或回复。" if event == "cancelled" and (category, event) in MAIL_EVENT
+            else "请尽快查看原邮件并回复。" if category in ("interview", "assessment", "offer", "info_request") else "")
     return Card(icon, heading, title, fields=[("状态更新为", new_status)], detail=_cut(summary, 300), hint=hint, path="/jobs", link="查看岗位")
 
 

@@ -98,6 +98,25 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   filling, scanning and signing in all happen there. Where each sign-in was made is recorded when it is saved; a site
   that signs in through a provider follows the provider; and a provider's sign-in is no longer shown to the other
   browser at all, which is what could make the provider sign the real one out.
+- **Filling a form in the ordinary browser works like filling it in the automated one.** Once a site's work followed
+  its sign-in there, the first application stopped with `"Tab" has no attribute "closed"`: that browser had only ever
+  been used to sign in and to read. Every test that drives a form now also runs in the ordinary browser (in CI too),
+  which is how the rest was found and fixed: asking whether the window is still open, the page's short forms
+  (`page.check(...)`), keys such as the space bar, and
+  - the browser is now closed in order, so its profile keeps the session as the site last left it; it used to be ended
+    outright, which lost what had changed during the run;
+  - a profile's own cookies are no longer written over with the saved copy at every start.
+- **The ordinary browser is always a window.** Hidden, it calls itself `HeadlessChrome` - not the browser you signed
+  in with - and the university portal's firewall, which lets the window in, turned every hidden scan away (the card
+  then advised switching on what was already on). A sign-in made in a window is now used in a window: where nobody
+  has to look it opens and closes by itself (on a server, on the virtual screen). A site that turns the hidden
+  browser away is remembered the same way for every caller, the firewall's own check is given time to pass, and if a
+  window is refused too the card asks for the sign-in that renews the pass.
+- **An e-mail that cancels an interview is no longer announced as an invitation to one.** The reading of an e-mail
+  said what it was about (an interview) and that was taken for what it said. It now also says what the e-mail does:
+  announces, changes, recalls or cancels. A cancellation does not move the application to that stage - and takes it
+  back to where it was if it stood there; the notice says "Interview cancelled", "Interview arrangements changed",
+  "Offer withdrawn" and so on.
 - **The card says whose sign-in is missing.** When the run stopped on a provider's own sign-in page - or the site's
   sign-in is the provider's, as with Google's careers site - there is one card for the provider ("sign in to Google
   again"), not a card per posting offering "use my Google account" for Google itself.
