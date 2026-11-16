@@ -28,10 +28,10 @@ rem --inexact: keep optional components that were added later (the ChatGPT sign-
 uv sync --inexact
 if errorlevel 1 ( echo [AutoApply] 安装依赖失败，请看上面的提示。 & pause & exit /b 1 )
 
-if not exist "%LOCALAPPDATA%\ms-playwright" (
-  echo [AutoApply] 下载程序用的浏览器（只需一次）...
-  uv run playwright install chromium
-)
+rem Asked for every time: it returns at once when the right build is there, and a newer Playwright needs a newer build.
+echo [AutoApply] 检查程序用的浏览器（第一次和部分升级后需要下载）...
+uv run playwright install chromium
+if errorlevel 1 ( echo [AutoApply] 下载浏览器失败，请看上面的提示。 & pause & exit /b 1 )
 
 if not exist "frontend\dist\index.html" (
   where npm >nul 2>nul

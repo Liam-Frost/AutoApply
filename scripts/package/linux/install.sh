@@ -158,9 +158,8 @@ work() {
   (cd "$TARGET" && uv sync --inexact >> "$LOG" 2>&1) || return 3
 
   step 75 "$(t '准备程序用的浏览器' 'Getting the browser the program uses')"
-  if [ ! -d "${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright" ]; then
-    (cd "$TARGET" && uv run playwright install chromium >> "$LOG" 2>&1) || return 4
-  fi
+  # every time: it returns at once when the right build is there, and a newer Playwright needs a newer build
+  (cd "$TARGET" && uv run playwright install chromium >> "$LOG" 2>&1) || return 4
 
   step 92 "$(t '创建快捷方式' 'Creating the shortcuts')"
   if [ ! -f "$TARGET/data/app.db" ]; then   # a first install: the program starts in this language

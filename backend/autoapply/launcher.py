@@ -64,18 +64,23 @@ def create_shortcut(folders: list[str] | None = None) -> str:
     if sys.platform == "win32":
         ico = config.DATA / "autoapply.ico"
         make_icon("plain").save(ico, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+        from . import winshell
+
+        if not folders:
+            import ctypes
+            from ctypes import wintypes
+
+            def known(csidl: int) -> str:                     # 0x10 the desktop, 0x02 the Start menu's Programs
+                buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+                ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf)
+                return buf.value
+
+            folders = [known(0x10), known(0x02)]
         made = []
-        ps = ("$w = New-Object -ComObject WScript.Shell; "
-              "$dirs = if ($env:AA_DIRS) { $env:AA_DIRS -split ';' } else { @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) }; "
-              "foreach ($d in $dirs) { "
-              "$s = $w.CreateShortcut((Join-Path $d 'AutoApply.lnk')); $s.TargetPath = $env:AA_EXE; $s.Arguments = $env:AA_ARGS; "
-              "$s.WorkingDirectory = $env:AA_DIR; $s.IconLocation = $env:AA_ICO; $s.Description = 'AutoApply'; $s.Save(); Write-Output (Join-Path $d 'AutoApply.lnk') }")
-        env = {**os.environ, "AA_EXE": cmd[0], "AA_ARGS": subprocess.list2cmdline(cmd[1:]), "AA_DIR": str(config.ROOT), "AA_ICO": str(ico), "AA_DIRS": ";".join(folders or [])}
-        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env, capture_output=True, text=True, timeout=60,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        if out.returncode != 0:
-            raise RuntimeError(out.stderr.strip()[:300] or "could not create the shortcut")
-        made = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+        for folder in folders:
+            lnk = str(Path(folder) / "AutoApply.lnk")
+            winshell.make_shortcut(lnk, cmd[0], subprocess.list2cmdline(cmd[1:]), str(config.ROOT), str(ico), "AutoApply")
+            made.append(lnk)
         return "; ".join(made)
     if sys.platform == "darwin":
         raise RuntimeError("On macOS use the menu-bar icon and its 'Start when I sign in' option; an app bundle is not provided yet.")
@@ -434,6 +439,9 @@ def main(argv: list[str] | None = None) -> None:
     from . import quiet
 
     quiet.install()
+    from . import winshell
+
+    winshell.set_app_id()          # the taskbar and notifications say AutoApply, not pythonw.exe
     import argparse
 
     ap = argparse.ArgumentParser(prog="autoapply tray")

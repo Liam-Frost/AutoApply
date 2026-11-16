@@ -4,6 +4,27 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **The Windows installer is built with Inno Setup.** It was a self-extracting archive around a PowerShell script
+  that drew its own window, which is why the taskbar showed PowerShell, the file had no icon or version details, and
+  the progress line showed unreadable characters. Now the .exe carries the program's icon, name and version, the
+  wizard is a standard one in English or Chinese, and it is registered and removed the way Windows expects.
+  - **An upgrade can be taken back.** The new version is copied beside the installed one and swapped in; if its
+    dependencies cannot be installed, or you cancel, the previous version's files return. Before, the old folders
+    were deleted first and a failure left a broken installation.
+  - **It does not stop the program for you.** While AutoApply is running the installer says so and waits; it used to
+    end every Python process whose command line mentioned the folder, whatever it was doing.
+  - **uv comes in the package**, one fixed version checked by its SHA-256 when the installer is built. The installer
+    no longer downloads a script and runs it.
+  - **The browser is asked for on every install and upgrade** (and by the start scripts and the macOS and Linux
+    packages): "its folder exists" was taken to mean it was there, so an upgrade that needed a newer build did not
+    get one.
+  - **Progress you can read, and a Cancel button**: a percentage where the download reports one, a moving bar where
+    it does not. The log is kept with your data (`data/logs`, the last twelve), not in the temporary folder.
+- The tray icon and its notifications are AutoApply to Windows, not `pythonw.exe`, and shortcuts are written directly
+  instead of through PowerShell.
+
 ## [1.0.3] - 2026-11-16
 
 ### Added

@@ -104,48 +104,70 @@ jobs:
         with: { python-version: "3.12" }
       - uses: actions/download-artifact@v8
         with: { name: portable, path: dist-release }
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
       - name: Build the installer
         run: python scripts/make_installer.py
-      - name: Install through the real setup window, driving itself
+      - name: The installer carries the program's name, version and icon
+        shell: pwsh
+        run: |
+          $exe = Get-Item dist-release\AutoApply-Setup-*.exe
+          $version = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          $info = $exe.VersionInfo
+          if ($info.ProductName -ne 'AutoApply' -or $info.ProductVersion.Trim() -ne $version) { throw "version details are wrong: $($info.ProductName) $($info.ProductVersion)" }
+          Add-Type -AssemblyName System.Drawing
+          if (-not [Drawing.Icon]::ExtractAssociatedIcon($exe.FullName)) { throw 'no icon' }
+      - name: Install
         shell: pwsh
         run: |
           $exe = (Get-ChildItem dist-release\AutoApply-Setup-*.exe).FullName
           $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
-          $log = Join-Path ([IO.Path]::GetTempPath()) 'autoapply-setup.log'
-          $env:AUTOAPPLY_SETUP_ARGS = "-Auto -NoIntegrate -Lang en -Dir $dir"
-          Start-Process $exe -Wait
-          for ($i = 0; $i -lt 240 -and -not (Test-Path "$log.result"); $i++) { Start-Sleep 5 }
-          if (-not (Test-Path "$log.result")) { Get-Content $log -Tail 60; throw 'setup did not finish' }
-          $r = Get-Content "$log.result" -Raw
-          Write-Host $r
-          if ($r -notmatch '^\W*done\|') { Get-Content $log -Tail 60; throw 'setup failed' }
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', "/DIR=`"$dir`"", '/LANG=en', '/TASKS=""' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-ChildItem "$dir\data\logs" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName -Tail 60 }; throw "setup ended with $($p.ExitCode)" }
           if (-not (Test-Path "$dir\.venv\Scripts\pythonw.exe")) { throw 'no environment' }
-      - name: The installed copy starts and answers
+          if ((Get-Content "$dir\data\ui-lang.txt") -ne 'en') { throw 'the language chosen in setup was not kept' }
+          if ((Test-Path "$dir\.staged") -or (Test-Path "$dir\.previous")) { throw 'setup left its working folders behind' }
+          if (-not (Get-ChildItem "$dir\data\logs\setup-*.log")) { throw 'no log was kept with the data' }
+      - name: The installed copy starts and answers; setup refuses to run over it
         shell: pwsh
         run: |
+          $exe = (Get-ChildItem dist-release\AutoApply-Setup-*.exe).FullName
           $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
           $p = Start-Process "$dir\.venv\Scripts\python.exe" -ArgumentList '-m', 'autoapply.cli', 'serve', '--port', '8765' -WorkingDirectory $dir -PassThru -WindowStyle Hidden
           $ok = $false
           for ($i = 0; $i -lt 40; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/auth/state).StatusCode -eq 200) { $ok = $true; break } } catch { Start-Sleep 2 } }
           if (-not $ok) { throw 'the installed copy did not answer' }
           if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/).Content -notmatch 'id="app"') { throw 'no page' }
-          Stop-Process -Id $p.Id -Force
+          $again = Start-Process $exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', "/DIR=`"$dir`"", '/LANG=en', '/TASKS=""' -Wait -PassThru
+          if ($again.ExitCode -eq 0) { throw 'setup ran over a running copy' }
+          if (Test-Path "$dir\.staged") { throw 'setup copied files although the program was running' }
+          if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/auth/state).StatusCode -ne 200) { throw 'the running copy was stopped by setup' }
+          Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith("$dir\.venv", 'OrdinalIgnoreCase') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Start-Sleep 3
       - name: Upgrade keeps the data; uninstall keeps or deletes it as asked
         shell: pwsh
         run: |
+          $exe = (Get-ChildItem dist-release\AutoApply-Setup-*.exe).FullName
           $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
-          $stage = Join-Path $env:RUNNER_TEMP 'stage'
-          New-Item -ItemType Directory -Force $stage | Out-Null
-          Copy-Item (Get-ChildItem dist-release\AutoApply-*.zip | Where-Object Name -NotMatch 'Setup')[0].FullName "$stage\app.zip"
-          Copy-Item scripts\setup.ps1, frontend\public\favicon.png $stage
+          function Setup { $p = Start-Process $exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', "/DIR=`"$dir`"", '/LANG=en', '/TASKS=""' -Wait -PassThru; if ($p.ExitCode -ne 0) { throw "setup ended with $($p.ExitCode)" } }
+          # the uninstaller hands over to a copy of itself and returns: wait for what it is meant to leave
+          function Remove([string[]]$more, [scriptblock]$gone) {
+            Start-Process "$dir\unins000.exe" -ArgumentList (@('/VERYSILENT', '/SUPPRESSMSGBOXES') + $more) -Wait
+            for ($i = 0; $i -lt 60 -and -not (& $gone); $i++) { Start-Sleep 2 }
+            if (-not (& $gone)) { throw "uninstall $more did not finish: $((Get-ChildItem -Force $dir -ErrorAction SilentlyContinue).Name -join ' ')" }
+          }
           'marker' | Set-Content "$dir\data\marker.txt"
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode install -Silent -NoIntegrate -Dir $dir
+          'old' | Set-Content "$dir\backend\LEFT_FROM_AN_OLDER_VERSION.txt"
+          Setup
           if ((Get-Content "$dir\data\marker.txt") -ne 'marker') { throw 'data was touched by the upgrade' }
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode uninstall -Moved -Silent -NoIntegrate -Dir $dir
-          if (-not (Test-Path "$dir\data\marker.txt") -or (Test-Path "$dir\backend")) { throw 'uninstall (keep data) is wrong' }
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode install -Silent -NoIntegrate -Dir $dir
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$stage\setup.ps1" -Mode uninstall -Moved -Silent -NoIntegrate -DeleteData -Dir $dir
-          if (Test-Path $dir) { throw 'uninstall (delete data) left the folder' }
+          if (Test-Path "$dir\backend\LEFT_FROM_AN_OLDER_VERSION.txt") { throw 'the upgrade left a file of the older version' }
+          Remove @() { -not (Test-Path "$dir\backend") -and -not (Test-Path "$dir\.venv") -and -not (Test-Path "$dir\unins000.exe") }
+          if (-not (Test-Path "$dir\data\marker.txt")) { throw 'uninstall deleted the data without being asked' }
+          Setup
+          if ((Get-Content "$dir\data\marker.txt") -ne 'marker') { throw 'installing again did not find the data' }
+          Remove @('/DELETEDATA') { -not (Test-Path $dir) }
       - uses: actions/upload-artifact@v7
         with:
           name: windows

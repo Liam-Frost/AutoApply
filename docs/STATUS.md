@@ -63,7 +63,7 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 
 | Part | Status |
 |---|---|
-| Windows installer | Run end to end from the .exe into a scratch folder: install, upgrade over a running copy (data untouched), uninstall keeping data, reinstall, uninstall deleting everything; the installed copy started and answered. Not run: writing the real desktop shortcut and the Settings > Apps entry through the installer, uninstalling from Settings > Apps, the folder dialog |
+| Windows installer (Inno Setup) | Run end to end from the .exe into a scratch folder, as a test build with its own identity: install (dependencies and browser downloaded for real), refusing to run while the installed copy is running, upgrade (data untouched), cancel from the window in the middle of a download (the previous version's files were back), uninstall keeping data. CI repeats the silent paths on every release, and adds uninstall deleting everything. Not run: an upgrade over a copy installed by 1.0.3 or earlier, uninstalling from Settings > Apps, the wizard's first pages clicked by hand, the real desktop shortcut |
 | macOS disk image | Built, set up and started by CI on every release. Not used day to day; not signed or notarised |
 | Linux installer | Built, installed, upgraded, uninstalled and started by CI on every release, without a desktop. The zenity dialogs have not been run |
 | Portable zip | Used for real on Windows |

@@ -82,9 +82,7 @@ Download from the [latest release](https://github.com/Liam-Frost/AutoApply/relea
 | **Linux** | `AutoApply-<version>-linux.run` | `sh AutoApply-<version>-linux.run` |
 | Any, portable | `AutoApply-<version>.zip` | Unzip, then `start.bat` (Windows) or `./start.sh`. |
 
-<p align="center"><img src="docs/images/setup-en.png" alt="The setup window" width="560"></p>
-
-The installer needs no administrator rights and puts everything in your user folder. The first run downloads [uv](https://docs.astral.sh/uv/), Python, the dependencies and the program's own browser (about 600 MB, a few minutes). The same installer upgrades, repairs and removes the program; an upgrade never touches your data. Its language follows your system (Chinese or English) and can be switched in the window.
+The installer needs no administrator rights and puts everything in your user folder. It brings [uv](https://docs.astral.sh/uv/) with it and uses it to download Python, the dependencies and the program's own browser (about 600 MB, a few minutes; you can cancel, and running it again continues). Running a newer installer upgrades: your data is never touched, AutoApply has to be quit first (the installer says so and waits), and if the new version cannot be made ready the previous one is put back. Remove it from *Settings → Apps*; you are asked whether your data goes too. Its language follows your system (Chinese or English).
 
 > **The packages are not code-signed.** Windows shows *Windows protected your PC*: choose *More info → Run anyway*. On macOS, right-click the app the first time and choose *Open*. Every package is built by [the release workflow](.github/workflows/release.yml), installed and started on its own system before it is published, and listed with its SHA-256 in `SHA256SUMS.txt`.
 
@@ -193,7 +191,7 @@ Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
 | Workday | one form read and walked to its review page |
 | UBC portal | postings imported for real; signing in and scanning through the program not yet confirmed |
 | The login, the listening address and the path prefix | login run end to end on a scratch copy; access from another device or behind a real reverse proxy not run |
-| Windows installer (install, upgrade over a running copy, repair, uninstall) | run end to end |
+| Windows installer (install, upgrade, refusing to run over a running copy, cancel with the previous version put back, uninstall) | run end to end into a scratch folder, by CI on every release |
 | Failover between AI services | run once for real, when a subscription had actually run out |
 | macOS and Linux packages | built, installed and started by CI on every release; not used day to day by the author |
 | Other AI services than the Claude subscription | interface tested; application quality not compared |

@@ -83,9 +83,8 @@ if [ "$need" = 1 ]; then
     command -v uv >/dev/null 2>&1 || fail "$(t 'uv 没有装上（多数是网络问题）。' 'uv could not be installed (usually the network).')"
   fi
   (cd "$APP_HOME" && uv sync --inexact >> "$LOG" 2>&1) || fail "$(t '安装 Python 和依赖失败（多数是网络问题）。' 'Installing Python and the dependencies failed (usually the network).')"
-  if [ ! -d "$HOME/Library/Caches/ms-playwright" ]; then
-    (cd "$APP_HOME" && uv run playwright install chromium >> "$LOG" 2>&1) || fail "$(t '下载浏览器失败。' 'Downloading the browser failed.')"
-  fi
+  # every time: it returns at once when the right build is there, and a newer Playwright needs a newer build
+  (cd "$APP_HOME" && uv run playwright install chromium >> "$LOG" 2>&1) || fail "$(t '下载浏览器失败。' 'Downloading the browser failed.')"
   if [ ! -f "$APP_HOME/data/app.db" ]; then   # a first install: the program starts in this language
     mkdir -p "$APP_HOME/data"
     if [ "$ZH" = 1 ]; then echo zh > "$APP_HOME/data/ui-lang.txt"; else echo en > "$APP_HOME/data/ui-lang.txt"; fi
