@@ -231,10 +231,11 @@ jobs:
           test ! -e "$AUTOAPPLY_HOME/.staged" && test ! -e "$AUTOAPPLY_HOME/.previous"
           # a newer app over a copy that is running: it says so and changes nothing
           echo 0.0.0 > "$AUTOAPPLY_HOME/.installed-version"
-          "$AUTOAPPLY_HOME/.venv/bin/python" -c "import time; time.sleep(60)" &
-          sleep 1
+          (cd "$AUTOAPPLY_HOME" && exec .venv/bin/python -m autoapply.cli serve --port 8766 > serve-running.log 2>&1) &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8766/api/auth/state > /dev/null 2>&1 && break; sleep 2; done
+          ls "$AUTOAPPLY_HOME/data/run"
           rc=0; /Volumes/AutoApplyTest/AutoApply.app/Contents/MacOS/AutoApply --yes --setup-only || rc=$?
-          kill %1 || true
+          pkill -f "autoapply.cli serve --port 8766" || true
           test "$rc" = 7 || { echo "set-up over a running copy ended with $rc, not 7"; exit 1; }
           # and once it is quit, the newer version goes in and the data stays
           echo marker > "$AUTOAPPLY_HOME/data/marker.txt"

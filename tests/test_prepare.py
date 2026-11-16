@@ -156,3 +156,12 @@ def test_a_stop_asked_for_by_signal_still_restores_the_old_dependencies(place):
     assert job.go() == "cancelled"
     assert (tmp / "fake_uv.py.offline").exists()         # the restore ran although the stop was still in force
     assert (root / "backend/old.py").exists()
+
+
+def test_a_running_copy_leaves_a_mark_the_installers_can_read(app_env):
+    import os
+
+    from autoapply import config, runstate
+
+    path = runstate.mark("server")
+    assert path == config.DATA / "run" / f"server-{os.getpid()}.pid" and path.read_text() == str(os.getpid())
