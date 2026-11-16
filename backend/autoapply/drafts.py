@@ -680,6 +680,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
             raise Locked(why)
         new = []
         label = next((a.get("label", "") for a in d.answers if a["id"] == qid), "")
+        corrected = d.review_status == "approved" and str(d.schema.get("ats") or "")       # the approval cached the old value as theirs
         if d.review_status == "approved":
             # after the approval: kept where the applicant's other changes to this draft are listed
             before = next((a.get("value") for a in d.answers if a["id"] == qid), None)
@@ -702,6 +703,9 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         if walk_on or read_on:
             d.application.status = "recon"
         job_id, deadline = d.application.job_id, d.application.job.deadline
+        edited = next((dict(a) for a in new if a["id"] == qid), None)
+    if corrected and edited is not None and edited.get("type") != "file":
+        ans.correct(corrected, edited)
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
     if walk_on:

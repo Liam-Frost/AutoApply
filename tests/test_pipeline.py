@@ -251,6 +251,20 @@ def test_an_answer_can_be_changed_after_approval_until_the_application_has_gone_
     assert by["first_name"]["value"] == "Alexander" and by["first_name"]["basis"] == "edited by user"
     note = r.json()["comments"][-1]                     # what was changed after the approval is kept with the draft
     assert note["comment"].startswith("批准之后修改了") and note["result"] == "Alexandre → Alexander"
+    # the approval had cached the old value as the applicant's own for the next form of this system: the correction replaces it
+    from autoapply import answers as ans
+    from autoapply.ats.base import Question
+
+    with db.session() as s:
+        d = s.get(Draft, did)
+        ats, first = d.schema["ats"], next(a for a in d.answers if a["id"] == "first_name")
+    q = Question(id="first_name", label=first["label"], type=first["type"], options=first.get("options") or [])
+    ans.cache_put(ats, q, "Alexandre", "approved", confirmed=True)       # (as approve() left it)
+    assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": "Alexander"}).status_code == 200
+    assert ans._cache_get(ats, q).answer == "Alexander" and ans._cache_get(ats, q).confirmed_by_user == 1
+    assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": ""}).status_code == 200
+    assert ans._cache_get(ats, q) is None                              # cleared: nothing is left to reuse
+    assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": "Alexander"}).status_code == 200
     # the next run fills in what the draft says now
     assert c.post(f"/api/drafts/{did}/execute").status_code == 200 and tasks.drain() == 1
     assert _status(pipeline["job_id"])[0] == "submitted" and pipeline["driver"].submits == 1      # read back against the draft before it was sent
