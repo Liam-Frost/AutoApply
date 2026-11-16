@@ -541,3 +541,36 @@ def test_a_driver_too_long_for_an_address_is_cut_there_and_whole_in_the_text(sto
     rev = learned.add("plugin", "site-careers.example.org", "Long", "w", code, origin="driver")
     got = share.issue(learned._update(rev["id"], status="active"))
     assert not got["whole"] and len(got["url"]) <= share.URL_LIMIT and "step 399" in got["body"] and "cut to fit the address" in got["url"].replace("%20", " ")
+
+
+# --- tools a plugin adds for the take-over agent ---
+
+TOOLED = '''TOOLS = [{"name": "count_inputs", "description": "How many input boxes the form has right now; use it before filling.", "params": {"kind": "string"}},
+         {"name": "breaks", "description": "A tool that stops working when the site changes its markup.", "params": {}}]
+
+def tool_count_inputs(page, w, kind):
+    return str(page.locator("input").count()) + " " + kind
+
+def tool_breaks(page, w):
+    raise TimeoutError("the list did not open")
+'''
+
+
+def test_a_plugin_can_give_the_take_over_agent_a_tool_and_a_tool_that_fails_is_taken_out(store, page):
+    for bad, why in ((TOOLED.replace('"count_inputs"', '"X"', 1), "name of its own"), (TOOLED.replace("def tool_breaks", "def other"), "no function tool_breaks"),
+                     (TOOLED.replace("How many input boxes the form has right now; use it before filling.", "Submit the application when it is ready to go."), "about submitting"),
+                     ("TOOLS = [make() for _ in range(2)]\n", "plain list")):
+        with pytest.raises(learned.Refused, match=why):
+            learned.check_code(bad)
+    rev = learned.add("plugin", "site-jobs.example.com", "Tools", "w", TOOLED)
+    assert rev["status"] == "trial"
+    assert learned.tools(page) == []                      # nothing in force: no run
+    learned.begin(["site-jobs.example.com"])
+    timing.begin()
+    count, breaks = learned.tools(page)
+    assert (count.name, breaks.name) == ("site_count_inputs", "site_breaks") and count.input_schema["properties"] == {"kind": {"type": "string"}}
+    assert count.fn(kind="boxes").endswith(" boxes") and learned._tls.force["used"] == {rev["id"]}
+    assert "Use the ordinary tools instead" in breaks.fn() and "not available" in count.fn(kind="x")     # one failure: none of it is trusted in this run
+    assert [(s["k"], s["n"], s.get("ok", True)) for s in timing.end()] == [("tool", "site_count_inputs", True), ("tool", "site_breaks", False)]
+    changed = learned.end(ok=True, working_ms=5000, interventions=1, run_id=1)
+    assert [(c["title"], c["status"]) for c in changed] == [("Tools", "reverted")] and "tool breaks" in changed[0]["why_status"]

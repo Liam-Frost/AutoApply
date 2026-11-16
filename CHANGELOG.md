@@ -25,6 +25,9 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   every take-over, every field the driver could not fill, the notes kept about the site, the steps of its form - and
   writes what the generic driver needs to fill that site without help. It goes through the same check and trial as
   everything else learned (a trial that fails takes it out again), and is asked for once per site.
+- **What was learned can include a tool for the AI.** Where the AI had to work something out step by step on a site
+  and will need it again, the code it writes may add a tool of its own for the take-over on that site. Such a tool is
+  checked like the rest, cannot be about submitting or signing in, and one failure takes it out.
 - **A driver the program wrote can be given back to the project.** When a site's driver has held up in its trial, a
   card asks whether to report it: this once, always, not this time, or never (the preference is also under *Analysis
   -> Time & learning*). The program sends nothing itself: saying yes opens GitHub's new-issue page in your browser

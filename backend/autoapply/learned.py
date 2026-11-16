@@ -176,8 +176,43 @@ def check_code(code: str) -> None:
         elif isinstance(node, ast.Attribute) and node.attr.startswith("__") and node.attr.endswith("__"):
             raise Refused(f"the code reaches for {node.attr}, which a plugin may not")
     names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
-    if not names & {"set_value", "get_value"}:
-        raise Refused("a plugin defines set_value(page, q, value, w) and/or get_value(page, q, w)")
+    declares = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "TOOLS" for t in n.targets) for n in tree.body)
+    if not names & {"set_value", "get_value"} and not declares:
+        raise Refused("a plugin defines set_value(page, q, value, w) and/or get_value(page, q, w), and/or TOOLS for the take-over agent")
+    if declares:
+        try:
+            listed = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "TOOLS" for t in n.targets))
+        except (ValueError, SyntaxError) as e:
+            raise Refused("TOOLS must be written out as a plain list of dictionaries") from e
+        check_tools(listed, names)
+
+
+TOOL_NAME = re.compile(r"[a-z][a-z0-9_]{2,29}")
+TOOL_TYPES = ("string", "number", "boolean")
+
+
+def check_tools(listed: Any, functions: set[str]) -> None:
+    """TOOLS = [{"name": "open_code_list", "description": "...", "params": {"entry": "string"}}], each with a function
+    tool_<name>(page, w, **params) that returns what the agent is told."""
+    if not isinstance(listed, list) or not 1 <= len(listed) <= 4:
+        raise Refused("TOOLS is a list of one to four tools")
+    seen = set()
+    for t in listed:
+        if not isinstance(t, dict) or not isinstance(t.get("name"), str) or not TOOL_NAME.fullmatch(t["name"]) or t["name"] in seen:
+            raise Refused("each tool has a name of its own: lower-case letters, digits and _, 3 to 30 characters")
+        seen.add(t["name"])
+        if not isinstance(t.get("description"), str) or len(t["description"].strip()) < 20:
+            raise Refused(f"the tool {t['name']} needs a description that tells the agent when to use it")
+        params = t.get("params") or {}
+        if not isinstance(params, dict) or len(params) > 4 or any(not isinstance(k, str) or v not in TOOL_TYPES for k, v in params.items()):
+            raise Refused(f"the parameters of {t['name']} are a name and one of {', '.join(TOOL_TYPES)} each, four at most")
+        if f"tool_{t['name']}" not in functions:
+            raise Refused(f"the tool {t['name']} has no function tool_{t['name']}(page, w, ...)")
+        if SUBMITS.search(t["name"]) or SUBMITS.search(t["description"]):
+            raise Refused(f"the tool {t['name']} is about submitting: no tool of a plugin submits, signs in or registers")
+
+
+SUBMITS = re.compile(r"submit|send.{0,12}application|sign.?in|log.?in|register|password", re.I)
 
 
 def _load(rev: dict[str, Any]) -> Any:
@@ -392,6 +427,44 @@ def set_value(page: Any, q: Any, value: Any, loc: Any, tag: str) -> bool:
         except Exception as e:  # noqa: BLE001
             _strike(rev, f"{rule['do']} on {q.label!r}: {type(e).__name__}: {e}")
     return False
+
+
+def tools(page: Any) -> list[Any]:
+    """Tools the plugins in force add for the agent that takes over on this site (repair.fix_page), next to its own.
+    Each is named site_<name>. One that raises tells the agent so, gives its revision a strike and is not offered again."""
+    from . import llm, timing
+    from .ats import widgets as w
+
+    f = getattr(_tls, "force", None)
+    out: list[Any] = []
+    for rev in (f["revs"] if f else []):
+        if rev["kind"] != "plugin" or rev["id"] in f["strikes"]:
+            continue
+        try:
+            module = _load(rev)
+        except Exception as e:  # noqa: BLE001
+            _strike(rev, f"could not be loaded: {type(e).__name__}: {e}")
+            continue
+        for t in module.get("TOOLS") or []:
+            fn = module.get(f"tool_{t['name']}")
+            if fn is None or any(x.name == f"site_{t['name']}" for x in out):
+                continue
+
+            def call(_rev: dict[str, Any] = rev, _fn: Any = fn, _name: str = t["name"], **kw: Any) -> str:
+                if _rev["id"] in f["strikes"]:
+                    return "This tool failed earlier in this run and is not available: use the ordinary tools."
+                try:
+                    with timing.span("tool", f"site_{_name}", rev=_rev["id"]):
+                        said = _fn(page, w, **kw)
+                    f["used"].add(_rev["id"])
+                    return str(said if said is not None else "done")[:2000]
+                except Exception as e:  # noqa: BLE001 - the agent goes on with its own tools
+                    _strike(_rev, f"tool {_name}: {type(e).__name__}: {e}")
+                    return f"This tool failed ({type(e).__name__}: {str(e)[:200]}). Use the ordinary tools instead."
+
+            out.append(llm.Tool(f"site_{t['name']}", f"(Learned for this site) {t['description'].strip()[:400]}",
+                                llm.obj({k: {"type": v} for k, v in (t.get("params") or {}).items()}), call))
+    return out
 
 
 def read_back_differs(ids: list[str]) -> None:

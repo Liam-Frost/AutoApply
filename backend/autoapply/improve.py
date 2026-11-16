@@ -177,7 +177,14 @@ PLUGIN - Python, only when no recipe can say it. One module with either or both 
   def get_value(page, q, w)                   # what the field holds, or NotImplemented
   page is a Playwright page; q has .id .label .type .options .locator; w is autoapply.ats.widgets (set_text,
   select_native, react_select, search_pick, workday_listbox, pick_option ...). Return False for every field the
-  module is not written for - check q.label first. It may import only: re, time, typing, autoapply.ats.widgets,
+  module is not written for - check q.label first.
+  A plugin may also give the take-over agent a tool for this site - for something it had to work out step by step and
+  will need again (opening this site's kind of list and reading its entries, moving a date picker to a month):
+    TOOLS = [{"name": "list_entries", "description": "<when to use it and what it returns>", "params": {"label": "string"}}]
+    def tool_list_entries(page, w, label) -> str     # what the agent is told
+  One to four tools, written out as a plain list; parameter types: string, number, boolean. No tool submits, signs in
+  or registers.
+  It may import only: re, time, typing, autoapply.ats.widgets,
   autoapply.ats.base. No files, no network, no other modules. It never presses a button that submits, never signs
   in, never invents a value: it puts the given value into the field, or reads what the field holds.
 

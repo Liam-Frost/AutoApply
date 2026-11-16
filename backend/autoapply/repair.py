@@ -365,6 +365,12 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                                                                                                   "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
     tools = [t for t in generic.l0_tools(page, run_dir, {}, files=files, finish_tool=done_tool) if t.name != "goto"]
+    try:
+        from . import learned
+
+        tools += learned.tools(page)       # what plugins learned for this site add for the take-over (named site_...)
+    except Exception:  # noqa: BLE001 - the take-over works with its own tools
+        log.exception("could not add the learned tools")
     account = False
     if site is not None:
         try:      # a form that creates the applicant's account along with the application has password boxes on it
