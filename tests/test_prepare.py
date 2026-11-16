@@ -165,3 +165,14 @@ def test_a_running_copy_leaves_a_mark_the_installers_can_read(app_env):
 
     path = runstate.mark("server")
     assert path == config.DATA / "run" / f"server-{os.getpid()}.pid" and path.read_text() == str(os.getpid())
+
+
+def test_cancelling_while_the_browser_downloads_returns_to_the_old_version_too(place):
+    """The stop during the dependencies went back; the stop during the browser download left the new files in place and
+    the old ones in .previous, under a message saying the previous version had been restored."""
+    root, job, tmp = place
+    job.tool = fake_uv(tmp, "time.sleep(60) if 'playwright' in args else sys.exit(0)")
+    threading.Timer(2.0, lambda: (tmp / "cancel").write_text("x")).start()
+    assert job.go() == "cancelled"
+    assert (root / "backend/old.py").exists() and not (root / "backend/new.py").exists() and (root / "pyproject.toml").read_text() == "old"
+    assert not (root / ".previous").exists()
