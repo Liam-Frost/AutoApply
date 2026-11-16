@@ -49,7 +49,7 @@ def test_a_confirmation_for_an_application_the_program_took_for_failed_settles_e
         s.add(Task(kind="scout", ref=f"draft:{did2}", status="queued", payload={"draft_id": did2}))
     msg = mailbox.Message(id="m1", sender="noreply@x.test", subject="Thank you for Applying to Acme!", body="Acme received", date=datetime(2026, 11, 15, 7, 14))
     monkeypatch.setattr(llm, "json", lambda prompt, schema, **kw: {"category": "confirmation", "company": "Acme", "job_title": "Engineer Intern", "received": True, "summary": "received"})
-    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False: [msg])
+    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False, **kw: [msg])
     monkeypatch.setattr(notify, "send", lambda *a, **k: True)
 
     assert mail.track()["status_updates"] == 1
@@ -364,7 +364,7 @@ def test_a_confirmation_link_from_an_e_mail_is_opened_only_when_it_is_the_sites_
     now = datetime.now(timezone.utc)
     box = {"msgs": [mailbox.Message(id="1", sender="Meta Careers <no-reply@metacareers.com>", subject="Confirm your Career Profile email address",
                                     body="Hi, confirm here: https://click.mailservice.net/ls/click?upn=1 thanks", date=now)]}
-    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False: box["msgs"])
+    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False, **kw: box["msgs"])
     monkeypatch.setattr(mail.time, "sleep", lambda s: None)
     got = mail.wait_for_verification(sender_hint="www.metacareers.com", timeout=1, since=now, site_host="www.metacareers.com")
     assert got.startswith("refused: leads to click.mailservice.net")

@@ -586,7 +586,7 @@ def test_mail_about_a_started_application_does_not_confirm_it(app_env, monkeypat
                "Acme0 really received": {"category": "confirmation", "company": "Acme0", "job_title": "Engineer Intern", "received": True, "summary": "received"},
                "Acme1 received": {"category": "confirmation", "company": "Acme1", "job_title": "Engineer Intern", "received": True, "summary": "received"}}
     monkeypatch.setattr(llm, "json", lambda prompt, schema, **kw: next(v for k, v in replies.items() if k in prompt))
-    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False: msgs)
+    monkeypatch.setattr(mailbox, "fetch", lambda since, limit=50, job_related=False, **kw: msgs)
     sent = []
     monkeypatch.setattr(notify, "send", lambda category, card, **kw: sent.append(kw.get("ref")) or True)
     out = mail.track()
