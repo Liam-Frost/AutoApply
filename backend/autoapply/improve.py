@@ -11,6 +11,11 @@ After every run that filled a form:
   3. learned.add() takes each through the gate; it is then in force as a trial, or waits for the applicant when the
                 setting learned.mode is "ask".
 
+A site that has no driver of its own (its form was explored by the agent, and the generic driver fills it) gets one
+written the third time it is filled: by then the runs show what is the site and what was chance. The agent is given
+all three runs, the notes kept about the site and the steps of its form, and writes what the generic driver needs to
+fill that site without it - the same kinds of revision, through the same gate and trial. Once per site.
+
 What a finding is, so that the agent is not sent after noise:
   - a kind of step that took much longer than it usually does on this site (several times the median, and seconds
     more in absolute terms - a page that loads in 3 s instead of 1 s is not a finding);
@@ -37,6 +42,7 @@ ENOUGH = 3                  # ... and how many of them there must be before "usu
 TIMES = 3.0                 # a step is slow when it took this many times its usual ...
 AT_LEAST_MS = 8000          # ... and at least this much longer
 REPEATED = 3                # the same step this often in one run is a finding whatever it took
+THIRD = 3                   # a site without a driver of its own, filled this often: a driver is written for it
 
 
 def _median(xs: list[int]) -> int:
@@ -101,10 +107,33 @@ def after_run(run_id: int, changed: list[dict[str, Any]]) -> None:
             notify.send("task_result", f"程序学到的做法“{rev.get('title', '')}”{word}：{rev.get('why_status', '')}", ref=f"learned:{rev.get('id')}", path="/analytics?tab=timing")
     if not db.get_setting("learned.enabled"):
         return
-    if review(run_id)["findings"]:
+    driver = driver_due(run_id)
+    if driver or review(run_id)["findings"]:
         from . import tasks
 
-        tasks.enqueue("improve", ref=f"run:{run_id}", payload={"run_id": run_id}, priority=300)
+        tasks.enqueue("improve", ref=f"run:{run_id}", payload={"run_id": run_id, **({"driver": True} if driver else {})}, priority=300)
+
+
+def _filled(site: str, upto: int) -> list[Run]:
+    """The runs that filled a form on this site, newest first (inside a session)."""
+    with db.session() as s:
+        rows = s.query(Run).filter(Run.kind == "execute", Run.site == site, Run.id <= upto).order_by(Run.id.desc()).limit(HISTORY).all()
+        for r in rows:
+            s.expunge(r)
+    return [r for r in rows if r.spans]
+
+
+def driver_due(run_id: int) -> bool:
+    """This run was the third (or a later one, where the third was missed) on a site that has no driver of its own,
+    and no driver has been asked for there yet."""
+    with db.session() as s:
+        r = s.get(Run, run_id)
+        if r is None or r.kind != "execute":
+            return False
+        site = r.site or ""
+    if not site.startswith("site-") or site in (db.get_setting("learned.drivers_written") or []):
+        return False
+    return len(_filled(site, run_id)) >= THIRD
 
 
 PROPOSAL = llm.obj({
@@ -172,14 +201,28 @@ def _reports(run_dir: str) -> list[dict[str, Any]]:
     return out
 
 
-def propose(run_id: int) -> dict[str, Any]:
-    """Have the agent look at a run and write what the program should do differently. Returns what became of it."""
+DRIVER = """
+
+THIS TIME THE TASK IS LARGER: this site has no driver of its own - its form was explored, and a generic driver fills
+it, with a take-over agent stepping in where that fails. It has now been filled three times. Write the site's driver:
+the revisions (at most three, scope "site") that together let the generic driver fill this site without a take-over.
+Go through every take-over and every field the driver could not fill in all the runs given, and through the notes
+kept about the site: whatever was needed more than once, or is plainly how this site's controls work, belongs in it.
+A recipe for everything a recipe can say; a plugin only for the rest. If the runs went through without a take-over
+and without a failed field, the generic driver is this site's driver already: propose nothing and say so."""
+
+
+def propose(run_id: int, *, driver: bool = False) -> dict[str, Any]:
+    """Have the agent look at a run and write what the program should do differently. Returns what became of it.
+    ``driver``: the run was the third on a site without a driver of its own - the agent writes one from all of them."""
     found = review(run_id)
-    if not found["findings"]:
-        return {"skipped": "nothing stands out in this run"}
     with db.session() as s:
         r = s.get(Run, run_id)
         run_dir, site, ats = r.dir, r.site or "", r.ats
+    if driver and (not site.startswith("site-") or site in (db.get_setting("learned.drivers_written") or [])):
+        driver = False
+    if not found["findings"] and not driver:
+        return {"skipped": "nothing stands out in this run"}
     have = [{"id": v["id"], "kind": v["kind"], "target": v["target"], "status": v["status"], "title": v["title"], "body": learned.content(v)[:1500]}
             for v in learned.revisions() if v["target"] in (site, ats) and v["status"] in ("trial", "active", "proposed", "reverted")]
     prompt = (f"<site>{site or ats}</site>\n<system>{ats}</system>\n"
@@ -187,15 +230,30 @@ def propose(run_id: int) -> dict[str, Any]:
               f"<time_by_kind_ms>{json.dumps(found['totals'])}</time_by_kind_ms>\n<usual_for_this_site>{json.dumps(found['usual'])}</usual_for_this_site>\n"
               f"<what_the_take_over_agent_wrote>\n{json.dumps(_reports(run_dir), ensure_ascii=False, indent=1)}\n</what_the_take_over_agent_wrote>\n"
               f"<already_learned_for_this_site>\n{json.dumps(have, ensure_ascii=False, indent=1)}\n</already_learned_for_this_site>")
-    out = llm.json(prompt, PROPOSAL, system=RULES, max_tokens=6000)
+    if driver:
+        from . import knowledge, siteplan
+
+        earlier = []
+        for old in _filled(site, run_id)[:THIRD]:
+            sp = list(old.spans or [])
+            earlier.append({"run": old.id, "finished": bool(old.ok), "time_by_kind_ms": timing.totals(sp),
+                            "fields_not_filled_by_the_driver": sorted({str(x.get("label")) for x in sp if x.get("k") == "driver" and x.get("n") == "field" and str(x.get("ok")) == "False"})[:12],
+                            "take_overs": _reports(old.dir or "")})
+        steps = {title: [str(q.get("label") or "")[:80] for q in (qs or [])][:25] for title, qs in list((siteplan.load(site).get("steps") or {}).items())[:12]}
+        prompt += (f"\n<the_runs_on_this_site>\n{json.dumps(earlier, ensure_ascii=False, indent=1)}\n</the_runs_on_this_site>\n"
+                   f"<notes_kept_about_this_site>\n{(knowledge.playbook(site) or '')[:4000]}\n</notes_kept_about_this_site>\n"
+                   f"<steps_of_its_form>\n{json.dumps(steps, ensure_ascii=False)[:4000]}\n</steps_of_its_form>")
+    out = llm.json(prompt, PROPOSAL, system=RULES + (DRIVER if driver else ""), max_tokens=9000 if driver else 6000)
+    if driver:      # asked once per site, whatever came of it: what stands out in later runs is still looked at
+        db.set_setting("learned.drivers_written", sorted({*(db.get_setting("learned.drivers_written") or []), site}))
     base = usual(site, ats)
     made = []
-    for p in (out.get("revisions") or [])[:2]:
+    for p in (out.get("revisions") or [])[:3 if driver else 2]:
         body = (p.get("recipe") if p.get("kind") == "recipe" else p.get("code")) or ""
         if not body.strip():
             continue
-        target = site if p.get("scope") == "site" and site else ats
+        target = site if (driver or p.get("scope") == "site") and site else ats
         rev = learned.add(p["kind"], target, p.get("title") or "", p.get("why") or "", body, from_run=run_id, expected=p.get("expected") or "",
-                          baseline={"runs": base["runs"], "median_ms": base["median_ms"]})
+                          baseline={"runs": base["runs"], "median_ms": base["median_ms"]}, origin="driver" if driver else "")
         made.append({"id": rev["id"], "status": rev["status"], "title": rev["title"], "why_status": rev.get("why_status", "")})
-    return {"findings": len(found["findings"]), "revisions": made, "nothing_because": (out.get("nothing_because") or "")[:300]}
+    return {"findings": len(found["findings"]), "revisions": made, "nothing_because": (out.get("nothing_because") or "")[:300], **({"driver_for": site} if driver else {})}

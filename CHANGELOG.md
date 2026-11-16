@@ -20,6 +20,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   - By default this happens by itself; *Analysis -> Time & learning* has the switch to be asked first, and lists
     each thing learned with why, its text, how its trials went, and buttons to take it out or try it again.
   - The read-back against the approved draft and the rules about submitting are not something a revision can touch.
+- **A site without a driver of its own gets one written the third time it is filled.** Until then the generic driver
+  fills it and the AI steps in where that fails. After the third run the AI is given all three - every take-over, every
+  field the driver could not fill, the notes kept about the site, the steps of its form - and writes what the generic
+  driver needs to fill that site without help. It goes through the same check and trial as everything else learned,
+  and is asked for once per site.
 - **Where a run's time goes** is recorded for every run: the program working the form (per field), waiting for the
   AI, tools the AI called, waiting for the site, and - shown but never counted - waiting for you. *Analysis -> Time &
   learning* shows it per application system over time, per run, and step by step for one run.

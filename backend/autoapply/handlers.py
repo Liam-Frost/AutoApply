@@ -118,7 +118,7 @@ def _improve(t: Task) -> dict[str, Any]:
     """Look at a run that stood out and have the agent write what the program should do differently (improve.py)."""
     from . import improve
 
-    return improve.propose(int(t.payload["run_id"]))
+    return improve.propose(int(t.payload["run_id"]), driver=bool(t.payload.get("driver")))
 
 
 @handler("mail")

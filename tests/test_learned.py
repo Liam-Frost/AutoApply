@@ -254,6 +254,7 @@ def test_a_run_that_stood_out_is_looked_at_and_what_the_agent_writes_goes_throug
         s.add(r)
         s.flush()
         rid = r.id
+    db.set_setting("learned.drivers_written", ["site-jobs.example.com"])      # (its driver has been asked for: see the next test)
     quiet = run(usual_run())
     improve.after_run(quiet, [])
     improve.after_run(rid, [])
@@ -281,6 +282,50 @@ def test_a_run_that_stood_out_is_looked_at_and_what_the_agent_writes_goes_throug
     with db.session() as s:
         assert s.query(Task).count() == 0                # switched off: nothing is looked at
     assert tasks is not None
+
+
+def test_the_third_run_on_a_site_without_a_driver_has_one_written_from_all_three(store, tmp_path):
+    """The design: the agent does a site it has no driver for by hand, and the third time it writes the driver."""
+    from autoapply import knowledge, llm
+    from autoapply.models import Task
+
+    site = "site-careers.example.org"
+    knowledge.add_site_note(site, "The phone code list shows only +1 once chosen.")
+    ids = []
+    for n in range(3):
+        d = tmp_path / f"r{n}"
+        d.mkdir()
+        (d / "repair_page_1.json").write_text(json.dumps({"problem": {"message": "values differ", "mismatches": [{"label": "Code"}]},
+                                                         "report": {"cause": f"take-over {n}: the list shows only +1", "suggestion": "leave it"}, "steps": []}), encoding="utf-8")
+        with db.session() as s:
+            r = Run(kind="execute", ref=f"application:{n}", ats="generic", ok=1, site=site, dir=str(d), steps=[{"op": "repair", "cause": "x"}],
+                    spans=[*usual_run(), {"k": "driver", "n": "field", "t": 0, "ms": 100, "ok": False, "label": "Code"}])
+            s.add(r)
+            s.flush()
+            ids.append(r.id)
+        assert improve.driver_due(ids[-1]) is (n == 2)
+    assert not improve.driver_due(run(usual_run(), site="workday", ats="workday"))       # a system with a driver of its own
+    with db.session() as s:
+        s.query(Task).delete()
+    improve.after_run(ids[-1], [])
+    with db.session() as s:
+        assert [(t.kind, t.payload) for t in s.query(Task).filter_by(status="queued")] == [("improve", {"run_id": ids[-1], "driver": True})]
+    seen = {}
+
+    def answer(prompt, schema, *, system, **kw):
+        seen.update(prompt=prompt, system=system)
+        return {"revisions": [{"kind": "recipe", "scope": "system", "title": "区号已显示就不再选", "why": "三次运行都因为区号接手", "expected": "不再接手", "recipe": RECIPE, "code": ""}], "nothing_because": ""}
+
+    store.setattr(llm, "json", answer)
+    out = improve.propose(ids[-1], driver=True)
+    assert "Write the site's driver" in seen["system"] and "shows only +1 once chosen" in seen["prompt"] and all(f"take-over {n}" in seen["prompt"] for n in range(3))
+    assert out["driver_for"] == site and [r["status"] for r in out["revisions"]] == ["trial"]
+    kept = learned.revisions()[-1]
+    assert (kept["target"], kept["origin"]) == (site, "driver")           # a site's driver is the site's, whatever scope was said
+    assert db.get_setting("learned.drivers_written") == [site]
+    assert not improve.driver_due(run(usual_run(), site=site))            # once per site
+    store.setattr(llm, "json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked a second time")))
+    assert improve.propose(run(usual_run(), site=site), driver=True) == {"skipped": "nothing stands out in this run"}
 
 
 def test_the_analysis_page_gets_the_time_by_system_and_what_was_learned(store):

@@ -214,7 +214,8 @@ def gate(rev: dict[str, Any]) -> dict[str, Any]:
 # --- adding, deciding -----------------------------------------------------------------------------------------
 
 
-def add(kind: str, target: str, title: str, why: str, body: str, *, from_run: int | None = None, expected: str = "", baseline: dict[str, Any] | None = None) -> dict[str, Any]:
+def add(kind: str, target: str, title: str, why: str, body: str, *, from_run: int | None = None, expected: str = "", baseline: dict[str, Any] | None = None,
+        origin: str = "") -> dict[str, Any]:
     """Keep a new revision and take it through the gate. In force at once (as a trial) unless the applicant decides
     (setting learned.mode = "ask"), in which case it waits as proposed."""
     from . import db
@@ -222,7 +223,8 @@ def add(kind: str, target: str, title: str, why: str, body: str, *, from_run: in
     if kind not in ("recipe", "plugin"):
         raise Refused(f"unknown kind {kind}")
     rev = {"id": uuid.uuid4().hex[:10], "kind": kind, "target": target, "title": title.strip()[:120], "why": why.strip()[:1500], "expected": expected.strip()[:400],
-           "from_run": from_run, "created": _now(), "status": "parked", "version": version(), "trials": [], "strikes": 0, "baseline": baseline or {}, "history": []}
+           "from_run": from_run, "created": _now(), "status": "parked", "version": version(), "trials": [], "strikes": 0, "baseline": baseline or {}, "history": [],
+           "origin": origin}      # "driver": written as (part of) the driver of a site that had none, after its third run
     folder = root() / rev["id"]
     folder.mkdir(parents=True, exist_ok=True)
     (folder / ("plugin.py" if kind == "plugin" else "recipe.json")).write_text(body, encoding="utf-8")

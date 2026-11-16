@@ -184,7 +184,7 @@ const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median
                 <td colspan="7" style="background: var(--surface-2)">
                   <div class="small"><b>为什么：</b>{{ rev.why }}</div>
                   <div v-if="rev.expected" class="small" style="margin-top: 4px"><b>预期：</b>{{ rev.expected }}</div>
-                  <div class="small muted" style="margin-top: 4px">{{ rev.why_status }}<template v-if="rev.from_run"> · 来自第 {{ rev.from_run }} 次运行</template> · 在 {{ rev.version || '?' }} 版上通过检查</div>
+                  <div class="small muted" style="margin-top: 4px">{{ rev.why_status }}<template v-if="rev.from_run"> · 来自第 {{ rev.from_run }} 次运行</template><template v-if="rev.origin === 'driver'"> · 第三次投递后为这个网站写的驱动</template> · 在 {{ rev.version || '?' }} 版上通过检查</div>
                   <pre class="code" data-notr style="margin-top: 8px; max-height: 260px; overflow: auto">{{ rev.content }}</pre>
                   <div v-if="rev.history && rev.history.length" class="small muted" style="margin-top: 6px">
                     <span v-for="(h, i) in rev.history" :key="i">{{ i ? ' → ' : '' }}{{ (STATUS[h.status] || [h.status])[0] }}（{{ (h.at || '').slice(5, 16).replace('T', ' ') }}）</span>

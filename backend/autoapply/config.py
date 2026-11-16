@@ -84,6 +84,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # that follow, taken out again when it fails. "ask": it waits for the applicant first.
     "learned.enabled": True,
     "learned.mode": "auto",
+    "learned.drivers_written": [],  # sites without a driver of their own for which the agent has been asked to write one (once per site)
     "auto_approve.per_ats": {},  # {"greenhouse": true}
     "auto_approve.min_score": 8.0,
     "auto_approve.min_driver_successes": 3,
