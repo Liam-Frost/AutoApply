@@ -68,6 +68,38 @@ def key_for(tenant_key: str) -> str:
     return str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
 
 
+def provider_at(*places: str) -> str:
+    """The sign-in provider one of these addresses (or a text quoting addresses) is the sign-in page of, or ""."""
+    hosts = set()
+    for p in places:      # by host - of an address, or a host name quoted in a note - never by a name somewhere in the text
+        for u in re.findall(r"https?://[^\s\"'<>)]+", p or ""):
+            hosts.add((urlparse(u).hostname or "").lower())
+        hosts.update(re.findall(r"\b[a-z0-9.-]+\.[a-z]{2,}\b", (p or "").lower()))
+    for key, spec in browser.identities().items():
+        at = (urlparse(spec["url"]).hostname or "").lower()
+        if at and at in hosts:
+            return key
+    return ""
+
+
+def ask_to_sign_in(ref: JobRef, title: str, reason: str, *, url: str = "", can_register: bool = False, **payload: Any) -> int:
+    """The one card that asks the applicant to sign in, wherever the need was met (reading a form, filling it).
+
+    It names whose sign-in is missing. When the site's sign-in is a provider's own (Google's careers site and Google),
+    or the run stopped on a provider's sign-in page, what is missing is the provider's session: the card is the
+    provider's, signing in there is the whole of it, and "use my Google account" is not offered for Google itself.
+    Otherwise it is the site's: with the choices of signing in, a provider the site offers, or registering."""
+    key = key_for(ref.tenant_key)
+    provider = key[4:] if key.startswith("idp:") else provider_at(url, reason)
+    spec = browser.identities().get(provider) if provider else None
+    if spec:
+        return notify.add_todo("takeover", spec["name"], body=reason, ref=f"account:idp:{provider}",
+                               payload={**payload, "tenant_key": f"idp:{provider}", "ats": "idp", "url": spec["url"], "job_url": ref.url, "provider": spec["name"],
+                                        "for": title, "can_register": False})
+    return notify.add_todo("takeover", title, body=reason, ref=f"account:{key}",
+                           payload={**payload, "tenant_key": key, "ats": ref.ats, "url": url or ref.url, "job_url": ref.url, "can_register": can_register})
+
+
 def adopt(tenant_key: str, host: str) -> str | None:
     """A sign-in page on ``host`` was reached while working for ``tenant_key``, which has no sign-in of its own. If a
     sign-in for exactly that host is saved under another key (the same employer's postings were found under another
@@ -174,6 +206,16 @@ def sign_in_plan(ref: JobRef, offered: list[str] | None = None, also: str = "") 
     Rule 2 comes before registering because it leaves no new password behind and needs no e-mail verification.
     """
     key = ref.tenant_key
+    owner = key_for(key)
+    if owner.startswith("idp:") or (also and key_for(also).startswith("idp:")):
+        # The site's sign-in IS a provider's (Google's careers site signs in on Google). There is nothing to choose,
+        # no account to make and no button to press: with the provider's saved session the page is signed in, and
+        # without it only the applicant can sign in - at the provider, once, for every site that uses it.
+        name = (browser.identities().get(owner[4:] if owner.startswith("idp:") else key_for(also)[4:]) or {}).get("name", "the provider")
+        return {"login_email": login_email(), "has_password": False, "may_register": False, "why_not_register": f"this site signs in with {name} itself",
+                "offered": [], "signed_in_providers": [], "do": "ask_user",
+                "why": f"this site's sign-in is {name}'s own, and the saved {name} sign-in is not accepted here any more: finish with blocked=\"login\" and say so. "
+                       "Do not register, do not choose another account, do not type anything on the provider's page."}
     offered = [p for p in (offered or []) if p in browser.identities()]
     if offered:
         seen = dict(db.get_setting("sso.offered") or {})

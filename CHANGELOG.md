@@ -91,6 +91,16 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A sign-in stays in the browser it was made in.** Which browser does a site's work used to be decided by the kind
+  of work, so a site you had signed in to in the ordinary browser was read or filled in the automated one, with the
+  cookies carried over - where the site showed you as signed out and asked for a sign-in you already had (Google's
+  careers site; the university portal before). Now the browser is decided per site, by where its sign-in is: reading,
+  filling, scanning and signing in all happen there. Where each sign-in was made is recorded when it is saved; a site
+  that signs in through a provider follows the provider; and a provider's sign-in is no longer shown to the other
+  browser at all, which is what could make the provider sign the real one out.
+- **The card says whose sign-in is missing.** When the run stopped on a provider's own sign-in page - or the site's
+  sign-in is the provider's, as with Google's careers site - there is one card for the provider ("sign in to Google
+  again"), not a card per posting offering "use my Google account" for Google itself.
 - **An answer in a draft can be changed after the draft was approved.** The "Edit" button was only there until you
   approved, so a wrong answer noticed afterwards - or one a run failed on - could not be corrected, and neither
   could the résumé. Now every answer can be changed for as long as the application has not gone out. The draft stays

@@ -43,9 +43,29 @@ def save_state(tenant_key: str, context: BrowserContext) -> None:
     write_state(tenant_key, context.storage_state())
 
 
-def write_state(tenant_key: str, state: dict) -> None:
+_now = threading.local()        # .backend: the browser the page of this thread was opened in (open_page)
+
+
+def write_state(tenant_key: str, state: dict, *, made_in: str | None = None) -> None:
+    """Save a site's sign-in. Where it was made is kept with it: the browser of the page this thread has open, or
+    ``made_in`` ("nodriver" for the ordinary browser; "" when that is not known - a sign-in carried over from another
+    computer). From then on everything for the site is done in that browser (browser_policy)."""
     import os
     import tempfile
+
+    made = made_in if made_in is not None else getattr(_now, "backend", None)
+    if made is not None:
+        from . import browser_policy, db
+
+        key, record = browser_policy.canonical(tenant_key), dict(db.get_setting("browser.session_made_in") or {})
+        if made_in is None and record.get(key) in browser_policy.BACKENDS and record[key] != made:
+            # a run in the other browser (the applicant's choice for one task) does not replace the site's sign-in
+            return
+        if made in browser_policy.BACKENDS and record.get(key) != made:
+            db.set_setting("browser.session_made_in", {**record, key: made})
+        elif made not in browser_policy.BACKENDS and key in record:
+            record.pop(key)
+            db.set_setting("browser.session_made_in", record)
 
     target = _state_path(tenant_key)
     temporary = None
@@ -113,14 +133,18 @@ def identities() -> dict[str, dict]:
     return out
 
 
-def with_identities(state: dict | None, tenant_key: str | None) -> dict | None:
-    """Add the saved provider sign-ins to a site's own session."""
-    from . import db
+def with_identities(state: dict | None, tenant_key: str | None, backend: str = "playwright") -> dict | None:
+    """Add the saved provider sign-ins to a site's own session - those that live in the browser being opened
+    (``backend``). A provider's sign-in is not carried into the other browser: there it is no sign-in, and showing it
+    there is what makes the provider sign the real one out."""
+    from . import browser_policy, db
 
     if (tenant_key or "").startswith("idp:") or not db.get_setting("identity.share"):
         return state
     extra = []
     for key, spec in identities().items():
+        if browser_policy.session_browser(f"idp:{key}") != backend:
+            continue
         st = load_state(f"idp:{key}")
         for c in (st or {}).get("cookies", []):
             if any(c.get("domain", "").lstrip(".").endswith(d) for d in spec["domains"]):
@@ -379,16 +403,18 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
             raise RuntimeError("Authenticated proxy support is not yet available for nodriver")
         profile = _native_profile(tenant_key) if tenant_key else None
         with nodriver_backend.profile_lock(profile):
-            state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key)
+            state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key, "nodriver")
             with _window_place(for_person, headless, tenant_key, url, operation, needs_window=not headless) as place:
                 if place.pictures:
                     raise RuntimeError("这个网站要在普通的浏览器窗口里操作，而这台电脑没有屏幕，也没有虚拟屏幕。请安装 xvfb 和 x11vnc（sudo apt-get install -y xvfb x11vnc），或者改用容器镜像。")
                 with _environment(place.env):          # an ordinary Chrome takes its screen from the environment it is started in
                     opened = nodriver_backend.open_page(state, headless=headless and place.headless, executable=executable, args=net.chrome_args() + place.args, profile=profile)
                     page = opened.__enter__()
+                before, _now.backend = getattr(_now, "backend", None), "nodriver"
                 try:
                     yield page
                 finally:
+                    _now.backend = before
                     opened.__exit__(None, None, None)
         return
     with sync_playwright() as p:
@@ -413,7 +439,7 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
             place.__exit__(None, None, None)
             raise
         try:
-            state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key)
+            state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key, "playwright")
             # on a virtual screen the page is as large as its window, which is as large as that screen
             size: dict[str, Any] = {"no_viewport": True} if place.env else {"viewport": remote.VIEWPORT if shown_remotely else {"width": 1366, "height": 900}}
             ctx = browser.new_context(storage_state=state, locale="en-US", accept_downloads=bool(downloads), **size)
@@ -424,9 +450,11 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
             if shown_remotely:
                 window = remote.attach(page, title=place.title, purpose=operation, tenant=str(tenant_key or ""))
                 remote.announce(window)
+            before, _now.backend = getattr(_now, "backend", None), "playwright"
             try:
                 yield page
             finally:
+                _now.backend = before
                 remote.detach(window)
                 try:
                     ctx.close()

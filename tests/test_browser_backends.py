@@ -170,3 +170,103 @@ def test_native_generic_schema(native_page):
     assert result["first_name"] == "Test"
     assert result["auth"] == "Yes"
     assert result["consent"] is True
+
+
+def test_a_sites_work_is_done_in_the_browser_its_sign_in_lives_in_whatever_the_work_is(app_env):
+    """Google's careers site signs in on Google. The applicant signed in to Google in the ordinary browser; the rule
+    saved for Google said "login" only, so filling the form went to the automated browser with Google's cookies - where
+    Google shows the account as signed out - and the applicant was asked to sign in again, for a session they had."""
+    from autoapply import browser_policy as bp, db
+
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    db.set_setting("browser.rules", [{"tenant": "pdportal:ubc", "backend": "nodriver", "operations": ["login"]},          # as saved by earlier versions
+                                     {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
+                                     {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]}])
+    ops = ("login", "scan", "read", "apply")
+    for tenant in ("idp:google", "generic:www.google.com", "pdportal:ubc"):
+        assert {bp.select(tenant, operation=op).backend for op in ops} == {"nodriver"}, tenant
+    assert {bp.select("workday:acme.wd1", operation=op).backend for op in ops} == {"playwright"}       # nothing says otherwise
+    # a site that signs in through a provider follows the provider - any provider, not Google by name
+    db.set_setting("sso.sites", {"generic:jobs.example.com": "google", "generic:careers.example.org": "microsoft"})
+    assert bp.select("generic:jobs.example.com", operation="apply").backend == "nodriver"
+    assert bp.select("generic:careers.example.org", operation="apply").backend == "playwright"
+    # where a sign-in was made is remembered with it, and decides from then on - with no rule at all
+    db.set_setting("browser.rules", [])
+    db.set_setting("browser.session_made_in", {"idp:microsoft": "nodriver", "idp:google": "nodriver"})
+    assert bp.select("generic:careers.example.org", operation="read").backend == "nodriver"
+    assert bp.select("generic:www.google.com", operation="apply").reason == "where the sign-in for idp:google was made"
+    assert bp.select("generic:www.google.com", operation="apply", override="playwright").backend == "playwright"      # the applicant's choice for one task
+    db.set_setting("browser.nodriver_enabled", False)
+    assert bp.select("generic:www.google.com", operation="apply").backend == "playwright"
+
+
+def test_where_a_sign_in_was_made_is_kept_with_it_and_it_is_not_carried_into_the_other_browser(app_env):
+    from autoapply import browser, db
+
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("browser.rules", [])
+    db.set_setting("identity.share", True)
+    google = {"cookies": [{"name": "SID", "value": "x", "domain": ".google.com", "path": "/"}], "origins": []}
+    browser._now.backend = "nodriver"                    # as inside open_page() in the ordinary browser
+    try:
+        browser.write_state("idp:google", google)
+    finally:
+        browser._now.backend = None
+    assert db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"}
+    # the automated browser is not shown Google's cookies; the ordinary browser is
+    assert browser.with_identities(None, "generic:jobs.example.com", "playwright") is None
+    assert [c["name"] for c in browser.with_identities(None, "generic:jobs.example.com", "nodriver")["cookies"]] == ["SID"]
+    # a run the applicant sent to the other browser does not replace the sign-in
+    browser._now.backend = "playwright"
+    try:
+        browser.write_state("idp:google", {"cookies": [], "origins": []})
+    finally:
+        browser._now.backend = None
+    assert browser.load_state("idp:google") == google and db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"}
+    browser.write_state("idp:google", google, made_in="")          # carried over from another computer: not known any more
+    assert db.get_setting("browser.session_made_in") == {}
+
+
+def test_the_card_names_whose_sign_in_is_missing(app_env):
+    """For Google's own careers site the card said "this site supports signing in with Google, where you are signed
+    in" and offered "use my Google account" - for Google. What is missing there is Google's session: one card, Google's."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import auth, db
+    from autoapply.api.main import app
+    from autoapply.ats.base import JobRef
+    from autoapply.models import Todo
+
+    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    db.set_setting("sso.offered", {"generic:www.google.com": ["google"], "generic:jobs.example.com": ["google"]})
+    careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
+    other = JobRef(ats="generic", tenant="jobs.example.com", job_id="", url="https://jobs.example.com/p/1", host="jobs.example.com")
+    auth.ask_to_sign_in(careers, "Google · Intern", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser?continue=x", draft_id=45)
+    auth.ask_to_sign_in(careers, "Google · Another posting", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser", draft_id=46)       # the same missing thing: one card
+    auth.ask_to_sign_in(other, "Example", "the site asks for an account", url="https://jobs.example.com/login", can_register=True)
+    auth.ask_to_sign_in(other.__class__(**{**other.__dict__, "tenant": "apply.example.net", "host": "apply.example.net"}), "Example Net",
+                        "The Sign in with Google button led to accounts.google.com, which shows the account as signed out.", url="https://apply.example.net/sso")
+    with db.session() as s:
+        cards = {t.ref: t.payload for t in s.query(Todo).filter_by(kind="takeover", status="open")}
+    assert set(cards) == {"account:idp:google", "account:generic:jobs.example.com"}
+    g = cards["account:idp:google"]
+    assert (g["tenant_key"], g["provider"], g["can_register"], g["url"]) == ("idp:google", "Google", False, "https://accounts.google.com/")
+    assert cards["account:generic:jobs.example.com"]["can_register"] is True
+    c = TestClient(app)
+    shown = {t["ref"]: t for t in c.get("/api/todos").json() if t["kind"] == "takeover"}
+    assert "sso" not in shown["account:idp:google"]                # Google is not offered as a way to sign in to Google
+
+
+def test_a_site_whose_sign_in_is_a_providers_own_has_nothing_to_choose_or_register(app_env):
+    from autoapply import auth, db
+    from autoapply.ats.base import JobRef
+
+    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    db.set_setting("sso.mode", "auto")
+    careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
+    plan = auth.sign_in_plan(careers, ["google", "linkedin"])
+    assert (plan["do"], plan["may_register"], plan["offered"]) == ("ask_user", False, []) and "Google's own" in plan["why"]
+    # ... and the same when the agent stands on the provider's page working for that site
+    at_google = JobRef(ats="generic", tenant="accounts.google.com", job_id="", url="https://accounts.google.com/signin", host="accounts.google.com")
+    assert auth.sign_in_plan(at_google, [], also="generic:www.google.com")["do"] == "ask_user"

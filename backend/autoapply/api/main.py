@@ -731,7 +731,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     ready = {k: v["name"] for k, v in _browser.identities().items() if (i := _browser.session_info(f"idp:{k}")) and not i["expired"]}
     for r in rows:  # what the page shows: the employer's name and one plain sentence; raw text stays available as detail
         key = (r["payload"] or {}).get("tenant_key") or (r["ref"][8:] if r["ref"].startswith("account:") else "")
-        if r["kind"] in ("takeover", "login") and key:  # ways to sign in that need nothing more from the user than a choice
+        if r["kind"] in ("takeover", "login") and key and not key.startswith("idp:"):  # ways to sign in that need nothing more from the user than a choice (not for a provider itself)
             r["sso"] = [{"key": p, "name": ready[p]} for p in offered.get(key, []) if p in ready]
             r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered.get(key, []) if p in _browser.identities() and p not in ready]
         r["site"] = humanize.site(key) if key else None
