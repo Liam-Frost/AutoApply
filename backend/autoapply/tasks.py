@@ -172,6 +172,12 @@ def start() -> None:
     from . import handlers  # noqa: F401  (registers task handlers)
 
     recover()
+    try:  # what was learned on another version of the program is checked again before it is used
+        from . import learned
+
+        learned.recheck_after_upgrade()
+    except Exception:  # noqa: BLE001
+        log.exception("could not re-check what was learned")
     try:  # postings left unscored by an interrupted or capped run are picked up again at start-up and by the hourly check
         from . import scoring
 

@@ -22,9 +22,12 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+from . import timing
 
 SERVER = "autoapply"
 _loop: asyncio.AbstractEventLoop | None = None
@@ -268,7 +271,15 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
             continue
         t, args, reply = item
         try:
-            reply.set_result(t.fn(**args))
+            began = time.monotonic()
+            good = True
+            try:
+                reply.set_result(t.fn(**args))
+            except BaseException:
+                good = False
+                raise
+            finally:
+                timing.mark("tool", t.name, (time.monotonic() - began) * 1000.0, started=began, ok=good)
         except Exception as e:  # noqa: BLE001
             reply.set_exception(e)
     def failed(err: SDKError) -> SDKError:

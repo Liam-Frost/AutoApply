@@ -227,6 +227,20 @@ def test_unresolved_question_blocks_approval(pipeline, monkeypatch):
     drafts.approve(did)
 
 
+def test_a_run_keeps_where_its_time_went_and_is_looked_at_afterwards(pipeline):
+    from autoapply import db, drafts, tasks, timing
+    from autoapply.models import Run
+
+    did = drafts.build(pipeline["job_id"])
+    drafts.approve(did)
+    assert tasks.drain() >= 1
+    with db.session() as s:
+        r = s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first()
+        spans, site, in_force = list(r.spans or []), r.site, r.learned
+    kinds = {sp["k"] for sp in spans}
+    assert "driver" in kinds and {"step:fill_page", "step:read_back", "step:submit"} <= {sp["n"] for sp in spans} and timing.working_ms(spans) > 0
+    assert site and in_force == []                                                                # nothing learned yet: nothing in force
+    assert not timing.active()                                                                    # the recorder ended with the run
 def test_an_answer_can_be_changed_after_approval_until_the_application_has_gone_out(pipeline):
     """A wrong answer noticed after approving - or after a run failed on it - is changed in place: the draft stays
     approved, and the next run fills in what it says now."""

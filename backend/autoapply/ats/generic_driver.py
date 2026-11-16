@@ -16,6 +16,7 @@ from typing import Any
 
 from playwright.sync_api import Locator, Page, TimeoutError as PWTimeout
 
+from .. import learned, timing
 from . import widgets as w
 from .base import DriverError, FormSchema, JobRef, PasswordPolicy, Question, norm_question
 
@@ -220,6 +221,16 @@ def set_value(page: Page, q: Question, value: Any) -> None:
     if loc.count() == 0:
         raise DriverError("control not found", question=q.label, expected=str((q.locator or {}).get("selector") or q.id))
     tag, typ = _tag(loc)
+    if q.type != "file" and learned.set_value(page, q, value, loc, tag):
+        learned.wait_after(page, "field")
+        return                  # filled the way that was learned for this field (learned.py); a way that fails falls through to here
+    try:
+        _set_ordinary(page, q, value, loc, tag, typ)
+    finally:
+        learned.wait_after(page, "field")      # a wait learned for "after a field" holds for every field, however it was filled
+
+
+def _set_ordinary(page: Page, q: Question, value: Any, loc: Any, tag: str, typ: str) -> None:
     if tag in ("input", "textarea") and q.type not in ("file", "checkbox", "radio"):
         try:
             locked = loc.evaluate("(e) => e.readOnly || e.disabled")
@@ -296,6 +307,9 @@ def get_value(page: Page, q: Question) -> Any:
     loc = _loc(page, q)
     if loc.count() == 0:
         return None
+    known = learned.get_value(page, q)
+    if known is not NotImplemented:
+        return known
     tag, typ = _tag(loc)
     if q.type == "file":
         if tag == "input" and typ == "file":
@@ -608,7 +622,8 @@ class GenericDriver:
             try:
                 if q.type == "file" and Path(str(answers[q.id])).name in page.inner_text("body", timeout=5000):
                     continue      # the form already shows this very file name (kept from an earlier visit): not uploaded a second time
-                set_value(page, q, answers[q.id])
+                with timing.span("driver", "field", label=q.label[:60], type=q.type, page=page_index):
+                    set_value(page, q, answers[q.id])
                 if q.type == "file" and q is files[-1]:
                     try:
                         page.wait_for_load_state("networkidle", timeout=10000)

@@ -528,6 +528,16 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .an-table .name { font-weight: 550; overflow-wrap: anywhere; }
 .an-table .splitbar { height: 8px; min-width: 90px; }
 .an-scroll { overflow-x: auto; }
+/* one run, step by step: a name, where on the run's time line it lies, how long it took */
+.tl { display: grid; gap: 3px; }
+.tl-row { display: grid; grid-template-columns: minmax(140px, 260px) minmax(120px, 1fr) 64px; gap: var(--s3); align-items: center; font-size: var(--fs-xs); }
+.tl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.tl-track { position: relative; height: 10px; background: var(--neutral-soft); border-radius: 3px; }
+.tl-bar { position: absolute; top: 0; height: 10px; border-radius: 3px; min-width: 2px; }
+.tl-bar.failed { outline: 2px solid var(--bad); outline-offset: 1px; }
+.tl-ms { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+pre.code { padding: var(--s3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); }
 .share { display: inline-block; width: 64px; height: 6px; border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; vertical-align: middle; margin-right: 8px; }
 .share > i { display: block; height: 100%; background: var(--chart-1); border-radius: var(--r-pill); }
 .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3) var(--s4); }

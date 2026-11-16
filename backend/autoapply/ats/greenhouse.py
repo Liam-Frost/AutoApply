@@ -22,6 +22,7 @@ import httpx
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PWTimeout
 
+from .. import timing
 from . import widgets as w
 from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, host_is
 
@@ -267,7 +268,8 @@ class GreenhouseDriver:
                 continue
             val = answers[q.id]
             try:
-                self._fill_one(page, q, val)
+                with timing.span("driver", "field", label=q.label[:60], type=q.type, page=page_index):
+                    self._fill_one(page, q, val)
             except (DriverError, PWTimeout) as e:  # keep going: the repair agent gets the full list
                 failures.append({"id": q.id, "label": q.label, "error": f"{type(e).__name__}: {str(e)[:160]}"})
                 try:

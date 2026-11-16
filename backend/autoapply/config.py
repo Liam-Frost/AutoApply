@@ -79,6 +79,13 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "policy.manual_companies": [],  # company names (substring match) the user always submits by hand
     "policy.manual_confidence": "low",  # "none" | "low" | "medium": answers at or below this level make the run manual
     "auto_approve.enabled": False,
+    # Learning from runs (improve.py, learned.py): after a run the agent may write down what the program should do
+    # differently on that site, as a recipe or as code. "auto": in force once it passed the gate, watched in the runs
+    # that follow, taken out again when it fails. "ask": it waits for the applicant first.
+    "learned.enabled": True,
+    "learned.mode": "auto",
+    "learned.share": "ask",   # a site's driver that held up: "ask" whether to report it to the project | "always" have it ready | "never" (share.py)
+    "learned.drivers_written": [],  # sites without a driver of their own for which the agent has been asked to write one (once per site)
     "auto_approve.per_ats": {},  # {"greenhouse": true}
     "auto_approve.min_score": 8.0,
     "auto_approve.min_driver_successes": 3,

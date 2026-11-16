@@ -167,6 +167,7 @@ def seed(lang: str) -> None:
             s.add(MailEvent(message_id=f"demo-mail-{k}", sender=f"careers@{company.split()[0].lower()}.example", subject=subj, received_at=now - timedelta(hours=5 + 20 * k), category=cat,
                             application_id=apps[company].id, company_guess=company, summary=t["mail"][k]))
         seed_history(s, now, lang)
+        seed_timing(s, now)
 
 
 SERVE = """
@@ -327,6 +328,68 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
         if day % 9 == 4:
             t_ = task("revise", f"draft:{rnd.randint(1, 3)}", base + timedelta(hours=9), "done", 0.8, result={"draft_id": 1})
             request(t_, t_.started_at, "revise_draft", OPUS, "json", (rnd.randint(2000, 3200), rnd.randint(7000, 9000), 0, rnd.randint(700, 1300)))
+
+
+def seed_timing(s, now: datetime) -> None:  # noqa: ANN001
+    """What "Time & learning" on the analysis page shows: six weeks of form-filling runs with where their time went,
+    and two things the program learned from them - one that holds up, one that was taken out again. Made up."""
+    import json
+    import random
+
+    from autoapply import learned
+    from autoapply.models import Run
+
+    rnd = random.Random(11)
+    recipe = json.dumps({"controls": [{"when": {"label": "^Code$"}, "do": "leave_if_shown"}]}, indent=1)
+    code = "def set_value(page, q, value, w):\n    if q.label != \"Start date\":\n        return False\n    w.set_text(page.locator(\"#start-date\"), str(value))\n    return True\n"
+    made = (now - timedelta(days=16)).isoformat(timespec="seconds")
+    revs = [
+        {"id": "demo000001", "kind": "recipe", "target": "site-careers.alder.example", "title": "区号列表已经显示所选条目时不再重选", "status": "active",
+         "why": "这个网站的电话区号列表选中后只显示“+1”，驱动每次都判定为没选上，AI 因此反复接手同一页。", "expected": "不再为 Code 字段接手，每次运行少等两到三次 AI。",
+         "why_status": "在 4 次运行里表现正常", "created": made, "from_run": 12, "version": "1.0.3", "strikes": 0, "baseline": {"runs": 6, "median_ms": 212000},
+         "trials": [{"run": 20 + i, "ok": True, "ms": 96000 + i * 3000, "human": 0, "used": True} for i in range(4)],
+         "history": [{"at": made, "status": "trial", "why": "passed the gate"}, {"at": (now - timedelta(days=11)).isoformat(timespec="seconds"), "status": "active", "why": "held up in 2 runs"}]},
+        {"id": "demo000002", "kind": "plugin", "target": "workday", "title": "开始日期用键盘直接输入", "status": "reverted",
+         "why": "日期控件逐格点击很慢，直接输入可以省十几秒。", "expected": "“填一个字段”里的日期不再超过 10 秒。",
+         "why_status": "在一次运行里出错，已退回原来的做法：set_value: TimeoutError", "created": (now - timedelta(days=9)).isoformat(timespec="seconds"), "from_run": 26, "version": "1.0.3", "strikes": 1,
+         "baseline": {"runs": 9, "median_ms": 148000}, "trials": [{"run": 31, "ok": False, "ms": 151000, "human": 0, "used": True, "strike": "set_value: TimeoutError"}],
+         "history": [{"at": (now - timedelta(days=9)).isoformat(timespec="seconds"), "status": "trial", "why": "passed the gate"},
+                     {"at": (now - timedelta(days=7)).isoformat(timespec="seconds"), "status": "reverted", "why": "it failed in a run: set_value: TimeoutError"}]},
+    ]
+    learned.root().mkdir(parents=True, exist_ok=True)
+    for rev, body, name in ((revs[0], recipe, "recipe.json"), (revs[1], code, "plugin.py")):
+        (learned.root() / rev["id"]).mkdir(exist_ok=True)
+        (learned.root() / rev["id"] / name).write_text(body, encoding="utf-8")
+    learned._save(revs)
+
+    def spans(takeovers: int, slow_field: bool) -> list[dict]:
+        out, t = [], 0
+
+        def add(kind: str, name: str, ms: int, **extra) -> None:
+            nonlocal t
+            out.append({"k": kind, "n": name, "t": t, "ms": ms, **extra})
+            t += ms
+
+        add("site", "load", rnd.randint(1800, 5200), host="careers.alder.example")
+        for label in ("First name", "Last name", "Email", "Phone", "Code", "Current location", "Resume"):
+            failed = label == "Code" and takeovers > 0
+            add("driver", "field", rnd.randint(14000, 19000) if (slow_field and label == "Current location") else rnd.randint(300, 2600), label=label, **({"ok": False} if failed else {}))
+        for _ in range(takeovers):
+            add("ai", "take_over", rnd.randint(18000, 34000))
+            for tool in ("list_controls", "select", "check_form"):
+                add("tool", tool, rnd.randint(400, 3800), **({"ok": False} if tool == "select" else {}))
+        add("driver", "step:read_back", rnd.randint(900, 2400))
+        add("driver", "step:submit", rnd.randint(2500, 6000))
+        return out
+
+    for day in range(40, -1, -3):
+        at = now - timedelta(days=day, hours=rnd.randint(0, 6))
+        for ats, site, subject_id in (("generic", "site-careers.alder.example", 1), ("workday", "workday", 2)):
+            after = ats == "generic" and day <= 15
+            takeovers = 0 if after else rnd.choice([1, 2, 2, 3]) if ats == "generic" else rnd.choice([0, 1, 1])
+            steps = [{"op": "open"}, {"op": "fill_page"}] + [{"op": "repair", "cause": "the Code list shows only +1"}] * takeovers + [{"op": "read_back"}, {"op": "submit"}]
+            s.add(Run(kind="execute", ref=f"application:{subject_id}", ats=ats, ok=1, steps=steps, spans=spans(takeovers, slow_field=(ats == "workday" and day % 9 == 0)),
+                      site=site, learned=["demo000001"] if after else [], created_at=at))
 
 
 def shots(out: Path, lang: str, port: int = 8021, only: str = "") -> None:

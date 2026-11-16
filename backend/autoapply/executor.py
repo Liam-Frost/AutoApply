@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from . import answers as ans, messages
-from . import auth, browser, config, db, fixtures, knowledge, lifecycle, llm, metering, notify, repair, secrets
+from . import auth, browser, config, db, fixtures, knowledge, learned, lifecycle, llm, metering, notify, repair, secrets, timing
 from .ats import audit, registry
 from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .drafts import _stat
@@ -176,9 +176,18 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     page_of = {a["id"]: int(a.get("page") or 0) for a in draft_answers}
     run_dir = config.RUNS / f"{'scout' if scout else 'exec'}_app_{application_id}_d{draft_id}"
     steps: list[dict[str, Any]] = []
+    timing.begin()
+    learned.begin([_site_of(schema), ref.ats])          # what was learned for this site and this system is in force
+    last_mark = [time.monotonic()]
     def step(op: str, **kw: Any) -> None:
         steps.append({"op": op, "at": now().isoformat(), **kw})
         metering.stage(op)       # the task remembers how far it got
+        # the stretch that ended with this step, as a whole: what lies inside it (fields, tools, requests, loads) is
+        # recorded where it happens, and what is left over is the program's own work on that step
+        whole = (time.monotonic() - last_mark[0]) * 1000.0
+        timing.mark("human" if op in ("wait_user", "manual", "handover") else "driver", f"step:{op}", max(0.0, whole - timing.inside(last_mark[0])), started=last_mark[0],
+                    page=kw.get("page"))
+        last_mark[0] = time.monotonic()
     if not scout:
         notify.send("task_started", messages.execute_started(title, ats=ref.ats, policy=policy, pages=len(schema.pages or []), reasons=mode["reasons"]), ref=f"application:{application_id}")
     outcome: dict[str, Any] = {}
@@ -536,6 +545,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if here and not _left_step(title0):
                 scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
                 bad = _really_different(page, schema, verify(schema, scope, driver.read_back(page, schema)))
+                learned.read_back_differs([b["id"] for b in bad])
                 if bad and rounds < 2 and _takeover(_page_index(title0, n), {"message": "values on the form differ from the approved draft", "mismatches": bad}, [b["id"] for b in bad], [], on_ids=ids) is not None:
                     rounds += 1
                     scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
@@ -661,6 +671,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     try:
         headless = policy != "manual" or scout
         with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless, url=ref.url, operation="apply") as page:
+            timing.timed_goto(page)
+            learned.waits_on(page)                         # "after load": every time this page is sent somewhere
             st = auth.ensure_session(page, signer or driver, ref)      # a site with a coded sign-in uses it, whoever fills the form
             step("ensure_session", result=st)
             if driver.requires_login and driver.already_applied(page, ref):
@@ -750,13 +762,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                         open_issues = _issues(i)
                 _keep_fixture(schema, page, i)
                 if i < len(pages) - 1:
-                    moved = driver.next_page(page)
+                    moved = _next_page(driver, page)
                     if not moved and rounds < 2 and repair.enabled():
                         # the form refused to go on: now it says why. One more round for the agent, then one more try.
                         blockers = _issues(i)
                         step("form_reports", page=i, after="next", issues=audit.texts(blockers)[:12])
                         if blockers and _takeover(i, {"message": "the form does not advance to the next page"}, [], blockers) is not None:
-                            moved = driver.next_page(page)
+                            moved = _next_page(driver, page)
                     if not moved:
                         raise DriverError("could not advance to the next page", page=i, seen="; ".join(_errors(driver, page) or audit.texts(_issues(i)))[:400])
                     step("next", page=i)
@@ -853,7 +865,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
     if scout:      # the application's status is not the walk's to change; what it found goes into the draft
         with db.session() as s:
-            s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, dir=str(run_dir)))
+            s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, spans=_scout_spans(), site=_site_of(schema), dir=str(run_dir)))
             if mapped or added or adapted or asked or held or located or reordered:
                 _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False,
                               held=held, located=located)
@@ -869,7 +881,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             app.submitted_at = now()
             app.evidence = outcome.get("evidence", {})
             app.detail = f"submitted {now().date().isoformat()} via {ref.ats}" + (" (auto-approved)" if app.auto_approved else "")
-        s.add(Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, dir=str(run_dir)))
+        spans = timing.end()
+        run = Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, spans=spans, site=_site_of(schema),
+                  learned=learned.in_force(), dir=str(run_dir))
+        s.add(run)
+        s.flush()
+        run_id = run.id
         new_questions = 0
         if mapped or added or adapted or asked or located or reordered:
             back = outcome["status"] != "submitted"
@@ -879,6 +896,14 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 app.status = "needs_input"
                 app.last_event = f"填表时遇到 {new_questions} 个草案里没有、资料里也没有答案的问题，已加进草案；回答并批准后接着填"
     # outside the session: SQLite allows one writer at a time
+    # What was learned and was in force is judged by this run; then the run itself is looked at for what to learn next.
+    try:
+        from . import improve
+
+        changed = learned.end(ok=ok, working_ms=timing.working_ms(spans), interventions=len(leftovers), run_id=run_id)
+        improve.after_run(run_id, changed)
+    except Exception:  # noqa: BLE001 - learning from a run must never fail the run
+        log.exception("could not look at the run for what to learn")
     for a in asked:      # answered by the applicant in the window: remembered, so that no form has to ask it again
         if a.get("value") not in ("", None, [], False):
             shown = "; ".join(map(str, a["value"])) if isinstance(a["value"], list) else str(a["value"])
@@ -1026,6 +1051,7 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
     scope = [a for a in draft_answers if i is None or page_of.get(a["id"], 0) == i]
     back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
     bad = _really_different(page, schema, _held(driver, page, schema, verify(schema, scope, back)))
+    learned.read_back_differs([b["id"] for b in bad])      # before anything is repaired: what the revisions in force left behind
     current = i if i is not None else max(0, len(schema.pages or ["x"]) - 1)
     if bad and all(page_of.get(b["id"], 0) == current for b in bad):
         rep = _repair(page, schema, current, fill, {"message": "values on the form differ from the approved draft", "mismatches": bad},
@@ -1191,7 +1217,31 @@ def _finish_account(page: Any, ref: JobRef, step: Any, run_dir: Any = None) -> N
         log.info("account confirmation after the submission did not complete: %s", e)
 
 
-def _wait_for_manual_submit(driver: Any, page: Any, title: str, application_id: int, draft_id: int | None = None, *,
+def _scout_spans() -> list[dict[str, Any]]:
+    learned.drop()          # a walk that only reads the form is no trial of what was learned
+    return timing.end()
+
+
+def _next_page(driver: Any, page: Any) -> bool:
+    moved = driver.next_page(page)
+    if moved:
+        learned.wait_after(page, "step")
+    return moved
+
+
+def _site_of(schema: FormSchema) -> str:
+    try:
+        return repair.site_key(schema)
+    except Exception:  # noqa: BLE001 - a run is recorded whether or not its site can be named
+        return ""
+
+
+def _wait_for_manual_submit(*a: Any, **kw: Any) -> dict[str, Any]:
+    with timing.span("human", "window"):        # the applicant's time, never counted against the run
+        return _manual_submit_wait(*a, **kw)
+
+
+def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int, draft_id: int | None = None, *,
                             leftovers: list[dict[str, str]] | None = None, mapped: list[dict[str, str]] | None = None,
                             added: list[dict[str, Any]] | None = None, adapted: list[dict[str, Any]] | None = None,
                             watch: list[Any] | None = None, typed: dict[str, Any] | None = None) -> dict[str, Any]:

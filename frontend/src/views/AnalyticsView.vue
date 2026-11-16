@@ -1,5 +1,5 @@
 <script setup>
-// The analysis page: three views over one time range. Each view asks the server for its own numbers; this file only
+// The analysis page: four views over one time range. Each view asks the server for its own numbers; this file only
 // holds what they share - which view, which range - and the loading / error states around them.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -11,12 +11,14 @@ import PageHead from '../components/PageHead.vue'
 import AppsPanel from './analytics/AppsPanel.vue'
 import AutoPanel from './analytics/AutoPanel.vue'
 import CostPanel from './analytics/CostPanel.vue'
+import TimePanel from './analytics/TimePanel.vue'
 
-const VIEWS = [['apps', '求职成效'], ['auto', '自动化效率'], ['ai', 'AI 成本']]
+const VIEWS = [['apps', '求职成效'], ['auto', '自动化效率'], ['time', '耗时与优化'], ['ai', 'AI 成本']]
 const RANGES = [['0', '全部'], ['90', '最近 90 天'], ['30', '最近 30 天'], ['7', '最近 7 天'], ['today', '今天'], ['custom', '自定义']]
 const SUBS = {
   apps: '投出去的申请结果怎么样，什么样的岗位更容易有回音，哪些机会错过了。按投递日期统计。',
   auto: '程序的每一类任务跑了多少次、成了多少、卡在哪里、花了多少 AI。按任务开始的日期统计。',
+  time: '每次填表的时间花在了哪里，同一个招聘系统是不是越来越快，程序从运行里学到了什么、效果如何。',
   ai: '模型调用用了多少 Token、折合多少钱，花在哪个模型和哪项功能上。按调用发生的日期统计。',
 }
 const route = useRoute()
@@ -25,8 +27,8 @@ const router = useRouter()
 const view = ref(VIEWS.map(([k]) => k).find((k) => k === route.query.view) || 'apps')
 const range = reactive({ mode: '0', start: '', end: '' })
 const params = reactive({ auto: { kind: '' }, ai: { group: 'model', bucket: '', provider: '', model: '', feature: '' } })
-const state = reactive({ apps: { data: null, error: '', loading: false }, auto: { data: null, error: '', loading: false }, ai: { data: null, error: '', loading: false } })
-const PATH = { apps: '/analytics', auto: '/analytics/automation', ai: '/analytics/ai' }
+const state = reactive({ apps: { data: null, error: '', loading: false }, auto: { data: null, error: '', loading: false }, time: { data: null, error: '', loading: false }, ai: { data: null, error: '', loading: false } })
+const PATH = { apps: '/analytics', auto: '/analytics/automation', time: '/analytics/timing', ai: '/analytics/ai' }
 const ready = computed(() => range.mode !== 'custom' || (range.start && range.end && range.start <= range.end))
 
 let seq = 0
@@ -80,6 +82,7 @@ const cur = computed(() => state[view.value])
   <div v-else class="an-view" :style="{ opacity: cur.loading ? 0.55 : 1, transition: 'opacity 0.15s' }" :aria-busy="cur.loading">
     <AppsPanel v-if="view === 'apps'" :d="state.apps.data" />
     <AutoPanel v-else-if="view === 'auto'" :d="state.auto.data" :params="params.auto" :range="range" />
+    <TimePanel v-else-if="view === 'time'" :d="state.time.data" @reload="load" />
     <CostPanel v-else :d="state.ai.data" :params="params.ai" @reload="load" />
   </div>
 </template>
