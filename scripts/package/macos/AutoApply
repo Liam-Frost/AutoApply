@@ -3,7 +3,8 @@
 # next to its data, so replacing the app with a newer one never touches the data.
 #
 #   first start, or first start after the app was replaced by a newer version:
-#       copy the program files, get uv (asks first), let uv fetch Python and the dependencies, fetch the browser
+#       lay the new version out beside the installed one, and let scripts/prepare.py swap it in, fetch Python, the
+#       dependencies and the browser with the uv this app brings - and put the previous version back if that fails
 #   every start: run the menu-bar launcher (status, open the page, start at login, quit)
 #
 # Uninstall: drag AutoApply.app to the Trash. Your data stays in ~/Library/Application Support/AutoApply; delete that
@@ -11,6 +12,7 @@
 #
 # For checking without a person:  --yes (no dialogs)   --setup-only (prepare, do not start)
 #                                 AUTOAPPLY_HOME=<dir> (use another folder)   AUTOAPPLY_LANG=zh|en
+# With --yes it ends with 7 when AutoApply is running from the folder (nothing is changed), 1 when setting up failed.
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -41,15 +43,18 @@ ask() {   # ask "<text>" "<button>" -> 0 when the user goes on
 tell() {  # a passing message
   if [ "$YES" = 1 ]; then echo "[AutoApply] $1"; else osascript -e "display notification \"$1\" with title \"AutoApply\"" >/dev/null 2>&1; fi
 }
-fail() {
+fail() {  # fail "<text>" [exit code]
   note "ERROR: $1"
   if [ "$YES" = 1 ]; then
-    echo "[AutoApply] FAILED: $1 (log: $LOG)" >&2
+    echo "[AutoApply] Not finished: $(printf '%b' "$1") (log: $LOG)" >&2
   else
     osascript -e "display dialog \"$1\n\n$(t '已经完成的部分不会丢，再次打开 AutoApply 会从停下的地方继续。日志：' 'What was done is kept; opening AutoApply again continues from where it stopped. Log: ')$LOG\" with title \"AutoApply\" buttons {\"OK\"} default button 1 with icon caution" >/dev/null 2>&1
   fi
-  exit 1
+  exit "${2:-1}"
 }
+
+# shellcheck source=../common.sh
+. "$RES/common.sh" || { echo "the app is incomplete (common.sh is missing)" >&2; exit 1; }
 
 need=0
 [ -f "$APP_HOME/pyproject.toml" ] || need=1
@@ -60,33 +65,35 @@ if [ "$need" = 1 ]; then
   first=1
   [ -f "$APP_HOME/pyproject.toml" ] && first=0
   if [ "$first" = 1 ]; then
-    ask "$(t '第一次启动要准备运行环境：下载 uv、Python 和依赖（来自 astral.sh 和 pypi.org），以及程序自己用的浏览器（Chromium）。约 600 MB，需要几分钟。\n\n都装在你的用户目录里，不需要管理员密码。' 'The first start prepares the program: it downloads uv, Python and the dependencies (from astral.sh and pypi.org) and the browser the program uses (Chromium). About 600 MB, a few minutes.\n\nEverything goes into your user folder; no administrator password is needed.')" "$(t 继续 Continue)" || exit 0
+    ask "$(t '第一次启动要准备运行环境：下载 Python 和依赖（来自 GitHub 和 pypi.org），以及程序自己用的浏览器（Chromium）。约 600 MB，需要几分钟。\n\n都装在你的用户目录里，不需要管理员密码。' 'The first start prepares the program: it downloads Python and the dependencies (from GitHub and pypi.org) and the browser the program uses (Chromium). About 600 MB, a few minutes.\n\nEverything goes into your user folder; no administrator password is needed.')" "$(t 继续 Continue)" || exit 0
   fi
-  : > "$LOG"
+  # Nothing is stopped for you: a copy that is running (the app was replaced while it was open) may be busy.
+  while running_from "$APP_HOME"; do
+    [ "$YES" = 1 ] && fail "$(running_message)" 7
+    ask "$(running_message)" "$(t 重试 Retry)" || exit 7
+  done
+  mkdir -p "$APP_HOME/data/logs" || fail "$(t '不能创建程序文件夹。' 'The program folder cannot be created.')"
+  LOG="$APP_HOME/data/logs/setup-$(date +%Y%m%d-%H%M%S)-installer.log"      # kept with the data, not in the temporary folder
   note "AutoApply setup $VER -> $APP_HOME (first=$first)"
   tell "$(t '正在准备，完成后会自动启动。' 'Setting up. AutoApply starts by itself when this is done.')"
 
-  mkdir -p "$APP_HOME" || fail "$(t '不能创建程序文件夹。' 'The program folder cannot be created.')"
+  UV="$(uv_for_this_machine "$RES")" || fail "$(t '这个应用不支持这台 Mac 的处理器。' 'This app has nothing for this Mac'"'"'s processor.')"
+  rm -rf "$APP_HOME/.staged"
   tmp="$(mktemp -d)"
   /usr/bin/unzip -q "$RES/app.zip" -d "$tmp" >> "$LOG" 2>&1 || fail "$(t '安装包不完整。' 'The package is incomplete.')"
   src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -1)"
   [ -f "$src/pyproject.toml" ] || fail "$(t '安装包内容不对。' 'The package content is not what was expected.')"
-  rm -rf "$APP_HOME/backend" "$APP_HOME/frontend" "$APP_HOME/scripts"     # replaced whole: no leftovers of an older version
-  cp -R "$src"/. "$APP_HOME"/ || fail "$(t '复制程序文件失败。' 'Copying the program files failed.')"
+  mv "$src" "$APP_HOME/.staged" || fail "$(t '复制程序文件失败。' 'Copying the program files failed.')"
   rm -rf "$tmp"
-  note "program files copied"
+  put_uv "$UV" "$APP_HOME" || fail "$(t '复制程序文件失败。' 'Copying the program files failed.')"
+  note "the new version is laid out"
 
-  export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-  if ! command -v uv >/dev/null 2>&1; then
-    note "downloading uv from astral.sh"
-    curl -LsSf https://astral.sh/uv/install.sh | sh >> "$LOG" 2>&1
-    command -v uv >/dev/null 2>&1 || fail "$(t 'uv 没有装上（多数是网络问题）。' 'uv could not be installed (usually the network).')"
-  fi
-  (cd "$APP_HOME" && uv sync --inexact >> "$LOG" 2>&1) || fail "$(t '安装 Python 和依赖失败（多数是网络问题）。' 'Installing Python and the dependencies failed (usually the network).')"
-  # every time: it returns at once when the right build is there, and a newer Playwright needs a newer build
-  (cd "$APP_HOME" && uv run playwright install chromium >> "$LOG" 2>&1) || fail "$(t '下载浏览器失败。' 'Downloading the browser failed.')"
+  # macOS has no window here: each step is said once, as a notification
+  LAST_STEP=""
+  progress() { if [ "$1" != "$LAST_STEP" ]; then LAST_STEP="$1"; tell "$(prepare_step "$1")"; fi; }
+  run_prepare "$APP_HOME" progress || fail "$(prepare_message "$PREPARE_RESULT" "$APP_HOME")"
+
   if [ ! -f "$APP_HOME/data/app.db" ]; then   # a first install: the program starts in this language
-    mkdir -p "$APP_HOME/data"
     if [ "$ZH" = 1 ]; then echo zh > "$APP_HOME/data/ui-lang.txt"; else echo en > "$APP_HOME/data/ui-lang.txt"; fi
   fi
   echo "$VER" > "$APP_HOME/.installed-version"

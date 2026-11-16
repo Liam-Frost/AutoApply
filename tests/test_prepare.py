@@ -133,3 +133,26 @@ def test_a_cancel_that_cannot_return_to_the_old_version_says_so(place):
     threading.Timer(1.0, lambda: (tmp / "cancel").write_text("x")).start()
     assert job.go() == "error deps_broken"
     assert (root / "backend/old.py").exists() and not (root / ".previous").exists()
+
+
+def test_a_browser_that_cannot_start_for_want_of_system_libraries_is_told_apart(place, monkeypatch):
+    root, job, tmp = place
+    monkeypatch.setattr(prepare.sys, "platform", "linux")
+    job.tool = fake_uv(tmp, "if 'playwright' in args:\n    print('node: error while loading shared libraries: libatomic.so.1: cannot open shared object file')\n    sys.exit(127)\nsys.exit(0)")
+    assert job.go() == "error browser_libs"
+    assert "install-deps chromium" in (tmp / "log.txt").read_text(encoding="utf-8")
+
+
+def test_the_browser_is_started_once_to_see_that_it_can(place):
+    root, job, tmp = place
+    job.tool = fake_uv(tmp, "sys.exit(1 if 'python' in args else 0)")       # downloaded, but it does not start
+    assert job.go() == "error browser"
+
+
+def test_a_stop_asked_for_by_signal_still_restores_the_old_dependencies(place):
+    root, job, tmp = place
+    job.tool = fake_uv(tmp, "open(sys.argv[0] + '.offline', 'w').close() if '--offline' in args else time.sleep(60)")
+    threading.Timer(1.0, lambda: setattr(job, "stopped", True)).start()
+    assert job.go() == "cancelled"
+    assert (tmp / "fake_uv.py.offline").exists()         # the restore ran although the stop was still in force
+    assert (root / "backend/old.py").exists()

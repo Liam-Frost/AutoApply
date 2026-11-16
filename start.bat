@@ -4,6 +4,8 @@ rem Optional: set AUTOAPPLY_PORT=8010 before running to use another port.
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
+rem an installed copy brings its own uv
+if exist "%~dp0tools\uv.exe" set "PATH=%~dp0tools;%PATH%"
 if "%AUTOAPPLY_PORT%"=="" set AUTOAPPLY_PORT=8000
 
 where uv >nul 2>nul

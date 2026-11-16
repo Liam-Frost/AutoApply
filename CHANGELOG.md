@@ -23,6 +23,15 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
     get one.
   - **Progress you can read, and a Cancel button**: a percentage where the download reports one, a moving bar where
     it does not. The log is kept with your data (`data/logs`, the last twelve), not in the temporary folder.
+- **The macOS app and the Linux installer work the same way** as the Windows installer, through the same code
+  (`scripts/prepare.py`): an upgrade is laid out beside the installed version and swapped in, and put back when its
+  dependencies cannot be installed or you stop it; uv comes in the package (for Intel and ARM alike) instead of being
+  downloaded as a script; a running AutoApply is not killed - you are asked to quit it; logs stay with the data.
+  The Linux installer no longer needs `unzip` or `curl`, and ends with a result a script can rely on (0 ready, 2
+  stopped, 7 running, 1 failed).
+- **A browser that was downloaded but cannot start is found at install time**, on every system: it is started once.
+  On Linux, where that usually means missing system libraries, the installer says so and names the command that
+  installs them, instead of the program failing later on its first application.
 - The tray icon and its notifications are AutoApply to Windows, not `pythonw.exe`, and shortcuts are written directly
   instead of through PowerShell.
 

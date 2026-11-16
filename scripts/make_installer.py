@@ -10,8 +10,8 @@ Three parts, one inside the other:
   the second half  scripts/prepare.py, run by the engine: dependencies, browser, and the way back.
 
 The engine carries the release zip's files (scripts/make_release.py) and uv, the tool that gets Python and the
-dependencies. uv is one fixed version, downloaded here from its GitHub release and checked against the SHA-256
-below - the installer itself downloads no program and runs no script from the network.
+dependencies. uv is one fixed version, downloaded here from its GitHub release and checked against its SHA-256
+(scripts/fetch_uv.py) - the installer itself downloads no program and runs no script from the network.
 
 Inno Setup: https://jrsoftware.org/isinfo.php  (winget install JRSoftware.InnoSetup, or choco install innosetup).
 
@@ -41,13 +41,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).parent))
+import fetch_uv  # noqa: E402
 from make_release import version  # noqa: E402
-
-# To move to a newer uv: change both lines. The digest is on the release page, next to the file.
-UV_VERSION = "0.13.8"
-UV_SHA256 = "529e78a9cec6cd7e3e014f7ecd8bda0c113969d4ed0f2efeedb85c30943325b8"
-UV_URL = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/uv-x86_64-pc-windows-msvc.zip"
-
 
 def compiler() -> Path:
     found = shutil.which("ISCC")
@@ -88,24 +83,6 @@ def window(stage: Path, target: Path, ver: str, name: str, guid: str, test: bool
     subprocess.run(args + [str(src / "Setup.cs"), str(info)], check=True, cwd=stage)
 
 
-def fetch_uv(cache: Path) -> bytes:
-    """uv.exe of the fixed version. The download is kept, and it is checked every time it is used."""
-    cache.mkdir(parents=True, exist_ok=True)
-    kept = cache / f"uv-{UV_VERSION}-x86_64-pc-windows-msvc.zip"
-    if not kept.exists():
-        print(f"downloading uv {UV_VERSION}")
-        with urllib.request.urlopen(UV_URL, timeout=120) as r:  # noqa: S310 - a fixed https address
-            kept.write_bytes(r.read())
-    data = kept.read_bytes()
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != UV_SHA256:
-        kept.unlink()
-        sys.exit(f"uv {UV_VERSION}: the download's SHA-256 is {digest}, not the expected {UV_SHA256}. Nothing was built.")
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
-        name = next(n for n in z.namelist() if n.endswith("uv.exe"))
-        return z.read(name)
-
-
 def main() -> None:
     if sys.platform != "win32":
         sys.exit("The installer is built on Windows (Inno Setup). On macOS and Linux see scripts/make_macos.sh and scripts/make_linux.py.")
@@ -130,7 +107,10 @@ def main() -> None:
         for needed in ("pyproject.toml", "uv.lock", "scripts/prepare.py", "frontend/dist/index.html"):
             if not (stage / "app" / needed).exists():
                 sys.exit(f"The release zip has no {needed}: the installer would not work.")
-        (stage / "uv.exe").write_bytes(fetch_uv(out / ".cache"))
+        try:
+            (stage / "uv.exe").write_bytes(fetch_uv.fetch("windows-x86_64", out / ".cache"))
+        except fetch_uv.Mismatch as e:
+            sys.exit(f"{e}. Nothing was built.")
         # Inno Setup reads a script as UTF-8 only when it starts with a byte-order mark
         script = stage / "autoapply.iss"
         script.write_text((ROOT / "scripts" / "package" / "windows" / "autoapply.iss").read_text(encoding="utf-8"), encoding="utf-8-sig")
@@ -151,7 +131,7 @@ def main() -> None:
             subprocess.run(sign.replace("$f", f'"{target}"'), check=True, shell=True)
     if not target.exists():
         sys.exit("The installer was not produced.")
-    print(f"{target}  {target.stat().st_size / 1e6:.1f} MB  ({'signed' if sign else 'not code-signed'}, uv {UV_VERSION})")
+    print(f"{target}  {target.stat().st_size / 1e6:.1f} MB  ({'signed' if sign else 'not code-signed'}, uv {fetch_uv.VERSION})")
 
 
 if __name__ == "__main__":

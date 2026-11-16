@@ -1,7 +1,8 @@
 """The part of an installation that is not copying files: put a new version's files in place, get the Python
 dependencies and the program's browser, and take everything back if that does not work.
 
-The Windows installer copies a new version into `<root>/.staged` and then runs this file, with the uv it brought:
+Every installer (Windows, macOS, Linux) lays a new version out in `<root>/.staged` and then runs this file, with
+the uv it brought:
 
     uv run --no-project prepare.py --root <root> --staged <root>/.staged --uv <uv.exe> --status <file> --cancel <file>
 
@@ -11,7 +12,7 @@ What it tells the installer, through small files it can read without knowing JSO
   --status   "<step> <percent> <part>"   step 1 files, 2 dependencies, 3 browser; percent -1 while the tool reports
              none; part counts the downloads within a step (the browser comes in several)
   --done     "ok", "cancelled", or "error <code>"; the codes are in CODES below
-The installer asks it to stop by creating the --cancel file.
+The installer asks it to stop by creating the --cancel file; an interrupt or a terminate signal means the same.
 
 An upgrade is taken back as a whole: the old files return, and the old dependencies are restored from uv's cache.
 """
@@ -22,6 +23,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -36,10 +38,15 @@ CODES = {
     "deps_restored": "the dependencies could not be installed; the previous version was put back and works",
     "deps_broken": "the dependencies could not be installed, and the previous version's could not be restored: run setup again",
     "browser": "the program's browser could not be downloaded; everything else is installed - run setup again to finish",
+    "browser_libs": "the program's browser is there but cannot start: this system lacks libraries it needs (Linux); "
+                    "install them with the system's package manager - see the log - and run setup again",
 }
 PERCENT = re.compile(r"(\d{1,3})(?:\.\d+)?%")
 COLOUR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 LOGS_KEPT = 12
+MISSING_LIBRARY = re.compile(r"error while loading shared libraries|Host system is missing dependencies|missing dependencies to run browsers", re.I)
+# Downloading the browser is not the same as being able to start it: on Linux it needs libraries of the system's.
+STARTS = "from playwright.sync_api import sync_playwright\nwith sync_playwright() as p:\n    p.chromium.launch().close()\nprint('the browser starts')\n"
 
 
 class Cancelled(Exception):
@@ -59,6 +66,8 @@ class Job:
         self.previous = root / ".previous"
         self.moved: list[tuple[Path, Path | None]] = []        # (where it is now, where the old one went)
         self._last = ""
+        self.stopped = False        # set by a signal: the same request as the cancel file
+        self.said: list[str] = []   # the last lines the tool wrote, for telling one failure from another
 
     # --- talking to the installer ---
 
@@ -91,8 +100,20 @@ class Job:
             self._put(self.status, text)
 
     def check(self) -> None:
-        if self.cancel is not None and self.cancel.exists():
+        if self.stopped or (self.cancel is not None and self.cancel.exists()):
             raise Cancelled
+
+    def listen(self) -> None:
+        """Ctrl+C in the terminal an installer runs in, or a polite kill: stop in order and go back, not die half-way."""
+        def stop(*_: object) -> None:
+            self.stopped = True
+
+        for name in ("SIGINT", "SIGTERM", "SIGHUP"):
+            if hasattr(signal, name):
+                try:
+                    signal.signal(getattr(signal, name), stop)
+                except (ValueError, OSError):       # not the main thread, or not allowed here
+                    pass
 
     # --- running a tool ---
 
@@ -102,7 +123,9 @@ class Job:
         self.note("> " + " ".join(args))
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "NO_COLOR": "1", "UV_NO_PROGRESS": "1"}
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        p = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=flags)
+        # a group of its own: a Ctrl+C in the terminal reaches this program, which then stops the tool and all it started
+        own = {"creationflags": flags} if sys.platform == "win32" else {"start_new_session": True}
+        p = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **own)
 
         def read() -> None:
             buf, seen, part = b"", -1, 0
@@ -126,6 +149,7 @@ class Job:
                             continue
                         seen = pct
                         line = line.rsplit("|", 1)[-1].strip()      # the figures, without the drawn bar
+                    self.said = (self.said + [line])[-60:]
                     self.note(line)
             if buf.strip():
                 self.note(buf.decode("utf-8", "replace").strip())
@@ -148,7 +172,14 @@ class Job:
         if sys.platform == "win32":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         else:
-            p.kill()
+            try:
+                os.killpg(p.pid, signal.SIGTERM)        # the tool and what it started (downloads, builds)
+                try:
+                    p.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         try:
             p.wait(timeout=15)
         except subprocess.TimeoutExpired:
@@ -215,8 +246,13 @@ class Job:
             if code != 0:
                 raise Failed(self.back())
             self.tell(3)
-            if self.run([self.uv, "run", "--frozen", "--no-sync", "playwright", "install", "chromium"], 3, self.root) != 0:
-                raise Failed("browser")
+            for tool in (["playwright", "install", "chromium"], ["python", "-c", STARTS]):
+                self.said = []
+                if self.run([self.uv, "run", "--frozen", "--no-sync", *tool], 3, self.root) != 0:
+                    missing = sys.platform.startswith("linux") and any(MISSING_LIBRARY.search(line) for line in self.said)
+                    if missing:
+                        self.note(f"On Debian or Ubuntu the libraries are installed with:  sudo {self.root / '.venv' / 'bin' / 'playwright'} install-deps chromium")
+                    raise Failed("browser_libs" if missing else "browser")
             shutil.rmtree(self.previous, ignore_errors=True)
             shutil.rmtree(self.staged, ignore_errors=True)
             return "ok"
@@ -231,11 +267,12 @@ class Job:
         """The dependencies did not install: return to the previous version. Says which of the three ends it came to."""
         if not self.restore():
             return "deps"
-        cancel, self.cancel = self.cancel, None             # this must run to its end
+        cancel, stopped = self.cancel, self.stopped         # this must run to its end, however the stop was asked for
+        self.cancel, self.stopped = None, False
         try:
             ok = self.sync(offline=True) == 0
         finally:
-            self.cancel = cancel
+            self.cancel, self.stopped = cancel, stopped
         return "deps_restored" if ok else "deps_broken"
 
 
@@ -251,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     path = lambda v: Path(v) if v else None  # noqa: E731
     job = Job(Path(a.root), Path(a.staged), a.uv, path(a.status), path(a.done), path(a.cancel), path(a.log))
+    job.listen()
     try:
         result = job.go()
     except Exception as e:  # noqa: BLE001 - whatever it is, the installer must be told, and the log must say what

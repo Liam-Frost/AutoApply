@@ -79,7 +79,7 @@ Download from the [latest release](https://github.com/Liam-Frost/AutoApply/relea
 |---|---|---|
 | **Windows 10 / 11** | `AutoApply-Setup-<version>.exe` | Run it. Choose where to install and which shortcuts you want. |
 | **macOS 12+** | `AutoApply-<version>-macos.dmg` | Open it and drag AutoApply to Applications. |
-| **Linux** | `AutoApply-<version>-linux.run` | `sh AutoApply-<version>-linux.run` |
+| **Linux** | `AutoApply-<version>-linux.run` | `sh AutoApply-<version>-linux.run` (x86-64 and ARM64; add `--yes` to install without questions, for a server) |
 | Any, portable | `AutoApply-<version>.zip` | Unzip, then `start.bat` (Windows) or `./start.sh`. |
 
 <p align="center"><img src="docs/images/setup-en.png" alt="The setup window" width="560"></p>

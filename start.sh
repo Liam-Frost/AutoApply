@@ -19,6 +19,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 echo "[AutoApply] checking dependencies (a few minutes the first time)..."
+[ -x "./tools/uv" ] && PATH="$PWD/tools:$PATH"      # an installed copy brings its own uv
 # --inexact: keep optional components added later (the ChatGPT sign-in component); a plain sync would remove them on every start
 uv sync --inexact
 
