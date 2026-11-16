@@ -21,6 +21,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/scripts/package/macos/AutoApply" "$APP/Contents/MacOS/AutoApply"
 chmod +x "$APP/Contents/MacOS/AutoApply"
 cp "$ZIP" "$APP/Contents/Resources/app.zip"
+cp "$ROOT/scripts/package/common.sh" "$APP/Contents/Resources/common.sh"
+# uv for both kinds of Mac, one fixed version checked against its SHA-256 (scripts/fetch_uv.py)
+PY="$(command -v python3 || command -v python)"
+"$PY" "$ROOT/scripts/fetch_uv.py" macos-aarch64 "$APP/Contents/Resources/uv-aarch64" --cache "$OUT/.cache"
+"$PY" "$ROOT/scripts/fetch_uv.py" macos-x86_64 "$APP/Contents/Resources/uv-x86_64" --cache "$OUT/.cache"
 printf '%s' "$VER" > "$APP/Contents/Resources/version.txt"
 
 # the icon, from the brand mark

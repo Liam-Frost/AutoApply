@@ -4,8 +4,53 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **The Windows installer is rebuilt.** It was a self-extracting archive around a PowerShell script that drew its
+  own window, which is why the taskbar showed PowerShell, the file had no icon or version details, and the progress
+  line showed unreadable characters. The window looks the same - the program's own design, English or Chinese, light
+  or dark - but is now a program of its own with the program's icon, name and version, and the installing behind it is
+  done by Inno Setup, so the program is registered and removed the way Windows expects.
+  - **An upgrade can be taken back.** The new version is copied beside the installed one and swapped in; if its
+    dependencies cannot be installed, or you cancel, the previous version's files return. Before, the old folders
+    were deleted first and a failure left a broken installation.
+  - **It does not stop the program for you.** While AutoApply is running the installer says so and waits; it used to
+    end every Python process whose command line mentioned the folder, whatever it was doing.
+  - **uv comes in the package**, one fixed version checked by its SHA-256 when the installer is built. The installer
+    no longer downloads a script and runs it.
+  - **The browser is asked for on every install and upgrade** (and by the start scripts and the macOS and Linux
+    packages): "its folder exists" was taken to mean it was there, so an upgrade that needed a newer build did not
+    get one.
+  - **Progress you can read, and a Cancel button**: a percentage where the download reports one, a moving bar where
+    it does not. The log is kept with your data (`data/logs`, the last twelve), not in the temporary folder.
+- **The macOS app and the Linux installer work the same way** as the Windows installer, through the same code
+  (`scripts/prepare.py`): an upgrade is laid out beside the installed version and swapped in, and put back when its
+  dependencies cannot be installed or you stop it; uv comes in the package (for Intel and ARM alike) instead of being
+  downloaded as a script; a running AutoApply is not killed - you are asked to quit it; logs stay with the data.
+  The Linux installer no longer needs `unzip` or `curl`, and ends with a result a script can rely on (0 ready, 2
+  stopped, 7 running, 1 failed).
+- **A browser that was downloaded but cannot start is found at install time**, on every system: it is started once.
+  On Linux, where that usually means missing system libraries, the installer says so and names the command that
+  installs them, instead of the program failing later on its first application.
+- The tray icon and its notifications are AutoApply to Windows, not `pythonw.exe`, and shortcuts are written directly
+  instead of through PowerShell.
+
 ### Fixed
 
+- **An answer in a draft can be changed after the draft was approved.** The "Edit" button was only there until you
+  approved, so a wrong answer noticed afterwards - or one a run failed on - could not be corrected, and neither
+  could the résumé. Now every answer can be changed for as long as the application has not gone out. The draft stays
+  approved (the change is your own), what was changed is listed with the draft, and "Fill in again and submit" uses
+  the answers as they are now. A draft is closed only when it is an old version, when the application was sent, or
+  while a run is filling the form from it - and it says which.
+- **A list whose button shows less than the entry it holds no longer stops a run.** A phone-code list has "+1 United
+  States", "+1 Canada", "+1 Bahamas"...; once one is chosen its button reads "+1". The program took "the button did
+  not change to the entry's text" for a failed choice, then took "+1" against "+1 Canada" for a difference from the
+  draft, and the AI, asked to look, could only say that the country is not visible - so the run was handed to you
+  although the right entry had been chosen. Now the list itself is asked which entry it holds: it is opened, the
+  entry it marks as chosen is read, and it is closed again. The approved entry: no difference, nobody is asked.
+  Another entry: a difference, and the message says which. The same goes for a location list that shows "Vancouver,
+  Canada" for "Vancouver, BC, Canada".
 - **"You have already applied" is one answer, wherever the program meets it.** Met while a form was being filled, it
   was understood; met while the form was being read - the AI reporting it, or the site's own list of your applications
   showing the posting - it became a card saying the program could not work the site. Now the application is recorded

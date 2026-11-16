@@ -187,6 +187,21 @@ def start() -> None:
     _sched.start()
 
 
+def _mail_new() -> None:
+    """Every couple of minutes: was anything added to the inbox? Asked here, without a task - the answer is nearly
+    always "no", and a task every two minutes would bury the activity record. Only when something arrived is a task
+    queued to read it."""
+    from . import mail, mailbox
+
+    try:
+        if db.get_setting("schedule.paused") or not mailbox.incremental():
+            return
+        if mail.anything_new():
+            enqueue("mail", ref="new", payload={"quick": True}, priority=50)
+    except Exception as e:  # noqa: BLE001 - the network is down, the sign-in has run out: the hourly pass reports that
+        log.info("could not ask the mailbox what is new (%s)", type(e).__name__)
+
+
 def _schedule_jobs() -> None:
     assert _sched is not None
     for job in _sched.get_jobs():
@@ -194,6 +209,8 @@ def _schedule_jobs() -> None:
     plan = {
         "discover": ("schedule.discover_minutes", lambda: enqueue("discover", ref="schedule", priority=200)),
         "mail": ("schedule.mail_minutes", lambda: enqueue("mail", ref="schedule", priority=50)),
+        # between the passes over the last days: only what arrived since the last look (one small request, usually "nothing")
+        "mail_new": ("schedule.mail_new_minutes", _mail_new),
         "canary": ("schedule.canary_minutes", lambda: enqueue("canary", ref="schedule", priority=900)),
     }
     from datetime import datetime, timedelta
