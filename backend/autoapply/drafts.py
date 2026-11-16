@@ -13,10 +13,10 @@ from typing import Any
 
 from . import answers as ans, messages
 from . import prompts
-from . import auth, browser, config, db, knowledge, llm, materials, metering, notify
+from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
-from .ats.base import DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
-from .models import Application, Draft, DraftComment, DriverStat, Job, now
+from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
+from .models import Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
 
@@ -60,6 +60,7 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
         if driver.requires_login:
             with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
                 auth.ensure_session(page, driver, ref)
+                _applied_there(driver, page, ref)
         return generic.recon(job, ref, run_dir)
     if not driver.requires_login and ref.tenant:
         if getattr(driver, "page_extras", False):  # the API misses blocks that only the page shows
@@ -71,10 +72,39 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
             ref = driver.resolve_board(page, ref)  # type: ignore[attr-defined]
             return ref, driver.get_schema(ref, None)
         auth.ensure_session(page, driver, ref)
+        _applied_there(driver, page, ref)
         # Walk with profile-derived answers so conditional questions appear.
         schema = driver.get_schema(ref, page, answers=_walk_answerer(job, given))
         browser.snapshot(page, run_dir, "recon_last_page")
         return ref, schema
+
+
+def _undo(app_id: int) -> None:
+    """An application for which nothing was drafted is taken away again, so that the job reads "not applied". The
+    record of its status changes goes with it (it only says "reading began"), and mail that was linked to it is kept
+    without the link. Deleting the application alone failed on those rows the second time a reading was tried."""
+    with db.session() as s:
+        a = s.get(Application, app_id)
+        if a is None or a.drafts:
+            return
+        s.query(ApplicationEvent).filter_by(application_id=app_id).delete()
+        s.query(MailEvent).filter_by(application_id=app_id).update({"application_id": None})
+        s.delete(a)
+
+
+def _applied_there(driver: Any, page: Any, ref: JobRef) -> None:
+    """Signed in on a site that keeps a list of your applications: a posting that is on it is not read again."""
+    if not driver.requires_login:
+        return
+    try:
+        there = driver.already_applied(page, ref)
+    except (NeedsHuman, SiteDown):
+        raise
+    except Exception:  # noqa: BLE001 - the list could not be read: the form itself will say so if it has been applied for
+        log.info("could not check the list of applications on %s", ref.tenant_key, exc_info=True)
+        return
+    if there:
+        raise AlreadyApplied({"url": page.url, "text": "The site lists this posting among your applications.", "already_applied": "yes"})
 
 
 def _walk_answerer(job: Job, given: dict[str, Any] | None = None):
@@ -168,24 +198,22 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
     given = _given(app_id)
     try:
         ref, schema = recon(job, run_dir, given)
+    except AlreadyApplied as e:      # the same answer as when it is met while filling: this application is a sent one
+        lifecycle.applied_before(app_id, e.args[0] if e.args else None)
+        raise
     except NeedsHuman as e:
         _set_app(app_id, "needs_human", f"recon blocked: {e.reason}")
         raise
     except Exception as e:
         closed = isinstance(e, DriverError) and re.search(r"not found|closed|no longer", str(e), re.I)
         if closed:
+            _undo(app_id)       # nothing was drafted: the job goes back to "not applied", with the reason on it
             with db.session() as s:
-                a = s.get(Application, app_id)
-                if a is not None and not a.drafts:
-                    s.delete(a)  # nothing was drafted: the job goes back to "not applied", with the reason on it
                 j = s.get(Job, job_id)
                 j.note = f"雇主官网上已找不到这个岗位，可能已关闭（{now().date().isoformat()} 核对）"
             raise DriverError("岗位在雇主官网上已关闭或链接失效，没有生成草案") from e
         if isinstance(e, SiteDown):  # the site is unreachable right now: leave the job as it was
-            with db.session() as s2:
-                a2 = s2.get(Application, app_id)
-                if a2 is not None and not a2.drafts:
-                    s2.delete(a2)
+            _undo(app_id)
             raise
         _set_app(app_id, "failed", "recon failed")
         if (r := registry.detect(job.apply_url or "")) is not None:

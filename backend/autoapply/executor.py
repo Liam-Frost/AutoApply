@@ -36,9 +36,9 @@ from pathlib import Path
 from typing import Any
 
 from . import answers as ans, messages
-from . import auth, browser, config, db, fixtures, knowledge, llm, metering, notify, repair, secrets
+from . import auth, browser, config, db, fixtures, knowledge, lifecycle, llm, metering, notify, repair, secrets
 from .ats import audit, registry
-from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
+from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .drafts import _stat
 from .models import Application, Draft, Run, now
 
@@ -84,9 +84,6 @@ def submit_mode(ats: str, company: str, answers: list[dict[str, Any]], *, has_dr
 
 DONE_RE = re.compile(r"thank(s| you) for (applying|your (application|interest|submission))|thank you|application (has been |was |is )?(received|submitted|sent|complete)|successfully (submitted|applied)|we(.ve| have) received|submission (received|complete)", re.I)
 DONE_URL = re.compile(r"/(confirmation|thank[-_]?you|thanks|success|submitted|applied)(?=[/?#]|$)|[?&]result=(success|submitted|duplicate)\b", re.I)
-# the site says an application for this posting exists already: there is no form to fill, and nothing to send again
-ALREADY_RE = re.compile(r"you(.ve| have) already (applied|submitted)|already (applied|submitted an application) (for|to) this|"
-                        r"you(.ve| have) previously applied (for|to) this|application (has )?already (been )?(received|submitted)|你已(经)?申请过", re.I)
 
 
 def _seen(page: Any, limit: int = 6000) -> dict[str, str]:
@@ -824,7 +821,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         ok = outcome.get("status") == "submitted"
     except AlreadyApplied as e:
         seen_there = e.args[0] if e.args and isinstance(e.args[0], dict) else {"text": "The site shows this job as already applied."}
-        outcome = {"status": "submitted", "evidence": seen_there, "note": "雇主网站显示这个岗位已经申请过了，没有再提交一次"}
+        outcome = {"status": "submitted", "evidence": seen_there, "note": lifecycle.APPLIED_BEFORE, "earlier": True}
         ok = True
     except NeedsHuman as e:
         outcome = {"status": "needs_human", "error": e.reason}
@@ -903,7 +900,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         for m in db.get_setting("mail.confirm_check_minutes") or []:  # the confirmation e-mail turns "submitted" into "confirmed"
             tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
         _stat(ref.ats, "exec_ok", streak=True)
-        notify.send("task_result", messages.submitted(title, evidence=outcome.get("evidence", {}).get("text") or "", auto=was_auto, note=outcome.get("note", "")), ref=f"application:{application_id}")
+        notify.send("task_result", messages.submitted(title, evidence=outcome.get("evidence", {}).get("text") or "", auto=was_auto, note="already applied" if outcome.get("earlier") else ""), ref=f"application:{application_id}")
     elif outcome["status"] == "failed":
         _stat(ref.ats, "exec_fail", reset_streak=True)
         notify.add_todo("failed", f"{title}：执行失败", body=outcome.get("error", "")[:500], ref=f"application:{application_id}", payload={"draft_id": draft_id, **{k: v for k, v in outcome.items() if k in ("mismatches", "driver_error")}},
