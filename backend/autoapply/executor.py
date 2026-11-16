@@ -1028,7 +1028,7 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
     One repair attempt on the page that is currently open; any remaining mismatch stops the run."""
     scope = [a for a in draft_answers if i is None or page_of.get(a["id"], 0) == i]
     back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-    bad = _really_different(page, schema, verify(schema, scope, back))
+    bad = _really_different(page, schema, _held(driver, page, schema, verify(schema, scope, back)))
     current = i if i is not None else max(0, len(schema.pages or ["x"]) - 1)
     if bad and all(page_of.get(b["id"], 0) == current for b in bad):
         rep = _repair(page, schema, current, fill, {"message": "values on the form differ from the approved draft", "mismatches": bad},
@@ -1039,7 +1039,7 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
                 after_repair(rep)
                 scope = [a for a in scope if a["id"] not in set(rep.get("unfixed") or [])]
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-            bad = _really_different(page, schema, _not_vouched(verify(schema, scope, back), rep.get("fixed") or []))
+            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or [], schema))
     wanted = [a for a in scope if a["value"] not in ("", None, [])]
     step("read_back", page=i, checked=sum(1 for a in wanted if a["id"] in back), unverified=[a["label"] for a in wanted if a["id"] not in back][:20], mismatches=len(bad))
     if bad:
@@ -1047,17 +1047,39 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
         raise VerifyFailed(bad)
 
 
-def _not_vouched(bad: list[dict[str, Any]], fixed: list[str]) -> list[dict[str, Any]]:
-    """A control that shows less than it holds: a phone-code list whose entry is "+1 / Canada" shows "+1" once chosen, and
-    "+1" cannot be told from the other countries' "+1" by reading it. When the agent was just sent to exactly this field,
-    chose the approved entry and reports it done, and what the control shows is a part of that entry, the field holds the
-    approved answer - the agent saw the choice being made; the read-back cannot see it. Anything the control shows
-    that is NOT part of the approved entry stays a difference, whoever vouches for it."""
-    def parts(v: Any) -> set[str]:
-        return {x for x in (re.sub(r"\s+", " ", t).strip().lower() for t in re.split(r"[\n,;|/()]", str(v))) if x}
+def _held(driver: Any, page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A control that shows less than it holds: a phone-code list whose entry is "+1 Canada" shows "+1" once chosen, and
+    "+1" cannot be told from the other countries' "+1" by reading it. That is not a difference from the draft and not a
+    question for the AI: the list knows which entry it holds, and is asked. It holds the approved entry - no
+    difference. It holds another - a difference, and now it says which. It does not say - left for the steps after
+    this one, as before."""
+    from .ats.widgets import shows_part
 
-    return [b for b in bad if not (b["id"] in fixed and not isinstance(b["expected"], list) and len(parts(b["expected"])) > 1
-                                   and str(b["actual"] or "").strip() and parts(b["actual"]) <= parts(b["expected"]))]
+    ask = [b["id"] for b in bad if not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"])]
+    held = getattr(driver, "held", None)
+    if not ask or held is None:
+        return bad
+    found = held(page, schema, ask)
+    out = []
+    for b in bad:
+        h = found.get(b["id"])
+        if h is not None and values_equal(b["expected"], h):
+            continue
+        out.append({**b, "actual": h} if h is not None else b)
+    return out
+
+
+def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema) -> list[dict[str, Any]]:
+    """For a control that shows less than it holds and whose list does not say which entry it holds (see _held): when the
+    agent was just sent to exactly this field, chose the approved entry and reports it done, and what the control shows
+    is a part of that entry, the field holds the approved answer - the agent saw the choice being made; the read-back
+    cannot see it. Anything the control shows that is NOT part of the approved entry stays a difference, whoever
+    vouches for it. Only a control that is a choice among entries can show less than it holds: a text box that reads
+    "John" for "John Smith" holds "John"."""
+    from .ats.widgets import shows_part
+
+    choice = {q.id for q in schema.questions if q.type in ("select", "radio") or (q.options and q.type not in ("text", "textarea", "multiselect", "checkbox", "file"))}
+    return [b for b in bad if not (b["id"] in fixed and b["id"] in choice and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]))]
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Locator, Page
+from playwright.sync_api import Error as PWError
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from .base import DriverError, values_equal
@@ -207,20 +208,69 @@ def react_select_value(input_loc: Locator) -> str:
 # --- Workday -------------------------------------------------------------------
 
 
+def _words(v: object) -> list[str]:
+    return [t for t in re.split(r"[\s,;|/()]+", str(v if v is not None else "").lower()) if t]
+
+
+def shows_part(shown: object, entry: object) -> bool:
+    """Does a control show only a part of the entry it was given?
+
+    A list of phone codes has the entries "+1 United States", "+1 Canada", "+1 Bahamas" ...; once one is chosen its
+    button reads "+1". What is shown is then true of the entry and says less than it: every word of it is a word of
+    the entry, and the entry has more. Reading such a control cannot tell which entry it holds - the list can
+    (held_choice)."""
+    s, e = _words(shown), _words(entry)
+    return bool(s) and len(s) < len(e) and all(w in e for w in s)
+
+
+_OPTIONS = "[role=listbox]:visible [role=option]"
+_HELD_JS = """(els) => { const e = els.find(x => x.getAttribute('aria-selected') === 'true' || x.getAttribute('aria-checked') === 'true'
+    || x.getAttribute('aria-current') === 'true' || x.dataset.selected === 'true' || x.dataset.state === 'checked');
+  return e ? (e.innerText || '').trim() : null; }"""
+
+
+def held_choice(page: Page, button: Locator) -> str | None:
+    """Which entry a closed list holds, asked of the list itself: it is opened, the entry it marks as chosen is read,
+    and it is closed again without choosing anything. None when the list marks none (some do not), or cannot be opened -
+    then nothing is known, which is not the same as "something else"."""
+    try:
+        button.scroll_into_view_if_needed(timeout=T)
+        button.click(timeout=T)
+        opts = page.locator(_OPTIONS)
+        opts.first.wait_for(state="visible", timeout=T)
+        held = opts.evaluate_all(_HELD_JS)
+    except (PWTimeout, PWError):
+        held = None
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+    except PWError:
+        pass
+    return held
+
+
 def workday_listbox(page: Page, button: Locator, label: str) -> str:
-    """Workday dropdown rendered as a <button aria-haspopup=listbox>."""
+    """A dropdown rendered as a button that opens a list (<button aria-haspopup=listbox>, or role=combobox)."""
     button.scroll_into_view_if_needed(timeout=T)
     button.click(timeout=T)
-    opts = page.locator("[role=listbox]:visible [role=option]")
+    opts = page.locator(_OPTIONS)
     opts.first.wait_for(state="visible", timeout=T)
     texts = [t.strip() for t in opts.all_inner_texts()]
     i = pick_option(texts, label)
     opts.nth(i).click(timeout=T)
     page.wait_for_timeout(400)
     got = button.inner_text().strip()
-    if not values_equal(texts[i], got) and _norm(texts[i]) not in _norm(got):
-        raise DriverError("Workday dropdown did not change", expected=texts[i], seen=got)
-    return texts[i]
+    if values_equal(texts[i], got) or _norm(texts[i]) in _norm(got):
+        return texts[i]
+    if shows_part(got, texts[i]):
+        # The button shows less than the entry ("+1" for "+1 Canada"): that it did not change to the entry's text is not
+        # a failure. Whether the entry was taken is asked of the list. A list that marks another entry did not take it;
+        # one that marks none has nothing to add - the entry was clicked and what is shown is part of it.
+        held = held_choice(page, button)
+        if held is None or values_equal(held, texts[i]):
+            return texts[i]
+        raise DriverError("the list holds another entry than the one that was chosen", expected=texts[i], seen=held)
+    raise DriverError("Workday dropdown did not change", expected=texts[i], seen=got)
 
 
 def workday_prompt(page: Page, search_input: Locator, path: list[str]) -> None:
