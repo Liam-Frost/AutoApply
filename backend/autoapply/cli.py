@@ -89,6 +89,9 @@ def main() -> None:
 
         from . import access
 
+        from . import runstate
+
+        runstate.mark("server")         # the installers look for this before they touch the program's files
         c = access.conf()
         host, port = a.host or c["host"], a.port or c["port"]
         os.environ["AUTOAPPLY_LISTENING_HOST"], os.environ["AUTOAPPLY_LISTENING_PORT"] = host, str(port)

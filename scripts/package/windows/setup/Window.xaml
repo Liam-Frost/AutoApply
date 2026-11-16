@@ -1,0 +1,132 @@
+<!-- The setup window, drawn to docs/DESIGN_SYSTEM.md: the tokens in {{double braces}} are the colours of
+     frontend/src/style.css, put in by Setup.cs for the light or the dark theme. Loaded at run time (no build step). -->
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AutoApply" Width="680" Height="500" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="14" Foreground="{{text}}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+  <Window.Resources>
+    <Style x:Key="Btn" TargetType="Button">
+      <Setter Property="Foreground" Value="{{text}}"/><Setter Property="Background" Value="{{surface}}"/><Setter Property="BorderBrush" Value="{{borderStrong}}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Padding" Value="16,8"/><Setter Property="Cursor" Value="Hand"/><Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{{surface2}}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{{text3}}"/><Setter TargetName="b" Property="Background" Value="{{neutralSoft}}"/><Setter TargetName="b" Property="BorderBrush" Value="{{neutralSoft}}"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Btn}">
+      <Setter Property="Foreground" Value="{{onPrimary}}"/><Setter Property="Background" Value="{{primary}}"/><Setter Property="BorderBrush" Value="{{primary}}"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{{primaryHover}}"/><Setter TargetName="b" Property="BorderBrush" Value="{{primaryHover}}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{{text3}}"/><Setter TargetName="b" Property="Background" Value="{{neutralSoft}}"/><Setter TargetName="b" Property="BorderBrush" Value="{{neutralSoft}}"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="Danger" TargetType="Button" BasedOn="{StaticResource Btn}"><Setter Property="Foreground" Value="{{bad}}"/></Style>
+    <Style x:Key="Ghost" TargetType="Button" BasedOn="{StaticResource Btn}"><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{{text2}}"/></Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{{text}}"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,22,0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+        <StackPanel Orientation="Horizontal" Background="Transparent">
+          <Border x:Name="box" Width="18" Height="18" CornerRadius="4" BorderThickness="1.5" BorderBrush="{{borderStrong}}" Background="{{surface}}" VerticalAlignment="Center">
+            <Path x:Name="tick" Data="M3.5,9 L7.5,13 L14.5,5" Stroke="{{onPrimary}}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Visibility="Collapsed"/></Border>
+          <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/></StackPanel>
+        <ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True">
+          <Setter TargetName="box" Property="Background" Value="{{primary}}"/><Setter TargetName="box" Property="BorderBrush" Value="{{primary}}"/><Setter TargetName="tick" Property="Visibility" Value="Visible"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="RadioButton">
+      <Setter Property="Foreground" Value="{{text}}"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,0,10"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+        <StackPanel Orientation="Horizontal" Background="Transparent">
+          <Grid Width="18" Height="18" VerticalAlignment="Top" Margin="0,2,0,0"><Ellipse x:Name="ring" Stroke="{{borderStrong}}" StrokeThickness="1.5" Fill="{{surface}}"/><Ellipse x:Name="dot" Width="8" Height="8" Fill="{{primary}}" Visibility="Collapsed"/></Grid>
+          <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/></StackPanel>
+        <ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="ring" Property="Stroke" Value="{{primary}}"/><Setter TargetName="dot" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Foreground" Value="{{text}}"/><Setter Property="CaretBrush" Value="{{text}}"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
+        <Border x:Name="b" Background="{{surface}}" BorderBrush="{{borderStrong}}" BorderThickness="1" CornerRadius="6" Padding="9,0"><ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/></Border>
+        <ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="{{primary}}"/></Trigger></ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </Window.Resources>
+  <Border x:Name="Shell" Margin="18" CornerRadius="14" Background="{{surface}}" BorderBrush="{{border}}" BorderThickness="1">
+    <Border.Effect><DropShadowEffect BlurRadius="28" ShadowDepth="6" Direction="270" Opacity="0.22" Color="#102040"/></Border.Effect>
+    <Grid>
+      <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <!-- header: the brand, and the close button; the whole strip drags the window -->
+      <Grid x:Name="Header" Background="Transparent" Margin="24,0,12,0">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Border Width="34" Height="34" CornerRadius="8" Background="{{logoTile}}"><Image x:Name="Logo" Width="28" Height="28"/></Border>
+          <TextBlock Text="AutoApply" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" Margin="10,0,0,0"/>
+          <Border x:Name="VerPill" CornerRadius="10" Background="{{neutralSoft}}" Padding="9,2" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="Ver" FontSize="12" FontWeight="SemiBold" Foreground="{{text2}}"/></Border>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <Border x:Name="LangSeg" CornerRadius="8" Background="{{neutralSoft}}" Padding="3" Margin="0,0,10,0" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal">
+              <Border x:Name="LangZh" CornerRadius="6" Padding="10,3" Cursor="Hand"><TextBlock x:Name="LangZhT" Text="&#x4E2D;&#x6587;" FontSize="12" FontWeight="SemiBold"/></Border>
+              <Border x:Name="LangEn" CornerRadius="6" Padding="10,3" Cursor="Hand"><TextBlock x:Name="LangEnT" Text="English" FontSize="12" FontWeight="SemiBold"/></Border>
+            </StackPanel></Border>
+          <Button x:Name="CloseBtn" Style="{StaticResource Ghost}" Content="&#x2715;" Width="36" MinHeight="32" Padding="0" VerticalAlignment="Center" FontWeight="Normal"/>
+        </StackPanel>
+      </Grid>
+
+      <!-- page: choose (install / upgrade / repair) -->
+      <StackPanel x:Name="PgChoose" Grid.Row="1" Margin="28,6,28,0">
+        <TextBlock x:Name="ChTitle" FontSize="20" FontWeight="Bold"/>
+        <TextBlock x:Name="ChSub" Foreground="{{text2}}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="21"/>
+        <Border x:Name="ExistBox" CornerRadius="10" Background="{{primarySoft}}" Padding="14,11" Margin="0,16,0,0" Visibility="Collapsed">
+          <StackPanel><TextBlock x:Name="ExistHead" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="ExistPath" Foreground="{{text2}}" FontSize="13" TextWrapping="Wrap" Margin="0,3,0,0"/>
+            <TextBlock x:Name="ExistNote" Foreground="{{text2}}" FontSize="13" TextWrapping="Wrap" Margin="0,3,0,0"/></StackPanel></Border>
+        <StackPanel x:Name="PathBox" Margin="0,18,0,0">
+          <TextBlock x:Name="PathLabel" FontWeight="SemiBold" FontSize="13"/>
+          <Grid Margin="0,6,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBox x:Name="PathText" Height="36"/><Button x:Name="BrowseBtn" Grid.Column="1" Style="{StaticResource Btn}" Margin="8,0,0,0"/></Grid>
+          <TextBlock x:Name="PathHint" Foreground="{{text3}}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
+        </StackPanel>
+        <StackPanel x:Name="OptBox" Orientation="Horizontal" Margin="0,18,0,0">
+          <CheckBox x:Name="OptDesktop" IsChecked="True"/><CheckBox x:Name="OptStart" IsChecked="True"/><CheckBox x:Name="OptAuto"/></StackPanel>
+        <TextBlock x:Name="NetNote" Foreground="{{text3}}" FontSize="12" TextWrapping="Wrap" Margin="0,16,0,0" LineHeight="18"/>
+      </StackPanel>
+
+      <!-- page: uninstall -->
+      <StackPanel x:Name="PgRemove" Grid.Row="1" Margin="28,6,28,0" Visibility="Collapsed">
+        <TextBlock x:Name="RmTitle" FontSize="20" FontWeight="Bold"/>
+        <TextBlock x:Name="RmSub" Foreground="{{text2}}" TextWrapping="Wrap" Margin="0,6,0,18" LineHeight="21"/>
+        <RadioButton x:Name="RmKeep" GroupName="rm" IsChecked="True"><StackPanel><TextBlock x:Name="RmKeepT" FontWeight="SemiBold"/><TextBlock x:Name="RmKeepD" Foreground="{{text2}}" FontSize="13" TextWrapping="Wrap" MaxWidth="540"/></StackPanel></RadioButton>
+        <RadioButton x:Name="RmAll" GroupName="rm"><StackPanel><TextBlock x:Name="RmAllT" FontWeight="SemiBold" Foreground="{{bad}}"/><TextBlock x:Name="RmAllD" Foreground="{{text2}}" FontSize="13" TextWrapping="Wrap" MaxWidth="540"/></StackPanel></RadioButton>
+        <TextBlock x:Name="RmNote" Foreground="{{text3}}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" LineHeight="18"/>
+      </StackPanel>
+
+      <!-- page: progress -->
+      <StackPanel x:Name="PgWork" Grid.Row="1" Margin="28,6,28,0" Visibility="Collapsed">
+        <TextBlock x:Name="WkTitle" FontSize="20" FontWeight="Bold"/>
+        <TextBlock x:Name="WkSub" Foreground="{{text2}}" TextWrapping="Wrap" Margin="0,6,0,14"/>
+        <StackPanel x:Name="Steps"/>
+        <Border Height="6" CornerRadius="3" Background="{{neutralSoft}}" Margin="0,14,0,0"><Border x:Name="Bar" Height="6" CornerRadius="3" Background="{{primary}}" HorizontalAlignment="Left" Width="0"/></Border>
+        <TextBlock x:Name="WkLine" Foreground="{{text3}}" FontSize="12" TextTrimming="CharacterEllipsis" Margin="0,8,0,0"/>
+      </StackPanel>
+
+      <!-- page: result -->
+      <StackPanel x:Name="PgDone" Grid.Row="1" Margin="28,22,28,0" Visibility="Collapsed">
+        <Border x:Name="DoneIcon" Width="52" Height="52" CornerRadius="26" HorizontalAlignment="Left"><Path x:Name="DoneGlyph" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+        <TextBlock x:Name="DnTitle" FontSize="20" FontWeight="Bold" Margin="0,16,0,0"/>
+        <TextBlock x:Name="DnSub" Foreground="{{text2}}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="21"/>
+        <CheckBox x:Name="DnLaunch" IsChecked="True" Margin="0,18,0,0"/>
+      </StackPanel>
+
+      <Border x:Name="Notice" Grid.Row="1" VerticalAlignment="Bottom" Margin="28,0,28,0" CornerRadius="10" Background="{{warnSoft}}" Padding="14,11" Visibility="Collapsed">
+        <TextBlock x:Name="NoticeT" Foreground="{{warn}}" FontSize="13" TextWrapping="Wrap" LineHeight="19"/></Border>
+
+      <!-- footer: at most one primary action -->
+      <Border Grid.Row="2" BorderBrush="{{border}}" BorderThickness="0,1,0,0" Padding="24,14" Margin="0,18,0,0">
+        <Grid><Button x:Name="LeftBtn" Style="{StaticResource Ghost}" HorizontalAlignment="Left" Visibility="Collapsed"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="SecondBtn" Style="{StaticResource Btn}" Margin="0,0,8,0" Visibility="Collapsed"/><Button x:Name="MainBtn" Style="{StaticResource Primary}" MinWidth="120"/></StackPanel></Grid></Border>
+    </Grid>
+  </Border>
+</Window>

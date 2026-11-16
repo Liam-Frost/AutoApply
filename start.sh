@@ -19,14 +19,14 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 echo "[AutoApply] checking dependencies (a few minutes the first time)..."
+[ -x "./tools/uv" ] && PATH="$PWD/tools:$PATH"      # an installed copy brings its own uv
 # --inexact: keep optional components added later (the ChatGPT sign-in component); a plain sync would remove them on every start
 uv sync --inexact
 
-# the program's own browser (downloaded once; Playwright keeps it in the user's cache folder)
-if [ ! -d "$HOME/.cache/ms-playwright" ] && [ ! -d "$HOME/Library/Caches/ms-playwright" ]; then
-  echo "[AutoApply] downloading the browser the program uses (once)..."
-  uv run playwright install chromium
-fi
+# the program's own browser. Asked for every time: it returns at once when the right build is there, and a newer
+# Playwright needs a newer build - "the folder exists" does not say which one is in it
+echo "[AutoApply] checking the browser the program uses (a download the first time and after some upgrades)..."
+uv run playwright install chromium
 
 if [ ! -f frontend/dist/index.html ]; then
   if ! command -v npm >/dev/null 2>&1; then

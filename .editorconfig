@@ -18,5 +18,7 @@ trim_trailing_whitespace = false
 [*.{bat,ps1}]
 end_of_line = crlf
 
-[scripts/setup.ps1]
-charset = utf-8-bom
+[scripts/package/windows/ChineseSimplified.isl]
+charset = unset
+end_of_line = unset
+trim_trailing_whitespace = unset
