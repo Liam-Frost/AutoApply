@@ -1039,7 +1039,7 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
                 after_repair(rep)
                 scope = [a for a in scope if a["id"] not in set(rep.get("unfixed") or [])]
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or []))
+            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or [], schema))
     wanted = [a for a in scope if a["value"] not in ("", None, [])]
     step("read_back", page=i, checked=sum(1 for a in wanted if a["id"] in back), unverified=[a["label"] for a in wanted if a["id"] not in back][:20], mismatches=len(bad))
     if bad:
@@ -1069,15 +1069,17 @@ def _held(driver: Any, page: Any, schema: FormSchema, bad: list[dict[str, Any]])
     return out
 
 
-def _not_vouched(bad: list[dict[str, Any]], fixed: list[str]) -> list[dict[str, Any]]:
+def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema) -> list[dict[str, Any]]:
     """For a control that shows less than it holds and whose list does not say which entry it holds (see _held): when the
     agent was just sent to exactly this field, chose the approved entry and reports it done, and what the control shows
     is a part of that entry, the field holds the approved answer - the agent saw the choice being made; the read-back
     cannot see it. Anything the control shows that is NOT part of the approved entry stays a difference, whoever
-    vouches for it."""
+    vouches for it. Only a control that is a choice among entries can show less than it holds: a text box that reads
+    "John" for "John Smith" holds "John"."""
     from .ats.widgets import shows_part
 
-    return [b for b in bad if not (b["id"] in fixed and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]))]
+    choice = {q.id for q in schema.questions if q.type in ("select", "radio") or (q.options and q.type not in ("text", "textarea", "multiselect", "checkbox", "file"))}
+    return [b for b in bad if not (b["id"] in fixed and b["id"] in choice and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]))]
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:

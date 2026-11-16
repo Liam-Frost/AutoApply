@@ -97,6 +97,6 @@ def test_the_read_back_asks_the_list_instead_of_calling_it_a_difference(page):
     page.locator("#b").click()
     page.locator("[role=option]").nth(1).click()
     assert _held(driver, page, schema, bad) == bad                                          # the list does not say: not settled here
-    assert _not_vouched(bad, ["#b"]) == [] and _not_vouched(bad, []) == bad                 # the agent's word, for exactly that field
+    assert _not_vouched(bad, ["#b"], schema) == [] and _not_vouched(bad, [], schema) == bad                 # the agent's word, for exactly that field
     other = [{"id": "#b", "label": "Code", "expected": "+1 Canada", "actual": "+44"}]
-    assert _held(driver, page, schema, other) == other and _not_vouched(other, ["#b"]) == other
+    assert _held(driver, page, schema, other) == other and _not_vouched(other, ["#b"], schema) == other
