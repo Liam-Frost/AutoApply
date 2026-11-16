@@ -31,6 +31,10 @@ async function load() {
   try { d.value = await api.get('/drafts/' + props.id) } catch (e) { loadErr.value = e.message }
 }
 const pending = computed(() => d.value && d.value.review_status === 'pending')
+// Anything in a draft can be changed for as long as the application has not gone out - before approving and after.
+// The server says when it cannot (an old version, already sent, a run in progress) and why.
+const editable = computed(() => d.value && !d.value.locked)
+const approvedOpen = computed(() => editable.value && d.value.review_status === 'approved')
 const filled = computed(() => (d.value ? d.value.answers.filter((a) => a.value !== '' && a.value != null && !(Array.isArray(a.value) && !a.value.length)) : []))
 const blank = computed(() => (d.value ? d.value.answers.filter((a) => !filled.value.includes(a)) : []))
 const show = (a) => (a.type === 'file' ? String(a.value).split(/[\\/]/).pop() : Array.isArray(a.value) ? a.value.join('，') : a.type === 'checkbox' ? (a.value ? '✓ 勾选' : '不勾选') : a.value)
@@ -65,6 +69,7 @@ async function commitEdit(a) {
   try {
     d.value = await api.patch(`/drafts/${props.id}/answers/${encodeURIComponent(a.id)}`, { value: v, save_rule: remember.value ? saveRule.value : '', remember: remember.value })
     if (remember.value) toast('已保存，并记到个人资料的“标准答案”里')
+    else if (approvedOpen.value) toast('已保存。这份草案仍然是批准状态；点“重新填写并提交”，程序会按现在的答案再填一次')
     editing.value = null
   } catch (e) { toast(e.message, 'bad') }
 }
@@ -221,14 +226,14 @@ onUnmounted(() => clearInterval(timer))
             </td>
             <td class="small muted">{{ a.basis_display }}<div v-if="a.source === 'cache'" class="tag" style="margin-top: 2px">以前回答过</div><div v-if="a.source === 'agent_added'" class="tag" style="margin-top: 2px">填表时 AI 补填</div></td>
             <td><span class="tag" :class="{ ok: a.confidence === 'high', warn: a.confidence === 'medium', bad: a.confidence === 'low' }">{{ { high: '高', medium: '中', low: '低' }[a.confidence] }}</span></td>
-            <td><button v-if="pending && a.type !== 'file' && editing !== a.id" class="sm" @click="startEdit(a)">修改</button></td>
+            <td><button v-if="editable && a.type !== 'file' && editing !== a.id" class="sm" @click="startEdit(a)">修改</button></td>
           </tr>
         </tbody>
       </table>
     </div>
     <details v-if="blank.length" style="margin: 8px 0">
       <summary class="muted">没有填的选答题（{{ blank.filter((b) => !isUnresolved(b)).length }}）</summary>
-      <ul class="small"><li v-for="b in blank.filter((b) => !isUnresolved(b))" :key="b.id">{{ b.label }} <button v-if="pending && b.type !== 'file'" @click="startEdit(b)">填写</button></li></ul>
+      <ul class="small"><li v-for="b in blank.filter((b) => !isUnresolved(b))" :key="b.id">{{ b.label }} <button v-if="editable && b.type !== 'file'" @click="startEdit(b)">填写</button></li></ul>
     </details>
 
     <div class="cols">
@@ -256,7 +261,7 @@ onUnmounted(() => clearInterval(timer))
                   </template>
                 </div>
               </details>
-              <div v-if="pending" class="row" style="margin-top: 10px"><button class="sm" @click="useResume('base')">改用原版简历</button></div>
+              <div v-if="editable" class="row" style="margin-top: 10px"><button class="sm" @click="useResume('base')">改用原版简历</button></div>
             </div>
           </template>
           <div v-if="pending && hasResume && d.tailor && d.tailor.mode !== 'off'" class="tailor">
@@ -292,11 +297,17 @@ onUnmounted(() => clearInterval(timer))
     <div v-if="d.review_status === 'approved' && ['ready_to_submit', 'failed', 'needs_human', 'approved'].includes(d.application.status)" class="callout warn" style="display: block">
       <b>这份草案你已经批准，但申请还没有提交成功。</b>
       <div class="muted">{{ d.application.explained.message }}</div>
+      <div v-if="editable" class="muted" style="margin-top: 6px">哪一项答案不对，可以直接在上面点“修改”改掉，不用重新批准；改完点下面的按钮，程序按现在的答案再填一次。</div>
       <TechDetails :text="d.application.explained.detail" />
       <div class="row" style="margin-top: 10px">
         <button class="primary" @click="runAgain"><Icon name="refresh" />重新填写并提交</button>
         <button v-if="d.application.status === 'ready_to_submit'" @click="markSubmitted">我已经提交了</button>
       </div>
+    </div>
+
+    <div v-if="d.locked && ['pending', 'approved'].includes(d.review_status)" class="callout" style="display: block"><span class="muted">{{ d.locked }}</span></div>
+    <div v-if="approvedOpen && d.comments && d.comments.length" class="panel small">
+      <div v-for="(c, i) in d.comments" :key="i" class="muted">你：{{ c.comment }} → {{ c.result }}</div>
     </div>
 
     <template v-if="pending">

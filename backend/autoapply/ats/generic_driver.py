@@ -672,6 +672,24 @@ class GenericDriver:
                 return page.url + str(len(page.content())) != before
         return False
 
+    def held(self, page: Page, schema: FormSchema, ids: list[str]) -> dict[str, str | None]:
+        """For lists whose button shows less than the entry it holds: the entry each one holds, asked of the list
+        (None where a list does not say). Called for the few fields where reading the button could not settle it -
+        opening every list on every read-back would be slow, and is not needed."""
+        out: dict[str, str | None] = {}
+        by_id = {q.id: q for q in schema.questions}
+        for i in ids:
+            q = by_id.get(i)
+            if q is None or q.type != "select":
+                continue
+            try:
+                loc = _loc(page, q)
+                if loc.count() and _tag(loc)[0] == "button":
+                    out[i] = w.held_choice(page, loc)
+            except Exception:  # noqa: BLE001 - a control that cannot be asked is simply not settled here
+                continue
+        return out
+
     def read_back(self, page: Page, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for q in schema.questions:

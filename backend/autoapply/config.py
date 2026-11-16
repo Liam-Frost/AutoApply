@@ -97,6 +97,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # scheduler (minutes; 0 disables)
     "schedule.discover_minutes": 720,
     "schedule.mail_minutes": 60,
+    "schedule.mail_new_minutes": 2,     # Gmail only: ask what arrived since the last look (0: off)
     "schedule.execute_minutes": 5,
     "schedule.canary_minutes": 1440,
     "schedule.paused": False,

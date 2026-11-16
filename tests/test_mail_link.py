@@ -154,16 +154,24 @@ def test_a_control_that_shows_less_than_it_holds_is_taken_from_the_agent_that_ch
     """A phone-code list shows "+1" for "+1 / Canada". After the agent chose the approved entry there, "+1" is not a difference;
     without the agent's word, or with something that is not part of the approved entry, it still is."""
     from autoapply.executor import _not_vouched
+    from autoapply.ats.base import FormSchema, Question
+
+    schema = FormSchema(ats="generic", url="https://x", pages=["p"], questions=[
+        Question(id="code", label="Code", type="select", options=["+1 / United States", "+1 / Canada"]), Question(id="city", label="City", type="text"),
+        Question(id="name", label="Full name", type="text")])
 
     code = {"id": "code", "label": "Code", "expected": "+1\nCanada", "actual": "+1"}
-    assert _not_vouched([code], ["code"]) == []
-    assert _not_vouched([code], []) == [code]
+    assert _not_vouched([code], ["code"], schema) == []
+    assert _not_vouched([code], [], schema) == [code]
     wrong = {**code, "actual": "+44"}
-    assert _not_vouched([wrong], ["code"]) == [wrong]
+    assert _not_vouched([wrong], ["code"], schema) == [wrong]
     empty = {**code, "actual": ""}
-    assert _not_vouched([empty], ["code"]) == [empty]
+    assert _not_vouched([empty], ["code"], schema) == [empty]
     plain = {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}
-    assert _not_vouched([plain], ["city"]) == [plain]
+    assert _not_vouched([plain], ["city"], schema) == [plain]
+    # a text box that holds a part of the approved text holds something else, whoever says it was fixed
+    name = {"id": "name", "label": "Full name", "expected": "John Smith", "actual": "John"}
+    assert _not_vouched([name], ["name"], schema) == [name]
 
 
 def test_nothing_the_server_starts_opens_a_console_window(monkeypatch):

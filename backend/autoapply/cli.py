@@ -9,6 +9,10 @@ import logging
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    # These libraries log every request with its full address, and a Telegram bot's address contains its token: a
+    # secret would be written to the log with every notification. Their warnings and errors are still logged.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     ap = argparse.ArgumentParser(prog="autoapply")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve")
@@ -89,6 +93,9 @@ def main() -> None:
 
         from . import access
 
+        from . import runstate
+
+        runstate.mark("server")         # the installers look for this before they touch the program's files
         c = access.conf()
         host, port = a.host or c["host"], a.port or c["port"]
         os.environ["AUTOAPPLY_LISTENING_HOST"], os.environ["AUTOAPPLY_LISTENING_PORT"] = host, str(port)

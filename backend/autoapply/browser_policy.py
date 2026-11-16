@@ -24,6 +24,11 @@ PRESETS = [
 ]
 
 
+# Sites that refuse an automated browser on every page, not only at sign-in. A saved rule that names fewer operations
+# (the first version of the rule said "login" only) must not send the rest of the work to a browser the site turns away.
+ORDINARY_ONLY = {"pdportal:ubc"}
+
+
 @dataclass(frozen=True)
 class Selection:
     backend: str
@@ -70,6 +75,8 @@ def select(tenant: str | None, url: str = "", operation: str = "apply", override
         return Selection("playwright", "default")
     alias = (db.get_setting("accounts.alias") or {}).get(tenant, tenant)
     host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if ORDINARY_ONLY & {tenant, alias}:
+        return Selection("nodriver", "site refuses automated browsers")
     rules = db.get_setting("browser.rules") or []
     validate({"browser.rules": rules})
     for key in ("tenant", "domain"):
