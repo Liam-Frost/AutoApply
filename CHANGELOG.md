@@ -4,6 +4,17 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- **A list whose button shows less than the entry it holds no longer stops a run.** A phone-code list has "+1 United
+  States", "+1 Canada", "+1 Bahamas"...; once one is chosen its button reads "+1". The program took "the button did
+  not change to the entry's text" for a failed choice, then took "+1" against "+1 Canada" for a difference from the
+  draft, and the AI, asked to look, could only say that the country is not visible - so the run was handed to you
+  although the right entry had been chosen. Now the list itself is asked which entry it holds: it is opened, the
+  entry it marks as chosen is read, and it is closed again. The approved entry: no difference, nobody is asked.
+  Another entry: a difference, and the message says which. The same goes for a location list that shows "Vancouver,
+  Canada" for "Vancouver, BC, Canada".
+
 ## [1.0.3] - 2026-11-16
 
 ### Added
