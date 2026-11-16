@@ -181,15 +181,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     steps: list[dict[str, Any]] = []
     timing.begin()
     learned.begin([_site_of(schema), ref.ats])          # what was learned for this site and this system is in force
-    reached = [time.monotonic()]
+    last_mark = [time.monotonic()]
     def step(op: str, **kw: Any) -> None:
         steps.append({"op": op, "at": now().isoformat(), **kw})
         metering.stage(op)       # the task remembers how far it got
         # the stretch that ended with this step, as a whole: what lies inside it (fields, tools, requests, loads) is
         # recorded where it happens, and what is left over is the program's own work on that step
-        timing.mark("human" if op in ("wait_user", "manual", "handover") else "driver", f"step:{op}", (time.monotonic() - reached[0]) * 1000.0, started=reached[0],
+        timing.mark("human" if op in ("wait_user", "manual", "handover") else "driver", f"step:{op}", (time.monotonic() - last_mark[0]) * 1000.0, started=last_mark[0],
                     page=kw.get("page"))
-        reached[0] = time.monotonic()
+        last_mark[0] = time.monotonic()
     if not scout:
         notify.send("task_started", messages.execute_started(title, ats=ref.ats, policy=policy, pages=len(schema.pages or []), reasons=mode["reasons"]), ref=f"application:{application_id}")
     outcome: dict[str, Any] = {}

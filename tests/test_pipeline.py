@@ -225,3 +225,20 @@ def test_unresolved_question_blocks_approval(pipeline, monkeypatch):
     drafts.edit_answer(did, "sponsor", "Yes")
     assert drafts.get(did)["application"]["status"] == "draft_ready"
     drafts.approve(did)
+
+
+def test_a_run_keeps_where_its_time_went_and_is_looked_at_afterwards(pipeline):
+    from autoapply import db, drafts, tasks, timing
+    from autoapply.models import Run
+
+    did = drafts.build(pipeline["job_id"])
+    drafts.approve(did)
+    assert tasks.drain() >= 1
+    with db.session() as s:
+        r = s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first()
+        spans, site, in_force = list(r.spans or []), r.site, r.learned
+    kinds = {sp["k"] for sp in spans}
+    assert "driver" in kinds and any(sp["n"] == "field" and sp.get("label") for sp in spans)      # each field the driver filled
+    assert any(sp["n"].startswith("step:") for sp in spans) and timing.working_ms(spans) > 0
+    assert site and in_force == []                                                                # nothing learned yet: nothing in force
+    assert not timing.active()                                                                    # the recorder ended with the run

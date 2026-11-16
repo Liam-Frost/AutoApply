@@ -31,6 +31,8 @@ const VIEW = {
           : '申请表已经填好，并逐项核对过，表单自己也没有报错。请在弹出的浏览器窗口里看一遍，然后点击提交。窗口会保留约 20 分钟。',
   },
   failed: { icon: 'alert', tone: 'bad', title: (t) => t.title, what: (t) => t.explained.message },
+  learned: { icon: 'wrench', tone: '', title: (t) => t.title, what: (t) => t.body || '程序从一次运行里学到了一个新做法，等你决定要不要采用。',
+             next: () => '在“数据分析 → 耗时与优化”里可以看到它的内容，决定采用或不采用。' },
   driver_patch: { icon: 'wrench', tone: 'none', title: () => '自动修复了一处填写问题', what: (t) => `填写${t.subject ? '「' + t.subject + '」' : '申请表'}时，有一步没按预期完成，程序已改用另一种方式填完并核对过，这次申请不受影响。这条只是记录，你不需要做什么。` },
   driver: { icon: 'wrench', tone: 'none', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },

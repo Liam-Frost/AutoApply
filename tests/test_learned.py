@@ -156,7 +156,7 @@ def test_runs_that_got_slower_or_kept_failing_with_it_take_it_out(store):
             if rev is not idle:
                 learned._tls.force["used"].add(rev["id"])
             learned.end(ok=ok, working_ms=ms, interventions=0, run_id=n)
-    assert learned.get(slow["id"])["status"] == "reverted" and "30 s against 10 s" in learned.get(slow["id"])["why_status"]
+    assert learned.get(slow["id"])["status"] == "reverted" and "每次约 30 秒，之前约 10 秒" in learned.get(slow["id"])["why_status"]
     assert learned.get(fails["id"])["status"] == "reverted"
     assert learned.get(idle["id"])["status"] == "trial"            # runs it took no part in say nothing about it
 

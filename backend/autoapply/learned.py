@@ -235,7 +235,7 @@ def add(kind: str, target: str, title: str, why: str, body: str, *, from_run: in
     except Exception as e:  # noqa: BLE001 - a gate that cannot be run does not let anything through
         return _update(rev["id"], status="parked", why_status=f"the gate could not be run: {type(e).__name__}: {e}"[:400]) or rev
     ask = (db.get_setting("learned.mode") or "auto") == "ask"
-    rev = _update(rev["id"], gate=checked, status="proposed" if ask else "trial", why_status="waiting for you" if ask else "passed the gate") or rev
+    rev = _update(rev["id"], gate=checked, status="proposed" if ask else "trial", why_status="等你确认" if ask else "通过了检查，开始试用") or rev
     if ask:
         from . import notify
 
@@ -251,14 +251,14 @@ def decide(rev_id: str, action: str) -> dict[str, Any]:
     from . import notify
 
     if action == "approve" and rev["status"] == "proposed":
-        rev = _update(rev_id, status="trial", why_status="approved by you")
+        rev = _update(rev_id, status="trial", why_status="你采用了，开始试用")
     elif action == "reject" and rev["status"] in ("proposed", "parked"):
-        rev = _update(rev_id, status="rejected", why_status="rejected by you")
+        rev = _update(rev_id, status="rejected", why_status="你没有采用")
     elif action == "revert" and rev["status"] in IN_FORCE:
-        rev = _update(rev_id, status="reverted", why_status="taken out by you")
+        rev = _update(rev_id, status="reverted", why_status="你撤回了")
     elif action == "retry" and rev["status"] in ("parked", "reverted"):
         try:
-            rev = _update(rev_id, gate=gate(rev), status="trial", why_status="passed the gate again", strikes=0, trials=[], version=version())
+            rev = _update(rev_id, gate=gate(rev), status="trial", why_status="再次通过了检查，重新试用", strikes=0, trials=[], version=version())
         except Refused as e:
             rev = _update(rev_id, status="parked", why_status=str(e)[:400])
     else:
@@ -276,7 +276,7 @@ def recheck_after_upgrade() -> int:
             try:
                 _update(rev["id"], gate=gate(rev), version=version())
             except Exception as e:  # noqa: BLE001
-                _update(rev["id"], status="parked", why_status=f"learned on {rev.get('version') or 'an earlier version'}; on {version()} it does not pass: {e}"[:400])
+                _update(rev["id"], status="parked", why_status=f"是在 {rev.get('version') or '更早的'} 版上学到的，在 {version()} 版上没有通过检查：{e}"[:400])
                 parked += 1
     return parked
 
@@ -438,20 +438,20 @@ def end(*, ok: bool, working_ms: int, interventions: int, run_id: int | None) ->
         trial = {"run": run_id, "at": _now(), "ok": bool(ok) and not strike, "ms": int(working_ms), "human": int(interventions), "used": rev["id"] in f["used"], **({"strike": strike} if strike else {})}
         trials = [*now_rev.get("trials", []), trial][-20:]
         if strike:
-            changed.append(_update(rev["id"], trials=trials, strikes=int(now_rev.get("strikes") or 0) + 1, status="reverted", why_status=f"it failed in a run: {strike}") or {})
+            changed.append(_update(rev["id"], trials=trials, strikes=int(now_rev.get("strikes") or 0) + 1, status="reverted", why_status=f"在一次运行里出错，已退回原来的做法：{strike}") or {})
             continue
         used = [t for t in trials if t.get("used")]
         good = [t for t in used if t["ok"]]
         bad = [t for t in used if not t["ok"]]
         base = (now_rev.get("baseline") or {}).get("median_ms")
         if now_rev["status"] == "trial" and len(bad) >= BAD_TRIALS_TO_REVERT and len(bad) > len(good):
-            changed.append(_update(rev["id"], trials=trials, status="reverted", why_status=f"{len(bad)} runs with it in force did not get through") or {})
+            changed.append(_update(rev["id"], trials=trials, status="reverted", why_status=f"用了它的 {len(bad)} 次运行没有填完") or {})
         elif now_rev["status"] == "trial" and len(good) >= TRIALS_TO_PROMOTE:
             ms = sorted(t["ms"] for t in good)[len(good) // 2]
             if base and ms > base * SLOWER:
-                changed.append(_update(rev["id"], trials=trials, status="reverted", why_status=f"runs with it took {ms / 1000:.0f} s against {base / 1000:.0f} s before") or {})
+                changed.append(_update(rev["id"], trials=trials, status="reverted", why_status=f"用了它之后每次约 {ms / 1000:.0f} 秒，之前约 {base / 1000:.0f} 秒，没有变快") or {})
             else:
-                changed.append(_update(rev["id"], trials=trials, status="active", why_status=f"held up in {len(good)} runs") or {})
+                changed.append(_update(rev["id"], trials=trials, status="active", why_status=f"在 {len(good)} 次运行里表现正常") or {})
         else:
             _update(rev["id"], trials=trials)
     return [c for c in changed if c]

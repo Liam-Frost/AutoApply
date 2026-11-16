@@ -4,6 +4,26 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Added
+
+- **The program learns from its runs, and keeps what it learned.** After a run that filled a form, plain arithmetic
+  looks for what stood out against earlier runs on the same site - a step several times slower than usual, the AI
+  taking over again and again, a field the driver could not fill. Only then is the AI asked to write down what the
+  program should do differently there: a *recipe* (data the generic driver follows: how to work a kind of control,
+  when to wait) or, where no recipe can say it, a small *plugin* (code).
+  - It is kept under `data/learned`, not in the program's folder, so an upgrade does not lose it; after an upgrade it
+    is checked again before it is used, and parked - not deleted - if it no longer passes.
+  - Before it is in force it has to pass a gate: a plugin may import only what a driver works with, it must load,
+    and the site's saved pages must still be read as before.
+  - In force, it is on trial: where it fails in a run, the ordinary way takes over in that same run and it is taken
+    out; it is also taken out when runs with it keep failing or get slower. Two good runs make it permanent.
+  - By default this happens by itself; *Analysis -> Time & learning* has the switch to be asked first, and lists
+    each thing learned with why, its text, how its trials went, and buttons to take it out or try it again.
+  - The read-back against the approved draft and the rules about submitting are not something a revision can touch.
+- **Where a run's time goes** is recorded for every run: the program working the form (per field), waiting for the
+  AI, tools the AI called, waiting for the site, and - shown but never counted - waiting for you. *Analysis -> Time &
+  learning* shows it per application system over time, per run, and step by step for one run.
+
 ## [1.0.3] - 2026-11-16
 
 ### Added

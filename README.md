@@ -126,7 +126,7 @@ Three things about this chain are worth knowing:
 
 - **The form has the last word.** After filling, the program asks the page itself what is wrong: fields it marks invalid, its error messages, required fields still empty. Neither the driver nor the AI can declare a page done while the page disagrees.
 - **The agent reads the form; code keeps the rules.** Every site's form is read and filled by the AI agent, page by page; the coded drivers sign in and serve as its tools. What the agent may not do is fixed in code: nothing is made up, nothing outside the approved draft is entered, and every value is read back and compared before anything is sent.
-- **What it learns stays.** Notes about a site, the form's own wording for your answers and the fields it discovered are kept, so the next run needs less help.
+- **What it learns stays.** Notes about a site, the form's own wording for your answers and the fields it discovered are kept, so the next run needs less help. And when a run stands out - a step much slower than usual, the AI taking over again and again - the AI writes down what the program should do differently on that site, as a recipe or a small piece of code; that is checked, tried in the runs that follow, taken out again if it fails, and kept in your data folder across upgrades. *Analysis → Time & learning* shows all of it.
 
 Who presses *Submit* is your choice per site or company: by default the program submits an approved draft once every value has been read back. It waits for your click when you kept the last click for that site, when an answer is below your confidence bar, or when the run cannot vouch for what the form holds.
 
