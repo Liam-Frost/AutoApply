@@ -2146,9 +2146,9 @@ if config.FRONTEND_DIST.exists():
     def _interface_files() -> dict[str, Path]:
         """The files of the built interface, by the address they are served at. A request is answered by looking its
         address up in this list - no path is ever put together from what a request says, so nothing outside the folder
-        can be named, however the address is written."""
+        can be named, however the address is written. A link in the folder that leads out of it is not one of them."""
         root = config.FRONTEND_DIST.resolve()
-        return {f.relative_to(root).as_posix(): f for f in root.rglob("*") if f.is_file()}
+        return {f.relative_to(root).as_posix(): f for f in root.rglob("*") if f.is_file() and f.resolve().is_relative_to(root)}
 
     _files = {"all": _interface_files()}
 

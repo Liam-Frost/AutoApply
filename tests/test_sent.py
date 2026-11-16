@@ -184,6 +184,24 @@ def test_the_page_route_serves_only_the_built_interface(app_env):
         assert r.status_code == 404 or r.text == index, path
 
 
+def test_a_link_out_of_the_interface_folder_is_not_served(app_env, tmp_path, monkeypatch):
+    from autoapply import config
+    from autoapply.api import main
+
+    if not hasattr(main, "_interface_files"):
+        pytest.skip("the interface is not built here")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<div id=app></div>", encoding="utf-8")
+    (tmp_path / "private.txt").write_text("secret", encoding="utf-8")
+    try:
+        (dist / "linked.txt").symlink_to(tmp_path / "private.txt")
+    except OSError:
+        pytest.skip("links cannot be made here")
+    monkeypatch.setattr(config, "FRONTEND_DIST", dist)
+    assert sorted(main._interface_files()) == ["index.html"]
+
+
 # Workday draws the header signed out first and changes it once it knows who is there; the page's content comes after that.
 WD_HOME = """<header data-automation-id="header"><div data-automation-id="utilityButtonBar"><button data-automation-id="utilityMenuButton">Menu</button>
   <button data-automation-id="utilityButtonSignIn">Sign In</button></div>
