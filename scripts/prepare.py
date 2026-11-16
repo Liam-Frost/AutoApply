@@ -237,22 +237,22 @@ class Job:
                 self.restore()
                 raise Failed("files") from e
             self.tell(2)
-            try:
+            try:        # a stop anywhere from here on returns to the old version: its files, and the dependencies it had
                 code = self.sync()
+                if code != 0:
+                    raise Failed(self.back())
+                self.tell(3)
+                for tool in (["playwright", "install", "chromium"], ["python", "-c", STARTS]):
+                    self.said = []
+                    if self.run([self.uv, "run", "--frozen", "--no-sync", *tool], 3, self.root) != 0:
+                        missing = sys.platform.startswith("linux") and any(MISSING_LIBRARY.search(line) for line in self.said)
+                        if missing:
+                            self.note(f"On Debian or Ubuntu the libraries are installed with:  sudo apt-get install -y libatomic1 && sudo {self.root / '.venv' / 'bin' / 'playwright'} install-deps chromium")
+                        raise Failed("browser_libs" if missing else "browser")
             except Cancelled:
                 if self.back() == "deps_broken":            # stopped, but not back where it was: that is what to say
                     raise Failed("deps_broken") from None
                 raise
-            if code != 0:
-                raise Failed(self.back())
-            self.tell(3)
-            for tool in (["playwright", "install", "chromium"], ["python", "-c", STARTS]):
-                self.said = []
-                if self.run([self.uv, "run", "--frozen", "--no-sync", *tool], 3, self.root) != 0:
-                    missing = sys.platform.startswith("linux") and any(MISSING_LIBRARY.search(line) for line in self.said)
-                    if missing:
-                        self.note(f"On Debian or Ubuntu the libraries are installed with:  sudo apt-get install -y libatomic1 && sudo {self.root / '.venv' / 'bin' / 'playwright'} install-deps chromium")
-                    raise Failed("browser_libs" if missing else "browser")
             shutil.rmtree(self.previous, ignore_errors=True)
             shutil.rmtree(self.staged, ignore_errors=True)
             return "ok"
