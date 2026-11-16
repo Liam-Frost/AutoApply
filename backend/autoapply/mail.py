@@ -151,26 +151,44 @@ def anything_new() -> bool | None:
     return False
 
 
+_pending: str | None = None      # where the history will stand once what added_since_last() returned has been dealt with
+
+
+def commit_history() -> None:
+    """What added_since_last() returned has been recorded: the place in the history moves on to behind it."""
+    global _pending
+    if _pending:
+        db.set_setting(HISTORY, _pending)
+    _pending = None
+
+
 def added_since_last(limit: int = 50, *, skip: Any = None) -> list[dict[str, Any]] | None:
     """Messages added to the inbox since the last look, in full, oldest first. None when that cannot be told - there
     was no earlier look, or it is so long ago that Gmail no longer keeps the history - and the caller has to read
-    the last days instead. The place in the history is moved on only after the messages were fetched."""
+    the last days instead.
+
+    At most about ``limit`` messages, the oldest ones: when more arrived, the rest stays in the history for the next
+    call. The place in the history is not moved here: the caller says when the messages have been dealt with
+    (commit_history), so that a batch that failed half-way is read again."""
+    global _pending
+
     from googleapiclient.errors import HttpError
 
     start = str(db.get_setting(HISTORY) or "")
     if not start:
         return None
     svc = _service()
-    ids: list[str] = []
+    records: list[tuple[str, list[str]]] = []       # (the record's number in the history, the messages it added)
+    seen: set[str] = set()
     latest, token = start, None
     try:
         while True:
             page = svc.users().history().list(userId="me", startHistoryId=start, historyTypes=["messageAdded"], labelId="INBOX", pageToken=token).execute()
             for h in page.get("history", []):
-                for added in h.get("messagesAdded", []):
-                    mid = added.get("message", {}).get("id")
-                    if mid and mid not in ids:
-                        ids.append(mid)
+                mids = [m for a in h.get("messagesAdded", []) if (m := a.get("message", {}).get("id")) and m not in seen]
+                seen.update(mids)
+                if mids:
+                    records.append((str(h.get("id") or ""), mids))
             latest = str(page.get("historyId") or latest)
             token = page.get("nextPageToken")
             if not token:
@@ -180,8 +198,15 @@ def added_since_last(limit: int = 50, *, skip: Any = None) -> list[dict[str, Any
             db.set_setting(HISTORY, "")
             return None
         raise
+    ids: list[str] = []
+    upto = latest
+    for n, (number, mids) in enumerate(records):
+        ids += mids
+        if len(ids) >= limit and n < len(records) - 1 and number:      # whole records only: the place in the history is a record's number
+            upto = number
+            break
     out = []
-    for mid in ids[-limit:]:
+    for mid in ids:
         if skip and skip(mid):
             continue
         try:
@@ -189,7 +214,7 @@ def added_since_last(limit: int = 50, *, skip: Any = None) -> list[dict[str, Any
         except HttpError as e:
             if getattr(e.resp, "status", 0) != 404:    # deleted between the two requests: not there to read
                 raise
-    db.set_setting(HISTORY, latest)
+    _pending = upto
     return out
 
 
@@ -530,4 +555,6 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
         if early:
             continue
         notify.send("status_update", messages.mail_update(t["category"], title, t["summary"]), ref=f"application:{app_id}", tag=t["category"])
+    if quick:
+        commit_history()        # every message of the batch is recorded: only now is it behind us
     return {"new_mail": new, "status_updates": updated, "unmatched": unmatched}

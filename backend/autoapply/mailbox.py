@@ -204,7 +204,8 @@ def incremental() -> bool:
 
 def fetch_new(limit: int = 50, *, skip: Any = None) -> list[Message] | None:
     """What arrived since the last look and looks like it is about an application. None when that cannot be told
-    (another kind of mailbox, no earlier look, too long ago): read the last days with fetch() instead."""
+    (another kind of mailbox, no earlier look, too long ago): read the last days with fetch() instead. The look is
+    only over once the caller has dealt with the messages and says so (mail.commit_history)."""
     if not incremental():
         return None
     from . import mail

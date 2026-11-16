@@ -57,7 +57,7 @@ class FakeGmail:
 
                 return Call(HttpError(type("R", (), {"status": 404, "reason": "Not Found"})(), b"{}"))
             new = [m for n, m in self.added if n > int(kw["startHistoryId"])]
-            return Call({"history": [{"messagesAdded": [{"message": {"id": m}}]} for m in new], "historyId": str(self.history_id)})
+            return Call({"history": [{"id": str(n), "messagesAdded": [{"message": {"id": m}}]} for n, m in self.added if n > int(kw["startHistoryId"])], "historyId": str(self.history_id)})
         self.calls.append("search")
         return Call({"messages": [{"id": m} for m in self.store]})
 
@@ -117,6 +117,8 @@ def test_only_what_arrived_is_read_and_reading_your_own_mail_changes_nothing(gma
     assert mail.anything_new() is True and db.get_setting(mail.HISTORY) == before   # left for the one who reads it
     got = mailbox.fetch_new()
     assert [m.id for m in got] == ["m2"]                    # the newsletter is not about an application
+    assert db.get_setting(mail.HISTORY) == before           # not behind us until the caller has dealt with it
+    mail.commit_history()
     assert db.get_setting(mail.HISTORY) == str(gmail.history_id)
     assert mail.anything_new() is False and mailbox.fetch_new() == []
     # history only says what was added: a message that was read, archived or labelled meanwhile is not in it again
@@ -158,3 +160,30 @@ def test_the_scheduler_queues_a_task_only_when_something_arrived(gmail):
         s.query(Task).delete()
     tasks._mail_new()
     assert queued() == []                                   # another kind of mailbox is read by the pass over the last days
+
+
+def test_more_arrivals_than_one_look_takes_are_read_over_several_looks_oldest_first(gmail):
+    """With more arrivals than the limit, the earliest were dropped and the place in the history moved past them."""
+    mail.mark_history()
+    for i in range(7):
+        gmail.arrive(f"b{i}", "Your application", "received")
+    got = []
+    for _ in range(4):
+        batch = mailbox.fetch_new(3)
+        got.append([m.id for m in batch])
+        mail.commit_history()
+    assert got == [["b0", "b1", "b2"], ["b3", "b4", "b5"], ["b6"], []]
+
+
+def test_a_batch_that_was_not_recorded_is_read_again(gmail, monkeypatch):
+    """The place in the history moved on when the messages were fetched; a model that was unavailable then left them
+    without a record and out of every later look."""
+    mail.mark_history()
+    gmail.arrive("c1", "Your application to Example", "We received your application.")
+    monkeypatch.setattr(mail, "triage", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("the model is not answering")))
+    with pytest.raises(RuntimeError):
+        mail.track(quick=True)
+    assert mail.anything_new() is True                      # still to be read
+    monkeypatch.setattr(mail, "triage", lambda *a, **k: {"category": "other", "company": "", "job_title": "", "summary": "x"})
+    assert mail.track(quick=True)["new_mail"] == 1
+    assert mail.anything_new() is False and mail.track(quick=True)["new_mail"] == 0
