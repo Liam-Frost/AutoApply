@@ -8,7 +8,7 @@ A feature is only as good as the last time it was actually used. This page separ
 
 Keep this distinction when you change something: say what you ran it against.
 
-Last updated for 1.0.2 (November 2026). The author uses the program on Windows with a Claude subscription.
+Last updated for 1.0.3 (November 2026). The author uses the program on Windows with a Claude subscription.
 
 ## The application chain
 
@@ -25,10 +25,15 @@ Last updated for 1.0.2 (November 2026). The author uses the program on Windows w
 | Reading a form's later steps before approval, by walking it with the draft's answers (never submits) | Used for real on one Amazon draft, three walks in a hidden window: the first two used the AI (the second read 12 answers the site already held on "Work Eligibility" and 7 more from the review page for three steps the site never opened again, three AI calls); the later ones needed no AI call - the driver filled the two radio questions from where the take-over had found them, reached the review page in about half a minute, unfolded its seven folded sections and found all 18 answers of the first step there. Nothing was submitted. A question only the applicant can answer stopping the walk, and the walk going on after the answer: unit-tested only. Starting the walk automatically right after a new draft is made: unit-tested only (the real draft predates it and was started by hand). |
 | Walk-type forms read and filled by the agent (Workday) | Used for real on one Workday form (six steps): the agent read four steps in its first pass, the walk read the rest and reached the review page with every question answered from the profile and the documents on file (the transcript was attached by the agent); nothing was submitted. It took three walks to get there while faults were fixed; one clean pass on a posting that has not been touched before has not been seen yet. Filling the approved draft of such a form and the applicant submitting it: not run yet. A stand-in answer for a question only the applicant can answer: unit-tested prompt and plumbing, not seen for real |
 | A confirmation link from an e-mail | The rules that decide whether a link is opened are unit-tested; opening one during a real sign-up has not been seen |
+| An approved draft on an agent-read form, submitted by the program | Used for real: applications submitted and confirmed by the employer |
+| An e-mail that names no posting: looked up on the employer's site, or linked by hand from its card | Unit-tested only |
+| The account a site offers after a submission | Unit-tested only |
+| Polite Workday listing (pauses, waiting out "too many requests") | Unit-tested only; a full scan of the Workday boards has not been watched since |
+| The second browser backend (nodriver) | Its tests pass with the package installed; sign-ins through it are listed in their own rows |
 | Ashby driver | Run end to end on real forms (filled, read back, not submitted) |
 | Workday driver | Listing and the sign-in page elements used for real; filling after sign-in, registration and the review page are written from earlier manual applications and have not been run |
-| UBC PD Portal | Importing postings with the bookmarklet: used for real. Applying through the portal: not run; the portal refuses automated browsers, which the program does not work around |
-| Sign-in with Google / Microsoft / LinkedIn and others | Microsoft: used for real. Google refuses sign-in inside an automated browser; the program hands that step to you |
+| UBC PD Portal | Importing postings with the bookmarklet: used for real. Signing in and scanning through the program (second browser backend): written, not confirmed on the real portal. Applying through the portal: not run |
+| Sign-in with Google / Microsoft / LinkedIn and others | Microsoft: used for real. Google refuses sign-in in the default browser; through the second browser backend a sign-in was made, and that it is kept for the next run has not been confirmed |
 | The analysis page: applications, automation, AI cost | Applications and automation: run on the author's own data. AI cost: run on made-up data (the demo copy) and on the author's records from before requests were kept, which carry no cost; real requests recorded by this version have not accumulated yet |
 | Recording model requests (usage, cost) | Claude subscription: used for real (a connection test was recorded with its tokens by kind and the cost the command line reported); a full task with many requests has not been looked at yet. Anthropic API, ChatGPT subscription and OpenAI-compatible services: unit-tested with stand-ins that report usage, not checked against what a real service bills. The ChatGPT subscription reports usage only with an answer, so a failed turn has none |
 | Mail tracking with Gmail | Used for real |
@@ -40,6 +45,9 @@ Last updated for 1.0.2 (November 2026). The author uses the program on Windows w
 | Part | Status |
 |---|---|
 | Refusing requests from other websites and foreign `Host` headers | Unit-tested only (requests with the headers a browser would send); not attacked from a real page |
+| The login (first set-up, sign-in, sign-out, the lock after wrong passwords) | Run end to end on a scratch copy with a test account; the lock and the proxy rules are unit-tested only |
+| Listening beyond this computer, a path prefix, HTTPS by a reverse proxy | Unit-tested only: not reached from another device, not run behind a real proxy |
+| Resetting the administrator password from the tray | Unit-tested only |
 
 ## AI services
 

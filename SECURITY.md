@@ -38,9 +38,11 @@ Anything that breaks one of the program's own promises:
   user's decision, including by text on a web page or in a job posting that the AI reads (prompt injection).
 - **Secrets leave their place.** Passwords, API keys, verification codes or saved sign-ins reaching the AI's context,
   the logs, a notification or anything outside the system keyring and the encrypted session files.
-- **Someone else reaches the local server.** The server has no login and relies on answering only this computer's own
-  pages: it listens on `127.0.0.1`, refuses requests whose `Host` is not this computer's, and refuses cross-site
-  requests. A web page, another device on the network or a DNS-rebinding trick getting past that is a vulnerability.
+- **Someone else reaches the server.** The page asks for a login (one administrator account; only a salted hash of
+  the password is kept, and five wrong passwords close it for fifteen minutes), and the server answers only its own
+  pages: by default it listens on `127.0.0.1`, refuses requests whose `Host` is not one of its own, and refuses
+  cross-site requests. Getting past the login, the lock-out, the local token the tray icon uses or those checks - from
+  a web page, another device on the network, a proxy's forwarded headers or a DNS-rebinding trick - is a vulnerability.
 - **Data goes somewhere it should not.** Your profile, documents or mail sent anywhere other than the AI service you
   chose and the job sites you apply to.
 - **The installer or the release process** can be made to run or publish something it should not.
@@ -51,12 +53,14 @@ Anything that breaks one of the program's own promises:
 - The packages not being code-signed. This is known and stated in the README.
 - Another user account on the same computer reading your files: the program relies on the operating system's own
   separation between accounts.
-- A job site refusing or detecting the program's browser. The program does not disguise itself, by design.
+- A job site refusing or detecting the program's browser, with either browser backend.
 
 ## How the program protects you, briefly
 
 - Passwords and API keys are in the operating system's keyring; saved sign-ins are encrypted on disk.
 - The tools given to the AI cannot submit an application, type a password or read a verification code.
 - Text from web pages is treated as data, never as instructions; the rules that matter are enforced in code, not in prompts.
+- The page needs a login, on the computer it runs on as well; the server does not do HTTPS itself and says so when it
+  is made to listen beyond this computer.
 - Mailboxes are opened read-only.
 - Nothing is sent to the project or to anyone else: there is no telemetry and no account.

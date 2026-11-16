@@ -42,7 +42,7 @@
 | **Scores them** | Against rules written in plain language that you can edit. Postings that cannot fit (wrong country, wrong level) are dropped before any AI is spent on them. |
 | **Drafts the application** | Opens the real form, reads every question, and answers from your profile only. Each answer shows where it came from and how sure it is. Questions it cannot answer are left for you, not guessed. |
 | **Waits for you** | You review the draft, change anything in plain words ("make the second paragraph about my internship"), and approve. |
-| **Fills in the form** | A driver fills the form, the program checks what the form itself reports, and an AI takes over whatever is left. You press *Submit* yourself unless you have chosen otherwise. |
+| **Fills in the form** | The AI agent reads each page of the real form and fills it from the approved draft; the program reads every value back and asks the form what it still complains about. An approved draft is then submitted, unless you kept the last click for yourself. |
 | **Tracks the result** | Reads your mailbox (read-only) for confirmations, rejections and interview invitations and updates each application. |
 
 It adapts to who you are: a first-run guide asks your career stage (internship, new graduate, experienced), field and target roles, and sets up filters, scoring rules and the interface accordingly. Not only for software jobs.
@@ -67,7 +67,7 @@ These are fixed in code and have no switch:
 
 - **It does not invent anything about you.** Answers, cover letters and tailored résumés use only your résumé and the profile you confirmed.
 - **It does not submit what you have not approved.** The tools the AI is given cannot press Submit.
-- **It does not get around a site's protections.** No CAPTCHA solving, no disguised browser. A site that refuses the program's browser is handed to you.
+- **It does not solve CAPTCHAs or type verification codes.** Those steps, and any site that turns the program's browser away, are handed to you. A second browser backend that sign-in pages are less likely to turn away can be switched on per site under *Settings → Network*; it is off by default.
 - **It does not call a form filled in while the form says otherwise.** If a field is still empty or rejected, you are told which one.
 - **It does not see your passwords.** They are in the system keyring; the AI only learns "signed in" or "needs you".
 
@@ -92,7 +92,7 @@ Cover letters, résumé tailoring and Word previews need a Word-to-PDF converter
 
 ## First run
 
-An icon appears in the tray (menu bar on macOS) and the page opens at `http://127.0.0.1:8000`.
+An icon appears in the tray (menu bar on macOS) and the page opens at `http://127.0.0.1:8000`. The first time, it asks you to choose the administrator's name and password; from then on it asks for them, on this computer too. Forgotten: the tray menu's *Reset the administrator password*.
 
 <p align="center"><img src="docs/images/tray-en.png" alt="The tray menu" width="300"></p>
 
@@ -111,7 +111,7 @@ flowchart LR
     B --> C[Form read,<br>draft prepared]
     C --> D{You review}
     D -- change it --> C
-    D -- approve --> E[Driver fills the form]
+    D -- approve --> E[Agent fills the form,<br>every value read back]
     E --> F{Form reports<br>a problem?}
     F -- no --> H[Submit]
     F -- yes --> G[AI finishes the page<br>from your profile]
@@ -125,10 +125,10 @@ flowchart LR
 Three things about this chain are worth knowing:
 
 - **The form has the last word.** After filling, the program asks the page itself what is wrong: fields it marks invalid, its error messages, required fields still empty. Neither the driver nor the AI can declare a page done while the page disagrees.
-- **The AI is the fallback, not the pilot.** Deterministic drivers do the routine work quickly and for free. The AI steps in for a form nobody has seen before, a field that appeared after an answer, or a value the form rejects, and it may only use what your profile states.
+- **The agent reads the form; code keeps the rules.** Every site's form is read and filled by the AI agent, page by page; the coded drivers sign in and serve as its tools. What the agent may not do is fixed in code: nothing is made up, nothing outside the approved draft is entered, and every value is read back and compared before anything is sent.
 - **What it learns stays.** Notes about a site, the form's own wording for your answers and the fields it discovered are kept, so the next run needs less help.
 
-Who presses *Submit* is your choice per site: by default an approved draft on a well-proven site is submitted for you, and anything the AI had to touch, any site without a dedicated driver, and any answer you were unsure about waits for your click.
+Who presses *Submit* is your choice per site or company: by default the program submits an approved draft once every value has been read back. It waits for your click when you kept the last click for that site, when an answer is below your confidence bar, or when the run cannot vouch for what the form holds.
 
 ## AI services, backups and allowance
 
@@ -189,7 +189,10 @@ Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
 | Windows 10 / 11 | used daily |
 | Greenhouse; forms explored by the AI (Microsoft Careers, BambooHR, JazzHR sites) | real applications submitted and confirmed by mail |
 | Ashby | filled and read back on real forms; none submitted yet |
-| Workday, the UBC portal driver | written from earlier manual runs; the steps after sign-in have not been run for real |
+| Forms read and filled by the agent, then submitted by the program | used for real: applications submitted and confirmed by the employer |
+| Workday | one form read and walked to its review page |
+| UBC portal | postings imported for real; signing in and scanning through the program not yet confirmed |
+| The login, the listening address and the path prefix | login run end to end on a scratch copy; access from another device or behind a real reverse proxy not run |
 | Windows installer (install, upgrade over a running copy, repair, uninstall) | run end to end |
 | Failover between AI services | run once for real, when a subscription had actually run out |
 | macOS and Linux packages | built, installed and started by CI on every release; not used day to day by the author |
@@ -209,12 +212,14 @@ cd AutoApply
 | `uv run pytest` | the tests (they never reach a real AI service or a real website) |
 | `uv run autoapply serve` | the server only, in the terminal |
 | `uv run autoapply tray` | the tray launcher |
+| `uv run autoapply reset-admin` | forget the administrator's password; the next visit from this computer sets a new one |
+| `uv sync --extra nodriver` | install the optional second browser backend |
 | `cd frontend && npm run dev` | the interface with hot reload |
 | `uv run python scripts/demo.py --serve 8020` | a demo copy with made-up data (what the screenshots show) |
 | `uv run python scripts/make_release.py` | the portable zip |
 | `uv run python scripts/make_installer.py` | the Windows installer |
 
-Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `ats/` holds the drivers and the page audit, `executor.py` the fallback chain, `repair.py` the AI take-over, `llm.py` the services and their failover), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
+Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `ats/` holds the drivers and the page audit, `executor.py` the fallback chain, `repair.py` the AI take-over, `llm.py` the services and their failover, `access.py` the login and where the server listens), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
 
 **Releasing.** Set the version in `pyproject.toml`, add the section to `CHANGELOG.md`, then:
 

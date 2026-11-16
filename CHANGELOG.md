@@ -4,6 +4,8 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-16
+
 ### Added
 
 - **A login.** The page asks for one, on this computer as well as from anywhere else: the program holds your profile,
@@ -40,7 +42,7 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 - The route that serves the interface answers from a list of the built files instead of putting a path together from
   the address. 1.0.2 already kept such a path inside the interface's folder; this form leaves nothing to check, and
-  code scanning recognises it.
+  code scanning recognises it. A link in that folder that leads out of it is not served.
 
 ## [1.0.2] - 2026-11-15
 
@@ -371,7 +373,8 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
-[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v1.0.0
