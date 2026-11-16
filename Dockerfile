@@ -31,11 +31,12 @@ ENV PYTHONUNBUFFERED=1 \
     AUTOAPPLY_KNOWLEDGE=/data/knowledge \
     PATH=/opt/autoapply/.venv/bin:$PATH
 
-# tini: signals reach the program, and what it leaves behind is reaped.  xvfb, x11vnc: the virtual screen for sites
+# tini: signals reach the program, and what it leaves behind is reaped.  libatomic1: Playwright's own helper needs
+# it before it can install anything else (a slim system does not have it).  xvfb, x11vnc: the virtual screen for sites
 # that refuse a hidden browser, and the way to see it.  chromium: the ordinary browser the optional second backend
 # drives.  libreoffice-writer: Word documents to PDF.  fonts: Chinese text in PDFs and screenshots.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tini xvfb x11vnc chromium libreoffice-writer fonts-noto-cjk fonts-liberation fontconfig ca-certificates curl procps \
+ && apt-get install -y --no-install-recommends tini libatomic1 xvfb x11vnc chromium libreoffice-writer fonts-noto-cjk fonts-liberation fontconfig ca-certificates curl procps \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/autoapply

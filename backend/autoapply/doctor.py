@@ -72,7 +72,7 @@ def _browser(deep: bool) -> dict[str, str]:
         text = str(e)
         if sys.platform.startswith("linux") and ("shared libraries" in text or "missing dependencies" in text.lower()):
             return _finding("browser", "bad", "程序用的浏览器启动不了：系统缺少它需要的库", text.strip().splitlines()[0][:300],
-                            f"sudo {config.ROOT / '.venv' / 'bin' / 'playwright'} install-deps chromium")
+                            f"sudo apt-get install -y libatomic1 && sudo {config.ROOT / '.venv' / 'bin' / 'playwright'} install-deps chromium")
         return _finding("browser", "bad", "程序用的浏览器启动不了", text.strip().splitlines()[0][:300] if text.strip() else type(e).__name__)
     return _finding("browser", "ok", "程序用的浏览器可以启动" if deep else "程序用的浏览器已经下载")
 
