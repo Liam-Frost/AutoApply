@@ -84,6 +84,19 @@ class PDPortalDriver:
         page.goto(POSTINGS, wait_until="domcontentloaded")
         if not self.is_logged_in(page, ref, navigate=False):
             raise NeedsHuman("PD Portal session expired", kind="login", url=self.login_url(ref))
+        try:      # the list's search form: without it this is not the postings page, whatever its address says
+            page.wait_for_selector("#widgetSearch", state="attached", timeout=20000)
+        except Exception as e:  # noqa: BLE001
+            body = ""
+            try:
+                body = re.sub(r"\s+", " ", page.inner_text("body"))[:300]
+            except Exception:  # noqa: BLE001
+                pass
+            if re.search(r"just a moment|verify(ing)? you are human|checking your browser|cloudflare|access denied", f"{page.title()} {body}", re.I):
+                raise DriverError("PD Portal 拦下了这个浏览器窗口（人机验证页），没有显示岗位列表。请在“设置 → 浏览器”里打开“普通浏览器”后重试。", seen=body) from e
+            if re.search(r"log ?in|sign ?in|CWL", body, re.I):
+                raise NeedsHuman("PD Portal session expired", kind="login", url=self.login_url(ref)) from e
+            raise DriverError(f"PD Portal 没有显示岗位列表，页面内容：{body[:160] or '（空白）'}", seen=body) from e
         page.evaluate("() => { const f = document.getElementById('widgetSearch'); f.widget1Keyword.value = ''; setTimeout(() => f.submit(), 50); }")
         page.wait_for_selector("[onclick*=postingId]", timeout=30000)
         if not page.evaluate(_OPEN_JS, ref.job_id):

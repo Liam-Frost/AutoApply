@@ -18,6 +18,9 @@ def test_routing_precedence_and_domain_boundaries(app_env):
     assert browser_policy.select(None, "https://example.com/?url=accounts.google.com", "login").backend == "playwright"
     assert browser_policy.select(None, "https://accounts.google.com", "scan").backend == "playwright"
     assert browser_policy.select("pdportal:ubc", override="playwright").backend == "playwright"
+    # a rule saved when the portal's entry said "login" only: reading and applying there still need the ordinary browser
+    db.set_setting("browser.rules", [{"tenant": "pdportal:ubc", "backend": "nodriver", "operations": ["login"]}])
+    assert {browser_policy.select("pdportal:ubc", operation=op).backend for op in ("login", "scan", "read", "apply")} == {"nodriver"}
     db.set_setting("browser.rules", [{"tenant": "a", "backend": "playwright"}, {"domain": "example.com", "backend": "nodriver"}])
     assert browser_policy.select("a", "https://example.com").backend == "playwright"
     assert browser_policy.select(None, "https://jobs.example.com").backend == "nodriver"

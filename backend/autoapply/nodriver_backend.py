@@ -6,6 +6,7 @@ Each session owns a worker event loop. Browser objects never cross that loop.
 from __future__ import annotations
 
 import asyncio
+import logging
 import base64
 import concurrent.futures
 import json
@@ -191,7 +192,12 @@ class Page:
 
     @property
     def url(self):
-        return self.evaluate("location.href")
+        # Asked of the page; while it is between two addresses (a sign-in's redirects) it cannot answer, and the
+        # browser's own record of the tab is used. A page that cannot be asked is not a window that was closed.
+        try:
+            return self.evaluate("location.href")
+        except Exception:  # noqa: BLE001
+            return str(getattr(self.tab.target, "url", "") or "")
 
     def goto(self, url, wait_until="load", timeout=None):
         from nodriver import cdp
@@ -573,12 +579,24 @@ def open_page(state, *, headless, executable, args, profile=None):
     finally:
         try:
             if browser:
+                # Closing the window is housekeeping: it must never turn what happened in it into a failure. A Chrome
+                # that takes its time to go (it is writing its profile) is waited for, then ended; either way the
+                # caller gets its own result, not "TimeoutError" from here.
                 async def stop():
                     process = browser._process
                     browser.stop()
                     if process:
-                        await asyncio.wait_for(process.wait(), timeout=10)
-                worker.call(stop(), timeout=15)
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=10)
+                        except (asyncio.TimeoutError, TimeoutError):
+                            try:
+                                process.kill()
+                            except ProcessLookupError:
+                                pass
+                try:
+                    worker.call(stop(), timeout=20)
+                except Exception as e:  # noqa: BLE001
+                    logging.getLogger("autoapply.nodriver").warning("the browser window did not close in order (%s)", type(e).__name__)
         finally:
             worker.close()
             if temporary:

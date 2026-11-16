@@ -59,6 +59,33 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - The tray icon and its notifications are AutoApply to Windows, not `pythonw.exe`, and shortcuts are written directly
   instead of through PowerShell.
 
+### Fixed
+
+- **An answer in a draft can be changed after the draft was approved.** The "Edit" button was only there until you
+  approved, so a wrong answer noticed afterwards - or one a run failed on - could not be corrected, and neither
+  could the résumé. Now every answer can be changed for as long as the application has not gone out. The draft stays
+  approved (the change is your own), what was changed is listed with the draft, and "Fill in again and submit" uses
+  the answers as they are now. A draft is closed only when it is an old version, when the application was sent, or
+  while a run is filling the form from it - and it says which.
+- **A list whose button shows less than the entry it holds no longer stops a run.** A phone-code list has "+1 United
+  States", "+1 Canada", "+1 Bahamas"...; once one is chosen its button reads "+1". The program took "the button did
+  not change to the entry's text" for a failed choice, then took "+1" against "+1 Canada" for a difference from the
+  draft, and the AI, asked to look, could only say that the country is not visible - so the run was handed to you
+  although the right entry had been chosen. Now the list itself is asked which entry it holds: it is opened, the
+  entry it marks as chosen is read, and it is closed again. The approved entry: no difference, nobody is asked.
+  Another entry: a difference, and the message says which. The same goes for a location list that shows "Vancouver,
+  Canada" for "Vancouver, BC, Canada".
+- **"You have already applied" is one answer, wherever the program meets it.** Met while a form was being filled, it
+  was understood; met while the form was being read - the AI reporting it, or the site's own list of your applications
+  showing the posting - it became a card saying the program could not work the site. Now the application is recorded
+  as sent, with what the site showed (and its date, when the site gives one; no date is made up), and the cards and
+  drafts that waited on it are closed.
+- **A posting that turned out closed (or a site that was down) on a second attempt no longer ends in "FOREIGN KEY
+  constraint failed".** The empty application is taken away together with the record of its status changes.
+- **The university's co-op portal is worked in the ordinary browser for everything**, not only for signing in: a
+  browser rule saved by an earlier version sent reading and applying to the automated browser, which the portal turns
+  away. When its list of postings is not on the page, the error now says what the page showed.
+
 ## [1.0.3] - 2026-11-16
 
 ### Added

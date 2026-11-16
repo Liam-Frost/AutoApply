@@ -519,7 +519,12 @@ def get_draft(draft_id: int) -> dict[str, Any]:
 
 @app.patch("/api/drafts/{draft_id}/answers/{qid:path}")
 def edit_answer(draft_id: int, qid: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    drafts.edit_answer(draft_id, qid, body.get("value"), save_rule=body.get("save_rule", ""), remember=bool(body.get("remember")))
+    with db.session() as s:
+        _404(s.get(Draft, draft_id))
+    try:
+        drafts.edit_answer(draft_id, qid, body.get("value"), save_rule=body.get("save_rule", ""), remember=bool(body.get("remember")))
+    except drafts.Locked as e:
+        raise HTTPException(409, str(e)) from e
     return get_draft(draft_id)
 
 
@@ -610,8 +615,8 @@ def draft_resume(draft_id: int, body: dict[str, Any] = Body(...)) -> dict[str, A
 
     with db.session() as s:
         d = _404(s.get(Draft, draft_id))
-        if d.review_status != "pending":
-            raise HTTPException(400, "这份草案已经处理过，不能再换简历")
+        if (why := drafts.locked(d)):
+            raise HTTPException(409, why)
         doc = None
         if body.get("which") == "tailored":
             doc = tailor.existing(d.application.job_id)
