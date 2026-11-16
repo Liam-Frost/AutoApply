@@ -349,3 +349,31 @@ def test_the_analysis_page_gets_the_time_by_system_and_what_was_learned(store):
     assert c.post(f"/api/learned/{rev['id']}/revert").json()["status"] == "reverted"
     assert c.post(f"/api/learned/{rev['id']}/approve").status_code == 409
     assert c.post("/api/learned/nope/revert").status_code == 404
+
+
+@pytest.mark.parametrize("module, cls", [("greenhouse", "GreenhouseDriver"), ("ashby", "AshbyDriver"), ("workday", "WorkdayDriver")])
+def test_the_coded_drivers_record_each_field_they_fill_too(module, cls, monkeypatch):
+    """Per-field time was recorded by the generic driver only: a run on Greenhouse, Ashby or Workday showed its steps
+    and nothing about which field took the time."""
+    import importlib
+    from types import SimpleNamespace
+
+    from autoapply.ats.base import DriverError, FormSchema, Question
+
+    driver = getattr(importlib.import_module(f"autoapply.ats.{module}"), cls)()
+    qs = [Question(id="a", label="First name", type="text", page=0), Question(id="b", label="Phone code", type="select", page=0)]
+
+    def fill_one(page, q, val):
+        if q.id == "b":
+            raise DriverError("no such entry")
+
+    monkeypatch.setattr(driver, "_fill_one", fill_one)
+    monkeypatch.setattr(driver, "_rows_as_they_are", lambda *a, **k: {}, raising=False)
+    page = SimpleNamespace(locator=lambda *a, **k: SimpleNamespace(count=lambda: 0), keyboard=SimpleNamespace(press=lambda *a, **k: None), wait_for_timeout=lambda *a, **k: None)
+    timing.begin()
+    try:
+        driver.fill_page(page, FormSchema(ats=module, tenant="t", url="https://x.example", questions=qs, pages=["One"]), 0, {"a": "Alex", "b": "+1"})
+    except Exception:  # noqa: BLE001 - how each driver reports the field that failed is its own business
+        pass
+    fields = [(s["label"], s.get("ok", True)) for s in timing.end() if (s["k"], s["n"]) == ("driver", "field")]
+    assert fields == [("First name", True), ("Phone code", False)]

@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PWTimeout
 
+from .. import timing
 from . import widgets as w
 from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, SiteDown, host_is
 
@@ -452,7 +453,8 @@ class WorkdayDriver:
                 continue
             val = answers.get(q.id)
             try:
-                self._fill_one(page, q, val)
+                with timing.span("driver", "field", label=q.label[:60], type=q.type, page=page_index):
+                    self._fill_one(page, q, val)
             except DriverError as e:
                 if tolerant:
                     failed.append((q, str(e)))

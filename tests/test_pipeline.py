@@ -238,7 +238,6 @@ def test_a_run_keeps_where_its_time_went_and_is_looked_at_afterwards(pipeline):
         r = s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first()
         spans, site, in_force = list(r.spans or []), r.site, r.learned
     kinds = {sp["k"] for sp in spans}
-    assert "driver" in kinds and any(sp["n"] == "field" and sp.get("label") for sp in spans)      # each field the driver filled
-    assert any(sp["n"].startswith("step:") for sp in spans) and timing.working_ms(spans) > 0
+    assert "driver" in kinds and {"step:fill_page", "step:read_back", "step:submit"} <= {sp["n"] for sp in spans} and timing.working_ms(spans) > 0
     assert site and in_force == []                                                                # nothing learned yet: nothing in force
     assert not timing.active()                                                                    # the recorder ended with the run
