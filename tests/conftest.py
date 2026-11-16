@@ -32,6 +32,9 @@ def app_env(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOAPPLY_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("AUTOAPPLY_KNOWLEDGE", str(tmp_path / "knowledge"))
     keyring.set_keyring(MemoryKeyring())
+    from autoapply import secrets as _secret_store
+
+    _secret_store.reset()        # the store is chosen anew for every test's data folder
     from autoapply import config, db
 
     importlib.reload(config)
@@ -53,6 +56,7 @@ def app_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(access, "enforced", lambda: False)      # the tests are about the program behind the login; test_access.py turns it on
     real_open = browser.open_page
+    monkeypatch.setattr(browser, "real_open_page", real_open, raising=False)      # for the tests that are about windows
     monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None, **kwargs: real_open(tenant_key, headless=True, downloads=downloads, **kwargs))
 
     def nobody_is_there(*a, **k):

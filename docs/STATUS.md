@@ -40,11 +40,18 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 | Mail tracking with Outlook and generic IMAP | Unit-tested only |
 | Telegram notifications | Chinese: used for real. English: checked for untranslated text, not sent |
 
-## The local server
+## The server
 
 | Part | Status |
 |---|---|
 | Refusing requests from other websites and foreign `Host` headers | Unit-tested only (requests with the headers a browser would send); not attacked from a real page |
+| The remote window, as pictures (a page that needs a person, on a computer without a screen) | Run end to end on Windows with the program told it has no screen: a sign-in started in the page, the notice, the window opened, e-mail and password typed and submitted through it, "done" pressed, the sign-in saved. Not run: on a phone; with a Chinese input method; a real site's sign-in; from another device over HTTPS |
+| The remote window, as a virtual screen (Xvfb, x11vnc, the bridge to the page, noVNC) | The decisions are unit-tested everywhere; the real screen, a real browser window on it and the bridge are run by CI on Linux and in the container. The picture in a browser through noVNC has not been looked at by a person |
+| Secrets in an encrypted file (no keyring) | Unit-tested; run in the container by CI |
+| The doctor | Run on Windows and in WSL; by CI on Linux and in the container |
+| Running as a systemd user service; upgrading a copy that runs as one | Unit-tested only (the unit, the orderly stop). Not run on a system with systemd |
+| Carrying a sign-in to another computer | Unit-tested, through the API; not used for a real site |
+| The container image | Built and run by CI: starts as an ordinary user, healthy, the doctor finds the browser, the virtual screen, the PDF converter and the fonts, the administrator is set in the terminal and stays signed in over a restart. Not run by the author day to day; the ARM64 image is only built at release |
 | The login (first set-up, sign-in, sign-out, the lock after wrong passwords) | Run end to end on a scratch copy with a test account; the lock and the proxy rules are unit-tested only |
 | Listening beyond this computer, a path prefix, HTTPS by a reverse proxy | Unit-tested only: not reached from another device, not run behind a real proxy |
 | Resetting the administrator password from the tray | Unit-tested only |

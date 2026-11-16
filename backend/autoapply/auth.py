@@ -406,7 +406,7 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
                     misses += 1
                     if misses >= 5:
                         return {"ok": False, "reason": "window closed before sign-in was verified"}
-                    time.sleep(1)
+                    browser.idle(page, 1)
                     continue
                 if not urls:
                     return {"ok": False, "reason": "window closed before sign-in was verified"}
@@ -418,10 +418,13 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
                             return keep()
                     except Exception:  # noqa: BLE001
                         pass
-                time.sleep(1)
+                browser.idle(page, 1)
         return {"ok": False, "reason": "sign-in verification timed out"}
 
     plain = getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
+    if plain is not None and browser.no_screen():
+        plain = None        # an ordinary browser window needs a screen: here the sign-in goes through the remote window
+        done = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
     if plain is not None:  # this site refuses sign-in to an automated browser: plain window, human login
         res = browser.plain_login(tenant_key, url, plain)
         if not res["ok"]:
@@ -446,7 +449,7 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     state: dict | None = None
     ok = closed = False
     waited = 0.0
-    with browser.open_page(tenant_key, headless=False) as page:
+    with browser.open_page(tenant_key, headless=False, url=url, operation="login") as page:
         ctx = page.context
         if save_credentials:
             ctx.expose_binding("aaCapture", on_capture)
@@ -457,7 +460,7 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
             pass
         while waited < timeout_s:
             try:
-                page.wait_for_timeout(1500) if not page.is_closed() else time.sleep(1.5)
+                browser.idle(page, 1.5)
                 pages = [p for p in ctx.pages if not p.is_closed()]
                 if not pages:
                     closed = True

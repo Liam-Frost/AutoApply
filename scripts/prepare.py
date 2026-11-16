@@ -247,7 +247,7 @@ class Job:
                     if self.run([self.uv, "run", "--frozen", "--no-sync", *tool], 3, self.root) != 0:
                         missing = sys.platform.startswith("linux") and any(MISSING_LIBRARY.search(line) for line in self.said)
                         if missing:
-                            self.note(f"On Debian or Ubuntu the libraries are installed with:  sudo {self.root / '.venv' / 'bin' / 'playwright'} install-deps chromium")
+                            self.note(f"On Debian or Ubuntu the libraries are installed with:  sudo apt-get install -y libatomic1 && sudo {self.root / '.venv' / 'bin' / 'playwright'} install-deps chromium")
                         raise Failed("browser_libs" if missing else "browser")
             except Cancelled:
                 if self.back() == "deps_broken":            # stopped, but not back where it was: that is what to say

@@ -283,7 +283,31 @@ def caller(peer: str, headers: Any) -> dict[str, Any]:
     if trusted and fwd:
         ip = (headers.get("x-forwarded-for") or "").split(",")[-1].strip() or peer
         https = (headers.get("x-forwarded-proto") or "").split(",")[-1].strip().lower() == "https"
-    return {"ip": ip, "https": https, "local": _loopback(peer) and not fwd}
+    return {"ip": ip, "https": https, "local": _loopback(peer) and not fwd, "near": not fwd and _near(peer)}
+
+
+def _near(peer: str) -> bool:
+    """Does the connection come from a network that was declared as good as this computer itself?
+
+    A container never sees the loopback address of the computer it runs on: a browser on that computer arrives from
+    the container network's gateway. AUTOAPPLY_TRUSTED_NETWORKS (comma-separated networks, e.g. 172.16.0.0/12) names
+    such networks. It is a statement about the deployment - "only this computer can reach the published port" - and so
+    it is given where the container is defined, not in the settings page. It lifts one rule only: that what may carry a
+    password (the remote window) is not served over plain HTTP to another device. It never replaces the login."""
+    nets = os.environ.get("AUTOAPPLY_TRUSTED_NETWORKS", "")
+    if not nets.strip():
+        return False
+    try:
+        ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    for n in nets.split(","):
+        try:
+            if ip in ipaddress.ip_network(n.strip(), strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def enforced() -> bool:

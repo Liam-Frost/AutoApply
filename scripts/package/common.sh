@@ -94,7 +94,7 @@ prepare_message() {
     deps_restored) t '新版本的依赖安装失败（多数是网络问题）。之前的版本已经恢复，可以照常使用。' 'The dependencies of the new version could not be installed (usually the network). The previous version was put back and works.' ;;
     deps_broken) t '依赖安装失败，旧版本的依赖也没能恢复。你的数据没有被改动。请在网络正常时再运行一次。' 'The dependencies could not be installed, and the previous version'"'"'s could not be restored. Your data is untouched. Run it again when the network works.' ;;
     browser) t '程序用的浏览器下载失败（多数是网络问题）。其余部分已经装好，再运行一次即可完成。' 'The browser the program uses could not be downloaded (usually the network). Everything else is installed; running it again finishes it.' ;;
-    browser_libs) t "程序用的浏览器已经下载，但启动不了：这台电脑缺少它需要的系统库。在 Debian 或 Ubuntu 上运行下面这条命令安装（需要管理员权限），然后再运行一次安装程序：\n    sudo \"$2/.venv/bin/playwright\" install-deps chromium" "The browser the program uses was downloaded but cannot start: this computer lacks system libraries it needs. On Debian or Ubuntu install them with the command below (it needs administrator rights), then run setup again:\n    sudo \"$2/.venv/bin/playwright\" install-deps chromium" ;;
+    browser_libs) t "程序用的浏览器已经下载，但启动不了：这台电脑缺少它需要的系统库。在 Debian 或 Ubuntu 上运行下面这条命令安装（需要管理员权限），然后再运行一次安装程序：\n    sudo apt-get install -y libatomic1 && sudo \"$2/.venv/bin/playwright\" install-deps chromium" "The browser the program uses was downloaded but cannot start: this computer lacks system libraries it needs. On Debian or Ubuntu install them with the command below (it needs administrator rights), then run setup again:\n    sudo apt-get install -y libatomic1 && sudo \"$2/.venv/bin/playwright\" install-deps chromium" ;;
     *) t "安装没有完成（$1）。" "Setup did not finish ($1)." ;;
   esac
 }

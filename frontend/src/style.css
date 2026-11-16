@@ -210,6 +210,23 @@ tr.clickable { cursor: pointer; }
 .callout { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--info-soft); color: var(--text); border: 1px solid transparent; margin-bottom: var(--s3); }
 .callout.warn { background: var(--warn-soft); } .callout.bad { background: var(--bad-soft); } .callout.ok { background: var(--ok-soft); }
 .callout svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+
+/* the remote window (views/RemoteView.vue): a page on the server, used from here */
+.rw-banner { align-items: center; } .rw-banner .grow { flex: 1; min-width: 0; }
+.rw-bar { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); flex-wrap: wrap; }
+.rw-url { flex: 1; min-width: 120px; font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px var(--s3); background: var(--surface-2); border-radius: var(--r-sm); }
+.rw-tabs { display: flex; gap: var(--s1); flex-wrap: wrap; }
+.rw-frame { position: relative; max-width: 1280px; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; background: var(--surface-2); box-shadow: var(--shadow-sm); }
+.rw-stage { display: block; width: 100%; height: auto; cursor: default; user-select: none; -webkit-user-drag: none; touch-action: none; }
+.rw-wait { aspect-ratio: 1280 / 800; display: grid; place-items: center; color: var(--text-3); }
+.rw-screen { aspect-ratio: 1280 / 800; width: 100%; } .rw-over { position: absolute; inset: 0; background: var(--surface-2); }
+/* the keyboard's way in: there, focusable, and not seen */
+.rw-keys { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; font-size: 16px; }
+.rw-note { max-width: 1280px; color: var(--text-3); font-size: 12px; margin-top: var(--s2); }
+.doctor { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.doctor li { display: grid; grid-template-columns: 22px 1fr; gap: var(--s2); align-items: start; }
+.doctor .mark { width: 18px; height: 18px; margin-top: 2px; } .doctor .ok { color: var(--ok); } .doctor .warn { color: var(--warn); } .doctor .bad { color: var(--bad); } .doctor .info { color: var(--text-3); }
+.doctor .d { color: var(--text-2); font-size: 13px; } .doctor code { display: inline-block; margin-top: 4px; padding: 2px 8px; background: var(--surface-2); border-radius: var(--r-sm); font-size: 12px; user-select: all; }
 .err { color: var(--bad); margin: var(--s2) 0; } .okmsg { color: var(--ok); margin: var(--s2) 0; }
 
 /* empty state */

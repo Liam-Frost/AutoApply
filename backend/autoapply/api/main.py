@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
@@ -188,6 +188,25 @@ def _foreign_at(request, path: str) -> str:  # noqa: ANN001
     elif request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
         return "cross-site"     # same-site covers another port of this computer
     return ""
+
+
+class _SocketPrefix:
+    """A WebSocket called with the path prefix the program is served under (a proxy that does not strip it): the
+    prefix is taken off, as the HTTP middleware below does for requests - which does not see WebSockets."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "websocket":
+            root = access.conf()["root_path"]
+            if root and (scope["path"] == root or scope["path"].startswith(root + "/")):
+                path = scope["path"][len(root):] or "/"
+                scope = {**scope, "path": path, "raw_path": path.encode()}
+        await self.inner(scope, receive, send)
+
+
+app.add_middleware(_SocketPrefix)
 
 
 @app.middleware("http")
@@ -850,6 +869,7 @@ def overview() -> dict[str, Any]:
             "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open").scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),
+            "remote": _open_remote_windows(),
             "drivers": [{"ats": d.ats, "recon_ok": d.recon_ok, "recon_fail": d.recon_fail, "exec_ok": d.exec_ok, "exec_fail": d.exec_fail,
                          "streak": d.consecutive_submits} for d in s.query(DriverStat).all()],
             "mail_recent": [_mail_row(s, m) for m in s.query(MailEvent).filter(MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(10)],
@@ -861,6 +881,12 @@ def overview() -> dict[str, Any]:
                                      **stages.describe(stages.stage(a.job.status, bool(a.job.online), a.job.deadline or "", a.status))}
                                     for a in s.query(Application).filter(Application.submitted_at.isnot(None)).order_by(Application.submitted_at.desc()).limit(8)],
         }
+
+
+def _open_remote_windows() -> list[dict[str, Any]]:
+    from .. import remote
+
+    return [{"id": w["id"], "title": w["title"], "purpose": w["purpose"]} for w in remote.windows()]
 
 
 def _mail_row(s: Any, m: MailEvent) -> dict[str, Any]:
@@ -1214,6 +1240,51 @@ def reveal(tenant_key: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 async def import_csv(file: UploadFile = File(...)) -> dict[str, Any]:
     content = (await file.read()).decode("utf-8-sig", errors="ignore")
     return auth.import_chrome_csv(content)
+
+
+@app.get("/api/accounts/sessions")
+def carried_sessions() -> list[dict[str, Any]]:
+    """The saved sign-ins that can be carried to another computer: site accounts and sign-in providers."""
+    from .. import browser as _browser
+
+    out = []
+    for r in auth.list_accounts():
+        if _browser.session_info(r["tenant_key"]):
+            out.append({"tenant_key": r["tenant_key"], "name": humanize.site(r["tenant_key"])["name"]})
+    for key, spec in _browser.identities().items():
+        if _browser.session_info(f"idp:{key}"):
+            out.append({"tenant_key": f"idp:{key}", "name": spec["name"]})
+    return out
+
+
+@app.post("/api/accounts/session/export")
+def export_session(body: dict[str, Any] = Body(...)):
+    """One site's saved sign-in as a file encrypted with the passphrase. Not written anywhere here: it is the download."""
+    from .. import transfer
+
+    tenant = str(body.get("tenant_key") or "")
+    with db.session() as s:
+        from ..models import Account
+
+        a = s.get(Account, tenant)
+        host = a.host if a else ""
+    try:
+        blob = transfer.export(tenant, str(body.get("passphrase") or ""), host=host or "")
+    except transfer.Refused as e:
+        raise HTTPException(400, str(e)) from e
+    name = "".join(c if c.isalnum() or c in "-." else "-" for c in tenant) + ".aasession"
+    return Response(content=blob, media_type="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@app.post("/api/accounts/session/import")
+async def import_session(file: UploadFile = File(...), passphrase: str = Form("")) -> dict[str, Any]:
+    from .. import transfer
+
+    try:
+        got = transfer.put(await file.read(), passphrase)
+    except transfer.Refused as e:
+        raise HTTPException(400, str(e)) from e
+    return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting()}
 
 
 @app.post("/api/accounts/allow-register")
@@ -2141,6 +2212,158 @@ def gmail_authorize() -> dict[str, Any]:
     return {"started": True}
 
 
+
+
+# --- the remote window: a page that needs a person, shown here instead of on a screen the server does not have ---
+
+
+def _remote(request: Request, window_id: str):
+    """The window, for a caller who may have it. What is typed into it can be a password: another device gets it over
+    HTTPS only."""
+    from .. import remote
+
+    who = access.caller(request.client.host if request.client else "", request.headers)
+    if not who["local"] and not who["https"] and not who.get("near"):
+        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“访问与安全”里打开对应的开关。")
+    win = remote.get(window_id)
+    if win is None:
+        raise HTTPException(404, "这个窗口已经关闭了。")
+    return win
+
+
+@app.get("/api/remote")
+def remote_windows():
+    from .. import remote
+
+    return remote.windows()
+
+
+@app.get("/api/remote/{window_id}")
+def remote_window(request: Request, window_id: str):
+    return _remote(request, window_id).describe()
+
+
+@app.get("/api/remote/{window_id}/screen")
+def remote_screen(request: Request, window_id: str):
+    """For a window that is a real one on a virtual screen: the password of that screen's viewer, for the page that
+    is about to connect to it. Given to a signed-in caller only (the login has been checked before this runs)."""
+    win = _remote(request, window_id)
+    if not win.vnc:
+        raise HTTPException(409, "这个窗口不是虚拟屏幕上的窗口。")
+    return {"password": win.vnc["password"]}
+
+
+def _ws_refusal(ws: Any, path: str) -> str:
+    """Why a WebSocket may not be opened ('' when it may). The HTTP middleware does not see WebSockets, so the same
+    three questions are asked here: is it one of this program's own pages, is the caller signed in, and - what goes
+    through can be a password - does it travel encrypted when it comes from another device."""
+    from urllib.parse import urlparse
+
+    host = ws.headers.get("host", "")
+    if _host_of(host) not in _own_hosts():
+        return "host"
+    # A browser always says where a WebSocket is opened from. It has to be this program's own page - host and port:
+    # a page served by another program on this computer, on its own port, is not ours although the host is the same.
+    origin = ws.headers.get("origin")
+    mine = {host.lower()}
+    base = urlparse(str(db.get_setting("app.base_url") or ""))
+    if base.netloc:
+        mine.add(base.netloc.lower())
+    if not origin or urlparse(origin).netloc.lower() not in mine:
+        return "origin"
+    who = access.caller(ws.client.host if ws.client else "", ws.headers)
+    if not access.allowed(path, ws.cookies.get(access.COOKIE), who, ws.headers.get(access.LOCAL_HEADER)):
+        return "login"
+    if not who["local"] and not who["https"] and not who.get("near"):
+        return "plain"
+    return ""
+
+
+async def _remote_vnc(ws: Any, window_id: str) -> None:
+    """The page's VNC client talks WebSocket; the screen's VNC server talks TCP on this computer only. Bytes are passed
+    both ways, unread and unlogged."""
+    import asyncio
+
+    from .. import remote
+
+    why = _ws_refusal(ws, f"/api/remote/{window_id}/vnc")
+    win = remote.get(window_id)
+    if why or win is None or not win.vnc:
+        log.warning("refused a remote screen connection (%s)", why or "no such window")
+        await ws.close(code=1008)
+        return
+    asked = [p.strip() for p in (ws.headers.get("sec-websocket-protocol") or "").split(",") if p.strip()]
+    await ws.accept(subprotocol="binary" if "binary" in asked else None)
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", int(win.vnc["port"]))
+    except OSError:
+        await ws.close(code=1011)
+        return
+
+    async def up() -> None:
+        while True:
+            data = await ws.receive_bytes()
+            writer.write(data)
+            await writer.drain()
+
+    async def down() -> None:
+        while True:
+            data = await reader.read(65536)
+            if not data:
+                return
+            await ws.send_bytes(data)
+
+    tasks = [asyncio.ensure_future(up()), asyncio.ensure_future(down())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in tasks:
+            t.cancel()
+        writer.close()
+        try:
+            await ws.close()
+        except Exception:  # noqa: BLE001 - the other side closed it first
+            pass
+
+
+@app.websocket("/api/remote/{window_id}/vnc")
+async def remote_vnc(ws: WebSocket, window_id: str):
+    await _remote_vnc(ws, window_id)
+
+
+@app.get("/api/remote/{window_id}/frame")
+def remote_frame(request: Request, window_id: str, after: int = 0):
+    """The newest picture of the page once it is newer than `after` (waits a few seconds for one). Never stored."""
+    import json
+
+    from fastapi.responses import Response
+
+    win = _remote(request, window_id)
+    if win.vnc:
+        raise HTTPException(409, "这个窗口是虚拟屏幕上的窗口，通过屏幕连接查看。")
+    seq, frame = win.next_frame(after)
+    headers = {"X-Seq": str(seq), "Cache-Control": "no-store", "X-State": json.dumps(win.state, ensure_ascii=True)}
+    if frame is None:
+        return Response(status_code=204, headers=headers)
+    return Response(content=frame, media_type="image/jpeg", headers=headers)
+
+
+@app.post("/api/remote/{window_id}/input")
+def remote_input(request: Request, window_id: str, body: dict[str, Any] = Body(...)):
+    """Clicks and keys for the page. Their content is never logged: it can be a password."""
+    events = body.get("events")
+    if not isinstance(events, list):
+        raise HTTPException(400, "events")
+    _remote(request, window_id).send(events)
+    return {"ok": True}
+
+
+@app.get("/api/doctor")
+def doctor_report(deep: bool = False):
+    """What this computer lacks for the program to do its whole job, each with the command that fixes it."""
+    from .. import doctor, i18n
+
+    return [{**f, "title": i18n.tr(f["title"]), "detail": i18n.tr(f["detail"])} for f in doctor.run(deep=deep)]
 
 
 # --- frontend ------------------------------------------------------------------------------

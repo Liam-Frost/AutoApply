@@ -35,6 +35,8 @@ async function submit() {
       <template v-if="setup && !session.canSetup">
         <div class="card-title">还没有设置管理员账号</div>
         <p class="muted">第一次设置要在运行 AutoApply 的那台电脑上打开这个页面完成。设置好之后，这里就可以登录了。</p>
+        <p class="muted">那台电脑是服务器或容器、没有浏览器的话，在它的终端里运行下面的命令来设置：</p>
+        <p><code data-notr>autoapply set-admin</code>　<span class="muted">Docker：</span><code data-notr>docker compose exec autoapply autoapply set-admin</code></p>
       </template>
       <template v-else>
         <div class="card-title">{{ setup ? '设置管理员账号' : '登录' }}</div>
