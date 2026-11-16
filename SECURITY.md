@@ -43,6 +43,10 @@ Anything that breaks one of the program's own promises:
   pages: by default it listens on `127.0.0.1`, refuses requests whose `Host` is not one of its own, and refuses
   cross-site requests. Getting past the login, the lock-out, the local token the tray icon uses or those checks - from
   a web page, another device on the network, a proxy's forwarded headers or a DNS-rebinding trick - is a vulnerability.
+- **The remote window is reached by someone else.** A page that needs you is shown in the program's page on a
+  computer without a screen, and passwords are typed into it. Reaching it without the login, from another site's page,
+  or over plain HTTP from another device; what is typed or shown ending up in a log, on disk or in the AI's context;
+  or another account on the server watching the virtual screen - each is a vulnerability.
 - **Data goes somewhere it should not.** Your profile, documents or mail sent anywhere other than the AI service you
   chose and the job sites you apply to.
 - **The installer or the release process** can be made to run or publish something it should not.
@@ -57,7 +61,9 @@ Anything that breaks one of the program's own promises:
 
 ## How the program protects you, briefly
 
-- Passwords and API keys are in the operating system's keyring; saved sign-ins are encrypted on disk.
+- Passwords and API keys are in the operating system's keyring; saved sign-ins are encrypted on disk. On a server,
+  which has no keyring, they are in one encrypted file whose master key you can keep outside the data folder; with
+  the key beside the data, whoever can read that folder as you can read them, and the program says so.
 - The tools given to the AI cannot submit an application, type a password or read a verification code.
 - Text from web pages is treated as data, never as instructions; the rules that matter are enforced in code, not in prompts.
 - The page needs a login, on the computer it runs on as well; the server does not do HTTPS itself and says so when it

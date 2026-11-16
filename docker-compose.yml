@@ -1,0 +1,41 @@
+# AutoApply on a server, or on any computer with Docker.
+#
+#   docker compose up -d
+#   docker compose exec autoapply autoapply set-admin        the first time: choose the administrator's name and password
+#   open http://127.0.0.1:8000
+#
+# Everything that is yours - the database, your documents, saved sign-ins, the logs - is in the volume
+# "autoapply-data". Back it up with the program's own export (Settings > Advanced), or by copying the volume.
+
+services:
+  autoapply:
+    image: ghcr.io/liam-frost/autoapply:latest
+    build: .
+    restart: unless-stopped        # started with the computer, restarted when it fails
+    init: false                    # the image brings its own (tini)
+    shm_size: "1gb"                # the browser keeps pages in shared memory; Docker's default 64 MB makes it crash
+    ports:
+      # Only this computer can reach it. To use it from other devices, do not open this port to them: put a reverse
+      # proxy that does HTTPS in front (the login, and what you type into a remote window, would otherwise travel in
+      # the clear) and turn on "a reverse proxy does the HTTPS" under Settings > Access & security.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - autoapply-data:/data
+    environment:
+      TZ: "Etc/UTC"                # your time zone, for the schedule and the dates in the page, e.g. America/Vancouver
+      # A browser on this computer reaches the container from Docker's own network, not from "this computer itself".
+      # These are Docker's private ranges: with the port published to 127.0.0.1 only, nothing else comes from them.
+      # It lets the remote window be used over plain HTTP from this computer; it does not replace the login.
+      AUTOAPPLY_TRUSTED_NETWORKS: "172.16.0.0/12,192.168.0.0/16,10.0.0.0/8"
+      # Passwords and keys are kept in an encrypted file in the volume, and by default so is its master key.
+      # To keep the key out of the volume, give it as a Docker secret:
+      #   AUTOAPPLY_MASTER_KEY_FILE: /run/secrets/autoapply_master_key
+    # secrets:
+    #   - autoapply_master_key
+
+volumes:
+  autoapply-data:
+
+# secrets:
+#   autoapply_master_key:
+#     file: ./autoapply_master_key.txt       # any long random line; keep a copy - without it the saved passwords are lost

@@ -1,11 +1,11 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
-import { api, fmt } from '../api'
+import { api, fmt, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { fmtTime, run as runAction, ask } from '../ui'
+import { fmtTime, run as runAction, ask, toast } from '../ui'
 
 const accounts = ref([])
 const form = ref({ tenant_key: '', login_email: '', password: '' })
@@ -73,8 +73,32 @@ function importCsv(ev) {
   run(() => api.upload('/accounts/import-chrome-csv', fd), (r) => `已导入 ${r.imported.length} 个招聘网站的账号（跳过 ${r.skipped} 条无关记录）。请删除导出的 CSV 文件。`)
   ev.target.value = ''
 }
-const takeover = (a) => run(() => api.post('/accounts/takeover', { tenant_key: a.tenant_key, url: 'https://' + a.host, save_credentials: true }), '已打开一个浏览器窗口，请在里面登录')
-onMounted(() => { load(); timer = setInterval(loadIdps, 5000) })
+const takeover = (a) => run(() => api.post('/accounts/takeover', { tenant_key: a.tenant_key, url: 'https://' + a.host, save_credentials: true }), '已打开登录窗口。如果程序运行在没有屏幕的电脑上，窗口会出现在页面上方的提示里')
+// carrying a sign-in to another computer (a server cannot do a passkey sign-in; your own computer can)
+const carry = ref({ sessions: [], tenant: '', pass: '', inPass: '' })
+const loadCarry = async () => { try { carry.value.sessions = await api.get('/accounts/sessions') } catch (e) { /* nothing to carry */ } }
+async function exportSession() {
+  const c = carry.value
+  try {
+    const r = await fetch(`${ROOT}/api/accounts/session/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenant_key: c.tenant, passphrase: c.pass }) })
+    if (!r.ok) throw new Error((await r.json()).detail || '没有导出')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(await r.blob())
+    a.download = (r.headers.get('Content-Disposition') || '').replace(/.*filename="([^"]+)".*/, '$1') || 'session.aasession'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    c.pass = ''
+    toast('已导出。把这个文件和口令带到另一台电脑，在那里的“网站账号”里导入；用完后删除文件。')
+  } catch (e) { toast(e.message, 'bad') }
+}
+function importSession(ev) {
+  const f = ev.target.files[0]
+  if (!f) return
+  const fd = new FormData(); fd.append('file', f); fd.append('passphrase', carry.value.inPass)
+  run(() => api.upload('/accounts/session/import', fd), (r) => `已导入 ${r.name} 的登录状态。请删除那个文件。`).then(() => { carry.value.inPass = ''; loadCarry() })
+  ev.target.value = ''
+}
+onMounted(() => { load(); loadCarry(); timer = setInterval(loadIdps, 5000) })
 onUnmounted(() => clearInterval(timer))
 </script>
 
@@ -151,6 +175,23 @@ onUnmounted(() => clearInterval(timer))
       <p class="muted">在 Chrome 里打开：设置 → 密码管理器 → 设置 → 导出密码，会得到一个 CSV 文件。这里只导入属于招聘网站的记录，其余忽略；文件内容不会被保存。</p>
       <label class="btn"><Icon name="inbox" />选择 CSV 文件<input type="file" accept=".csv" hidden @change="importCsv" /></label>
       <p class="hint" style="margin-top: 8px">导入后请马上删除那个 CSV 文件。</p>
+    </div>
+    <div class="card">
+      <div class="card-title">把登录状态带到另一台电脑</div>
+      <p class="muted">有的登录在服务器上做不了：通行密钥（passkey）在你手边的设备上，有的网站只认它见过的电脑。可以在自己的电脑上用 AutoApply 登录，把登录状态导出成文件，再在服务器上导入。文件用你定的口令加密；拿到文件和口令的人就等于登录了那个网站，用完请删除文件。</p>
+      <div class="kv" style="margin-top: 12px">
+        <label>导出</label>
+        <div class="row">
+          <AaSelect v-model="carry.tenant" aria-label="网站"><option value="">选一个已登录的网站</option><option v-for="s in carry.sessions" :key="s.tenant_key" :value="s.tenant_key">{{ s.name }}</option></AaSelect>
+          <input v-model="carry.pass" type="password" autocomplete="new-password" placeholder="口令（至少 8 个字符）" style="width: 200px" />
+          <button :disabled="!carry.tenant || carry.pass.length < 8" @click="exportSession"><Icon name="external" />导出文件</button>
+        </div>
+        <label>导入</label>
+        <div class="row">
+          <input v-model="carry.inPass" type="password" autocomplete="off" placeholder="导出时定的口令" style="width: 200px" />
+          <label class="btn" :class="{ disabled: carry.inPass.length < 8 }"><Icon name="inbox" />选择登录状态文件<input type="file" accept=".aasession" hidden :disabled="carry.inPass.length < 8" @change="importSession" /></label>
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="card-title">手动添加</div>

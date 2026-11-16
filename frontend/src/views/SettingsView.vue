@@ -8,6 +8,7 @@ import AccessPanel from '../components/AccessPanel.vue'
 import Icon from '../components/Icon.vue'
 import NetworkPanel from '../components/NetworkPanel.vue'
 import BrowserPanel from '../components/BrowserPanel.vue'
+import DoctorPanel from '../components/DoctorPanel.vue'
 import PromptsPanel from '../components/PromptsPanel.vue'
 import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
@@ -314,6 +315,7 @@ var s=document.createElement('script');s.src='{{ s['app.base_url'] }}/pdportal-i
 
     <!-- 高级 -->
     <template v-if="tab === 'advanced'">
+      <DoctorPanel />
       <div class="card">
         <div class="card-title">免审批直接投（自动通过）</div>
         <p class="muted">默认每份草案都要你批准。打开后，同时满足下面所有条件的草案不用你看，直接填写提交。建议用熟了再开。</p>

@@ -5,8 +5,12 @@
 #   entry    -> the applications menu (and, if you like, the desktop and "start when I sign in")
 #
 # With a desktop and zenity installed it asks in windows; otherwise in the terminal. Without questions:
-#   install.sh --yes [--dir DIR] [--no-menu] [--desktop] [--autostart] [--no-launch] [--lang zh|en]
+#   install.sh --yes [--dir DIR] [--no-menu] [--desktop] [--autostart] [--service] [--no-launch] [--lang zh|en]
 #   install.sh --uninstall [--delete-data] [--yes] [--dir DIR]
+#
+# --service registers AutoApply as a systemd user service: started with the computer, restarted when it fails,
+# no desktop needed. A copy that already runs as a service is upgraded in place: the installer lets the task that
+# is running finish, stops the service, installs, and starts it again.
 #
 # Ends with 0 when the program is ready, 2 when you stopped it, 7 when AutoApply is running (nothing was changed),
 # 1 for anything else. The log is kept with the data: <program folder>/data/logs.
@@ -20,7 +24,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TARGET="${XDG_DATA_HOME:-$HOME/.local/share}/autoapply"
 VER="$(cat "$HERE/version.txt" 2>/dev/null || echo 0)"
 LOG="${TMPDIR:-/tmp}/autoapply-setup.log"       # until the program folder is known; then with the data
-YES=0; MENU=1; DESKTOP=0; AUTOSTART=0; LAUNCH=1; UNINSTALL=0; DELETE_DATA=0; LANG_ARG=""
+YES=0; MENU=1; DESKTOP=0; AUTOSTART=0; LAUNCH=1; UNINSTALL=0; DELETE_DATA=0; LANG_ARG=""; SERVICE=0; WAS_SERVICE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
@@ -28,11 +32,12 @@ while [ $# -gt 0 ]; do
     --no-menu) MENU=0 ;;
     --desktop) DESKTOP=1 ;;
     --autostart) AUTOSTART=1 ;;
+    --service) SERVICE=1 ;;
     --no-launch) LAUNCH=0 ;;
     --uninstall) UNINSTALL=1 ;;
     --delete-data) DELETE_DATA=1 ;;
     --lang) LANG_ARG="$2"; shift ;;
-    -h|--help) sed -n 2,13p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n 2,17p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -86,7 +91,16 @@ EOF
 
 # Nothing is stopped for you: a running AutoApply may be in the middle of an application. Asks until it is quit;
 # without questions (--yes) it ends with 7 and changes nothing.
+service_active() { command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet autoapply 2>/dev/null; }
+autoapply_cli() { ( cd "$TARGET" && "$TARGET/.venv/bin/python" -m autoapply.cli "$@" ); }
+
 wait_until_quit() {
+  # A copy that runs as a service is stopped in order - the task that is running finishes first - and started again
+  # afterwards. This is the one case where the installer stops the program: a service has nobody to quit it.
+  if service_active; then
+    say "$(t '正在等运行中的任务结束，然后停止服务…' 'Letting the running task finish, then stopping the service...')"
+    if autoapply_cli service stop >> "$LOG" 2>&1; then WAS_SERVICE=1; else note "the service could not be stopped in order"; fi
+  fi
   while running_from "$TARGET"; do
     if [ "$YES" = 1 ]; then fail "$(running_message)" 7; fi
     if [ "$GUI" = 1 ]; then
@@ -108,6 +122,7 @@ if [ "$UNINSTALL" = 1 ]; then
   fi
   : > "$LOG"; note "uninstall $TARGET delete_data=$DELETE_DATA"
   wait_until_quit
+  [ -f "$HOME/.config/systemd/user/autoapply.service" ] && autoapply_cli service uninstall >> "$LOG" 2>&1
   rm -f "$APPS/autoapply.desktop" "$AUTOSTART_DIR/autoapply.desktop" "$DESKTOP_DIR/AutoApply.desktop"
   if [ "$DELETE_DATA" = 1 ]; then rm -rf "$TARGET"
   else find "$TARGET" -mindepth 1 -maxdepth 1 ! -name data ! -name knowledge -exec rm -rf {} +; fi
@@ -144,7 +159,11 @@ if [ "$YES" = 0 ]; then
       say "$(t "安装 AutoApply $VER 到：" "Installing AutoApply $VER to: ")$TARGET"
       confirm "$(t '安装过程会联网下载 Python 和依赖，以及程序自己用的浏览器，约 600 MB。继续吗？' 'Setup downloads Python and the dependencies and the browser the program uses, about 600 MB. Continue?')" || exit 0
       confirm "$(t '添加桌面快捷方式？' 'Add a desktop shortcut?')" && DESKTOP=1
-      confirm "$(t '登录时自动启动？' 'Start when you sign in?')" && AUTOSTART=1
+      if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        confirm "$(t '这台电脑没有图形桌面。把 AutoApply 登记成服务吗？（开机自动启动，出错自动重启）' 'This computer has no desktop. Register AutoApply as a service? (started with the computer, restarted when it fails)')" && SERVICE=1
+      else
+        confirm "$(t '登录时自动启动？' 'Start when you sign in?')" && AUTOSTART=1
+      fi
     fi
   fi
 fi
@@ -209,6 +228,8 @@ else
   trap - INT
 fi
 outcome="$(cat "$RESULT" 2>/dev/null)"; rm -f "$RESULT"
+# a service that was stopped for this is started again, with the new version or - if that did not go in - the old one
+if [ "$WAS_SERVICE" = 1 ] && [ -x "$TARGET/.venv/bin/python" ]; then systemctl --user start autoapply >> "$LOG" 2>&1 || note "the service did not start again"; fi
 case "$outcome" in
   ok) ;;
   cancelled) fail "$(prepare_message cancelled)" 2 ;;
@@ -217,6 +238,16 @@ case "$outcome" in
 esac
 
 note "done"
+if [ "$SERVICE" = 1 ]; then
+  if autoapply_cli service install >> "$LOG" 2>&1; then
+    say "$(t '已登记成服务。查看状态：' 'Registered as a service. Its state: ')systemctl --user status autoapply"
+    LAUNCH=0
+  else
+    say "$(t '没能登记成服务（这里可能没有 systemd 用户会话）。详情见日志：' 'It could not be registered as a service (there may be no systemd user session here). See the log: ')$LOG"
+  fi
+fi
+# what this computer lacks for the program's whole job, each with the command that fixes it
+autoapply_cli doctor 2>> "$LOG" | sed 's/^/  /' || true
 done_text="$(t '安装完成。以后从应用程序菜单里的 AutoApply 启动；卸载运行：' 'Installed. Start it from the applications menu; to uninstall run: ')bash \"$TARGET/scripts/install-linux.sh\" --uninstall"
 if [ "$LAUNCH" = 1 ] && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
   info "$done_text"

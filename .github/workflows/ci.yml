@@ -261,9 +261,100 @@ jobs:
           path: dist-release/AutoApply-*-macos.dmg
           if-no-files-found: error
 
+  server:
+    name: A server without a screen (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Dependencies, the browser, a virtual screen and its viewer
+        run: |
+          uv sync
+          uv run playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb x11vnc
+      - name: The remote window, the virtual screen, secrets without a keyring, the doctor, carried sign-ins
+        env:
+          AUTOAPPLY_REQUIRE_SCREEN_TESTS: "1"
+        run: |
+          unset DISPLAY WAYLAND_DISPLAY
+          uv run pytest -q -rs tests/test_vscreen.py tests/test_remote.py tests/test_secrets_store.py tests/test_doctor.py tests/test_transfer.py tests/test_prepare.py tests/test_fetch_uv.py
+      - name: The doctor on this computer - no screen, a virtual one
+        run: |
+          unset DISPLAY WAYLAND_DISPLAY
+          export AUTOAPPLY_DATA="$RUNNER_TEMP/d/data" AUTOAPPLY_KNOWLEDGE="$RUNNER_TEMP/d/knowledge"
+          uv run autoapply doctor --deep --json | tee doctor.json
+          python3 - <<'PY'
+          import json
+          found = {f["id"]: f for f in json.load(open("doctor.json"))}
+          assert found["browser"]["level"] == "ok", found["browser"]
+          assert found["screen"]["level"] == "ok", found["screen"]
+          assert not [f for f in found.values() if f["level"] == "bad"], found
+          PY
+
+  docker:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: docker build -t autoapply:ci .
+      - name: It starts, as an ordinary user, and reports itself healthy
+        run: |
+          docker run -d --name aa --shm-size=1g -p 127.0.0.1:8000:8000 -e AUTOAPPLY_TRUSTED_NETWORKS=172.16.0.0/12 -v aa-data:/data autoapply:ci
+          for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' aa)" = healthy ] && break; sleep 2; done
+          [ "$(docker inspect -f '{{.State.Health.Status}}' aa)" = healthy ] || { docker logs aa; exit 1; }
+          test "$(docker exec aa id -u)" = 10001
+          curl -fsS http://127.0.0.1:8000/ | grep -q 'id="app"'
+      - name: It lacks nothing the program needs
+        run: |
+          docker exec aa autoapply doctor --deep --json | tee doctor.json
+          python3 - <<'PY'
+          import json
+          found = {f["id"]: f for f in json.load(open("doctor.json"))}
+          for name in ("browser", "screen", "converter", "fonts"):
+              assert found[name]["level"] == "ok", found[name]
+          assert found["secrets"]["level"] == "warn", found["secrets"]        # in a file, its key beside the data: said, not hidden
+          assert not [f for f in found.values() if f["level"] == "bad"], found
+          PY
+      - name: A browser window opens on a virtual screen, and the screen can be viewed
+        run: |
+          docker exec aa python -c "
+          import os, socket
+          from playwright.sync_api import sync_playwright
+          from autoapply import vscreen
+          s = vscreen.private()
+          with sync_playwright() as p:
+              b = p.chromium.launch(headless=False, env={**os.environ, **s.env()})
+              page = b.new_page()
+              page.set_content('<title>on the virtual screen</title>')
+              assert page.title() == 'on the virtual screen'
+              b.close()
+          with socket.create_connection(('127.0.0.1', s.port), timeout=5) as c:
+              assert c.recv(12).startswith(b'RFB 003.')
+          s.stop()
+          print('ok')
+          "
+      - name: The administrator is set in the terminal, signs in, and is still signed in after a restart
+        run: |
+          printf 'ci-only-%s%s\n' "$RANDOM" "$RANDOM$RANDOM" > pw
+          docker exec -i aa autoapply set-admin --user ci --password-stdin < pw
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/overview)" = 401
+          python3 -c "import json; print(json.dumps({'user': 'ci', 'password': open('pw').read().strip()}))" > login.json
+          curl -fsS -c jar -H 'Content-Type: application/json' --data @login.json http://127.0.0.1:8000/api/auth/login > /dev/null
+          curl -fsS -b jar http://127.0.0.1:8000/api/overview > /dev/null
+          test "$(curl -fsS -b jar http://127.0.0.1:8000/api/remote)" = "[]"
+          docker exec aa python -c "from autoapply import secrets; secrets.put('ci.probe', 'kept'); assert secrets.backend() == 'file', secrets.backend()"
+          docker restart aa
+          for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' aa)" = healthy ] && break; sleep 2; done
+          curl -fsS -b jar http://127.0.0.1:8000/api/overview > /dev/null || { docker logs aa; exit 1; }
+          docker exec aa sh -c 'ls /data/data/secrets.bin /data/data/access.json'
+          docker exec aa python -c "from autoapply import secrets; assert secrets.get('ci.probe') == 'kept'"      # a secret stored before the restart is read after it
+          rm -f pw login.json jar
+
   collect:
     name: Rehearse the release (collect, checksum, notes)
-    needs: [test, linux, windows, macos]
+    needs: [test, linux, windows, macos, server, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

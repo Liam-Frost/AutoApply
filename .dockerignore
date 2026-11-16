@@ -1,0 +1,16 @@
+# Only what the image is built from. Above all: nothing of yours (data, knowledge) ever goes into an image.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!CHANGELOG.md
+!backend
+!scripts
+!frontend
+frontend/node_modules
+frontend/dist
+scripts/package
+scripts/demo.py
+**/__pycache__
+**/*.pyc
