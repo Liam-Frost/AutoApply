@@ -407,6 +407,9 @@ class Launcher:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import quiet
+
+    quiet.install()
     import argparse
 
     ap = argparse.ArgumentParser(prog="autoapply tray")

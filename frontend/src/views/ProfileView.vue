@@ -142,7 +142,7 @@ onMounted(load)
         <label class="small">最高<input v-model="st.compensation.max" placeholder="85000" style="width: 110px; display: block" /></label>
         <label class="small">货币<input v-model="st.compensation.currency" placeholder="CAD" style="width: 80px; display: block" /></label>
         <label class="small">按
-          <select v-model="st.compensation.period" style="display: block"><option value="year">年</option><option value="month">月</option><option value="hour">小时</option></select>
+          <AaSelect v-model="st.compensation.period" style="display: flex"><option value="year">年</option><option value="month">月</option><option value="hour">小时</option></AaSelect>
         </label>
         <label class="small"><input v-model="st.compensation.negotiable" type="checkbox" /> 可以商量</label>
       </div>
@@ -170,7 +170,7 @@ onMounted(load)
           <label class="small">邮箱<input v-model="r.email" style="width: 210px; display: block" /></label>
           <label class="small">电话<input v-model="r.phone" style="width: 150px; display: block" /></label>
           <label class="small">什么时候可以联系
-            <select v-model="r.contact" style="display: block"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></select>
+            <AaSelect v-model="r.contact" style="display: flex"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></AaSelect>
           </label>
           <button class="ghost" @click="st.referees.splice(i, 1)">删除</button>
         </div>

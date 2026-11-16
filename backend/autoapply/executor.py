@@ -1039,12 +1039,25 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
                 after_repair(rep)
                 scope = [a for a in scope if a["id"] not in set(rep.get("unfixed") or [])]
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-            bad = _really_different(page, schema, verify(schema, scope, back))
+            bad = _really_different(page, schema, _not_vouched(verify(schema, scope, back), rep.get("fixed") or []))
     wanted = [a for a in scope if a["value"] not in ("", None, [])]
     step("read_back", page=i, checked=sum(1 for a in wanted if a["id"] in back), unverified=[a["label"] for a in wanted if a["id"] not in back][:20], mismatches=len(bad))
     if bad:
         browser.snapshot(page, run_dir, "verify_failed")
         raise VerifyFailed(bad)
+
+
+def _not_vouched(bad: list[dict[str, Any]], fixed: list[str]) -> list[dict[str, Any]]:
+    """A control that shows less than it holds: a phone-code list whose entry is "+1 / Canada" shows "+1" once chosen, and
+    "+1" cannot be told from the other countries' "+1" by reading it. When the agent was just sent to exactly this field,
+    chose the approved entry and reports it done, and what the control shows is a part of that entry, the field holds the
+    approved answer - the agent saw the choice being made; the read-back cannot see it. Anything the control shows
+    that is NOT part of the approved entry stays a difference, whoever vouches for it."""
+    def parts(v: Any) -> set[str]:
+        return {x for x in (re.sub(r"\s+", " ", t).strip().lower() for t in re.split(r"[\n,;|/()]", str(v))) if x}
+
+    return [b for b in bad if not (b["id"] in fixed and not isinstance(b["expected"], list) and len(parts(b["expected"])) > 1
+                                   and str(b["actual"] or "").strip() and parts(b["actual"]) <= parts(b["expected"]))]
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -79,7 +79,7 @@ def _at(url: str, domain: str, path: str = "") -> bool:
 
 IDENTITIES = {
     "google": {"name": "Google", "url": "https://accounts.google.com/", "domains": ("google.com",), "done": lambda u: _at(u, "myaccount.google.com"),
-               "note": "Google 有时会拒绝在程序控制的浏览器里登录（提示“此浏览器或应用可能不安全”）。遇到这种情况就是用不了，程序不会去绕过它。"},
+               "note": "用 passkey 或两步验证登录都可以，在打开的窗口里照常完成就行；登录不上时，把上面的浏览器换成 nodriver 再试。"},
     "linkedin": {"name": "LinkedIn", "url": "https://www.linkedin.com/login", "domains": ("linkedin.com",), "done": lambda u: _at(u, "linkedin.com", "/feed")},
     "microsoft": {"name": "Microsoft", "url": "https://login.live.com/", "domains": ("live.com", "microsoftonline.com", "microsoft.com"),
                   "done": lambda u: _at(u, "account.microsoft.com") or _at(u, "account.live.com")},

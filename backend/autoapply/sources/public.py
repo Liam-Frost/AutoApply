@@ -56,29 +56,72 @@ def ashby(board: str) -> Iterator[dict[str, Any]]:
         }
 
 
-def workday(host: str, tenant: str, site: str, *, search: str = "", limit: int = 200) -> Iterator[dict[str, Any]]:
-    """Workday candidate-experience JSON API (the same one the careers page calls)."""
+_last: dict[str, float] = {}      # host -> when the last request to it was sent
+
+
+def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any) -> httpx.Response:
+    """One request, sent the way a site can live with: not sooner than ``gap`` seconds after the previous one to the same
+    host, and when the site says "too many requests" (429) or "busy" (503), wait as long as it asks (Retry-After) -
+    or longer each time when it does not say - and try again, three times at most."""
+    import time
+    from urllib.parse import urlparse
+
+    host = urlparse(url).netloc
+    r = None
+    for attempt in range(4):
+        wait = _last.get(host, 0) + gap - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        r = c.request(method, url, **kw)
+        _last[host] = time.monotonic()
+        if r.status_code not in (429, 503) or attempt == 3:
+            break
+        asked = r.headers.get("Retry-After", "")
+        time.sleep(min(90.0, float(asked)) if asked.replace(".", "", 1).isdigit() else 6.0 * 2 ** attempt)
+    return r
+
+
+def workday(host: str, tenant: str, site: str, *, search: str = "", limit: int = 200, keep=lambda *a: True, company: str = "") -> Iterator[dict[str, Any]]:  # noqa: ANN001
+    """Workday candidate-experience JSON API (the same one the careers page calls).
+
+    The list costs one request per twenty postings; a description costs one request each. Descriptions are fetched only
+    for postings that are new here and that the intake rules would keep - a posting already in the library (with its
+    description) is only marked as still online. A scan used to fetch all two hundred descriptions every time, back to
+    back, and sites answered 429."""
+    from .. import db
+    from ..models import Job
+
     base = f"https://{host}/wday/cxs/{tenant}/{site}"
     hdr = {**UA, "Accept": "application/json", "Content-Type": "application/json"}
+    with db.session() as s:
+        known = {j.source_id for j in s.query(Job.source_id).filter(Job.source == "workday", Job.source_id.like(f"{tenant}:%"), Job.jd_text != "")}
     offset = 0
     with httpx.Client(timeout=60, headers=hdr) as c:
         while offset < limit:
-            r = c.post(f"{base}/jobs", json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": search})
+            r = _send(c, "POST", f"{base}/jobs", json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": search})
             r.raise_for_status()
             posts = r.json().get("jobPostings", [])
             if not posts:
                 break
             for p in posts:
                 path = p.get("externalPath", "")
-                d = c.get(f"{base}{path}")
+                tail = path.rsplit("_", 1)[-1]
+                ids = [f"{tenant}:{x}" for x in (*(str(b) for b in p.get("bulletFields") or []), tail, re.sub(r"-\d+$", "", tail)) if x]
+                row = {"source": "workday", "title": p.get("title", ""), "location": p.get("locationsText", ""),
+                       "apply_url": f"https://{host}/en-US/{site}{path}", "ats": "workday", "tenant": host.split(".myworkday")[0], "channel": "employer site"}
+                have = next((i for i in ids if i in known), None)
+                if have:      # already read: it is still online, and that is all a scan has to find out
+                    yield {**row, "source_id": have}
+                    continue
+                if not keep(row["title"], row["location"]):      # not a posting the applicant's rules would take: no request for its text
+                    yield {**row, "source_id": ids[0] if ids else f"{tenant}:{path}", "company": company or tenant}
+                    continue
+                d = _send(c, "GET", f"{base}{path}")
                 info = d.json().get("jobPostingInfo", {}) if d.status_code == 200 else {}
                 yield {
-                    "source": "workday", "source_id": f"{tenant}:{info.get('jobReqId') or path.rsplit('_', 1)[-1]}",
-                    "company": (d.json().get("hiringOrganization") or {}).get("name", tenant) if d.status_code == 200 else tenant,
-                    "title": p.get("title", ""), "location": p.get("locationsText", ""),
-                    "work_type": info.get("timeType", ""),
-                    "apply_url": f"https://{host}/en-US/{site}{path}", "ats": "workday", "tenant": host.split(".myworkday")[0],
-                    "jd_text": _text(info.get("jobDescription", "")), "channel": "employer site",
+                    **row, "source_id": f"{tenant}:{info.get('jobReqId') or tail}",
+                    "company": ((d.json().get("hiringOrganization") or {}).get("name") if d.status_code == 200 else "") or company or tenant,
+                    "work_type": info.get("timeType", ""), "jd_text": _text(info.get("jobDescription", "")),
                 }
             offset += 20
 

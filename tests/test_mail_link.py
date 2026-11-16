@@ -148,3 +148,51 @@ def test_an_account_offered_only_after_the_submission_is_taken_up_there(app_env,
         assert len(calls) == 1
         b.close()
     assert generic.ACCOUNT_OFFER.search("Already have a Career Profile? Log in") and not generic.ACCOUNT_OFFER.search("Thanks for applying. We will be in touch.")
+
+
+def test_a_control_that_shows_less_than_it_holds_is_taken_from_the_agent_that_chose_it():
+    """A phone-code list shows "+1" for "+1 / Canada". After the agent chose the approved entry there, "+1" is not a difference;
+    without the agent's word, or with something that is not part of the approved entry, it still is."""
+    from autoapply.executor import _not_vouched
+
+    code = {"id": "code", "label": "Code", "expected": "+1\nCanada", "actual": "+1"}
+    assert _not_vouched([code], ["code"]) == []
+    assert _not_vouched([code], []) == [code]
+    wrong = {**code, "actual": "+44"}
+    assert _not_vouched([wrong], ["code"]) == [wrong]
+    empty = {**code, "actual": ""}
+    assert _not_vouched([empty], ["code"]) == [empty]
+    plain = {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}
+    assert _not_vouched([plain], ["city"]) == [plain]
+
+
+def test_nothing_the_server_starts_opens_a_console_window(monkeypatch):
+    """On Windows every child process gets CREATE_NO_WINDOW, unless the caller asked for a console of its own."""
+    import subprocess
+    import sys
+
+    import pytest
+
+    if sys.platform != "win32":
+        pytest.skip("console windows are a Windows matter")
+    from autoapply import quiet
+
+    quiet.install()
+    seen = {}
+    real = subprocess.Popen.__init__.__closure__      # the patched __init__ wraps the real one
+    assert real is not None
+    p = subprocess.Popen([sys.executable, "-c", "import ctypes; print(ctypes.windll.kernel32.GetConsoleWindow())"], stdout=subprocess.PIPE, text=True)
+    seen["hwnd"] = p.communicate(timeout=30)[0].strip()
+    assert seen["hwnd"] == "0"      # the child has no console window at all
+    out = subprocess.run([sys.executable, "-c", "print('ok')"], capture_output=True, text=True, timeout=30)
+    assert out.stdout.strip() == "ok"
+
+
+def test_the_interface_uses_its_own_drop_down_everywhere():
+    """A browser's own <select> looks like nothing else in the interface; the project has <AaSelect> for it."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "frontend" / "src"
+    native = [f"{p.relative_to(src).as_posix()}:{n}" for p in src.rglob("*.vue") if p.name != "Select.vue"
+              for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if "<select" in line]
+    assert native == []

@@ -50,6 +50,7 @@ async function tryRules() {
   const rules = { title_any: s.value['intake.title_any'], title_role_any: s.value['intake.title_role_any'], title_none: s.value['intake.title_none'], countries: s.value['intake.countries'], max_age_days: s.value['intake.max_age_days'] }
   try { tried.value = (await api.post('/sources/try-rules', { rules, examples: examples.value.split('\n').filter((x) => x.trim()) })).results } catch (e) { toast(e.message, 'bad') }
 }
+const portalLogin = () => act(() => api.post('/accounts/takeover', { tenant_key: 'pdportal:ubc', url: 'https://pdportal.apsc.ubc.ca/home.htm', save_credentials: false }), '已打开一个浏览器窗口，请在里面用学校账号登录。登录好之后程序会保存登录状态，窗口自己关闭。')
 const scanNow = () => act(() => api.post('/tasks', { kind: 'discover' }), '开始扫描，完成后会通知你；大厂官网全部读一遍大约需要十几分钟')
 
 async function load() {
@@ -236,13 +237,20 @@ onMounted(load)
 
       <div v-if="persona.features.portal === 'ubc'" class="card">
         <div class="card-title">UBC PD Portal</div>
-        <p class="muted">门户不允许程序自动访问，所以改成在你自己的浏览器里导入：你登录门户后点一下书签，它在你的浏览器里读岗位，发给本机的 AutoApply。只读新出现的岗位，一般一两分钟。</p>
-        <ol class="small" style="margin: 0 0 10px; padding-left: 20px; line-height: 1.9">
-          <li>把这个按钮<b>拖到浏览器的书签栏</b>：<a v-if="bm.href" :href="bm.href" class="btn sm primary" @click.prevent="toast('把它拖到书签栏，不是点击')">导入到 AutoApply</a></li>
-          <li>在 Chrome 里登录 PD Portal，打开 Job Postings 页面。</li>
-          <li>点书签栏里的“导入到 AutoApply”。第一次会先列出全部岗位，列表出来后再点一次；右下角会显示进度。</li>
-        </ol>
-        <details class="tech"><summary>书签栏用不了？改用控制台</summary><pre>在门户页面按 F12 打开控制台，粘贴下面这行并回车：
+        <p class="muted">程序在扫描新岗位时自己读门户上的岗位。门户用你的学校账号登录（CWL + Duo）：在这里登录一次，登录状态会保存下来；过期时待办里会出现“登录 PD Portal”。</p>
+        <div class="row" style="flex-wrap: wrap">
+          <label><input v-model="s['sources.pdportal']" type="checkbox" /> 扫描新岗位时读 PD Portal</label>
+          <button class="primary" @click="portalLogin"><Icon name="login" />登录 PD Portal</button>
+          <button @click="scanNow"><Icon name="refresh" />现在扫描</button>
+        </div>
+        <p class="hint">门户用的浏览器在“浏览器后端”里选；被门户挡住时，打开 nodriver 再试。</p>
+        <details class="tech"><summary>也可以在你自己的浏览器里导入（书签）</summary>
+          <ol class="small" style="margin: 8px 0 10px; padding-left: 20px; line-height: 1.9">
+            <li>把这个按钮<b>拖到浏览器的书签栏</b>：<a v-if="bm.href" :href="bm.href" class="btn sm primary" @click.prevent="toast('把它拖到书签栏，不是点击')">导入到 AutoApply</a></li>
+            <li>在 Chrome 里登录 PD Portal，打开 Job Postings 页面。</li>
+            <li>点书签栏里的“导入到 AutoApply”。第一次会先列出全部岗位，列表出来后再点一次；右下角会显示进度。</li>
+          </ol>
+          <pre>书签栏用不了时，在门户页面按 F12 打开控制台，粘贴下面这行并回车：
 
 var s=document.createElement('script');s.src='{{ s['app.base_url'] }}/pdportal-import.js';document.body.appendChild(s)</pre></details>
       </div>
@@ -358,7 +366,7 @@ var s=document.createElement('script');s.src='{{ s['app.base_url'] }}/pdportal-i
           <label>非必填项也填上</label><div><input v-model="s['fill.optional']" type="checkbox" /> <span class="hint">表单上不带星号的问题和整段可选内容（工作经历、教育经历、语言、链接等），只要你的资料或简历里有，就填上。关掉后只填必填项。</span></div>
           <label>审批前先把分步表单读完</label><div><input v-model="s['recon.walk']" type="checkbox" /> <span class="hint">有些表单要填完前一步才打得开后一步。打开后，程序会带着草案的答案在隐藏窗口里一步步填到确认页，把后面问到的问题加进草案，不会提交；填进去的内容雇主网站可能会存成未完成的申请。</span></div>
           <label>自检间隔</label><div>每 <input v-model.number="s['schedule.canary_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">定期检查各招聘系统的适配是否还正常，填 0 关闭</span></div>
-          <label>UBC PD Portal</label><div><input v-model="s['sources.pdportal']" type="checkbox" /> <span class="hint">目前门户不允许程序自动访问，这一项暂时不起作用</span></div>
+          <label>UBC PD Portal</label><div><input v-model="s['sources.pdportal']" type="checkbox" /> <span class="hint">登录入口在“岗位来源”页的 UBC PD Portal 卡片里</span></div>
           <label>通知里的链接指向</label><input v-model="s['app.base_url']" />
         </div>
       </div>

@@ -16,7 +16,6 @@ const renaming = ref(false)
 const newName = ref('')
 const upKind = ref('resume_site')
 const picked = ref(new Set())
-const openJobs = ref(new Set())
 
 // What a file is used as. `base` kinds are things you upload once; `generated` are written per job.
 const KINDS = {
@@ -40,11 +39,19 @@ const jobs = computed(() => {
   const m = new Map()
   for (const d of generated.value) {
     const k = d.job_id || 0
-    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, files: [] })
+    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
     m.get(k).files.push(d)
   }
   return [...m.values()].sort((a, b) => b.files[0].id - a.files[0].id)
 })
+// The jobs in three groups, by where the application stands. What is being prepared is what one looks for; what was
+// sent or shelved is kept, folded away, so that the list stays as short as the work in hand.
+const SECTIONS = [['open', '正在准备的'], ['sent', '已投递的'], ['old', '已归档的']]
+const sectionOf = (j) => (j.archived ? 'old' : j.sent ? 'sent' : 'open')
+const bySection = computed(() => Object.fromEntries(SECTIONS.map(([k]) => [k, jobs.value.filter((j) => sectionOf(j) === k)])))
+const unfolded = ref(new Set(['open']))
+function fold(k) { const s = new Set(unfolded.value); s.has(k) ? s.delete(k) : s.add(k); unfolded.value = s }
+const isOpen = (k) => unfolded.value.has(k) || bySection.value[k].some((j) => folder.value === 'job:' + j.id)
 const shown = computed(() => {
   const needle = q.value.trim().toLowerCase()
   let rows = docs.value
@@ -118,9 +125,16 @@ onMounted(load)
       <button v-for="(g, i) in GROUPS" :key="i" class="sub" :class="{ on: folder === 'group:' + i }" @click="go('group:' + i)">{{ g[0] }}<span class="n">{{ count(g[1]) }}</span></button>
 
       <button style="margin-top: 10px" :class="{ on: folder === 'generated' }" @click="go('generated')"><Icon name="briefcase" />为岗位生成的<span class="n">{{ generated.length }}</span></button>
-      <button v-for="j in jobs" :key="j.id" class="sub" :class="{ on: folder === 'job:' + j.id }" :title="j.name" @click="go('job:' + j.id)">
-        <span class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
-      </button>
+      <template v-for="[k, label] in SECTIONS" :key="k">
+        <template v-if="bySection[k].length">
+          <button class="sub fold" :aria-expanded="isOpen(k)" @click="fold(k)"><Icon :name="isOpen(k) ? 'chevron_up' : 'chevron'" />{{ label }}<span class="n">{{ bySection[k].length }}</span></button>
+          <template v-if="isOpen(k)">
+            <button v-for="j in bySection[k]" :key="j.id" class="sub deep" :class="{ on: folder === 'job:' + j.id }" :title="j.name" @click="go('job:' + j.id)">
+              <span class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
+            </button>
+          </template>
+        </template>
+      </template>
       <div v-if="!jobs.length" class="hint" style="padding: 4px 12px 0 34px">生成求职信后会出现在这里，每个岗位一组。</div>
 
       <button style="margin-top: 10px" :class="{ on: folder === 'all' }" @click="go('all')"><Icon name="inbox" />全部文件<span class="n">{{ docs.length }}</span></button>

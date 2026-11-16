@@ -20,6 +20,9 @@ from sqlalchemy import func
 
 # Windows takes file types from the registry, which does not know .mjs (the PDF viewer's worker) and on some
 # machines maps .js to text/plain; browsers refuse to run module scripts served that way.
+from .. import quiet
+
+quiet.install()      # no console window for anything this server starts
 mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".js")
 
@@ -1198,6 +1201,7 @@ def list_documents() -> list[dict[str, Any]]:
             jstage = stages.describe(stages.stage(job.status, bool(job.online), job.deadline or "", job.application.status if job.application else None)) if job else {}
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
+                         "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
                          "problems": (d.meta or {}).get("problems", []), "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
                          "has_docx": bool((d.meta or {}).get("docx"))})

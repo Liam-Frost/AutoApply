@@ -380,22 +380,44 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     if selected.backend == "nodriver":
         check = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
         with browser.open_page(tenant_key, headless=False, url=url, operation="login") as page:
-            page.goto(url, wait_until="domcontentloaded")
-            deadline = time.monotonic() + timeout_s
+            try:      # the applicant takes it from here; a page that redirects while it loads is no reason to give up
+                page.goto(url, wait_until="commit", timeout=30000)
+            except Exception as e:  # noqa: BLE001
+                log.info("sign-in window for %s: the first page did not report loading (%s)", tenant_key, type(e).__name__)
+
+            def keep() -> dict[str, Any]:
+                """The window is signed in: keep its session. If a page cannot be read for its storage just now (it is
+                still loading, or it is a provider's page that never settles), the cookies are what a session is."""
+                try:
+                    browser.save_state(tenant_key, page.context)
+                except Exception as e:  # noqa: BLE001
+                    log.info("session of %s kept from its cookies (%s)", tenant_key, type(e).__name__)
+                    browser.write_state(tenant_key, {"cookies": page.context.cookies(), "origins": []})
+                upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                notify.close_todos("takeover", f"account:{tenant_key}")
+                return {"ok": True, "credentials_saved": False}
+
+            deadline, misses = time.monotonic() + timeout_s, 0
             while time.monotonic() < deadline:
-                pages = page.context.pages
-                if not pages:
+                try:
+                    urls = [p.url for p in page.context.pages]
+                    misses = 0
+                except Exception:  # noqa: BLE001 - between two pages, or the window is going away
+                    misses += 1
+                    if misses >= 5:
+                        return {"ok": False, "reason": "window closed before sign-in was verified"}
+                    time.sleep(1)
+                    continue
+                if not urls:
                     return {"ok": False, "reason": "window closed before sign-in was verified"}
-                if check and any(check(p.url) for p in pages):
-                    browser.save_state(tenant_key, page.context)
-                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
-                    notify.close_todos("takeover", f"account:{tenant_key}")
-                    return {"ok": True, "credentials_saved": False}
-                if not check and driver and ref and driver.is_logged_in(page, ref, navigate=False):
-                    browser.save_state(tenant_key, page.context)
-                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
-                    notify.close_todos("takeover", f"account:{tenant_key}")
-                    return {"ok": True, "credentials_saved": False}
+                if check and any(check(u) for u in urls):
+                    return keep()
+                if not check and driver and ref:
+                    try:
+                        if driver.is_logged_in(page, ref, navigate=False):
+                            return keep()
+                    except Exception:  # noqa: BLE001
+                        pass
                 time.sleep(1)
         return {"ok": False, "reason": "sign-in verification timed out"}
 

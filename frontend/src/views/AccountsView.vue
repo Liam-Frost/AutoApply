@@ -93,7 +93,7 @@ onUnmounted(() => clearInterval(timer))
           <template v-else>{{ sessionText(p.session) }}</template>
         </div>
         <div class="row">
-          <select :value="backendFor('idp:' + p.key)" aria-label="登录浏览器" @change="setBackend('idp:' + p.key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></select>
+          <AaSelect :value="backendFor('idp:' + p.key)" small aria-label="登录浏览器" @change="setBackend('idp:' + p.key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect>
           <button class="sm" :class="{ primary: !p.session }" :disabled="idpState[p.key] === 'trying'" @click="idpLogin(p)"><Icon name="login" />{{ p.session ? '重新登录' : '去登录' }}</button>
           <button v-if="p.session" class="sm ghost danger" @click="idpForget(p)">删除登录状态</button>
           <button v-if="p.custom" class="sm ghost danger" @click="removeCustom(p)">移除</button>
@@ -136,7 +136,7 @@ onUnmounted(() => clearInterval(timer))
             <div v-if="a.explained.message && a.status !== 'ok'" class="small muted" style="margin-top: 4px; max-width: 320px">{{ a.explained.message }}</div>
             <TechDetails v-if="a.status !== 'ok'" :text="a.explained.detail" />
           </td>
-          <td class="small" style="max-width: 240px">{{ sessionText(a.session) }}<select :value="backendFor(a.tenant_key)" aria-label="账号浏览器" @change="setBackend(a.tenant_key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></select></td>
+          <td class="small" style="max-width: 240px">{{ sessionText(a.session) }}<AaSelect :value="backendFor(a.tenant_key)" small aria-label="账号浏览器" @change="setBackend(a.tenant_key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect></td>
           <td class="small">{{ BY[a.created_by] || '—' }}</td>
           <td><div class="row" style="flex-wrap: nowrap"><button v-if="a.host" class="sm" @click="takeover(a)"><Icon name="login" />去登录</button><button class="sm ghost danger" @click="remove(a)">删除</button></div></td>
         </tr>

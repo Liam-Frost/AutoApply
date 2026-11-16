@@ -336,6 +336,8 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 .fm-nav button { justify-content: flex-start; border: 0; background: transparent; padding: 7px 10px; font-weight: 550; color: var(--text); width: 100%; white-space: nowrap; }
 .fm-nav button svg { width: 16px; height: 16px; color: var(--text-2); }
 .fm-nav button.sub { padding: 5px 10px 5px 34px; font-weight: 400; color: var(--text-2); font-size: var(--fs-sm); }
+.fm-nav button.sub.fold { padding-left: 14px; gap: 4px; color: var(--text-3); } .fm-nav button.sub.fold svg { width: 14px; height: 14px; color: var(--text-3); }
+.fm-nav button.sub.deep { padding-left: 34px; }
 .fm-nav button:hover { background: var(--surface-2); } .fm-nav button.on { background: var(--primary-soft); color: var(--primary); }
 .fm-nav .n { margin-left: auto; padding-left: 8px; color: var(--text-3); font-weight: 500; font-size: var(--fs-xs); }
 .fm-nav .ell, .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

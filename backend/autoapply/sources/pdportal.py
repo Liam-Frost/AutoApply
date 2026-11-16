@@ -108,9 +108,9 @@ def scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
     with browser.open_page(TENANT, url=POSTINGS, operation="scan") as page:
         page.goto(POSTINGS, wait_until="domcontentloaded")
         if "Cloudflare" in page.title() or "you have been blocked" in page.inner_text("body")[:400]:
-            # The site's firewall refuses automated browsers. This is not a login problem and is not worked around.
+            # The site's firewall refused this browser. Not a login problem: which browser the portal gets is a setting.
             notify.add_todo("config", "PD Portal 拒绝了自动扫描", ref="config:pdportal-blocked",
-                            body="登录状态是有效的，但门户的 Cloudflare 防护不允许由程序控制的浏览器访问岗位页。这不是登录问题，重新登录没有用。")
+                            body="门户的防护挡住了这次扫描用的浏览器，这不是登录问题。到“设置 → 浏览器后端”打开 nodriver（PD Portal 的规则已经预置），再扫描一次。")
             raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
         try:  # the postings page has the search widget only when signed in; otherwise it is a login / SSO page
             page.wait_for_selector("#widgetSearch", state="attached", timeout=10000)
