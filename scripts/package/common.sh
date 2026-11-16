@@ -10,9 +10,18 @@
 #     browser, and puts the previous version back if that fails or is cancelled
 #   - nothing is stopped: while the program runs from <root>, the caller is told so
 
-# Is a program running out of <root>'s environment?
+# Is AutoApply running out of <root>? The program leaves a mark per running process in data/run (runstate.py): a
+# file holding the process id. A mark whose process is gone (a crash) is cleared here. Copies from before the marks
+# existed, and anything else started with the folder's Python by its full path, are found by their command line.
 running_from() {
   [ -d "$1/.venv" ] || return 1
+  for _mark in "$1"/data/run/*.pid; do
+    [ -f "$_mark" ] || continue
+    _pid="$(cat "$_mark" 2>/dev/null)"
+    case "$_pid" in ''|*[!0-9]*) rm -f "$_mark"; continue ;; esac
+    if kill -0 "$_pid" 2>/dev/null && ps -p "$_pid" -o command= 2>/dev/null | grep -qi python; then return 0; fi
+    rm -f "$_mark"
+  done
   pgrep -f "$1/.venv/bin/python" >/dev/null 2>&1
 }
 

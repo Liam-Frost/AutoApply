@@ -442,6 +442,9 @@ def main(argv: list[str] | None = None) -> None:
     from . import winshell
 
     winshell.set_app_id()          # the taskbar and notifications say AutoApply, not pythonw.exe
+    from . import runstate
+
+    runstate.mark("launcher")
     import argparse
 
     ap = argparse.ArgumentParser(prog="autoapply tray")
