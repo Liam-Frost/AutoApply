@@ -6,10 +6,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
-- **The Windows installer is built with Inno Setup.** It was a self-extracting archive around a PowerShell script
-  that drew its own window, which is why the taskbar showed PowerShell, the file had no icon or version details, and
-  the progress line showed unreadable characters. Now the .exe carries the program's icon, name and version, the
-  wizard is a standard one in English or Chinese, and it is registered and removed the way Windows expects.
+- **The Windows installer is rebuilt.** It was a self-extracting archive around a PowerShell script that drew its
+  own window, which is why the taskbar showed PowerShell, the file had no icon or version details, and the progress
+  line showed unreadable characters. The window looks the same - the program's own design, English or Chinese, light
+  or dark - but is now a program of its own with the program's icon, name and version, and the installing behind it is
+  done by Inno Setup, so the program is registered and removed the way Windows expects.
   - **An upgrade can be taken back.** The new version is copied beside the installed one and swapped in; if its
     dependencies cannot be installed, or you cancel, the previous version's files return. Before, the old folders
     were deleted first and a failure left a broken installation.

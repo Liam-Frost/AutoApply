@@ -82,7 +82,9 @@ Download from the [latest release](https://github.com/Liam-Frost/AutoApply/relea
 | **Linux** | `AutoApply-<version>-linux.run` | `sh AutoApply-<version>-linux.run` |
 | Any, portable | `AutoApply-<version>.zip` | Unzip, then `start.bat` (Windows) or `./start.sh`. |
 
-The installer needs no administrator rights and puts everything in your user folder. It brings [uv](https://docs.astral.sh/uv/) with it and uses it to download Python, the dependencies and the program's own browser (about 600 MB, a few minutes; you can cancel, and running it again continues). Running a newer installer upgrades: your data is never touched, AutoApply has to be quit first (the installer says so and waits), and if the new version cannot be made ready the previous one is put back. Remove it from *Settings → Apps*; you are asked whether your data goes too. Its language follows your system (Chinese or English).
+<p align="center"><img src="docs/images/setup-en.png" alt="The setup window" width="560"></p>
+
+The installer needs no administrator rights and puts everything in your user folder. It brings [uv](https://docs.astral.sh/uv/) with it and uses it to download Python, the dependencies and the program's own browser (about 600 MB, a few minutes; you can cancel, and running it again continues). Running a newer installer upgrades: your data is never touched, AutoApply has to be quit first (the installer says so and waits), and if the new version cannot be made ready the previous one is put back. Running it again when the same version is installed repairs it. Remove it from *Settings → Apps*; you are asked whether your data goes too. Its language follows your system (Chinese or English) and can be switched in the window.
 
 > **The packages are not code-signed.** Windows shows *Windows protected your PC*: choose *More info → Run anyway*. On macOS, right-click the app the first time and choose *Open*. Every package is built by [the release workflow](.github/workflows/release.yml), installed and started on its own system before it is published, and listed with its SHA-256 in `SHA256SUMS.txt`.
 

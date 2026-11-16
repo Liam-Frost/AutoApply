@@ -1,16 +1,19 @@
-; The Windows installer, built with Inno Setup 6 by scripts/make_installer.py (which passes the /D values below).
+; The engine of the Windows installer, built with Inno Setup 6 by scripts/make_installer.py (which passes the /D
+; values below). What people see is the window in setup\Setup.cs: it carries this installer inside itself and runs it
+; with /VERYSILENT, so the wizard here is only seen by someone who asks for it.
 ;
-; Inno Setup does what an installer tool is for: the wizard, the icon and version details of the .exe, where to
-; install, shortcuts, the entry under Settings > Apps, the uninstaller, the log. It copies a new version into
-; {app}\.staged and leaves the version that is installed alone. What only this program needs is in [Code]:
+; Inno Setup does what an installer tool is for: where to install, shortcuts, the entry under Settings > Apps, the
+; uninstaller, the log. It copies a new version into {app}\.staged and leaves the version that is installed alone.
+; What only this program needs is in [Code]:
 ;   - it refuses to run while AutoApply is running, and says how to quit it (nothing is killed);
 ;   - it runs scripts\prepare.py with the uv it brought: that puts the new files in place, gets Python, the
 ;     dependencies and the browser, and puts the previous version back if any of it fails or is cancelled;
 ;   - uninstalling keeps your data unless you say otherwise.
 ;
-; For checking without clicking:  AutoApply-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="..." /LANG=en /TASKS=""
-;                                 unins000.exe /VERYSILENT /SUPPRESSMSGBOXES [/DELETEDATA]
+; Without a window:  AutoApply-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="..." /LANG=en /TASKS="desktopicon,startmenuicon"
+;                    unins000.exe /VERYSILENT /SUPPRESSMSGBOXES [/DELETEDATA]
 ; The exit code is 0 only when the program is ready to start.
+; /STATUSDIR="folder" is where the window reads the progress and asks for a stop (see setup\Setup.cs).
 
 #ifndef AppVersion
   #error AppVersion, Stage, OutDir and Repo are passed by scripts/make_installer.py
@@ -68,6 +71,8 @@ Name: "zh"; MessagesFile: "{#Repo}\scripts\package\windows\ChineseSimplified.isl
 [CustomMessages]
 en.TaskDesktop=Put a shortcut on the &desktop
 zh.TaskDesktop=在桌面创建快捷方式(&D)
+en.TaskStartMenu=Add AutoApply to the Start &menu
+zh.TaskStartMenu=添加到开始菜单(&M)
 en.TaskAutostart=Start AutoApply when I &sign in to this computer
 zh.TaskAutostart=登录这台电脑时自动启动 AutoApply(&S)
 en.Launch=Start AutoApply now
@@ -119,15 +124,18 @@ zh.DeleteData=同时删除你的数据吗？包括个人资料、文档、投递
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:TaskDesktop}"
+Name: "startmenuicon"; Description: "{cm:TaskStartMenu}"
 Name: "autostart"; Description: "{cm:TaskAutostart}"; Flags: unchecked
 
 [Files]
 Source: "{#Stage}\app\*"; DestDir: "{app}\.staged"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#Stage}\uv.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#Repo}\scripts\package\windows\autoapply.ico"; DestDir: "{app}"; Flags: ignoreversion
+; the window without an installer inside: what Settings > Apps starts to remove the program
+Source: "{#Stage}\AutoApplySetup.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{#Launcher}"; Parameters: "-m autoapply.launcher"; WorkingDir: "{app}"; IconFilename: "{app}\autoapply.ico"; AppUserModelID: "{#AppUserModel}"; Comment: "{#AppName}"
+Name: "{autoprograms}\{#AppName}"; Filename: "{#Launcher}"; Parameters: "-m autoapply.launcher"; WorkingDir: "{app}"; IconFilename: "{app}\autoapply.ico"; AppUserModelID: "{#AppUserModel}"; Comment: "{#AppName}"; Tasks: startmenuicon
 Name: "{autodesktop}\{#AppName}"; Filename: "{#Launcher}"; Parameters: "-m autoapply.launcher"; WorkingDir: "{app}"; IconFilename: "{app}\autoapply.ico"; AppUserModelID: "{#AppUserModel}"; Comment: "{#AppName}"; Tasks: desktopicon
 
 [Registry]
@@ -232,9 +240,10 @@ begin
   App := ExpandConstant('{app}');
   Uv := App + '\tools\uv.exe';
   Script := App + '\.staged\scripts\prepare.py';
-  Status := ExpandConstant('{tmp}\prepare.status');
-  Done := ExpandConstant('{tmp}\prepare.done');
-  CancelFile := ExpandConstant('{tmp}\prepare.cancel');
+  Status := ExpandConstant('{param:STATUSDIR|{tmp}}') + '\prepare.status';
+  Done := ExpandConstant('{param:STATUSDIR|{tmp}}') + '\prepare.done';
+  CancelFile := ExpandConstant('{param:STATUSDIR|{tmp}}') + '\prepare.cancel';
+  SaveStringToFile(Status, '0 -1 0', False);        { getting Python: prepare.py writes the rest }
   ForceDirectories(App + '\data\logs');
   PrepLog := App + '\data\logs\setup-' + GetDateTimeString('yyyymmdd-hhnnss', #0, #0) + '.log';
   { cmd only so that a uv that cannot even get Python leaves a result (prepare.py writes its own) and what uv said
@@ -310,6 +319,12 @@ begin
   if CurStep <> ssPostInstall then
     exit;
   App := ExpandConstant('{app}');
+  { Settings > Apps starts the window, on its remove page; a silent removal still goes to the uninstaller itself }
+  RegWriteStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppGuid}_is1', 'UninstallString', '"' + App + '\AutoApplySetup.exe" /uninstall');
+  { a box that was unticked takes away what an earlier installation put there }
+  if not WizardIsTaskSelected('desktopicon') then DeleteFile(ExpandConstant('{autodesktop}\{#AppName}.lnk'));
+  if not WizardIsTaskSelected('startmenuicon') then DeleteFile(ExpandConstant('{autoprograms}\{#AppName}.lnk'));
+  if not WizardIsTaskSelected('autostart') then RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', '{#AppName}');
   Prepare;
   if Outcome = 'ok' then begin
     if not FileExists(App + '\data\app.db') then begin       { a first installation: the program starts in the language chosen here }
