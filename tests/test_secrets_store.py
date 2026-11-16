@@ -84,3 +84,25 @@ def test_a_file_whose_key_is_gone_says_so_instead_of_starting_empty(server):
     with pytest.raises(secrets.Unavailable):
         secrets.get("k")
     assert secrets.describe()["problem"] == "key"
+
+
+def test_two_processes_changing_secrets_do_not_write_over_each_other(server):
+    """Each store read the file, added its own entry and wrote the whole file back: the later write dropped the other's."""
+    import threading
+
+    from autoapply import secrets
+
+    a, b = secrets.FileStore(secrets._folder()), secrets.FileStore(secrets._folder())      # as two processes: nothing shared but the file
+    a.put("first", "1")
+    assert b.get("first") == "1"
+
+    def many(store, tag):
+        for i in range(15):
+            store.put(f"{tag}{i}", "x")
+
+    ts = [threading.Thread(target=many, args=(a, "a")), threading.Thread(target=many, args=(b, "b"))]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    fresh = secrets.FileStore(secrets._folder())
+    assert all(fresh.get(f"{tag}{i}") == "x" for tag in "ab" for i in range(15)) and fresh.get("first") == "1"
+    assert not list(secrets._folder().glob("*.tmp"))

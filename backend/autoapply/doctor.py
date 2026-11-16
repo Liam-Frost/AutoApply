@@ -134,7 +134,7 @@ def _access() -> dict[str, str] | None:
     c = access.conf()
     if not access.exposed(c):
         return None
-    if c.get("https"):
+    if c.get("https_by_proxy"):
         return _finding("access", "ok", "从其他设备访问，经由负责 HTTPS 的反向代理")
     return _finding("access", "warn", "从其他设备访问时没有加密", "登录密码，以及你在远程窗口里输入的密码，会以明文在网络上传输。请在前面放一个负责 HTTPS 的反向代理，并在“访问与安全”里打开对应的开关。")
 

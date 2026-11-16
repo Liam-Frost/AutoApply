@@ -422,9 +422,7 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
         return {"ok": False, "reason": "sign-in verification timed out"}
 
     plain = getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
-    from . import remote
-
-    if plain is not None and remote.no_screen():
+    if plain is not None and browser.no_screen():
         plain = None        # an ordinary browser window needs a screen: here the sign-in goes through the remote window
         done = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
     if plain is not None:  # this site refuses sign-in to an automated browser: plain window, human login

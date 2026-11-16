@@ -30,6 +30,8 @@ import os
 import secrets as _secrets
 import string
 import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import keyring
@@ -112,12 +114,49 @@ class FileStore:
         with self._lock:
             return self._read().get(name)
 
+    @contextmanager
+    def _changing(self):
+        """One writer at a time, across processes (the server and a command run beside it both change secrets): the
+        file is read again inside the lock, so that what the other one wrote is kept, not written over."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, open(self.path.with_name("secrets.lock"), "a+b") as lock:
+            until = time.monotonic() + 30
+            while True:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        lock.seek(0)
+                        msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() > until:
+                        raise Unavailable("another process has been changing the secrets for 30 seconds") from None
+                    time.sleep(0.05)
+            try:
+                self._seen = None        # whatever was read before the lock may be stale
+                yield
+            finally:
+                if os.name == "nt":
+                    import msvcrt
+
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
     def put(self, name: str, value: str) -> None:
-        with self._lock:
+        with self._changing():
             self._write({**self._read(), name: value})
 
     def delete(self, name: str) -> None:
-        with self._lock:
+        with self._changing():
             data = dict(self._read())
             if data.pop(name, None) is not None:
                 self._write(data)
@@ -125,7 +164,7 @@ class FileStore:
 
 def _write_private(path: Path, data: bytes) -> None:
     """Write a file whole, readable by its owner only from the moment it exists."""
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")       # its own: two writers never share one
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(data)

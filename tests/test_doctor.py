@@ -91,3 +91,13 @@ def test_stopping_the_service_waits_for_the_running_task_and_leaves_the_pause_as
     calls.clear()
     service.stop(now=True)
     assert calls == [("stop", "autoapply")]
+
+
+def test_a_server_behind_an_https_proxy_is_not_told_its_passwords_travel_in_the_clear(app_env, monkeypatch):
+    from autoapply import access, doctor
+
+    monkeypatch.setattr(access, "exposed", lambda c: True)
+    monkeypatch.setattr(access, "conf", lambda: {"https_by_proxy": False})
+    assert doctor._access()["level"] == "warn"
+    monkeypatch.setattr(access, "conf", lambda: {"https_by_proxy": True})
+    assert doctor._access()["level"] == "ok"

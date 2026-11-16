@@ -286,7 +286,7 @@ def _window_place(for_person: bool, headless: bool, tenant_key: str | None, url:
     place = _Place()
     place.title = urlparse(url).netloc or str(tenant_key or "")
     place.headless = headless
-    if headless or not remote.no_screen():
+    if headless or not no_screen():
         return place                                    # hidden as asked, or there is a screen for the window
     canonical = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key or "")
     refused = canonical in (db.get_setting("browser.visible_sites") or [])
@@ -309,7 +309,17 @@ def _window_place(for_person: bool, headless: bool, tenant_key: str | None, url:
     return place
 
 
-_env_lock = threading.Lock()
+_env_lock = threading.RLock()
+
+
+def no_screen() -> bool:
+    """remote.no_screen(), asked while no browser is being started with a borrowed screen in the process environment
+    (_environment): a second window opened at that moment would otherwise take the first one's private screen for a
+    real one, and go onto it without a remote window of its own."""
+    from . import remote
+
+    with _env_lock:
+        return remote.no_screen()
 
 
 @contextmanager

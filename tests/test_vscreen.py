@@ -188,3 +188,28 @@ def test_a_real_browser_window_on_the_virtual_screen_reaches_the_page_through_th
         with c.websocket_connect(f"/api/remote/{w['id']}/vnc", headers={"origin": "http://testserver"}, subprotocols=["binary"]) as ws:
             assert ws.receive_bytes().startswith(b"RFB 003.")
     assert remote.windows() == []
+
+
+def test_a_window_opened_while_another_borrows_a_screen_still_knows_there_is_none(monkeypatch):
+    """Starting an ordinary Chrome on its private screen puts DISPLAY into the process for that moment. A second window
+    placed just then saw "a screen" and went onto it, with no remote window of its own."""
+    import os
+    import threading
+
+    from autoapply import browser, remote
+
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(remote, "no_screen", lambda: not os.environ.get("DISPLAY"))
+    inside, seen = threading.Event(), []
+
+    def first():
+        with browser._environment({"DISPLAY": ":99"}):
+            inside.set()
+            threading.Event().wait(0.5)
+
+    t = threading.Thread(target=first)
+    t.start()
+    inside.wait(5)
+    seen.append(browser.no_screen())
+    t.join()
+    assert seen == [True] and "DISPLAY" not in os.environ
