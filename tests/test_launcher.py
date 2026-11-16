@@ -4,6 +4,8 @@ import json
 import sys
 import threading
 
+import pytest
+
 
 def test_status_line_and_icon_for_each_state(app_env):
     from autoapply import launcher as L
@@ -165,3 +167,14 @@ def test_designed_tray_menu_renders_from_state_and_maps_clicks(app_env):
     for lang in ("zh", "en"):
         for k in ("state_running", "state_attention", "state_paused", "state_stopped", "state_starting", "todo_row", "draft_row", "attached_short", "shortcut"):
             assert TEXT[lang][k]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows shortcuts")
+def test_a_shortcut_is_written_without_another_program_and_carries_the_identity(tmp_path):
+    from autoapply import winshell
+
+    lnk = tmp_path / "AutoApply.lnk"
+    winshell.make_shortcut(str(lnk), sys.executable, "-m autoapply.launcher", str(tmp_path), "", "AutoApply")
+    got = winshell.read_shortcut(str(lnk))
+    assert got["target"].lower() == sys.executable.lower() and got["arguments"] == "-m autoapply.launcher"
+    assert got["workdir"] == str(tmp_path) and got["app_id"] == winshell.APP_ID
