@@ -4,6 +4,30 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Added
+
+- **AutoApply can live on a server**: a Linux machine, a NAS, a container - no screen, no desktop - and be used from
+  another computer or a phone.
+  - **The remote window.** What opens a browser window on a desktop - signing in to a site, pressing Submit
+    yourself, taking over a form - is shown in the program's own page where there is no screen: a notice at the top
+    of the page (and a Telegram message with a link), and you click and type on the picture of the page. A site that
+    refuses a hidden browser gets a real window on a virtual screen (Xvfb), shown the same way through noVNC. The
+    window is served to another device over HTTPS only; nothing typed is logged, no picture is stored, and neither
+    is shown to the AI.
+  - **Secrets without a keyring**: where the system has none, passwords and keys go into one encrypted file. Its
+    master key can be given from outside (`AUTOAPPLY_MASTER_KEY_FILE`).
+  - **`autoapply doctor`** and *Settings -> Advanced -> This computer*: what the computer lacks for the program's
+    whole job - the browser's libraries, a virtual screen, a PDF converter, fonts, where secrets are kept,
+    unencrypted access - each with the command that fixes it.
+  - **`autoapply service install`**: a systemd user service, started with the computer and restarted when it fails;
+    the Linux installer registers it with `--service` and upgrades a copy that runs as one, letting the running task
+    finish first.
+  - **A container image** (`ghcr.io/liam-frost/autoapply`, x86-64 and ARM64) with everything a server lacks, and a
+    `docker-compose.yml`. `autoapply set-admin` sets the administrator in the terminal, for computers that have no
+    browser of their own.
+  - **A sign-in can be carried to another computer**: exported under Site accounts as a file encrypted with a
+    passphrase, imported on the server - for passkeys and for sites that only accept a computer they know.
+
 ### Changed
 
 - **The Windows installer is rebuilt.** It was a self-extracting archive around a PowerShell script that drew its

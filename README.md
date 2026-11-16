@@ -25,6 +25,7 @@
 - [What it will not do](#what-it-will-not-do)
 - [Install](#install)
 - [First run](#first-run)
+- [On a server](#on-a-server)
 - [How an application goes out](#how-an-application-goes-out)
 - [AI services, backups and allowance](#ai-services-backups-and-allowance)
 - [Your data](#your-data)
@@ -103,6 +104,29 @@ An icon appears in the tray (menu bar on macOS) and the page opens at `http://12
 
 After that it works on a schedule: scan, score, draft, and tell you when something needs you (in the page, and on Telegram if you set it up).
 
+## On a server
+
+AutoApply is an agent that is meant to keep running, so it can live on a Linux server, a NAS or any computer without a screen, and be used from the browser of another computer or a phone.
+
+**With Docker** (the image brings the browser, its system libraries, a virtual screen, LibreOffice and Chinese fonts):
+
+```bash
+curl -O https://raw.githubusercontent.com/Liam-Frost/AutoApply/master/docker-compose.yml
+docker compose up -d
+docker compose exec autoapply autoapply set-admin     # choose the administrator's name and password
+```
+
+Then open `http://127.0.0.1:8000` on that computer. Everything that is yours is in the volume `autoapply-data`.
+
+**Without Docker**: `sh AutoApply-<version>-linux.run --yes --service` installs for the current user and registers a systemd user service (started with the computer, restarted when it fails). `autoapply doctor --deep` then lists what the computer lacks - the browser's libraries, a virtual screen, LibreOffice, fonts - each with the command that adds it; the same list is under *Settings → Advanced*.
+
+What is different on a server:
+
+- **Windows that need you open in the web page.** Signing in to a site, pressing *Submit* yourself, taking over a form: on a desktop these open a browser window. Without a screen the page is shown in AutoApply's own page - a notice at the top, and a Telegram message with a link if you set that up - and you click and type there. A site that refuses a hidden browser gets a real window on a virtual screen, which is shown the same way.
+- **Use HTTPS from other devices.** The server speaks plain HTTP. For access from anywhere but the computer itself, put a reverse proxy that does HTTPS in front and turn on *a reverse proxy does the HTTPS* under *Settings → Access & security*. Until then the remote window is refused to other devices, because passwords are typed into it.
+- **Passwords and keys are in an encrypted file**, `data/secrets.bin`, because a server has no keyring. By default its master key is beside it; to keep the key elsewhere set `AUTOAPPLY_MASTER_KEY_FILE` (a Docker secret, a systemd credential). Keep a copy of that key: without it the saved passwords are lost.
+- **A sign-in that cannot be done on a server can be carried over.** Passkeys, and sites that only accept a computer they know: sign in with AutoApply on your own computer, export the sign-in under *Site accounts* (encrypted with a passphrase), import it on the server.
+
 ## How an application goes out
 
 ```mermaid
@@ -155,7 +179,7 @@ The Claude subscription is the best-tested service. Others work through the same
 ## Your data
 
 - Everything is on your computer: a SQLite database, your files, and a few Markdown documents you can read and edit (your profile, the scoring rules, notes about sites).
-- Passwords and API keys are in the system keyring. Saved sign-ins are encrypted.
+- Passwords and API keys are in the system keyring - on a server, which has none, in an encrypted file. Saved sign-ins are encrypted.
 - Nothing is sent anywhere except to the AI service you chose and to the job sites themselves. There is no telemetry and no account.
 - The page asks for a login - one account, whose name and password you choose the first time you open it on the computer it runs on. Only a salted hash of the password is kept.
 - The server listens on `127.0.0.1` unless you change that under Settings -> Access & security, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
@@ -241,5 +265,7 @@ Contributions that add one entry to a list (an employer, a job board, a sign-in 
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE): free for personal and other noncommercial use.
+
+The interface includes [noVNC](https://github.com/novnc/noVNC) (MPL 2.0), unmodified, for showing a virtual screen; its source is at that address.
 
 You are responsible for following the terms of use of the job sites you apply through. The program fills in your own applications with your own information; it is not a tool for applying on behalf of others or in bulk.

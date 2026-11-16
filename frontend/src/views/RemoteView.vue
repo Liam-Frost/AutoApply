@@ -1,8 +1,10 @@
 <script setup>
-// A browser page on the computer AutoApply runs on, used from here: pictures of it come in, clicks and keys go out.
-// (backend/autoapply/remote.py) What is typed can be a password: nothing typed here is kept in this page's state
-// longer than it takes to send it, and nothing is logged.
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+// A browser page on the computer AutoApply runs on, used from here. Two ways, chosen by the server:
+//   "frames"  the page is in the hidden browser: pictures of it come in, clicks and keys go out (backend remote.py)
+//   "screen"  it is a real window on a virtual screen: that screen is shown through its VNC server (backend vscreen.py)
+// What is typed can be a password: nothing typed here is kept in this page's state longer than it takes to send it,
+// and nothing is logged.
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, ROOT } from '../api'
 import { ask, toast } from '../ui'
@@ -15,6 +17,8 @@ const win = ref(null)
 const st = reactive({ state: 'opening', src: '', page: { url: '', title: '', tabs: [] } })   // opening | live | closed | refused
 const stage = ref(null)
 const keys = ref(null)
+const screen = ref(null)
+let rfb = null
 let alive = true
 let seq = 0
 let queue = []
@@ -109,27 +113,54 @@ const finish = async () => {
   toast('已关闭')
 }
 
+// The virtual screen, through the VNC client library (noVNC), loaded only when a window needs it.
+const connectScreen = async () => {
+  try {
+    const [{ default: RFB }, { password }] = await Promise.all([import('@novnc/novnc'), api.get(`/remote/${props.id}/screen`)])
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${ROOT}/api/remote/${props.id}/vnc`
+    rfb = new RFB(screen.value, url, { credentials: { password }, wsProtocols: ['binary'] })
+    rfb.scaleViewport = true
+    rfb.focusOnClick = true
+    rfb.addEventListener('connect', () => { st.state = 'live' })
+    rfb.addEventListener('disconnect', async () => {
+      rfb = null
+      if (!alive) return
+      // the window closed, or only the connection dropped? ask, and connect again if it is still there
+      try { await api.get(`/remote/${props.id}`); setTimeout(() => alive && connectScreen(), 1500) } catch (e) { st.state = 'closed' }
+    })
+    rfb.addEventListener('securityfailure', () => { st.state = 'refused'; st.why = '虚拟屏幕拒绝了这次连接。重新打开这个窗口再试。' })
+  } catch (e) {
+    st.state = e.status === 404 ? 'closed' : 'refused'
+    st.why = e.message
+  }
+}
+
 onMounted(async () => {
   try { win.value = await api.get(`/remote/${props.id}`) } catch (e) {
     st.state = e.status === 403 ? 'refused' : 'closed'
     st.why = e.message
     return
   }
-  frames()
+  if (win.value.mode === 'screen') { await nextTick(); connectScreen() } else frames()
 })
-onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src) })
+onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src); if (rfb) rfb.disconnect() })
 </script>
 
 <template>
   <PageHead :title="win ? `${PURPOSE[win.purpose] || '窗口'}：${win.title}` : '远程窗口'" sub="这是运行 AutoApply 的那台电脑上的浏览器页面。在画面上点击和输入，就像在那台电脑上操作一样。">
     <button class="sm" @click="router.back()"><Icon name="back" />返回</button>
-    <button v-if="st.state === 'live'" class="sm primary" @click="finish"><Icon name="check" />做完了，关闭窗口</button>
+    <button v-if="st.state === 'live' && win && win.mode === 'frames'" class="sm primary" @click="finish"><Icon name="check" />做完了，关闭窗口</button>
   </PageHead>
 
   <div v-if="st.state === 'closed'" class="callout">
     <Icon name="info" /><div>这个窗口已经关闭了。如果你刚完成登录或提交，程序已经接着往下做；结果会出现在“需要我处理”和“活动记录”里。</div>
   </div>
   <div v-else-if="st.state === 'refused'" class="callout warn"><Icon name="alert" /><div>{{ st.why }}</div></div>
+
+  <template v-else-if="win && win.mode === 'screen'">
+    <div class="rw-frame"><div ref="screen" class="rw-screen"></div><div v-if="st.state === 'opening'" class="rw-wait rw-over">正在连接虚拟屏幕…</div></div>
+    <p class="rw-note">这是一个真实的浏览器窗口，开在服务器的虚拟屏幕上。点一下画面再输入；做完后直接关掉里面的浏览器窗口，或者等程序检测到你已完成。你输入的内容（包括密码）只发给这个窗口，不会写进日志，也不会给 AI 看。</p>
+  </template>
 
   <template v-else>
     <div class="rw-bar">

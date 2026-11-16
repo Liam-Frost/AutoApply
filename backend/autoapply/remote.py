@@ -52,7 +52,7 @@ class Window:
         self.id = _random.token_urlsafe(9)
         self.title, self.purpose, self.tenant = title, purpose, tenant
         self.created = time.time()
-        self.context = page.context
+        self.context = page.context if page is not None else None      # None: a real window on a virtual screen
         self.tab = -1                               # which page of the context is shown: -1 the newest (a sign-in pop-up)
         self.inputs: deque[dict[str, Any]] = deque(maxlen=2000)
         self.cond = threading.Condition()
@@ -69,7 +69,7 @@ class Window:
 
     def describe(self) -> dict[str, Any]:
         return {"id": self.id, "title": self.title, "purpose": self.purpose, "tenant": self.tenant, "since": int(self.created),
-                "mode": "vnc" if self.vnc else "frames", "page": self.state, **VIEWPORT}
+                "mode": "screen" if self.vnc else "frames", "page": self.state, **VIEWPORT}
 
     def send(self, events: list[dict[str, Any]]) -> None:
         for e in events[:200]:
@@ -93,6 +93,8 @@ class Window:
     # --- the side of the page (only the thread that owns it) ---
 
     def page(self) -> Any | None:
+        if self.context is None:
+            return None
         try:
             pages = [p for p in self.context.pages if not p.is_closed()]
         except Exception:  # noqa: BLE001 - the browser is going away
@@ -210,6 +212,17 @@ def attach(page: Any, *, title: str = "", purpose: str = "apply", tenant: str = 
     with _lock:
         _windows[win.id] = win
     log.info("remote window %s opened (%s)", win.id, purpose)
+    return win
+
+
+def attach_screen(screen: Any, *, title: str = "", purpose: str = "apply", tenant: str = "") -> Window:
+    """A real browser window on a virtual screen (vscreen.py) as a remote window: the person sees and uses the screen
+    itself, through its VNC server. Nothing has to be served by the thread that owns the page."""
+    win = Window(None, title, purpose, tenant)
+    win.vnc = {"port": screen.port, "password": screen.password}
+    with _lock:
+        _windows[win.id] = win
+    log.info("remote window %s opened on virtual screen %s (%s)", win.id, screen.display, purpose)
     return win
 
 

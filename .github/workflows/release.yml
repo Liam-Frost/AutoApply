@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  packages: write        # the container image goes to this repository's registry (ghcr.io)
 
 jobs:
   check:
@@ -59,6 +60,7 @@ jobs:
             echo "| macOS 12+ | \`AutoApply-$version-macos.dmg\` | Open it and drag AutoApply to Applications. Not notarised: the first time, right-click the app and choose *Open*. |"
             echo "| Linux | \`AutoApply-$version-linux.run\` | \`sh AutoApply-$version-linux.run\` |"
             echo "| Any | \`AutoApply-$version.zip\` | Portable: unzip and run \`start.bat\` / \`./start.sh\`. |"
+            echo "| A server, Docker | \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/autoapply:$version\` | \`docker compose up -d\` with the repository's \`docker-compose.yml\`, then \`docker compose exec autoapply autoapply set-admin\`. |"
             echo
             echo "Checksums are in \`SHA256SUMS.txt\`. Every package above was built by this workflow and installed and started on its own system before being published."
           } >> notes.md
@@ -70,3 +72,26 @@ jobs:
           pre=""
           case "$GITHUB_REF_NAME" in *a*|*b*|*rc*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" packages/* --title "AutoApply ${GITHUB_REF_NAME#v}" --notes-file notes.md $pre
+
+  image:
+    name: Publish the container image
+    needs: publish            # after the release exists: the image is the same version, never ahead of it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build for x86-64 and ARM64, and push
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/autoapply"
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker run --privileged --rm tonistiigi/binfmt --install arm64        # lets this x86-64 runner build the ARM64 image
+          docker buildx create --use
+          tags="-t $image:$version"
+          case "$version" in *a*|*b*|*rc*) ;; *) tags="$tags -t $image:latest" ;; esac       # a pre-release does not become "latest"
+          docker buildx build --platform linux/amd64,linux/arm64 $tags \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.version=$version" \
+            --label "org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0" \
+            --push .

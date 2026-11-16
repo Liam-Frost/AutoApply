@@ -219,6 +219,7 @@ tr.clickable { cursor: pointer; }
 .rw-frame { position: relative; max-width: 1280px; border: 1px solid var(--border-strong); border-radius: var(--r-md); overflow: hidden; background: var(--surface-2); box-shadow: var(--shadow-sm); }
 .rw-stage { display: block; width: 100%; height: auto; cursor: default; user-select: none; -webkit-user-drag: none; touch-action: none; }
 .rw-wait { aspect-ratio: 1280 / 800; display: grid; place-items: center; color: var(--text-3); }
+.rw-screen { aspect-ratio: 1280 / 800; width: 100%; } .rw-over { position: absolute; inset: 0; background: var(--surface-2); }
 /* the keyboard's way in: there, focusable, and not seen */
 .rw-keys { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; font-size: 16px; }
 .rw-note { max-width: 1280px; color: var(--text-3); font-size: 12px; margin-top: var(--s2); }

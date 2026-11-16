@@ -6,7 +6,10 @@ login survives between runs. A headed window is used only for human takeover.
 
 from __future__ import annotations
 
+import logging
+import os
 import re
+import threading
 
 from contextlib import contextmanager
 from pathlib import Path
@@ -239,6 +242,95 @@ def plain_login(tenant_key: str, url: str, is_logged_in_url, *, timeout_s: int =
             proc.terminate()
 
 
+class _Place:
+    """Where a browser's window goes, decided once per page (see _window_place)."""
+
+    def __init__(self) -> None:
+        self.headless = True
+        self.pictures = False                 # the page is shown to a person as pictures (remote.attach)
+        self.env: dict[str, str] = {}
+        self.args: list[str] = []
+        self.title = ""
+        self.screen: Any = None               # a virtual screen of its own, stopped when the page closes
+        self.window: Any = None
+
+    def __enter__(self) -> "_Place":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        from . import remote
+
+        remote.detach(self.window)
+        self.window = None
+        if self.screen is not None:
+            self.screen.stop()
+            self.screen = None
+
+
+def _window_place(for_person: bool, headless: bool, tenant_key: str | None, url: str, operation: str, *, needs_window: bool) -> _Place:
+    """Decide where the window of a page goes.
+
+                                   a screen here        no screen (a server)
+    hidden page                    hidden               hidden
+    a person must use it           a window             pictures in the web page (remote.py)
+    the site refuses hidden,       a window             a window on a virtual screen (vscreen.py) - shown in the
+    or an ordinary Chrome                               web page when a person must use it; without a virtual
+                                                        screen: hidden, and pictures for the person
+
+    `needs_window`: the browser must be a real window whoever looks (the site refuses the hidden one; an ordinary Chrome).
+    """
+    from urllib.parse import urlparse
+
+    from . import db, remote, vscreen
+
+    place = _Place()
+    place.title = urlparse(url).netloc or str(tenant_key or "")
+    place.headless = headless
+    if headless or not remote.no_screen():
+        return place                                    # hidden as asked, or there is a screen for the window
+    canonical = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key or "")
+    refused = canonical in (db.get_setting("browser.visible_sites") or [])
+    if (needs_window or refused) and (vscreen.can_view() if for_person else vscreen.available()):
+        try:
+            place.screen = vscreen.private() if for_person else None
+            screen = place.screen or vscreen.shared()
+        except (OSError, RuntimeError) as e:
+            logging.getLogger("autoapply.browser").warning("no virtual screen (%s): the page stays hidden", e)
+        else:
+            place.env = screen.env()
+            place.args = ["--window-position=0,0", f"--window-size={vscreen.SIZE[0]},{vscreen.SIZE[1]}"]
+            place.headless = False
+            if for_person:
+                place.window = remote.attach_screen(screen, title=place.title, purpose=operation, tenant=str(tenant_key or ""))
+                remote.announce(place.window)
+            return place
+    place.headless = True                               # nowhere to open a window
+    place.pictures = for_person
+    return place
+
+
+_env_lock = threading.Lock()
+
+
+@contextmanager
+def _environment(extra: dict[str, str]) -> Iterator[None]:
+    """Start a program with these variables added to its environment (for one that takes them from the process)."""
+    if not extra:
+        yield
+        return
+    with _env_lock:
+        before = {k: os.environ.get(k) for k in extra}
+        os.environ.update(extra)
+        try:
+            yield
+        finally:
+            for k, v in before.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 def idle(page: Any, seconds: float) -> None:
     """Wait on a page for a person: through the page, so that a remote window is served while waiting."""
     from . import remote
@@ -278,8 +370,16 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
         profile = _native_profile(tenant_key) if tenant_key else None
         with nodriver_backend.profile_lock(profile):
             state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key)
-            with nodriver_backend.open_page(state, headless=headless, executable=executable, args=net.chrome_args(), profile=profile) as page:
-                yield page
+            with _window_place(for_person, headless, tenant_key, url, operation, needs_window=not headless) as place:
+                if place.pictures:
+                    raise RuntimeError("这个网站要在普通的浏览器窗口里操作，而这台电脑没有屏幕，也没有虚拟屏幕。请安装 xvfb 和 x11vnc（sudo apt-get install -y xvfb x11vnc），或者改用容器镜像。")
+                with _environment(place.env):          # an ordinary Chrome takes its screen from the environment it is started in
+                    opened = nodriver_backend.open_page(state, headless=headless and place.headless, executable=executable, args=net.chrome_args() + place.args, profile=profile)
+                    page = opened.__enter__()
+                try:
+                    yield page
+                finally:
+                    opened.__exit__(None, None, None)
         return
     with sync_playwright() as p:
         from . import db, net
@@ -289,26 +389,30 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
 
         if headless and tenant_key and tenant_key in (db.get_setting("browser.visible_sites") or []):
             headless = False  # this site was seen refusing the hidden window
-        shown_remotely = for_person and remote.no_screen()
-        if not headless and remote.no_screen():
-            headless = True            # nowhere to open a window: the page is shown through the remote window
-        browser = p.chromium.launch(headless=headless, **net.browser_options())
+        place = _window_place(for_person, headless, tenant_key, url, operation, needs_window=not headless and not for_person).__enter__()
+        options = net.browser_options()
+        if place.args:
+            options = {**options, "args": [*options.get("args", []), *place.args]}
+        if place.env:
+            options["env"] = {**os.environ, **place.env}
+        shown_remotely = place.pictures
+        headless = place.headless
+        try:
+            browser = p.chromium.launch(headless=headless, **options)
+        except Exception:
+            place.__exit__(None, None, None)
+            raise
         try:
             state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key)
-            ctx = browser.new_context(
-                storage_state=state,
-                locale="en-US",
-                viewport=remote.VIEWPORT if shown_remotely else {"width": 1366, "height": 900},
-                accept_downloads=bool(downloads),
-            )
+            # on a virtual screen the page is as large as its window, which is as large as that screen
+            size: dict[str, Any] = {"no_viewport": True} if place.env else {"viewport": remote.VIEWPORT if shown_remotely else {"width": 1366, "height": 900}}
+            ctx = browser.new_context(storage_state=state, locale="en-US", accept_downloads=bool(downloads), **size)
             ctx.set_default_timeout(15000)
             ctx.set_default_navigation_timeout(75000)  # large career sites take 30-45 s to load over a slow link; 15 s gave up on them
             page = ctx.new_page()
             window = None
             if shown_remotely:
-                from urllib.parse import urlparse
-
-                window = remote.attach(page, title=urlparse(url).netloc or str(tenant_key or ""), purpose=operation, tenant=str(tenant_key or ""))
+                window = remote.attach(page, title=place.title, purpose=operation, tenant=str(tenant_key or ""))
                 remote.announce(window)
             try:
                 yield page
@@ -319,6 +423,7 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
                 except Exception:  # noqa: BLE001 - the user closed the window themselves
                     pass
         finally:
+            place.__exit__(None, None, None)
             try:
                 browser.close()
             except Exception:  # noqa: BLE001
