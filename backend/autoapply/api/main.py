@@ -2257,9 +2257,15 @@ def _ws_refusal(ws: Any, path: str) -> str:
     host = ws.headers.get("host", "")
     if _host_of(host) not in _own_hosts():
         return "host"
+    # A browser always says where a WebSocket is opened from. It has to be this program's own page - host and port:
+    # a page served by another program on this computer, on its own port, is not ours although the host is the same.
     origin = ws.headers.get("origin")
-    if not origin or _host_of(urlparse(origin).netloc) != _host_of(host):
-        return "origin"             # a browser always says where a WebSocket is opened from; another site's page is refused
+    mine = {host.lower()}
+    base = urlparse(str(db.get_setting("app.base_url") or ""))
+    if base.netloc:
+        mine.add(base.netloc.lower())
+    if not origin or urlparse(origin).netloc.lower() not in mine:
+        return "origin"
     who = access.caller(ws.client.host if ws.client else "", ws.headers)
     if not access.allowed(path, ws.cookies.get(access.COOKIE), who, ws.headers.get(access.LOCAL_HEADER)):
         return "login"

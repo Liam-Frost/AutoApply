@@ -70,7 +70,7 @@ def test_a_master_key_given_from_outside_is_used_and_no_key_is_left_beside_the_d
 
 def test_once_the_file_exists_it_stays_the_store_even_if_a_keyring_appears(server):
     secrets.put("k", "v")
-    from tests.conftest import MemoryKeyring
+    from conftest import MemoryKeyring
 
     keyring.set_keyring(MemoryKeyring())
     secrets.reset()

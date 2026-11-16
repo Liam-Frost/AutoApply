@@ -124,6 +124,7 @@ def test_the_bridge_to_the_screen_is_for_this_programs_own_page_signed_in_and_en
     assert main._ws_refusal(FakeSocket(ok), path) == ""
     assert main._ws_refusal(FakeSocket({**ok, "host": "evil.example"}), path) == "host"
     assert main._ws_refusal(FakeSocket({**ok, "origin": "https://evil.example"}), path) == "origin"
+    assert main._ws_refusal(FakeSocket({**ok, "origin": "http://127.0.0.1:9999"}), path) == "origin"     # another program on this computer
     assert main._ws_refusal(FakeSocket({"host": "127.0.0.1:8000"}), path) == "origin"           # a browser always says where from
     monkeypatch.setattr(access, "enforced", lambda: True)
     assert main._ws_refusal(FakeSocket(ok), path) == "login"
@@ -181,9 +182,9 @@ def test_a_real_browser_window_on_the_virtual_screen_reaches_the_page_through_th
         assert page.evaluate("() => [window.outerWidth > 0, navigator.webdriver !== undefined]")[0]
         (w,) = remote.windows()
         assert w["mode"] == "screen"
-        c = TestClient(app, base_url="http://127.0.0.1:8000")
+        c = TestClient(app)
         assert len(c.get(f"/api/remote/{w['id']}/screen").json()["password"]) == 8
         assert c.get(f"/api/remote/{w['id']}/frame").status_code == 409
-        with c.websocket_connect(f"/api/remote/{w['id']}/vnc", headers={"origin": "http://127.0.0.1:8000"}, subprotocols=["binary"]) as ws:
+        with c.websocket_connect(f"/api/remote/{w['id']}/vnc", headers={"origin": "http://testserver"}, subprotocols=["binary"]) as ws:
             assert ws.receive_bytes().startswith(b"RFB 003.")
     assert remote.windows() == []

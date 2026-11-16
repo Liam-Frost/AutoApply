@@ -40,7 +40,7 @@ RUN apt-get update \
 
 WORKDIR /opt/autoapply
 # dependencies first: this layer changes only when the lock does
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY backend/ backend/
 RUN uv sync --frozen --no-dev --extra nodriver
 # the program's own browser, with the system libraries it needs (this is the step a bare server is missing)
@@ -50,7 +50,7 @@ COPY scripts/ scripts/
 COPY frontend/src/i18n/ frontend/src/i18n/
 COPY frontend/public/ frontend/public/
 COPY --from=interface /src/frontend/dist/ frontend/dist/
-COPY LICENSE CHANGELOG.md ./
+COPY CHANGELOG.md ./
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin autoapply \
  && mkdir -p /data && chown autoapply:autoapply /data
