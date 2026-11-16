@@ -295,6 +295,17 @@ def remember(ats: str, answers: list[dict[str, Any]], *, confirmed: bool) -> Non
         cache_put(ats, q, a["value"], a.get("basis", ""), confirmed=confirmed)
 
 
+def correct(ats: str, answer: dict[str, Any]) -> None:
+    """The applicant changed an answer after approving the draft. The approval had put the old value into the cache as
+    theirs; the cache now holds the new one - or nothing, when the answer was cleared or is no longer reusable - so
+    that the next form of this ATS is not answered with what they have just corrected."""
+    q = Question(id=answer["id"], label=answer["label"], type=answer["type"], options=answer.get("options") or [])
+    key, oh = q.key()
+    with db.session() as s:
+        s.query(AnswerCache).filter_by(ats=ats, question_key=key, options_hash=oh).delete()
+    remember(ats, [answer], confirmed=True)
+
+
 # --- auto-approve (plan section 6.6) -------------------------------------------------
 
 

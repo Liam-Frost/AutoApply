@@ -477,6 +477,7 @@ def get(draft_id: int) -> dict[str, Any]:
         app, job = d.application, d.application.job
         return {
             "id": d.id, "version": d.version, "review_status": d.review_status, "created_at": d.created_at.isoformat(),
+            "locked": locked(d),            # why nothing in it can be changed now; "" when the applicant can change it
             "application": {"id": app.id, "status": app.status, "last_event": app.last_event},
             "job": {"id": job.id, "company": job.company, "title": job.title, "deadline": job.deadline, "score": job.score,
                     "score_reason": job.score_reason, "apply_url": job.apply_url, "ats": job.ats, "source_id": job.source_id},
@@ -645,12 +646,45 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
     return out
 
 
+SENT = ("submitted", "confirmed", "interview", "assessment", "offer", "rejected")
+
+
+class Locked(ValueError):
+    """The draft cannot be changed now; the message says why, for the applicant."""
+
+
+def locked(d: Draft) -> str:
+    """Why this draft cannot be changed ('' when it can).
+
+    The applicant can change anything in a draft for as long as the application has not gone out - before approving
+    it and after. Approving is their word that the answers are right; changing an answer afterwards is their word
+    again, so the draft stays approved and the next run fills in what it says now. A draft is closed only when
+    changing it could no longer do what the applicant means: it is an old version, the application was sent (the
+    draft is then the record of what was sent), or a run is filling the form from it this moment."""
+    if d.review_status not in ("pending", "approved"):
+        return "这是草案的旧版本，不能再改。请打开最新的那一版。"
+    status = d.application.status
+    if status in SENT:
+        return "这份申请已经发出去了，草案保留作记录，不能再改。"
+    if status == "executing":
+        return "程序正在按这份草案填写表单，等这一次结束后再改。"
+    return ""
+
+
 def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", remember: bool = False) -> None:
     """User edits one answer inline. The edit is authoritative: high confidence, user-confirmed."""
     with db.session() as s:
         d = s.get(Draft, draft_id)
+        why = locked(d)
+        if why:
+            raise Locked(why)
         new = []
         label = next((a.get("label", "") for a in d.answers if a["id"] == qid), "")
+        corrected = d.review_status == "approved" and str(d.schema.get("ats") or "")       # the approval cached the old value as theirs
+        if d.review_status == "approved":
+            # after the approval: kept where the applicant's other changes to this draft are listed
+            before = next((a.get("value") for a in d.answers if a["id"] == qid), None)
+            s.add(DraftComment(draft_id=draft_id, comment=f"批准之后修改了“{label.strip()[:120]}”", result=f"{_shown(before)} → {_shown(value)}"))
         for a in d.answers:
             if a["id"] == qid:
                 # an answer the site held becomes the applicant's own: from here on it is filled like any other
@@ -669,13 +703,16 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         if walk_on or read_on:
             d.application.status = "recon"
         job_id, deadline = d.application.job_id, d.application.job.deadline
+        edited = next((dict(a) for a in new if a["id"] == qid), None)
+    if corrected and edited is not None and edited.get("type") != "file":
+        ans.correct(corrected, edited)
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
     if walk_on:
         from . import tasks
 
         tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=20)
-    shown = "; ".join(map(str, value)) if isinstance(value, list) else {True: "Yes (tick the box)", False: "No (leave the box unticked)"}.get(value, str(value)) if isinstance(value, bool) else str(value)
+    shown = _shown(value)
     note = save_rule.strip()
     if remember or note:
         # a rule is only usable later if it says what was asked; a bare "No" means nothing on the next form
@@ -685,6 +722,15 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         from . import tasks
 
         tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id, "read_on": draft_id}, priority=tasks.deadline_priority(deadline))
+
+
+def _shown(value: Any) -> str:
+    """An answer as words: a list joined, a tick box as what is done with it."""
+    if isinstance(value, list):
+        return "; ".join(map(str, value))
+    if isinstance(value, bool):
+        return "Yes (tick the box)" if value else "No (leave the box unticked)"
+    return "" if value is None else str(value)
 
 
 REVISE_SCHEMA = llm.obj(

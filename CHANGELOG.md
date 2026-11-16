@@ -35,6 +35,15 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - The tray icon and its notifications are AutoApply to Windows, not `pythonw.exe`, and shortcuts are written directly
   instead of through PowerShell.
 
+### Fixed
+
+- **An answer in a draft can be changed after the draft was approved.** The "Edit" button was only there until you
+  approved, so a wrong answer noticed afterwards - or one a run failed on - could not be corrected, and neither
+  could the résumé. Now every answer can be changed for as long as the application has not gone out. The draft stays
+  approved (the change is your own), what was changed is listed with the draft, and "Fill in again and submit" uses
+  the answers as they are now. A draft is closed only when it is an old version, when the application was sent, or
+  while a run is filling the form from it - and it says which.
+
 ## [1.0.3] - 2026-11-16
 
 ### Added
