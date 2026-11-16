@@ -1,4 +1,4 @@
-"""Command line: autoapply serve | import-tsv <path> | task <kind> | drain"""
+"""Command line: autoapply serve | doctor | service ... | import-tsv <path> | task <kind> | drain"""
 
 from __future__ import annotations
 
@@ -31,6 +31,11 @@ def main() -> None:
     rs = sub.add_parser("restore", help="replace the data with an export (stop the program first)")
     rs.add_argument("path")
     sub.add_parser("shortcut", help="put an AutoApply shortcut on the desktop / in the applications menu")
+    dr = sub.add_parser("doctor", help="what this computer has and lacks for the program to do its whole job")
+    dr.add_argument("--deep", action="store_true", help="also start the browser once")
+    sv = sub.add_parser("service", help="Linux: run as a service that starts with the computer")
+    sv.add_argument("action", choices=["install", "uninstall", "status", "start", "stop", "restart"])
+    sv.add_argument("--now", action="store_true", help="stop: do not wait for the task that is running")
     a = ap.parse_args()
     if a.cmd == "tray":
         from . import launcher
@@ -41,6 +46,43 @@ def main() -> None:
 
         access.reset_admin()
         print("The administrator account was removed and every login ended. Open AutoApply on this computer to set a new one.")
+        return None
+    if a.cmd == "doctor":
+        from . import db as _db, doctor, i18n
+
+        _db.init_db()
+        marks = {"ok": "[ok]  ", "info": "[--]  ", "warn": "[!]   ", "bad": "[FAIL]"}
+        found = doctor.run(deep=a.deep)
+        for f in found:
+            print(f"{marks[f['level']]} {i18n.tr(f['title'])}")
+            if f["detail"]:
+                print(f"         {i18n.tr(f['detail'])}")
+            if f["fix"]:
+                print(f"         -> {f['fix']}")
+        raise SystemExit(1 if any(f["level"] == "bad" for f in found) else 0)
+    if a.cmd == "service":
+        from . import service
+
+        try:
+            if a.action == "install":
+                st = service.install()
+                print("AutoApply runs as a service now: it starts with the computer and is restarted when it fails.")
+                if not st["linger"]:
+                    print(f"It will stop when you log out. To keep it running:  sudo loginctl enable-linger {st['user']}")
+            elif a.action == "uninstall":
+                service.uninstall()
+                print("The service was removed. The program and your data are untouched.")
+            elif a.action == "status":
+                print(json.dumps(service.status(), indent=1))
+            elif a.action == "start":
+                service.start()
+            elif a.action == "stop":
+                raise SystemExit(0 if service.stop(now=a.now) else 3)
+            elif a.action == "restart":
+                service.stop(now=a.now)
+                service.start()
+        except service.NotHere as e:
+            raise SystemExit(str(e)) from e
         return None
     if a.cmd == "shortcut":
         from . import launcher

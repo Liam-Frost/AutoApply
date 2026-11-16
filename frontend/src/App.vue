@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, provide, ref } from 'vue'
 import { api, auth } from './api'
 import Icon from './components/Icon.vue'
+import RemoteBanner from './components/RemoteBanner.vue'
 import { LANGS, lang, setLang } from './i18n'
 import { answer, dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
 import LoginView from './views/LoginView.vue'
@@ -74,7 +75,7 @@ onUnmounted(() => clearInterval(timer))
         <button v-if="session.user" class="sm ghost" :title="session.user" @click="signOut"><Icon name="login" />退出登录</button>
       </div>
     </nav>
-    <main class="content"><router-view /></main>
+    <main class="content"><RemoteBanner /><router-view :key="$route.path.startsWith('/remote/') ? $route.path : undefined" /></main>
   </div>
   <template v-if="dialog.open">
     <div class="overlay" style="z-index: 80" @click="answer(false)"></div>

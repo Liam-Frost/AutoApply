@@ -10,7 +10,7 @@ import re
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
@@ -239,12 +239,26 @@ def plain_login(tenant_key: str, url: str, is_logged_in_url, *, timeout_s: int =
             proc.terminate()
 
 
+def idle(page: Any, seconds: float) -> None:
+    """Wait on a page for a person: through the page, so that a remote window is served while waiting."""
+    from . import remote
+
+    remote.idle(page, seconds)
+
+
 @contextmanager
 def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads: Path | None = None,
               url: str = "", operation: str = "apply", backend: str | None = None) -> Iterator[Page]:
-    """Yield a page in a fresh context, restoring the tenant's saved session if any."""
-    from . import browser_policy, db, net
+    """Yield a page in a fresh context, restoring the tenant's saved session if any.
+
+    headless=False asks for a window a person can see and use. Where there is a screen that is a browser window on
+    it. Where there is none (a server), the page stays in the hidden browser and is shown to the person in the
+    program's web page instead (remote.py); the caller does not have to know which.
+    """
+    from . import browser_policy, db, net, remote
     import logging
+
+    for_person = not headless          # as asked for, before a site that refuses the hidden window changes it
 
     selected = browser_policy.select(tenant_key, url, operation, backend)
     from . import metering
@@ -275,21 +289,31 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
 
         if headless and tenant_key and tenant_key in (db.get_setting("browser.visible_sites") or []):
             headless = False  # this site was seen refusing the hidden window
+        shown_remotely = for_person and remote.no_screen()
+        if not headless and remote.no_screen():
+            headless = True            # nowhere to open a window: the page is shown through the remote window
         browser = p.chromium.launch(headless=headless, **net.browser_options())
         try:
             state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key)
             ctx = browser.new_context(
                 storage_state=state,
                 locale="en-US",
-                viewport={"width": 1366, "height": 900},
+                viewport=remote.VIEWPORT if shown_remotely else {"width": 1366, "height": 900},
                 accept_downloads=bool(downloads),
             )
             ctx.set_default_timeout(15000)
             ctx.set_default_navigation_timeout(75000)  # large career sites take 30-45 s to load over a slow link; 15 s gave up on them
             page = ctx.new_page()
+            window = None
+            if shown_remotely:
+                from urllib.parse import urlparse
+
+                window = remote.attach(page, title=urlparse(url).netloc or str(tenant_key or ""), purpose=operation, tenant=str(tenant_key or ""))
+                remote.announce(window)
             try:
                 yield page
             finally:
+                remote.detach(window)
                 try:
                     ctx.close()
                 except Exception:  # noqa: BLE001 - the user closed the window themselves

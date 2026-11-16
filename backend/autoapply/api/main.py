@@ -845,6 +845,7 @@ def overview() -> dict[str, Any]:
             "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open").scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),
+            "remote": _open_remote_windows(),
             "drivers": [{"ats": d.ats, "recon_ok": d.recon_ok, "recon_fail": d.recon_fail, "exec_ok": d.exec_ok, "exec_fail": d.exec_fail,
                          "streak": d.consecutive_submits} for d in s.query(DriverStat).all()],
             "mail_recent": [_mail_row(s, m) for m in s.query(MailEvent).filter(MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(10)],
@@ -856,6 +857,12 @@ def overview() -> dict[str, Any]:
                                      **stages.describe(stages.stage(a.job.status, bool(a.job.online), a.job.deadline or "", a.status))}
                                     for a in s.query(Application).filter(Application.submitted_at.isnot(None)).order_by(Application.submitted_at.desc()).limit(8)],
         }
+
+
+def _open_remote_windows() -> list[dict[str, Any]]:
+    from .. import remote
+
+    return [{"id": w["id"], "title": w["title"], "purpose": w["purpose"]} for w in remote.windows()]
 
 
 def _mail_row(s: Any, m: MailEvent) -> dict[str, Any]:
@@ -2136,6 +2143,68 @@ def gmail_authorize() -> dict[str, Any]:
     return {"started": True}
 
 
+
+
+# --- the remote window: a page that needs a person, shown here instead of on a screen the server does not have ---
+
+
+def _remote(request: Request, window_id: str):
+    """The window, for a caller who may have it. What is typed into it can be a password: another device gets it over
+    HTTPS only."""
+    from .. import remote
+
+    who = access.caller(request.client.host if request.client else "", request.headers)
+    if not who["local"] and not who["https"]:
+        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“访问与安全”里打开对应的开关。")
+    win = remote.get(window_id)
+    if win is None:
+        raise HTTPException(404, "这个窗口已经关闭了。")
+    return win
+
+
+@app.get("/api/remote")
+def remote_windows():
+    from .. import remote
+
+    return remote.windows()
+
+
+@app.get("/api/remote/{window_id}")
+def remote_window(request: Request, window_id: str):
+    return _remote(request, window_id).describe()
+
+
+@app.get("/api/remote/{window_id}/frame")
+def remote_frame(request: Request, window_id: str, after: int = 0):
+    """The newest picture of the page once it is newer than `after` (waits a few seconds for one). Never stored."""
+    import json
+
+    from fastapi.responses import Response
+
+    win = _remote(request, window_id)
+    seq, frame = win.next_frame(after)
+    headers = {"X-Seq": str(seq), "Cache-Control": "no-store", "X-State": json.dumps(win.state, ensure_ascii=True)}
+    if frame is None:
+        return Response(status_code=204, headers=headers)
+    return Response(content=frame, media_type="image/jpeg", headers=headers)
+
+
+@app.post("/api/remote/{window_id}/input")
+def remote_input(request: Request, window_id: str, body: dict[str, Any] = Body(...)):
+    """Clicks and keys for the page. Their content is never logged: it can be a password."""
+    events = body.get("events")
+    if not isinstance(events, list):
+        raise HTTPException(400, "events")
+    _remote(request, window_id).send(events)
+    return {"ok": True}
+
+
+@app.get("/api/doctor")
+def doctor_report(deep: bool = False):
+    """What this computer lacks for the program to do its whole job, each with the command that fixes it."""
+    from .. import doctor, i18n
+
+    return [{**f, "title": i18n.tr(f["title"]), "detail": i18n.tr(f["detail"])} for f in doctor.run(deep=deep)]
 
 
 # --- frontend ------------------------------------------------------------------------------
