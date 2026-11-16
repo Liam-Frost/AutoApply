@@ -47,7 +47,9 @@ def export(*, sessions: bool = False) -> dict[str, Any]:
         dst.close()
     finally:
         src.close()
-    folders = {"data/files": config.FILES, "data/materials": config.MATERIALS, "knowledge": config.KNOWLEDGE}
+    # (what the program learned from its runs - revisions and the steps of explored forms - is the applicant's too)
+    folders = {"data/files": config.FILES, "data/materials": config.MATERIALS, "knowledge": config.KNOWLEDGE,
+               "data/learned": config.DATA / "learned", "data/sites": config.DATA / "sites"}
     if sessions:
         folders["data/sessions"] = config.SESSIONS
     count = 1

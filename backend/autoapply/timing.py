@@ -68,6 +68,17 @@ def mark(kind: str, name: str, ms: float, *, started: float | None = None, **ext
     run["spans"].append(span)
 
 
+def inside(started: float) -> float:
+    """Milliseconds already recorded for the stretch that began at monotonic time ``started``: the fields, requests,
+    tools, loads and waits that happened in it. A step is recorded as what is left of its stretch (see the executor),
+    so that summing the spans of a run gives the run's time once, not the inner parts twice."""
+    run = getattr(_tls, "run", None)
+    if run is None:
+        return 0.0
+    since = int((started - run["t0"]) * 1000) - 1
+    return float(sum(s["ms"] for s in run["spans"] if s["t"] >= since and not str(s["n"]).startswith("step:")))
+
+
 @contextlib.contextmanager
 def span(kind: str, name: str, **extra: Any) -> Iterator[dict[str, Any]]:
     """Time what happens inside. The dictionary given can be added to (ok=False, a count) before it ends."""
@@ -105,8 +116,9 @@ def timed_goto(page: Any) -> None:
 
 
 def totals(spans: list[dict[str, Any]]) -> dict[str, int]:
-    """Milliseconds by kind. Spans of one kind do not overlap; a tool span lies inside nothing else that is counted
-    (the AI's own time is its requests, not the tools it waited for)."""
+    """Milliseconds by kind. Spans do not overlap: a step's span is what its stretch took beyond the fields, requests,
+    tools and loads recorded inside it (inside()), and a tool span lies inside nothing else that is counted (the
+    AI's own time is its requests, not the tools it waited for)."""
     out = {k: 0 for k in KINDS}
     for s in spans:
         if s.get("k") in out:

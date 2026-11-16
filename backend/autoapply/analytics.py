@@ -423,7 +423,7 @@ TOKEN_KINDS = (("input", "输入"), ("cache_read", "缓存读取"), ("cache_writ
 # --- where the time of the runs went (timing.py), and what was learned from it (learned.py) ---
 
 
-def timing_overview(w: Window, *, ats: str = "", limit: int = 40) -> dict[str, Any]:
+def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str, Any]:
     """Runs that filled a form, in the window: how long they took without the applicant's own time, by what the
     time was spent on, per system over time, and the runs themselves."""
     from . import humanize, learned, timing

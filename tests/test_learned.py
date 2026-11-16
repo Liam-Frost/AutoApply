@@ -377,3 +377,104 @@ def test_the_coded_drivers_record_each_field_they_fill_too(module, cls, monkeypa
         pass
     fields = [(s["label"], s.get("ok", True)) for s in timing.end() if (s["k"], s["n"]) == ("driver", "field")]
     assert fields == [("First name", True), ("Phone code", False)]
+
+
+# --- what the review of this change found ---
+
+
+def test_a_steps_time_is_what_is_left_once_what_happened_inside_it_is_taken_out():
+    """A step was recorded as the whole stretch since the step before, on top of the fields, requests and loads
+    recorded inside it: a 1.5 s step with a 1 s field in it counted as 2.5 s of the driver's time."""
+    timing.begin()
+    began = time.monotonic()
+    timing.mark("driver", "field", 1000.0, started=began + 0.1, label="First name")
+    timing.mark("ai", "repair", 2000.0, started=began + 1.2)
+    whole = 4000.0
+    timing.mark("driver", "step:fill_page", max(0.0, whole - timing.inside(began)), started=began)
+    spans = timing.end()
+    assert next(s for s in spans if s["n"] == "step:fill_page")["ms"] == 1000
+    assert timing.totals(spans) == {"site": 0, "driver": 2000, "ai": 2000, "tool": 0, "human": 0} and timing.working_ms(spans) == 4000
+
+
+def test_a_field_a_revision_filled_that_reads_back_differently_is_its_failure(store, page):
+    """A plugin that says it filled the field and did not was taken at its word; the take-over repaired the field, the
+    run counted as a good trial, and two such runs made the broken plugin permanent."""
+    from autoapply.ats.base import Question
+    from autoapply.ats.generic_driver import set_value
+
+    liar = learned.add("plugin", "site-jobs.example.com", "Says it did", "w", "def set_value(page, q, value, w):\n    return q.label == 'City'\n")
+    learned.begin(["site-jobs.example.com"])
+    set_value(page, Question(id="#city", label="City", type="text", page=0), "Vancouver")
+    assert page.locator("#city").input_value() == "" and learned._tls.force["filled"] == {"#city": liar["id"]}
+    learned.read_back_differs(["#other"])                 # a field it did not fill is not held against it
+    assert learned._tls.force["strikes"] == {}
+    learned.read_back_differs(["#city"])
+    changed = learned.end(ok=True, working_ms=5000, interventions=1, run_id=1)
+    assert [(c["title"], c["status"]) for c in changed] == [("Says it did", "reverted")] and "read back differently" in changed[0]["why_status"]
+
+
+def test_the_waits_that_were_learned_are_kept_after_a_load_a_step_and_every_field(store, page):
+    """A recipe of waits alone went on trial and did nothing: the only wait that was ever kept was the one after a field
+    that a learned rule had filled."""
+    from autoapply.ats.base import Question
+    from autoapply.ats.generic_driver import set_value
+
+    rev = learned.add("recipe", "site-jobs.example.com", "Waits", "w", json.dumps({"waits": [{"after": "load", "ms": 11}, {"after": "field", "ms": 12}, {"after": "step", "ms": 13}]}))
+    learned.begin(["site-jobs.example.com"])
+    waited = []
+    real = page.wait_for_timeout
+    page.wait_for_timeout = lambda ms: waited.append(ms)
+    try:
+        learned.waits_on(page)
+        page.goto("about:blank")
+        assert waited == [11]
+        page.set_content("<input id=city>")
+        set_value(page, Question(id="#city", label="City", type="text", page=0), "Vancouver")       # filled the ordinary way
+        assert 12 in waited and page.locator("#city").input_value() == "Vancouver"
+        learned.wait_after(page, "step")
+        assert waited[-1] == 13 and learned._tls.force["used"] == {rev["id"]}
+    finally:
+        page.wait_for_timeout = real
+        learned.drop()
+
+
+def test_what_was_learned_is_in_a_backup(store):
+    import zipfile
+
+    from autoapply import backup, siteplan
+
+    rev = learned.add("recipe", "site-jobs.example.com", "Code", "w", RECIPE)
+    siteplan._save("site-jobs.example.com", {"steps": {"One": []}})
+    out = backup.export()
+    with zipfile.ZipFile(out["path"]) as z:
+        names = set(z.namelist())
+    assert {"data/learned/index.json", f"data/learned/{rev['id']}/recipe.json", "data/sites/site-jobs.example.com.json"} <= names
+
+
+def test_something_proposed_before_an_upgrade_goes_through_the_gate_again_when_it_is_approved(store, monkeypatch):
+    db.set_setting("learned.mode", "ask")
+    old = learned.add("recipe", "site-jobs.example.com", "Old", "w", RECIPE)
+    gone = learned.add("recipe", "site-jobs.example.com", "Gone", "w", RECIPE)
+    assert old["status"] == gone["status"] == "proposed"
+    monkeypatch.setattr(learned, "version", lambda: "9.9.9")
+    calls = []
+
+    def gate(rev):
+        calls.append(rev["title"])
+        if rev["title"] == "Gone":
+            raise learned.Refused("the saved pages are read differently")
+        return {"fixtures": 2}
+
+    monkeypatch.setattr(learned, "gate", gate)
+    assert learned.decide(old["id"], "approve")["status"] == "trial" and learned.get(old["id"])["version"] == "9.9.9"
+    parked = learned.decide(gone["id"], "approve")
+    assert parked["status"] == "parked" and "9.9.9" in parked["why_status"] and calls == ["Old", "Gone"]
+
+
+def test_every_run_of_the_window_can_be_opened(store):
+    from autoapply import analytics as an
+
+    for _ in range(45):
+        run(usual_run())
+    got = an.timing_overview(an.window(0, "", ""))
+    assert got["count"] == 45 and len(got["runs"]) == 45

@@ -187,7 +187,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         metering.stage(op)       # the task remembers how far it got
         # the stretch that ended with this step, as a whole: what lies inside it (fields, tools, requests, loads) is
         # recorded where it happens, and what is left over is the program's own work on that step
-        timing.mark("human" if op in ("wait_user", "manual", "handover") else "driver", f"step:{op}", (time.monotonic() - last_mark[0]) * 1000.0, started=last_mark[0],
+        whole = (time.monotonic() - last_mark[0]) * 1000.0
+        timing.mark("human" if op in ("wait_user", "manual", "handover") else "driver", f"step:{op}", max(0.0, whole - timing.inside(last_mark[0])), started=last_mark[0],
                     page=kw.get("page"))
         last_mark[0] = time.monotonic()
     if not scout:
@@ -547,6 +548,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if here and not _left_step(title0):
                 scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
                 bad = _really_different(page, schema, verify(schema, scope, driver.read_back(page, schema)))
+                learned.read_back_differs([b["id"] for b in bad])
                 if bad and rounds < 2 and _takeover(_page_index(title0, n), {"message": "values on the form differ from the approved draft", "mismatches": bad}, [b["id"] for b in bad], [], on_ids=ids) is not None:
                     rounds += 1
                     scope = [a for a in draft_answers if a["id"] in ids and a["id"] not in skip_verify]
@@ -673,6 +675,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         headless = policy != "manual" or scout
         with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless, url=ref.url, operation="apply") as page:
             timing.timed_goto(page)
+            learned.waits_on(page)                         # "after load": every time this page is sent somewhere
             st = auth.ensure_session(page, signer or driver, ref)      # a site with a coded sign-in uses it, whoever fills the form
             step("ensure_session", result=st)
             if driver.requires_login and driver.already_applied(page, ref):
@@ -762,13 +765,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                         open_issues = _issues(i)
                 _keep_fixture(schema, page, i)
                 if i < len(pages) - 1:
-                    moved = driver.next_page(page)
+                    moved = _next_page(driver, page)
                     if not moved and rounds < 2 and repair.enabled():
                         # the form refused to go on: now it says why. One more round for the agent, then one more try.
                         blockers = _issues(i)
                         step("form_reports", page=i, after="next", issues=audit.texts(blockers)[:12])
                         if blockers and _takeover(i, {"message": "the form does not advance to the next page"}, [], blockers) is not None:
-                            moved = driver.next_page(page)
+                            moved = _next_page(driver, page)
                     if not moved:
                         raise DriverError("could not advance to the next page", page=i, seen="; ".join(_errors(driver, page) or audit.texts(_issues(i)))[:400])
                     step("next", page=i)
@@ -1051,6 +1054,7 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
     scope = [a for a in draft_answers if i is None or page_of.get(a["id"], 0) == i]
     back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
     bad = _really_different(page, schema, verify(schema, scope, back))
+    learned.read_back_differs([b["id"] for b in bad])      # before anything is repaired: what the revisions in force left behind
     current = i if i is not None else max(0, len(schema.pages or ["x"]) - 1)
     if bad and all(page_of.get(b["id"], 0) == current for b in bad):
         rep = _repair(page, schema, current, fill, {"message": "values on the form differ from the approved draft", "mismatches": bad},
@@ -1197,6 +1201,13 @@ def _finish_account(page: Any, ref: JobRef, step: Any, run_dir: Any = None) -> N
 def _scout_spans() -> list[dict[str, Any]]:
     learned.drop()          # a walk that only reads the form is no trial of what was learned
     return timing.end()
+
+
+def _next_page(driver: Any, page: Any) -> bool:
+    moved = driver.next_page(page)
+    if moved:
+        learned.wait_after(page, "step")
+    return moved
 
 
 def _site_of(schema: FormSchema) -> str:

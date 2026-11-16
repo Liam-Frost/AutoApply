@@ -224,6 +224,13 @@ def set_value(page: Page, q: Question, value: Any) -> None:
     if q.type != "file" and learned.set_value(page, q, value, loc, tag):
         learned.wait_after(page, "field")
         return                  # filled the way that was learned for this field (learned.py); a way that fails falls through to here
+    try:
+        _set_ordinary(page, q, value, loc, tag, typ)
+    finally:
+        learned.wait_after(page, "field")      # a wait learned for "after a field" holds for every field, however it was filled
+
+
+def _set_ordinary(page: Page, q: Question, value: Any, loc: Any, tag: str, typ: str) -> None:
     if tag in ("input", "textarea") and q.type not in ("file", "checkbox", "radio"):
         try:
             locked = loc.evaluate("(e) => e.readOnly || e.disabled")

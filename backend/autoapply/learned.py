@@ -253,6 +253,13 @@ def decide(rev_id: str, action: str) -> dict[str, Any]:
     from . import notify
 
     if action == "approve" and rev["status"] == "proposed":
+        if rev.get("version") != version():       # proposed before an upgrade: what it passed then is not what runs now
+            try:
+                rev = _update(rev_id, gate=gate(rev), version=version()) or rev
+            except Refused as e:
+                rev = _update(rev_id, status="parked", why_status=f"是在 {rev.get('version') or '更早的'} 版上学到的，在 {version()} 版上没有通过检查：{e}"[:400])
+                notify.close_todos("learned", f"learned:{rev_id}")
+                return rev or {}
         rev = _update(rev_id, status="trial", why_status="你采用了，开始试用")
     elif action == "reject" and rev["status"] in ("proposed", "parked"):
         rev = _update(rev_id, status="rejected", why_status="你没有采用")
@@ -294,7 +301,7 @@ class forcing:
 
     def __enter__(self) -> None:
         self.before = getattr(_tls, "force", None)
-        _tls.force = {"revs": self.revs, "strikes": {}, "used": set()}
+        _tls.force = {"revs": self.revs, "strikes": {}, "used": set(), "filled": {}}
 
     def __exit__(self, *exc: Any) -> None:
         _tls.force = self.before
@@ -303,7 +310,7 @@ class forcing:
 def begin(targets: list[str]) -> None:
     """A run starts: what was learned for its site and its system is in force for it."""
     revs = [r for r in revisions() if r["status"] in IN_FORCE and r["target"] in targets]
-    _tls.force = {"revs": revs, "strikes": {}, "used": set()}
+    _tls.force = {"revs": revs, "strikes": {}, "used": set(), "filled": {}}
 
 
 def in_force() -> list[str]:
@@ -358,6 +365,7 @@ def set_value(page: Any, q: Any, value: Any, loc: Any, tag: str) -> bool:
             fn = _load(rev).get("set_value")
             if fn is not None and fn(page, q, value, w) is True:
                 f["used"].add(rev["id"])
+                f["filled"][q.id] = rev["id"]
                 return True
         except Exception as e:  # noqa: BLE001 - whatever it is, the ordinary way takes over
             _strike(rev, f"{type(e).__name__}: {e}")
@@ -379,10 +387,44 @@ def set_value(page: Any, q: Any, value: Any, loc: Any, tag: str) -> bool:
             elif do == "react_select":
                 w.react_select(page, loc, str(value))
             f["used"].add(rev["id"])
+            f["filled"][q.id] = rev["id"]
             return True
         except Exception as e:  # noqa: BLE001
             _strike(rev, f"{rule['do']} on {q.label!r}: {type(e).__name__}: {e}")
     return False
+
+
+def read_back_differs(ids: list[str]) -> None:
+    """The read-back found these fields holding something other than the approved draft. A field a revision filled
+    (and said it had) is that revision's failure: it gets its strike, the run is no good trial of it, and it is taken
+    out when the run ends - instead of the take-over repairing the field and the revision being promoted on it."""
+    f = getattr(_tls, "force", None)
+    if not f:
+        return
+    for qid in ids:
+        rev_id = f["filled"].pop(qid, None)
+        rev = next((r for r in f["revs"] if r["id"] == rev_id), None)
+        if rev is not None and rev["id"] not in f["strikes"]:
+            _strike(rev, f"the field {qid!r} it filled read back differently from the approved answer")
+
+
+def waits_on(page: Any) -> None:
+    """Keep the waits learned for "after load" on this page: each time it is sent to an address."""
+    f = getattr(_tls, "force", None)
+    if not f or not f["revs"] or getattr(page, "_learned_waits", False):
+        return
+    goto = page.goto
+
+    def then_wait(url: str, *a: Any, **kw: Any) -> Any:
+        out = goto(url, *a, **kw)
+        wait_after(page, "load")
+        return out
+
+    try:
+        page.goto = then_wait
+        page._learned_waits = True
+    except Exception:  # noqa: BLE001 - a page object that will not take it simply has no such waits
+        pass
 
 
 def get_value(page: Any, q: Any) -> Any:
