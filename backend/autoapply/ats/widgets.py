@@ -118,6 +118,75 @@ def react_select(page: Page, input_loc: Locator, label: str, *, type_to_filter: 
     return texts[i]
 
 
+_LEAVES_JS = r"""(term) => {
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e); return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const t = term.toLowerCase(); const out = [];
+  const scope = document.querySelector('[role=listbox], [role=dialog], [role=menu]') ? '[role=option], [role=listbox] li, [role=menuitem], [role=dialog] li, [role=dialog] [tabindex]' : 'li, [role=option], [role=menuitem], div, span';
+  for (const e of document.querySelectorAll(scope)) {
+    if (!vis(e) || e.closest('input, textarea, select')) continue;
+    const text = (e.innerText || '').replace(/\s+/g, ' ').trim();
+    if (!text || text.length > 90 || !text.toLowerCase().includes(t)) continue;
+    if ([...e.children].some((c) => (c.innerText || '').toLowerCase().includes(t))) continue;      // the innermost element that says it
+    e.setAttribute('data-autoapply-hit', String(out.length)); out.push(text);
+    if (out.length >= 40) break;
+  }
+  return out;
+}"""
+
+
+def _search_term(label: str) -> str:
+    """What to type to find an entry: its first part ("Vancouver" of "Vancouver, BC, Canada")."""
+    return re.split(r"[,(/|]", str(label))[0].strip()[:30] or str(label)[:30]
+
+
+def _best_entry(texts: list[str], wanted: str) -> int | None:
+    """The entry that is the wanted one: the same text, or the same place written with fewer or more parts
+    ("Vancouver, Canada" for "Vancouver, BC, Canada") - and only when exactly one entry is."""
+    i = pick_option_or_none(texts, wanted)
+    if i is not None:
+        return i
+    parts = lambda s: {p for p in (_norm(x) for x in re.split(r"[,/|()]", s)) if p}  # noqa: E731
+    want = parts(wanted)
+    hits = [k for k, t in enumerate(texts) if parts(t) and (parts(t) <= want or want <= parts(t))]
+    return hits[0] if len(hits) == 1 else None
+
+
+def search_entries(page: Page, loc: Locator, term: str) -> list[str]:
+    """Open a pick-list and search it the way a person does: click it, type into whatever takes the typing (the list's own
+    search box when it has one), and read what it then offers. The list is left open, with every entry found marked
+    (data-autoapply-hit) so that one of them can be clicked. Typing is real key presses: setting a search box's value
+    by program does not make such a list search, and on some it closes the list."""
+    loc.scroll_into_view_if_needed(timeout=T)
+    loc.click(timeout=T)
+    page.wait_for_timeout(500)
+    typing = page.evaluate("() => { const a = document.activeElement; return !!a && a.type !== 'password' && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable); }")
+    if not typing:
+        box = page.locator("input[type=search]:visible, [role=searchbox]:visible, input[placeholder*='earch' i]:visible, [role=combobox]:visible input:visible").last
+        if box.count():
+            box.click(timeout=T)
+    page.keyboard.type(term, delay=70)
+    found: list[str] = []
+    for _ in range(12):      # the entries are fetched after the typing
+        page.wait_for_timeout(350)
+        found = page.evaluate(_LEAVES_JS, term)
+        if found:
+            break
+    return found
+
+
+def search_pick(page: Page, loc: Locator, label: str) -> str:
+    """Choose ``label`` in a pick-list that has to be searched. Returns the entry that was chosen."""
+    term = _search_term(label)
+    texts = search_entries(page, loc, term)
+    i = _best_entry(texts, label)
+    if i is None:
+        page.keyboard.press("Escape")
+        raise DriverError("option not found or ambiguous" if texts else "the list offers nothing for this search", expected=label, seen="; ".join(texts[:12]))
+    page.locator(f"[data-autoapply-hit='{i}']").first.click(timeout=T)
+    page.wait_for_timeout(500)
+    return texts[i]
+
+
 def react_select_value(input_loc: Locator) -> str:
     return input_loc.evaluate(
         """(e) => {

@@ -663,7 +663,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
     try:
         headless = policy != "manual" or scout
-        with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless) as page:
+        with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless, url=ref.url, operation="apply") as page:
             st = auth.ensure_session(page, signer or driver, ref)      # a site with a coded sign-in uses it, whoever fills the form
             step("ensure_session", result=st)
             if driver.requires_login and driver.already_applied(page, ref):
@@ -799,7 +799,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     a["value"] = typed.get(f"@label:{a['label']}", "")
             else:
                 clicked_at = datetime.now(timezone.utc)
-                driver.submit(page)
+                try:
+                    driver.submit(page)
+                except DriverError as e:
+                    if generic and re.search(r"not on the last step|could not tell which button", str(e)):
+                        # Nothing was pressed: the program could not make out the button that sends. The form is filled
+                        # and checked - that is not a failed run, it is one the applicant finishes with one click.
+                        browser.snapshot(page, run_dir, "submit_not_found")
+                        raise NeedsVisibleRun("表单已经填好并核对过，但程序没能确认哪个是提交按钮，这次由你点提交") from e
+                    raise
                 step("submit")
                 if _email_code_step(driver, page, run_dir, clicked_at):
                     step("email_code")
@@ -810,7 +818,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     raise DriverError("no confirmation after submit", seen="; ".join(errs)[:500] or page.url)
                 outcome = {"status": "submitted", "evidence": {**conf, **shots}}
             if generic and outcome.get("status") == "submitted":
-                _finish_account(page, ref, step)
+                _finish_account(page, ref, step, run_dir)
             if driver.requires_login:
                 browser.save_state(ref.tenant_key, page.context)
         ok = outcome.get("status") == "submitted"
@@ -1031,12 +1039,25 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
                 after_repair(rep)
                 scope = [a for a in scope if a["id"] not in set(rep.get("unfixed") or [])]
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-            bad = _really_different(page, schema, verify(schema, scope, back))
+            bad = _really_different(page, schema, _not_vouched(verify(schema, scope, back), rep.get("fixed") or []))
     wanted = [a for a in scope if a["value"] not in ("", None, [])]
     step("read_back", page=i, checked=sum(1 for a in wanted if a["id"] in back), unverified=[a["label"] for a in wanted if a["id"] not in back][:20], mismatches=len(bad))
     if bad:
         browser.snapshot(page, run_dir, "verify_failed")
         raise VerifyFailed(bad)
+
+
+def _not_vouched(bad: list[dict[str, Any]], fixed: list[str]) -> list[dict[str, Any]]:
+    """A control that shows less than it holds: a phone-code list whose entry is "+1 / Canada" shows "+1" once chosen, and
+    "+1" cannot be told from the other countries' "+1" by reading it. When the agent was just sent to exactly this field,
+    chose the approved entry and reports it done, and what the control shows is a part of that entry, the field holds the
+    approved answer - the agent saw the choice being made; the read-back cannot see it. Anything the control shows
+    that is NOT part of the approved entry stays a difference, whoever vouches for it."""
+    def parts(v: Any) -> set[str]:
+        return {x for x in (re.sub(r"\s+", " ", t).strip().lower() for t in re.split(r"[\n,;|/()]", str(v))) if x}
+
+    return [b for b in bad if not (b["id"] in fixed and not isinstance(b["expected"], list) and len(parts(b["expected"])) > 1
+                                   and str(b["actual"] or "").strip() and parts(b["actual"]) <= parts(b["expected"]))]
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1110,10 +1131,24 @@ def _drift_text(diff: dict[str, Any]) -> str:
     return "\n".join(parts)[:800]
 
 
-def _finish_account(page: Any, ref: JobRef, step: Any) -> None:
+def _finish_account(page: Any, ref: JobRef, step: Any, run_dir: Any = None) -> None:
     """The application created the applicant's account on the site (a password was set on the form). Sites finish that
     with a confirmation mail: its link is opened when it is the site's own (mail.link_refusal), and the account is then
-    ready for the next application there. Never a reason to fail a submission that went through."""
+    ready for the next application there. Never a reason to fail a submission that went through.
+
+    Some sites take the sign-in only now ("You can log in after submitting your application"): the page that confirms
+    the application offers it. An account that is not known to work yet is signed in to, or created, right there."""
+    try:
+        from . import generic as _generic
+
+        acct = auth.account(auth.key_for(ref.tenant_key)) or {}
+        if run_dir is not None and acct.get("status") != "ok" and repair.enabled() and _generic.ACCOUNT_OFFER.search(page.inner_text("body")[:6000]):
+            got = _generic.account_after_submit(page, ref, run_dir)
+            step("account_after_submit", ok=got["ok"], notes=got["notes"][:200])
+            if got["ok"]:
+                return
+    except Exception as e:  # noqa: BLE001
+        log.info("the account offered after the submission was not completed: %s", e)
     try:
         acct = auth.account(ref.tenant_key) or {}
         if acct.get("status") != "pending" or not secrets.get_password(ref.tenant_key):

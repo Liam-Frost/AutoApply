@@ -33,7 +33,7 @@ def test_confirmation_check_is_scheduled_after_submit(app_env, monkeypatch):
     seen = []
     monkeypatch.setattr(tasks, "enqueue", lambda kind, **kw: seen.append((kind, kw["ref"])))
     monkeypatch.setattr(tasks, "_sched", None)
-    tasks.enqueue_later("mail", ref="confirm:1", minutes=0.001)
+    tasks.enqueue_later_for_real("mail", ref="confirm:1", minutes=0.001)
     import time
 
     time.sleep(0.5)

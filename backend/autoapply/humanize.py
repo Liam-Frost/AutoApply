@@ -22,7 +22,7 @@ ATS = {
 }
 TASK = {
     "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
-    "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检",
+    "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检", "site_status": "到雇主网站查申请状态",
 }
 TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn")}
 
@@ -98,6 +98,8 @@ def explain(text: str | None) -> dict[str, str]:
         from .messages import MAIL
 
         return {"message": f"{MAIL[m.group(1)][1]}：{m.group(2)}", "detail": ""}
+    if re.search(r"not on the last step of the form|could not tell which button submits", raw):
+        return {"message": "表单已经填好，但程序没能确认提交按钮，所以没有提交。点“重新填写并提交”，这次会把窗口交给你点提交。", "detail": raw}
     for pat, msg in _RULES:
         if re.search(pat, raw, re.I):
             return {"message": msg, "detail": "" if raw == msg else raw}
@@ -217,6 +219,12 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
     if kind == "execute":
         return {"submitted": "已提交", "ready_to_submit": "已填好，但没有确认提交成功", "drifted": "申请表有变化，已重新读取", "failed": "没有提交",
                 "needs_human": "需要你处理", "approved": "改为在可见窗口里重跑"}.get(str(r.get("status")), "")
+    if kind == "site_status":
+        r = result or {}
+        if r.get("linked"):
+            return f"在雇主网站上查到了，邮件已关联到 {len(r['linked'])} 个申请"
+        return {"already linked": "邮件已经关联过了", "no saved sign-in for this employer's site": "这个雇主的网站没有保存的登录，没法查"}.get(
+            r.get("skipped", ""), f"读到网站上的 {r.get('read', 0)} 个申请，但没能确定邮件属于哪一个，留给你指定")
     if kind == "canary":
         return "自检完成"
     return ""

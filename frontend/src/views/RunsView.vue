@@ -30,6 +30,7 @@ const stepsOf = (t) => {
 const tech = (t) => [t.explained.detail, t.status === 'done' && t.result && Object.keys(t.result).length ? JSON.stringify(t.result, null, 1) : '', stepsOf(t)].filter(Boolean).join('\n\n')
 const line = (t) => t.summary || t.explained.message || (t.status === 'running' ? '正在进行…' : t.status === 'queued' ? '等前面的任务完成' : '')
 const retry = (t) => run(() => api.post(`/tasks/${t.id}/retry`), '已重新排队', load)
+const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已使用 nodriver 重新排队', load)
 const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果' }
 const sysName = (d) => ({ greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', pdportal: 'UBC PD Portal', generic: '其他网站（通用方式）', lever: 'Lever' }[d.ats] || d.ats)
 onMounted(load)
@@ -82,11 +83,13 @@ onMounted(load)
         <div>
           <div class="main">{{ t.label }}<span v-if="t.subject" class="muted" style="font-weight: 400"> · {{ t.subject }}</span></div>
           <div v-if="line(t)" class="sub">{{ line(t) }}</div>
+          <div v-if="t.browser_stages?.length" class="sub">{{ t.browser_stages.join(' · ') }}</div>
           <TechDetails :text="tech(t)" />
         </div>
         <div class="right">
           <div class="small muted nowrap">{{ fmtTime(t.finished_at || t.started_at || t.created_at) }}</div>
           <button v-if="['failed', 'waiting_human'].includes(t.status) && t.kind !== 'execute'" class="sm ghost" style="margin-top: 4px" @click="retry(t)">再试一次</button>
+          <button v-if="['failed', 'waiting_human'].includes(t.status) && ['recon', 'discover', 'revise'].includes(t.kind)" class="sm ghost" style="margin-top: 4px" @click="retryNative(t)">用 nodriver 重试</button>
         </div>
       </div>
     </div>

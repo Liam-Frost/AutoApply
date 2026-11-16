@@ -47,6 +47,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # {"generic:jobs.nvidia.com": "eightfold:nvidia"}: a posting found under one address whose sign-in is another site's, for
     # which a sign-in is already saved. Learned when the sign-in page is reached; the saved session and password are used.
     "accounts.alias": {},
+    # An e-mail that does not say which application it is about: read the applicant page of the employer's site (with
+    # the sign-in already saved for it) to find out, before asking the applicant.
+    "mail.site_lookup": True,
     "fill.optional": True,      # fill optional questions and sections (work experience, education ...) where the profile has the content
     "recon.walk": True,  # read the later steps of a form by walking it with the draft's answers before approval (never submits)
     "repair.enabled": True,  # let the agent take over a page the driver could not fill (it can never submit)
@@ -141,6 +144,13 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # acknowledge it and go on. Such notices are a condition of applying at all; the answers on the form itself are not touched.
     "consent.acknowledge_notices": True,
     "browser.visible_sites": [],   # tenant keys whose pages are refused in a hidden window: these run in a visible one (found out automatically)
+    "browser.nodriver_enabled": False,
+    "browser.executable": "",
+    "browser.rules": [
+        {"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
+        {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
+        {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]},
+    ],
     # network (net.py)
     "proxy.mode": "system",   # system: whatever this computer is set to use | none: connect directly | custom: proxy.url
     "proxy.url": "",          # http://127.0.0.1:7890, socks5://127.0.0.1:1080

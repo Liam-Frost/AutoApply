@@ -215,7 +215,7 @@ onMounted(load)
           <option v-for="x in portals.filter((x) => x.status === 'supported')" :key="x.key" :value="x.key">{{ x.school }} · {{ x.name }}</option>
           <option v-for="x in portals.filter((x) => x.status !== 'supported')" :key="x.key" :value="'other:' + x.key" disabled>{{ x.school ? x.school + ' · ' : '' }}{{ x.name }}（{{ x.status === 'same_system' ? '同一套系统，还没适配' : '还没有导入器' }}）</option>
         </AaSelect>
-        <div class="hint">学校门户要用你的学校账号登录，而且通常不允许程序自动访问，所以导入是在你自己的浏览器里点一个书签完成的。目前实际用过的只有 UBC。
+        <div class="hint">学校门户要用你的学校账号登录：在“设置 → 岗位来源”里登录一次，程序扫描时就会自己读；也可以在你自己的浏览器里点一个书签导入。目前实际用过的只有 UBC。
           列表里灰色的是已知但还没适配的门户：可以在门户里打开岗位，把网址粘贴到岗位页的“手动添加”；想帮忙适配，见仓库里的 CONTRIBUTING.md。</div></div>
       <div class="field"><label>你自己想盯住的公司</label>
         <div class="hint">把这家公司招聘页的网址贴进来。这里添加的会马上保存，之后在“设置 → 岗位来源”里管理。</div></div>

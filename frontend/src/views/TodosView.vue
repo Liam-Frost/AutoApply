@@ -9,6 +9,7 @@ import { fmtTime, run as runAction } from '../ui'
 
 const todos = ref([])
 const saveCred = ref(true)
+const picked = ref({})      // to-do id -> the application chosen for an e-mail that names no posting
 const reloadOverview = inject('reloadOverview', () => {})
 let timer
 
@@ -33,10 +34,10 @@ const VIEW = {
   driver_patch: { icon: 'wrench', tone: 'none', title: () => '自动修复了一处填写问题', what: (t) => `填写${t.subject ? '「' + t.subject + '」' : '申请表'}时，有一步没按预期完成，程序已改用另一种方式填完并核对过，这次申请不受影响。这条只是记录，你不需要做什么。` },
   driver: { icon: 'wrench', tone: 'none', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
-  mail_unmatched: { icon: 'mail', tone: 'none', title: () => '有一封邮件没对上岗位', what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
+  mail_unmatched: { icon: 'mail', tone: 'info', title: () => '有一封邮件没对上岗位', what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
 }
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
-  what: (t) => (t.payload && t.payload.why === 'google') ? '这个岗位要先用 Google 账号登录才能申请，而 Google 不允许在程序控制的浏览器里登录（这是 Google 的安全限制，程序不会去绕过）。请自己打开岗位页面投递，投完回来点“我已经提交了”。' : '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
+  what: (t) => (t.payload && t.payload.why === 'google') ? '这个岗位要先用 Google 账号登录才能申请。先到“账号”页用 Google 登录一次（浏览器选 nodriver），再让程序重试；也可以自己打开岗位页面投递，投完回来点“我已经提交了”。' : '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
 
 // Sorting and filtering. Urgency comes from the server: 0 a window is waiting for you now, 1 the deadline is within 3 days, 2 when you can, 3 just so you know.
 const CATS = [['all', '全部'], ['login', '要登录'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
@@ -76,6 +77,7 @@ const letRegister = (t) => act(() => api.post('/accounts/allow-register', { tena
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), '已继续')
 const dismiss = (t) => act(() => api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }), '已关闭')
 const runAgain = (t) => act(async () => { await api.post(`/drafts/${t.payload.draft_id}/execute`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已重新开始填写')
+const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
@@ -116,6 +118,8 @@ onUnmounted(() => clearInterval(timer))
         <span v-if="left(t)" class="tag" :class="t.days_left <= 3 ? 'warn' : ''">{{ left(t) }}</span>
       </router-link>
       <p class="what" style="white-space: pre-line">{{ view(t).what(t) }}</p>
+      <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>程序到雇主网站上查过，没能确定是哪一个。网站上显示：{{ t.payload.site.join('；') }}</span></p>
+      <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="small muted">没认出是哪家雇主发的，下面列的是所有已投递的申请。</p>
       <p v-if="t.sso && t.sso.length" class="callout"><Icon name="info" /><span>这个网站支持用 {{ t.sso.map((p) => p.name).join(' / ') }} 账号登录，而你已经在这里登录过。选它的话，程序会替你点“用 {{ t.sso[0].name }} 登录”，不需要新密码；对方会把你的姓名和邮箱提供给这个网站。你的选择会记住，这个网站以后不再问。</span></p>
       <p v-else-if="t.sso_offered && t.sso_offered.length" class="callout"><Icon name="info" /><span>这个网站也支持用 {{ t.sso_offered.join(' / ') }} 账号登录。想用的话，先到<router-link to="/accounts">网站账号</router-link>里登录一次那个账号，再回来。</span></p>
       <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>登录窗口已打开，正在等你登录。大型网站第一次打开可能要半分钟到一分钟，请稍等。登录完成后直接关掉窗口即可。</span></p>
@@ -180,7 +184,14 @@ onUnmounted(() => clearInterval(timer))
           <button @click="done(t)">我已完成，继续</button>
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
-        <template v-else-if="['driver_patch', 'driver', 'mail_unmatched'].includes(t.kind)">
+        <template v-else-if="t.kind === 'mail_unmatched'">
+          <AaSelect v-model="picked[t.id]" placeholder="这封邮件是哪个申请的？" style="max-width: 460px">
+            <option v-for="c in t.candidates || []" :key="c.id" :value="c.id">{{ c.label }}{{ c.site_status ? '（网站上：' + c.site_status + '）' : '' }}</option>
+          </AaSelect>
+          <button class="primary" :disabled="!picked[t.id]" @click="linkMail(t)"><Icon name="check" />关联到这个申请</button>
+          <button class="ghost" @click="dismiss(t)">和申请无关，关闭</button>
+        </template>
+        <template v-else-if="['driver_patch', 'driver'].includes(t.kind)">
           <button @click="dismiss(t)">知道了</button>
         </template>
         <template v-else>

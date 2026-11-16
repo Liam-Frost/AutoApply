@@ -157,7 +157,7 @@ def rows_for(e: dict[str, Any], terms: list[str], keep: Callable[..., bool]) -> 
     if k == "smartrecruiters":
         return public.smartrecruiters(ref["company"], keep)
     if k == "workday":
-        return public.workday(ref["host"], ref["tenant"], ref["site"], search=ref.get("search", ""))
+        return public.workday(ref["host"], ref["tenant"], ref["site"], search=ref.get("search", ""), keep=keep, company=e.get("name", ""))
     if k == "feed":
         return public.feed(ref["url"], e["name"], e["id"], ref.get("style", "employer: title"))
     return watch.scan(e, keep)

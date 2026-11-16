@@ -113,7 +113,7 @@ export async function initI18n() {
 export async function followServerLang() {
   if (chosenHere) return
   try {
-    const r = await fetch('/api/settings')
+    const r = await fetch(new URL('api/settings', document.baseURI))
     const v = (await r.json()).settings['ui.lang']
     if (LANGS[v] && v !== lang.value) { lang.value = v; try { localStorage.setItem('lang', v) } catch (e) { /* ignore */ } await initI18n() }
   } catch (e) { /* the page still works in the default language */ }
@@ -122,5 +122,5 @@ export async function followServerLang() {
 export function setLang(v) {
   try { localStorage.setItem('lang', v) } catch (e) { /* ignore */ }
   // the server needs to know too: summaries and reasons written by the AI follow the interface language
-  fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: { 'ui.lang': v } }) }).finally(() => location.reload())
+  fetch(new URL('api/settings', document.baseURI), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: { 'ui.lang': v } }) }).finally(() => location.reload())
 }

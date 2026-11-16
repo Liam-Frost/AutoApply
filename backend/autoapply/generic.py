@@ -14,6 +14,7 @@ the user submits.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -154,28 +155,47 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         elif tag == "button":
             w.workday_listbox(page, loc, option)
         else:
-            w.react_select(page, loc, option)
+            try:
+                w.react_select(page, loc, option)
+            except Exception:  # noqa: BLE001 - a list that is searched, not one that shows its entries when opened
+                page.keyboard.press("Escape")
+                return f"chose '{w.search_pick(page, loc, option)}' (found by searching the list)"
         return "ok"
 
     def options(selector: str, search: str = "") -> str:
         loc = page.locator(selector).first
         if loc.evaluate("(e) => e.tagName.toLowerCase()") == "select":
             return json.dumps(loc.evaluate("(e) => [...e.options].map(o => o.text.trim()).filter(Boolean)")[:120], ensure_ascii=False)
+        if search:
+            # typed, key by key, into whatever the list takes typing in (its own search box when it has one)
+            found = w.search_entries(page, loc, search[:30])
+            for _ in range(len(search[:30])):
+                page.keyboard.press("Backspace")
+            page.keyboard.press("Escape")
+            return json.dumps(found[:80], ensure_ascii=False) if found else f"the list offers nothing for '{search}'; try a shorter or different search term"
         loc.scroll_into_view_if_needed(timeout=w.T)
         loc.click(timeout=w.T)
-        if search:
-            loc.press_sequentially(search[:30], delay=20)
         page.wait_for_timeout(900)
         texts = [t.strip() for t in page.locator("[role=option]:visible, [role=listbox]:visible li:visible").all_inner_texts() if t.strip()]
         seen: list[str] = []
         for t in texts:
             if t not in seen:
                 seen.append(t)
-        if search:  # leave the box as it was found
-            for _ in range(len(search[:30])):
-                loc.press("Backspace")
         page.keyboard.press("Escape")
         return json.dumps(seen[:80], ensure_ascii=False) if seen else "no options are showing; take a screenshot to see what this control is"
+
+    def type_keys(text: str, selector: str = "") -> str:
+        """Real key presses - what a search box, an autocomplete or a masked field reacts to, where setting the value does not."""
+        if selector:
+            box = page.locator(selector).first
+            if (box.get_attribute("type") or "") == "password":
+                raise PermissionError("refused: the agent does not type passwords")
+            box.click(timeout=w.T)
+        elif page.evaluate("() => (document.activeElement || {}).type === 'password'"):
+            raise PermissionError("refused: the agent does not type passwords")
+        page.keyboard.type(str(text)[:200], delay=60)
+        page.wait_for_timeout(900)
+        return "typed"
 
     def press(key: str, selector: str = "") -> str:
         allowed = {"Tab", "Shift+Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Backspace", "Delete", "Space", "Home", "End", "PageDown", "PageUp", "Enter"}
@@ -254,6 +274,9 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         llm.Tool("click", "Click by CSS selector, or by visible button/link text. Submit-like buttons are refused.", s(selector=st, text=st), click),
         llm.Tool("fill", "Type into a text input or textarea (not passwords).", {**s(selector=st, value=st), "required": ["selector", "value"]}, fill),
         llm.Tool("select", "Choose an option in a dropdown (native, react-select, or listbox button).", {**s(selector=st, option=st), "required": ["selector", "option"]}, select),
+        llm.Tool("type_keys", "Type text as real key presses, into `selector` or into whatever has the focus. Use it where `fill` has no effect: the search box "
+                              "of a pick-list, an autocomplete that only reacts to typing, a masked date or phone field. Then read the page or click the entry that appeared.",
+                 {**s(text=st, selector=st), "required": ["text"]}, type_keys),
         llm.Tool("press", "Press one key (Tab, Escape, the arrow keys, Backspace, Space; Enter only while a list of options is open), in a control or wherever the "
                           "focus is. Tab out of a field to make the form validate it.", {**s(key=st, selector=st), "required": ["key"]}, press),
         llm.Tool("options", "Open a dropdown and read its entries word for word (up to 80), then close it without choosing. For a long searchable list "
@@ -329,13 +352,35 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     from . import auth, mail, messages, notify, secrets
 
     key = auth.key_for(ref.tenant_key)
+    aref = ref      # the site the account is on: the posting's own, unless the sign-in turns out to be elsewhere
     _a = auth.account(key) or {}
 
     def _own_account() -> str:
         """The key this site's sign-in is kept under - found out at the sign-in page: the page may be another site's, for
         which a sign-in is already saved (an employer whose postings appear under two addresses). Its cookies are put
         into the window too, so that a session that is still good is used before any password."""
-        nonlocal key
+        nonlocal key, aref
+        host = url_host(page.url)
+        saved = (auth.account(key) or {}).get("host") or ""
+        if host and saved and secrets.get_password(key) and mail.site_domain(saved) != mail.site_domain(host) \
+                and mail.site_domain(host) != mail.site_domain(aref.host) and not any(_on_provider(page, p) for p in browser.identities()):
+            # The saved account is another site's: the same employer, but this posting signs in somewhere else (its
+            # postings are listed on one system and applied for on another). That password is not this site's - the
+            # account here is its own: the one saved for this very host, or none yet.
+            from .ats import registry
+
+            here = registry.detect(page.url)
+            if here is not None and here.tenant_key != key:
+                aref, key = here, here.tenant_key
+                state["account_site"] = key
+                try:
+                    st = browser.load_state(key) or {}
+                    if st.get("cookies"):
+                        page.context.add_cookies(st["cookies"])
+                except Exception:  # noqa: BLE001
+                    pass
+                logging.getLogger("autoapply.generic").info("%s signs in on %s, not where its saved account is: the account there is %s", ref.tenant_key, host, key)
+            return key
         got = auth.adopt(ref.tenant_key, url_host(page.url))
         if got:
             key = got
@@ -352,12 +397,12 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
-        if _own_account() != ref.tenant_key and secrets.get_password(key):
+        if _own_account() != ref.tenant_key and aref is ref and secrets.get_password(key):
             plan = {"do": "password", "why": "an account for this sign-in page is already saved (the same employer's site under another address): "
                                              "fill the e-mail and call fill_account_password; if the page turns out to be signed in already after a reload, go on"}
             state["plan"] = plan
             return plan
-        plan = auth.sign_in_plan(ref, [str(p).lower() for p in (offered or [])])
+        plan = auth.sign_in_plan(aref, [str(p).lower() for p in (offered or [])], also=ref.tenant_key)
         state["plan"] = plan
         return plan
 
@@ -501,20 +546,19 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         # The site's password is typed on the site's own pages only - wherever a link or a redirect has taken the window.
         here = mail.site_domain(url_host(page.url))
         _own_account()
-        home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
+        home = {mail.site_domain(h) for h in (aref.host, url_host(aref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
         if home and here not in home:
             raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
-        _own_account()
         pw = secrets.get_password(key)
         if not pw:
             if not new:
                 raise ValueError("no stored password for this site; pass new=true only on a sign-up form")
-            ok, why = auth.may_register(ref)
+            ok, why = auth.may_register(aref, ref.tenant_key)
             if not ok:
                 raise PermissionError(f"registration is not allowed here: {why}")
             pw = secrets.generate_password(16)
             # saved before the form is sent, so the password cannot be lost mid-flow
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, email=auth.login_email(), password=pw, status="pending", created_by="agent")
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, email=auth.login_email(), password=pw, status="pending", created_by="agent")
             state["created"] = True
         loc = page.locator(selector).first
         if (loc.get_attribute("type") or "").lower() not in ("password", "text"):
@@ -568,16 +612,16 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     def account_result(outcome: str, notes: str = "") -> str:
         state["outcome"] = outcome
         if outcome in ("registered", "logged_in"):
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, status="ok", **({"created_by": f"sso:{state['sso']}"} if state.get("sso") else {}))
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="ok", **({"created_by": f"sso:{state['sso']}"} if state.get("sso") else {}))
             browser.save_state(key, page.context)
             if outcome == "registered":
                 notify.send("task_result", messages.registered(key), ref=f"account:{key}")
         elif outcome == "exists":
             if state.get("created"):
                 secrets.delete_password(key)
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, status="needs_human", error="account already exists")
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error="account already exists")
         else:
-            auth.upsert_account(key, ats=ref.ats, host=ref.host, status="needs_human", error=f"registration failed: {notes[:200]}")
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error=f"registration failed: {notes[:200]}")
         return "recorded"
 
     s = lambda **p: {"type": "object", "properties": p, "additionalProperties": False}  # noqa: E731
@@ -673,6 +717,41 @@ def sign_in(page: Page, ref: JobRef, title: str, form_url: str, run_dir: Path) -
     return out
 
 
+ACCOUNT_OFFER = re.compile(r"sign up|create (your|an|a) (career )?(account|profile)|log ?in|sign ?in|已有账号|注册|登录", re.I)
+
+
+def account_after_submit(page: Page, ref: JobRef, run_dir: Path) -> dict[str, Any]:
+    """The application is sent, and the page that says so offers the applicant an account ("Sign up for a Career Profile",
+    "Already have one? Log in"). Some sites only let one sign in at this point. The applicant wants the account - it is
+    how the application is followed afterwards - so the same account tools are used here: sign in when an account is
+    saved, create one when not. Nothing about the application can be changed any more, and nothing else is started.
+    Returns {"ok", "notes"}; never raises for the site's sake - the submission stands whatever happens here."""
+    out: dict[str, Any] = {"ok": False, "notes": ""}
+
+    def finished(ok: bool, notes: str = "") -> str:
+        out.update(ok=bool(ok), notes=notes[:400])
+        return "recorded"
+
+    s = lambda **p: {"type": "object", "properties": p, "additionalProperties": False}  # noqa: E731
+    done = llm.Tool("finish", "Report whether the applicant is now signed in to their account on this site. Stop after this.",
+                    {**s(ok={"type": "boolean"}, notes={"type": "string"}), "required": ["ok"]}, finished)
+    goal = ("The application has just been submitted - this page confirms it. Do not apply again and do not open any other posting.\n"
+            "The page also offers the applicant an account on this site (sign up / log in). The applicant wants to have it. Your ONLY task:\n"
+            "call account_info first and do what it says - log in when an account is saved (use the page's 'Log in' / 'Already have an account' "
+            "way, not sign-up), create one when none is saved (prefer a password over a one-time code when both are offered), finish the "
+            "e-mail verification with email_verification if the site asks for it, record the outcome with account_result, then call "
+            "finish(ok=true) once the page shows the applicant signed in. If the page offers no account after all, or you cannot get in, "
+            "call finish(ok=false) and say why in notes.")
+    acct_state: dict[str, Any] = {}
+    keep = ("read_page", "list_controls", "screenshot", "click", "press", "type_keys", "finish")      # looking and moving about; no form filling, no uploads
+    tools = [t for t in l0_tools(page, run_dir, {}, finish_tool=done) if t.name in keep] + account_tools(page, ref, acct_state)
+    res = llm.agent(goal, tools, system=prompts.get("generic_agent"), max_steps=30)
+    (run_dir / "account_after_submit_trace.json").write_text(json.dumps(res.steps, ensure_ascii=False, default=str)[:300000], encoding="utf-8")
+    if out["ok"]:
+        browser.save_state(acct_state.get("account_site") or ref.tenant_key, page.context)
+    return out
+
+
 class _Refused(Exception):
     """The site answered the hidden window with a bare refusal."""
 
@@ -700,7 +779,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     hidden = ref.tenant_key not in (db.get_setting("browser.visible_sites") or [])
     refused = False
     result: dict[str, Any] = {}
-    with browser.open_page(ref.tenant_key) as page:
+    with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
         try:
             resp = page.goto(ref.url, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:  # noqa: BLE001 - timeout, DNS, connection reset: the site, not the form

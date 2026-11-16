@@ -12,6 +12,17 @@ const form = ref({ tenant_key: '', login_email: '', password: '' })
 const revealed = ref({})
 const idps = ref([])
 const idpState = ref({})
+const browserRules = ref([])
+const backendFor = (tenant) => browserRules.value.find((r) => r.tenant === tenant)?.backend || ''
+async function setBackend(tenant, backend) {
+  await runAction(async () => {
+    const d = await api.get('/settings')
+    const rules = (d.settings['browser.rules'] || []).filter((r) => r.tenant !== tenant)
+    if (backend) rules.unshift({ tenant, backend, operations: [] })
+    await api.put('/settings', { settings: { 'browser.rules': rules } })
+    browserRules.value = rules
+  }, '浏览器选择已保存；nodriver 需先在设置中启用')
+}
 let timer
 const custom = ref({ name: '', url: '', domains: '' })
 const showAll = ref(false)
@@ -46,7 +57,7 @@ const idpForget = async (p) => (await ask(`删除保存的 ${p.name} 登录状�
 const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['注册中', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''], not_needed: ['不登录也能申请', ''] }
 const BY = { agent: '程序注册', takeover: '你登录时保存', manual: '手动添加', chrome_csv: '从 Chrome 导入' }
 
-async function load() { accounts.value = await api.get('/accounts'); loadIdps() }
+async function load() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
 const run = (fn, ok) => runAction(fn, ok, load)
 const save = () => run(async () => { await api.put('/accounts/' + encodeURIComponent(form.value.tenant_key), form.value); form.value = { tenant_key: '', login_email: '', password: '' } }, '已保存')
 const remove = async (a) => (await ask(`删除 ${a.site.name} 的账号记录、密码和登录状态？`)) && run(() => api.del('/accounts/' + encodeURIComponent(a.tenant_key)), '已删除')
@@ -82,6 +93,7 @@ onUnmounted(() => clearInterval(timer))
           <template v-else>{{ sessionText(p.session) }}</template>
         </div>
         <div class="row">
+          <AaSelect :value="backendFor('idp:' + p.key)" small aria-label="登录浏览器" @change="setBackend('idp:' + p.key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect>
           <button class="sm" :class="{ primary: !p.session }" :disabled="idpState[p.key] === 'trying'" @click="idpLogin(p)"><Icon name="login" />{{ p.session ? '重新登录' : '去登录' }}</button>
           <button v-if="p.session" class="sm ghost danger" @click="idpForget(p)">删除登录状态</button>
           <button v-if="p.custom" class="sm ghost danger" @click="removeCustom(p)">移除</button>
@@ -124,7 +136,7 @@ onUnmounted(() => clearInterval(timer))
             <div v-if="a.explained.message && a.status !== 'ok'" class="small muted" style="margin-top: 4px; max-width: 320px">{{ a.explained.message }}</div>
             <TechDetails v-if="a.status !== 'ok'" :text="a.explained.detail" />
           </td>
-          <td class="small" style="max-width: 240px">{{ sessionText(a.session) }}</td>
+          <td class="small" style="max-width: 240px">{{ sessionText(a.session) }}<AaSelect :value="backendFor(a.tenant_key)" small aria-label="账号浏览器" @change="setBackend(a.tenant_key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect></td>
           <td class="small">{{ BY[a.created_by] || '—' }}</td>
           <td><div class="row" style="flex-wrap: nowrap"><button v-if="a.host" class="sm" @click="takeover(a)"><Icon name="login" />去登录</button><button class="sm ghost danger" @click="remove(a)">删除</button></div></td>
         </tr>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { api } from '../api'
+import { api, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
@@ -16,7 +16,6 @@ const renaming = ref(false)
 const newName = ref('')
 const upKind = ref('resume_site')
 const picked = ref(new Set())
-const openJobs = ref(new Set())
 
 // What a file is used as. `base` kinds are things you upload once; `generated` are written per job.
 const KINDS = {
@@ -40,11 +39,19 @@ const jobs = computed(() => {
   const m = new Map()
   for (const d of generated.value) {
     const k = d.job_id || 0
-    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, files: [] })
+    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
     m.get(k).files.push(d)
   }
   return [...m.values()].sort((a, b) => b.files[0].id - a.files[0].id)
 })
+// The jobs in three groups, by where the application stands. What is being prepared is what one looks for; what was
+// sent or shelved is kept, folded away, so that the list stays as short as the work in hand.
+const SECTIONS = [['open', '正在准备的'], ['sent', '已投递的'], ['old', '已归档的']]
+const sectionOf = (j) => (j.archived ? 'old' : j.sent ? 'sent' : 'open')
+const bySection = computed(() => Object.fromEntries(SECTIONS.map(([k]) => [k, jobs.value.filter((j) => sectionOf(j) === k)])))
+const unfolded = ref(new Set(['open']))
+function fold(k) { const s = new Set(unfolded.value); s.has(k) ? s.delete(k) : s.add(k); unfolded.value = s }
+const isOpen = (k) => unfolded.value.has(k) || bySection.value[k].some((j) => folder.value === 'job:' + j.id)
 const shown = computed(() => {
   const needle = q.value.trim().toLowerCase()
   let rows = docs.value
@@ -118,9 +125,16 @@ onMounted(load)
       <button v-for="(g, i) in GROUPS" :key="i" class="sub" :class="{ on: folder === 'group:' + i }" @click="go('group:' + i)">{{ g[0] }}<span class="n">{{ count(g[1]) }}</span></button>
 
       <button style="margin-top: 10px" :class="{ on: folder === 'generated' }" @click="go('generated')"><Icon name="briefcase" />为岗位生成的<span class="n">{{ generated.length }}</span></button>
-      <button v-for="j in jobs" :key="j.id" class="sub" :class="{ on: folder === 'job:' + j.id }" :title="j.name" @click="go('job:' + j.id)">
-        <span class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
-      </button>
+      <template v-for="[k, label] in SECTIONS" :key="k">
+        <template v-if="bySection[k].length">
+          <button class="sub fold" :aria-expanded="isOpen(k)" @click="fold(k)"><Icon :name="isOpen(k) ? 'chevron_up' : 'chevron'" />{{ label }}<span class="n">{{ bySection[k].length }}</span></button>
+          <template v-if="isOpen(k)">
+            <button v-for="j in bySection[k]" :key="j.id" class="sub deep" :class="{ on: folder === 'job:' + j.id }" :title="j.name" @click="go('job:' + j.id)">
+              <span class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
+            </button>
+          </template>
+        </template>
+      </template>
       <div v-if="!jobs.length" class="hint" style="padding: 4px 12px 0 34px">生成求职信后会出现在这里，每个岗位一组。</div>
 
       <button style="margin-top: 10px" :class="{ on: folder === 'all' }" @click="go('all')"><Icon name="inbox" />全部文件<span class="n">{{ docs.length }}</span></button>
@@ -173,7 +187,7 @@ onMounted(load)
         </div>
         <div v-if="cur.problems.length" class="callout warn" style="margin-top: 10px; display: block"><b>自检发现的问题</b><div v-for="(x, k) in cur.problems" :key="k" class="small">{{ x }}</div></div>
         <div class="row" style="margin: 12px 0 8px">
-          <a :href="`/api/documents/${cur.id}/file`" :download="cur.name" class="btn sm"><Icon name="external" />下载</a>
+          <a :href="`api/documents/${cur.id}/file`" :download="cur.name" class="btn sm"><Icon name="external" />下载</a>
           <button v-if="!renaming" class="sm" @click="renaming = true; newName = cur.name"><Icon name="edit" />改名</button>
           <AaSelect v-if="!isGen(cur)" small :value="cur.kind" title="这个文件用作什么" @change="setKind($event.target.value)"><option v-for="k in UPLOADABLE" :key="k" :value="k">用作：{{ KINDS[k] }}</option></AaSelect>
           <button v-if="cur.active" class="sm" @click="setActive(false)">停用</button>
@@ -181,7 +195,7 @@ onMounted(load)
           <button class="sm ghost danger" @click="destroy">彻底删除</button>
         </div>
         <div v-if="cur.missing" class="empty"><div class="t">文件已经不在磁盘上了</div><div>只剩一条记录，可以直接删除。</div></div>
-        <PdfView v-else-if="previewable(cur)" :key="cur.id" :src="`/api/documents/${cur.id}/bytes`" />
+        <PdfView v-else-if="previewable(cur)" :key="cur.id" :src="`${ROOT}/api/documents/${cur.id}/bytes`" />
         <div v-else class="empty"><div class="t">这种文件不能在页面里预览</div><div>请点“下载”后查看。</div></div>
       </template>
       <EmptyState v-else icon="search" title="点一个文件来预览" text="PDF 和 Word 文件可以直接在这里看。" />

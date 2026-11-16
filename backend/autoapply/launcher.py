@@ -33,13 +33,13 @@ OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # this co
 TEXT = {
     "zh": {"open": "打开 AutoApply", "starting": "正在启动…", "running": "运行中", "idle": "运行中，目前空闲", "working": "运行中，正在处理 {n} 个任务", "stopped": "服务没有运行",
            "needs": "{n} 件事等你处理", "drafts": "{n} 份草案等你审批", "pause": "暂停自动运行", "resume": "恢复自动运行", "paused": "已暂停自动运行",
-           "restart": "重启服务", "start": "启动服务", "autostart": "开机时自动启动", "shortcut": "在桌面创建快捷方式", "log": "查看日志", "quit": "退出（同时停止服务）", "quit_attached": "退出启动器",
+           "restart": "重启服务", "start": "启动服务", "autostart": "开机时自动启动", "shortcut": "在桌面创建快捷方式", "log": "查看日志", "reset_admin": "重置管理员密码", "reset_done": "管理员密码已重置。请在这台电脑上打开 AutoApply 重新设置。", "quit": "退出（同时停止服务）", "quit_attached": "退出启动器",
            "notify_needs": "有 {n} 件事需要你处理", "attached": "（服务是在别处启动的）", "attached_short": "服务是在别处启动的",
            "state_running": "运行中", "state_attention": "有事等你", "state_paused": "已暂停", "state_stopped": "没有运行", "state_starting": "正在启动",
            "todo_row": "需要你处理", "draft_row": "草案等你审批", "failed": "服务启动失败，点“查看日志”看原因"},
     "en": {"open": "Open AutoApply", "starting": "Starting…", "running": "Running", "idle": "Running, idle", "working": "Running, {n} task(s) in progress", "stopped": "The server is not running",
            "needs": "{n} item(s) need you", "drafts": "{n} draft(s) to review", "pause": "Pause auto-run", "resume": "Resume auto-run", "paused": "Auto-run is paused",
-           "restart": "Restart the server", "start": "Start the server", "autostart": "Start when I sign in", "shortcut": "Create a desktop shortcut", "log": "Show log", "quit": "Quit (stops the server)", "quit_attached": "Quit the launcher",
+           "restart": "Restart the server", "start": "Start the server", "autostart": "Start when I sign in", "shortcut": "Create a desktop shortcut", "log": "Show log", "reset_admin": "Reset the administrator password", "reset_done": "The administrator password was reset. Open AutoApply on this computer to set a new one.", "quit": "Quit (stops the server)", "quit_attached": "Quit the launcher",
            "notify_needs": "{n} item(s) need you", "attached": "(the server was started elsewhere)", "attached_short": "started elsewhere",
            "state_running": "Running", "state_attention": "Needs you", "state_paused": "Paused", "state_stopped": "Not running", "state_starting": "Starting",
            "todo_row": "Needs your attention", "draft_row": "Drafts to review", "failed": "The server did not start - see the log"},
@@ -149,17 +149,28 @@ class Server:
     """The AutoApply server as this launcher sees it: its own child process, or one that was already there."""
 
     def __init__(self, port: int) -> None:
-        self.port = port
-        self.url = f"http://127.0.0.1:{port}"
+        from . import access
+
+        c = access.conf()
+        self.port, self.host = port, c["host"]
+        # the launcher itself always talks to the server on this computer, under the prefix it is served at
+        local = "127.0.0.1" if c["host"] in ("0.0.0.0", "::", "localhost") else c["host"]  # noqa: S104
+        self.url = f"http://{local}:{port}"
         self.proc: subprocess.Popen | None = None
         self.log_path = config.DATA / "launcher.log"
 
     def get(self, path: str, timeout: float = 4) -> Any:
-        with OPENER.open(self.url + path, timeout=timeout) as r:
+        from . import access
+
+        req = urllib.request.Request(self.url + path, headers={access.LOCAL_HEADER: access.local_token()})      # this computer's own program: no login
+        with OPENER.open(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
 
     def put_settings(self, settings: dict[str, Any]) -> None:
-        req = urllib.request.Request(self.url + "/api/settings", data=json.dumps({"settings": settings}).encode(), method="PUT", headers={"Content-Type": "application/json"})
+        from . import access
+
+        req = urllib.request.Request(self.url + "/api/settings", data=json.dumps({"settings": settings}).encode(), method="PUT",
+                                     headers={"Content-Type": "application/json", access.LOCAL_HEADER: access.local_token()})
         OPENER.open(req, timeout=6).close()
 
     def up(self) -> bool:
@@ -179,7 +190,7 @@ class Server:
         config.DATA.mkdir(parents=True, exist_ok=True)
         out = open(self.log_path, "ab")  # noqa: SIM115 - handed to the child for its lifetime
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        self.proc = subprocess.Popen([sys.executable, "-c", "from autoapply.cli import main; main()", "serve", "--port", str(self.port)],
+        self.proc = subprocess.Popen([sys.executable, "-c", "from autoapply.cli import main; main()", "serve", "--port", str(self.port), "--host", self.host],
                                      cwd=str(config.ROOT), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=flags)
 
     def stop(self) -> None:
@@ -293,7 +304,7 @@ class Launcher:
     def menu_action(self, key: str) -> None:
         try:
             {"open": self.open_page, "todos": lambda: self.open_page(path="/todos"), "drafts": lambda: self.open_page(path="/drafts"), "pause": self.toggle_pause,
-             "restart": self.restart, "autostart": self.toggle_autostart, "shortcut": self.make_shortcut, "log": self.show_log, "quit": self.quit}[key]()
+             "restart": self.restart, "autostart": self.toggle_autostart, "shortcut": self.make_shortcut, "log": self.show_log, "reset_admin": self.reset_admin, "quit": self.quit}[key]()
         except Exception:  # noqa: BLE001 - a failed action must not take the launcher down
             log.exception("menu action %s failed", key)
 
@@ -359,6 +370,18 @@ class Launcher:
         else:
             subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(p)])
 
+    def reset_admin(self, *_: Any) -> None:
+        """Forgotten password. Whoever can click this can read the data folder anyway."""
+        from . import access
+
+        access.reset_admin()
+        self.open_page()
+        try:
+            if self.icon is not None:
+                self.icon.notify(self.t["reset_done"], NAME)
+        except Exception:  # noqa: BLE001
+            pass
+
     def quit(self, *_: Any) -> None:
         self._stop.set()
         self.server.stop()
@@ -383,6 +406,7 @@ class Launcher:
             item(lambda _i: self.t["autostart"], self.toggle_autostart, checked=lambda _i: autostart_enabled()),
             item(lambda _i: self.t["shortcut"], self.make_shortcut, visible=lambda _i: sys.platform != "darwin"),
             item(lambda _i: self.t["log"], self.show_log),
+            item(lambda _i: self.t["reset_admin"], self.reset_admin),
             sep,
             item(lambda _i: self.t["quit_attached"] if self.attached else self.t["quit"], self.quit),
         )
@@ -407,10 +431,15 @@ class Launcher:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import quiet
+
+    quiet.install()
     import argparse
 
     ap = argparse.ArgumentParser(prog="autoapply tray")
-    ap.add_argument("--port", type=int, default=int(os.environ.get("AUTOAPPLY_PORT") or 8000))
+    from . import access
+
+    ap.add_argument("--port", type=int, default=int(os.environ.get("AUTOAPPLY_PORT") or access.conf()["port"]))
     ap.add_argument("--no-open", action="store_true", help="do not open the page when the server is up")
     a = ap.parse_args(argv)
     os.chdir(config.ROOT)

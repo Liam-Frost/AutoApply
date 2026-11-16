@@ -74,7 +74,7 @@ def scan(employer: dict[str, Any], keep: Callable[..., bool] = lambda *a: True) 
     url, name, scope = employer["url"], employer["name"], employer["id"]
     with db.session() as s:
         known = {j.source_id for j in s.query(Job.source_id).filter(Job.source == "page", Job.tenant == scope)}
-    with browser.open_page(None) as page:
+    with browser.open_page(None, url=url, operation="scan") as page:
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_timeout(3500)
         for _ in range(4):  # lazy lists

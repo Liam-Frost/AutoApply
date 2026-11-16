@@ -142,7 +142,7 @@ onMounted(load)
         <label class="small">最高<input v-model="st.compensation.max" placeholder="85000" style="width: 110px; display: block" /></label>
         <label class="small">货币<input v-model="st.compensation.currency" placeholder="CAD" style="width: 80px; display: block" /></label>
         <label class="small">按
-          <select v-model="st.compensation.period" style="display: block"><option value="year">年</option><option value="month">月</option><option value="hour">小时</option></select>
+          <AaSelect v-model="st.compensation.period" style="display: flex"><option value="year">年</option><option value="month">月</option><option value="hour">小时</option></AaSelect>
         </label>
         <label class="small"><input v-model="st.compensation.negotiable" type="checkbox" /> 可以商量</label>
       </div>
@@ -170,7 +170,7 @@ onMounted(load)
           <label class="small">邮箱<input v-model="r.email" style="width: 210px; display: block" /></label>
           <label class="small">电话<input v-model="r.phone" style="width: 150px; display: block" /></label>
           <label class="small">什么时候可以联系
-            <select v-model="r.contact" style="display: block"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></select>
+            <AaSelect v-model="r.contact" style="display: flex"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></AaSelect>
           </label>
           <button class="ghost" @click="st.referees.splice(i, 1)">删除</button>
         </div>
@@ -186,7 +186,7 @@ onMounted(load)
         <AaSelect v-model="upKind"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
         <label class="btn"><Icon name="inbox" />选择文件<input type="file" hidden @change="upload" /></label>
       </div>
-      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`/api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
+      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
       <h3>2. 补充说明（可选）</h3>
       <textarea v-model="notes" style="font-family: inherit" placeholder="简历上没有但申请表常问的信息：法定姓名和常用名、工作许可、是否需要签证担保、可工作时间、GPA、地址……"></textarea>
       <div class="row" style="margin-top: 8px"><button class="primary" :disabled="busy" @click="init">{{ busy ? '正在阅读你的资料…' : '3. 生成个人资料草稿' }}</button></div>

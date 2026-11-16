@@ -152,9 +152,10 @@ def likely_registered(ref: JobRef) -> str:
         return f"你之前投过 {hit.job.company}，应该已经有账号" if hit else ""
 
 
-def may_register(ref: JobRef) -> tuple[bool, str]:
-    """(allowed, reason-when-not). The user's explicit "register for me" wins over the history guess."""
-    if ref.tenant_key in (db.get_setting("register.allow_keys") or []):
+def may_register(ref: JobRef, also: str = "") -> tuple[bool, str]:
+    """(allowed, reason-when-not). The user's explicit "register for me" wins over the history guess. ``also``: the key
+    the posting was found under, when its sign-in is on another site - the user's answer was given under that one."""
+    if {ref.tenant_key, also} & set(db.get_setting("register.allow_keys") or []):
         return True, ""
     if not db.get_setting("register.auto") or (db.get_setting("register.per_ats") or {}).get(ref.ats) is False:
         return False, "自动注册已在设置里关闭"
@@ -162,7 +163,7 @@ def may_register(ref: JobRef) -> tuple[bool, str]:
     return (False, why) if why else (True, "")
 
 
-def sign_in_plan(ref: JobRef, offered: list[str] | None = None) -> dict[str, Any]:
+def sign_in_plan(ref: JobRef, offered: list[str] | None = None, also: str = "") -> dict[str, Any]:
     """How to get into a site that needs an account. One answer, in this order:
 
     1. an account this program already has for the site (stored password)      -> "password"
@@ -179,7 +180,7 @@ def sign_in_plan(ref: JobRef, offered: list[str] | None = None) -> dict[str, Any
         if seen.get(key) != offered:
             db.set_setting("sso.offered", {**seen, key: offered})
     signed_in = [p for p in (db.get_setting("sso.order") or []) if p in offered and (i := browser.session_info(f"idp:{p}")) and not i["expired"]]
-    can_register, why = may_register(ref)
+    can_register, why = may_register(ref, also)
     acct = account(key) or {}
     base = {"login_email": login_email(), "has_password": bool(secrets.get_password(key)), "may_register": can_register, "why_not_register": why,
             "offered": offered, "signed_in_providers": signed_in}
@@ -189,7 +190,7 @@ def sign_in_plan(ref: JobRef, offered: list[str] | None = None) -> dict[str, Any
     if base["has_password"]:
         return {**base, "do": "password"}
     mode, sites = db.get_setting("sso.mode") or "ask", db.get_setting("sso.sites") or {}
-    chosen = sites.get(key)
+    chosen = sites.get(key) if key in sites else sites.get(also)
     if chosen and chosen in signed_in:
         return {**base, "do": "sso", "provider": chosen}
     if chosen == "" or mode == "never" or not signed_in:
@@ -373,6 +374,52 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     manager would). Nothing typed is logged.
     """
     from .ats import registry
+    from . import browser_policy
+
+    selected = browser_policy.select(tenant_key, url, "login")
+    if selected.backend == "nodriver":
+        check = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
+        with browser.open_page(tenant_key, headless=False, url=url, operation="login") as page:
+            try:      # the applicant takes it from here; a page that redirects while it loads is no reason to give up
+                page.goto(url, wait_until="commit", timeout=30000)
+            except Exception as e:  # noqa: BLE001
+                log.info("sign-in window for %s: the first page did not report loading (%s)", tenant_key, type(e).__name__)
+
+            def keep() -> dict[str, Any]:
+                """The window is signed in: keep its session. If a page cannot be read for its storage just now (it is
+                still loading, or it is a provider's page that never settles), the cookies are what a session is."""
+                try:
+                    browser.save_state(tenant_key, page.context)
+                except Exception as e:  # noqa: BLE001
+                    log.info("session of %s kept from its cookies (%s)", tenant_key, type(e).__name__)
+                    browser.write_state(tenant_key, {"cookies": page.context.cookies(), "origins": []})
+                upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                notify.close_todos("takeover", f"account:{tenant_key}")
+                return {"ok": True, "credentials_saved": False}
+
+            deadline, misses = time.monotonic() + timeout_s, 0
+            while time.monotonic() < deadline:
+                try:
+                    urls = [p.url for p in page.context.pages]
+                    misses = 0
+                except Exception:  # noqa: BLE001 - between two pages, or the window is going away
+                    misses += 1
+                    if misses >= 5:
+                        return {"ok": False, "reason": "window closed before sign-in was verified"}
+                    time.sleep(1)
+                    continue
+                if not urls:
+                    return {"ok": False, "reason": "window closed before sign-in was verified"}
+                if check and any(check(u) for u in urls):
+                    return keep()
+                if not check and driver and ref:
+                    try:
+                        if driver.is_logged_in(page, ref, navigate=False):
+                            return keep()
+                    except Exception:  # noqa: BLE001
+                        pass
+                time.sleep(1)
+        return {"ok": False, "reason": "sign-in verification timed out"}
 
     plain = getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
     if plain is not None:  # this site refuses sign-in to an automated browser: plain window, human login

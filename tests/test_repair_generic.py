@@ -673,6 +673,32 @@ def test_forward_buttons_are_recognised_and_submit_never_is(app_env):
     assert SUBMIT_RE.search("Submit application") and SUBMIT_RE.search("Review and Submit") and not SUBMIT_RE.search("Skip & continue")
 
 
+def test_the_submit_button_is_seen_on_a_long_page_with_many_buttons(app_env):
+    """A one-page form with more than sixty buttons before the one that submits: it is still the last step."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats.base import FormSchema
+    from autoapply.ats.generic_driver import GenericDriver
+
+    d = GenericDriver(FormSchema(ats="generic", tenant="x", source="agent"))
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page()
+        pg.set_content("<main>" + "".join(f"<button>Option {i}</button>" for i in range(90)) + "<button hidden>Next</button><div role=button>Submit</div></main>")
+        assert d.at_review(pg)
+        assert "Next" not in d._buttons(pg)
+        pg.set_content("<main><button>Next</button><button>Submit</button></main>")
+        assert not d.at_review(pg)
+        b.close()
+
+
+def test_a_submit_button_the_program_cannot_make_out_is_left_to_the_applicant(app_env):
+    from autoapply import humanize
+
+    out = humanize.explain("not on the last step of the form: nothing is submitted")
+    assert "提交" in out["message"] and "not on the last step" not in out["message"]
+
+
 def test_a_label_that_only_contains_the_question_is_another_question(app_env):
     """The recorded control is not on this step. Its label must not be 'found' in a longer label of another field."""
     from playwright.sync_api import sync_playwright

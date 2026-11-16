@@ -13,13 +13,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 
 # Windows takes file types from the registry, which does not know .mjs (the PDF viewer's worker) and on some
 # machines maps .js to text/plain; browsers refuse to run module scripts served that way.
+from .. import access, quiet
+
+quiet.install()      # no console window for anything this server starts
 mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".js")
 
@@ -104,6 +107,10 @@ def _own_hosts() -> set[str]:
     from urllib.parse import urlparse
 
     hosts = set(LOCAL_HOSTS)
+    c = access.conf()
+    hosts.update(c["allowed_hosts"])
+    if access.exposed(c):      # it listens for other computers: they call it by one of this computer's addresses
+        hosts.update(_own_addresses(c["host"]))
     try:
         h = urlparse(str(db.get_setting("app.base_url") or "")).hostname
         if h:
@@ -111,6 +118,28 @@ def _own_hosts() -> set[str]:
     except Exception:  # noqa: BLE001
         pass
     return hosts
+
+
+_addresses: dict[str, Any] = {"at": 0.0, "of": set()}
+
+
+def _own_addresses(host: str) -> set[str]:
+    """The addresses and the name of this computer (looked up once a minute), or the one address it listens on."""
+    import socket
+    import time as _time
+
+    if host not in ("0.0.0.0", "::"):  # noqa: S104 - compared, not bound
+        return {host.lower()}
+    if _time.time() - _addresses["at"] > 60:
+        found = set()
+        try:
+            name = socket.gethostname()
+            found.add(name.lower())
+            found.update(a.lower() for a in socket.gethostbyname_ex(name)[2])
+        except OSError:
+            pass
+        _addresses.update(at=_time.time(), of=found)
+    return set(_addresses["of"])
 
 
 def _host_of(value: str) -> str:
@@ -122,6 +151,10 @@ def _host_of(value: str) -> str:
 
 
 def _foreign(request) -> str:  # noqa: ANN001
+    return _foreign_at(request, request.scope["path"])
+
+
+def _foreign_at(request, path: str) -> str:  # noqa: ANN001
     """Why this request does not come from the user's own pages ('' when it does).
 
     The server has no login: it listens on 127.0.0.1 and trusts whoever can reach it. A web page the user happens to
@@ -136,7 +169,6 @@ def _foreign(request) -> str:  # noqa: ANN001
     host = request.headers.get("host", "")
     if _host_of(host) not in own:
         return "host"
-    path = request.url.path
     if not (path.startswith("/api/") or path.startswith("/mcp/")):
         return ""
     origin = request.headers.get("origin")
@@ -145,7 +177,7 @@ def _foreign(request) -> str:  # noqa: ANN001
     if origin is not None:
         # The whole origin has to be ours - scheme, host and port. Another program on this computer can serve a page
         # at 127.0.0.1 on its own port; the same host name does not make that page this program's.
-        mine = {f"{request.url.scheme}://{host}".lower().rstrip("/")}
+        mine = {f"{s}://{host}".lower().rstrip("/") for s in ("http", "https")} if access.conf()["https_by_proxy"] else {f"{request.url.scheme}://{host}".lower().rstrip("/")}
         base = str(db.get_setting("app.base_url") or "").strip().lower().rstrip("/")
         if base:
             u = urlparse(base)
@@ -162,11 +194,22 @@ def _foreign(request) -> str:  # noqa: ANN001
 async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
     from fastapi.responses import JSONResponse, Response
 
+    root = access.conf()["root_path"]
+    if root and (request.scope["path"] == root or request.scope["path"].startswith(root + "/")):
+        # called with the prefix it is served under (a proxy that does not strip it, or the page opened directly)
+        request.scope["path"] = request.scope["path"][len(root):] or "/"
+        request.scope["raw_path"] = request.scope["path"].encode()
     why = _foreign(request)
+    if not why:
+        who = access.caller(request.client.host if request.client else "", request.headers)
+        path = request.scope["path"]
+        portal = path.startswith("/api/import/pdportal") and request.headers.get("origin") == PORTAL_ORIGIN and who["local"]
+        if request.method != "OPTIONS" and not portal and not access.allowed(path, request.cookies.get(access.COOKIE), who, request.headers.get(access.LOCAL_HEADER)):
+            return JSONResponse({"detail": "请先登录。", "login": True}, status_code=401)
     if why:
         log.warning("refused a request that did not come from this program's own pages (%s): %s %s", why, request.method, request.url.path)
         return JSONResponse({"detail": "This request did not come from AutoApply's own page and was refused."}, status_code=403)
-    if request.url.path.startswith("/api/import/pdportal") and request.headers.get("origin") == PORTAL_ORIGIN:
+    if request.scope["path"].startswith("/api/import/pdportal") and request.headers.get("origin") == PORTAL_ORIGIN:
         hdr = {"Access-Control-Allow-Origin": PORTAL_ORIGIN, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type",
                "Access-Control-Allow-Private-Network": "true", "Access-Control-Max-Age": "600", "Vary": "Origin"}
         if request.method == "OPTIONS":
@@ -615,7 +658,8 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from datetime import datetime
     from ..models import Draft
 
-    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem"}
+    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+           "mail_unmatched": "answer"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
         for r in rows:
@@ -628,6 +672,18 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                 j = a.job
             elif p.get("job_url"):
                 j = by_url.get(p["job_url"])
+            if r["kind"] == "mail_unmatched":      # the applications the applicant can say it belongs to
+                from ..models import MailEvent
+
+                me = s.query(MailEvent).filter_by(message_id=str(p.get("message_id") or r["ref"][5:])).first()
+                ids = mail.candidates(me.company_guess) if me is not None else []
+                near = bool(ids)
+                if not ids:      # the employer was not recognised: every application that was sent, the latest first
+                    ids = [a.id for a in s.query(Application).filter(Application.submitted_at.isnot(None)).order_by(Application.submitted_at.desc()).limit(60)]
+                r["candidates"] = [{"id": a.id, "label": f"{a.job.company} · {a.job.title}", "status": a.status,
+                                    "site_status": ((a.evidence or {}).get("site_status") or {}).get("text", "")}
+                                   for a in (s.get(Application, i) for i in ids[:60]) if a is not None]
+                r["candidates_near"] = near
             # cards made before "blocked" existed: a sign-in card whose reason is not about signing in
             m = re.match(r"^\w+: (\w+) required", r["body"] or "")
             if r["kind"] in ("takeover", "login") and m and m.group(1) not in ("login", "captcha", "mfa", "account", "verification", "register") and j is not None:
@@ -685,6 +741,20 @@ def todos_bulk(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"done": n}
 
 
+@app.post("/api/todos/{todo_id}/link")
+def todo_link(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant says which application(s) an e-mail is about."""
+    ids = [int(i) for i in (body.get("application_ids") or [body.get("application_id")]) if i]
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.kind != "mail_unmatched" or not ids:
+            raise HTTPException(400, "choose the application this e-mail belongs to")
+        if any(s.get(Application, i) is None for i in ids):
+            raise HTTPException(404, "no such application")
+        mid = str((t.payload or {}).get("message_id") or t.ref[5:])
+    return {"updated": mail.link(mid, ids, by="user")}
+
+
 @app.post("/api/todos/{todo_id}/done")
 def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     with db.session() as s:
@@ -698,7 +768,8 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
     with db.session() as s:
         rows = [{"id": t.id, "kind": t.kind, "status": t.status, "ref": t.ref, "error": t.error, "result": t.result, "attempts": t.attempts,
                  "created_at": t.created_at.isoformat(), "started_at": t.started_at.isoformat() if t.started_at else None,
-                 "finished_at": t.finished_at.isoformat() if t.finished_at else None}
+                 "finished_at": t.finished_at.isoformat() if t.finished_at else None,
+                 "browser_stages": [x["stage"] for x in (t.stages or []) if x.get("stage", "").startswith("browser:")]}
                 for t in s.query(Task).order_by(Task.id.desc()).limit(limit)]
     for r in rows:
         r["label"] = humanize.TASK.get(r["kind"], r["kind"])
@@ -726,7 +797,23 @@ def run_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 
 @app.post("/api/tasks/{task_id}/retry")
-def retry_task(task_id: int) -> dict[str, Any]:
+def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    backend = body.get("browser_backend")
+    if backend:
+        from .. import browser_policy
+        try:
+            browser_policy.select(None, override=backend)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        with db.session() as s:
+            task = s.get(Task, task_id)
+            if task is None:
+                raise HTTPException(404, "Task not found")
+            if task.status not in ("failed", "waiting_human") or task.kind not in ("recon", "discover", "revise"):
+                raise HTTPException(400, "Backend retry is available for stopped discovery and draft-reading tasks")
+            task.payload = {**task.payload, "browser_backend": backend}
+            task.status, task.error = "queued", ""
+        return {"ok": True}
     tasks.retry(task_id)
     return {"ok": True}
 
@@ -938,6 +1025,103 @@ def proxy_state() -> dict[str, Any]:
 def proxy_test() -> dict[str, Any]:
     """Try the saved setting against a few sites the program depends on."""
     return {**net.describe(), "results": net.test()}
+
+
+# --- the login to this program, and where it listens ---------------------------------------------
+# where this server was started (the settings may have been changed since: that takes a restart)
+_LISTENING = {"host": os.environ.get("AUTOAPPLY_LISTENING_HOST") or access.conf()["host"], "port": int(os.environ.get("AUTOAPPLY_LISTENING_PORT") or access.conf()["port"])}
+
+
+def _who(request) -> dict[str, Any]:  # noqa: ANN001
+    return access.caller(request.client.host if request.client else "", request.headers)
+
+
+def _signed_in(request) -> bool:  # noqa: ANN001
+    return not access.enforced() or access.session_ok(request.cookies.get(access.COOKIE))
+
+
+def _start_session(request, response) -> None:  # noqa: ANN001
+    c = access.conf()
+    response.set_cookie(access.COOKIE, access.new_session(), max_age=int(c["session_days"]) * 86400, httponly=True, samesite="lax",
+                        secure=_who(request)["https"], path=(c["root_path"] or "") + "/")
+
+
+@app.get("/api/auth/state")
+def auth_state(request: Request) -> dict[str, Any]:
+    """What the page needs before anyone has signed in: is there an account yet, is this visitor signed in."""
+    who = _who(request)
+    return {"required": access.enforced(), "setup": not access.has_admin(), "can_setup": who["local"], "signed_in": _signed_in(request) and (access.has_admin() or not access.enforced()),
+            "user": access.admin_name() if _signed_in(request) else "", "locked": access.locked_for(), "lang": db.get_setting("ui.lang") or "zh"}
+
+
+@app.post("/api/auth/setup")
+def auth_setup(request: Request, response: Response, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The first visit, on the computer itself: the user chooses the administrator's name and password."""
+    if access.has_admin():
+        raise HTTPException(409, "管理员账号已经设置过了。忘记密码的话，在这台电脑的托盘图标里选“重置管理员密码”。")
+    if not _who(request)["local"]:
+        raise HTTPException(403, "第一次设置管理员账号要在运行 AutoApply 的那台电脑上打开页面完成。")
+    try:
+        access.set_admin(str(body.get("user") or ""), str(body.get("password") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    _start_session(request, response)
+    return {"ok": True}
+
+
+@app.post("/api/auth/login")
+def auth_login(request: Request, response: Response, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    wait = access.locked_for()
+    if wait:
+        raise HTTPException(429, f"输错的次数太多了，请 {wait // 60 + 1} 分钟后再试。")
+    ok = access.verify(str(body.get("user") or ""), str(body.get("password") or ""))
+    access.note_login(ok)
+    if not ok:
+        log.warning("a login to this program was refused (from %s)", _who(request)["ip"])
+        raise HTTPException(401, "用户名或密码不对。")
+    _start_session(request, response)
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    if body.get("everywhere") and _signed_in(request):
+        access.end_all_sessions()
+    else:
+        access.end_session(request.cookies.get(access.COOKIE))
+    response.delete_cookie(access.COOKIE, path=(access.conf()["root_path"] or "") + "/")
+    return {"ok": True}
+
+
+@app.post("/api/auth/password")
+def auth_password(request: Request, response: Response, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """A new password (and, if wanted, a new name). Every other device is signed out; this one stays in."""
+    if not _signed_in(request):
+        raise HTTPException(401, "请先登录。")
+    if not access.verify(access.admin_name(), str(body.get("current") or "")):
+        raise HTTPException(400, "现在的密码不对。")
+    try:
+        access.set_admin(str(body.get("user") or access.admin_name()), str(body.get("password") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    _start_session(request, response)
+    return {"ok": True}
+
+
+@app.get("/api/access")
+def get_access(request: Request) -> dict[str, Any]:
+    c = access.conf()
+    running = _LISTENING
+    return {"settings": c, "running": running, "restart_needed": (running["host"], running["port"]) != (c["host"], c["port"]),
+            "exposed": access.exposed(c), "https": _who(request)["https"], "user": access.admin_name(), "addresses": sorted(_own_addresses("0.0.0.0"))}  # noqa: S104
+
+
+@app.put("/api/access")
+def put_access(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        return {"settings": access.save_conf(body.get("settings") or {})}
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e)) from e
 
 
 # --- sign-in providers -----------------------------------------------------------------------
@@ -1154,6 +1338,7 @@ def list_documents() -> list[dict[str, Any]]:
             jstage = stages.describe(stages.stage(job.status, bool(job.online), job.deadline or "", job.application.status if job.application else None)) if job else {}
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
+                         "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
                          "problems": (d.meta or {}).get("problems", []), "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
                          "has_docx": bool((d.meta or {}).get("docx"))})
@@ -1489,8 +1674,41 @@ def get_settings() -> dict[str, Any]:
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
+@app.get("/api/browser/status")
+def browser_status() -> dict[str, Any]:
+    import importlib.util
+    from .. import browser
+
+    return {"installed": importlib.util.find_spec("nodriver") is not None,
+            "executable": db.get_setting("browser.executable") or browser.find_chrome()}
+
+
+@app.post("/api/browser/test")
+def browser_test() -> dict[str, Any]:
+    from .. import browser, nodriver_backend
+
+    status = browser_status()
+    if not status["installed"] or not status["executable"]:
+        raise HTTPException(400, "Install nodriver and Chrome / Edge first")
+    try:
+        with nodriver_backend.open_page(None, headless=True, executable=status["executable"], args=net.chrome_args()) as page:
+            page.goto("data:text/html,<title>AutoApply browser test</title><input id='test'>")
+            page.locator("#test").fill("AutoApply")
+            if page.locator("#test").input_value() != "AutoApply":
+                raise RuntimeError("Browser input verification failed")
+    except Exception as exc:
+        raise HTTPException(400, f"Browser test failed: {type(exc).__name__}: {exc}") from exc
+    return {"ok": True}
+
+
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .. import browser_policy
+
+    try:
+        browser_policy.validate(body.get("settings") or {})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
         if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out
@@ -1925,11 +2143,28 @@ def gmail_authorize() -> dict[str, Any]:
 if config.FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=config.FRONTEND_DIST / "assets"), name="assets")
 
+    def _interface_files() -> dict[str, Path]:
+        """The files of the built interface, by the address they are served at. A request is answered by looking its
+        address up in this list - no path is ever put together from what a request says, so nothing outside the folder
+        can be named, however the address is written. A link in the folder that leads out of it is not one of them."""
+        root = config.FRONTEND_DIST.resolve()
+        return {f.relative_to(root).as_posix(): f for f in root.rglob("*") if f.is_file() and f.resolve().is_relative_to(root)}
+
+    _files = {"all": _interface_files()}
+
     @app.get("/{path:path}")
     def spa(path: str):
-        root = config.FRONTEND_DIST.resolve()
-        f = (root / path).resolve()
-        # only files of the built interface: "..%2F" in an address must not reach the rest of the disk
-        if path and f.is_relative_to(root) and f.is_file():
+        f = _files["all"].get(path)
+        if f is None and path and "." in path.rsplit("/", 1)[-1]:      # a file that is not known: the interface may have been built again
+            _files["all"] = _interface_files()
+            f = _files["all"].get(path)
+        if f is not None and f.is_file() and path != "index.html":
             return FileResponse(f)
-        return FileResponse(root / "index.html")
+        # The page itself. It is told the address it is served under, so that its files and its API calls are found
+        # whatever path a proxy puts in front and however deep the address of the view that is open.
+        from fastapi.responses import HTMLResponse
+
+        index = _files["all"].get("index.html") or config.FRONTEND_DIST / "index.html"
+        base = access.conf()["root_path"] + "/"
+        html = index.read_text(encoding="utf-8").replace('<base href="/" />', f'<base href="{base}" />', 1)
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

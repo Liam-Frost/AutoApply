@@ -173,10 +173,33 @@ def test_the_page_route_serves_only_the_built_interface(app_env):
         pytest.skip("the interface is not built here")
     c = TestClient(api)
     index = c.get("/").text
-    for path in ("/..%2Fpackage.json", "/..%2F..%2Fpyproject.toml", "/assets/..%2F..%2F..%2Fpyproject.toml"):
+    # a file of the interface is served as itself; an address the interface routes by itself gets the page
+    other = next((f for f in config.FRONTEND_DIST.iterdir() if f.is_file() and f.name != "index.html"), None)
+    if other is not None:
+        assert c.get("/" + other.name).content == other.read_bytes()
+    assert c.get("/drafts/12").text == index and c.get("/no-such-file.png").text == index
+    for path in ("/..%2Fpackage.json", "/..%2F..%2Fpyproject.toml", "/assets/..%2F..%2F..%2Fpyproject.toml", "/%2e%2e/%2e%2e/pyproject.toml", "/..%5C..%5Cpyproject.toml"):
         r = c.get(path)
         assert "autoapply-frontend" not in r.text and "[project]" not in r.text, path
         assert r.status_code == 404 or r.text == index, path
+
+
+def test_a_link_out_of_the_interface_folder_is_not_served(app_env, tmp_path, monkeypatch):
+    from autoapply import config
+    from autoapply.api import main
+
+    if not hasattr(main, "_interface_files"):
+        pytest.skip("the interface is not built here")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<div id=app></div>", encoding="utf-8")
+    (tmp_path / "private.txt").write_text("secret", encoding="utf-8")
+    try:
+        (dist / "linked.txt").symlink_to(tmp_path / "private.txt")
+    except OSError:
+        pytest.skip("links cannot be made here")
+    monkeypatch.setattr(config, "FRONTEND_DIST", dist)
+    assert sorted(main._interface_files()) == ["index.html"]
 
 
 # Workday draws the header signed out first and changes it once it knows who is there; the page's content comes after that.
@@ -628,3 +651,109 @@ def test_a_saved_sign_in_is_found_when_the_same_site_is_reached_from_another_add
     assert browser._state_path("generic:jobs.acme.com") == browser._state_path("eightfold:acme")       # one session for both
     assert secrets.get_password(auth.key_for("generic:jobs.acme.com")) == "pw"
     assert auth.adopt("generic:jobs.acme.com", "acme.wd5.myworkdayjobs.com") is None       # already linked
+
+
+SEARCHED_LIST = """<main><label id="l">Current location</label>
+  <div role="combobox" id="loc" tabindex="0" aria-labelledby="l" style="min-height: 32px; border: 1px solid #888" onclick="document.getElementById('pop').hidden = false; document.getElementById('s').focus()">
+    <span id="shown"></span></div>
+  <div id="pop" hidden><input id="s" placeholder="Search"><div id="list"></div></div>
+  <script>
+    const ALL = ['Menlo Park, CA', 'New York, NY', 'Seattle, WA', 'Sunnyvale, CA', 'Aiken, SC', 'Vancouver, Canada', 'Vancouver, WA', 'North Vancouver, Canada'];
+    const list = document.getElementById('list'); let typed = '';
+    const draw = (items) => { list.innerHTML = ''; for (const t of items) { const d = document.createElement('div'); d.textContent = t; d.className = 'entry';
+      d.onclick = () => { document.getElementById('shown').textContent = t; document.getElementById('pop').hidden = true; }; list.appendChild(d); } };
+    draw(ALL.slice(0, 5));      // what it shows before anything is typed: its first five
+    // it searches on key presses only - a value set by program does nothing, as on the real one
+    document.getElementById('s').addEventListener('keydown', (e) => { if (e.key.length === 1) typed += e.key; if (e.key === 'Backspace') typed = typed.slice(0, -1);
+      setTimeout(() => draw(typed ? ALL.filter((x) => x.toLowerCase().includes(typed.toLowerCase())) : ALL.slice(0, 5)), 150); });
+  </script></main>"""
+
+
+def test_a_list_that_is_searched_is_searched_by_typing_and_the_right_entry_is_chosen(app_env, tmp_path):
+    """A location picker shows five places and a search box. The applicant's city is not among the five, and the box
+    reacts to key presses only. Both the driver and the agent's tools have to be able to do what a person does: type the
+    city, see what comes up, choose the one that is theirs - "Vancouver, Canada" for "Vancouver, BC, Canada", not the
+    Vancouver in Washington."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import generic
+    from autoapply.ats import generic_driver as g
+    from autoapply.ats.base import DriverError, FormSchema, Question
+
+    q = Question(id="#loc", label="Current location", type="select", locator={"selector": "#loc"})
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+
+        def fresh():      # a new page each time: the form's script declares its names once
+            page = b.new_page()
+            page.set_content(SEARCHED_LIST)
+            return page, {t.name: t for t in generic.l0_tools(page, tmp_path, {})}
+
+        page, _ = fresh()
+        g.GenericDriver(FormSchema(ats="generic", tenant="x.test", source="agent", questions=[q])).fill_questions(page, [q], {q.id: "Vancouver, BC, Canada"})
+        assert page.inner_text("#shown") == "Vancouver, Canada"
+
+        page, tools = fresh()
+        found = tools["options"].fn(selector="#loc", search="Vancouver")
+        assert "Vancouver, Canada" in found and "Vancouver, WA" in found and "Seattle" not in found
+        page, tools = fresh()
+        assert tools["select"].fn(selector="#loc", option="Vancouver, Canada").startswith("chose 'Vancouver, Canada'") and page.inner_text("#shown") == "Vancouver, Canada"
+        # and the plain primitive, for a control none of the helpers know: real key presses
+        page, tools = fresh()
+        tools["click"].fn(selector="#loc")
+        assert tools["type_keys"].fn(text="Sunny") == "typed" and page.locator(".entry").all_inner_texts() == ["Sunnyvale, CA"]
+        # an answer the list has two entries for is not guessed at
+        page, _ = fresh()
+        with pytest.raises(DriverError):
+            g.set_value(page, q, "Vancouver")
+        b.close()
+
+
+def test_a_saved_account_of_another_site_is_not_offered_where_this_posting_signs_in(app_env):
+    """The employer lists its postings on one system and takes this application on another. The account saved for the
+    first is not an account on the second: its password is neither announced nor typed there."""
+    import pytest
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import auth, db, generic, secrets
+    from autoapply.ats.base import JobRef
+
+    auth.upsert_account("eightfold:acme", ats="eightfold", host="jobs.acme.com", email="me@example.test", password="first-site-pw", status="ok")
+    db.set_setting("accounts.alias", {"generic:jobs.acme.com": "eightfold:acme"})
+    ref = JobRef("generic", "jobs.acme.com", "", "https://jobs.acme.com/careers/job/1", "jobs.acme.com")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.route("**/*", lambda r: r.fulfill(content_type="text/html", body='<main><h1>Sign in</h1><input id="e" type="email"><input id="p" type="password"></main>'))
+        page.goto("https://acme.wd5.myworkdayjobs.com/en-US/Site/login")
+        tools = {t.name: t for t in generic.account_tools(page, ref, {})}
+        plan = tools["account_info"].fn(offered=[])
+        assert plan.get("has_password") is False and plan["do"] != "password"
+        with pytest.raises(ValueError):
+            tools["fill_account_password"].fn(selector="#p")
+        assert page.input_value("#p") == ""
+        # on the first site's own page the saved account is the account
+        page.goto("https://jobs.acme.com/login")
+        tools = {t.name: t for t in generic.account_tools(page, ref, {})}
+        assert tools["account_info"].fn(offered=[])["do"] == "password"
+        assert tools["fill_account_password"].fn(selector="#p").startswith("filled") and page.input_value("#p") == "first-site-pw"
+        b.close()
+    assert secrets.get_password("eightfold:acme") == "first-site-pw"
+
+
+def test_a_form_that_is_still_sending_is_waited_for(app_env):
+    """The button reads "Sending..." for a while and the thank-you comes after: that is a submitted application."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply.ats.base import FormSchema
+    from autoapply.ats.generic_driver import GenericDriver
+
+    d = GenericDriver(FormSchema(ats="generic", tenant="x", source="agent"))
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.set_content("""<main><form onsubmit="return false"><input id="n" value="A"><button id="go" onclick="this.textContent = 'Sending…';
+          setTimeout(() => { document.querySelector('main').innerHTML = '<h1>Thank you for applying</h1><p>Your application has been received.</p>'; }, 4000)">Submit application</button></form></main>""")
+        d.submit(page)
+        assert d.confirmation(page) is not None
+        b.close()

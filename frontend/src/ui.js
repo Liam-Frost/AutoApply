@@ -46,7 +46,7 @@ export function answer(v) {
 export const persona = reactive({ loaded: false, done: true, features: { known: false, term: true, portal: 'ubc', doc_kinds: null, job_columns: ['source'], summary: '' }, data: {} })
 export async function loadPersona() {
   try {
-    const r = await (await fetch('/api/persona')).json()
+    const r = await (await fetch(new URL('api/persona', document.baseURI))).json()
     Object.assign(persona, { loaded: true, done: r.onboarding_done, features: r.features, data: r.persona })
   } catch (e) { persona.loaded = true }
   return persona
@@ -71,3 +71,6 @@ export function setTheme(v) {
   if (v === 'system') { localStorage.removeItem('theme'); document.documentElement.removeAttribute('data-theme') } else { localStorage.setItem('theme', v); document.documentElement.setAttribute('data-theme', v) }
 }
 if (theme.value !== 'system') document.documentElement.setAttribute('data-theme', theme.value)
+
+// The login to this program. `in`: this browser is signed in (or the server asks for no login). Filled by App.vue.
+export const session = reactive({ ready: false, in: false, setup: false, canSetup: false, user: '', locked: 0 })

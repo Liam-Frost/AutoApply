@@ -1,14 +1,31 @@
 <script setup>
 import { onMounted, onUnmounted, provide, ref } from 'vue'
-import { api } from './api'
+import { api, auth } from './api'
 import Icon from './components/Icon.vue'
 import { LANGS, lang, setLang } from './i18n'
-import { answer, dialog, dismissToast, persona, setTheme, theme, toasts } from './ui'
+import { answer, dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
+import LoginView from './views/LoginView.vue'
 
 const ov = ref({ pending_drafts: 0, open_todos: 0, queued_tasks: 0, paused: false, running: [] })
 let timer
 async function load() {
+  if (!session.in) return
   try { ov.value = await api.get('/overview') } catch (e) { /* server restarting */ }
+}
+// Who is here: nobody yet (the login shows), or the administrator (the program shows).
+async function whoAmI() {
+  try {
+    const st = await api.get('/auth/state')
+    Object.assign(session, { in: !st.required || st.signed_in, setup: st.required && st.setup, canSetup: st.can_setup, user: st.user, locked: st.locked })
+  } catch (e) { if (e.status === 404) session.in = true }      // a server from before the login existed (the page was rebuilt first): no door; otherwise it is restarting - keep what is shown
+  session.ready = true
+}
+auth.onLogin = () => { if (session.in) { session.in = false; whoAmI() } }      // the server said "sign in first": the login expired or was ended elsewhere
+const entered = () => location.reload()      // start over as the signed-in user: language, persona, the view that was asked for
+async function signOut() {
+  await api.post('/auth/logout', {}).catch(() => {})
+  session.in = false
+  await whoAmI()
 }
 async function togglePause() {
   await api.put('/settings', { settings: { 'schedule.paused': !ov.value.paused } })
@@ -16,14 +33,16 @@ async function togglePause() {
 }
 provide('overview', ov)
 provide('reloadOverview', load)
-onMounted(() => { load(); timer = setInterval(load, 8000) })
+onMounted(async () => { await whoAmI(); load(); timer = setInterval(load, 8000) })
 onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
-  <div class="shell">
+  <div v-if="!session.ready" class="door"></div>
+  <LoginView v-else-if="!session.in" @done="entered" />
+  <div v-else class="shell">
     <nav class="side" :class="{ guide: !persona.done }">
-      <router-link to="/" class="brand"><img src="/logo-mark.svg" alt="" /><span>AutoApply</span></router-link>
+      <router-link to="/" class="brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></router-link>
 
       <router-link to="/home" class="nav"><Icon name="home" />概览</router-link>
       <router-link to="/todos" class="nav"><Icon name="bell" />需要我处理 <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
@@ -52,24 +71,25 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="seg lang" data-notr aria-label="Language / 语言"><button v-for="(l, k) in LANGS" :key="k" :class="{ on: lang.value === k }" @click="lang.value !== k && setLang(k)">{{ l }}</button></div>
         <button class="sm" @click="togglePause"><Icon :name="ov.paused ? 'play' : 'pause'" />{{ ov.paused ? '恢复自动运行' : '暂停自动运行' }}</button>
+        <button v-if="session.user" class="sm ghost" :title="session.user" @click="signOut"><Icon name="login" />退出登录</button>
       </div>
     </nav>
     <main class="content"><router-view /></main>
-    <template v-if="dialog.open">
-      <div class="overlay" style="z-index: 80" @click="answer(false)"></div>
-      <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(false)">
-        <p>{{ dialog.text }}</p>
-        <div class="row" style="justify-content: flex-end">
-          <button @click="answer(false)">取消</button>
-          <button v-focus :class="dialog.danger ? 'danger solid' : 'primary'" @click="answer(true)">{{ dialog.ok }}</button>
-        </div>
+  </div>
+  <template v-if="dialog.open">
+    <div class="overlay" style="z-index: 80" @click="answer(false)"></div>
+    <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(false)">
+      <p>{{ dialog.text }}</p>
+      <div class="row" style="justify-content: flex-end">
+        <button @click="answer(false)">取消</button>
+        <button v-focus :class="dialog.danger ? 'danger solid' : 'primary'" @click="answer(true)">{{ dialog.ok }}</button>
       </div>
-    </template>
-    <div class="toasts" role="status" aria-live="polite">
-      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
-        <span class="grow">{{ t.text }}</span>
-        <button aria-label="关闭" @click="dismissToast(t.id)">✕</button>
-      </div>
+    </div>
+  </template>
+  <div class="toasts" role="status" aria-live="polite">
+    <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
+      <span class="grow">{{ t.text }}</span>
+      <button aria-label="关闭" @click="dismissToast(t.id)">✕</button>
     </div>
   </div>
 </template>

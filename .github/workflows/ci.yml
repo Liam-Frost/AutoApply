@@ -78,8 +78,8 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/autoapply"
           nohup .venv/bin/python -m autoapply.cli serve --port 8765 > serve.log 2>&1 &
-          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8765/api/overview > /dev/null 2>&1 && break; sleep 2; done
-          curl -fsS http://127.0.0.1:8765/api/overview | head -c 200 || { cat serve.log; exit 1; }
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8765/api/auth/state > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8765/api/auth/state > /dev/null || { cat serve.log; exit 1; }
           curl -fsS http://127.0.0.1:8765/ | grep -q 'id="app"'
           pkill -f "autoapply.cli serve" || true
       - name: Upgrade keeps the data; uninstall keeps or deletes it as asked
@@ -126,7 +126,7 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'autoapply'
           $p = Start-Process "$dir\.venv\Scripts\python.exe" -ArgumentList '-m', 'autoapply.cli', 'serve', '--port', '8765' -WorkingDirectory $dir -PassThru -WindowStyle Hidden
           $ok = $false
-          for ($i = 0; $i -lt 40; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/overview).StatusCode -eq 200) { $ok = $true; break } } catch { Start-Sleep 2 } }
+          for ($i = 0; $i -lt 40; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/auth/state).StatusCode -eq 200) { $ok = $true; break } } catch { Start-Sleep 2 } }
           if (-not $ok) { throw 'the installed copy did not answer' }
           if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/).Content -notmatch 'id="app"') { throw 'no page' }
           Stop-Process -Id $p.Id -Force
@@ -176,8 +176,8 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/autoapply"
           nohup .venv/bin/python -m autoapply.cli serve --port 8765 > serve.log 2>&1 &
-          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8765/api/overview > /dev/null 2>&1 && break; sleep 2; done
-          curl -fsS http://127.0.0.1:8765/api/overview | head -c 200 || { cat serve.log; exit 1; }
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8765/api/auth/state > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8765/api/auth/state > /dev/null || { cat serve.log; exit 1; }
           curl -fsS http://127.0.0.1:8765/ | grep -q 'id="app"'
           .venv/bin/python -c "from autoapply import launcher; launcher.make_icon('running'); import pystray; print('menu-bar support:', pystray.Icon.__module__)"
           pkill -f "autoapply.cli serve" || true
