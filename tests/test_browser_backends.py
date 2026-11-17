@@ -7,7 +7,18 @@ from urllib.parse import quote
 import pytest
 
 
-def test_routing_precedence_and_domain_boundaries(app_env):
+@pytest.fixture
+def as_configured(app_env, monkeypatch):
+    """These tests are about which browser is chosen: nothing chooses for them (see AUTOAPPLY_TEST_BROWSER in conftest)."""
+    from contextvars import ContextVar
+
+    from autoapply import browser_policy, db
+
+    monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default=None))
+    db.set_setting("browser.nodriver_enabled", False)
+
+
+def test_routing_precedence_and_domain_boundaries(as_configured):
     from autoapply import browser_policy, db
 
     assert browser_policy.select("pdportal:ubc").backend == "playwright"
@@ -170,3 +181,225 @@ def test_native_generic_schema(native_page):
     assert result["first_name"] == "Test"
     assert result["auth"] == "Yes"
     assert result["consent"] is True
+
+
+def test_a_sites_work_is_done_in_the_browser_its_sign_in_lives_in_whatever_the_work_is(as_configured):
+    """Google's careers site signs in on Google. The applicant signed in to Google in the ordinary browser; the rule
+    saved for Google said "login" only, so filling the form went to the automated browser with Google's cookies - where
+    Google shows the account as signed out - and the applicant was asked to sign in again, for a session they had."""
+    from autoapply import browser_policy as bp, db
+
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    db.set_setting("browser.rules", [{"tenant": "pdportal:ubc", "backend": "nodriver", "operations": ["login"]},          # as saved by earlier versions
+                                     {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
+                                     {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]}])
+    ops = ("login", "scan", "read", "apply")
+    for tenant in ("idp:google", "generic:www.google.com", "pdportal:ubc"):
+        assert {bp.select(tenant, operation=op).backend for op in ops} == {"nodriver"}, tenant
+    assert {bp.select("workday:acme.wd1", operation=op).backend for op in ops} == {"playwright"}       # nothing says otherwise
+    # a site that signs in through a provider follows the provider - any provider, not Google by name
+    db.set_setting("sso.sites", {"generic:jobs.example.com": "google", "generic:careers.example.org": "microsoft"})
+    assert bp.select("generic:jobs.example.com", operation="apply").backend == "nodriver"
+    assert bp.select("generic:careers.example.org", operation="apply").backend == "playwright"
+    # where a sign-in was made is remembered with it, and decides from then on - with no rule at all
+    db.set_setting("browser.rules", [])
+    db.set_setting("browser.session_made_in", {"idp:microsoft": "nodriver", "idp:google": "nodriver"})
+    assert bp.select("generic:careers.example.org", operation="read").backend == "nodriver"
+    assert bp.select("generic:www.google.com", operation="apply").reason == "where the sign-in for idp:google was made"
+    assert bp.select("generic:www.google.com", operation="apply", override="playwright").backend == "playwright"      # the applicant's choice for one task
+    db.set_setting("browser.nodriver_enabled", False)
+    assert bp.select("generic:www.google.com", operation="apply").backend == "playwright"
+
+
+def test_where_a_sign_in_was_made_is_kept_with_it_and_it_is_not_carried_into_the_other_browser(app_env):
+    from autoapply import browser, db
+
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("browser.rules", [])
+    db.set_setting("identity.share", True)
+    google = {"cookies": [{"name": "SID", "value": "x", "domain": ".google.com", "path": "/"}], "origins": []}
+    browser._now.backend = "nodriver"                    # as inside open_page() in the ordinary browser
+    try:
+        browser.write_state("idp:google", google)
+    finally:
+        browser._now.backend = None
+    assert db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"}
+    # the automated browser is not shown Google's cookies; the ordinary browser is
+    assert browser.with_identities(None, "generic:jobs.example.com", "playwright") is None
+    assert [c["name"] for c in browser.with_identities(None, "generic:jobs.example.com", "nodriver")["cookies"]] == ["SID"]
+    # a run the applicant sent to the other browser does not replace the sign-in
+    browser._now.backend = "playwright"
+    try:
+        browser.write_state("idp:google", {"cookies": [], "origins": []})
+    finally:
+        browser._now.backend = None
+    assert browser.load_state("idp:google") == google and db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"}
+    browser.write_state("idp:google", google, made_in="")          # carried over from another computer: not known any more
+    assert db.get_setting("browser.session_made_in") == {}
+
+
+def test_the_card_names_whose_sign_in_is_missing(app_env):
+    """For Google's own careers site the card said "this site supports signing in with Google, where you are signed
+    in" and offered "use my Google account" - for Google. What is missing there is Google's session: one card, Google's."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import auth, db
+    from autoapply.api.main import app
+    from autoapply.ats.base import JobRef
+    from autoapply.models import Todo
+
+    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    db.set_setting("sso.offered", {"generic:www.google.com": ["google"], "generic:jobs.example.com": ["google"]})
+    careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
+    other = JobRef(ats="generic", tenant="jobs.example.com", job_id="", url="https://jobs.example.com/p/1", host="jobs.example.com")
+    auth.ask_to_sign_in(careers, "Google · Intern", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser?continue=x", draft_id=45)
+    auth.ask_to_sign_in(careers, "Google · Another posting", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser", draft_id=46)       # the same missing thing: one card
+    auth.ask_to_sign_in(other, "Example", "the site asks for an account", url="https://jobs.example.com/login", can_register=True)
+    auth.ask_to_sign_in(other.__class__(**{**other.__dict__, "tenant": "apply.example.net", "host": "apply.example.net"}), "Example Net",
+                        "The Sign in with Google button led to accounts.google.com, which shows the account as signed out.", url="https://apply.example.net/sso")
+    with db.session() as s:
+        cards = {t.ref: t.payload for t in s.query(Todo).filter_by(kind="takeover", status="open")}
+    assert set(cards) == {"account:idp:google", "account:generic:jobs.example.com"}
+    g = cards["account:idp:google"]
+    assert (g["tenant_key"], g["provider"], g["can_register"], g["url"]) == ("idp:google", "Google", False, "https://accounts.google.com/")
+    assert cards["account:generic:jobs.example.com"]["can_register"] is True
+    c = TestClient(app)
+    shown = {t["ref"]: t for t in c.get("/api/todos").json() if t["kind"] == "takeover"}
+    assert "sso" not in shown["account:idp:google"]                # Google is not offered as a way to sign in to Google
+
+
+def test_a_site_whose_sign_in_is_a_providers_own_has_nothing_to_choose_or_register(app_env):
+    from autoapply import auth, db
+    from autoapply.ats.base import JobRef
+
+    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    db.set_setting("sso.mode", "auto")
+    careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
+    plan = auth.sign_in_plan(careers, ["google", "linkedin"])
+    assert (plan["do"], plan["may_register"], plan["offered"]) == ("ask_user", False, []) and "Google's own" in plan["why"]
+    # ... and the same when the agent stands on the provider's page working for that site
+    at_google = JobRef(ats="generic", tenant="accounts.google.com", job_id="", url="https://accounts.google.com/signin", host="accounts.google.com")
+    assert auth.sign_in_plan(at_google, [], also="generic:www.google.com")["do"] == "ask_user"
+
+
+def test_the_ordinary_browser_knows_when_its_window_is_gone_and_presses_every_key(native_page):
+    """Filling a form in the ordinary browser stopped with: "Tab" has no attribute "closed". The question "is the window
+    still there" had never been asked of it - reading a form does not ask; waiting for the applicant does."""
+    page = native_page
+    page.goto("data:text/html," + quote("<title>k</title><input id='a'><input id='b' type='checkbox'><label><input type='radio' name='r' value='x'>X</label>"))
+    assert page.is_closed() is False
+    page.locator("#a").fill("Vancouver")
+    page.locator("#a").press("Backspace")
+    page.locator("#a").press("x")                                  # a character key types its character
+    page.locator("#a").press("Space")
+    assert page.locator("#a").input_value() == "Vancouvex "
+    page.locator("#a").clear()
+    assert page.input_value("#a") == ""
+    with pytest.raises(ValueError, match="Unsupported key"):
+        page.keyboard.press("F13")
+    # the page's own short forms of what a locator does
+    page.fill("#a", "by selector")
+    page.check("#b")
+    page.check("input[name=r][value=x]")
+    assert page.input_value("#a") == "by selector" and page.is_checked("#b") and page.locator("input[name=r]").is_checked()
+    page.uncheck("#b")
+    assert not page.is_checked("#b") and page.is_visible("#a") and page.locator("#a").is_hidden() is False
+    page.close()
+    assert page.is_closed() is True
+
+
+def test_a_profile_keeps_its_own_cookies_over_a_saved_copy(tmp_path):
+    """The profile of the ordinary browser carries its cookies from one start to the next. The saved copy of the
+    sign-in was written over them at every start - an older session put back over the current one."""
+    if importlib.util.find_spec("nodriver") is None:
+        pytest.skip("Install the nodriver extra to run native integration tests")
+    from autoapply.browser import find_chrome
+    from autoapply.nodriver_backend import open_page
+
+    executable = find_chrome()
+    if not executable:
+        pytest.skip("Chrome or Edge is required")
+    profile = tmp_path / "profile"
+    cookie = {"name": "SID", "domain": ".example.test", "path": "/", "secure": True, "httpOnly": True, "expires": 4102444800, "sameSite": "Lax"}
+    with open_page({"cookies": [{**cookie, "value": "first"}], "origins": []}, headless=True, executable=executable, args=["--no-proxy-server"], profile=profile) as page:
+        assert [c["value"] for c in page.context.cookies() if c["name"] == "SID"] == ["first"]          # a new profile takes what was saved
+        page.context.add_cookies([{**cookie, "value": "current"}])                                      # ... and the site moves the session on
+    saved = {"cookies": [{**cookie, "value": "first"}, {**cookie, "name": "OTHER", "value": "added"}], "origins": []}
+    with open_page(saved, headless=True, executable=executable, args=["--no-proxy-server"], profile=profile) as page:
+        got = {c["name"]: c["value"] for c in page.context.cookies()}
+    assert got.get("SID") == "current" and got.get("OTHER") == "added"
+
+
+def test_the_ordinary_browser_is_opened_as_a_window_even_where_nobody_looks(app_env, monkeypatch):
+    """Hidden, the ordinary browser calls itself HeadlessChrome - not the browser the applicant signed in with. The
+    university portal's firewall let the window in and turned every hidden scan away."""
+    from contextlib import contextmanager
+
+    from autoapply import browser, db, nodriver_backend
+
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("browser.rules", [{"tenant": "pdportal:ubc", "backend": "nodriver", "operations": ["login"]}])
+    monkeypatch.setattr(browser, "find_chrome", lambda: "chrome")
+    asked = []
+
+    @contextmanager
+    def opened(state, *, headless, executable, args, profile=None):
+        asked.append(headless)
+        yield object()
+
+    monkeypatch.setattr(nodriver_backend, "open_page", opened)
+    monkeypatch.delenv("AUTOAPPLY_ORDINARY_HIDDEN", raising=False)
+    with browser.real_open_page("pdportal:ubc", headless=True, url="https://pdportal.apsc.ubc.ca/x", operation="scan"):
+        pass
+    monkeypatch.setenv("AUTOAPPLY_ORDINARY_HIDDEN", "1")
+    with browser.real_open_page("pdportal:ubc", headless=True, url="https://pdportal.apsc.ubc.ca/x", operation="scan"):
+        pass
+    assert asked == [False, True]
+
+
+def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_asks_for_a_sign_in(app_env, monkeypatch):
+    from contextlib import contextmanager
+
+    from autoapply import browser, db
+    from autoapply.ats.base import NeedsHuman
+    from autoapply.models import Todo
+    from autoapply.sources import pdportal
+
+    db.set_setting("browser.nodriver_enabled", True)
+    pages = []
+
+    class Page:
+        def __init__(self, blocked):
+            self.blocked, self.url, self.context = blocked, pdportal.POSTINGS, None
+
+        def goto(self, *a, **k): ...
+
+        def title(self):
+            return "Just a moment..." if self.blocked else "Co-op postings"
+
+        def inner_text(self, sel, **k):
+            return "Verifying you are human" if self.blocked else "Postings"
+
+        def wait_for_timeout(self, ms): ...
+
+        def wait_for_selector(self, sel, **k):
+            raise TimeoutError(sel)         # (not signed in: the scan ends there - what matters here is how far it got)
+
+    @contextmanager
+    def open_page(tenant, **kw):
+        page = Page(blocked=bool(order.pop(0)))
+        pages.append(page)
+        yield page
+
+    monkeypatch.setattr(browser, "open_page", open_page)
+    order = [True, False]                    # hidden: turned away; in a window: let in
+    with pytest.raises(NeedsHuman, match="session expired"):
+        list(pdportal.scan(set()))
+    assert len(pages) == 2 and db.get_setting("browser.visible_sites") == ["pdportal:ubc"]
+    order = [True]                           # turned away in a window as well: its pass has run out
+    with pytest.raises(NeedsHuman, match="firewall"):
+        list(pdportal.scan(set()))
+    with db.session() as s:
+        cards = [(t.kind, t.ref) for t in s.query(Todo).filter_by(status="open")]
+    assert ("takeover", "account:pdportal:ubc") in cards and not any(k == "config" for k, _ in cards)      # not "switch the ordinary browser on": it is on

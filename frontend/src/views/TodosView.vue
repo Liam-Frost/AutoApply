@@ -15,7 +15,12 @@ let timer
 
 // How each kind of to-do is presented: icon, tone, the title and the one-line explanation.
 const VIEW = {
-  takeover: { icon: 'login', tone: '', title: (t) => `登录 ${t.site ? t.site.name : t.title}`, what: (t) => t.explained.message || '这个网站需要你登录一次，之后程序会记住登录状态。' },
+  takeover: { icon: 'login', tone: '', title: (t) => (t.payload && t.payload.provider ? `重新登录 ${t.payload.provider}` : `登录 ${t.site ? t.site.name : t.title}`),
+              what: (t) => (t.payload && t.payload.provider
+                ? (t.payload.for
+                  ? `处理“${t.payload.for}”时发现保存的 ${t.payload.provider} 登录已经失效。重新登录一次，所有用 ${t.payload.provider} 登录的网站都会恢复，等着它的任务会自动继续。`
+                  : `保存的 ${t.payload.provider} 登录已经失效。重新登录一次，所有用 ${t.payload.provider} 登录的网站都会恢复，等着它的任务会自动继续。`)
+                : t.explained.message || '这个网站需要你登录一次，之后程序会记住登录状态。') },
   login: { icon: 'login', tone: '', title: (t) => `登录 ${t.site ? t.site.name : t.title}`, what: (t) => t.explained.message },
   captcha: { icon: 'shield', tone: '', title: (t) => `${t.title}：需要你完成人机验证`, what: () => '网站要确认是真人在操作。请打开页面完成验证，然后回来点“我已完成”。' },
   answer: { icon: 'edit', tone: 'info', title: (t) => t.title, what: (t) => t.body || '草案里有必答题没有答案。' },
@@ -175,7 +180,7 @@ onUnmounted(() => clearInterval(timer))
       <div class="acts">
         <template v-if="['takeover', 'login'].includes(t.kind) && t.payload && t.payload.tenant_key">
           <button v-for="p in t.sso || []" :key="p.key" class="primary" @click="useSso(t, p)"><Icon name="login" />用我的 {{ p.name }} 账号登录</button>
-          <button :class="{ primary: !(t.sso && t.sso.length) }" @click="takeover(t)"><Icon name="login" />{{ t.sso && t.sso.length ? '我自己登录' : '我有账号，去登录' }}</button>
+          <button :class="{ primary: !(t.sso && t.sso.length) }" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? `去登录 ${t.payload.provider}` : t.sso && t.sso.length ? '我自己登录' : '我有账号，去登录' }}</button>
           <button v-if="t.payload.can_register" @click="letRegister(t)">我没注册过，帮我注册</button>
           <button class="ghost" @click="dismiss(t)">先不处理</button>
           <label class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> 记住我输入的密码，下次自动登录</label>

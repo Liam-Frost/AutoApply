@@ -840,8 +840,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         if e.kind == "captcha":
             notify.add_todo("captcha", title, body=e.reason, ref=f"application:{application_id}", payload={"url": e.url})
         elif generic:  # say what is needed, with the same sign-in card as everywhere else; the approved draft runs again afterwards
-            notify.add_todo("takeover", title, body=e.reason, ref=f"account:{ref.tenant_key}",
-                            payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": e.url or ref.url, "job_url": ref.url, "draft_id": draft_id, "can_register": auth.may_register(ref)[0]})
+            auth.ask_to_sign_in(ref, title, e.reason, url=e.url or ref.url, draft_id=draft_id, can_register=auth.may_register(ref)[0])
     except NeedsVisibleRun as e:
         outcome = {"status": "approved", "note": str(e)}
         from . import tasks

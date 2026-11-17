@@ -1,4 +1,22 @@
-"""Choose a browser once, before a workflow starts navigating."""
+"""Choose a browser once, before a workflow starts navigating.
+
+The rule everything here follows: A SIGN-IN LIVES IN THE BROWSER IT WAS MADE IN. Sites tie a session to the browser
+that signed in (Google and the university portal visibly; others silently), so cookies carried into another browser
+are a signed-out session at best and get the real one revoked at worst. Therefore the browser is chosen per site -
+by where that site's sign-in is - and never per kind of work: reading a form, filling it, scanning a list and signing
+in all happen in the same browser for one site.
+
+In order:
+  1. what the task was told to use (the applicant's choice for one run);
+  2. where the site's saved sign-in was made (recorded when it is saved: browser.session_made_in);
+  3. a rule for the site (settings: browser.rules, "tenant") - the browser its sign-in is to be made in.
+     A rule's "operations" no longer narrow this: a rule that said "login only" sent the rest of the work to the other
+     browser, which is exactly what must not happen;
+  4. a site that signs in through a provider (or whose sign-in is a provider's own) follows the provider's browser;
+  5. a rule for an address ("domain"), where "operations" still mean something - a page visited on the way;
+  6. the automated browser.
+A site is looked up under the key its sign-in is kept under (accounts.alias), so that "Google's careers site" and
+"Google" are one."""
 
 from dataclasses import dataclass
 from contextlib import contextmanager
@@ -22,11 +40,6 @@ PRESETS = [
     {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
     {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]},
 ]
-
-
-# Sites that refuse an automated browser on every page, not only at sign-in. A saved rule that names fewer operations
-# (the first version of the rule said "login" only) must not send the rest of the work to a browser the site turns away.
-ORDINARY_ONLY = {"pdportal:ubc"}
 
 
 @dataclass(frozen=True)
@@ -73,21 +86,55 @@ def select(tenant: str | None, url: str = "", operation: str = "apply", override
         return Selection(override, "task override")
     if not enabled:
         return Selection("playwright", "default")
-    alias = (db.get_setting("accounts.alias") or {}).get(tenant, tenant)
-    host = (urlparse(url).hostname or "").lower().rstrip(".")
-    if ORDINARY_ONLY & {tenant, alias}:
-        return Selection("nodriver", "site refuses automated browsers")
     rules = db.get_setting("browser.rules") or []
     validate({"browser.rules": rules})
-    for key in ("tenant", "domain"):
-        for rule in rules:
-            target = rule.get(key)
-            if not target or (rule.get("operations") and operation not in rule["operations"]):
-                continue
-            matches = target in (tenant, alias) if key == "tenant" else host == target.lower() or host.endswith("." + target.lower())
-            if matches:
-                return Selection(rule["backend"], f"{key}: {target}")
-    provider = (db.get_setting("sso.sites") or {}).get(tenant)
-    if provider == "google":
-        return Selection("nodriver", "approved Google SSO")
+    if tenant:
+        found = of_session(tenant, rules)
+        if found is not None:
+            return found
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    for rule in rules:
+        target = rule.get("domain")
+        if not target or (rule.get("operations") and operation not in rule["operations"]):
+            continue
+        if host == target.lower() or host.endswith("." + target.lower()):
+            return Selection(rule["backend"], f"domain: {target}")
     return Selection("playwright", "default")
+
+
+def canonical(tenant: str | None) -> str:
+    """The key a site's sign-in is kept under: its own, or that of the site it signs in on."""
+    from . import db
+
+    return str((db.get_setting("accounts.alias") or {}).get(tenant) or tenant or "")
+
+
+def of_session(tenant: str, rules: list | None = None, _seen: tuple = ()) -> Selection | None:
+    """The browser this site's sign-in lives in, when that is known or laid down; None when nothing says (steps 2-4)."""
+    from . import db
+
+    key = canonical(tenant)
+    made = (db.get_setting("browser.session_made_in") or {}).get(key)
+    if made in BACKENDS:
+        return Selection(made, f"where the sign-in for {key} was made")
+    rules = rules if rules is not None else (db.get_setting("browser.rules") or [])
+    for rule in rules:
+        if rule.get("tenant") and rule["tenant"] in (tenant, key):
+            return Selection(rule["backend"], f"tenant: {rule['tenant']}")
+    sites = db.get_setting("sso.sites") or {}
+    provider = sites.get(tenant) or sites.get(key)
+    if provider and f"idp:{provider}" not in _seen and not key.startswith("idp:"):
+        via = of_session(f"idp:{provider}", rules, (*_seen, f"idp:{provider}"))
+        if via is not None:
+            return Selection(via.backend, f"signs in through {provider}: {via.reason}")
+    return None
+
+
+def session_browser(tenant: str) -> str:
+    """"nodriver" or "playwright": the browser the work for this site is done in when nothing overrides it."""
+    from . import db
+
+    if not db.get_setting("browser.nodriver_enabled"):
+        return "playwright"
+    found = of_session(tenant)
+    return found.backend if found else "playwright"

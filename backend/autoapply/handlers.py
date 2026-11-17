@@ -50,20 +50,18 @@ def _recon(t: Task) -> dict[str, Any]:
             j = s.get(Job, job_id)
             company, url = j.company, j.apply_url
         ref = registry.detect(url) if url else None
-        from .ats.base import host_is, url_host
+        from . import auth
 
-        # where the run stopped, or an address the agent quoted in its notes: by host, not by a name somewhere in the text
-        seen = [e.url or "", *re.findall(r"https?://[^\s\"'<>)]+", e.reason or ""), *re.findall(r"\b[a-z0-9.-]+\.[a-z]{2,}\b", (e.reason or "").lower())]
-        if any(host_is(url_host(x), "accounts.google.com") for x in seen):
-            notify.add_todo("blocked", f"{company}", body="google_sign_in: " + e.reason, ref=f"job:{job_id}", payload={"url": url, "job_id": job_id, "retry_task": t.id, "why": "google"})
+        if ref is not None and e.kind in ("login", "account", "register") and (auth.key_for(ref.tenant_key).startswith("idp:") or auth.provider_at(e.url or "", e.reason or "")):
+            # the run stopped at a sign-in provider's own page: that provider's sign-in is what is missing
+            auth.ask_to_sign_in(ref, company, e.reason, url=e.url or url, retry_task=t.id)
         elif e.kind not in ("login", "captcha", "mfa", "account", "verification", "register"):
             # not a sign-in problem: the page does not work in this program's browser (blank page, site error, apply button leads nowhere)
             notify.add_todo("blocked", f"{company}", body=e.reason, ref=f"job:{job_id}", payload={"url": url, "job_id": job_id, "retry_task": t.id, "why": e.kind})
         elif e.kind == "captcha" or ref is None:
             notify.add_todo("login", f"{company}：需要你处理", body=e.reason, ref=f"job:{job_id}", payload={"url": e.url, "retry_task": t.id})
         else:  # signing in: the same card as every other login, with the choice to let the agent register instead
-            notify.add_todo("takeover", f"{company}（{ref.host or ref.tenant_key}）", body=e.reason, ref=f"account:{ref.tenant_key}",
-                            payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": e.url or url, "job_url": url, "retry_task": t.id, "can_register": True})
+            auth.ask_to_sign_in(ref, f"{company}（{ref.host or ref.tenant_key}）", e.reason, url=e.url or url, retry_task=t.id, can_register=True)
         raise
     return {"draft_id": draft_id}
 

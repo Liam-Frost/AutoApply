@@ -92,8 +92,14 @@ class PDPortalDriver:
                 body = re.sub(r"\s+", " ", page.inner_text("body"))[:300]
             except Exception:  # noqa: BLE001
                 pass
-            if re.search(r"just a moment|verify(ing)? you are human|checking your browser|cloudflare|access denied", f"{page.title()} {body}", re.I):
-                raise DriverError("PD Portal 拦下了这个浏览器窗口（人机验证页），没有显示岗位列表。请在“设置 → 浏览器”里打开“普通浏览器”后重试。", seen=body) from e
+            from .. import browser
+            from ..sources import pdportal as source
+
+            if source.refused(page):
+                try:
+                    source.firewall(page)       # a sign-in card, or the hint to switch the ordinary browser on - as for a scan
+                except browser.RefusedHidden:
+                    raise DriverError("PD Portal 的防护挡住了隐藏的浏览器（人机验证页）。已记下这个网站要在窗口里打开，重试即可。", seen=body) from e
             if re.search(r"log ?in|sign ?in|CWL", body, re.I):
                 raise NeedsHuman("PD Portal session expired", kind="login", url=self.login_url(ref)) from e
             raise DriverError(f"PD Portal 没有显示岗位列表，页面内容：{body[:160] or '（空白）'}", seen=body) from e

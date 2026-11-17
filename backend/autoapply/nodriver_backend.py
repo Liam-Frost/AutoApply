@@ -283,6 +283,58 @@ class Page:
     def inner_text(self, selector, **kwargs):
         return self.locator(selector).inner_text(**kwargs)
 
+    # The page's own short forms of what a locator does (page.click("#go")): the same thing, by selector.
+    def click(self, selector, **kwargs):
+        return self.locator(selector).click(**kwargs)
+
+    def fill(self, selector, value, **kwargs):
+        return self.locator(selector).fill(value, **kwargs)
+
+    def check(self, selector, **kwargs):
+        return self.locator(selector).check(**kwargs)
+
+    def uncheck(self, selector, **kwargs):
+        return self.locator(selector).uncheck(**kwargs)
+
+    def set_checked(self, selector, checked, **kwargs):
+        return self.locator(selector).set_checked(checked, **kwargs)
+
+    def press(self, selector, key, **kwargs):
+        return self.locator(selector).press(key, **kwargs)
+
+    def type(self, selector, text, **kwargs):
+        return self.locator(selector).press_sequentially(text, **kwargs)
+
+    def select_option(self, selector, value=None, **kwargs):
+        return self.locator(selector).select_option(value, **kwargs)
+
+    def set_input_files(self, selector, files, **kwargs):
+        return self.locator(selector).set_input_files(files, **kwargs)
+
+    def focus(self, selector, **kwargs):
+        return self.locator(selector).focus(**kwargs)
+
+    def input_value(self, selector, **kwargs):
+        return self.locator(selector).input_value(**kwargs)
+
+    def get_attribute(self, selector, name, **kwargs):
+        return self.locator(selector).get_attribute(name, **kwargs)
+
+    def text_content(self, selector, **kwargs):
+        return self.locator(selector).text_content(**kwargs)
+
+    def is_visible(self, selector, **kwargs):
+        return self.locator(selector).is_visible(**kwargs)
+
+    def is_checked(self, selector, **kwargs):
+        return self.locator(selector).is_checked()
+
+    def is_enabled(self, selector, **kwargs):
+        return self.locator(selector).is_enabled()
+
+    def reload(self, **kwargs):
+        return self.goto(self.url, **kwargs)
+
     def title(self):
         return self.evaluate("document.title")
 
@@ -290,7 +342,14 @@ class Page:
         return self.evaluate("document.documentElement.outerHTML")
 
     def is_closed(self):
-        return self.tab.closed
+        """Is this tab gone? Asked of the browser: a tab it no longer lists was closed, and a browser that cannot be
+        asked any more is gone with all its tabs."""
+        try:
+            self.context.worker.call(self.context.browser.update_targets(), timeout=10)
+            mine = str(self.tab.target.target_id)
+            return not any(str(t.target.target_id) == mine for t in self.context.browser.tabs)
+        except Exception:  # noqa: BLE001
+            return True
 
     def close(self):
         self.context.worker.call(self.tab.close())
@@ -380,6 +439,12 @@ class Locator:
         child = self.page.get_by_role(role, **kwargs)
         return Locator(self.page, self.steps + child.steps)
 
+    def get_by_label(self, text, **kwargs):
+        return Locator(self.page, self.steps + self.page.get_by_label(text, **kwargs).steps)
+
+    def get_by_text(self, text, **kwargs):
+        return Locator(self.page, self.steps + self.page.get_by_text(text, **kwargs).steps)
+
     def filter(self, has_text=None, has=None):
         if has_text is None and has is None:
             return self
@@ -415,7 +480,39 @@ class Locator:
         return self.evaluate("e => !e.disabled && e.getAttribute('aria-disabled') !== 'true'")
 
     def is_checked(self):
-        return self.evaluate("e => !!e.checked")
+        return self.evaluate("e => !!e.checked || e.getAttribute('aria-checked') === 'true'")
+
+    def is_hidden(self, **kwargs):
+        return not self.is_visible()
+
+    def is_disabled(self, **kwargs):
+        return not self.is_enabled()
+
+    def text_content(self, **kwargs):
+        return self.evaluate("e => e.textContent")
+
+    def check(self, **kwargs):
+        return self.set_checked(True, **kwargs)
+
+    def uncheck(self, **kwargs):
+        return self.set_checked(False, **kwargs)
+
+    def clear(self, **kwargs):
+        return self.fill("", **kwargs)
+
+    def type(self, text, **kwargs):
+        return self.press_sequentially(text, **kwargs)
+
+    def hover(self, **kwargs):
+        from nodriver import cdp
+
+        self.wait_for(timeout=kwargs.get("timeout"))
+        self.scroll_into_view_if_needed()
+        x, y = self.evaluate("e => { const r=e.getBoundingClientRect(); return [r.x+r.width/2,r.y+r.height/2]; }")
+        self.page.send(cdp.input_.dispatch_mouse_event("mouseMoved", x, y))
+
+    def dispatch_event(self, kind, **kwargs):
+        return self.evaluate("(e, kind) => { e.dispatchEvent(new Event(kind, {bubbles: true})); }", kind)
 
     def wait_for(self, state="visible", timeout=None):
         if state not in ("visible", "hidden", "attached", "detached"):
@@ -532,8 +629,16 @@ class Keyboard:
                 modifier = "Meta" if sys.platform == "darwin" else "Control"
             modifiers |= {"Alt": 1, "Control": 2, "Meta": 4, "Shift": 8}[modifier]
         key = parts[-1]
-        code = {"Enter": 13, "Tab": 9, "Backspace": 8, "Escape": 27, "ArrowDown": 40, "ArrowUp": 38, "ArrowLeft": 37, "ArrowRight": 39, "Delete": 46, "Home": 36, "End": 35}.get(key, ord(key.upper()) if len(key) == 1 else 0)
-        self.page.send(cdp.input_.dispatch_key_event("keyDown", key=key, windows_virtual_key_code=code, modifiers=modifiers, text="\r" if key == "Enter" else None))
+        named = {"Enter": 13, "Tab": 9, "Backspace": 8, "Escape": 27, "ArrowDown": 40, "ArrowUp": 38, "ArrowLeft": 37, "ArrowRight": 39, "Delete": 46, "Home": 36,
+                 "End": 35, "PageUp": 33, "PageDown": 34, "Space": 32, " ": 32}
+        if key not in named and len(key) != 1:
+            raise ValueError(f"Unsupported key {key}")
+        code = named[key] if key in named else ord(key.upper())
+        if key == "Space":
+            key = " "
+        # a key that makes a character types it (Enter, the space bar, a letter) - unless a modifier makes it a shortcut
+        text = "\r" if key == "Enter" else key if len(key) == 1 and not modifiers & 7 else None
+        self.page.send(cdp.input_.dispatch_key_event("keyDown", key=key, windows_virtual_key_code=code, modifiers=modifiers, text=text))
         self.page.send(cdp.input_.dispatch_key_event("keyUp", key=key, windows_virtual_key_code=code, modifiers=modifiers))
 
 
@@ -569,7 +674,11 @@ def open_page(state, *, headless, executable, args, profile=None):
         browser = worker.call(create())
         worker.call(browser.start())
         context = Context(worker, browser, state)
-        context.add_cookies((state or {}).get("cookies", []))
+        # The profile keeps its own cookies from one start to the next, and they are the current ones: a saved copy
+        # written over them would put an older session back (which a site reads as the session being replayed).
+        # The saved state only brings what the profile does not have - a new profile, a provider's sign-in.
+        have = {(c["name"], c["domain"].lstrip("."), c["path"]) for c in context.cookies()}
+        context.add_cookies([c for c in (state or {}).get("cookies", []) if (c.get("name"), str(c.get("domain", "")).lstrip("."), c.get("path", "/")) not in have])
         page = context.pages[0]
         origins = {o["origin"]: {x["name"]: x["value"] for x in o.get("localStorage", [])} for o in (state or {}).get("origins", [])}
         import uuid
@@ -584,6 +693,18 @@ def open_page(state, *, headless, executable, args, profile=None):
                 # caller gets its own result, not "TimeoutError" from here.
                 async def stop():
                     process = browser._process
+                    # Asked to close, the browser writes its profile first - the cookies of the session it has just
+                    # used. Ended outright it does not: a sign-in that the site moved on during the run was lost from
+                    # the profile, and the next start put the older saved copy back.
+                    try:
+                        from nodriver import cdp
+
+                        via = browser.connection or next(iter(browser.tabs), None)      # the browser's own channel, or any tab's
+                        await asyncio.wait_for(via.send(cdp.browser.close()), timeout=5)
+                        if process:
+                            await asyncio.wait_for(process.wait(), timeout=10)
+                    except Exception as e:  # noqa: BLE001 - it is ended the hard way below
+                        logging.getLogger("autoapply.nodriver").info("the browser did not close when asked (%s: %s)", type(e).__name__, e)
                     browser.stop()
                     if process:
                         try:

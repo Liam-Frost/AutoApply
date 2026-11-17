@@ -154,9 +154,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "browser.visible_sites": [],   # tenant keys whose pages are refused in a hidden window: these run in a visible one (found out automatically)
     "browser.nodriver_enabled": False,
     "browser.executable": "",
+    "browser.session_made_in": {},   # {site key: "nodriver" | "playwright"} - the browser each saved sign-in was made in (browser_policy)
     "browser.rules": [
         {"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
-        {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
+        {"tenant": "idp:google", "backend": "nodriver", "operations": []},
         {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]},
     ],
     # network (net.py)

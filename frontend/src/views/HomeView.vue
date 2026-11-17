@@ -118,7 +118,7 @@ onMounted(load)
       <div class="card-title">最近的邮件动态</div>
       <div class="list">
         <div v-for="(m, i) in (ov.mail_recent || []).slice(0, 5)" :key="i" class="item">
-          <span class="badge" :class="{ ok: ['interview', 'assessment', 'offer'].includes(m.category), bad: m.category === 'rejection', info: m.category === 'confirmation', warn: m.category === 'info_request' }">{{ m.label }}</span>
+          <span class="badge" :class="{ ok: ['interview', 'assessment', 'offer'].includes(m.category) && m.event !== 'cancelled', bad: m.category === 'rejection', info: m.category === 'confirmation', warn: m.category === 'info_request' || m.event === 'cancelled' }">{{ m.label }}</span>
           <div><div class="main">{{ m.job || m.subject }}</div><div class="sub clamp2" :title="m.summary">{{ m.summary }}</div></div>
           <span class="small muted nowrap">{{ fmtTime(m.received_at) }}</span>
         </div>

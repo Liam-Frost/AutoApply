@@ -105,13 +105,46 @@ def parse_detail(pid: str, text: str) -> dict[str, Any]:
 def scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
     """Yield every live posting. Details are fetched only for ids not in ``known_ids``;
     known ones are yielded as bare ids so the caller can keep them online."""
+    try:
+        yield from _scan(known_ids)
+    except browser.RefusedHidden:           # nothing was yielded yet: once more, now in a window
+        yield from _scan(known_ids)
+
+
+def refused(page: Any) -> bool:
+    """Is this the firewall's page instead of the portal's?"""
+    try:
+        return bool(re.search(r"cloudflare|just a moment|attention required", page.title(), re.I)
+                    or re.search(r"you have been blocked|verify(ing)? you are human|checking your browser", page.inner_text("body")[:600], re.I))
+    except Exception:  # noqa: BLE001 - a page that cannot be read yet is not a refusal
+        return False
+
+
+def firewall(page: Any) -> None:
+    """The firewall answered instead of the portal. First time: remember that the portal wants a window and say so
+    (RefusedHidden - the caller tries again). In a window as well: its pass has run out, which signing in renews."""
+    from .. import db
+
+    if browser.needs_window(TENANT):
+        raise browser.RefusedHidden()
+    if db.get_setting("browser.nodriver_enabled"):
+        notify.add_todo("takeover", "PD Portal（CWL + Duo）", ref=f"account:{TENANT}", payload={"tenant_key": TENANT, "ats": "pdportal", "url": f"{BASE}/home.htm"},
+                        body="门户的防护没有放行这次访问，即使是在普通浏览器的窗口里。重新登录一次 PD Portal 就会重新通过它的验证。")
+        raise NeedsHuman("PD Portal's firewall did not let the browser in: signing in again renews its pass", kind="login", url=f"{BASE}/home.htm")
+    notify.add_todo("config", "PD Portal 拒绝了自动扫描", ref="config:pdportal-blocked",
+                    body="门户的防护挡住了这次用的浏览器，这不是登录问题。到“设置 → 浏览器后端”打开 nodriver（PD Portal 的规则已经预置），再扫描一次。")
+    raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
+
+
+def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
     with browser.open_page(TENANT, url=POSTINGS, operation="scan") as page:
         page.goto(POSTINGS, wait_until="domcontentloaded")
-        if "Cloudflare" in page.title() or "you have been blocked" in page.inner_text("body")[:400]:
-            # The site's firewall refused this browser. Not a login problem: which browser the portal gets is a setting.
-            notify.add_todo("config", "PD Portal 拒绝了自动扫描", ref="config:pdportal-blocked",
-                            body="门户的防护挡住了这次扫描用的浏览器，这不是登录问题。到“设置 → 浏览器后端”打开 nodriver（PD Portal 的规则已经预置），再扫描一次。")
-            raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
+        for _ in range(15):                 # the firewall's own check of the browser passes by itself in a real window: give it the time
+            if not refused(page):
+                break
+            page.wait_for_timeout(1000)
+        else:
+            firewall(page)
         try:  # the postings page has the search widget only when signed in; otherwise it is a login / SSO page
             page.wait_for_selector("#widgetSearch", state="attached", timeout=10000)
             signed_in = True
@@ -125,6 +158,7 @@ def scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_selector("[onclick*=postingId]", timeout=30000)
         listing = page.evaluate(_LIST_JS)
+        notify.close_todos("config", "config:pdportal-blocked")      # the portal let this browser in: a card that said it did not is settled
         ids, obj = listing["ids"], listing["obj"]
         browser.save_state(TENANT, page.context)
         if known_ids is None:

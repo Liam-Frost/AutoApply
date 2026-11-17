@@ -29,7 +29,7 @@ onMounted(load)
   </div>
   <div class="card">
     <div class="row"><span class="card-title grow">站点规则</span><button @click="add">添加规则</button></div>
-    <p class="hint">账号规则优先于域名规则。同一类型按列表顺序匹配。域名包含其子域名。操作留空表示全部。</p>
+    <p class="hint">账号规则说的是“这个网站的登录在哪个浏览器里”：登录、读取、填写都在那个浏览器里做，不能分开。域名规则只管途中经过的页面，可以按操作限定（留空表示全部）。域名包含其子域名。</p>
     <div v-for="(rule, i) in props.s['browser.rules']" :key="i" class="row" style="margin-top: 10px; flex-wrap: wrap">
       <AaSelect :value="rule.tenant !== undefined ? 'tenant' : 'domain'" @change="rule[$event.target.value] = rule.tenant || rule.domain || ''; delete rule[$event.target.value === 'tenant' ? 'domain' : 'tenant']">
         <option value="tenant">账号 / 租户</option><option value="domain">域名</option>
@@ -37,7 +37,7 @@ onMounted(load)
       <input v-if="rule.tenant !== undefined" v-model="rule.tenant" placeholder="pdportal:ubc" />
       <input v-else v-model="rule.domain" placeholder="accounts.google.com" />
       <AaSelect v-model="rule.backend"><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect>
-      <label v-for="(label, key) in { login: '登录', scan: '扫描', read: '读取', apply: '填写申请' }" :key="key"><input v-model="rule.operations" type="checkbox" :value="key" />{{ label }}</label>
+      <template v-if="rule.tenant === undefined"><label v-for="(label, key) in { login: '登录', scan: '扫描', read: '读取', apply: '填写申请' }" :key="key"><input v-model="rule.operations" type="checkbox" :value="key" />{{ label }}</label></template>
       <button @click="props.s['browser.rules'].splice(i, 1)">删除</button>
     </div>
   </div>

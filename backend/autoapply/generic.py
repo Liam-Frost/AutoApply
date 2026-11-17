@@ -768,10 +768,8 @@ def recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     try:
         return _recon(job, ref, run_dir)
     except _Refused:
-        vis = list(db.get_setting("browser.visible_sites") or [])
-        if ref.tenant_key in vis:
+        if not browser.needs_window(ref.tenant_key):      # (remembered: from now on this site gets a visible window)
             raise NeedsHuman(f"{ref.ats}: login required. The site refuses this program's browser even in a visible window.", kind="refused", url=ref.url) from None
-        db.set_setting("browser.visible_sites", [*vis, ref.tenant_key])  # remembered: from now on this site gets a visible window
         return _recon(job, ref, run_dir)
 
 
