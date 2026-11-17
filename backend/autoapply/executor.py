@@ -22,7 +22,9 @@ controls are showing, lets the AI find the way forward when the button is not on
 review step, where the user submits.
 
 What the agent found out is kept (site notes, the draft's own schema and answers), so the driver does it alone next time.
-Forms mapped by the agent (no driver) run through ``GenericDriver`` and are always submitted by the user.
+Whether the program presses Submit or the applicant does is one decision, made in one place (``submit_mode``), from
+what the applicant chose - not from which driver fills the form. Everything that says how an approved draft is sent
+(the button, the plan of steps, the settings page) reads that decision.
 """
 
 from __future__ import annotations
@@ -63,10 +65,16 @@ def policy_for(ats: str) -> str:
     return per.get(ats) or str(db.get_setting("policy.default"))
 
 
-def submit_mode(ats: str, company: str, answers: list[dict[str, Any]], *, has_driver: bool = True) -> dict[str, Any]:
+# What stops an automatic submission during the run, whatever the settings say (see where NeedsVisibleRun is raised):
+# the form is then filled, and the applicant looks it over and presses Submit.
+STOPS_ANYWAY = ["有程序核对不了、由 AI 选定的填写项", "表单在填完后仍然报告需要你处理的问题"]
+
+
+def submit_mode(ats: str, company: str, answers: list[dict[str, Any]]) -> dict[str, Any]:
     """How an approved draft gets submitted. An approved draft is submitted automatically unless the user
-    asked to click Submit for this ATS or company, or something about the run is not well established.
-    Returns {"mode": "auto" | "manual", "reasons": [...]} (reasons are shown to the user)."""
+    asked to click Submit for this ATS or company, or something about the answers is not well established.
+    Returns {"mode": "auto" | "manual", "reasons": [...], "step": <the last step of the plan, in words>}
+    (reasons are shown to the user). The one place this is decided; the button, the plan and the settings page read it."""
     reasons: list[str] = []
     if policy_for(ats) == "manual":
         reasons.append(f"你把 {ats} 设为人工提交" if (db.get_setting("policy.per_ats") or {}).get(ats) == "manual" else "默认提交方式是人工提交")
@@ -80,7 +88,15 @@ def submit_mode(ats: str, company: str, answers: list[dict[str, Any]], *, has_dr
         reasons.append(f"有 {len(shaky)} 项答案把握不高（{'；'.join(x[:30] for x in shaky[:3])}{'…' if len(shaky) > 3 else ''}）")
     # (Answers the agent added from the profile while reading the form are in the draft the applicant approves: approving
     # the draft is having seen them. What comes up after the approval is dealt with in the run - see needs_you there.)
-    return {"mode": "manual" if reasons else "auto", "reasons": reasons}
+    mode = "manual" if reasons else "auto"
+    return {"mode": mode, "reasons": reasons, "step": submit_step(mode, reasons), "stops_anyway": list(STOPS_ANYWAY)}
+
+
+def submit_step(mode: str, reasons: list[str] | None = None) -> str:
+    """The last step of a draft's plan, in words: who presses Submit."""
+    if mode == "manual":
+        return f"填好后打开窗口，由你检查并点击提交（{'；'.join(reasons or []) or '按你的设置'}）；提交后保存确认页作为证据"
+    return "核对无误后由程序自动提交，然后保存确认页作为证据"
 
 
 DONE_RE = re.compile(r"thank(s| you) for (applying|your (application|interest|submission))|thank you|application (has been |was |is )?(received|submitted|sent|complete)|successfully (submitted|applied)|we(.ve| have) received|submission (received|complete)", re.I)
@@ -223,7 +239,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             lifecycle.move(app, "executing", source="run")
     ref = JobRef(**ref_d)
     driver = registry.get(ref.ats)
-    mode = submit_mode(ref.ats, title.split(" · ")[0], draft_answers, has_driver=driver is not None)
+    mode = submit_mode(ref.ats, title.split(" · ")[0], draft_answers)
     if force_manual:
         mode = {"mode": "manual", "reasons": [force_manual]}
     policy = "manual" if mode["mode"] == "manual" else "approve_then_submit"
@@ -1260,7 +1276,7 @@ def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """On explored forms (always submitted by the user) a control that reads back empty is not yet a difference: custom
+    """On explored forms a control that reads back empty is not yet a difference: custom
     widgets show the choice as a chip or put the uploaded file's name elsewhere. Look at what the page shows before
     calling the agent for it. Coded drivers know how to read their own controls and are taken at their word."""
     if schema.source != "agent" or not bad:

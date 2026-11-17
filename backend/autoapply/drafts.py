@@ -172,10 +172,10 @@ def plan_steps(ref: JobRef, schema: FormSchema, fill: dict[str, Any], mats: list
         if i < len(pages) - 1:
             steps.append({"op": "next", "page": i, "text": "保存并进入下一页"})
     steps.append({"op": "read_back", "text": "把每个值从页面读回来，和这份草案逐项比对；有任何不一致就停下，不提交"})
-    if schema.source == "agent":
-        steps.append({"op": "submit", "text": "这个 ATS 还没有驱动：填好后打开窗口，由你检查并点击提交；提交后保存确认页作为证据"})
-    else:
-        steps.append({"op": "submit", "text": "提交（策略为“人工提交”时由你在窗口里点击），然后保存确认页作为证据"})
+    # Who presses Submit is not written down here: it is decided when the draft is looked at and when it is run
+    # (executor.submit_mode), from the settings as they are then. A sentence stored with the draft would go on saying
+    # what was true the day the draft was made.
+    steps.append({"op": "submit", "text": ""})
     return steps
 
 
@@ -492,10 +492,15 @@ def _set_app(app_id: int, status: str, event: str = "") -> None:
             a.last_event = event
 
 
+def _plan_now(plan: list[dict[str, Any]] | None, mode: dict[str, Any]) -> list[dict[str, Any]]:
+    """A draft's plan with its last step as it is true now (also for drafts made when that step was a stored sentence)."""
+    return [{**st, "text": mode["step"]} if st.get("op") == "submit" else st for st in plan or []]
+
+
 def _submit_mode(ats: str, company: str, answers: list[dict[str, Any]]) -> dict[str, Any]:
     from . import executor
 
-    return executor.submit_mode(ats, company, answers, has_driver=registry.get(ats) is not None)
+    return executor.submit_mode(ats, company, answers)
 
 
 def get(draft_id: int) -> dict[str, Any]:
@@ -504,6 +509,7 @@ def get(draft_id: int) -> dict[str, Any]:
         if d is None:
             raise KeyError(draft_id)
         app, job = d.application, d.application.job
+        mode = _submit_mode(d.schema.get("ats", ""), job.company, d.answers)      # who presses Submit, as the settings are now
         return {
             "id": d.id, "version": d.version, "review_status": d.review_status, "created_at": d.created_at.isoformat(),
             "locked": locked(d),            # why nothing in it can be changed now; "" when the applicant can change it
@@ -514,9 +520,9 @@ def get(draft_id: int) -> dict[str, Any]:
             # steps of the form that have not been read yet (they open only once the earlier ones are filled)
             "unseen": _unseen_of(d),
             "walk_open": bool((d.schema.get("extra") or {}).get("walk_open")),      # a walk stopped before the review page
-            "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": d.plan, "notes": d.notes,
+            "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": _plan_now(d.plan, mode), "notes": d.notes,
             "auto_approve_check": d.auto_approve_check,
-            "submit_mode": _submit_mode(d.schema.get("ats", ""), job.company, d.answers),
+            "submit_mode": mode,
             "comments": [{"comment": c.comment, "result": c.result, "created_at": c.created_at.isoformat()} for c in d.comments],
         }
 
