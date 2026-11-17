@@ -152,6 +152,7 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     high: list[str] = []
     from . import tasks
 
+    room = draft_room()["room"]      # how many drafts may still be started by the program itself (drafts.max_pending)
     for jid, out in zip(ids, outs):
         if out is None:
             skipped += 1
@@ -162,9 +163,13 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
             j = s.get(Job, jid)
             floor = min(min_score, prio_score) if employers.is_priority(j.company, j.source, prio) else min_score
             if not out["excluded"] and j.score is not None and j.score >= floor and j.apply_url:
-                j.status = "queued"
                 high.append({"score": j.score, "company": j.company, "title": j.title, "deadline": j.deadline or ""})
-                enqueue_deadline = j.deadline or ""
+                if room > 0:
+                    j.status = "queued"
+                    enqueue_deadline = j.deadline or ""
+                    room -= 1
+                # (no room: it stays "scored" and gets its draft when one of those waiting is dealt with - queue_qualifying,
+                # every ten minutes, the best first)
         if enqueue_deadline is not None:  # enqueue after the session closes (single SQLite writer)
             tasks.enqueue("recon", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(enqueue_deadline))
             queued += 1
@@ -177,6 +182,25 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     return {"scored": scored, "set_aside_by_rule": by_rule, "no_description": skipped, "queued_for_draft": queued, "remaining": remaining}
 
 
+def draft_room() -> dict[str, int]:
+    """How many applications wait for the applicant (being drafted, or drafted and not approved), the most the program
+    lets wait before it stops starting drafts by itself, and how many more it may start. A scan can bring thousands of
+    postings; without a limit the best hundred of them would each get a draft nobody has the time to read."""
+    from .models import Application, Task
+
+    cap = int(db.get_setting("drafts.max_pending") or 0)
+    with db.session() as s:
+        waiting = s.query(Application).filter(Application.status.in_(("recon", "revising", "needs_input", "draft_ready"))).count()
+        # drafts that are about to be started and have no application yet
+        for t in s.query(Task).filter(Task.kind == "recon", Task.status == "queued"):
+            num = t.ref.partition(":")[2]
+            if t.ref.startswith("job:") and num.isdigit():
+                j = s.get(Job, int(num))
+                if j is not None and j.application is None:
+                    waiting += 1
+    return {"waiting": waiting, "cap": cap, "room": max(0, cap - waiting) if cap else 10 ** 6}
+
+
 def queue_qualifying(limit: int = 6) -> int:
     """Postings that are scored, still open, have no application and reach the score at which a draft is prepared: start
     their drafts. Scoring does this for a posting at the moment it is scored; this is for everything that came to qualify
@@ -185,7 +209,10 @@ def queue_qualifying(limit: int = 6) -> int:
     from . import employers, tasks
     from .models import Task
 
-    if db.get_setting("schedule.paused"):
+    if db.get_setting("schedule.paused") or db.get_setting("schedule.draining"):
+        return 0
+    limit = min(limit, draft_room()["room"])       # no more than the applicant has said they want waiting for them
+    if limit <= 0:
         return 0
     min_score = float(db.get_setting("queue.min_score_for_draft"))
     prio, prio_score = employers.priority_names(), float(db.get_setting("employers.priority_min_score") or 7.0)
