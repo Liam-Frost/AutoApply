@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, onUnmounted, provide, ref } from 'vue'
+import { onMounted, onUnmounted, provide, ref, reactive } from 'vue'
+import { clock } from './data'
 import { api, auth } from './api'
 import Icon from './components/Icon.vue'
 import RemoteBanner from './components/RemoteBanner.vue'
@@ -11,8 +12,10 @@ const ov = ref({ pending_drafts: 0, open_todos: 0, queued_tasks: 0, paused: fals
 let timer
 async function load() {
   if (!session.in) return
-  try { ov.value = await api.get('/overview') } catch (e) { /* server restarting */ }
+  // (the server may be restarting, or gone: what is shown stays, and the footer says since when it is not being updated)
+  try { ov.value = await api.get('/overview'); Object.assign(link, { at: Date.now(), down: false }) } catch (e) { link.down = true }
 }
+const link = reactive({ at: null, down: false })
 // Who is here: nobody yet (the login shows), or the administrator (the program shows).
 async function whoAmI() {
   try {
@@ -63,7 +66,8 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/settings" class="nav"><Icon name="settings" />设置</router-link>
 
       <div class="side-foot">
-        <div v-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" style="color: inherit">{{ ov.stopped ? '已停下，可以关闭或重启' : '正在收尾，不再开始新任务' }}</router-link></div>
+        <div v-if="link.down" role="status"><span class="status-dot down"></span>连接不上服务<template v-if="link.at">（上次更新 {{ clock(link.at) }}）</template></div>
+        <div v-else-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" style="color: inherit">{{ ov.stopped ? '已停下，可以关闭或重启' : '正在收尾，不再开始新任务' }}</router-link></div>
         <div v-else-if="ov.paused"><span class="status-dot paused"></span>已暂停，不会自动运行</div>
         <div v-else-if="ov.running && ov.running.length"><span class="status-dot busy"></span>正在{{ ov.running[0].label }}</div>
         <div v-else><span class="status-dot"></span>运行中，目前空闲</div>
