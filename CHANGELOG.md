@@ -6,6 +6,14 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Added
 
+- **What you typed and did not save is not lost without a word.** Leaving a page with unsaved changes - the settings,
+  a prompt, any editor of the profile - asks first: save, discard, or keep editing. So does switching what is being
+  edited (another prompt, another AI service, another section or tab of the profile), and closing or reloading the tab
+  gets the browser's own question. Nothing is asked when nothing was changed.
+- **The settings say how each tab is saved.** A line under the tabs names it: the button at the top right, a part's
+  own button, or at once. The button shows how many changes wait ("3 changes not saved yet"), is inactive when there
+  are none, and the tabs that hold unsaved changes are marked. The three access settings that need a restart are
+  labelled so.
 - **What a mail asks of you becomes a to-do with its date.** An invitation to an interview or an assessment ended
   in a notice and a status; what to do and by when stayed in the mail. It is now a card with the date the mail
   states (and the mail's own wording of it, time zone and all): said the day before and on the day, moved when the
@@ -130,6 +138,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **Saving one part of a page took back what was being edited in another.** Saving an AI service, sending a test
+  message or any other action on the settings page read every setting afresh and so undid unsaved changes on every
+  tab; saving one editor of the profile reset the others. Reading afresh now takes what is new and leaves what is
+  being edited. "Save" on the settings page sends what was changed and nothing else, and says how much it saved -
+  it used to answer "settings saved" also where it saved nothing (the form of an AI service has its own button).
 - **No tool of the AI sends an application - whatever the button is called by, and whichever tool would press it.**
   The AI that reads forms and the one that steps in while filling could not click a button whose text says "Submit".
   That was the whole of it: a button named only by an `aria-label` (an icon) passed; the tools that open a list or
