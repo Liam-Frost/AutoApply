@@ -5,7 +5,6 @@ import { api } from '../api'
 import { ask, run, toast } from '../ui'
 import Icon from './Icon.vue'
 
-const props = defineProps({ s: { type: Object, required: true } })
 const rows = ref([])
 const form = ref({ name: '', url: '', priority: true })
 const hint = ref(null)
@@ -25,8 +24,6 @@ const add = () => run(async () => { const r = await api.post('/employers', form.
 const patch = (e, body) => run(() => api.patch('/employers/' + e.id, body), '', load)
 const remove = async (e) => (await ask(`不再关注 ${e.name}？已经找到的岗位会保留，只是不再读取新的。`, { ok: '移除', danger: true })) && run(() => api.del('/employers/' + e.id), `已移除 ${e.name}`, load)
 const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), '开始扫描，完成后会通知你')
-const csv = (key) => (props.s[key] || []).join(', ')
-const setCsv = (key, v) => { props.s[key] = v.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean) }
 onMounted(load)
 </script>
 
@@ -66,12 +63,6 @@ onMounted(load)
     </table>
     <p v-else class="muted" style="margin-top: 14px">还没有添加任何雇主。</p>
 
-    <div class="kv" style="margin-top: 18px">
-      <label>重点雇主的岗位，评分达到多少就准备草案</label>
-      <div><input v-model.number="props.s['employers.priority_min_score']" type="number" step="0.5" min="0" max="10" style="width: 100px" /> <span class="hint">一般岗位的分数线在“投递方式”里。两处都要点右上角“保存”。</span></div>
-      <label>在大型招聘官网上搜什么</label>
-      <div><input style="width: 100%" :value="csv('sources.search_terms')" placeholder="例如：intern, co-op 或 analyst, graduate" @change="setCsv('sources.search_terms', $event.target.value)" />
-        <div class="hint">Amazon、Microsoft 这类官网岗位成千上万，程序是用搜索框去搜的；每个词各搜一遍，词越多越慢。</div></div>
-    </div>
+    <p class="hint" style="margin-top: 14px">添加、移除和这里的开关改了就生效。重点雇主的岗位评分到多少就准备草案，在<router-link to="/settings/automation/prepare">设置 → 自动准备草案</router-link>；在大型官网上搜什么词，在<router-link to="/settings/goals/search">设置 → 在大型官网上搜什么</router-link>。</p>
   </div>
 </template>
