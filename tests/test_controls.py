@@ -579,7 +579,7 @@ def test_mail_about_a_started_application_does_not_confirm_it(app_env, monkeypat
             j = Job(source="manual", source_id=f"m{i}", company=f"Acme{i}", title="Engineer Intern", apply_url=f"https://x.test/{i}", channel="employer site", jd_text="x" * 300)
             s.add(j)
             s.flush()
-            s.add(Application(job_id=j.id, status=st, submitted_at=sub_at))
+            s.add(Application(job_id=j.id, status=st, submitted_at=sub_at, created_at=datetime(2026, 11, 13)))       # (they were there before the mails came)
     msgs = [mailbox.Message(id=f"id{i}", sender="noreply@x.test", subject=subj, body=body, date=datetime(2026, 11, 14, 13, i))
             for i, (subj, body) in enumerate([("Keep track of your application", "Acme0 started"), ("Thank you for applying", "Acme0 really received"), ("Thank you for applying", "Acme1 received")])]
     replies = {"Acme0 started": {"category": "confirmation", "company": "Acme0", "job_title": "Engineer Intern", "received": False, "summary": "application started"},

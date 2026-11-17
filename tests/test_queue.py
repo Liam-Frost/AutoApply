@@ -241,3 +241,91 @@ def test_boards_of_one_service_turned_away_are_told_as_one_thing(app_env):
                                    "Spotify": "HTTPStatusError: Server error '500 Internal Server Error'"})
     lines = card.detail.splitlines()
     assert lines[1].startswith("RBC、TD：网站的安全检查拒绝") and lines[2].startswith("Spotify：") and "代理或 VPN" in card.hint
+
+
+# --- work that is for later ---
+
+
+def test_work_that_is_for_later_is_in_the_queue_and_outlives_a_saved_setting_and_a_restart(app_env, monkeypatch):
+    """"Try again in half an hour" was a timer in the program's memory. Saving any setting rebuilt the schedule and
+    dropped every such timer; a restart dropped them too. The retry of a site that was down simply never came."""
+    from datetime import timedelta
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from fastapi.testclient import TestClient
+
+    from autoapply import tasks
+    from autoapply.api.main import app
+    from autoapply.models import Task, now
+
+    ran = []
+    monkeypatch.setitem(tasks._handlers, "recon", lambda t: ran.append((t.ref, t.payload.get("_down_retries"))) or {})
+    scheduler = BackgroundScheduler()
+    scheduler.start(paused=True)
+    monkeypatch.setattr(tasks, "_sched", scheduler)
+    try:
+        tid = tasks.enqueue_later("recon", ref="job:844", payload={"_down_retries": 1}, minutes=30, priority=40)
+        assert not any(j.id.startswith("later:") for j in scheduler.get_jobs())       # nothing of it lives in the scheduler
+        scheduler.add_job(lambda: None, "interval", minutes=5, id="someone-elses")
+        tasks.reschedule()                                                            # a setting is saved
+        assert scheduler.get_job("someone-elses") is not None                         # only its own jobs are replaced
+        assert {j.id for j in scheduler.get_jobs()} >= {"upkeep", "unscored"}
+    finally:
+        scheduler.shutdown()
+    tasks.recover()                                                                   # the program is started again
+    with db.session() as s:
+        t = s.get(Task, tid)
+        assert t.status == "queued" and t.due_at is not None and t.priority == 40
+    assert tasks.drain() == 0 and ran == []                                           # in the queue, and not before its time
+    row = next(r for r in TestClient(app).get("/api/tasks").json() if r["id"] == tid)
+    assert row["status"] == "queued" and row["due_at"]                                # and the list of tasks says when
+    with db.session() as s:
+        s.get(Task, tid).due_at = now() - timedelta(seconds=1)
+    assert tasks.drain() == 1 and ran == [("job:844", 1)]
+
+
+def test_the_same_work_asked_for_now_is_taken_forward_not_queued_twice(app_env, monkeypatch):
+    from autoapply import tasks
+    from autoapply.models import Task
+
+    ran = []
+    monkeypatch.setitem(tasks._handlers, "recon", lambda t: ran.append(t.ref) or {})
+    monkeypatch.setitem(tasks._handlers, "mail", lambda t: ran.append(t.ref) or {})
+    later = tasks.enqueue_later("recon", ref="job:7", minutes=30)
+    assert tasks.enqueue("recon", ref="job:7", priority=10) == later                  # "draft it now" while a retry waits: that retry, now
+    assert tasks.drain() == 1 and ran == ["job:7"]
+    # after the same delay: the one that waits is moved; after another delay: another look
+    a = tasks.enqueue_later("mail", ref="confirm:3", minutes=5)
+    assert tasks.enqueue_later("mail", ref="confirm:3", minutes=5) == a
+    b = tasks.enqueue_later("mail", ref="confirm:3", minutes=30)
+    assert b != a
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="mail", status="queued").count() == 2
+    assert tasks.drain() == 0
+
+
+def test_work_that_is_asked_for_again_does_what_was_asked_last(app_env):
+    """A revision that ran into the usage limit waits in the queue for half an hour with its comment. The applicant
+    writes another comment meanwhile: the waiting task was taken forward - with the old comment - and the new one was
+    answered "queued" and never carried out."""
+    from autoapply import tasks
+    from autoapply.models import Task
+
+    old = tasks.enqueue_later("revise", ref="draft:7", payload={"draft_id": 7, "comment": "ask for 30 an hour", "_limit_retries": 1}, minutes=30, priority=10)
+    new = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "ask for 35 an hour"}, priority=10)
+    with db.session() as s:
+        t = s.get(Task, new)
+        assert new == old and t.due_at is None and t.payload["comment"] == "ask for 35 an hour" and t.payload["_limit_retries"] == 1
+        assert s.query(Task).filter_by(kind="revise").count() == 1
+    # the same of one that simply waits its turn
+    assert tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "and mention the start date"}, priority=10) == old
+    with db.session() as s:
+        t = s.get(Task, old)
+        assert t.payload["comment"] == "and mention the start date"
+        t.status = "running"
+    # one that is being done cannot be told anything any more: the same request is that task, another one is a task after it
+    assert tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "and mention the start date"}) == old
+    assert tasks.enqueue("recon", ref="job:3", payload={"job_id": 3}) == tasks.enqueue("recon", ref="job:3", payload={"job_id": 3, "instructions": ""})
+    later = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "no, 40"})
+    with db.session() as s:
+        assert later != old and s.get(Task, later).status == "queued" and s.get(Task, old).payload["comment"] == "and mention the start date"

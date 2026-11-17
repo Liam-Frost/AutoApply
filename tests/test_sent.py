@@ -13,7 +13,7 @@ def _application(s, *, status="failed", url="https://x.test/apply", company="Acm
     job = Job(source="manual", source_id=url, company=company, title="Engineer Intern", apply_url=url, channel="employer site", jd_text="x" * 300)
     s.add(job)
     s.flush()
-    app = Application(job_id=job.id, status=status)
+    app = Application(job_id=job.id, status=status, created_at=datetime(2026, 11, 1))      # (it was there before the mails about it)
     s.add(app)
     s.flush()
     d = Draft(application_id=app.id, review_status="pending", answers=[], notes=[], schema={"ats": "generic", "tenant": "x.test", "url": url, "questions": [], "pages": ["Application"]})

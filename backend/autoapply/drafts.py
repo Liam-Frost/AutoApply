@@ -15,10 +15,15 @@ from . import answers as ans, messages
 from . import prompts
 from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
-from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown, unreachable
-from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
+from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SentEarly, SiteDown, unreachable
+from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
+
+
+class OutcomeUnknown(Exception):
+    """Nothing is drafted for this posting: Submit was pressed on its form and whether the application went out is not
+    known. (What is said is for the applicant.)"""
 
 
 def _stat(ats: str, field: str, *, reset_streak: bool = False, streak: bool = False) -> None:
@@ -172,10 +177,10 @@ def plan_steps(ref: JobRef, schema: FormSchema, fill: dict[str, Any], mats: list
         if i < len(pages) - 1:
             steps.append({"op": "next", "page": i, "text": "保存并进入下一页"})
     steps.append({"op": "read_back", "text": "把每个值从页面读回来，和这份草案逐项比对；有任何不一致就停下，不提交"})
-    if schema.source == "agent":
-        steps.append({"op": "submit", "text": "这个 ATS 还没有驱动：填好后打开窗口，由你检查并点击提交；提交后保存确认页作为证据"})
-    else:
-        steps.append({"op": "submit", "text": "提交（策略为“人工提交”时由你在窗口里点击），然后保存确认页作为证据"})
+    # Who presses Submit is not written down here: it is decided when the draft is looked at and when it is run
+    # (executor.submit_mode), from the settings as they are then. A sentence stored with the draft would go on saying
+    # what was true the day the draft was made.
+    steps.append({"op": "submit", "text": ""})
     return steps
 
 
@@ -191,6 +196,10 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
             s.add(app)
         elif app.status in SENT:
             raise ValueError(f"job {job_id} already has an application in status {app.status}")
+        elif app.status == UNKNOWN:
+            # Submit was pressed on this form and nobody knows yet whether it went out: it is not read again (and so not
+            # drafted, approved and filled again) until the applicant has said it did not.
+            raise OutcomeUnknown(lifecycle.closed_to_work(app))
         else:
             lifecycle.move(app, "recon", source="draft")
         s.flush()
@@ -203,6 +212,17 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
     except AlreadyApplied as e:      # the same answer as when it is met while filling: this application is a sent one
         lifecycle.applied_before(app_id, e.args[0] if e.args else None)
         raise
+    except SentEarly as e:
+        # The form was sent while it was only being read. Nothing an agent has can do that (gate); it happened all the
+        # same. What went out is whatever the form held then - the applicant has to know, and nothing reads or fills
+        # this form again until that is settled.
+        seen_early = e.args[0] if e.args and isinstance(e.args[0], dict) else {}
+        log.error("job %s: the form was sent while it was being read (%s)", job_id, seen_early)
+        said = f"表单在读取过程中被提交了（按下的是“{str(seen_early.get('by') or '提交')[:60]}”）；当时表单里有什么就发出了什么"
+        lifecycle.outcome_unknown(app_id, f"{job.company} · {job.title}", said)
+        # (Not a page that did not work and can be tried again: the card that outcome_unknown left is the only thing
+        # to do about this application, and it is not "read the form again".)
+        raise OutcomeUnknown(said) from e
     except NeedsHuman as e:
         _set_app(app_id, "needs_human", f"recon blocked: {e.reason}")
         raise
@@ -492,10 +512,15 @@ def _set_app(app_id: int, status: str, event: str = "") -> None:
             a.last_event = event
 
 
+def _plan_now(plan: list[dict[str, Any]] | None, mode: dict[str, Any]) -> list[dict[str, Any]]:
+    """A draft's plan with its last step as it is true now (also for drafts made when that step was a stored sentence)."""
+    return [{**st, "text": mode["step"]} if st.get("op") == "submit" else st for st in plan or []]
+
+
 def _submit_mode(ats: str, company: str, answers: list[dict[str, Any]]) -> dict[str, Any]:
     from . import executor
 
-    return executor.submit_mode(ats, company, answers, has_driver=registry.get(ats) is not None)
+    return executor.submit_mode(ats, company, answers)
 
 
 def get(draft_id: int) -> dict[str, Any]:
@@ -504,6 +529,7 @@ def get(draft_id: int) -> dict[str, Any]:
         if d is None:
             raise KeyError(draft_id)
         app, job = d.application, d.application.job
+        mode = _submit_mode(d.schema.get("ats", ""), job.company, d.answers)      # who presses Submit, as the settings are now
         return {
             "id": d.id, "version": d.version, "review_status": d.review_status, "created_at": d.created_at.isoformat(),
             "locked": locked(d),            # why nothing in it can be changed now; "" when the applicant can change it
@@ -514,9 +540,9 @@ def get(draft_id: int) -> dict[str, Any]:
             # steps of the form that have not been read yet (they open only once the earlier ones are filled)
             "unseen": _unseen_of(d),
             "walk_open": bool((d.schema.get("extra") or {}).get("walk_open")),      # a walk stopped before the review page
-            "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": d.plan, "notes": d.notes,
+            "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": _plan_now(d.plan, mode), "notes": d.notes,
             "auto_approve_check": d.auto_approve_check,
-            "submit_mode": _submit_mode(d.schema.get("ats", ""), job.company, d.answers),
+            "submit_mode": mode,
             "comments": [{"comment": c.comment, "result": c.result, "created_at": c.created_at.isoformat()} for c in d.comments],
         }
 
@@ -825,9 +851,16 @@ def _library() -> list[str]:
 
 def revise(draft_id: int, comment: str) -> dict[str, Any]:
     """Apply a natural-language review comment; produces a new draft version."""
-    with db.session() as s0:  # files the applicant uploaded since the draft was prepared go into their fields first
+    with db.session() as s0:
         d0 = s0.get(Draft, draft_id)
-        if d0 is not None and d0.review_status == "pending":
+        if d0 is not None and d0.review_status == "superseded":
+            # The comment was written on a version that another comment has replaced since (it waited behind that one
+            # in the queue). It is about the draft, and the draft is its newest version - not a second line of
+            # versions grown from the old one, without what the first comment changed.
+            newest = [x for x in d0.application.drafts if x.review_status in ("pending", "approved")]
+            if newest:
+                d0, draft_id = newest[-1], newest[-1].id
+        if d0 is not None and d0.review_status == "pending":      # files the applicant uploaded since the draft was prepared go into their fields first
             refresh_files(d0)
     cur = get(draft_id)
     listing = "\n".join(f"- id={a['id']} | {a['label']!r} | type={a['type']} | options={a.get('options') or ''} | current={a['value']!r}" for a in cur["answers"])

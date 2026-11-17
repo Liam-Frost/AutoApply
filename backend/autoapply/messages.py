@@ -137,6 +137,11 @@ def submitted(title: str, *, evidence: str, auto: bool = False, note: str = "") 
     return c
 
 
+def submit_unknown(title: str, *, said: str = "") -> Card:
+    return Card("❓", "提交结果待确认", title, detail=_cut(said, 300), hint="点过提交，但没有看到提交成功的页面。不要重新填写：先等确认邮件，或在待办里现在就查。",
+                path="/todos", link="打开待办")
+
+
 def failed(title: str, *, error: str) -> Card:
     return Card("❌", "申请没有提交", title, detail=_cut(error, 400), hint="没有提交任何内容。原因和下一步见待办。", path="/todos", link="打开待办")
 

@@ -127,7 +127,7 @@ onMounted(load)
           <label>答案没把握时由我提交</label>
           <AaSelect v-model="s['policy.manual_confidence']"><option value="none">不因此停下</option><option value="low">草案里有“把握低”的答案时</option><option value="medium">有“把握中等”或“把握低”的答案时</option></AaSelect>
         </div>
-        <p class="hint" style="margin-top: 12px">另外两种情况也一定会停下等你：这个网站程序还不熟（没有专门适配）；或者填写中途出过错、由 AI 接手填完。</p>
+        <p class="hint" style="margin-top: 12px">不管上面怎么选，遇到这两种情况也会停下，填好后由你过目并点击提交：有程序核对不了、由 AI 选定的填写项；表单在填完后仍然报告需要你处理的问题。是不是专门适配过的网站、填写中途有没有由 AI 接手，都不影响由谁提交。</p>
       </div>
 
       <div class="card">

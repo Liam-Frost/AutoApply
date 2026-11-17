@@ -129,6 +129,14 @@ async function runAgain() {
   
   try { await api.post(`/drafts/${props.id}/execute`); toast('已重新开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
 }
+// Submit was pressed and the outcome is not known: what settles it comes first, filling it in again last and on the applicant's word
+async function checkMail() {
+  try { await api.post(`/applications/${d.value.application.id}/check-mail`); toast('正在查邮箱；有确认邮件的话，这份申请会记为已投出') } catch (e) { toast(e.message, 'bad') }
+}
+async function runAgainNotSubmitted() {
+  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，重新填写会向雇主再投一次。', { ok: '确定没提交，重新填写' }))) return
+  try { await api.post(`/drafts/${props.id}/execute`, { not_submitted: true }); toast('已重新开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+}
 async function markSubmitted() {
   
   try { await api.post(`/applications/${d.value.application.id}/mark-submitted`); toast('已记为“投递成功”，稍后会查确认邮件'); await load() } catch (e) { toast(e.message, 'bad') }
@@ -300,13 +308,25 @@ onUnmounted(() => clearInterval(timer))
       </div>
     </details>
 
-    <div v-if="d.review_status === 'approved' && ['ready_to_submit', 'failed', 'needs_human', 'approved'].includes(d.application.status)" class="callout warn" style="display: block">
+    <div v-if="d.review_status === 'approved' && d.application.status === 'submit_unknown'" class="callout warn" style="display: block">
+      <b>点过提交，但还不知道有没有提交成功。</b>
+      <div class="muted">{{ d.application.explained.message }}</div>
+      <div class="muted" style="margin-top: 6px">如果已经提交成功，雇主的确认邮件会把它记为已投出。先别重新填写：那样可能向雇主投两次。</div>
+      <TechDetails :text="d.application.explained.detail" />
+      <div class="row" style="margin-top: 10px">
+        <button class="primary" @click="checkMail"><Icon name="mail" />现在检查确认邮件</button>
+        <button @click="markSubmitted">我已经提交了</button>
+        <button class="ghost" @click="runAgainNotSubmitted">没提交成功，重新填写</button>
+      </div>
+    </div>
+
+    <div v-else-if="d.review_status === 'approved' && ['ready_to_submit', 'failed', 'needs_human', 'approved'].includes(d.application.status)" class="callout warn" style="display: block">
       <b>这份草案你已经批准，但申请还没有提交成功。</b>
       <div class="muted">{{ d.application.explained.message }}</div>
       <div v-if="editable" class="muted" style="margin-top: 6px">哪一项答案不对，可以直接在上面点“修改”改掉，不用重新批准；改完点下面的按钮，程序按现在的答案再填一次。</div>
       <TechDetails :text="d.application.explained.detail" />
       <div class="row" style="margin-top: 10px">
-        <button class="primary" @click="runAgain"><Icon name="refresh" />重新填写并提交</button>
+        <button class="primary" @click="runAgain"><Icon name="refresh" />{{ d.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
         <button v-if="d.application.status === 'ready_to_submit'" @click="markSubmitted">我已经提交了</button>
       </div>
     </div>

@@ -24,6 +24,10 @@ class Base(DeclarativeBase):
 # (drafts), counts as "applied at this employer" (auth) and is recorded as a change worth settling (db) all read it here.
 SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along a sent application is
+# Submit was pressed and no page said "received". Whether the application went out is not known: it is not a sent one
+# (nothing shows it), and it is not one to fill in again either (that would be a second application if the first went
+# through). It waits for what settles it - the confirmation mail, or the applicant's word.
+UNKNOWN = "submit_unknown"
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String, primary_key=True)
@@ -149,6 +153,7 @@ class AnswerCache(Base):
     basis: Mapped[str] = mapped_column(Text, default="")
     sensitive: Mapped[int] = mapped_column(Integer, default=0)
     confirmed_by_user: Mapped[int] = mapped_column(Integer, default=0)
+    origin: Mapped[str] = mapped_column(String, default="")  # on a row kept for a whole system: the employer whose form it was last given on
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 
 
@@ -161,6 +166,7 @@ class MailEvent(Base):
     subject: Mapped[str] = mapped_column(String, default="")
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     category: Mapped[str] = mapped_column(String, default="")  # confirmation|rejection|interview|assessment|info_request|other
+    linked_by: Mapped[str] = mapped_column(String, default="")  # who said which application it is about: "" the program, "site" the employer's list, "user"
     event: Mapped[str] = mapped_column(String, default="new")  # what the mail says about it: new|changed|reminder|cancelled (mail.EVENTS)
     application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
     company_guess: Mapped[str] = mapped_column(String, default="")
@@ -183,6 +189,7 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # not before this time (a retry, a later look); None: as soon as its turn comes
     stages: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)  # [{stage, at}] the task went through (None on tasks from before this was kept)
 
 
@@ -363,6 +370,12 @@ class DriverStat(Base):
 # late does not take "confirmed" back to "failed"; a draft that is rebuilt does not take "interview" back to "being
 # read". The two things that may go back say so (lifecycle.move(..., back=True)): the applicant correcting the record,
 # and a mail that calls off the stage the application stands at.
+#
+# The same holds for an application whose submission has an unknown outcome (UNKNOWN): Submit was pressed, and it may
+# be with the employer. It goes on to a sent stage when something shows it was received; it goes anywhere else - back
+# to being read, drafted, approved, filled - only on the applicant's word that it was not sent (``not_sent=True``) or
+# their correction of the record. A task that was still queued, a card that offered "try again", an answer changed in
+# the draft: none of them is that word, and each of them used to be a way to a second application.
 
 def _guard_status(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
     old = oldvalue if isinstance(oldvalue, str) else ""
@@ -375,6 +388,11 @@ def _guard_status(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any
         import logging
 
         logging.getLogger("autoapply.lifecycle").info("application %s stays %s: %s does not take a sent application back", getattr(target, "id", "?"), old, value)
+        return old
+    if old == UNKNOWN and value not in SENT and not ((moving or {}).get("back") or (moving or {}).get("not_sent")):
+        import logging
+
+        logging.getLogger("autoapply.lifecycle").info("application %s stays %s: only the applicant's word that it was not sent takes it to %s", getattr(target, "id", "?"), old, value)
         return old
     return value
 
