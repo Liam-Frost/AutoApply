@@ -40,6 +40,7 @@ from typing import Any
 from . import answers as ans, messages
 from . import auth, browser, config, db, fixtures, knowledge, learned, lifecycle, llm, metering, notify, repair, secrets, submitwatch, timing
 from .ats import audit, registry
+from .ats.base import SentEarly
 from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .ats.base import tolerated
 from .drafts import _stat
@@ -185,6 +186,26 @@ def _no_form(page: Any) -> bool:
     except Exception as _e:  # noqa: BLE001 - a page between two addresses
         tolerated(_e)
         return False
+
+
+class _Watching:
+    """While a run has a page: whatever ends the run, what the page saw of the application being sent is read before the
+    page is gone. A form that is sent halfway leaves a page nothing else can be done with, and the run ends on whatever
+    that breaks next - "the field is not there", "could not go on to the next page". None of those is what happened.
+
+    ``meant``: set once the program has reached the point where the application is meant to go out (it presses Submit,
+    or hands the window to the applicant). From then on, a form being sent is not news."""
+
+    def __init__(self, page: Any) -> None:
+        self.page, self.meant, self.early = page, False, None
+
+    def __enter__(self) -> "_Watching":
+        submitwatch.install(self.page)
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        if not self.meant:
+            self.early = submitwatch.sent(self.page)
 
 
 class NeedsVisibleRun(Exception):
@@ -771,9 +792,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     def _after_verify_repair(rep: dict[str, Any], i: int) -> None:
         _apply(rep, i)
 
+    watching = None
     try:
         headless = policy != "manual" or scout
-        with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless, url=ref.url, operation="apply") as page:
+        # (watched from the first page on: whatever sends the application before the program does is seen)
+        with browser.open_page(ref.tenant_key if (driver.requires_login or generic) else None, headless=headless, url=ref.url, operation="apply") as page, _Watching(page) as watching:
             timing.timed_goto(page)
             learned.waits_on(page)                         # "after load": every time this page is sent somewhere
             st = auth.ensure_session(page, signer or driver, ref)      # a site with a coded sign-in uses it, whoever fills the form
@@ -879,6 +902,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 _checked(lambda: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, None, page_of, run_dir, step, title, application_id,
                                          after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1)), on_trust=_trusted))
             touched = any(st["op"] == "repair" for st in steps)
+            if (early := submitwatch.sent(page)) is not None:
+                # No tool of an agent sends an application (gate), and the driver has not been told to yet. It was sent
+                # all the same: by something that got past all of that. It is not sent a second time, nobody is handed
+                # the window to send it again, and it is not called a failure.
+                raise SentEarly(early)
             if scout:
                 # the walk ends here: at the review page, or at a step that needs the applicant. Nothing is submitted, nobody is handed a window.
                 reached = any(st["op"] == "review_step" for st in steps)
@@ -911,11 +939,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 watch = [Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"], locator={"selector": f"@label:{a['label']}"})
                          for a in asked if not a.get("decision") and not a.get("entry")] if generic else []
                 typed: dict[str, Any] = {}
+                watching.meant = True       # from here the window is the applicant's: Submit is theirs to press
                 outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added, adapted=adapted, watch=watch, typed=typed)
                 for a in asked:
                     a["value"] = typed.get(f"@label:{a['label']}", "")
             else:
                 clicked_at = datetime.now(timezone.utc)
+                watching.meant = True       # read back, checked, and the applicant's settings say so: now it goes out
                 try:
                     driver.submit(page)
                 except DriverError as e:
@@ -954,6 +984,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         seen_there = e.args[0] if e.args and isinstance(e.args[0], dict) else {"text": "The site shows this job as already applied."}
         outcome = {"status": "submitted", "evidence": seen_there, "note": lifecycle.APPLIED_BEFORE, "earlier": True}
         ok = True
+    except SentEarly as e:
+        seen_early = e.args[0] if e.args and isinstance(e.args[0], dict) else {}
+        step("sent_early", by=str(seen_early.get("by") or "")[:80], how=str(seen_early.get("how") or ""))
+        log.error("application %s: the form was sent while it was still being filled (%s)", application_id, seen_early)
+        outcome = {"status": UNKNOWN, "submit_clicked": True, "sent_early": True,
+                   "error": f"表单在填写过程中被提交了（按下的是“{str(seen_early.get('by') or '提交')[:60]}”），不是程序在核对完之后提交的；填到一半的内容可能已经发出"}
     except NeedsHuman as e:
         outcome = {"status": "needs_human", "error": e.reason, "waits_for": getattr(e, "waits_for", "")}
         if e.kind == "captcha":
@@ -985,6 +1021,16 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         log.exception("execution crashed")
         outcome = {"status": "failed", "error": f"{type(e).__name__}: {e}"}
 
+    if watching is not None and watching.early and outcome.get("status") not in SENT and not outcome.get("sent_early"):
+        # the run ended on something else - and the application had been sent before the program meant to send it
+        step("sent_early", by=str(watching.early.get("by") or "")[:80], how=str(watching.early.get("how") or ""), ended_as=str(outcome.get("status")))
+        log.error("application %s: the form was sent while it was still being filled (%s); the run ended as %s", application_id, watching.early, outcome.get("status"))
+        outcome = {"status": UNKNOWN, "submit_clicked": True, "sent_early": True, "last_seen": outcome.get("last_seen"),
+                   "error": f"表单在填写过程中被提交了（按下的是“{str(watching.early.get('by') or '提交')[:60]}”），不是程序在核对完之后提交的；填到一半的内容可能已经发出"}
+        ok = False
+    if scout and outcome.get("status") == UNKNOWN:
+        # (the one thing a walk does change: the form was sent while it was being walked)
+        lifecycle.outcome_unknown(application_id, title, outcome.get("error", ""), draft_id=draft_id)
     if scout:      # the application's status is not the walk's to change; what it found goes into the draft
         with db.session() as s:
             s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, spans=_scout_spans(), site=_site_of(schema), dir=str(run_dir)))
@@ -1070,16 +1116,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     if outcome["status"] == UNKNOWN:
         # Submit was pressed; whether it went through is not known. Not a card that offers to fill it in again: one that
         # says what is open and what settles it. The confirmation mail is looked for like after any submission.
-        from . import tasks
-
-        for kind in ("failed", "submit"):
-            notify.close_todos(kind, f"application:{application_id}")
-        notify.add_todo("submit", f"{title}：提交结果待确认", body=f"{outcome.get('error', '')}。如果已经提交成功，雇主的确认邮件会把它记为已投出；程序会继续留意邮箱，你也可以现在就查。"[:500],
-                        ref=f"application:{application_id}", payload={"draft_id": draft_id, "application_id": application_id},
-                        push=not db.get_setting("notify.task_result"))
-        for m in db.get_setting("mail.confirm_check_minutes") or []:
-            tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
-        notify.send("task_result", messages.submit_unknown(title, said=outcome.get("error", "")), ref=f"application:{application_id}")
+        lifecycle.outcome_unknown(application_id, title, outcome.get("error", ""), draft_id=draft_id)
     elif outcome["status"] == "ready_to_submit" and outcome.get("error"):
         # Filled, the window is gone, and Submit was not pressed: one card that says so and offers to open it again.
         # (A run that stopped for a login or a CAPTCHA already has its own card saying what is needed.)
@@ -1439,7 +1476,7 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
     for tick in range(1200):  # up to ~20 minutes
         if page.is_closed():
             break
-        pressed = submitwatch.seen(page) or pressed      # asked every second: what Submit leaves behind may be the last thing the window shows
+        pressed = submitwatch.sent(page) or pressed      # asked every second: what Submit leaves behind may be the last thing the window shows
         if watched is not None and typed is not None and tick % 2 == 0:
             # What the applicant enters for the questions that were handed to them: read while the field is on the page
             # (it is gone once they go on to the next step), kept for the draft and remembered.

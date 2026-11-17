@@ -15,7 +15,7 @@ from . import answers as ans, messages
 from . import prompts
 from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
-from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown, unreachable
+from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SentEarly, SiteDown, unreachable
 from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
@@ -203,6 +203,15 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
     except AlreadyApplied as e:      # the same answer as when it is met while filling: this application is a sent one
         lifecycle.applied_before(app_id, e.args[0] if e.args else None)
         raise
+    except SentEarly as e:
+        # The form was sent while it was only being read. Nothing an agent has can do that (gate); it happened all the
+        # same. What went out is whatever the form held then - the applicant has to know, and nothing reads or fills
+        # this form again until that is settled.
+        seen_early = e.args[0] if e.args and isinstance(e.args[0], dict) else {}
+        log.error("job %s: the form was sent while it was being read (%s)", job_id, seen_early)
+        said = f"表单在读取过程中被提交了（按下的是“{str(seen_early.get('by') or '提交')[:60]}”）；当时表单里有什么就发出了什么"
+        lifecycle.outcome_unknown(app_id, f"{job.company} · {job.title}", said)
+        raise NeedsHuman(said, kind="other", waits_for=f"application:{app_id}") from e
     except NeedsHuman as e:
         _set_app(app_id, "needs_human", f"recon blocked: {e.reason}")
         raise

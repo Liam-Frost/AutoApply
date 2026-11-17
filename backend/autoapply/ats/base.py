@@ -174,6 +174,12 @@ def unreachable(e: BaseException) -> bool:
     return isinstance(e, SiteDown) or (not isinstance(e, NeedsHuman) and bool(UNREACHABLE.search(str(e))))
 
 
+class SentEarly(Exception):
+    """The application was sent while the program was reading or filling its form - before the program meant to send it,
+    by something that got past everything meant to keep an agent from doing so. Raised with what was seen of it
+    (submitwatch). Not a failure to do again: the application may be out, as it stood at that moment."""
+
+
 class NeedsHuman(Exception):
     """Login, CAPTCHA, MFA, or an existing account without stored credentials."""
 

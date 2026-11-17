@@ -166,6 +166,28 @@ def applied_before(application_id: int, seen: Any = None) -> None:
     notify.send("task_result", messages.submitted(title, evidence=seen["text"], note="already applied"), ref=f"application:{application_id}")
 
 
+def outcome_unknown(application_id: int, title: str, said: str, *, draft_id: int | None = None, source: str = "run") -> None:
+    """Submit was pressed - by the program, by the applicant in their window, or by something that should not have - and
+    nothing says the application was received. Put it there, say so in one card, and look for the confirmation mail as
+    after any submission. (An application that has meanwhile gone out stays where it is.)"""
+    from . import messages, notify, tasks
+
+    with db.session() as s:
+        a = s.get(Application, application_id)
+        if a is None or a.status in SENT:
+            return
+        if move(a, UNKNOWN, source=source):
+            a.last_event = said[:500]
+    for kind in ("failed", "submit"):
+        notify.close_todos(kind, f"application:{application_id}")
+    notify.add_todo("submit", f"{title}：提交结果待确认", body=f"{said}。如果已经提交成功，雇主的确认邮件会把它记为已投出；程序会继续留意邮箱，你也可以现在就查。"[:500],
+                    ref=f"application:{application_id}", payload={"draft_id": draft_id, "application_id": application_id},
+                    push=not db.get_setting("notify.task_result"))
+    for m in db.get_setting("mail.confirm_check_minutes") or []:
+        tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+    notify.send("task_result", messages.submit_unknown(title, said=said), ref=f"application:{application_id}")
+
+
 def unknown_from_before() -> list[int]:
     """Runs of earlier versions that pressed Submit and saw no confirmation were filed as failed, with a card that offered
     to fill the form in again. They are what they are: submissions whose outcome is not known. Returns the applications."""
