@@ -229,3 +229,33 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
     if kind == "canary":
         return "自检完成"
     return ""
+
+
+_BROWSER = re.compile(r"^browser:(\w+) \((.*)\)$")
+
+
+def browser_stage(stage: str) -> str:
+    """Which browser a task worked in, as a sentence - '' for the usual one, which is not worth a line.
+
+    The stage is written for the record ("browser:nodriver (tenant: pdportal:ubc)"); the activity page showed it as it
+    stood."""
+    m = _BROWSER.match(stage or "")
+    if not m:
+        return ""
+    backend, why = m.group(1), m.group(2)
+    if backend == "playwright" and why == "default":
+        return ""
+    name = "普通浏览器" if backend == "nodriver" else "程序自带的浏览器"
+    if why == "task override":
+        return f"这一次改用{name}（你点的“换浏览器重试”）"
+    if why == "default":
+        return f"用{name}"
+    if why.startswith("tenant: "):
+        return f"用{name}：这个网站的账号规则是这样定的（{why[8:]}）"
+    if why.startswith("domain: "):
+        return f"用{name}：站点规则是这样定的（{why[8:]}）"
+    if why.startswith("where the sign-in for "):
+        return f"用{name}：这个网站的登录是在它里面做的"
+    if why.startswith("signs in through "):
+        return f"用{name}：这个网站通过第三方账号登录，那个账号的登录在它里面"
+    return f"用{name}"

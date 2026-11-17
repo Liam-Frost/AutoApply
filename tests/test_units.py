@@ -312,3 +312,19 @@ def test_every_server_file_with_text_for_the_applicant_is_on_the_list_to_transla
             unknown.append(rel)
     assert unknown == []          # add it to SERVER in scripts/i18n_extract.py - or to NOT_INTERFACE, saying what its Chinese text is
     assert not set(ex.SERVER) & set(ex.NOT_INTERFACE)
+
+
+def test_which_browser_a_task_worked_in_is_said_in_words():
+    """The activity page showed "browser:nodriver (tenant: pdportal:ubc)" as it was written for the record."""
+    from autoapply import humanize
+
+    said = humanize.browser_stage
+    assert said("browser:playwright (default)") == "" and said("open") == "" and said("") == ""          # the usual one is not worth a line
+    assert "普通浏览器" in said("browser:nodriver (tenant: pdportal:ubc)") and "pdportal:ubc" in said("browser:nodriver (tenant: pdportal:ubc)")
+    assert "站点规则" in said("browser:nodriver (domain: accounts.google.com)")
+    assert "换浏览器重试" in said("browser:nodriver (task override)")
+    assert "登录是在它里面做的" in said("browser:nodriver (where the sign-in for workday:acme was made)")
+    assert "第三方账号" in said("browser:nodriver (signs in through google: tenant: idp:google)")
+    assert "程序自带的浏览器" in said("browser:playwright (tenant: greenhouse:acme)")
+    for s in ("browser:nodriver (tenant: x)", "browser:nodriver (something new)"):
+        assert "browser:" not in said(s) and "nodriver" not in said(s)

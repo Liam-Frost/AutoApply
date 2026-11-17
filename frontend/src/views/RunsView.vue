@@ -49,10 +49,10 @@ const stepsOf = (t) => {
   const r = runs.value.find((x) => x.task_id === t.id && x.steps.length)
   return r ? r.steps.map((s) => JSON.stringify(s)).join('\n') + `\n\n截图和页面快照：${r.dir}` : ''
 }
-const tech = (t) => [t.explained.detail, t.status === 'done' && t.result && Object.keys(t.result).length ? JSON.stringify(t.result, null, 1) : '', stepsOf(t)].filter(Boolean).join('\n\n')
+const tech = (t) => [t.explained.detail, (t.browser_detail || []).join('\n'), t.status === 'done' && t.result && Object.keys(t.result).length ? JSON.stringify(t.result, null, 1) : '', stepsOf(t)].filter(Boolean).join('\n\n')
 const line = (t) => t.summary || t.explained.message || (t.status === 'running' ? '正在进行…' : t.status === 'queued' ? (t.due_at ? `定在 ${fmtTime(t.due_at)} 之后再做` : '等前面的任务完成') : '')
 const retry = (t) => run(() => api.post(`/tasks/${t.id}/retry`), '已重新排队', load)
-const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已使用 nodriver 重新排队', load)
+const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已重新排队，这一次用普通浏览器', load)
 const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果' }
 const sysName = (d) => ({ greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', pdportal: 'UBC PD Portal', generic: '其他网站（通用方式）', lever: 'Lever' }[d.ats] || d.ats)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
@@ -200,7 +200,7 @@ onMounted(load)
         <div class="right">
           <div class="small muted nowrap">{{ fmtTime(t.finished_at || t.started_at || t.created_at) }}</div>
           <button v-if="['failed', 'waiting_human'].includes(t.status) && t.kind !== 'execute'" class="sm ghost" style="margin-top: 4px" @click="retry(t)">再试一次</button>
-          <button v-if="['failed', 'waiting_human'].includes(t.status) && ['recon', 'discover', 'revise'].includes(t.kind)" class="sm ghost" style="margin-top: 4px" @click="retryNative(t)">用 nodriver 重试</button>
+          <button v-if="['failed', 'waiting_human'].includes(t.status) && ['recon', 'discover', 'revise'].includes(t.kind)" class="sm ghost" style="margin-top: 4px" title="网站把程序自带的浏览器挡在外面时用（nodriver）" @click="retryNative(t)">换普通浏览器重试</button>
         </div>
       </div>
     </div>

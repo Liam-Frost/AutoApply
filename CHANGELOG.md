@@ -122,6 +122,15 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
+- **A draft says what to look at before the table of everything.** Above the answers: the questions that have no
+  answer, the answers the program is not sure of, a sensitive question met for the first time, what changed with
+  the form, the files written for this posting, and who presses Submit and why - each line leading to its row. The
+  full table stays as it was.
+- In the library, the folder of a posting shows the employer on one line and the title with the place and term on
+  the next: several postings of one employer were cut off to the same few letters.
+- The activity record says in words which browser a task worked in when it was not the usual one, and why ("the
+  ordinary browser: this site's account rule says so"); it showed the internal note as it stood. The note itself is
+  under "technical details". "Retry with nodriver" is "try again in the ordinary browser".
 - **The settings are grouped by what they are about, and every section has an address.** Ten tabs named after parts
   of the program became six groups - search goals and matching, automation and work plan, materials and answers,
   accounts and connections, notices and reminders, system and data - each a page of named sections

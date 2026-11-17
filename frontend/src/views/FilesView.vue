@@ -42,7 +42,7 @@ const jobs = computed(() => {
   const m = new Map()
   for (const d of generated.value) {
     const k = d.job_id || 0
-    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
+    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', company: d.job_company || '', title: d.job_title || '', where: d.job_where || '', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
     m.get(k).files.push(d)
   }
   return [...m.values()].sort((a, b) => b.files[0].id - a.files[0].id)
@@ -138,7 +138,8 @@ onMounted(load)
           <button class="sub fold" :aria-expanded="isOpen(k)" @click="fold(k)"><Icon :name="isOpen(k) ? 'chevron_up' : 'chevron'" />{{ label }}<span class="n">{{ bySection[k].length }}</span></button>
           <template v-if="isOpen(k)">
             <button v-for="j in bySection[k]" :key="j.id" class="sub deep" :class="{ on: folder === 'job:' + j.id }" :title="j.name" @click="go('job:' + j.id)">
-              <span class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
+              <span v-if="j.company" class="fm-job"><b class="ell">{{ j.company }}</b><span class="ell">{{ j.title }}<template v-if="j.where"> · {{ j.where }}</template></span></span>
+              <span v-else class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
             </button>
           </template>
         </template>
