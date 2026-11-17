@@ -133,6 +133,7 @@ onMounted(load)
       <div class="card">
         <div class="card-title">哪些岗位自动生成草案</div>
         <div class="kv" style="margin-top: 12px">
+          <label>最多同时有多少份草案等你</label><div><input v-model.number="s['drafts.max_pending']" type="number" min="0" step="1" style="width: 100px" /> <span class="hint">正在生成或等你审批的草案到了这个数，程序就不再自己开始新的，等你处理掉一些再继续（先做评分最高的）；填 0 不限制。你亲手点“生成草案”的不受限制。</span></div>
           <label>评分达到多少分</label><div><input v-model.number="s['queue.min_score_for_draft']" type="number" step="0.5" style="width: 100px" /> <span class="hint">满分 10。新岗位评分达到这个分数就自动准备草案。</span></div>
         </div>
       </div>
