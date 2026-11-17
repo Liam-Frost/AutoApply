@@ -7,6 +7,7 @@ never logged). Tracking sends one e-mail body at a time to the small model.
 
 from __future__ import annotations
 
+import html
 import base64
 import json
 import logging
@@ -89,7 +90,8 @@ def _body(payload: dict[str, Any]) -> str:
         return "\n".join(plain)
     h = "\n".join(htmls)
     h = re.sub(r"<(script|style)[\s\S]*?</\1>", " ", h, flags=re.I)
-    h = re.sub(r'<a[^>]+href="([^"]+)"[^>]*>', r" \1 ", h, flags=re.I)
+    # the address as a browser would follow it: in HTML, "&" in an address is written "&amp;"
+    h = re.sub(r'<a[^>]+href="([^"]+)"[^>]*>', lambda m: f" {html.unescape(m.group(1))} ", h, flags=re.I)
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h))
 
 
@@ -285,10 +287,17 @@ def link_refusal(url: str, site_host: str) -> str:
     return ""
 
 
+# the subject of a mail that carries a code or a link for an account: never summarised, stored or given to a model
+ACCOUNT_MAIL = re.compile(r"(security|verification|one[- ]time|temporary|access|login)\s*(code|pin|passcode|password)|\b(otp|passcode)\b|\bverify\b|"
+                          r"\bactivate your\b|\bconfirm your\b.{0,40}\b(e-?mail|account|address)|reset your password", re.I)
+
+
 def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: datetime | None = None, site_host: str = "") -> str | None:
-    """Poll for a fresh verification e-mail. Returns the code or link, or None on timeout. With ``site_host``, a link is
-    returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
+    """Poll for a verification e-mail, the newest first. Returns the code or link, or None on timeout. With ``site_host``,
+    a link is returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
     since = since or (datetime.now(timezone.utc) - timedelta(minutes=3))
+    # a mail from hours ago (an account whose confirmation was never finished) lies under whatever arrived since
+    many = 10 if datetime.now(timezone.utc) - since < timedelta(minutes=15) else 80
     hint = re.sub(r"^(www|jobs|careers)\.", "", sender_hint).split(".")[0] if sender_hint else ""
     from . import mailbox
 
@@ -296,7 +305,7 @@ def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: d
     refused = ""
     while time.time() < deadline:
         try:
-            msgs = mailbox.fetch(since, 10)
+            msgs = mailbox.fetch(since, many)
         except mailbox.NotConfigured as e:
             raise MailNotConfigured(str(e)) from e
         for msg in msgs:
@@ -563,7 +572,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             if s.query(MailEvent).filter_by(message_id=mid).first():
                 continue
         frm, subj, received, body = msg.sender, msg.subject, msg.date, msg.body
-        if re.search(r"(security|verification|one[- ]time|temporary|access|login)\s*(code|pin|passcode|password)|\b(otp|passcode)\b|verify your (e-?mail|account)", subj, re.I):
+        if ACCOUNT_MAIL.search(subj):
             # Codes are used by the sign-in / submit step only; they are never summarised, stored or notified.
             t = {"category": "other", "company": "", "job_title": "", "summary": "verification e-mail (not shown)"}
         else:

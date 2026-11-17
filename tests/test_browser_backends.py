@@ -393,6 +393,11 @@ def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_as
         yield page
 
     monkeypatch.setattr(browser, "open_page", open_page)
+
+    def no_sign_in(page):                    # how the portal is signed in to is test_portal_sign_in.py's subject
+        raise NeedsHuman("PD Portal session expired", kind="login")
+
+    monkeypatch.setattr(pdportal, "sign_in", no_sign_in)
     order = [True, False]                    # hidden: turned away; in a window: let in
     with pytest.raises(NeedsHuman, match="session expired"):
         list(pdportal.scan(set()))

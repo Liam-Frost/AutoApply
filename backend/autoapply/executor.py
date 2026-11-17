@@ -1319,17 +1319,13 @@ def _finish_account(page: Any, ref: JobRef, step: Any, run_dir: Any = None) -> N
             return
         from . import mail
 
-        since = datetime.now(timezone.utc) - timedelta(minutes=3)
-        got = mail.wait_for_verification(sender_hint=ref.host, timeout=120, since=since, site_host=ref.host)
-        if got and got.startswith("http"):
-            page.goto(got, wait_until="domcontentloaded")
-            page.wait_for_timeout(3000)
-            if not mail.link_refusal(page.url, ref.host):
-                auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="ok")
-                browser.save_state(ref.tenant_key, page.context)
-                step("account_confirmed", host=ref.host)
-                return
-        why = got[9:] if got and got.startswith("refused:") else ("没有收到确认邮件" if not got else "确认邮件里是验证码，不是链接")
+        how, val = auth.confirm_address(page, ref, wait=120)
+        if how == "link" and not mail.link_refusal(page.url, ref.host):
+            auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="ok")
+            browser.save_state(ref.tenant_key, page.context)
+            step("account_confirmed", host=ref.host)
+            return
+        why = val if how == "refused" else "没有收到确认邮件" if how == "none" else "确认邮件里是验证码，不是链接" if how == "code" else "打开确认链接后离开了这个网站"
         auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, error=f"账号随申请建好了，邮箱确认还没完成：{why}"[:300])
         step("account_unconfirmed", why=why[:120])
     except Exception as e:  # noqa: BLE001

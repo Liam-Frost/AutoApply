@@ -146,6 +146,10 @@ def task_failed(kind: str, error: str) -> Card:
     return Card("⚠️", f"{what}没有完成", detail=_cut(error, 400), hint="草案没有被改动。", path="/runs", link="查看任务记录")
 
 
+def second_factor(site: str, method: str) -> Card:
+    return Card("📱", f"请在手机上批准 {method}", site, hint=f"程序正在登录 {site}，账号密码已经输入；现在等你在手机上批准，最多等 3 分钟。不是你发起的登录也会出现在这里：那就不要批准。")
+
+
 def registered(key: str) -> Card:
     return Card("🆕", "已注册账号", key, hint="密码保存在本机凭据管理器里。", path="/accounts", link="查看账号")
 

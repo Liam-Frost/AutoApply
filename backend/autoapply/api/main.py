@@ -92,6 +92,12 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not apply the programmes rule to stored postings")
         db.set_setting("migrated.programmes_rule", True)
+    if not db.get_setting("migrated.unconfirmed_accounts"):
+        try:
+            auth.requeue_unconfirmed()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("could not put unconfirmed accounts back in line")
+        db.set_setting("migrated.unconfirmed_accounts", True)
     if not db.get_setting("migrated.site_rules_whole"):
         from .. import browser_policy as _policy
 

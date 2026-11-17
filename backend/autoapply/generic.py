@@ -66,6 +66,9 @@ How to work:
     "activate your account"), call email_verification right away - with no selector it opens an activation link; if the page shows a box
     for a code, pass that box's selector. Do not stop or report a problem before you have tried this. When you are signed in, call
     account_result("registered").
+  * Whenever the site says the e-mail address has to be confirmed / verified first - after sign-up, or when signing in with the stored
+    password - that is yours to do, not the applicant's: call email_verification (it also finds the mail the site sent when the account
+    was made), then sign in again. Only if that did not work, call account_result("unconfirmed") and finish with blocked="login".
   * If sign-up says the e-mail is already registered, call account_result("exists") and finish with blocked="login". Never use
     "forgot password".
   After signing in or registering, continue to the application form.
@@ -437,8 +440,6 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                 pass
             state["adopted"] = got
         return key
-    if _a.get("status") == "pending" and _a.get("created_at"):
-        state.setdefault("since", datetime.fromisoformat(_a["created_at"]).replace(tzinfo=timezone.utc))  # the link was mailed back then
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
@@ -630,34 +631,28 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         site = url_host(page.url) or ref.host
         if not (mail.site_domain(site) and mail.site_domain(site) == mail.site_domain(ref.host or site)):
             site = ref.host       # the page has wandered off the site: the link must be the site's, not this page's
-        got = mail.wait_for_verification(sender_hint=ref.host, timeout=180, since=state["since"], site_host=site)
-        if got is None:
-            return "no verification e-mail arrived within 3 minutes"
-        if got.startswith("refused:"):
+        if selector and state.get("code"):       # the mail was read by the call before this one, which had no box to type into
+            how, val = "code", state.pop("code")
+        else:
+            how, val = auth.confirm_address(page, aref, key=key, since=state["since"], site=site)
+        if how == "none":
+            state["no_mail"] = True
+            return "no verification e-mail arrived within 3 minutes. Call account_result('unconfirmed') and finish with blocked='login'."
+        state.pop("no_mail", None)
+        if how == "refused":
             # not opened: the applicant does this one themselves, and is told so
-            state["link_refused"] = got[9:]
-            return (f"The e-mail has a confirmation link, but it is not opened by the program ({got[9:]}). Do not look for another way: "
-                    "call account_result('failed', 'the confirmation link in the e-mail has to be opened by the applicant') and finish with blocked='login'.")
-        if got.startswith("http"):
-            before = page.url
-            page.goto(got, wait_until="domcontentloaded")      # the address carries a one-time token: it is not shown to the model or written to a log
-            page.wait_for_timeout(2500)
-            landed = url_host(page.url)
-            if mail.link_refusal(f"https://{landed}/", site):
-                # the site's link sent the window somewhere else: nothing is typed there
-                try:
-                    page.goto(before, wait_until="domcontentloaded")
-                except Exception as _e:  # noqa: BLE001
-                    tolerated(_e)
-                    pass
-                return f"The link led away from the site (to {landed}); the window is back where it was. Report account_result('failed', ...) with that."
+            state["link_refused"] = val
+            return (f"The e-mail has a confirmation link, but it is not opened by the program ({val}). Do not look for another way: "
+                    "call account_result('unconfirmed', 'the confirmation link in the e-mail has to be opened by the applicant') and finish with blocked='login'.")
+        if how == "link":
             state["link_opened"] = True
-            return f"opened the confirmation link from the e-mail; now on {landed}{page.url.split(landed, 1)[-1].split('?')[0][:80]}. Read the page to see whether the address is confirmed."
+            return f"opened the confirmation link from the e-mail; now on {val}{page.url.split(val, 1)[-1].split('?')[0][:80]}. Read the page to see whether the address is confirmed."
         if not selector:
+            state["code"] = val       # kept for the call that names the box: the mail is not waited for twice
             return "the e-mail contains a code: call again with the selector of the code box"
         box = page.locator(selector).first
         box.click(timeout=w.T)
-        box.press_sequentially(got, delay=50)
+        box.press_sequentially(val, delay=50)
         return "code entered (hidden)"
 
     def account_result(outcome: str, notes: str = "") -> str:
@@ -675,6 +670,12 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
             if state.get("created"):
                 secrets.delete_password(key)
             auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error="account already exists")
+        elif secrets.get_password(key) and (outcome == "unconfirmed" or state.get("link_refused") or state.get("no_mail")):
+            # the account exists and waits for its address to be confirmed: it stays that, so that the next run begins
+            # with the confirmation instead of asking the applicant to sign in to an account nobody can sign in to
+            why = f"确认邮件里的链接不是这个网站自己的，程序不会去点（{state['link_refused']}）" if state.get("link_refused") else "邮箱里没有找到它发来的确认邮件" if state.get("no_mail") else notes[:200]
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="pending", error=f"{auth.UNCONFIRMED}{why}"[:300])
+            state["unconfirmed"] = why
         else:
             auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error=f"registration failed: {notes[:200]}")
         return "recorded"
@@ -703,7 +704,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                  s(text=st, selector=st), complete_profile),
         llm.Tool("email_verification", "Wait for the site's verification e-mail: opens a link, or types a code into `selector`.", s(selector=st), email_verification),
         llm.Tool("account_result", "Record the outcome of signing in or registering.",
-                 {**s(outcome={"type": "string", "enum": ["registered", "logged_in", "exists", "failed"]}, notes=st), "required": ["outcome"]}, account_result),
+                 {**s(outcome={"type": "string", "enum": ["registered", "logged_in", "exists", "unconfirmed", "failed"]}, notes=st), "required": ["outcome"]}, account_result),
     ]
 
 

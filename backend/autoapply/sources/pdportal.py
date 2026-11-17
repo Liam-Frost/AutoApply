@@ -136,6 +136,25 @@ def firewall(page: Any) -> None:
     raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
 
 
+def sign_in(page: Any) -> None:
+    """The scan found the portal signed out. It is signed in to the way an application is (auth.ensure_session: the
+    university's login that still holds, else the saved login name and password, the phone for the second factor) -
+    and the applicant is asked only when that does not get there. Leaves the window on the postings page."""
+    from .. import auth
+    from ..ats.pdportal import PDPortalDriver
+
+    driver = PDPortalDriver()
+    ref = driver.detect(POSTINGS)
+    try:
+        auth.ensure_session(page, driver, ref)
+    except NeedsHuman as e:
+        if not e.waits_for:
+            e.waits_for = auth.ask_to_sign_in(ref, "PD Portal", e.reason, url=e.url or f"{BASE}/home.htm")
+        raise
+    page.goto(POSTINGS, wait_until="domcontentloaded")
+    page.wait_for_selector("#widgetSearch", state="attached", timeout=20000)
+
+
 def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
     with browser.open_page(TENANT, url=POSTINGS, operation="scan") as page:
         page.goto(POSTINGS, wait_until="domcontentloaded")
@@ -151,9 +170,7 @@ def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
         except Exception:  # noqa: BLE001
             signed_in = False
         if not signed_in or "notLoggedIn" in page.url or "Not Logged In" in page.inner_text("body")[:500]:
-            notify.add_todo("takeover", "PD Portal（CWL + Duo）", body="岗位扫描需要 PD Portal 的登录状态。", ref=f"account:{TENANT}",
-                            payload={"tenant_key": TENANT, "ats": "pdportal", "url": f"{BASE}/home.htm"})
-            raise NeedsHuman("PD Portal session expired", kind="login", url=f"{BASE}/home.htm")
+            sign_in(page)
         page.evaluate("() => { const f = document.getElementById('widgetSearch'); f.widget1Keyword.value = ''; setTimeout(() => f.submit(), 50); }")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_selector("[onclick*=postingId]", timeout=30000)

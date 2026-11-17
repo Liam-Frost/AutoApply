@@ -12,6 +12,7 @@ are not returned, logged, or shown to the LLM.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta, timezone
 
 import csv
 import io
@@ -23,7 +24,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import Page
 
 from . import browser, db, messages, notify, secrets
-from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError
+from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError, Unconfirmed
 from .models import SENT, Account, now
 
 log = logging.getLogger("autoapply.auth")
@@ -56,6 +57,8 @@ def upsert_account(tenant_key: str, *, ats: str = "", host: str = "", email: str
         if password is not None:
             secrets.put_password(tenant_key, password)
             a.has_password = 1
+            if status == "pending":
+                a.created_at = now()        # the account as it is now is being made now: its confirmation mail is from now on
     if status == "ok":      # the site is signed in to: a card that asked the applicant to sign in there has nothing left to ask
         from . import notify
 
@@ -93,9 +96,12 @@ def ask_to_sign_in(ref: JobRef, title: str, reason: str, *, url: str = "", can_r
     Otherwise it is the site's: with the choices of signing in, a provider the site offers, or registering.
     Returns what the card is filed under ("account:idp:google") - what the task that met it now waits for."""
     key = key_for(ref.tenant_key)
+    waiting = open_the_mail(key)
+    if waiting:      # nobody can sign in to an account whose address is not confirmed: the card asks for what helps
+        reason, can_register = waiting, False
     provider = key[4:] if key.startswith("idp:") else provider_at(url, reason)
     spec = browser.identities().get(provider) if provider else None
-    if spec:
+    if spec and not waiting:
         notify.add_todo("takeover", spec["name"], body=reason, ref=f"account:idp:{provider}",
                         payload={**payload, "tenant_key": f"idp:{provider}", "ats": "idp", "url": spec["url"], "job_url": ref.url, "provider": spec["name"],
                                  "for": title, "can_register": False})
@@ -269,6 +275,155 @@ def allow_register(tenant_key: str) -> None:
     notify.close_todos("takeover", f"account:{tenant_key}")
 
 
+# --- an account whose e-mail address is not confirmed -------------------------------
+#
+# "Not confirmed yet" is a state of the account (status "pending"), not something that happens at sign-up and is over when
+# the run ends. Whoever finds an account in it - right after registering, at a sign-in days later, on the page that
+# follows a submission - does the same thing, here: find the site's mail, open its link or hand back its code. The
+# applicant is asked only when that cannot be done, and is then told what to do: open the mail. Not "sign in" - nobody
+# can sign in to such an account.
+
+CONFIRM_MAIL_DAYS = 3       # how far back the site's confirmation mail is looked for
+UNCONFIRMED = "邮箱还没有确认："   # how last_error of such an account begins
+
+
+def open_the_mail(key: str) -> str:
+    """What the applicant is asked when the account under ``key`` waits for its address to be confirmed and the program
+    could not do it ('' when that is not the case). One wording, whichever way the account was met."""
+    a = account(key) or {}
+    err = a.get("last_error") or ""
+    if a.get("status") != "pending" or not err.startswith(UNCONFIRMED):
+        return ""
+    return f"{a.get('host') or key} 要先确认邮箱才能登录，程序没能自己完成：{err[len(UNCONFIRMED):]}。请在邮箱里打开它发来的确认邮件、点里面的链接，然后把这一条标为已处理；不需要你登录，程序会用已保存的密码接着做。"
+
+
+def confirm_address(page: Any, ref: JobRef, *, key: str = "", since: datetime | None = None, wait: int = 180, site: str = "", earlier: bool = True) -> tuple[str, str]:
+    """Confirm the e-mail address of the account for ``ref`` from the site's mail. Returns what was done:
+
+    ("link", host)    the confirmation link was opened; the window is on ``host`` now
+    ("code", code)    the mail carries a code: the caller types it where the page asks for it (never logged or shown)
+    ("refused", why)  there is a link, and the program does not open it (mail.link_refusal) or it led off the site
+    ("none", "")      no such mail
+
+    ``since``: mail older than this is not looked at (default: the last three minutes). For an account the program made
+    and never got confirmed, the mail was sent when the account was made - hours or days ago - so the look goes back
+    to then; ``earlier=False`` turns that off (a mail that was just asked for again)."""
+    from . import mail
+
+    key = key or ref.tenant_key
+    site = site or ref.host
+    at = datetime.now(timezone.utc)
+    since = since or at - timedelta(minutes=3)
+    acct = account(key) or {}
+    if earlier and acct.get("status") != "ok" and acct.get("created_by") == "agent" and acct.get("created_at"):
+        made = datetime.fromisoformat(acct["created_at"]).replace(tzinfo=timezone.utc) - timedelta(minutes=2)
+        since = min(since, max(made, at - timedelta(days=CONFIRM_MAIL_DAYS)))
+    got = mail.wait_for_verification(sender_hint=ref.host or ref.tenant, timeout=wait, since=since, site_host=site)
+    if got is None:
+        return "none", ""
+    if got.startswith("refused:"):
+        return "refused", got[9:]
+    if not got.startswith("http"):
+        return "code", got
+    before = page.url
+    page.goto(got, wait_until="domcontentloaded")      # the address carries a one-time token: never shown to a model, never logged
+    page.wait_for_timeout(2500)
+    landed = urlparse(page.url).netloc.lower()
+    if mail.link_refusal(f"https://{landed}/", site):
+        try:        # the site's link sent the window somewhere else: nothing is typed there
+            page.goto(before, wait_until="domcontentloaded")
+        except Exception:  # noqa: BLE001
+            pass
+        return "refused", f"the link led away from the site, to {landed}"
+    return "link", landed
+
+
+def requeue_unconfirmed() -> list[str]:
+    """Accounts that earlier versions gave up on. An account the program made, whose address was never confirmed, was
+    filed as "needs you to sign in" - which nobody could do. It is what it is: an account that waits for its
+    confirmation. Its card is closed and the tasks that waited for the applicant go again; the program confirms the
+    address itself now. Returns the accounts this was done for."""
+    from . import handlers
+    from .ats.base import UNCONFIRMED_RE
+    from .models import Todo
+
+    stuck = []
+    with db.session() as s:
+        for a in s.query(Account).filter(Account.status == "needs_human", Account.has_password == 1, Account.created_by == "agent"):
+            said = [a.last_error or ""] + [t.body or "" for t in s.query(Todo).filter_by(kind="takeover", ref=f"account:{a.tenant_key}", status="open")]
+            if a.last_login_ok is None and any(UNCONFIRMED_RE.search(x) for x in said):
+                a.status, a.last_error, a.fail_count = "pending", "", 0
+                stuck.append(a.tenant_key)
+    for key in stuck:
+        notify.close_todos("takeover", f"account:{key}")
+        handlers.resume_waiting(f"account:{key}", f"account:{key_for(key)}")
+    return stuck
+
+
+def _confirm_and_sign_in(page: Page, driver: Driver, ref: JobRef, email: str, pw: str, *, registered: bool = False) -> str:
+    """The site has an account for us that it will not sign in until the address is confirmed. Confirm it and sign in.
+
+    First with the mail the site sent when the account was made; if there is none, or its link no longer works, the site
+    is asked to send another (when the driver knows how) and that one is used. Only when all of that fails is the
+    applicant asked - to open the mail, which is the one thing that is left."""
+    key = ref.tenant_key
+    upsert_account(key, ats=ref.ats, host=ref.host, status="pending")
+    made = (account(key) or {}).get("created_at")
+    fresh = bool(made) and datetime.now(timezone.utc) - datetime.fromisoformat(made).replace(tzinfo=timezone.utc) < timedelta(minutes=5)
+    why, asked_at = "", None
+    for attempt in (1, 2):
+        if attempt == 2:
+            again = getattr(driver, "request_confirmation", None)
+            try:
+                sent = bool(again(page, ref, email)) if again is not None else False
+            except (NeedsHuman, SiteDown):
+                raise
+            except Exception as e:  # noqa: BLE001
+                log.info("could not ask %s for another confirmation mail: %s", key, type(e).__name__)
+                sent = False
+            if not sent:
+                break
+            asked_at = datetime.now(timezone.utc)
+        how, val = confirm_address(page, ref, since=asked_at - timedelta(seconds=20) if asked_at else None, earlier=asked_at is None,
+                                   wait=180 if (fresh or asked_at) else 20)
+        if how == "none":
+            why = "邮箱里没有找到它发来的确认邮件" if asked_at is None else "让网站重发了确认邮件，但 3 分钟内没有收到"
+            continue
+        if how == "refused":
+            why = f"确认邮件里的链接不是这个网站自己的，程序不会去点（{val}）"
+            break
+        if how == "code":
+            enter = getattr(driver, "enter_verification_code", None)
+            if enter is None:
+                why = "确认邮件里是验证码，这个网站的登录页上程序不知道该填到哪里"
+                break
+            enter(page, val)
+        try:
+            driver.login(page, ref, email, pw)
+        except Unconfirmed as e:
+            why = f"已经打开了确认邮件里的链接，网站仍然说：{e.reason[:120]}"
+            continue
+        except (NeedsHuman, SiteDown):
+            raise
+        except Exception as e:  # noqa: BLE001
+            why = f"邮箱确认后登录没有成功：{secrets.redact(str(e), pw)[:150]}"
+            break
+        if driver.is_logged_in(page, ref):
+            upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")
+            browser.save_state(key, page.context)
+            log.info("confirmed the e-mail address of %s and signed in", key)
+            if registered:
+                notify.send("task_result", messages.registered(key), ref=f"account:{key}")
+            return "registered" if registered else "logged_in"
+        why = "邮箱确认后登录没有成功"
+        break
+    # still not confirmed: the account stays what it is - one that waits for its confirmation - so that the next run
+    # tries again (the applicant may have opened the mail by then, and then the sign-in simply works)
+    upsert_account(key, ats=ref.ats, host=ref.host, status="pending", error=f"{UNCONFIRMED}{why}"[:300])
+    _need_takeover(ref, driver, open_the_mail(key), can_register=False)
+    raise AssertionError("unreachable")
+
+
 # --- the one tool ------------------------------------------------------------------
 
 
@@ -293,10 +448,17 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
         # The site signs in through an institution's login. Its own session is short; the institution's often is not.
         # Going through the sign-in again then needs nobody: no password is asked for. Only when a password or a second
         # factor IS asked for is it the applicant's turn.
+        # A second factor that went unanswered is not sent again behind the applicant's back: the card is waited for.
+        if _open_card(key, "second_factor"):
+            raise NeedsHuman("The second factor was not approved last time; waiting for the applicant.", kind="login", url=driver.login_url(ref), waits_for=f"account:{key}")
         resume = getattr(driver, "resume", None)
         try:
             resumed = bool(resume(page, ref)) if resume is not None else False
-        except (NeedsHuman, SiteDown):
+        except NeedsHuman as e:
+            if not e.waits_for:
+                _need_takeover(ref, driver, e.reason, can_register=False, second_factor=True)
+            raise
+        except SiteDown:
             raise
         except Exception as e:  # noqa: BLE001 - it could not be tried: the applicant is asked, as before
             log.info("could not go through the sign-in of %s again by itself: %s", key, type(e).__name__)
@@ -305,20 +467,30 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
             upsert_account(key, ats=ref.ats, host=ref.host, status="ok")
             browser.save_state(key, page.context)
             return "logged_in"
-        _need_takeover(ref, driver, f"The {ref.ats} session has expired; please sign in (SSO / MFA).")
+        # The institution's login asks for its password. With the login name and password saved for this site the
+        # program signs in like anywhere else (below); the second factor is the applicant's, and they are told when
+        # it is their turn.
 
-    email = (acct or {}).get("login_email") or login_email()
-    if not email:
+    sso = bool(getattr(driver, "sso", False))
+    # an institution's login name is its own (a CWL name), never the applicant's e-mail address by default
+    email = (acct or {}).get("login_email") or ("" if sso else login_email())
+    if not email and not sso:
         raise NeedsHuman("No login e-mail configured. Set it in Settings.", kind="config")
 
     # 2. stored credentials
-    pw = secrets.get_password(key)
+    pw = secrets.get_password(key) if email else None
     if pw:
         if acct and acct["fail_count"] >= MAX_LOGIN_FAILS:
             _need_takeover(ref, driver, "Login failed twice with the stored password; please sign in yourself.")
         try:
             driver.login(page, ref, email, pw)
-        except (NeedsHuman, SiteDown):
+        except Unconfirmed:
+            return _confirm_and_sign_in(page, driver, ref, email, pw)
+        except NeedsHuman as e:
+            if sso and not e.waits_for:      # the second factor went unanswered: the applicant's turn, and it is said in a card
+                _need_takeover(ref, driver, e.reason, can_register=False, second_factor=True)
+            raise
+        except SiteDown:
             raise
         except Exception as e:  # noqa: BLE001
             msg = secrets.redact(str(e), pw)
@@ -339,6 +511,9 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
             return "logged_in"
         _bump_fail(key, "login did not result in a signed-in session")
         _need_takeover(ref, driver, "Login did not succeed; please sign in yourself.")
+
+    if sso:
+        _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次。想让程序以后自己登录：到“账号”页给这个网站（{key}）保存登录名和密码，之后只有手机上的二次确认需要你。")
 
     # 3. registration: the agent registers on sites the user has not applied on before;
     #    where an account probably exists, the user signs in once and the credentials are saved.
@@ -369,21 +544,15 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
                 a.has_password = 0
         _need_takeover(ref, driver, "An account with this e-mail already exists. Sign in once and the credentials will be saved.", kind="takeover")
     if outcome == "verify_email":
-        from . import mail
-
-        link_or_code = mail.wait_for_verification(sender_hint=ref.host or ref.tenant, timeout=180)
-        if link_or_code is None:
-            raise NeedsHuman("Verification e-mail did not arrive within 3 minutes.", kind="login", url=driver.login_url(ref))
-        if link_or_code.startswith("http"):
-            page.goto(link_or_code, wait_until="domcontentloaded")
-        else:
-            driver.enter_verification_code(page, link_or_code)  # type: ignore[attr-defined]
-        outcome = "ok"
+        return _confirm_and_sign_in(page, driver, ref, email, new_pw, registered=True)
     if outcome != "ok":
         upsert_account(key, status="needs_human", error=str(outcome))
         _need_takeover(ref, driver, f"Registration did not complete ({outcome}).")
-    if not driver.is_logged_in(page, ref):
-        driver.login(page, ref, email, new_pw)
+    try:
+        if not driver.is_logged_in(page, ref):
+            driver.login(page, ref, email, new_pw)
+    except Unconfirmed:      # the site took the sign-up without a word and says it only now
+        return _confirm_and_sign_in(page, driver, ref, email, new_pw, registered=True)
     if driver.is_logged_in(page, ref):
         upsert_account(key, status="ok")
         browser.save_state(key, page.context)
@@ -394,14 +563,23 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
     raise AssertionError("unreachable")
 
 
-def _need_takeover(ref: JobRef, driver: Driver, reason: str, kind: str = "login") -> None:
+def _open_card(key: str, flag: str) -> bool:
+    """Is a sign-in card for this account open that carries ``flag`` (what it is about)?"""
+    from .models import Todo
+
+    with db.session() as s:
+        return any((t.payload or {}).get(flag) for t in s.query(Todo).filter_by(kind="takeover", ref=f"account:{key}", status="open"))
+
+
+def _need_takeover(ref: JobRef, driver: Driver, reason: str, kind: str = "login", can_register: bool | None = None, **about: Any) -> None:
     url = driver.login_url(ref) or ref.url
     notify.add_todo(
         "takeover",
         ref.tenant_key,
         body=reason,
         ref=f"account:{ref.tenant_key}",
-        payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": url, "job_url": ref.url, "can_register": not getattr(driver, "sso", False)},
+        payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": url, "job_url": ref.url, **about,
+                 "can_register": (not getattr(driver, "sso", False)) if can_register is None else can_register},
     )
     raise NeedsHuman(reason, kind=kind, url=url, waits_for=f"account:{ref.tenant_key}")
 

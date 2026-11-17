@@ -171,6 +171,18 @@ class NeedsHuman(Exception):
         self.waits_for = waits_for      # the card that was made for it ("account:idp:google"): what the task waits for
 
 
+# the site says the account exists and its e-mail address has not been confirmed yet - after sign-up ("An email has been
+# sent to you. Please verify your account.") or at a later sign-in ("Verify your account before you sign in")
+UNCONFIRMED_RE = re.compile(r"verify your|verification (e-?mail|link)|not (yet |been )*(verified|activated|confirmed)|activate your (account|profile)|"
+                            r"confirm your (e-?mail|account|address)|e-?mail (has been|was) sent to you", re.I)
+
+
+class Unconfirmed(NeedsHuman):
+    """The site will not sign this account in until its e-mail address is confirmed. Not the applicant's to do: the
+    confirmation mail is in the mailbox the program reads (auth.confirm_address). A driver raises this from login()
+    when the site says so; whoever signs in goes through the confirmation and signs in again."""
+
+
 # the site says an application for this posting exists already: there is no form to fill, and nothing to send again
 ALREADY_RE = re.compile(r"you(.ve| have) already (applied|submitted)|already (applied|submitted an application) (for|to) this|"
                         r"you(.ve| have) previously applied (for|to) this|application (has )?already (been )?(received|submitted)|你已(经)?申请过", re.I)
