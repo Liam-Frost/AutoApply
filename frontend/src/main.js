@@ -5,6 +5,7 @@ import AaSelect from './components/Select.vue'
 import './style.css'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
+import { installGuards } from './dirty'
 import AnalyticsView from './views/AnalyticsView.vue'
 import FilesView from './views/FilesView.vue'
 import ContactsView from './views/ContactsView.vue'
@@ -44,6 +45,8 @@ const router = createRouter({
     { path: '/remote/:id', component: RemoteView, props: true },
   ],
 })
+
+installGuards(router)       // what was typed and not saved is asked about before the page is left
 
 // a fresh install goes to the first-run guide before anything else
 router.beforeEach(async (to) => {

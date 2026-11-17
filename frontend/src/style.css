@@ -618,3 +618,6 @@ pre.code { padding: var(--s3); background: var(--surface); border: 1px solid var
 .stage .meter i { display: block; height: 100%; min-width: 3px; border-radius: var(--r-pill); background: var(--bad); }
 .stage.unknown .v { color: var(--text-2); } .stage.unknown .meter i { background: var(--chart-other); }
 @container (max-width: 520px) { .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reason { grid-template-columns: minmax(0, 1fr) 64px 2.6em; } }
+
+/* a tab (or anything else) that holds changes which are not saved yet */
+.unsaved-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--warn); vertical-align: middle; }
