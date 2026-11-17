@@ -88,7 +88,7 @@ def init_db() -> None:
 # Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS", so check first.
 _NEW_COLUMNS = {"jobs": {"brief": "TEXT DEFAULT ''", "duplicate_of": "INTEGER", "posted": "VARCHAR DEFAULT ''", "archived_at": "DATETIME"},
                 "mail_events": {"event": "VARCHAR DEFAULT 'new'", "linked_by": "VARCHAR DEFAULT ''"}, "application_events": {"source": "VARCHAR DEFAULT ''"},
-                "tasks": {"stages": "JSON", "due_at": "DATETIME"}, "runs": {"spans": "JSON", "site": "VARCHAR", "learned": "JSON"}}
+                "tasks": {"stages": "JSON", "due_at": "DATETIME"}, "answer_cache": {"origin": "VARCHAR DEFAULT ''"}, "runs": {"spans": "JSON", "site": "VARCHAR", "learned": "JSON"}}
 
 
 def _add_missing_columns() -> None:

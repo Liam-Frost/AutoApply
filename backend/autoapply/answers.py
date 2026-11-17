@@ -116,14 +116,20 @@ def file_slots(schema: FormSchema, job: Job, cover_letter: dict[str, Any] | None
 
 
 def _scope(ats: str, tenant: str = "") -> str:
-    """Whose answers a cached answer is. A system with a driver of its own asks the same questions of everyone, so its
-    name is the scope. The sites without one ("generic") are each an employer of their own: "generic:<site>"."""
-    return f"generic:{tenant}" if ats == "generic" and tenant else ats
+    """Whose answers a cached answer is: one employer's - "workday:acme.wd1", "generic:careers.acme.com" - the same key
+    the employer's site has everywhere else (sites.of_form).
+
+    It used to be the employer only on the sites without a driver; on Workday, Greenhouse and the others it was the
+    whole system, as if every employer on it asked the same question. They ask it in the same words and mean themselves:
+    "Have you previously worked for us?", confirmed as "Yes" on one employer's form, went to the next as the applicant's
+    confirmed answer. A form whose employer is not known keeps the system as its scope."""
+    return f"{ats}:{tenant}" if tenant else ats
 
 
 def _cache_get(ats: str, q: Question, tenant: str = "") -> AnswerCache | None:
-    """The cached answer for this question: this employer's own first, then (for the sites without a driver) one given
-    elsewhere - the caller tells them apart by the row's scope."""
+    """The cached answer for this question: this employer's own first; failing that, the one last given on any form of
+    the system. The caller tells them apart by the row's scope: the second is a first answer to offer, never one the
+    applicant confirmed for this employer."""
     key, oh = q.key()
     with db.session() as s:
         for scope in dict.fromkeys((_scope(ats, tenant), ats)):
@@ -135,17 +141,24 @@ def _cache_get(ats: str, q: Question, tenant: str = "") -> AnswerCache | None:
 
 
 def cache_put(ats: str, q: Question, value: Any, basis: str, *, confirmed: bool, tenant: str = "") -> None:
+    """Keep an answer: for this employer (confirmed, when the applicant said so), and as the system's last answer to this
+    question - what another employer's form is offered first. That second row is never a confirmed one: nobody confirmed
+    it for the employer who will read it."""
     key, oh = q.key()
+    own = _scope(ats, tenant)
     with db.session() as s:
-        for scope in dict.fromkeys((_scope(ats, tenant), ats)):
+        for scope in dict.fromkeys((own, ats)):
             row = s.query(AnswerCache).filter_by(ats=scope, question_key=key, options_hash=oh).first()
             if row is None:
                 row = AnswerCache(ats=scope, question_key=key, options_hash=oh, answer=value)
                 s.add(row)
             row.answer, row.basis = value, basis
             row.sensitive = int(bool(sensitivity(q.label)))
-            if confirmed:
-                row.confirmed_by_user = 1
+            if scope == own:
+                if confirmed:
+                    row.confirmed_by_user = 1
+            else:
+                row.confirmed_by_user, row.origin = 0, tenant
 
 
 def _coerce(q: Question, raw: str) -> Any:
@@ -206,7 +219,8 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
             else:
                 # given on another employer's form: a good first answer, but not one the applicant confirmed for THIS
                 # employer ("have you worked for us before?" reads the same everywhere and means something else each time)
-                rows.append(row(q, hit.answer, f"answered on another employer's form: {hit.basis or 'answer cache'}"[:300], "medium", "cache", confirmed=False))
+                where = f" ({hit.origin})" if getattr(hit, "origin", "") else ""
+                rows.append(row(q, hit.answer, f"answered on another employer's form{where}: {hit.basis or 'answer cache'}"[:300], "medium", "cache", confirmed=False))
         else:
             pending.append(q)
 

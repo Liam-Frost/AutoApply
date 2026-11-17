@@ -153,6 +153,7 @@ class AnswerCache(Base):
     basis: Mapped[str] = mapped_column(Text, default="")
     sensitive: Mapped[int] = mapped_column(Integer, default=0)
     confirmed_by_user: Mapped[int] = mapped_column(Integer, default=0)
+    origin: Mapped[str] = mapped_column(String, default="")  # on a row kept for a whole system: the employer whose form it was last given on
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 
 
