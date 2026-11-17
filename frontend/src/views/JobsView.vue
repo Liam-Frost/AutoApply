@@ -5,6 +5,7 @@ import { api, fmt } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import SideDrawer from '../components/SideDrawer.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import { daysUntil, deadlineLabel, isPast, keepVisible } from '../dates'
@@ -244,15 +245,7 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
   </div>
 
   <!-- detail drawer -->
-  <div v-if="sel" class="overlay" @click="sel = null"></div>
-  <div v-if="sel" class="drawer">
-    <div class="row" style="align-items: flex-start">
-      <div class="grow">
-        <h2 style="margin: 0">{{ sel.company }}</h2>
-        <div style="font-size: 16px; color: var(--text-2)">{{ sel.title }}</div>
-      </div>
-      <button class="ghost" aria-label="关闭" @click="sel = null"><Icon name="x" /></button>
-    </div>
+  <SideDrawer v-if="sel" :title="sel.company" :sub="sel.title" :wide="false" @close="sel = null">
     <div class="row" style="margin: 12px 0">
       <span class="tag" :class="sel.stage_tone">{{ sel.stage_label }}</span>
       <span v-if="!sel.online && sel.stage !== 'offline'" class="tag">岗位已下线</span>
@@ -354,6 +347,6 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
         <p class="muted small" style="margin: 0">这个岗位是从旧表格导入的，只有一句简介，没有岗位说明全文，所以没有详细概况，也没法重新评分。可以点“看原岗位”到官网查看。</p>
       </template>
     </div>
-  </div>
+  </SideDrawer>
   </template>
 </template>

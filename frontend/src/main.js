@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, nextTick } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import AaSelect from './components/Select.vue'
@@ -49,6 +49,20 @@ const router = createRouter({
 })
 
 installGuards(router)       // what was typed and not saved is asked about before the page is left
+
+// After going to another page the keyboard is at that page's title - not on a link of the sidebar, with the new page
+// somewhere behind it. (A query that changed is the same page.)
+router.afterEach((to, from) => {
+  if (!from.matched.length || to.path === from.path) return
+  nextTick(() => {
+    const main = document.querySelector('main.content')
+    if (!main) return
+    const at = main.querySelector('.page-head h2') || main
+    at.setAttribute('tabindex', '-1')
+    at.focus({ preventScroll: true })
+    main.scrollTop = 0
+  })
+})
 
 // a fresh install goes to the first-run guide before anything else
 router.beforeEach(async (to) => {

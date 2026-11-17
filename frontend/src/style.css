@@ -667,3 +667,6 @@ details.card > summary { cursor: pointer; }
 .explain > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 .explain-body { margin-top: 6px; line-height: 1.6; max-width: 62ch; }
 .kpi .explain { margin-top: 6px; }
+
+/* where the focus is put by the program - a page's title after a page change, a drawer or a question when it opens - is not shown as if it were pressed */
+h2[tabindex="-1"]:focus, main.content:focus, .drawer:focus, .dialog:focus { outline: none; }

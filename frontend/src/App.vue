@@ -5,8 +5,9 @@ import { api, auth } from './api'
 import Icon from './components/Icon.vue'
 import RemoteBanner from './components/RemoteBanner.vue'
 import { LANGS, lang, setLang } from './i18n'
-import { answer, dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
+import { dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
 import LoginView from './views/LoginView.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 
 const ov = ref({ pending_drafts: 0, open_todos: 0, queued_tasks: 0, paused: false, running: [] })
 let timer
@@ -83,22 +84,7 @@ onUnmounted(() => clearInterval(timer))
     </nav>
     <main class="content"><RemoteBanner /><router-view :key="$route.path.startsWith('/remote/') ? $route.path : undefined" /></main>
   </div>
-  <template v-if="dialog.open">
-    <div class="overlay" style="z-index: 80" @click="answer(dialog.cancel)"></div>
-    <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(dialog.cancel)">
-      <p>{{ dialog.text }}</p>
-      <div v-if="dialog.choices" class="row" style="justify-content: flex-end; flex-wrap: wrap">
-        <template v-for="c in dialog.choices" :key="c.key">
-          <button v-if="c.focus" v-focus :class="c.cls" @click="answer(c.key)">{{ c.label }}</button>
-          <button v-else :class="c.cls" @click="answer(c.key)">{{ c.label }}</button>
-        </template>
-      </div>
-      <div v-else class="row" style="justify-content: flex-end">
-        <button @click="answer(false)">取消</button>
-        <button v-focus :class="dialog.danger ? 'danger solid' : 'primary'" @click="answer(true)">{{ dialog.ok }}</button>
-      </div>
-    </div>
-  </template>
+  <ConfirmDialog v-if="dialog.open" />
   <div class="toasts" role="status" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
       <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link></span>

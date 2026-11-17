@@ -178,6 +178,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A drawer or a question that opens over the page takes the keyboard with it.** The focus goes into it, Tab
+  stays in it, what is behind cannot be reached or pressed, Escape closes the one on top (a question over a drawer:
+  the question), and when it closes the focus goes back to where it was. A question that cannot be undone starts
+  on "cancel", not on the button that does it. The posting's detail uses the same drawer as the rest of the program
+  (it had a copy of its own). After going to another page, the keyboard is at that page's title.
 - **"Not now" on a draft is not "send it back".** The button closed the draft, so that it could not be approved
   any more. It is a way back to the list now, and the draft stays where it was. Sending a draft back is its own
   button, asks first, and says what comes next. A posting whose only draft was sent back reads "not applied" again;
