@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 import AiPanel from '../components/AiPanel.vue'
 import EmployersPanel from '../components/EmployersPanel.vue'
+import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
 import { loadPersona, toast } from '../ui'
 
@@ -176,7 +177,7 @@ onMounted(load)
       <h2>上传简历</h2>
       <p class="muted">程序会读你的简历，整理成一份“个人资料”，之后填申请表都从这里取内容。PDF 或 Word 都可以；如果有 Word 版，以后还能按岗位调整简历的顺序。</p>
       <div class="row">
-        <label class="btn" :class="{ primary: !resume.uploaded }"><Icon name="inbox" />{{ busy === 'up' ? '正在上传…' : resume.uploaded ? '再传一份' : '选择简历文件' }}<input type="file" accept=".pdf,.docx,.doc" hidden @change="upload" /></label>
+        <FileButton :class="{ primary: !resume.uploaded }" accept=".pdf,.docx,.doc" :disabled="busy === 'up'" @change="upload"><Icon name="inbox" />{{ busy === 'up' ? '正在上传…' : resume.uploaded ? '再传一份' : '选择简历文件' }}</FileButton>
         <span v-if="resume.uploaded" class="badge ok">已上传{{ resume.name ? '：' + resume.name : '' }}</span>
       </div>
       <div v-if="resume.uploaded" style="margin-top: 16px">

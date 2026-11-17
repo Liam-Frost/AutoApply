@@ -90,6 +90,7 @@ const rows = computed(() => {
 })
 function sortBy(k) { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = k === 'score' ? -1 : 1 } }
 const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? ' ↑' : ' ↓') : '')
+const sorted = (k) => (sortKey.value === k ? (sortDir.value > 0 ? 'ascending' : 'descending') : 'none')       // (what a screen reader is told; the arrow is for the eye)
 const scoreCls = (s) => (s == null ? '' : s >= 9 ? 'hi' : s >= 7.5 ? 'mid' : s < 6 ? 'lo' : '')
 
 // selection: of the rows that are shown. A filter, a search or a reload that takes a row off the page unticks it -
@@ -163,11 +164,11 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
 
   <div class="filters">
     <input v-model="f.q" placeholder="搜索公司、岗位、地点或编号" style="width: 240px" />
-    <AaSelect v-if="groupStages.length > 1" v-model="f.stage"><option value="">全部状态</option><option v-for="x in groupStages" :key="x.key" :value="x.key">{{ x.label }}（{{ counts[x.key] || 0 }}）</option></AaSelect>
-    <AaSelect v-model="f.direction"><option value="">全部方向</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
-    <AaSelect v-if="persona.features.term" v-model="f.term"><option value="">全部学期</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
-    <AaSelect v-model="f.channel"><option value="">在哪里投都行</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
-    <AaSelect v-model="f.deadline"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ l }}</option></AaSelect>
+    <AaSelect v-if="groupStages.length > 1" v-model="f.stage" aria-label="按状态筛选"><option value="">全部状态</option><option v-for="x in groupStages" :key="x.key" :value="x.key">{{ x.label }}（{{ counts[x.key] || 0 }}）</option></AaSelect>
+    <AaSelect v-model="f.direction" aria-label="按方向筛选"><option value="">全部方向</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-if="persona.features.term" v-model="f.term" aria-label="按学期筛选"><option value="">全部学期</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-model="f.channel" aria-label="按在哪里投筛选"><option value="">在哪里投都行</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-model="f.deadline" aria-label="按截止时间筛选"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ l }}</option></AaSelect>
     <label class="muted nowrap">评分至少 <input v-model.number="f.minScore" type="number" min="0" max="10" step="0.5" style="width: 68px" /></label>
     <label class="muted nowrap"><input v-model="f.link" type="checkbox" /> 只看有申请链接的</label>
     <label v-if="jobs.some((j) => j.priority)" class="muted nowrap"><input v-model="f.prio" type="checkbox" /> 只看重点雇主</label>
@@ -186,15 +187,15 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
       <thead>
         <tr>
           <th style="width: 36px"><input type="checkbox" :checked="allPicked" aria-label="全选" @change="toggleAll" /></th>
-          <th class="sortable" @click="sortBy('score')">评分{{ arrow('score') }}</th>
-          <th class="sortable" @click="sortBy('company')">岗位{{ arrow('company') }}</th>
+          <th :aria-sort="sorted('score')"><button type="button" class="th-sort" @click="sortBy('score')">评分{{ arrow('score') }}</button></th>
+          <th :aria-sort="sorted('company')"><button type="button" class="th-sort" @click="sortBy('company')">岗位{{ arrow('company') }}</button></th>
           <th v-if="cols.has('source')">来源</th>
           <th v-if="cols.has('direction')">方向</th>
           <th v-if="cols.has('salary')">薪资</th>
           <th v-if="cols.has('channel')">在哪里投</th>
-          <th v-if="cols.has('posted')" class="sortable" @click="sortBy('posted')">发布{{ arrow('posted') }}</th>
-          <th v-if="cols.has('first_seen')" class="sortable" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</th>
-          <th class="sortable" @click="sortBy('deadline')">截止{{ arrow('deadline') }}</th>
+          <th v-if="cols.has('posted')" :aria-sort="sorted('posted')"><button type="button" class="th-sort" @click="sortBy('posted')">发布{{ arrow('posted') }}</button></th>
+          <th v-if="cols.has('first_seen')" :aria-sort="sorted('first_seen')"><button type="button" class="th-sort" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</button></th>
+          <th :aria-sort="sorted('deadline')"><button type="button" class="th-sort" @click="sortBy('deadline')">截止{{ arrow('deadline') }}</button></th>
           <th>状态</th>
           <th>最新情况</th>
         </tr>
@@ -204,7 +205,7 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
           <td @click.stop><input type="checkbox" :checked="picked.has(j.id)" :aria-label="'选择 ' + j.company" @change="togglePick(j.id)" /></td>
           <td><span class="score" :class="scoreCls(j.score)">{{ j.score == null ? '—' : j.score.toFixed(1) }}</span></td>
           <td class="jobcell">
-            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><b>{{ j.company }}</b> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
+            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><router-link class="rowlink" :to="{ path: '/jobs', query: { open: j.id } }" :aria-label="`${j.company}：${j.title}，打开详情`" @click.stop><b>{{ j.company }}</b></router-link> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
             <div>{{ j.title }} <a v-if="j.apply_url" :href="j.apply_url" target="_blank" rel="noopener" title="打开岗位链接" @click.stop>↗</a></div>
             <div class="small muted">{{ [j.location, persona.features.term ? j.term : '', persona.features.term && j.months ? j.months + ' 个月' : ''].filter(Boolean).join(' · ') }}</div>
           </td>

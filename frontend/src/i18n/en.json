@@ -3199,5 +3199,13 @@
 "退回这份草案": "Send this draft back",
 "今天 {0} 截止": "Due today at {0}",
 "你退回了草案。想投这个岗位时，在岗位页重新生成草案。": "You sent the draft back. To apply for this posting, prepare a new draft from the postings page.",
-"退回这份草案？它会作废，岗位回到“未投递”。之后想投这个岗位，在岗位页重新生成草案（可以写上你的要求）；只是想改几处答案的话，不用退回，直接在这里改或者在下面写修改意见。": "Send this draft back? It is closed, and the posting reads “not applied” again. To apply later, prepare a new draft from the postings page (you can say what you want of it). If you only want to change a few answers there is no need to send it back: change them here, or write what to change below."
+"退回这份草案？它会作废，岗位回到“未投递”。之后想投这个岗位，在岗位页重新生成草案（可以写上你的要求）；只是想改几处答案的话，不用退回，直接在这里改或者在下面写修改意见。": "Send this draft back? It is closed, and the posting reads “not applied” again. To apply later, prepare a new draft from the postings page (you can say what you want of it). If you only want to change a few answers there is no need to send it back: change them here, or write what to change below.",
+"按学期筛选": "Filter by term",
+"按方向筛选": "Filter by direction",
+"按状态筛选": "Filter by status",
+"用哪种浏览器": "Which browser to use",
+"按在哪里投筛选": "Filter by where to apply",
+"按截止时间筛选": "Filter by deadline",
+"规则管的是账号还是域名": "Whether the rule is for an account or a domain",
+"{0}：{1}，打开详情": "{0}: {1}, open the details"
 }

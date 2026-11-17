@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { api, fmt } from '../api'
 import { renderMarkdown } from '../md'
 import EmptyState from '../components/EmptyState.vue'
+import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import { fmtTime, run as runAction, toast, ask } from '../ui'
@@ -206,7 +207,7 @@ onMounted(load)
       <h3 style="margin-top: 0">1. 上传资料</h3>
       <div class="row">
         <AaSelect v-model="upKind"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
-        <label class="btn"><Icon name="inbox" />选择文件<input type="file" hidden @change="upload" /></label>
+        <FileButton @change="upload"><Icon name="inbox" />选择文件</FileButton>
       </div>
       <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
       <h3>2. 补充说明（可选）</h3>

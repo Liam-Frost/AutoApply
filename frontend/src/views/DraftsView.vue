@@ -90,12 +90,12 @@ onMounted(load)
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th style="width: 34px"><input type="checkbox" :checked="allPicked" :disabled="!selectable.length" title="全选 / 全不选" @change="toggleAll" /></th>
+        <th style="width: 34px"><input type="checkbox" :checked="allPicked" :disabled="!selectable.length" title="全选 / 全不选" aria-label="全选" @change="toggleAll" /></th>
         <th>评分</th><th>公司 · 岗位</th><th>版本</th><th>截止时间</th><th>招聘系统</th><th>需要注意</th><th>状态</th>
       </tr></thead>
       <tbody>
         <tr v-for="d in drafts" :key="d.id">
-          <td><input type="checkbox" :disabled="!open(d)" :checked="picked.has(d.id)" @change="toggle(d.id)" /></td>
+          <td><input type="checkbox" :disabled="!open(d)" :checked="picked.has(d.id)" :aria-label="'选择 ' + d.company + ' ' + d.title" @change="toggle(d.id)" /></td>
           <td class="score">{{ d.score ?? '—' }}</td>
           <td><router-link :to="'/drafts/' + d.id">{{ d.company }} · {{ d.title }}</router-link></td>
           <td class="small nowrap">第 {{ d.version }} 版</td>

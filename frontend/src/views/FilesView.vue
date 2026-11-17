@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
+import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
@@ -120,7 +121,7 @@ onMounted(load)
 <template>
   <PageHead title="材料库" sub="申请时会用到的所有文件：你上传的简历、成绩单这类材料，以及程序为每个岗位写的求职信。">
     <AaSelect v-model="upKind" title="上传的文件用作什么"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
-    <label class="btn primary" style="cursor: pointer"><Icon name="draft" />上传<input type="file" multiple style="display: none" @change="upload" /></label>
+    <FileButton class="primary" multiple @change="upload"><Icon name="draft" />上传</FileButton>
   </PageHead>
   <DataState :s="st" what="材料库" @retry="load" />
   <template v-if="st.at">
@@ -159,11 +160,11 @@ onMounted(load)
       </div>
       <label v-if="inactiveCount && !folder.startsWith('job:')" class="small muted" style="padding: 0 8px 8px; display: block"><input v-model="showInactive" type="checkbox" /> 也显示没在用的（{{ inactiveCount }}）</label>
       <div class="fm-rows">
-        <div v-for="d in shown" :key="d.id" class="mat-item" :class="{ on: cur && cur.id === d.id }" role="button" tabindex="0" @click="pick(d)" @keyup.enter="pick(d)">
+        <div v-for="d in shown" :key="d.id" class="mat-item" :class="{ on: cur && cur.id === d.id }" @click="pick(d)">
           <input type="checkbox" :checked="picked.has(d.id)" :aria-label="'选择 ' + d.name" @click.stop @change="togglePick(d.id)" />
           <span class="ext" :class="d.ext">{{ (d.ext || '?').toUpperCase().slice(0, 4) }}</span>
           <span class="grow" style="min-width: 0">
-            <span class="name">{{ d.name }}</span>
+            <button type="button" class="name mat-open" :aria-current="cur && cur.id === d.id ? 'true' : undefined" :aria-label="'打开 ' + d.name" @click.stop="pick(d)">{{ d.name }}</button>
             <span class="sub">{{ KINDS[d.kind] || d.kind }}<template v-if="d.for_job && !folder.startsWith('job:')"> · {{ d.for_job }}</template> · {{ fmtTime(d.created_at) }}</span>
           </span>
           <span v-if="d.missing" class="badge bad">文件丢失</span>

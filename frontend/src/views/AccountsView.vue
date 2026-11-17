@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, fmt, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
+import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
@@ -184,7 +185,7 @@ onUnmounted(() => clearInterval(timer))
     <div class="card">
       <div class="card-title">从 Chrome 导入已保存的密码</div>
       <p class="muted">在 Chrome 里打开：设置 → 密码管理器 → 设置 → 导出密码，会得到一个 CSV 文件。这里只导入属于招聘网站的记录，其余忽略；文件内容不会被保存。</p>
-      <label class="btn"><Icon name="inbox" />选择 CSV 文件<input type="file" accept=".csv" hidden @change="importCsv" /></label>
+      <FileButton accept=".csv" @change="importCsv"><Icon name="inbox" />选择 CSV 文件</FileButton>
       <p class="hint" style="margin-top: 8px">导入后请马上删除那个 CSV 文件。</p>
     </div>
     <div class="card">
@@ -200,7 +201,7 @@ onUnmounted(() => clearInterval(timer))
         <label>导入</label>
         <div class="row">
           <input v-model="carry.inPass" type="password" autocomplete="off" placeholder="导出时定的口令" style="width: 200px" />
-          <label class="btn" :class="{ disabled: carry.inPass.length < 8 }"><Icon name="inbox" />选择登录状态文件<input type="file" accept=".aasession" hidden :disabled="carry.inPass.length < 8" @change="importSession" /></label>
+          <FileButton accept=".aasession" :disabled="carry.inPass.length < 8" @change="importSession"><Icon name="inbox" />选择登录状态文件</FileButton>
         </div>
       </div>
     </div>

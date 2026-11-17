@@ -178,6 +178,14 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **Keyboard and screen reader: what a control is, and what it is called.** A column header that sorts is a button
+  and says how the table is sorted. A posting's name is a link (Enter opens its details, and closing them puts the
+  focus back on it). A label is tied to the control it names across the forms - a click on it reaches the control, a
+  screen reader reads the label with the field - and a row of tick boxes or a choice made with buttons is named as
+  a group; stand-alone boxes (search, "paste an address") are named by their hint; the tick boxes of the drafts list
+  say which draft they tick. "Choose a file" is a button the keyboard can reach (it was a label around a hidden
+  input) on every page that uploads. In the library, opening a file and ticking it are two controls. The program's
+  own drop-down passes on `id`, `aria-labelledby` and `aria-describedby`, and marks options that cannot be chosen.
 - **A drawer or a question that opens over the page takes the keyboard with it.** The focus goes into it, Tab
   stays in it, what is behind cannot be reached or pressed, Escape closes the one on top (a question over a drawer:
   the question), and when it closes the focus goes back to where it was. A question that cannot be undone starts
