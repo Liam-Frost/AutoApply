@@ -69,6 +69,9 @@ def send(category: str, card: Card | str, *, ref: str = "", path: str = "", tag:
         card = Card("🔔", card)
     if path and not card.path:
         card.path = path
+    if ref.startswith("application:") and card.path == "/jobs" and ref[12:].split(":")[0].isdigit():
+        # news about an application leads to the application - everything about it is on one page
+        card.path, card.link = f"/applications/{ref[12:].split(':')[0]}", "查看这份申请"
     base = str(db.get_setting("app.base_url"))
     text = card.plain(base)       # the record kept in the program stays in the source language; the interface translates what it shows
     out = card.localized()        # what leaves the program follows the interface language

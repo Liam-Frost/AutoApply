@@ -281,6 +281,7 @@ class ApplicationEvent(Base):
     old: Mapped[str] = mapped_column(String, default="")
     new: Mapped[str] = mapped_column(String, default="")
     source: Mapped[str] = mapped_column(String, default="")  # who said so: run | mail | site | user | draft | resume | recover
+    note: Mapped[str] = mapped_column(String, default="")    # what the applicant wrote when they put the record right
 
 
 class Contact(Base):

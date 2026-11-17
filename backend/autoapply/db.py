@@ -46,7 +46,7 @@ def get_engine():
                     h = sa_inspect(obj).attrs.status.history
                     if h.has_changes() and h.added and (not h.deleted or h.deleted[0] != h.added[0]):
                         session.add(ApplicationEvent(application_id=obj.id, old=str(h.deleted[0]) if h.deleted else "", new=str(h.added[0]),
-                                                     source=str(obj.__dict__.pop("_moved_by", "") or "")))
+                                                     source=str(obj.__dict__.pop("_moved_by", "") or ""), note=str(obj.__dict__.pop("_moved_note", "") or "")))
                         if str(h.added[0]) in SENT:      # whichever way it was sent: what waited on it is closed (lifecycle.settle)
                             session.info.setdefault("sent", set()).add(obj.id)
 
@@ -87,7 +87,7 @@ def init_db() -> None:
 
 # Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS", so check first.
 _NEW_COLUMNS = {"jobs": {"brief": "TEXT DEFAULT ''", "duplicate_of": "INTEGER", "posted": "VARCHAR DEFAULT ''", "archived_at": "DATETIME"},
-                "mail_events": {"event": "VARCHAR DEFAULT 'new'", "linked_by": "VARCHAR DEFAULT ''"}, "application_events": {"source": "VARCHAR DEFAULT ''"},
+                "mail_events": {"event": "VARCHAR DEFAULT 'new'", "linked_by": "VARCHAR DEFAULT ''"}, "application_events": {"source": "VARCHAR DEFAULT ''", "note": "VARCHAR DEFAULT ''"},
                 "tasks": {"stages": "JSON", "due_at": "DATETIME"}, "answer_cache": {"origin": "VARCHAR DEFAULT ''"}, "runs": {"spans": "JSON", "site": "VARCHAR", "learned": "JSON"}}
 
 

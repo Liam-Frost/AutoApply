@@ -298,7 +298,7 @@ def _job_row(j: Job, a: Application | None) -> dict[str, Any]:
         "posted": j.posted, "first_seen": j.first_seen.date().isoformat() if j.first_seen else "",
         "summary": j.summary, "note": j.note, "apply_url": j.apply_url, "ats": j.ats, "ats_label": humanize.ats_name(j.ats),
         "channel_label": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
-        "app_status": a.status if a else None, "app_detail": (humanize.explain(a.last_event)["message"] if a.last_event else "") if a else "", "auto_approved": bool(a.auto_approved) if a else False,
+        "app_id": a.id if a else None, "app_status": a.status if a else None, "app_detail": (humanize.explain(a.last_event)["message"] if a.last_event else "") if a else "", "auto_approved": bool(a.auto_approved) if a else False,
         "submitted_at": a.submitted_at.isoformat() if a and a.submitted_at else None,
         **stages.describe(stages.stage(j.status, bool(j.online), j.deadline or "", a.status if a else None)),
     }
@@ -654,6 +654,82 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
         app_id, deadline = app.id, app.job.deadline
         lifecycle.move(app, "approved", source="user")
     return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
+
+
+@app.get("/api/applications")
+def list_applications() -> dict[str, Any]:
+    """"My applications": what has gone out, and what waits for its outcome."""
+    from .. import applications
+
+    rows = applications.listing()
+    return {"applications": rows, "groups": [{"key": k, "label": lab} for k, lab in stages.GROUPS if any(r["group"] == k for r in rows)]}
+
+
+@app.get("/api/applications.csv")
+def applications_csv() -> Response:
+    from .. import applications
+
+    return Response(content=applications.as_csv(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="applications-{now().date().isoformat()}.csv"', "Cache-Control": "no-store"})
+
+
+@app.get("/api/applications/{application_id}")
+def get_application(application_id: int) -> dict[str, Any]:
+    from .. import applications
+
+    out = _404(applications.detail(application_id))
+    out["contacts"] = _contacts_for(out["company"])
+    return out
+
+
+@app.post("/api/applications/{application_id}/correct")
+def correct_application(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant puts the record right: a step that happened elsewhere, the date it was sent."""
+    from datetime import datetime as _dt
+
+    from .. import applications
+
+    when = None
+    if body.get("submitted_at"):
+        try:
+            when = _dt.fromisoformat(str(body["submitted_at"])[:19])
+        except ValueError as e:
+            raise HTTPException(400, "日期的格式不对") from e
+    try:
+        out = applications.correct(application_id, status=str(body.get("status") or ""), submitted_at=when, note=str(body.get("note") or ""))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except applications.NotAllowed as e:
+        raise HTTPException(400, str(e)) from e
+    out["contacts"] = _contacts_for(out.get("company", ""))
+    return out
+
+
+@app.post("/api/applications/{application_id}/mails/link")
+def link_application_mail(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """This mail is about this application (the applicant says)."""
+    with db.session() as s:
+        _404(s.get(Application, application_id))
+    return {"updated": mail.link(str(body["message_id"]), [application_id], by="user")}
+
+
+@app.post("/api/applications/{application_id}/mails/unlink")
+def unlink_application_mail(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .. import applications
+
+    if not applications.unlink_mail(application_id, str(body["message_id"])):
+        raise HTTPException(404, "这封邮件没有关联到这份申请")
+    return {"ok": True}
+
+
+@app.get("/api/applications/{application_id}/mail-candidates")
+def application_mail_candidates(application_id: int) -> list[dict[str, Any]]:
+    """Mails the program could not put on any application: one of them may be about this one."""
+    with db.session() as s:
+        _404(s.get(Application, application_id))
+        return [{"message_id": m.message_id, "received_at": m.received_at.isoformat() if m.received_at else None, "sender": m.sender, "subject": m.subject,
+                 "label": messages.mail_label(m.category, m.event or "new")[1], "summary": m.summary}
+                for m in s.query(MailEvent).filter(MailEvent.application_id.is_(None), MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(40)]
 
 
 @app.post("/api/applications/{application_id}/check-mail")

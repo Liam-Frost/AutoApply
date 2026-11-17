@@ -24,7 +24,7 @@ CARDS = ("failed", "submit", "answer", "takeover", "login", "blocked", "captcha"
 WORK = ("recon", "scout", "execute", "revise", "reanswer", "tailor")     # tasks that prepare or fill an application
 
 
-def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = None, at: datetime | None = None, back: bool = False) -> bool:
+def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = None, at: datetime | None = None, back: bool = False, note: str = "") -> bool:
     """Put an application at ``to``. The one way an application's status is written.
 
     ``app``: the application (in the caller's session) or its id. ``source``: who says so - "run" (the program filled
@@ -40,7 +40,7 @@ def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = No
     if not isinstance(app, Application):
         with db.session() as s:
             a = s.get(Application, int(app))
-            return a is not None and move(a, to, source=source, evidence=evidence, at=at, back=back)
+            return a is not None and move(a, to, source=source, evidence=evidence, at=at, back=back, note=note)
     was = app.status
     if to != was:
         app.__dict__["_moving"] = {"source": source, "back": back}
@@ -50,6 +50,7 @@ def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = No
             app.__dict__.pop("_moving", None)
         if app.status != was:
             app.__dict__["_moved_by"] = source       # kept with the change (db: the history of an application's status)
+            app.__dict__["_moved_note"] = note[:300]
     if evidence:
         add_evidence(app, evidence)
     if app.status == to and to in SENT and was not in SENT and at is not None and app.submitted_at is None:
