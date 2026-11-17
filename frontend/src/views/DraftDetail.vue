@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import Icon from '../components/Icon.vue'
 import TechDetails from '../components/TechDetails.vue'
+import { decisions, toDecide } from '../draftsum'
 import { ask, toast, busy as acting, run } from '../ui'
 
 const props = defineProps({ id: String })
@@ -41,6 +42,22 @@ const show = (a) => (a.type === 'file' ? String(a.value).split(/[\\/]/).pop() : 
 const onlyDelta = ref(false)
 const deltaCount = computed(() => (d.value ? d.value.answers.filter((a) => a.delta).length : 0))
 const isUnresolved = (a) => d.value.unresolved.some((u) => u.id === a.id)
+
+// What needs a decision, before the table of everything (draftsum.js); each line leads to its row.
+const toLook = computed(() => (pending.value ? decisions(d.value) : []))
+const lit = ref('')
+const lineOf = (g) => (g.items.length ? g.items.map((i) => i.label).join('；') : '看整个流程')
+async function goTo(id, where) {
+  if (onlyDelta.value && id && !d.value.answers.some((a) => a.id === id && a.delta)) onlyDelta.value = false      // the row may be filtered out of the table
+  await nextTick()
+  const el = document.getElementById(id ? 'ans-' + id : 'draft-' + where)
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.setAttribute('tabindex', '-1')
+  el.focus({ preventScroll: true })
+  lit.value = id || where
+  setTimeout(() => { if (lit.value === (id || where)) lit.value = '' }, 2200)
+}
 
 // tailored résumé
 const CHANGE = { reorder_bullets: '调整了要点顺序', reorder_entries: '调整了先后顺序', skills: '调整了技能顺序', drop: '去掉了一条要点', rewrite: '改写了措辞', rewrite_rejected: '改写没有通过核对，保留了原文' }
@@ -197,6 +214,20 @@ onUnmounted(() => clearInterval(timer))
       </div>
     </div>
 
+    <div v-if="toLook.length" class="panel look" aria-labelledby="look-h">
+      <h3 id="look-h" style="margin-top: 0">先看这几项<span v-if="toDecide(toLook)" class="muted small" style="font-weight: 400">　{{ toDecide(toLook) }} 项需要你过目，其余的是资料里写明的事实</span>
+        <span v-else class="muted small" style="font-weight: 400">　没有需要你特别过目的答案</span></h3>
+      <div v-for="g in toLook" :key="g.key" class="look-group">
+        <span class="tag" :class="g.tone">{{ g.label }}</span>
+        <template v-if="g.to">
+          <button class="look-item" @click="goTo('', g.to)">{{ lineOf(g) }}</button>
+        </template>
+        <template v-else>
+          <button v-for="i in g.items" :key="i.id" class="look-item" @click="goTo(i.id)">{{ i.label }}<span v-if="i.note" class="muted">（{{ i.note }}）</span></button>
+        </template>
+      </div>
+    </div>
+
     <div v-if="d.notes_display.length" class="callout warn" style="display: block">
       <b>请留意</b>
       <ul style="margin: 6px 0 0; padding-left: 20px"><li v-for="(n, i) in d.notes_display" :key="i">{{ n }}</li></ul>
@@ -210,7 +241,7 @@ onUnmounted(() => clearInterval(timer))
       <table>
         <thead><tr><th style="width: 34%">表单上的问题</th><th>准备填的答案</th><th style="width: 22%">为什么这么填</th><th>把握</th><th></th></tr></thead>
         <tbody>
-          <tr v-for="a in d.answers.filter((x) => (filled.includes(x) || isUnresolved(x) || editing === x.id) && (!onlyDelta || x.delta))" :key="a.id">
+          <tr v-for="a in d.answers.filter((x) => (filled.includes(x) || isUnresolved(x) || editing === x.id) && (!onlyDelta || x.delta))" :id="'ans-' + a.id" :key="a.id" :class="{ lit: lit === a.id }">
             <td>
               {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
               <div v-if="a.entry" class="small muted" data-notr>{{ a.entry }}</div>
@@ -258,7 +289,7 @@ onUnmounted(() => clearInterval(timer))
 
     <div class="cols">
       <div>
-        <h3>要上传的文件</h3>
+        <h3 id="draft-materials" :class="{ lit: lit === 'materials' }">要上传的文件</h3>
         <div class="panel">
           <div v-for="m in d.materials" :key="m.slot" class="row" style="margin-bottom: 6px">
             <span class="tag info">{{ m.slot_label }}</span>
@@ -294,7 +325,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
       </div>
       <div>
-        <h3>批准之后会发生什么</h3>
+        <h3 id="draft-after" :class="{ lit: lit === 'after' }">批准之后会发生什么</h3>
         <div class="panel">
           <p v-if="d.submit_mode" style="margin-top: 0">
             <b>批准后：</b>
