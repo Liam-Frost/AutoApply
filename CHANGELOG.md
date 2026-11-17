@@ -91,6 +91,20 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **No tool of the AI sends an application - whatever the button is called by, and whichever tool would press it.**
+  The AI that reads forms and the one that steps in while filling could not click a button whose text says "Submit".
+  That was the whole of it: a button named only by an `aria-label` (an icon) passed; the tools that open a list or
+  type clicked whatever they were pointed at first; the key tool would press Space on a focused Submit button, or
+  Enter in a field - which sends the form - as long as some list was open anywhere on the page. Every tool that
+  clicks or presses a key now asks one question of what it would land on: is this the control that sends the
+  application, by any of the ways a control gets its name? Enter is available where it takes an entry of an open
+  list, and in a text area. "Next" and "Save and continue" work as before. The tools a learned plugin adds get a
+  page that asks the same question, and a plugin that clicks or sends from script inside the page is not learned.
+- **If a form is sent before the program means to send it, that is seen and said.** The page itself is watched for
+  the application going out (told apart from leaving a step, and from a search box with a "Submit" button). Should
+  it happen while a form is being read or filled, the program does not press Submit after it, does not hand you the
+  window to send it again, and does not report "failed - fill it in again": the application stands at "outcome of
+  the submission not known", with what was pressed named on the card.
 - **An answer you confirmed for one employer is a suggestion for the next, on every system.** On the sites without
   dedicated support this was already so. On Workday, Greenhouse and the others, answers were kept for the whole
   system, as if every employer on it asked the same question: "Have you previously worked for us?", confirmed as
