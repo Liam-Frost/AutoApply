@@ -670,3 +670,13 @@ details.card > summary { cursor: pointer; }
 
 /* where the focus is put by the program - a page's title after a page change, a drawer or a question when it opens - is not shown as if it were pressed */
 h2[tabindex="-1"]:focus, main.content:focus, .drawer:focus, .dialog:focus { outline: none; }
+
+/* a table header that sorts: a button in the header's own look */
+.th-sort { all: unset; cursor: pointer; font: inherit; color: inherit; white-space: nowrap; }
+.th-sort:hover { color: var(--text); } .th-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 3px; }
+/* a row's name as a link, without the look of one: the whole row still opens the same thing */
+a.rowlink { color: inherit; text-decoration: none; } a.rowlink:hover b { text-decoration: underline; } a.rowlink:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }
+/* the library: the file's name is what opens it */
+.mat-item { cursor: pointer; }
+.mat-open { all: unset; cursor: pointer; display: block; width: 100%; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mat-open:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }

@@ -6,6 +6,7 @@ import './style.css'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
 import { installGuards } from './dirty'
+import { pairSoon } from './labels'
 import AnalyticsView from './views/AnalyticsView.vue'
 import FilesView from './views/FilesView.vue'
 import ContactsView from './views/ContactsView.vue'
@@ -71,5 +72,6 @@ router.beforeEach(async (to) => {
   if (!persona.done && to.path !== '/welcome' && !to.path.startsWith('/remote/')) return '/welcome'      // a window that waits for you can be opened from the guide too
 })
 
-createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).use(router).mount('#app')
+// (labels.js: a label of a form grid is tied to the control it names - after the page was drawn or drawn again)
+createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).mixin({ mounted: pairSoon, updated: pairSoon }).use(router).mount('#app')
 initI18n().then(followServerLang)
