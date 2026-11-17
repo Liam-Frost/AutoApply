@@ -6,22 +6,19 @@ import { api, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
-import { fmtTime, toast } from '../ui'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
+import { fmtTime } from '../ui'
 
 const rows = ref([])
 const groups = ref([])
 const group = ref('')
 const q = ref('')
-const loaded = ref(false)
-const failed = ref('')
 
-async function load() {
-  try {
-    const d = await api.get('/applications')
-    rows.value = d.applications
-    groups.value = d.groups
-    failed.value = ''
-  } catch (e) { failed.value = e.message; toast(e.message, 'bad') } finally { loaded.value = true }
+async function read() {
+  const d = await api.get('/applications')
+  rows.value = d.applications
+  groups.value = d.groups
 }
 const waiting = computed(() => rows.value.filter((r) => r.unknown || r.status === 'ready_to_submit'))
 const shown = computed(() => {
@@ -29,6 +26,8 @@ const shown = computed(() => {
   return rows.value.filter((r) => (!group.value || r.group === group.value) && (!needle || `${r.company} ${r.title} ${r.location || ''}`.toLowerCase().includes(needle)))
 })
 const count = (k) => rows.value.filter((r) => r.group === k).length
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(load)
 </script>
 
@@ -36,6 +35,8 @@ onMounted(load)
   <PageHead title="我的申请" sub="已经投出去的申请，和提交结果还没确认的申请。点开一份，可以看到它的状态、证据、提交的材料、往来邮件和全部经过。">
     <a class="btn" :href="ROOT + '/api/applications.csv'" download><Icon name="download" />导出表格（CSV）</a>
   </PageHead>
+  <DataState :s="st" what="申请列表" @retry="load" />
+  <template v-if="st.at">
 
   <div v-if="waiting.length" class="callout warn" style="display: block; margin-bottom: 12px">
     <b>{{ waiting.length }} 份申请的提交还没有结果</b>
@@ -68,9 +69,8 @@ onMounted(load)
         </tr>
       </tbody>
     </table>
-    <div v-if="!loaded" class="empty"><div class="t">正在读取…</div></div>
-    <div v-else-if="failed" class="empty"><div class="t">没能读取申请列表</div><div class="muted">{{ failed }}</div><button style="margin-top: 8px" @click="load">再试一次</button></div>
-    <EmptyState v-else-if="!rows.length" icon="briefcase" title="还没有投出去的申请" text="批准一份草案后，程序会去填表并提交；投出去的申请会出现在这里。" />
+    <EmptyState v-if="!rows.length" icon="briefcase" title="还没有投出去的申请" text="批准一份草案后，程序会去填表并提交；投出去的申请会出现在这里。" />
     <EmptyState v-else-if="!shown.length" icon="search" title="没有符合筛选的申请" text="换一个阶段，或清空搜索。" />
   </div>
+  </template>
 </template>

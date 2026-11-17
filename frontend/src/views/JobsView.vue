@@ -5,6 +5,8 @@ import { api, fmt } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { renderMarkdown } from '../md'
 import { run, toast, ask, persona } from '../ui'
@@ -108,7 +110,7 @@ async function bulk(action) {
   picked.value = new Set()
 }
 
-async function load() {
+async function read() {
   const d = await api.get('/jobs')
   jobs.value = d.jobs; counts.value = d.counts; groups.value = d.groups; stages.value = d.stages
 }
@@ -137,6 +139,8 @@ const facts = computed(() => {
 })
 watch(() => route.query.open, (id) => { if (id) open({ id }) })
 if (route.query.q) f.q = String(route.query.q)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(async () => { await load(); if (route.query.open) open({ id: route.query.open }) })
 </script>
 
@@ -146,6 +150,8 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
     <button @click="mail"><Icon name="mail" />检查邮箱</button>
     <button @click="scan"><Icon name="search" />扫描新岗位</button>
   </PageHead>
+  <DataState :s="st" what="岗位列表" @retry="load" />
+  <template v-if="st.at">
 
   <div class="seg" style="margin-bottom: 12px">
     <button v-for="g in groups" :key="g.key" :class="{ on: group === g.key }" @click="pickGroup(g.key)">{{ g.label }}<span class="n">{{ groupCount(g.key) }}</span></button>
@@ -346,4 +352,5 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
       </template>
     </div>
   </div>
+  </template>
 </template>

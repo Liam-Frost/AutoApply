@@ -4,6 +4,8 @@ import { api, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import PdfView from '../components/PdfView.vue'
 import { fmtTime, run, toast, ask, persona } from '../ui'
 
@@ -75,7 +77,7 @@ const title = computed(() => {
   return j ? j.name : ''
 })
 
-async function load() { docs.value = await api.get('/documents'); if (cur.value) cur.value = docs.value.find((d) => d.id === cur.value.id) || null }
+async function read() { docs.value = await api.get('/documents'); if (cur.value) cur.value = docs.value.find((d) => d.id === cur.value.id) || null }
 const act = (fn, ok) => run(fn, ok, load)
 function go(f) { folder.value = f; picked.value = new Set(); cur.value = null }
 function pick(d) { cur.value = d; renaming.value = false }
@@ -109,6 +111,8 @@ async function cleanUp() {
   await act(() => api.post('/documents/bulk', { action: 'delete', ids: stale.value.map((d) => d.id) }), `已清理 ${stale.value.length} 个文件`)
 }
 const previewable = (d) => ['pdf', 'docx', 'doc'].includes(d.ext)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(load)
 </script>
 
@@ -117,6 +121,8 @@ onMounted(load)
     <AaSelect v-model="upKind" title="上传的文件用作什么"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
     <label class="btn primary" style="cursor: pointer"><Icon name="draft" />上传<input type="file" multiple style="display: none" @change="upload" /></label>
   </PageHead>
+  <DataState :s="st" what="材料库" @retry="load" />
+  <template v-if="st.at">
 
   <div class="fm">
     <!-- folders -->
@@ -201,4 +207,5 @@ onMounted(load)
       <EmptyState v-else icon="search" title="点一个文件来预览" text="PDF 和 Word 文件可以直接在这里看。" />
     </div>
   </div>
+  </template>
 </template>

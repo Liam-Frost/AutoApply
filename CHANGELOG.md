@@ -178,6 +178,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A page says whether what it shows is there, still being read, or out of date.** Postings, drafts, to-dos,
+  activity, the overview, accounts, the library and the applications started from an empty list: until the answer
+  came they said "0" and showed the picture for "nothing here", and when the service could not be reached they went
+  on showing what they had as if it were current. They now say "reading…" until something has been read; when it
+  cannot be read, that - with a button to try again; and when a later read fails, that what is shown was read at
+  such a time and may be out of date. The footer of the sidebar says when the service cannot be reached and since
+  when the counts have not been updated. A request that got no answer is worded as that, not as "Failed to fetch".
 - A source that could not be reached (a timeout, a name that does not resolve) is said to be unreachable; it was
   shown as "this step was not completed".
 - **Saving one part of a page took back what was being edited in another.** Saving an AI service, sending a test

@@ -4,6 +4,8 @@ import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import { ask, toast } from '../ui'
 
 const drafts = ref([])
@@ -11,7 +13,7 @@ const picked = ref(new Set())
 const showAll = ref(false)
 const busy = ref(false)
 
-async function load() {
+async function read() {
   drafts.value = await api.get('/drafts' + (showAll.value ? '?all=true' : ''))
   picked.value = new Set([...picked.value].filter((id) => drafts.value.some((d) => d.id === id)))
 }
@@ -63,6 +65,8 @@ async function dropPicked() {
   await batch('withdraw', (n) => `已关掉 ${n} 份`)
 }
 const redoPicked = () => batch('rebuild', (n) => `已开始重新生成 ${n} 份草案`)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(load)
 </script>
 
@@ -70,6 +74,8 @@ onMounted(load)
   <PageHead title="草案审批" sub="每份草案列出了要填的全部内容和要上传的材料。你批准之后，程序才会去填表；填完会逐项核对，没问题才提交。">
     <label class="small muted"><input v-model="showAll" type="checkbox" @change="load" /> 也显示以前的草案</label>
   </PageHead>
+  <DataState :s="st" what="草案列表" @retry="load" />
+  <template v-if="st.at">
 
   <div class="row" style="margin-bottom: 10px; gap: 8px; flex-wrap: wrap">
     <button @click="pickApprovable">选中所有能批准的</button>
@@ -105,4 +111,5 @@ onMounted(load)
     </table>
     <EmptyState v-if="!drafts.length" icon="draft" title="没有等你审批的草案" text="在“岗位”里打开一个岗位，点“生成申请草案”；评分高的新岗位也会自动准备草案。" />
   </div>
+  </template>
 </template>

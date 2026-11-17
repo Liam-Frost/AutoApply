@@ -5,6 +5,8 @@ import ColumnChart from '../components/ColumnChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import { fmtTime, run } from '../ui'
 
 const ov = inject('overview')
@@ -40,12 +42,14 @@ const daysLeft = (dl) => {
   const diff = Math.ceil((d.getTime() - Date.now()) / 86400000)
   return diff <= 0 ? '今天截止' : diff === 1 ? '明天截止' : `还有 ${diff} 天`
 }
-async function load() {
+async function read() {
   ;[todos.value, drafts.value] = await Promise.all([api.get('/todos'), api.get('/drafts')])
   todos.value = todos.value.filter((t) => !t.snoozed_until)       // what was put off until later is not "waiting for you" until then
 }
 const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), '开始扫描新岗位，完成后会通知你', reload)
 const mail = () => run(() => api.post('/tasks', { kind: 'mail' }), '开始检查邮箱', reload)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(load)
 </script>
 
@@ -54,6 +58,8 @@ onMounted(load)
     <button @click="mail"><Icon name="mail" />检查邮箱</button>
     <button @click="scan"><Icon name="search" />扫描新岗位</button>
   </PageHead>
+  <DataState :s="st" what="概览" @retry="load" />
+  <template v-if="st.at">
 
   <div class="grid-4" style="margin-bottom: 16px">
     <router-link to="/todos" class="stat" :class="{ attn: ov.open_todos }"><div class="n">{{ ov.open_todos || 0 }}</div><div class="l">件事需要你处理</div></router-link>
@@ -139,4 +145,5 @@ onMounted(load)
       <EmptyState v-if="!(ov.recent_applications || []).length" icon="send" title="还没有投出申请" />
     </div>
   </div>
+  </template>
 </template>

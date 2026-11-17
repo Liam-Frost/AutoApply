@@ -5,6 +5,8 @@ import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run, toast } from '../ui'
 
@@ -37,7 +39,7 @@ const runNow = (j) => run(() => api.post('/tasks', { kind: j.kind }), '已开始
 const setEvery = (j) => run(() => api.put('/settings', { settings: { [j.setting]: Math.max(0, Math.round(Number(j.minutes) || 0)) } }), '已保存，下一次运行时间已按新的间隔重排', load)
 const every = (m) => (m >= 1440 && m % 1440 === 0 ? `${m / 1440} 天` : m >= 60 && m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`)
 
-async function load() {
+async function read() {
   loadPlan()
   api.get('/schedule').then((r) => { sched.value = r }).catch(() => {})
   ;[runs.value, tasks.value, notes.value, ov.value] = await Promise.all([api.get('/runs'), api.get('/tasks?limit=80'), api.get('/notifications?limit=40'), api.get('/overview')])
@@ -53,6 +55,8 @@ const retry = (t) => run(() => api.post(`/tasks/${t.id}/retry`), '已重新排�
 const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已使用 nodriver 重新排队', load)
 const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果' }
 const sysName = (d) => ({ greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', pdportal: 'UBC PD Portal', generic: '其他网站（通用方式）', lever: 'Lever' }[d.ats] || d.ats)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(load)
 </script>
 
@@ -60,6 +64,8 @@ onMounted(load)
   <PageHead title="活动记录" sub="程序正在做什么、接下来做什么，以及做过的每一件事和结果。">
     <button @click="load"><Icon name="refresh" />刷新</button>
   </PageHead>
+  <DataState :s="st" what="活动记录" @retry="load" />
+  <template v-if="st.at">
 
   <div class="row" style="margin-bottom: 12px">
     <div class="seg">
@@ -226,4 +232,5 @@ onMounted(load)
     </table>
     <EmptyState v-if="!ov.drivers.length" icon="activity" title="还没有运行过" />
   </div>
+  </template>
 </template>

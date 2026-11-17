@@ -4,6 +4,8 @@ import { api, fmt, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { fmtTime, run as runAction, ask, toast } from '../ui'
 
@@ -58,7 +60,7 @@ const idpForget = async (p) => (await ask(`删除保存的 ${p.name} 登录状�
 const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['等待确认邮箱', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''], not_needed: ['不登录也能申请', ''] }
 const BY = { agent: '程序注册', takeover: '你登录时保存', manual: '手动添加', chrome_csv: '从 Chrome 导入' }
 
-async function load() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
+async function read() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
 const run = (fn, ok) => runAction(fn, ok, load)
 const save = () => run(async () => { await api.put('/accounts/' + encodeURIComponent(form.value.tenant_key), form.value); form.value = { tenant_key: '', login_email: '', password: '' } }, '已保存')
 const remove = async (a) => (await ask(`删除 ${a.site.name} 的账号记录、密码和登录状态？`)) && run(() => api.del('/accounts/' + encodeURIComponent(a.tenant_key)), '已删除')
@@ -99,12 +101,16 @@ function importSession(ev) {
   run(() => api.upload('/accounts/session/import', fd), (r) => `已导入 ${r.name} 的登录状态。请删除那个文件。`).then(() => { carry.value.inPass = ''; loadCarry() })
   ev.target.value = ''
 }
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
 onMounted(() => { load(); loadCarry(); timer = setInterval(loadIdps, 5000) })
 onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
   <PageHead title="网站账号" sub="需要登录的招聘网站，每个一条。密码保存在本机的系统凭据管理器里，登录状态加密保存在本机；都不会进数据库、日志，也不会发给 AI。" />
+  <DataState :s="st" what="网站账号" @retry="load" />
+  <template v-if="st.at">
 
   <div class="card">
     <div class="card-title">用来登录其他网站的账号</div>
@@ -210,4 +216,5 @@ onUnmounted(() => clearInterval(timer))
     </div>
   </div>
   </details>
+  </template>
 </template>
