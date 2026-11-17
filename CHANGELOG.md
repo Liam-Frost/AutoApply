@@ -178,6 +178,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A page comes back as it was left.** On the postings page the group, the filters, the sort order and the posting
+  that is open are in the address: a reload shows the same list, the browser's Back closes the open posting (and
+  keeps the filters), and the address can be kept or sent. The analytics page keeps its view and its stretch of time
+  the same way. Going back to a page returns to where it was scrolled to, once its list has been read.
 - **On a narrow screen the page comes first.** The sidebar was laid out across the top - on a phone, a third of the
   screen of navigation, theme and language before the page began. It is a bar now: the page that is open, how many
   things wait for you, whether the program is running, and "menu", which opens the full navigation as a panel (and

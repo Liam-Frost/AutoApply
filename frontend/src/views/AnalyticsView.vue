@@ -3,6 +3,7 @@
 // holds what they share - which view, which range - and the loading / error states around them.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { api } from '../api'
 import { rangeQuery } from '../analytics'
 import EmptyState from '../components/EmptyState.vue'
@@ -24,8 +25,13 @@ const SUBS = {
 const route = useRoute()
 const router = useRouter()
 // The name of the view comes from the list, never from the address itself: what the address says is only compared with it.
-const view = ref(VIEWS.map(([k]) => k).find((k) => k === route.query.view) || 'apps')
-const range = reactive({ mode: '0', start: '', end: '' })
+// (urlstate.js: which view and which stretch of time are in the address - a reload, Back, or a link from elsewhere
+// shows the same thing. What the address says is only compared with the lists here, never used as it stands.)
+const ADDR0 = { view: 'apps', range: '0', start: '', end: '' }
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+const asked = () => { const st = fromQuery(route.query, ADDR0, { view: VIEWS.map(([k]) => k), range: RANGES.map(([k]) => k) }); return { ...st, start: DAY.test(st.start) ? st.start : '', end: DAY.test(st.end) ? st.end : '' } }
+const view = ref(asked().view)
+const range = reactive({ mode: asked().range, start: asked().start, end: asked().end })
 const params = reactive({ auto: { kind: '' }, ai: { group: 'model', bucket: '', provider: '', model: '', feature: '' } })
 const state = reactive({ apps: { data: null, error: '', loading: false }, auto: { data: null, error: '', loading: false }, time: { data: null, error: '', loading: false }, ai: { data: null, error: '', loading: false } })
 const PATH = { apps: '/analytics', auto: '/analytics/automation', time: '/analytics/timing', ai: '/analytics/ai' }
@@ -48,10 +54,12 @@ async function load() {
     if (mine === seq) st.loading = false
   }
 }
-function pick(v) {
-  view.value = v
-  router.replace({ query: v === 'apps' ? {} : { view: v } })
-}
+function pick(v) { view.value = v }
+watch(() => ({ view: view.value, range: range.mode, start: range.mode === 'custom' ? range.start : '', end: range.mode === 'custom' ? range.end : '' }), (now) => {
+  const q = toQuery(now, ADDR0)
+  if (!sameQuery(q, route.query)) router.replace({ query: q })
+}, { deep: true })
+watch(() => route.query, () => { const st = asked(); view.value = st.view; if (st.range !== range.mode || st.start !== range.start || st.end !== range.end) Object.assign(range, { mode: st.range, start: st.start, end: st.end }) })
 watch([view, () => range.mode, () => range.start, () => range.end, () => ({ ...params.auto }), () => ({ ...params.ai })], load, { deep: true })
 onMounted(load)
 const cur = computed(() => state[view.value])

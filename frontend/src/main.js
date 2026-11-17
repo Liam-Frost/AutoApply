@@ -25,8 +25,20 @@ import SettingsView from './views/SettingsView.vue'
 import SourcesView from './views/SourcesView.vue'
 import RemoteView from './views/RemoteView.vue'
 
+// Back and Forward return to where the page was scrolled to - once the page has what it shows (a list that is still
+// being read is too short to scroll to the place). Going to another page starts at its top; a change of the query
+// alone (a filter, a drawer) leaves the scroll where it is.
+const drawn = () => new Promise((resolve) => {
+  const t0 = Date.now()
+  const look = () => (document.querySelector('.data-wait') && Date.now() - t0 < 2500 ? setTimeout(look, 50) : resolve())
+  setTimeout(look, 40)
+})
 const router = createRouter({
   history: createWebHistory(new URL(document.baseURI).pathname),
+  scrollBehavior: async (to, from, saved) => {
+    if (saved) { await drawn(); return saved }
+    return to.path === from.path ? false : { top: 0 }
+  },
   routes: [
     { path: '/', redirect: '/home' },
     { path: '/home', component: HomeView },
@@ -61,7 +73,6 @@ router.afterEach((to, from) => {
     const at = main.querySelector('.page-head h2') || main
     at.setAttribute('tabindex', '-1')
     at.focus({ preventScroll: true })
-    main.scrollTop = 0
   })
 })
 

@@ -9,6 +9,7 @@ import SideDrawer from '../components/SideDrawer.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import { daysUntil, deadlineLabel, isPast, keepVisible } from '../dates'
+import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import TechDetails from '../components/TechDetails.vue'
 import { renderMarkdown } from '../md'
 import { run, toast, ask, persona } from '../ui'
@@ -118,7 +119,20 @@ async function read() {
   const d = await api.get('/jobs')
   jobs.value = d.jobs; counts.value = d.counts; groups.value = d.groups; stages.value = d.stages
 }
-async function open(j) { sel.value = await api.get('/jobs/' + j.id); showJd.value = false; if (route.query.open) router.replace({ path: '/jobs' }) }
+// Which posting is open is in the address (?open=ID): the drawer opens for it, the browser's Back closes it, and the
+// address can be kept or sent. Opening by a click adds a step to the history; closing takes that step back.
+let stepped = false
+function open(j) { router.push({ query: { ...route.query, open: String(j.id) } }) }
+function closeSel() {
+  if (stepped && window.history.state && window.history.state.back) { stepped = false; router.back(); return }
+  const q = { ...route.query }
+  delete q.open
+  router.replace({ query: q })
+}
+async function show(id) {
+  if (!id) { sel.value = null; return }
+  try { sel.value = await api.get('/jobs/' + id); showJd.value = false } catch (e) { toast(e.message, 'bad'); closeSel() }
+}
 const refreshSel = async () => { if (sel.value) sel.value = await api.get('/jobs/' + sel.value.id) }
 const briefing = ref(false)
 async function writeBrief() {
@@ -141,12 +155,32 @@ const facts = computed(() => {
   return [['学期', j.term], ['时长', j.months ? j.months + ' 个月' : ''], ['薪资', j.salary], ['地点 / 形式', j.location || j.work_type], ['截止时间', j.deadline], ['在哪里投', j.channel_label],
     ['要交的材料', j.docs_required], ['方向', j.direction], ['来源', j.source_label], ['发布日期', j.posted], ['岗位编号', j.source_id && j.source_id.length <= 12 ? j.source_id : '']].filter((x) => x[1])
 })
-watch(() => route.query.open, (id) => { if (id) open({ id }) })
-if (route.query.q) f.q = String(route.query.q)
+watch(() => route.query.open, (id, was) => { if (id && !was) stepped = true; show(id) })      // (opened from within the page: a step that Back, or closing, takes back)
+
+// What the list shows - the group, the filters, the sort - is in the address too (urlstate.js). It is written in
+// place (no step in the history for every letter typed in the search box) and read when the address changes.
+const F0 = { q: '', stage: '', minScore: 0, direction: '', term: '', channel: '', deadline: '', link: false, prio: false }
+const LIST0 = { group: 'todo', sort: 'score', dir: -1, archived: false, ...F0 }
+const SORTS = ['score', 'company', 'posted', 'first_seen', 'deadline']
+const shownNow = () => ({ group: group.value, sort: sortKey.value, dir: sortDir.value, archived: showArchived.value, ...f })
+function readAddress() {
+  const st = fromQuery(route.query, LIST0, { sort: SORTS, dir: [1, -1] })
+  group.value = st.group
+  sortKey.value = st.sort
+  sortDir.value = st.dir
+  showArchived.value = st.archived
+  for (const k of Object.keys(F0)) f[k] = st[k]
+}
+readAddress()
+watch(() => shownNow(), (now) => {
+  const q = { ...toQuery(now, LIST0), ...(route.query.open ? { open: route.query.open } : {}) }
+  if (!sameQuery(q, route.query)) router.replace({ query: q })
+}, { deep: true })
+watch(() => route.query, (q, was) => { const a = { ...q }, b = { ...was }; delete a.open; delete b.open; if (!sameQuery(a, b) && !sameQuery(a, toQuery(shownNow(), LIST0))) readAddress() })
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
 useRefresh(load)
-onMounted(async () => { await load(); if (route.query.open) open({ id: route.query.open }) })
+onMounted(async () => { await load(); if (route.query.open) show(route.query.open) })
 </script>
 
 <template>
@@ -205,7 +239,7 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
           <td @click.stop><input type="checkbox" :checked="picked.has(j.id)" :aria-label="'选择 ' + j.company" @change="togglePick(j.id)" /></td>
           <td><span class="score" :class="scoreCls(j.score)">{{ j.score == null ? '—' : j.score.toFixed(1) }}</span></td>
           <td class="jobcell">
-            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><router-link class="rowlink" :to="{ path: '/jobs', query: { open: j.id } }" :aria-label="`${j.company}：${j.title}，打开详情`" @click.stop><b>{{ j.company }}</b></router-link> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
+            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><router-link class="rowlink" :to="{ path: '/jobs', query: { ...$route.query, open: j.id } }" :aria-label="`${j.company}：${j.title}，打开详情`" @click.stop><b>{{ j.company }}</b></router-link> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
             <div>{{ j.title }} <a v-if="j.apply_url" :href="j.apply_url" target="_blank" rel="noopener" title="打开岗位链接" @click.stop>↗</a></div>
             <div class="small muted">{{ [j.location, persona.features.term ? j.term : '', persona.features.term && j.months ? j.months + ' 个月' : ''].filter(Boolean).join(' · ') }}</div>
           </td>
@@ -246,7 +280,7 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
   </div>
 
   <!-- detail drawer -->
-  <SideDrawer v-if="sel" :title="sel.company" :sub="sel.title" :wide="false" @close="sel = null">
+  <SideDrawer v-if="sel" :title="sel.company" :sub="sel.title" :wide="false" @close="closeSel">
     <div class="row" style="margin: 12px 0">
       <span class="tag" :class="sel.stage_tone">{{ sel.stage_label }}</span>
       <span v-if="!sel.online && sel.stage !== 'offline'" class="tag">岗位已下线</span>
