@@ -658,3 +658,12 @@ details.card > summary { cursor: pointer; }
 .form-error { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--bad-soft); color: var(--bad); font-size: var(--fs-sm); }
 .toast a { color: inherit; text-decoration: underline; white-space: nowrap; }
 .toast.warn { border-color: var(--warn); }
+
+/* what a figure counts, behind a button (Explain) */
+.explain { font-size: var(--fs-xs); color: var(--text-2); }
+.explain > summary { cursor: pointer; display: inline-block; color: var(--text-3); border-bottom: 1px dashed var(--border); list-style: none; }
+.explain > summary::-webkit-details-marker { display: none; }
+.explain > summary:hover, .explain[open] > summary { color: var(--text); }
+.explain > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+.explain-body { margin-top: 6px; line-height: 1.6; max-width: 62ch; }
+.kpi .explain { margin-top: 6px; }

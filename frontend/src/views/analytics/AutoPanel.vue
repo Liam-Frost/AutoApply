@@ -4,6 +4,7 @@
 // running), failed.
 // The overview stays compact: the numbers behind the chart open in a panel below its row, the full list of runs and
 // the detail of one run open in a drawer.
+import Explain from '../../components/Explain.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../../api'
 import { change, compact, dur, money, pct, rangeQuery } from '../../analytics'
@@ -26,8 +27,8 @@ const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
 const count = (v) => String(Math.round(v))
-const TONE = { success: 'ok', handed: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '' }
-const unfinishedTip = computed(() => `填好等你提交 ${t.value.handed}，等你处理（登录、验证码）${t.value.waiting}，改为可见窗口重跑 ${t.value.rerun}，进行中 ${t.value.running}`)
+const TONE = { success: 'ok', handed: 'warn', unknown: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '', skipped: '' }
+const unfinishedTip = computed(() => `填好等你提交 ${t.value.handed}，点了提交、结果待确认 ${t.value.unknown}，等你处理（登录、验证码）${t.value.waiting}，改为可见窗口重跑 ${t.value.rerun}，进行中 ${t.value.running}`)
 const TITLE = { day: '每天跑了多少', week: '每周跑了多少', month: '每个月跑了多少' }
 const failed = computed(() => t.value.failed + t.value.interrupted)
 const TOP_REASONS = 5      // on the overview; the rest is one line, and all of them are in the detail view
@@ -61,11 +62,14 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
   <template v-if="t.total">
     <div class="kpis">
       <div class="kpi"><div class="n">{{ t.total }}</div><div class="l">次任务执行</div><div v-if="d.previous" class="d">{{ change(t.total, d.previous.total) || '上一段没有任务，无从比较' }}</div></div>
-      <div class="kpi" title="完成的次数 ÷ 自己跑到头的次数（完成 + 失败 + 被中断）。等你处理和还在跑的不算进分母：它们还没有结果。">
-        <div class="n" :class="{ na: t.success_rate == null }">{{ rate(t.success_rate) }}</div><div class="l">成功率</div><div class="d">{{ t.success }} / {{ t.settled }} 次</div></div>
-      <div class="kpi" :title="unfinishedTip"><div class="n">{{ t.unfinished }}</div><div class="l">次没做完，不算失败</div><div class="d">其中 {{ t.handed + t.waiting }} 次在等你</div></div>
-      <div class="kpi" title="失败 = 任务自己出错停下；被中断 = 程序在任务途中被关闭。">
-        <div class="n">{{ t.failed + t.interrupted }}</div><div class="l">次失败</div><div class="d">{{ t.interrupted ? `其中 ${t.interrupted} 次是被中断` : '没有被中断的' }}</div></div>
+      <div class="kpi">
+        <div class="n" :class="{ na: t.success_rate == null }">{{ rate(t.success_rate) }}</div><div class="l">成功率</div><div class="d">{{ t.success }} / {{ t.settled }} 次</div>
+        <Explain>完成的次数 ÷ 自己跑到头的次数（完成 + 失败 + 被中断）。等你处理和还在跑的不算进分母：它们还没有结果。“填写申请表”的一次完成，指这一次运行把申请提交出去了；发现申请早已投出而什么都没做的任务不算成功也不算失败。这是任务的成功率，不是申请的结果：申请后来怎样，看“求职成效”。</Explain></div>
+      <div class="kpi"><div class="n">{{ t.unfinished }}</div><div class="l">次没做完，不算失败</div><div class="d">其中 {{ t.handed + t.waiting + t.unknown }} 次在等你</div>
+        <Explain>{{ unfinishedTip }}</Explain></div>
+      <div class="kpi">
+        <div class="n">{{ t.failed + t.interrupted }}</div><div class="l">次失败</div><div class="d">{{ t.interrupted ? `其中 ${t.interrupted} 次是被中断` : '没有被中断的' }}</div>
+        <Explain>失败 = 任务自己出错停下；被中断 = 程序在任务途中被关闭。</Explain></div>
     </div>
 
     <div class="an-bar" style="margin-bottom: 12px">

@@ -8,7 +8,7 @@ import { compact, dur, money, ms } from '../../analytics'
 const props = defineProps({ run: { type: Object, required: true } })
 const rows = ref(null)
 const error = ref('')
-const TONE = { success: 'ok', handed: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '' }
+const TONE = { success: 'ok', handed: 'warn', unknown: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '', skipped: '' }
 const STATUS = { ok: '成功', error: '出错', refused: '被拒绝', timeout: '超时', rate_limited: '额度或限流', unavailable: '服务不可用', unknown: '没有记录' }
 
 watch(() => props.run.id, async (id) => {

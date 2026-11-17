@@ -178,6 +178,19 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **"Sent" is one number, and the three words about what came of it mean the same everywhere.** The overview
+  counted the applications whose posting is not archived, the analytics those with a day of sending: two numbers
+  for "applications sent" with nothing to say why they differed (and "my applications" showed a third). Sent is now
+  every application that stands at "submitted" or later, on all three; a page that shows a part of it says which
+  part and how many it leaves out - the overview's chart of stages the archived ones, the analytics those without a
+  date. "Acknowledged" (anything came back, an automatic confirmation included), "came to something" (an
+  assessment, an interview, or a rejection) and "reached an assessment / interview" replace "heard back", "clear
+  outcome" and their variants, and are computed in one place for both pages.
+- What a figure counts can be opened with a click, a tap or the keyboard; it was a tooltip, there for a mouse only.
+- **A task that ended is not an application that was sent.** In the automation figures, a filling task that found
+  the application already sent - and did nothing - counted as a success, and one that pressed Submit and saw no
+  confirmation as "filled in, waiting for you". The first counts neither way now; the second is "Submit pressed,
+  outcome not known".
 - **A list follows what happens while it is open.** Postings, drafts, applications, the overview, to-dos, accounts,
   the library and the activity record read themselves again when the counts in the sidebar change (a draft got
   ready, a card was settled from the phone) and when the window is looked at again; the activity record every few
