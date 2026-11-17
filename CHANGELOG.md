@@ -6,6 +6,21 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Added
 
+- **The plan: what is being done, what comes next, and what you can do about it.** The activity page opens on the
+  plan now - what is running, what is queued in the order it will be taken, what waits for you and for what, what
+  you set aside, and what is set for a later time. A queued task can be done first, set aside and taken up again,
+  or cancelled (an application whose work is cancelled does not go on saying "queued"). A running task is not cut
+  off halfway.
+- **"Finish what is being done and stop."** For closing or restarting the program: it starts nothing new, tells
+  you when the last task has ended, and goes on with the queue when it is started again. No more watching the
+  list until nothing is running.
+- **A pause stops what the program does by itself, not what you ask for.** Paused, nothing ran at all - also not
+  "look for mail now", pressed by you. Timed scans, automatic scoring, drafts and retries stay stopped; what you
+  start by hand runs.
+- **A limit on how many drafts wait for you.** A scan can bring thousands of postings, and every one that scored
+  well got a draft. The program now stops starting drafts by itself once twenty are being prepared or wait for
+  your approval (the number is a setting; 0 for no limit) and goes on, best first, when you have dealt with some.
+  Drafts you ask for by hand are not limited.
 - **"My applications": every application that has gone out, each on a page of its own.** What the program knew
   about an application was spread over the jobs list, the draft, a card, the activity record and the list of runs.
   The new page lists what has gone out and what waits for its outcome, by stage, and exports the list as a table
