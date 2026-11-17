@@ -116,6 +116,75 @@ def check(row: dict[str, Any], r: dict[str, Any] | None = None) -> str:
     return ""
 
 
+# --- who a posting is for ----------------------------------------------------------------------------------------
+# A co-op portal lists every faculty's postings, and each says which programmes it is for ("Targeted Co-op Programs:
+# Civil, Integrated ..."; "Open To All Majors: No"). That is the posting's own statement - not a matter of how its title
+# is worded - so it holds for every source, the exempt ones included, and needs no model: a posting for other
+# programmes is set aside before it is scored.
+
+_NOT_A_FIELD = {"master", "masters", "bachelor", "of", "in", "and", "the", "for", "engineering", "science", "applied", "program", "programs", "programme",
+                "ubc", "okanagan", "vancouver", "meng", "basc", "eece", "design", "co", "op", "coop", "student", "students", "year", "university"}
+
+
+def _field_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]+", (text or "").lower()) if len(w) > 2 and w not in _NOT_A_FIELD}
+
+
+def targeted(text: str) -> tuple[bool | None, list[str]]:
+    """What a posting says about who it is for: (open to all majors - None when it does not say, the programmes it names)."""
+    text = text or ""
+    m = re.search(r"Open To All Majors:\s*(Yes|No)\b", text, re.I)
+    open_to_all = None if m is None else m.group(1).lower() == "yes"
+    programs: list[str] = []
+    m = re.search(r"Targeted Co-op Programs:(.*)", text, re.S | re.I)
+    if m:
+        for line in m.group(1).splitlines():
+            line = line.strip()
+            if not line or line.lower() == "view targeted programs":
+                continue
+            if ":" in line or len(line) > 80 or re.match(r"^[A-Z][A-Z &/-]{8,}$", line):      # the next field ("Start Date: ..."), or the next section's heading
+                break
+            if line not in programs:
+                programs.append(line)
+    return open_to_all, programs[:40]
+
+
+def my_fields() -> set[str]:
+    """The applicant's field(s) of study as words: what they set (intake.programs), else the field of the programme
+    they are in - the first entry of the profile's Education section, written "institution, degree, field, dates": the
+    part just before the dates. Nothing is guessed from the rest of the section (an earlier degree, notes)."""
+    given = [str(x) for x in (db.get_setting("intake.programs") or []) if str(x).strip()]
+    if given:
+        return {w for x in given for w in (_field_words(x) or {x.strip().lower()})}
+    from . import knowledge
+
+    return _field_words(field_of_study(knowledge.read("profile") or ""))
+
+
+def field_of_study(profile: str) -> str:
+    """"Computer Engineering" from "- University of X (City), Bachelor of Applied Science, Computer Engineering, Sept 2024 - ..."."""
+    section = re.search(r"^## Education\b(.*?)(?=^## |\Z)", profile, re.S | re.M)
+    first = re.search(r"^- (.+?)(?=^- |\Z)", section.group(1), re.S | re.M) if section else None
+    if not first:
+        return ""
+    head = re.split(r"\b(?:19|20)\d\d\b", " ".join(first.group(1).split()))[0]          # up to the first year
+    head = re.sub(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*$", "", head.strip().rstrip(",(- "), flags=re.I)
+    parts = [p.strip() for p in head.split(",") if p.strip()]
+    return parts[-1] if len(parts) >= 2 else ""
+
+
+def not_for_me(text: str, mine: set[str] | None = None) -> str:
+    """'' when the posting is (or may be) for the applicant; else, in words, whom it is for instead."""
+    open_to_all, programs = targeted(text)
+    if open_to_all or not programs:
+        return ""
+    mine = my_fields() if mine is None else mine
+    if not mine or any(_field_words(p) & mine for p in programs):
+        return ""
+    names = "、".join(programs[:6]) + (" …" if len(programs) > 6 else "")
+    return f"面向其他专业：{names}"
+
+
 def keeper(r: dict[str, Any] | None = None):  # noqa: ANN201
     """A cheap pre-check sources can call before fetching a posting's details."""
     r = r or rules()

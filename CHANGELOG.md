@@ -117,6 +117,18 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   announces, changes, recalls or cancels. A cancellation does not move the application to that stage - and takes it
   back to where it was if it stood there; the notice says "Interview cancelled", "Interview arrangements changed",
   "Offer withdrawn" and so on.
+- **Postings for other programmes of study are set aside before anything reads them.** A university co-op portal
+  lists every faculty's postings, and each says which programmes it is for. That statement is now used: a posting
+  whose programmes do not include yours is marked "not applying" with the programmes it names, without being scored.
+  "Open to all majors" and postings that name no programme are not touched. Your programme is taken from the first
+  entry of your profile's Education section, or set under Settings.
+- **Getting through many postings takes a fraction of the time.**
+  - Several postings are read by the model at once (four by default) instead of one after the other.
+  - The long overview of a posting - most of what the model wrote for each - is written only for postings that score
+    6 or more; for the others a button on the posting writes it when you want it.
+  - The employers' listings are fetched side by side instead of one after the other.
+  - Scanning, scoring and mail no longer hold applications up: they have a worker of their own, forms have the other.
+  - When more postings wait than one run takes, the next run follows in a minute, not five.
 - **What the program knows about a site is kept in one place.** It was in five - notes in a file per site, the steps
   of its form in another, recipes and plugins in a folder, and what was found out about signing in spread over
   settings - under three spellings of the site's name. Each site is now one record under one name: where it signs in,

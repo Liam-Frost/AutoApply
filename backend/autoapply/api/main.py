@@ -79,6 +79,19 @@ async def lifespan(app: FastAPI):
 
         _sites_.migrate()
         db.set_setting("migrated.sites", True)
+    if not db.get_setting("migrated.programmes_rule"):
+        # postings stored before "which programmes is it for" was looked at: those for other programmes that nothing was
+        # done with yet are set aside now, the same way new ones are before they are scored
+        try:
+            from .. import scoring as _scoring
+            from ..models import Job as _Job
+
+            with db.session() as s:
+                waiting = [j.id for j in s.query(_Job).filter(_Job.status.in_(("new", "scored")), _Job.online == 1) if j.application is None]
+            _scoring.set_aside_by_rule(waiting)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("could not apply the programmes rule to stored postings")
+        db.set_setting("migrated.programmes_rule", True)
     if not db.get_setting("migrated.site_rules_whole"):
         from .. import browser_policy as _policy
 
@@ -460,6 +473,19 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
     for m in db.get_setting("mail.confirm_check_minutes") or []:
         tasks.enqueue_later("mail", ref=f"confirm:{aid}", minutes=float(m), priority=40)
     return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/brief")
+def job_brief(job_id: int) -> dict[str, Any]:
+    """Write the long overview of a posting that has none (it is written by itself only for postings that scored well)."""
+    from .. import scoring
+
+    with db.session() as s:
+        _404(s.get(Job, job_id))
+    try:
+        return {"brief": scoring.brief_job(job_id)}
+    except llm.LLMError as e:
+        raise HTTPException(503, f"AI 现在不可用：{str(e)[:200]}") from e
 
 
 @app.post("/api/jobs/{job_id}/score")

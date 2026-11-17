@@ -133,7 +133,13 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "intake.countries": [],
     "intake.max_age_days": 90,
     "intake.exempt_sources": ["pdportal", "manual"],
+    # Postings that say which programmes of study they are for (a university co-op portal does): yours, as words that
+    # occur in the programme's name ("Computer"). Empty: taken from the Education section of your profile.
+    "intake.programs": [],
     "scoring.max_per_run": 60,
+    "scoring.parallel": 4,           # postings read by the model at the same time
+    "scoring.brief_min_score": 6.0,  # the long overview of a posting is written only from this score up (and on request for the rest)
+    "sources.parallel": 4,           # employers' listings fetched at the same time
     # lifecycle (discover.archive_old): when a posting leaves the working lists
     "archive.closed_after_days": 30,   # offline / expired / skipped / rejected for this long
     "archive.silent_after_days": 150,  # applied, no reply for this long

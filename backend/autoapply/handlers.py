@@ -22,8 +22,8 @@ def _score(t: Task) -> dict[str, Any]:
         out = scoring.score_job(int(t.payload["job_id"]))
         return out or {"skipped": "no description"}
     out = scoring.score_pending()
-    if out.get("remaining"):  # the per-run cap protects the model quota; the rest follows in a few minutes instead of waiting for the next scan
-        tasks.enqueue_later("score", ref="unscored", minutes=5, priority=150)
+    if out.get("remaining"):  # the per-run cap keeps one task short; the rest follows at once - or, after the model ran out, in a while
+        tasks.enqueue_later("score", ref="unscored", minutes=30 if out.get("stopped") else 1, priority=150)
     return out
 
 

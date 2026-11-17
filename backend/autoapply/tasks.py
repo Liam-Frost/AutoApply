@@ -59,9 +59,21 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     return tid
 
 
-def _claim() -> Task | None:
+# Two workers. One fills and reads forms - a browser, a site, an account at a time. The other does what needs none of
+# that and can take long: scanning the sources, scoring, reading mail, the self-check, learning from a run. A scan of
+# twenty minutes used to hold every application up; now the two do not wait for each other. Within each, one task at
+# a time, as before.
+BACKGROUND = ("discover", "score", "mail", "canary", "improve")
+
+
+def _claim(lane: str = "") -> Task | None:
     with db.session() as s:
-        t = s.query(Task).filter_by(status="queued").order_by(Task.priority, Task.id).first()
+        q = s.query(Task).filter_by(status="queued")
+        if lane == "background":
+            q = q.filter(Task.kind.in_(BACKGROUND))
+        elif lane == "forms":
+            q = q.filter(Task.kind.notin_(BACKGROUND))
+        t = q.order_by(Task.priority, Task.id).first()
         if t is None:
             return None
         t.status, t.started_at, t.attempts = "running", now(), t.attempts + 1
@@ -119,15 +131,14 @@ def run_one(t: Task) -> None:
                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))
 
 
-def _loop() -> None:
+def _loop(lane: str = "") -> None:
     while not _stop.is_set():
         if db.get_setting("schedule.paused"):
-            _wake.wait(5)
-            _wake.clear()
+            _stop.wait(2)
             continue
-        t = _claim()
+        t = _claim(lane)
         if t is None:
-            _wake.wait(5)
+            _wake.wait(2)       # (two workers share the signal: neither clears it for the other, both look again shortly)
             _wake.clear()
             continue
         run_one(t)
@@ -189,8 +200,9 @@ def start() -> None:
     except Exception:  # noqa: BLE001
         pass
     _stop.clear()
-    _worker = threading.Thread(target=_loop, name="autoapply-worker", daemon=True)
+    _worker = threading.Thread(target=_loop, args=("forms",), name="autoapply-worker", daemon=True)
     _worker.start()
+    threading.Thread(target=_loop, args=("background",), name="autoapply-background", daemon=True).start()
     _sched = BackgroundScheduler(daemon=True)
     _schedule_jobs()
     _sched.start()

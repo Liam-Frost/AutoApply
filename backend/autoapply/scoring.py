@@ -19,7 +19,9 @@ SCHEMA = llm.obj(
         "term": {"type": "string", "description": "work term if stated, e.g. 'Winter 2027'; else empty"},
         "months": {"type": "string", "description": "term length(s) in months if stated, e.g. '4 or 8'; else empty"},
         "summary": {"type": "string", "description": "one-line summary of the role. Write this in Simplified Chinese (it is shown to the applicant); keep company names, product names and quoted form text in their original language."},
-        "brief": {"type": "string", "description": (
+    }
+)
+BRIEF = (
             "A thorough overview of the posting for the applicant to read instead of the raw description, in Markdown, in Simplified Chinese "
             "(keep company, product, technology names and job titles in their original language). Use these level-4 headings, in order, "
             "skipping one only when the posting says nothing about it: "
@@ -30,9 +32,17 @@ SCHEMA = llm.obj(
             "required documents or essay prompts, deadlines), "
             "'#### 关于公司' (one or two sentences, only from the posting). "
             "Only state what the posting or the applicant profile says; do not add outside knowledge."
-        )},
-    }
 )
+# The long overview is most of what the model writes for a posting (some 1,500 of 1,700 tokens) - and is read only for
+# postings worth a look. It is written from scoring.brief_min_score up; for the rest on request (brief_job).
+BRIEF_SCHEMA = llm.obj({"brief": {"type": "string", "description": BRIEF}})
+
+
+def _schema(min_score: float) -> dict[str, Any]:
+    props = dict(SCHEMA["properties"])
+    props["brief"] = {"type": "string", "description": BRIEF + f" Write it ONLY when the posting is not excluded and its score is {min_score:g} or more; "
+                                                               "otherwise give an empty string - nothing is lost, it is written later if the applicant asks."}
+    return llm.obj(props)
 
 SYSTEM = """You screen job postings for one applicant using the applicant's own rules.
 Read the whole description. Apply hard exclusions first: if one applies, set excluded=true, name the rule, score 0.
@@ -49,7 +59,7 @@ def score_job(job_id: int) -> dict[str, Any] | None:
             f"<posting>\nCompany: {j.company}\nTitle: {j.title}\nLocation: {j.location} {j.work_type}\nTerm: {j.term} {j.months}\n"
             f"Salary: {j.salary}\nDeadline: {j.deadline}\nDocuments required: {j.docs_required}\n\n{j.jd_text}\n</posting>"
         )
-    out = llm.json(prompt, SCHEMA, system=prompts.get("scoring"))
+    out = llm.json(prompt, _schema(float(db.get_setting("scoring.brief_min_score") or 0)), system=prompts.get("scoring"))
     with db.session() as s:
         j = s.get(Job, job_id)
         j.score = 0.0 if out["excluded"] else float(out["score"])
@@ -65,14 +75,76 @@ def score_job(job_id: int) -> dict[str, Any] | None:
     return out
 
 
+def brief_job(job_id: int) -> str:
+    """Write the long overview of one posting, for the applicant who opens a posting that has none."""
+    with db.session() as s:
+        j = s.get(Job, job_id)
+        if j is None or len((j.jd_text or "").strip()) < 200:
+            return ""
+        prompt = (f"<applicant>\n{knowledge.read('profile')}\n</applicant>\n\n<posting>\nCompany: {j.company}\nTitle: {j.title}\nLocation: {j.location} {j.work_type}\n"
+                  f"Term: {j.term} {j.months}\nDeadline: {j.deadline}\nDocuments required: {j.docs_required}\n\n{j.jd_text}\n</posting>")
+    out = llm.json(prompt, BRIEF_SCHEMA, system="You write an overview of one job posting for one applicant. Base every statement on the posting and the applicant's profile.")
+    brief = str(out.get("brief") or "")
+    if brief:
+        with db.session() as s:
+            s.get(Job, job_id).brief = brief
+    return brief
+
+
+def set_aside_by_rule(ids: list[int]) -> list[int]:
+    """Postings a plain rule decides - they say themselves that they are for other programmes of study (intake.not_for_me)
+    - are set aside here, before the model reads anything. Returns the postings that are left to score."""
+    from . import intake
+
+    mine = intake.my_fields()
+    if not mine:
+        return ids
+    left = []
+    with db.session() as s:
+        for jid in ids:
+            j = s.get(Job, jid)
+            why = intake.not_for_me(j.jd_text or "", mine) if j is not None else ""
+            if why and j.application is None:
+                j.status, j.score, j.exclusion, j.score_reason = "skipped", 0.0, why, "岗位自己写明了面向的专业，你的专业不在其中；没有交给 AI 评分。"
+            else:
+                left.append(jid)
+    return left
+
+
 def score_pending(limit: int | None = None) -> dict[str, int]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import metering
+
     limit = limit or int(db.get_setting("scoring.max_per_run") or 60)
     with db.session() as s:
         # only postings that can be scored (a description to read) and are not another listing of the same job
         rows = s.query(Job).filter(Job.status == "new", Job.online == 1, Job.duplicate_of.is_(None)).order_by(Job.id.desc()).all()
         able = [j.id for j in rows if len((j.jd_text or "").strip()) >= 200]
-        ids, remaining = able[:limit], max(0, len(able) - limit)
+    left = set_aside_by_rule(able)
+    by_rule = len(able) - len(left)
+    ids, remaining = left[:limit], max(0, len(left) - limit)
     scored = skipped = queued = 0
+    # Reading a posting is waiting for the model: several are read at once (scoring.parallel). What is done with each
+    # result - the status, queueing a draft - happens here, one after the other. A model that is out of quota ends the
+    # run: what was read is kept, the rest stays unscored and the task says why.
+    stopped: list[BaseException] = []
+
+    def read(jid: int) -> dict[str, Any] | None:
+        if stopped:
+            return None
+        try:
+            return score_job(jid)
+        except llm.LLMUnavailable as e:
+            stopped.append(e)
+            return None
+
+    workers = max(1, min(8, int(db.get_setting("scoring.parallel") or 1)))
+    if workers > 1 and len(ids) > 1:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="score") as pool:
+            outs = list(pool.map(metering.carried(read), ids))
+    else:
+        outs = [read(jid) for jid in ids]
     min_score = float(db.get_setting("queue.min_score_for_draft"))
     from . import employers
 
@@ -80,8 +152,7 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     high: list[str] = []
     from . import tasks
 
-    for jid in ids:
-        out = score_job(jid)
+    for jid, out in zip(ids, outs):
         if out is None:
             skipped += 1
             continue
@@ -99,7 +170,11 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
             queued += 1
     if high:
         notify.send("status_update", messages.high_scores(sorted(high, key=lambda r: -r["score"])), ref="score")
-    return {"scored": scored, "no_description": skipped, "queued_for_draft": queued, "remaining": remaining}
+    if stopped:
+        if not scored:
+            raise stopped[0]
+        return {"scored": scored, "set_aside_by_rule": by_rule, "queued_for_draft": queued, "remaining": remaining + skipped, "stopped": str(stopped[0])[:200]}
+    return {"scored": scored, "set_aside_by_rule": by_rule, "no_description": skipped, "queued_for_draft": queued, "remaining": remaining}
 
 
 def queue_qualifying(limit: int = 6) -> int:
