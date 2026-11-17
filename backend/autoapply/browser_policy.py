@@ -8,14 +8,14 @@ in all happen in the same browser for one site.
 
 In order:
   1. what the task was told to use (the applicant's choice for one run);
-  2. where the site's saved sign-in was made (recorded when it is saved: browser.session_made_in);
+  2. where the site's saved sign-in was made (recorded when it is saved: sites.fact(key, "session_browser"));
   3. a rule for the site (settings: browser.rules, "tenant") - the browser its sign-in is to be made in.
      A rule's "operations" no longer narrow this: a rule that said "login only" sent the rest of the work to the other
      browser, which is exactly what must not happen;
   4. a site that signs in through a provider (or whose sign-in is a provider's own) follows the provider's browser;
   5. a rule for an address ("domain"), where "operations" still mean something - a page visited on the way;
   6. the automated browser.
-A site is looked up under the key its sign-in is kept under (accounts.alias), so that "Google's careers site" and
+A site is looked up under the key its sign-in is kept under (sites.account), so that "Google's careers site" and
 "Google" are one."""
 
 from dataclasses import dataclass
@@ -35,11 +35,7 @@ def task_backend(backend):
         yield
     finally:
         _override.reset(token)
-PRESETS = [
-    {"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
-    {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
-    {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]},
-]
+
 
 
 @dataclass(frozen=True)
@@ -102,19 +98,31 @@ def select(tenant: str | None, url: str = "", operation: str = "apply", override
     return Selection("playwright", "default")
 
 
-def canonical(tenant: str | None) -> str:
-    """The key a site's sign-in is kept under: its own, or that of the site it signs in on."""
+def store_rules_whole() -> None:
+    """A rule for a site says which browser its sign-in lives in - for all of its work. Rules saved when they could be
+    limited to "login" have been ignored in that part since; here they are stored as what they now mean (once, at start)."""
     from . import db
 
-    return str((db.get_setting("accounts.alias") or {}).get(tenant) or tenant or "")
+    rules = db.get_setting("browser.rules") or []
+    if any(r.get("tenant") and r.get("operations") for r in rules):
+        db.set_setting("browser.rules", [{**r, "operations": []} if r.get("tenant") else r for r in rules])
+
+
+def canonical(tenant: str | None) -> str:
+    """The key a site's sign-in is kept under: its own, or that of the site it signs in on."""
+    from . import sites
+
+    return sites.account(tenant)
 
 
 def of_session(tenant: str, rules: list | None = None, _seen: tuple = ()) -> Selection | None:
     """The browser this site's sign-in lives in, when that is known or laid down; None when nothing says (steps 2-4)."""
     from . import db
 
+    from . import sites
+
     key = canonical(tenant)
-    made = (db.get_setting("browser.session_made_in") or {}).get(key)
+    made = sites.fact(key, "session_browser")
     if made in BACKENDS:
         return Selection(made, f"where the sign-in for {key} was made")
     rules = rules if rules is not None else (db.get_setting("browser.rules") or [])

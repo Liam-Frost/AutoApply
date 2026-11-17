@@ -30,6 +30,12 @@ from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Q
 
 BASE = "https://pdportal.apsc.ubc.ca"
 POSTINGS = f"{BASE}/myAccount/co-op/postings.htm"
+# The portal's sign-in, read off the live pages (2026-11): "Student Login" leads here; the portal sends the window to the
+# university's login (CWL, a Shibboleth page: #username, #password, button _eventId_proceed), which sends it on to Duo
+# for the second factor and then back to /secure/sso-student.htm -> /myAccount/...
+SSO_ENTRY = f"{BASE}/Shibboleth.sso/Login?entityID=https://authentication.ubc.ca&target={BASE}/secure/sso-student.htm"
+IDP_HOST = "authentication.ubc.ca"          # the only address the CWL password is ever typed on
+SECOND_FACTOR_HOST = re.compile(r"(^|\.)duosecurity\.com$")
 DOCS = f"{BASE}/myAccount/co-op/myDocuments.htm"
 SELECTS = {"30": "Co-op Student Summary Sheet", "11": "Cover Letter", "12": "Resume", "13": "Transcript", "17": "Other document"}
 
@@ -46,8 +52,23 @@ _OPEN_JS = r"""(id) => {
 class PDPortalDriver:
     ats = "pdportal"
     requires_login = True
-    sso = True  # CWL + Duo: never automated, always handed to the user
+    sso = True  # signs in through the university's login (CWL): there is nothing to register, and the password is the university's
+    second_factor_wait = 180     # seconds the applicant has to approve the sign-in on their phone
     password_policy = PasswordPolicy()
+    read_by_agent = False        # the portal does not allow programs to explore it: its form is read by this driver only (drafts.recon)
+
+    @staticmethod
+    def fixed_answer(q: Question, job: Any) -> tuple[Any, str] | None:
+        """The portal's package form: its document pickers and the package's name follow rules, and need no model."""
+        if q.id == "package":
+            company = "".join(c if c.isalnum() else "_" for c in (job.company or "Application")).strip("_")[:40]
+            return f"{company}_{job.source_id}", "naming rule <Company>_<JobID>"
+        if q.type == "select":
+            if not q.required:
+                return "", "not required by this posting"
+            if len(q.options) == 1:
+                return q.options[0], "only document of this type in My Documents"
+        return None
 
     def detect(self, url: str) -> JobRef | None:
         u = urlparse(url)
@@ -72,11 +93,79 @@ class PDPortalDriver:
             return False
         return "Not Logged In" not in page.inner_text("body")[:600]
 
+    def _sign_in(self, page: Page, ref: JobRef, user: str = "", password: str = "") -> bool:
+        """Go through the portal's sign-in, from its own entry, as far as it goes without a person. True: signed in.
+
+        What each page gets:
+        - the portal's entry: followed. When the university's login still holds, it comes straight back signed in.
+        - the university's login (CWL): the stored login name and password, once, and only on its own address. Without
+          them: False - nothing is typed, the applicant signs in. Asked for the password a second time: the login
+          refused it (DriverError "sign-in rejected") - it is not typed again.
+        - Duo: the applicant is told to approve on their phone, and the program waits for it (second_factor_wait).
+          Nothing is pressed there except "this is my device", which Duo asks after an approval.
+        The pages of Duo could not be looked at while writing this (they come after the password); what is done there
+        is kept to what does not depend on their make-up: wait until the window is back on the portal."""
+        page.goto(SSO_ENTRY, wait_until="domcontentloaded")
+        typed = moved = asked = False
+        waited, limit = 0, 45
+        while waited < limit:
+            host = urlparse(page.url).netloc.lower()
+            if self.signed_in_url(page.url):
+                page.wait_for_load_state("domcontentloaded")
+                return "Not Logged In" not in page.inner_text("body")[:600]
+            if host == IDP_HOST and page.locator("#password").count() and page.locator("#password").first.is_visible():
+                if typed:
+                    if not moved:
+                        raise DriverError("the university's login did not answer after the password was sent", seen=host)
+                    said = page.locator(".form-error, .form-element-wrapper .error, p.error").first
+                    raise DriverError("sign-in rejected", seen=(said.inner_text().strip()[:200] if said.count() else "") or "the university's login asked for the password again")
+                if not (user and password):
+                    return False
+                before = page.url
+                page.locator("#username").first.fill(user)
+                page.locator("#password").first.fill(password)     # never logged
+                page.locator("button[name='_eventId_proceed']").first.click(timeout=w.T)
+                typed = True
+                for _ in range(15):
+                    page.wait_for_timeout(1000)
+                    waited += 1
+                    if page.url != before:
+                        moved = True
+                        break
+                continue
+            if SECOND_FACTOR_HOST.search(host):
+                if not asked:
+                    asked, limit = True, waited + self.second_factor_wait
+                    self._ask_for_the_phone()
+                mine = page.locator("#trust-browser-button").or_(page.get_by_role("button", name=re.compile(r"yes, this is my device|trust (this )?browser", re.I))).first
+                if mine.count() and mine.is_visible():
+                    mine.click(timeout=w.T)
+            page.wait_for_timeout(1000)
+            waited += 1
+        if asked:
+            raise NeedsHuman(f"程序已经输入了 CWL 账号密码，等了 {self.second_factor_wait // 60} 分钟没有等到你在手机上批准 Duo。你方便的时候把这一条标为已处理，程序会重新登录并再发一次 Duo 请求；也可以自己登录一次。",
+                             kind="login", url=self.login_url(ref))
+        raise DriverError("the portal's sign-in did not finish", seen=urlparse(page.url).netloc)
+
+    @staticmethod
+    def _ask_for_the_phone() -> None:
+        from .. import messages, notify
+
+        notify.send("todo", messages.second_factor("UBC PD Portal", "Duo"), ref="account:pdportal:ubc")
+
+    def resume(self, page: Page, ref: JobRef) -> bool:
+        """The portal's session has run out. The university's login may still hold: then the portal's sign-in comes
+        straight back signed in (after a Duo approval, if it wants one). Nothing is typed. False when the university's
+        login asks for the password."""
+        return self._sign_in(page, ref)
+
     def login(self, page: Page, ref: JobRef, email: str, password: str) -> None:
-        raise NeedsHuman("PD Portal uses CWL + Duo; please sign in yourself.", kind="login", url=self.login_url(ref))
+        """Sign in with the stored CWL login name (``email``) and password."""
+        if not self._sign_in(page, ref, email, password):
+            raise DriverError("the portal's sign-in did not end signed in", seen=urlparse(page.url).netloc)
 
     def register(self, page: Page, ref: JobRef, email: str, password: str) -> str:
-        raise NeedsHuman("PD Portal uses CWL + Duo; please sign in yourself.", kind="login", url=self.login_url(ref))
+        raise NeedsHuman("PD Portal signs in with your CWL: there is no account to register.", kind="login", url=self.login_url(ref))
 
     # --- navigation ------------------------------------------------------------------
 

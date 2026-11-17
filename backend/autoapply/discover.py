@@ -212,13 +212,17 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
 
     summary["intake"] = {}
 
-    def one(name: str, source: str, rows_fn, scope: str | None, **kw: Any) -> None:  # noqa: ANN001
+    def one(name: str, source: str, rows_fn, scope: str | None, _stats: dict[str, Any] | None = None, **kw: Any) -> None:  # noqa: ANN001
         try:
-            stats: dict[str, Any] = {}
             # Filtered listings cannot tell "taken down" from "no longer matches the rules": age them out instead.
             kw.setdefault("complete", False)
             kw.setdefault("stale_days", 5)
-            summary["sources"][name] = upsert(intake.apply(rows_fn(), stats), source=source, scope=scope, **kw)
+            if _stats is not None:          # fetched and screened already (side by side, above)
+                stats = _stats
+                summary["sources"][name] = upsert(rows_fn(), source=source, scope=scope, **kw)
+            else:
+                stats = {}
+                summary["sources"][name] = upsert(intake.apply(rows_fn(), stats), source=source, scope=scope, **kw)
             summary["intake"][name] = stats
         except NeedsHuman:
             raise
@@ -231,13 +235,49 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
     employers.migrate_legacy()
     terms = [t for t in (st["sources.search_terms"] or []) if t.strip()] or ["intern"]
     keep = intake.keeper()
-    for e in employers.listing():
-        if not e.get("enabled", True):
-            continue
+    # Fetching a listing is waiting for its site, and the sites are different ones: several are fetched at once
+    # (sources.parallel). Storing what came back is done here, one source after the other - the database has one writer.
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import metering
+
+    todo = [e for e in employers.listing() if e.get("enabled", True)]
+
+    def fetch(e: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, dict[str, Any], BaseException | None]:
+        stats: dict[str, Any] = {}
+        try:
+            return list(intake.apply(employers.rows_for(e, terms, keep), stats)), stats, None
+        except BaseException as err:  # noqa: BLE001 - reported per source below
+            return None, stats, err
+
+    workers = max(1, min(8, int(st.get("sources.parallel") or 1)))
+    if workers > 1 and len(todo) > 1:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="source") as pool:
+            fetched = list(pool.map(metering.carried(fetch), todo))
+    else:
+        fetched = [fetch(e) for e in todo]
+    needs_someone: NeedsHuman | None = None
+    for e, (rows, stats, err) in zip(todo, fetched):
         source, scope = employers.source_of(e)
+        if isinstance(err, NeedsHuman):
+            needs_someone = needs_someone or err
+            continue
+        if err is not None:
+            log.warning("source %s failed: %s", e["name"], err)
+            from .sources.public import Refused
+
+            if isinstance(err, Refused):       # the same answer for every board of that service: said once
+                who = str(err).split(" ", 1)[0]
+                summary.setdefault("refused", {}).setdefault(who, []).append(e["name"])
+                summary["errors"][e["name"]] = f"网站的安全检查拒绝了这台电脑当前的网络（{who}）"
+            else:
+                summary["errors"][e["name"]] = f"{type(err).__name__}: {str(err)[:200]}"
+            continue
         # a feed shows only a board's newest postings: one that has scrolled off it is usually still open, so it is given much longer
         extra = {"stale_days": 45} if e["kind"] == "feed" else {}
-        one(e["name"], source, lambda e=e: employers.rows_for(e, terms, keep), scope, **extra)
+        one(e["name"], source, lambda rows=rows: rows, scope, _stats=stats, **extra)
+    if needs_someone is not None:
+        raise needs_someone
     if st["sources.pdportal"]:
         try:
             from .sources import pdportal

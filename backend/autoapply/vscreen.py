@@ -1,7 +1,7 @@
 """A virtual screen, for a browser that has to have a window on a computer that has no screen.
 
 Two cases need a real window, not the hidden browser:
-  - a site that turns the hidden browser away (it is remembered in the setting browser.visible_sites), and
+  - a site that turns the hidden browser away (it is remembered with the site: sites.py, needs_window), and
   - the optional second backend, which drives an ordinary Chrome.
 On a server the window goes onto a screen that exists only in memory (Xvfb). When a person has to use that window -
 to sign in - the screen is shared through a VNC server (x11vnc) that only this program can reach, and shown in the

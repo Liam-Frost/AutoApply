@@ -78,7 +78,7 @@ def put(blob: bytes, passphrase: str) -> dict[str, str]:
 
     got = read(blob, passphrase)
     tenant = got["tenant"]
-    browser.write_state(tenant, got["state"], made_in="")       # made on another computer: which browser holds it here is not known
+    browser.replace_state(tenant, got["state"])
     if not tenant.startswith("idp:"):            # a sign-in provider's session is not a site account
         auth.upsert_account(tenant, host=got["host"], status="ok", created_by="takeover")
     return {"tenant": tenant, "host": got["host"]}

@@ -91,6 +91,15 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A card that asks you to sign in to Google (or another provider) finishes when you have.** The card's button opened
+  the window without the provider's own check for "signed in", so the window could be signed in and nothing noticed:
+  the session was not kept and the tasks that waited went on waiting.
+- **Forgetting a sign-in forgets which browser it was made in.** After a sign-in was removed, the next one was still
+  opened in the browser of the one that no longer existed, whatever the rules said.
+- **A sign-in carried over from another computer replaces the one that is there.** The ordinary browser kept using the
+  cookies of the session that was being replaced, while the import said it had worked.
+- **Mail is read in the order it was written.** A cancelled interview followed by a new invitation, read newest first,
+  took the interview away again.
 - **A sign-in stays in the browser it was made in.** Which browser does a site's work used to be decided by the kind
   of work, so a site you had signed in to in the ordinary browser was read or filled in the automated one, with the
   cookies carried over - where the site showed you as signed out and asked for a sign-in you already had (Google's
@@ -117,6 +126,95 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   announces, changes, recalls or cancels. A cancellation does not move the application to that stage - and takes it
   back to where it was if it stood there; the notice says "Interview cancelled", "Interview arrangements changed",
   "Offer withdrawn" and so on.
+- **An account whose e-mail address is not confirmed is confirmed by the program, whenever it is met.** Workday shows
+  "An email has been sent to you. Please verify your account." in the banner it also uses for errors, so a registration
+  that had worked was filed as failed. From then on every run tried the password, was told to verify the account first,
+  and asked you to sign in - to an account nobody could sign in to - while the site's mail, with a link on the site's
+  own address, lay unopened. "Not confirmed yet" is now a state of the account: after registering, at a later sign-in
+  and after a submission the same thing happens - the site's mail is looked for back to when the account was made, its
+  link is opened, and the program signs in. If that link no longer works, the site is asked for another mail. Only when
+  all of that fails are you asked, and then to open the mail, not to sign in. Accounts that were stuck this way are
+  put back in line when the program starts.
+  - Mail that carries a code or a link for an account is recognised by more subjects ("Verify your candidate
+    account", "Confirm your ... email address") and, as before, never summarised or shown to a model.
+  - A link read from an HTML mail is kept as a browser would follow it ("&amp;" in its address was left in).
+- **An address that gives no answer is a site that is down, wherever it happens.** A connection that timed out at the
+  first page of a sign-in was reported as a failed task and left there, while a site that answered with an error page
+  was tried again. Both are the same thing now: tried again by itself (the first time after five minutes), nobody is
+  asked to do anything, and it is never counted as a password that failed or a page that could not be worked.
+- **The co-op portal is signed in to by the program; only the approval on your phone is yours.** The portal's sign-in
+  used to be handed to you whole, every time its session ran out. Save your CWL login name and password for it on the
+  Accounts page, and the program goes through the portal's sign-in itself: the password is typed on the university's
+  login address only, you get a message when Duo waits for your approval, and the program waits three minutes for it.
+  An approval that did not come is not asked for again behind your back - the card waits for you. A password the
+  university refuses is not sent a third time. The scan signs in the same way an application does; before, it made a
+  card without going near the sign-in.
+- **A site that keeps its sign-in on another address gets its password there.** Amazon's careers site asks for the
+  e-mail on its own page and sends the window to another Amazon address for the password. The program took that for
+  "another site, with its own account", found no password for it and stopped at the password box, with the right
+  password saved. A sign-in that begins on the site's own pages and is led on by the site is the site's sign-in; the
+  address is remembered once the password has worked there (also when you sign in by hand). A sign-in that begins on
+  another address still gets nothing typed.
+- **A sign-in through an institution is gone through again before you are asked.** The co-op portal's own session
+  lasts about an hour, the university login behind it longer: when the portal's has run out, the program follows the
+  portal's sign-in link once - nothing is typed - and asks you only if a password or a second factor is wanted.
+  The card for such a site no longer offers to register an account.
+- **A site's security check is told as what it is.** Eight sources on Workday failed every scan with "429 Too Many
+  Requests": not a rate limit, but a security check that does not accept requests from this computer's network
+  address. Each was asked four times, with growing pauses. Now one such answer is enough: the service is left alone
+  for six hours, the scan says so in one line, and requests to one service are paced together even when sources are
+  fetched side by side.
+- **Postings for other programmes of study are set aside before anything reads them.** A university co-op portal
+  lists every faculty's postings, and each says which programmes it is for. That statement is now used: a posting
+  whose programmes do not include yours is marked "not applying" with the programmes it names, without being scored.
+  "Open to all majors" and postings that name no programme are not touched. Your programme is taken from the first
+  entry of your profile's Education section, or set under Settings.
+- **Getting through many postings takes a fraction of the time.**
+  - Several postings are read by the model at once (four by default) instead of one after the other.
+  - The long overview of a posting - most of what the model wrote for each - is written only for postings that score
+    6 or more; for the others a button on the posting writes it when you want it.
+  - The employers' listings are fetched side by side instead of one after the other.
+  - Scanning, scoring and mail no longer hold applications up: they have a worker of their own, forms have the other.
+  - When more postings wait than one run takes, the next run follows in a minute, not five.
+- **What the program knows about a site is kept in one place.** It was in five - notes in a file per site, the steps
+  of its form in another, recipes and plugins in a folder, and what was found out about signing in spread over
+  settings - under three spellings of the site's name. Each site is now one record under one name: where it signs in,
+  which browser its sign-in lives in, the notes, the steps of its form, and what was learned for it. *Analysis ->
+  Time & learning* lists the sites, shows all of it for one, and can clear one (its sign-in stays). What earlier
+  versions kept is brought over at the first start; the files it is read from are moved into a folder named
+  "migrated" beside them, not deleted. Answers stay where they were: an answer is yours, not the site's.
+- **An entry a site makes by itself is no longer handed to you as bare empty fields.** A form that reads the uploaded
+  résumé can turn a personal project into a second "work experience" and then want its job title and city; you got
+  two questions, "Job title" and "City", with no way to say that the entry should go. Now the AI holds such an entry
+  against your profile: it fills what the profile states, removes an entry the profile plainly contradicts (and says
+  so with the draft), and where it cannot tell asks you one question about the whole entry - remove it, or keep it.
+  Fields of one of several like-named entries say which entry they belong to and are not filled into whichever comes
+  first. And a question the filling ran into can be taken out of the draft ("This is not one to fill in").
+- **A field the program cannot check is shown to you instead of passing silently.** A list that shows "+1" for
+  "+1 Canada" and does not mark its chosen entry was accepted on the AI's word. It still is - the form is not stopped
+  for it - but the field is listed on the card as one to look at, and an application with such a field is not
+  submitted automatically.
+- **From a review of the whole program** - places where a fault had been patched for the one case that showed it:
+  - *Why reading a form stopped* was a word of the AI's own, and every word the program did not know meant "sign
+    in". It is now one of six (sign-in, CAPTCHA, closed, already applied, site not answering, other), each with one
+    consequence; a page that simply could not be worked is no longer a sign-in card.
+  - *Signing in somewhere resumed every waiting task* - also the ones waiting for another site, which failed again
+    and asked again. A task is now resumed by what it waited for.
+  - *An answer confirmed for one employer* was reused on every other site without a driver of its own as if confirmed
+    there too ("Have you worked for us before?"). It is still offered, as a suggestion to check.
+  - *Two employers sharing one word* in their names ("... Robotics") were taken for one when an e-mail was matched to
+    an application.
+  - *Mail from an employer you applied to* is read even when it uses none of the usual words (another language).
+  - *The settings page no longer overwrites the program's own record* (which browser a sign-in lives in, which site
+    signs in on which, how far the mailbox was read) when a page that was left open is saved.
+  - *"Has it been submitted?" and "was it applied for before?"* were read from the page by a list of English
+    phrases; a confirmation in other words or another language was "not submitted". Where the phrases find nothing and
+    the answer matters - after Submit, on a page without the form, when the window is closed - the AI now reads the
+    page. It has to quote the page's own sentence, and a quote that is not on the page is not believed.
+  - A handler that lets a busy page pass no longer lets a mistake in the program pass with it.
+  - One list of the states in which an application counts as sent, instead of five; the portal's special rules live
+    in the portal's driver; two settings nothing read, an unused copy of the browser rules, unused code and a card
+    text for a card that is no longer made are gone; site rules saved with "login only" are stored as what they mean.
 - **The card says whose sign-in is missing.** When the run stopped on a provider's own sign-in page - or the site's
   sign-in is the provider's, as with Google's careers site - there is one card for the provider ("sign in to Google
   again"), not a card per posting offering "use my Google account" for Google itself.

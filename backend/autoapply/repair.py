@@ -33,6 +33,7 @@ from . import answers, db, fixtures, generic, knowledge, llm, notify
 from . import prompts
 from .ats import audit
 from .ats.base import FormSchema
+from .ats.base import tolerated
 
 log = logging.getLogger("autoapply.repair")
 
@@ -72,6 +73,23 @@ Rules:
   list (use `options` with the country's name as search) and choose the entry for the applicant's country calling code;
   the number itself goes in national format without the country code. If the form still rejects it, try the other entry
   for the same country, then report it under `needs_user` with the message the form shows.
+- An entry the form made by itself - a block of work experience or education it filled in from the uploaded résumé,
+  rows it kept from an earlier visit: this is the site's guess, not the applicant's answer. Hold it against the profile:
+  * it is what the profile says and a required field of it is empty: fill that field from the profile (`added`);
+  * the profile plainly says it is NOT that kind of thing (a personal project the site took for an employer, a course it
+    took for a degree), or it repeats another entry: remove the entry with the form's own control for that (Remove,
+    Delete, the bin icon of that entry - never one that clears the whole form) and report it under `removed`: what it
+    was, and the profile line that says so. Do not fill it in to make the error go away;
+  * you cannot tell: neither fill nor remove. Hand the WHOLE entry to the applicant as ONE `needs_user` item with
+    `decision` true: `label` names the entry ("Work experience 2: AutoApply"), `options` are what can be done with it in
+    the applicant's words ("Remove this entry", "Keep it - I will give the missing details"), `why` says what the site
+    made and what the profile says. Not one item per empty field of it.
+- A question that belongs to one of several entries with the same labels (the second "Job title"): say which entry in
+  `entry` ("Work experience 2: AutoApply"), and give a selector for that entry's own control - found by its label alone
+  it would be the first entry's.
+- An item in your list whose id starts with "@decision:" is not a control: it is what the applicant decided about an
+  entry ("Remove this entry"). Carry it out on the page and report its id under `fixed`; if the entry is not there any
+  more, report it under `absent`.
 - A field in the list that is simply not on the page (the form shows it only for other countries or choices): report
   it under `absent`, not `unfixed`.
 - You cannot submit, and you must not navigate away from this page. Do not type passwords.
@@ -91,6 +109,7 @@ How to work:
 
 When finished call done with:
   fixed: ids you set successfully; unfixed: ids you could not set (reason in notes); mapped; absent; added; needs_user;
+  removed: entries the form had made by itself and you removed (what, why);
   cause: one or two sentences on why the driver could not finish this page (what the page really looks like);
   suggestion: what should be done differently next time on this site (selector, widget type, order, a question that
   appears after another, the wording of a list entry...). The suggestion is saved and shown to whoever works on this
@@ -224,9 +243,23 @@ def enabled() -> bool:
     return bool(db.get_setting("repair.enabled"))
 
 
+def _notes_of(schema: FormSchema) -> str:
+    from . import sites
+
+    return sites.notes(sites.of_form(schema))
+
+
+def _note(schema: FormSchema, text: str) -> None:
+    from . import sites
+
+    sites.note(sites.of_form(schema), text)
+
+
 def site_key(schema: FormSchema) -> str:
-    """Where notes about this form are kept: the site for explored forms, the system for coded drivers."""
-    return f"site-{schema.tenant}" if schema.source == "agent" and schema.tenant else schema.ats
+    """Where what is learned about working this form is kept (sites.of_form): the site for explored forms, the system for coded drivers."""
+    from . import sites
+
+    return sites.of_form(schema)
 
 
 def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
@@ -285,7 +318,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         """Is this the form's own wording? A label the agent shortened or reworded cannot be found again by the driver."""
         try:
             shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             return True
         return " ".join(str(label).lower().split()).rstrip("*").strip()[:70] in shown
 
@@ -296,16 +330,22 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             return ""
         try:
             return sel if page.locator(sel).count() else ""
-        except Exception:  # noqa: BLE001 - not a selector this page can parse
+        except Exception as _e:  # noqa: BLE001 - not a selector this page can parse
+            tolerated(_e)
             return ""
 
     def done(fixed: list[str] | None = None, unfixed: list[str] | None = None, cause: str = "", suggestion: str = "", notes: str = "",
              mapped: list[dict[str, str]] | None = None, absent: list[str] | None = None, added: list[dict[str, str]] | None = None,
              needs_user: list[dict[str, str]] | None = None, adapted: list[dict[str, Any]] | None = None,
-             held: list[dict[str, Any]] | None = None, located: list[dict[str, str]] | None = None, shows: list[dict[str, str]] | None = None) -> str:
+             held: list[dict[str, Any]] | None = None, located: list[dict[str, str]] | None = None, shows: list[dict[str, str]] | None = None,
+             removed: list[dict[str, str]] | None = None) -> str:
         ids = {q.id for q in on_page}
         known = ids | {q.id for q in elsewhere}
-        reworded = [str(r["label"])[:90] for rows in (added, needs_user, held) for r in rows or [] if r.get("label") and not on_the_page(r["label"])]
+        # (a decision about an entry is named by the agent - "Work experience 2: AutoApply" - and is not a label of the form)
+        reworded = [str(r["label"])[:90] for rows in (added, needs_user, held) for r in rows or [] if r.get("label") and not r.get("decision") and not on_the_page(r["label"])]
+        for r in needs_user or []:
+            if r.get("decision") and len([o for o in r.get("options") or [] if str(o).strip()]) < 2:
+                return "NOT ACCEPTED: a decision handed to the applicant needs its `options` - what can be done with the entry, at least two. Then call done again."
         if reworded and refusals["n"] < 2:
             refusals["n"] += 1
             return ("NOT ACCEPTED: these labels are not the form's own wording: " + " | ".join(reworded[:8])
@@ -336,6 +376,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             return ("NOT ACCEPTED: the page is not finished. The form still reports:\n" + "\n".join(f"- {t}" for t in still)
                     + "\nSettle each of these (fill it from the profile, correct the rejected value), or list each one you cannot settle under needs_user "
                       "with the reason. Then call done again.")
+        report["removed"] = [{"what": str(r.get("what") or "")[:200], "why": str(r.get("why") or "")[:300]} for r in removed or [] if str(r.get("what") or "").strip()]
         report.update({"fixed": fixed or [], "unfixed": [i for i in unfixed or [] if i in ids], "cause": cause, "suggestion": suggestion, "notes": notes,
                        "mapped": [m for m in mapped or [] if m.get("id") in known and m.get("chosen")], "absent": [i for i in absent or [] if i in ids],
                        "added": [a for a in added or [] if a.get("label") and a.get("value")],
@@ -360,7 +401,9 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                                                                "required": ["label", "value"], "additionalProperties": False}},
                                                            "needs_user": {"type": "array", "items": {"type": "object", "properties": {
                                                                "label": st, "why": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
-                                                               "options": arr, "selector": st, "provisional": st}, "required": ["label", "why"], "additionalProperties": False}},
+                                                               "options": arr, "selector": st, "provisional": st, "entry": st, "decision": {"type": "boolean"}},
+                                                               "required": ["label", "why"], "additionalProperties": False}},
+                                                           "removed": obj("what", "why"),
                                                            "adapted": {"type": "array", "items": {"type": "object", "properties": {"id": st, "value": st, "max_chars": {"type": "integer"}, "why": st},
                                                                                                   "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
@@ -375,7 +418,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
     if site is not None:
         try:      # a form that creates the applicant's account along with the application has password boxes on it
             account = page.locator("input[type=password]:visible").count() > 0
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             account = False
         if account:      # the tools that type the applicant's e-mail and the site's password (never shown to the model) and press an account button
             tools += [t for t in generic.account_tools(page, site, {}) if t.name in ("fill_account_password", "fill_account_email", "click_account_button")]
@@ -404,7 +448,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             t.fn = counted(t.fn)
     tools.insert(0, llm.Tool("check_form", "What the form itself still complains about right now: fields it marks invalid, error messages, required fields "
                                            "that are empty. Call it after your changes and before done.", {"type": "object", "properties": {}, "additionalProperties": False}, check_form))
-    notes = knowledge.playbook(site_key(schema))
+    notes = _notes_of(schema)
     goal = (
         f"ATS: {schema.ats}\nPage {page_index + 1} of the application form, URL {page.url}\n\n"
         f"What the driver reported:\n{json.dumps(problem, ensure_ascii=False)[:1500]}\n\n"
@@ -474,7 +518,7 @@ def advance(page: Page, schema: FormSchema, run_dir: Path, *, step: int) -> dict
     done_tool = llm.Tool("done", "Report where the form is now and stop.", {"type": "object", "properties": {"state": {"type": "string", "enum": ["moved", "review", "blocked"]}, "why": st, "note": st},
                                                                          "required": ["state"], "additionalProperties": False}, done)
     tools = [t for t in generic.l0_tools(page, run_dir, {}, finish_tool=done_tool) if t.name in ("read_page", "list_controls", "screenshot", "click", "press", "done")]
-    notes = knowledge.playbook(site_key(schema))
+    notes = _notes_of(schema)
     goal = f"Step {step + 1} of the application form is open, URL {page.url}." + (f"\n\nNotes from earlier work on this site:\n{notes[:2000]}" if notes else "")
     res = llm.agent(goal, tools, system=NAV_SYSTEM, max_steps=20)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -483,7 +527,7 @@ def advance(page: Page, schema: FormSchema, run_dir: Path, *, step: int) -> dict
         out = {"state": "blocked", "why": (res.final_text or res.stopped)[:300], "note": ""}
     if out["state"] == "moved" and out.get("note"):
         try:
-            knowledge.add_site_note(site_key(schema), f"To leave a step whose forward button is not Next / Continue: {out['note']}")
+            _note(schema, f"To leave a step whose forward button is not Next / Continue: {out['note']}")
         except Exception:  # noqa: BLE001
             log.debug("site note not saved", exc_info=True)
     return out
@@ -505,7 +549,7 @@ def _learn(schema: FormSchema, page_index: int, report: dict[str, Any]) -> None:
                      + "; ".join(hidden[:12]) + ".")
     if lines:
         try:
-            knowledge.add_site_note(site_key(schema), " ".join(lines))
+            _note(schema, " ".join(lines))
         except Exception:  # noqa: BLE001 - a note that cannot be saved must not fail the application
             log.exception("could not save the site note")
 

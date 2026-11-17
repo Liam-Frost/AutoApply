@@ -15,8 +15,8 @@ from . import answers as ans, messages
 from . import prompts
 from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
-from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
-from .models import Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
+from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown, unreachable
+from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
 
@@ -51,8 +51,8 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
 
         return generic.recon(job, ref, run_dir)
     reads = db.get_setting("agent.reads") or []
-    # (the university's portal does not allow programs to operate it: nothing reads it, coded or not)
-    if ("*" in reads or ref.ats in reads) and ref.ats != "pdportal":
+    # (a driver can say its site is not to be explored by the agent: read_by_agent = False)
+    if ("*" in reads or ref.ats in reads) and getattr(driver, "read_by_agent", True):
         # A form that is a walk through several steps is read by the agent: it looks at each page and decides what to do
         # there. The coded driver does what code does well - signing in with the saved session or password - and hands over.
         from . import generic
@@ -100,7 +100,9 @@ def _applied_there(driver: Any, page: Any, ref: JobRef) -> None:
         there = driver.already_applied(page, ref)
     except (NeedsHuman, SiteDown):
         raise
-    except Exception:  # noqa: BLE001 - the list could not be read: the form itself will say so if it has been applied for
+    except Exception as e:  # noqa: BLE001 - the list could not be read: the form itself will say so if it has been applied for
+        if unreachable(e):
+            raise
         log.info("could not check the list of applications on %s", ref.tenant_key, exc_info=True)
         return
     if there:
@@ -212,7 +214,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
                 j = s.get(Job, job_id)
                 j.note = f"雇主官网上已找不到这个岗位，可能已关闭（{now().date().isoformat()} 核对）"
             raise DriverError("岗位在雇主官网上已关闭或链接失效，没有生成草案") from e
-        if isinstance(e, SiteDown):  # the site is unreachable right now: leave the job as it was
+        if unreachable(e):  # the site is unreachable right now: leave the job as it was
             _undo(app_id)
             raise
         _set_app(app_id, "failed", "recon failed")
@@ -674,7 +676,6 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
     return out
 
 
-SENT = ("submitted", "confirmed", "interview", "assessment", "offer", "rejected")
 
 
 class Locked(ValueError):
@@ -699,6 +700,39 @@ def locked(d: Draft) -> str:
     return ""
 
 
+def drop_question(draft_id: int, qid: str) -> None:
+    """The applicant says a question the filling ran into should not be answered at all (the site made an entry by
+    itself that does not belong there; a field that is not theirs to fill). It leaves the draft. The form is the judge
+    of whether that holds: if it still wants the field on the next run, the take-over meets it again - and by then it
+    knows the entry is not wanted. Only a question that was added while filling and has no answer can be taken out."""
+    with db.session() as s:
+        d = s.get(Draft, draft_id)
+        why = locked(d)
+        if why:
+            raise Locked(why)
+        row = next((a for a in d.answers if a["id"] == qid), None)
+        if row is None or row.get("source") != "unresolved" or row.get("value") not in ("", None, []):
+            raise Locked("只有填表时遇到、还没有答案的问题可以去掉。")
+        d.answers = [a for a in d.answers if a["id"] != qid]
+        d.unresolved = [u for u in d.unresolved if u["id"] != qid]
+        sch = dict(d.schema)
+        sch["questions"] = [q for q in sch.get("questions") or [] if q.get("id") != qid]
+        d.schema = sch
+        d.notes = [*(d.notes or []), f"你去掉了一个填表时遇到的问题：“{str(row.get('label') or '')[:120]}”" + (f"（{row['entry']}）" if row.get("entry") else "")]
+        resolved_all = not d.unresolved and d.application.status == "needs_input"
+        if resolved_all:
+            d.application.status = "draft_ready"
+        walk_on = resolved_all and d.review_status == "pending" and needs_walk(d) and bool(db.get_setting("recon.walk"))
+        if walk_on:
+            d.application.status = "recon"
+    if resolved_all:
+        notify.close_todos("answer", f"draft:{draft_id}")
+    if walk_on:
+        from . import tasks
+
+        tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=20)
+
+
 def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", remember: bool = False) -> None:
     """User edits one answer inline. The edit is authoritative: high confidence, user-confirmed."""
     with db.session() as s:
@@ -709,6 +743,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         new = []
         label = next((a.get("label", "") for a in d.answers if a["id"] == qid), "")
         corrected = d.review_status == "approved" and str(d.schema.get("ats") or "")       # the approval cached the old value as theirs
+        tenant = str(d.schema.get("tenant") or "")
         if d.review_status == "approved":
             # after the approval: kept where the applicant's other changes to this draft are listed
             before = next((a.get("value") for a in d.answers if a["id"] == qid), None)
@@ -733,7 +768,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         job_id, deadline = d.application.job_id, d.application.job.deadline
         edited = next((dict(a) for a in new if a["id"] == qid), None)
     if corrected and edited is not None and edited.get("type") != "file":
-        ans.correct(corrected, edited)
+        ans.correct(corrected, edited, tenant)
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
     if walk_on:
@@ -863,13 +898,13 @@ def approve(draft_id: int, *, auto: bool = False) -> None:
         d.review_status, d.approved_at = "approved", now()
         app, job = d.application, d.application.job
         app.status, app.auto_approved = "approved", int(auto)
-        ats = d.schema.get("ats", "")
+        ats, tenant = d.schema.get("ats", ""), str(d.schema.get("tenant") or "")
         answers_copy = list(d.answers)
         title = f"{job.company} · {job.title}"
         app_id = app.id
         deadline = job.deadline
     # A human approval confirms the answers (including sensitive ones) for reuse.
-    ans.remember(ats, answers_copy, confirmed=not auto)
+    ans.remember(ats, answers_copy, confirmed=not auto, tenant=tenant)
     from . import tasks
 
     tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))

@@ -12,8 +12,6 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-QTYPES = ("text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date")
-
 SENSITIVE_PATTERNS = [
     (r"sponsor", "sponsorship"),
     (r"salary|compensation|pay expectation|desired (annual )?pay", "salary"),
@@ -137,6 +135,17 @@ def blocking_drift(d: dict[str, list[dict[str, Any]]]) -> bool:
 # --- errors --------------------------------------------------------------------
 
 
+BUGS = (AttributeError, NameError, ImportError)
+
+
+def tolerated(e: BaseException) -> None:
+    """Called first in a handler that lets a failure pass ("the page is busy", "the control is not there yet"): what a
+    page does may be let pass, a mistake in the program may not. A method the browser adapter does not have, a name
+    that does not exist - these were swallowed by the same handlers, and showed up later as something else."""
+    if isinstance(e, BUGS):
+        raise e
+
+
 class DriverError(Exception):
     """Structured failure the repair agent can act on."""
 
@@ -153,12 +162,37 @@ class SiteDown(DriverError):
     and not a driver bug: nothing is counted against the account and no one is asked to sign in."""
 
 
+# what a browser says when an address gave no answer at all: the connection, not the page
+UNREACHABLE = re.compile(r"net::ERR_(TIMED_OUT|CONNECTION_\w+|NAME_NOT_RESOLVED|EMPTY_RESPONSE|SSL_\w+|INTERNET_DISCONNECTED|NETWORK_\w+|ADDRESS_UNREACHABLE|PROXY_\w+|TUNNEL_\w+)"
+                         r"|Page\.goto: Timeout \d+ms exceeded", re.I)
+
+
+def unreachable(e: BaseException) -> bool:
+    """Did this fail because the site (or the network on the way to it) gave no answer? That is "down for now" wherever
+    it happens - at the first page of a sign-in as much as where a driver looks for an error page - and is tried again
+    later. It says nothing about the form, the account, the password or the program, and nobody is asked to do anything."""
+    return isinstance(e, SiteDown) or (not isinstance(e, NeedsHuman) and bool(UNREACHABLE.search(str(e))))
+
+
 class NeedsHuman(Exception):
     """Login, CAPTCHA, MFA, or an existing account without stored credentials."""
 
-    def __init__(self, reason: str, *, kind: str = "login", url: str = "") -> None:
+    def __init__(self, reason: str, *, kind: str = "login", url: str = "", waits_for: str = "") -> None:
         super().__init__(reason)
         self.reason, self.kind, self.url = reason, kind, url
+        self.waits_for = waits_for      # the card that was made for it ("account:idp:google"): what the task waits for
+
+
+# the site says the account exists and its e-mail address has not been confirmed yet - after sign-up ("An email has been
+# sent to you. Please verify your account.") or at a later sign-in ("Verify your account before you sign in")
+UNCONFIRMED_RE = re.compile(r"verify your|verification (e-?mail|link)|not (yet |been )*(verified|activated|confirmed)|activate your (account|profile)|"
+                            r"confirm your (e-?mail|account|address)|e-?mail (has been|was) sent to you", re.I)
+
+
+class Unconfirmed(NeedsHuman):
+    """The site will not sign this account in until its e-mail address is confirmed. Not the applicant's to do: the
+    confirmation mail is in the mailbox the program reads (auth.confirm_address). A driver raises this from login()
+    when the site says so; whoever signs in goes through the confirmation and signs in again."""
 
 
 # the site says an application for this posting exists already: there is no form to fill, and nothing to send again

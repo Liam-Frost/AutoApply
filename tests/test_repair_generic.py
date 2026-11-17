@@ -404,7 +404,7 @@ def test_the_form_has_the_last_word_and_the_agent_finishes_what_the_draft_did_no
         ops = [x["op"] for x in steps]
         assert ops.index("form_reports") < ops.index("repair") < ops.index("handed_over")
     # the site note is there for the next exploration and the next take-over
-    note = (config.PLAYBOOKS / "site-jobs.example.test.md").read_text(encoding="utf-8")
+    note = __import__("autoapply.sites", fromlist=["sites"]).notes("generic:jobs.example.test")
     assert "fill Legal First Name" in note and "appear after an answer" in note
 
     # second run of the same draft: the driver now fills the discovered field by its label, no agent needed for it
@@ -539,7 +539,7 @@ def test_a_form_with_several_steps_is_walked_by_what_is_on_screen(app_env, tmp_p
     assert handed["touched"] is None
     assert next(x for x in steps if x["op"] == "not_asked")["shown_on_review"] == 1
     # what the navigator found is kept for the next run on this site
-    assert "Go on to the summary" in (config.PLAYBOOKS / "site-wizard.example.test.md").read_text(encoding="utf-8")
+    assert "Go on to the summary" in __import__("autoapply.sites", fromlist=["sites"]).notes("generic:wizard.example.test")
 
 
 def test_a_step_that_will_not_go_on_is_handed_to_the_user_with_the_reason(app_env, tmp_path, monkeypatch):
@@ -756,7 +756,7 @@ def test_what_a_site_taught_is_given_to_the_next_draft_and_no_patch_card_is_made
     from autoapply.models import Job, Todo
 
     knowledge.write("profile", "# Profile\n\n- Skills: C++, Linux\n")
-    knowledge.add_site_note("site-jobs.example.test", "The skills description takes at most 200 characters.")
+    __import__("autoapply.sites", fromlist=["sites"]).note("site-jobs.example.test", "The skills description takes at most 200 characters.")
     schema = FormSchema(ats="generic", tenant="jobs.example.test", url="https://jobs.example.test/apply", source="agent", pages=["Application"],
                         questions=[Question(id="#s", label="Describe your skills", type="text", required=True, locator={"selector": "#s"})])
     seen = {}
@@ -928,7 +928,7 @@ def test_an_answer_the_form_refuses_for_its_length_is_adapted_by_the_take_over_a
         ans = {a["id"]: a for a in d.answers}
         assert ans["#skills"]["value"] == short and "200" in ans["#skills"]["basis"] and ans["#city"]["value"] == "Vancouver"
         assert {qq["id"]: qq.get("max_length", 0) for qq in d.schema["questions"]} == {"#city": 0, "#skills": 200}
-    assert "at most 200 characters" in (config.PLAYBOOKS / "site-limited.example.test.md").read_text(encoding="utf-8")
+    assert "at most 200 characters" in __import__("autoapply.sites", fromlist=["sites"]).notes("generic:limited.example.test")
 
     # the same draft again: the driver fills the adapted answer, the form accepts it, no agent is needed
     monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no take-over should be needed the second time")))

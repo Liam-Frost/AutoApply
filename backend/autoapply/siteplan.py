@@ -15,17 +15,14 @@ This is how the agent improves the program's handling of a site - within limits 
 * a plan is advice, checked each time it is used: a step is taken from it only when every place it names is on the page;
   a place that is not found counts against the entry, and an entry that fails twice is dropped, so a site that changes
   its form is read by the agent again instead of being filled from an out-of-date plan;
-* plans are plain JSON files under the data folder, one per site: they can be read, edited and deleted.
+* a plan is kept with everything else known about its site (sites.py), where it can be looked at and cleared.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
-from . import config
 from .ats.base import norm_question
 
 log = logging.getLogger("autoapply.siteplan")
@@ -34,25 +31,16 @@ KINDS = ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect
 GENERATED = re.compile(r"#[\w-]*[0-9a-f]{8}-[0-9a-f]{4}|#:r\w*:|#(?:input|radio|select|field)-?\d+\b|^@label:|^input\[type=['\"]?file['\"]?\]$")
 
 
-def _path(key: str) -> Path:
-    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in key)
-    return config.DATA / "sites" / f"{safe}.json"
-
-
 def load(key: str) -> dict[str, Any]:
-    p = _path(key)
-    try:
-        plan = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
-    except (OSError, ValueError):
-        plan = {}
-    plan.setdefault("steps", {})
-    return plan
+    from . import sites
+
+    return sites.plan(key)
 
 
 def _save(key: str, plan: dict[str, Any]) -> None:
-    p = _path(key)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+    from . import sites
+
+    sites.save_plan(key, plan)
 
 
 def _same_step(a: str, b: str) -> bool:

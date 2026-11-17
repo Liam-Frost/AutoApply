@@ -20,28 +20,9 @@ class Base(DeclarativeBase):
 # --- application status machine -------------------------------------------------
 # job-level "decision" statuses mirror the columns of the old jobs.tsv so the
 # table view keeps working; application.status tracks the pipeline.
-JOB_STATUSES = ["new", "scored", "queued", "skipped", "offline"]
-APP_STATUSES = [
-    "recon",  # reconnaissance running
-    "draft_ready",  # waiting for review
-    "needs_input",  # unresolved questions
-    "revising",  # agent applying user comments
-    "approved",  # waiting for executor
-    "executing",
-    "drifted",  # live form differs from draft; delta needs review
-    "needs_human",  # login / captcha / takeover
-    "ready_to_submit",  # manual policy: filled to review page, user submits
-    "submitted",  # evidence captured
-    "confirmed",  # confirmation e-mail matched
-    "assessment",
-    "interview",
-    "offer",
-    "rejected",
-    "failed",
-    "withdrawn",
-]
-
-
+# An application in one of these has gone out. The one definition: what closes its cards (lifecycle), locks its draft
+# (drafts), counts as "applied at this employer" (auth) and is recorded as a change worth settling (db) all read it here.
+SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String, primary_key=True)
@@ -264,6 +245,19 @@ class LLMRequest(Base):
     provider_request_id: Mapped[str] = mapped_column(String, default="")
     raw: Mapped[Any] = mapped_column(JSON, nullable=True)                # the usage exactly as the service reported it
     source: Mapped[str] = mapped_column(String, default="live")          # live | legacy (a per-task total from before requests were recorded)
+
+
+class Site(Base):
+    """What the program knows about one site (sites.py is the only way to it)."""
+
+    __tablename__ = "sites"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)          # "generic:careers.acme.com", "workday:acme.wd1", "idp:google"
+    same_as: Mapped[str] = mapped_column(String, default="")            # the site whose sign-in this one uses
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, driver_written
+    notes: Mapped[list] = mapped_column(JSON, default=list)             # [{"at": "2026-11-17", "text": ...}], newest first
+    steps: Mapped[dict] = mapped_column(JSON, default=dict)             # the steps of its form (siteplan.py)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 
 
 class ApplicationEvent(Base):

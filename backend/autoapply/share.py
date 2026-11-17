@@ -23,7 +23,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from . import db, learned
+from . import db, learned, sites
 
 CHOICES = ("once", "always", "skip", "never")
 URL_LIMIT = 7000            # GitHub refuses a longer address; what does not fit is pasted by hand (the card says so)
@@ -42,8 +42,7 @@ def repo() -> str:
 def issue(rev: dict[str, Any]) -> dict[str, Any]:
     """The issue for a revision: {"title", "body", "url", "whole"}; "whole" is False when the text had to be cut to fit
     an address (the full text is then in the body, to be pasted)."""
-    site = str(rev.get("target") or "")
-    host = site[5:] if site.startswith("site-") else site
+    host = sites.name(str(rev.get("target") or ""))
     text = learned.content(rev)
     lang = "python" if rev.get("kind") == "plugin" else "json"
     title = f"Learned driver: {host}"
@@ -71,8 +70,7 @@ def offer(rev: dict[str, Any]) -> bool:
     from . import notify
 
     ready = preference() == "always"
-    site = str(rev.get("target") or "")
-    host = site[5:] if site.startswith("site-") else site
+    host = sites.name(str(rev.get("target") or ""))
     learned._update(rev["id"], shared="offered")
     notify.add_todo("share", f"把 {host} 的驱动分享给其他用户？" if not ready else f"{host} 的驱动可以分享了",
                     body="程序为这个网站写的驱动已经在试用里表现正常。把它作为 issue 提交到项目仓库，其他人的程序以后也能直接填这个网站。"

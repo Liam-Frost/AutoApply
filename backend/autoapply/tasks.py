@@ -1,7 +1,7 @@
 """In-process task queue (one SQLite table) and scheduler. No Celery, no Redis.
 
 A single worker thread pulls queued tasks by priority. Browser work is
-serialised by design (executor.concurrency defaults to 1).
+serialised by design: one task at a time.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any, Callable
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import db, llm, metering, notify
-from .ats.base import NeedsHuman, SiteDown
+from .ats.base import NeedsHuman, unreachable
 from .models import Run, Task, now
 
 log = logging.getLogger("autoapply.tasks")
@@ -59,9 +59,21 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     return tid
 
 
-def _claim() -> Task | None:
+# Two workers. One fills and reads forms - a browser, a site, an account at a time. The other does what needs none of
+# that and can take long: scanning the sources, scoring, reading mail, the self-check, learning from a run. A scan of
+# twenty minutes used to hold every application up; now the two do not wait for each other. Within each, one task at
+# a time, as before.
+BACKGROUND = ("discover", "score", "mail", "canary", "improve")
+
+
+def _claim(lane: str = "") -> Task | None:
     with db.session() as s:
-        t = s.query(Task).filter_by(status="queued").order_by(Task.priority, Task.id).first()
+        q = s.query(Task).filter_by(status="queued")
+        if lane == "background":
+            q = q.filter(Task.kind.in_(BACKGROUND))
+        elif lane == "forms":
+            q = q.filter(Task.kind.notin_(BACKGROUND))
+        t = q.order_by(Task.priority, Task.id).first()
         if t is None:
             return None
         t.status, t.started_at, t.attempts = "running", now(), t.attempts + 1
@@ -74,7 +86,7 @@ def run_one(t: Task) -> None:
     fn = _handlers.get(t.kind)
     usage = llm.reset_usage()
     metering.begin_task(t.id, t.kind, t.ref)     # every model request until the task ends belongs to it
-    status, result, error = "done", {}, ""
+    status, result, error, waits_for = "done", {}, "", ""
     try:
         if fn is None:
             raise KeyError(f"no handler for task kind {t.kind}")
@@ -83,6 +95,7 @@ def run_one(t: Task) -> None:
             result = fn(t) or {}
     except NeedsHuman as e:
         status, error = "waiting_human", e.reason
+        waits_for = getattr(e, "waits_for", "")
     except llm.LLMUnavailable as e:
         status, error = "failed", str(e)
         if "usage limit" in str(e).lower():
@@ -93,38 +106,44 @@ def run_one(t: Task) -> None:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
             notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")
-    except SiteDown as e:
-        # The employer's site is not answering. Try again later; nobody needs to do anything.
-        n = int(t.payload.get("_down_retries", 0))
-        status, error = "failed", f"网站暂时打不开：{e}" + ("；30 分钟后自动重试" if n < 6 and t.kind == "recon" else "")
-        if t.kind == "recon" and n < 6:
-            enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_down_retries": n + 1}, minutes=30, priority=t.priority)
     except Exception as e:  # noqa: BLE001
-        status, error = "failed", f"{type(e).__name__}: {e}"
-        log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
-        if t.kind in ("revise", "recon"):  # started by the user from the UI: say why it failed
-            from . import messages
+        if unreachable(e):
+            # The employer's site is not answering - an error page, or no answer at all from its address (a connection
+            # that timed out is the same thing, wherever in the run it happened). Try again later; nobody needs to do
+            # anything. The first time soon: a network that dropped for a moment is back in minutes.
+            n = int(t.payload.get("_down_retries", 0))
+            again, wait = t.kind == "recon" and n < 6, 5 if n == 0 else 30
+            status, error = "failed", f"网站暂时打不开：{str(e).splitlines()[0][:200]}" + (f"；{wait} 分钟后自动重试" if again else "")
+            log.warning("task %s (%s): the site did not answer: %s", t.id, t.kind, str(e).splitlines()[0][:200])
+            if again:
+                enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_down_retries": n + 1}, minutes=wait, priority=t.priority)
+        else:
+            status, error = "failed", f"{type(e).__name__}: {e}"
+            log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
+            if t.kind in ("revise", "recon"):  # started by the user from the UI: say why it failed
+                from . import messages
 
-            notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
+                notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
     stages = metering.end_task()
     with db.session() as s:
         row = s.get(Task, t.id)
         row.status, row.result, row.error, row.finished_at = status, result, error, now()
+        if status == "waiting_human":      # what it waits for: handlers.resume_waiting() puts it back when that is dealt with
+            row.payload = {**(row.payload or {}), "waits_for": waits_for}
         row.stages = stages
         if usage.calls:
             s.add(Run(task_id=t.id, kind="llm", ref=t.ref, ok=int(status == "done"), llm_calls=usage.calls,
                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))
 
 
-def _loop() -> None:
+def _loop(lane: str = "") -> None:
     while not _stop.is_set():
         if db.get_setting("schedule.paused"):
-            _wake.wait(5)
-            _wake.clear()
+            _stop.wait(2)
             continue
-        t = _claim()
+        t = _claim(lane)
         if t is None:
-            _wake.wait(5)
+            _wake.wait(2)       # (two workers share the signal: neither clears it for the other, both look again shortly)
             _wake.clear()
             continue
         run_one(t)
@@ -186,8 +205,9 @@ def start() -> None:
     except Exception:  # noqa: BLE001
         pass
     _stop.clear()
-    _worker = threading.Thread(target=_loop, name="autoapply-worker", daemon=True)
+    _worker = threading.Thread(target=_loop, args=("forms",), name="autoapply-worker", daemon=True)
     _worker.start()
+    threading.Thread(target=_loop, args=("background",), name="autoapply-background", daemon=True).start()
     _sched = BackgroundScheduler(daemon=True)
     _schedule_jobs()
     _sched.start()

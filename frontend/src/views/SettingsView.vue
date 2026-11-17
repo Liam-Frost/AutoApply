@@ -279,6 +279,9 @@ var s=document.createElement('script');s.src='{{ s['app.base_url'] }}/pdportal-i
           <textarea rows="3" style="font-family: inherit" :value="csv('intake.title_role_any')" @change="setCsv('intake.title_role_any', $event.target.value)"></textarea></div>
         <div class="field"><label>标题里不能有这些词</label>
           <input :value="csv('intake.title_none')" @change="setCsv('intake.title_none', $event.target.value)" /></div>
+        <div class="field"><label>你的专业（用于按专业筛选）</label>
+          <input :value="csv('intake.programs')" placeholder="例如：Computer" @change="setCsv('intake.programs', $event.target.value)" />
+          <span class="hint">有些来源（学校的 co-op 平台）的岗位会写明面向哪些专业。面向的专业名里不含这里任何一个词的岗位会被直接标为不投，不交给 AI 评分；写明“所有专业均可”或没写专业的岗位不受影响。留空时取你的资料“Education”一节第一条里的专业。</span></div>
         <div class="kv">
           <label>工作地点在</label>
           <div class="row"><label v-for="[c, name] in COUNTRIES" :key="c"><input type="checkbox" :checked="(s['intake.countries'] || []).includes(c)" @change="toggleCountry(c)" /> {{ name }}</label>

@@ -423,6 +423,13 @@ TOKEN_KINDS = (("input", "输入"), ("cache_read", "缓存读取"), ("cache_writ
 # --- where the time of the runs went (timing.py), and what was learned from it (learned.py) ---
 
 
+def _sites() -> list[dict[str, Any]]:
+    """The sites something was learned about (how they are worked): for the analysis page."""
+    from . import sites
+
+    return [r for r in sites.listing() if r["notes"] or r["steps"] or r["revisions"]]
+
+
 def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str, Any]:
     """Runs that filled a form, in the window: how long they took without the applicant's own time, by what the
     time was spent on, per system over time, and the runs themselves."""
@@ -451,7 +458,7 @@ def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str,
              "trials": len(v.get("trials") or []), "good": sum(1 for t in v.get("trials") or [] if t.get("ok") and t.get("used")),
              "median_ms": int(_median([t["ms"] for t in v.get("trials") or [] if t.get("ok") and t.get("used")]) or 0)} for v in reversed(learned.revisions())]
     return {"window": w.describe(), "runs": runs[:limit], "count": len(runs), "systems": by_system, "learned": revs,
-            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled")), "share": db.get_setting("learned.share") or "ask"}
+            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled")), "share": db.get_setting("learned.share") or "ask", "sites": _sites()}
 
 
 def timing_run(run_id: int) -> dict[str, Any]:

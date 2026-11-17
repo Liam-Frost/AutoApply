@@ -167,6 +167,8 @@ def test_mail_match_application(app_env):
 
 
 def test_pdportal_driver_wiring(app_env):
+    from autoapply.ats.pdportal import PDPortalDriver
+
     from autoapply import answers
     from autoapply.ats import registry
     from autoapply.models import Job
@@ -175,10 +177,10 @@ def test_pdportal_driver_wiring(app_env):
     assert (ref.ats, ref.job_id, ref.tenant_key) == ("pdportal", "149123", "pdportal:ubc")
     assert getattr(registry.get("pdportal"), "sso", False)
     job = Job(source="pdportal", source_id="149123", company="Acme & Co.")
-    assert answers._pdportal_fixed(Question("package", "Package Name", "text", True), job)[0] == "Acme___Co_149123"
-    assert answers._pdportal_fixed(Question("13", "Transcript", "select", False, ["Student Transcript"]), job)[0] == ""
-    assert answers._pdportal_fixed(Question("13", "Transcript", "select", True, ["Student Transcript"]), job)[0] == "Student Transcript"
-    assert answers._pdportal_fixed(Question("12", "Resume", "select", True, ["A", "B"]), job) is None  # the model picks
+    assert PDPortalDriver.fixed_answer(Question("package", "Package Name", "text", True), job)[0] == "Acme___Co_149123"
+    assert PDPortalDriver.fixed_answer(Question("13", "Transcript", "select", False, ["Student Transcript"]), job)[0] == ""
+    assert PDPortalDriver.fixed_answer(Question("13", "Transcript", "select", True, ["Student Transcript"]), job)[0] == "Student Transcript"
+    assert PDPortalDriver.fixed_answer(Question("12", "Resume", "select", True, ["A", "B"]), job) is None  # the model picks
 
 
 def test_llm_backend_switch(app_env, monkeypatch):

@@ -54,7 +54,7 @@ async function loadIdps() { idps.value = await api.get('/identities'); idpState.
 const idpLogin = (p) => runAction(() => api.post(`/identities/${p.key}/login`), `已打开窗口，请在里面登录 ${p.name}。登录成功后窗口会自己关闭。`, loadIdps)
 const idpForget = async (p) => (await ask(`删除保存的 ${p.name} 登录状态？之后遇到“用 ${p.name} 登录”的网站需要你重新登录。`)) && runAction(() => api.del('/identities/' + p.key), '已删除', loadIdps)
 
-const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['注册中', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''], not_needed: ['不登录也能申请', ''] }
+const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['等待确认邮箱', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''], not_needed: ['不登录也能申请', ''] }
 const BY = { agent: '程序注册', takeover: '你登录时保存', manual: '手动添加', chrome_csv: '从 Chrome 导入' }
 
 async function load() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
@@ -143,7 +143,7 @@ onUnmounted(() => clearInterval(timer))
 
   <div class="table-wrap" style="max-height: none">
     <table>
-      <thead><tr><th>网站</th><th>登录邮箱</th><th>密码</th><th>状态</th><th>登录状态</th><th>怎么来的</th><th></th></tr></thead>
+      <thead><tr><th>网站</th><th>登录名或邮箱</th><th>密码</th><th>状态</th><th>登录状态</th><th>怎么来的</th><th></th></tr></thead>
       <tbody>
         <tr v-for="a in accounts" :key="a.tenant_key">
           <td><b>{{ a.site.name }}</b> <span v-if="a.site.system" class="badge">{{ a.site.system }}</span><div class="muted small">{{ a.host }}</div></td>
@@ -153,7 +153,7 @@ onUnmounted(() => clearInterval(timer))
               <code v-if="revealed[a.tenant_key]">{{ revealed[a.tenant_key] }}</code><span v-else class="muted">已保存</span>
               <button class="sm ghost" @click="reveal(a)">{{ revealed[a.tenant_key] ? '隐藏' : '显示' }}</button>
             </template>
-            <span v-else class="muted">没有保存</span>
+            <template v-else><span class="muted">没有保存</span> <button class="sm ghost" @click="form.tenant_key = a.tenant_key; form.login_email = a.login_email || ''">填写</button></template>
           </td>
           <td>
             <span class="badge" :class="(STATUS[a.status] || [])[1]">{{ (STATUS[a.status] || [a.status])[0] }}</span>
@@ -197,10 +197,11 @@ onUnmounted(() => clearInterval(timer))
       <div class="card-title">手动添加</div>
       <div class="kv" style="margin-top: 12px">
         <label>网站标识</label><input v-model="form.tenant_key" placeholder="workday:altera.wd1" />
-        <label>登录邮箱</label><input v-model="form.login_email" />
+        <label>登录名或邮箱</label><input v-model="form.login_email" />
         <label>密码</label><input v-model="form.password" type="password" autocomplete="new-password" />
       </div>
       <p class="hint" style="margin-top: 8px">Workday 的标识是 “workday:” 加上网址里 .myworkdayjobs.com 前面的部分，例如 altera.wd1.myworkdayjobs.com 写成 workday:altera.wd1。一般不需要手动添加，登录一次就会自动记住。</p>
+      <p class="hint" style="margin-top: 8px">学校的 co-op 平台（PD Portal）用学校的统一登录：标识写 pdportal:ubc，登录名填 CWL 登录名。保存后程序会自己输入账号密码，只有 Duo 需要你在手机上批准。</p>
       <button class="primary" :disabled="!form.tenant_key" @click="save">保存</button>
     </div>
   </div>

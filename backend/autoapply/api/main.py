@@ -74,6 +74,35 @@ async def lifespan(app: FastAPI):
         if db.get_setting("agent.reads") == ["workday"]:
             db.set_setting("agent.reads", ["*"])
         db.set_setting("migrated.agent_reads_all", True)
+    if not db.get_setting("migrated.sites"):
+        from .. import sites as _sites_
+
+        _sites_.migrate()
+        db.set_setting("migrated.sites", True)
+    if not db.get_setting("migrated.programmes_rule"):
+        # postings stored before "which programmes is it for" was looked at: those for other programmes that nothing was
+        # done with yet are set aside now, the same way new ones are before they are scored
+        try:
+            from .. import scoring as _scoring
+            from ..models import Job as _Job
+
+            with db.session() as s:
+                waiting = [j.id for j in s.query(_Job).filter(_Job.status.in_(("new", "scored")), _Job.online == 1) if j.application is None]
+            _scoring.set_aside_by_rule(waiting)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("could not apply the programmes rule to stored postings")
+        db.set_setting("migrated.programmes_rule", True)
+    if not db.get_setting("migrated.unconfirmed_accounts"):
+        try:
+            auth.requeue_unconfirmed()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("could not put unconfirmed accounts back in line")
+        db.set_setting("migrated.unconfirmed_accounts", True)
+    if not db.get_setting("migrated.site_rules_whole"):
+        from .. import browser_policy as _policy
+
+        _policy.store_rules_whole()
+        db.set_setting("migrated.site_rules_whole", True)
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
         from ..models import Todo, now
@@ -452,6 +481,19 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
     return {"ok": True}
 
 
+@app.post("/api/jobs/{job_id}/brief")
+def job_brief(job_id: int) -> dict[str, Any]:
+    """Write the long overview of a posting that has none (it is written by itself only for postings that scored well)."""
+    from .. import scoring
+
+    with db.session() as s:
+        _404(s.get(Job, job_id))
+    try:
+        return {"brief": scoring.brief_job(job_id)}
+    except llm.LLMError as e:
+        raise HTTPException(503, f"AI 现在不可用：{str(e)[:200]}") from e
+
+
 @app.post("/api/jobs/{job_id}/score")
 def score_job(job_id: int) -> dict[str, Any]:
     return {"task_id": tasks.enqueue("score", ref=f"job:{job_id}", payload={"job_id": job_id})}
@@ -523,6 +565,18 @@ def edit_answer(draft_id: int, qid: str, body: dict[str, Any] = Body(...)) -> di
         _404(s.get(Draft, draft_id))
     try:
         drafts.edit_answer(draft_id, qid, body.get("value"), save_rule=body.get("save_rule", ""), remember=bool(body.get("remember")))
+    except drafts.Locked as e:
+        raise HTTPException(409, str(e)) from e
+    return get_draft(draft_id)
+
+
+@app.delete("/api/drafts/{draft_id}/answers/{qid:path}")
+def drop_question(draft_id: int, qid: str) -> dict[str, Any]:
+    """Take a question the filling ran into out of the draft: the applicant says it is not one to answer."""
+    with db.session() as s:
+        _404(s.get(Draft, draft_id))
+    try:
+        drafts.drop_question(draft_id, qid)
     except drafts.Locked as e:
         raise HTTPException(409, str(e)) from e
     return get_draft(draft_id)
@@ -727,13 +781,14 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
     from .. import browser as _browser
 
-    offered = db.get_setting("sso.offered") or {}
+    from .. import sites as _sites
     ready = {k: v["name"] for k, v in _browser.identities().items() if (i := _browser.session_info(f"idp:{k}")) and not i["expired"]}
     for r in rows:  # what the page shows: the employer's name and one plain sentence; raw text stays available as detail
         key = (r["payload"] or {}).get("tenant_key") or (r["ref"][8:] if r["ref"].startswith("account:") else "")
         if r["kind"] in ("takeover", "login") and key and not key.startswith("idp:"):  # ways to sign in that need nothing more from the user than a choice (not for a provider itself)
-            r["sso"] = [{"key": p, "name": ready[p]} for p in offered.get(key, []) if p in ready]
-            r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered.get(key, []) if p in _browser.identities() and p not in ready]
+            offered = _sites.fact(key, "sso_offered")
+            r["sso"] = [{"key": p, "name": ready[p]} for p in offered if p in ready]
+            r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered if p in _browser.identities() and p not in ready]
         r["site"] = humanize.site(key) if key else None
         r["explained"] = humanize.explain(r["body"])
         r["subject"] = humanize.subject(r["ref"])
@@ -749,7 +804,7 @@ def sign_in_choice(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if provider and provider not in browser.identities():
         raise HTTPException(400, "unknown provider")
     auth.choose_sign_in(key, provider)
-    return {"resumed": handlers.resume_waiting()}
+    return {"resumed": handlers.resume_waiting(f"account:{key}", f"account:{auth.key_for(key)}")}
 
 
 @app.post("/api/todos/bulk")
@@ -784,7 +839,8 @@ def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
         t.status, t.done_at = body.get("status", "done"), now()
-    return {"resumed": handlers.resume_waiting() if body.get("resume", True) else 0}
+        handled = t.ref
+    return {"resumed": handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0}
 
 
 @app.get("/api/tasks")
@@ -1176,7 +1232,7 @@ def identity_login(provider: str) -> dict[str, Any]:
             res = {"ok": False, "reason": type(e).__name__}
         _IDP_STATE[provider] = "" if res.get("ok") else res.get("reason", "没有成功")
         if res.get("ok"):
-            handlers.resume_waiting()
+            handlers.resume_waiting(f"account:idp:{provider}")
             notify.send("task_result", messages.session_saved(f"{name} 账号", credentials=False), ref=f"account:idp:{provider}")
 
     _IDP_STATE[provider] = "trying"
@@ -1284,14 +1340,14 @@ async def import_session(file: UploadFile = File(...), passphrase: str = Form(""
         got = transfer.put(await file.read(), passphrase)
     except transfer.Refused as e:
         raise HTTPException(400, str(e)) from e
-    return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting()}
+    return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting(f"account:{got['tenant']}")}
 
 
 @app.post("/api/accounts/allow-register")
 def allow_register(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """The user has no account on this site: let the agent register, and resume the tasks that were waiting."""
     auth.allow_register(body["tenant_key"])
-    return {"resumed": handlers.resume_waiting()}
+    return {"resumed": handlers.resume_waiting(f"account:{body['tenant_key']}", f"account:{auth.key_for(body['tenant_key'])}")}
 
 
 @app.post("/api/accounts/takeover")
@@ -1313,7 +1369,7 @@ def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             for td in s.query(Todo).filter_by(ref=f"account:{key}", status="open"):
                 td.payload = {**(td.payload or {}), "last_try": "" if res.get("ok") else res.get("reason", "没有成功"), "trying": False}
         if res.get("ok"):
-            handlers.resume_waiting()
+            handlers.resume_waiting(f"account:{key}", f"account:{auth.key_for(key)}")
             notify.send("task_result", messages.session_saved(key, credentials=bool(res.get("credentials_saved"))), ref=f"account:{key}")
 
     with db.session() as s:
@@ -1698,6 +1754,33 @@ def learned_one(rev_id: str) -> dict[str, Any]:
     return {**rev, "content": learned.content(rev)}
 
 
+@app.get("/api/sites")
+def sites_list() -> list[dict[str, Any]]:
+    """Every site the program knows something about, with how much: notes, steps of its form, what was learned for it."""
+    from .. import sites
+
+    rows = sites.listing()
+    for r in rows:
+        r["employer"] = humanize.site(r["key"])["name"] if ":" in r["key"] and not r["key"].startswith("idp:") else ""
+    return rows
+
+
+@app.get("/api/sites/{key:path}")
+def site_one(key: str) -> dict[str, Any]:
+    """Everything the program knows about one site."""
+    from .. import sites
+
+    return sites.about(key)
+
+
+@app.post("/api/sites/{key:path}/forget")
+def site_forget(key: str) -> dict[str, Any]:
+    """Drop what was learned about working one site (notes, steps; its revisions are taken out). Its sign-in is kept."""
+    from .. import sites
+
+    return sites.forget(key)
+
+
 @app.post("/api/learned/{rev_id}/share")
 def learned_share(rev_id: str, body: dict[str, Any]) -> dict[str, Any]:
     """The applicant's answer to "report this driver to the project?": once, always, skip, never. For once and always
@@ -1802,7 +1885,7 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
     # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
-    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
@@ -1843,8 +1926,8 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
-        if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out
-            continue
+        if k.startswith("migrated.") or k in config.STATE or k in config.RETIRED:
+            continue        # the program's own bookkeeping, or a setting that is gone: sent back by a page loaded earlier
         if k not in config.DEFAULT_SETTINGS:
             raise HTTPException(400, f"unknown setting {k}")
         db.set_setting(k, v)

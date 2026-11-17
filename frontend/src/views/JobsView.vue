@@ -114,6 +114,11 @@ async function load() {
 }
 async function open(j) { sel.value = await api.get('/jobs/' + j.id); showJd.value = false; if (route.query.open) router.replace({ path: '/jobs' }) }
 const refreshSel = async () => { if (sel.value) sel.value = await api.get('/jobs/' + sel.value.id) }
+const briefing = ref(false)
+async function writeBrief() {
+  briefing.value = true
+  try { const r = await api.post(`/jobs/${sel.value.id}/brief`); if (r.brief) sel.value = { ...sel.value, brief: r.brief }; else toast('没有写出来：这个岗位没有可读的说明', 'bad') } catch (e) { toast(e.message, 'bad') } finally { briefing.value = false }
+}
 const act = (fn, ok) => run(fn, ok, async () => { await load(); await refreshSel() })
 const makeDraft = () => act(() => api.post(`/jobs/${sel.value.id}/draft`), '已开始：读取申请表并生成草案，完成后会通知你')
 const rescore = () => act(() => api.post(`/jobs/${sel.value.id}/score`), '已开始重新评分')
@@ -320,6 +325,10 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
       <h3>岗位概况</h3>
       <div class="card md" v-html="renderMarkdown(sel.brief)"></div>
     </template>
+    <p v-else-if="sel.has_jd !== false && sel.score != null" class="small muted">
+      这个岗位的评分不高，程序没有为它写详细的概况。
+      <button class="sm ghost" :disabled="briefing" @click="writeBrief">{{ briefing ? '正在写…' : '现在写一份' }}</button>
+    </p>
 
     <h3>岗位说明原文</h3>
     <div class="card">

@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from . import config
 
-_SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 _engine = None
 _Session: sessionmaker[Session] | None = None
 
@@ -40,14 +39,14 @@ def get_engine():
             """Whoever changes an application's status - the executor, the mail tracker, the user - the change is kept."""
             from sqlalchemy import inspect as sa_inspect
 
-            from .models import Application, ApplicationEvent
+            from .models import Application, ApplicationEvent, SENT
 
             for obj in list(session.dirty):
                 if isinstance(obj, Application) and obj.id is not None:
                     h = sa_inspect(obj).attrs.status.history
                     if h.has_changes() and h.added and (not h.deleted or h.deleted[0] != h.added[0]):
                         session.add(ApplicationEvent(application_id=obj.id, old=str(h.deleted[0]) if h.deleted else "", new=str(h.added[0])))
-                        if str(h.added[0]) in _SENT:      # whichever way it was sent: what waited on it is closed (lifecycle.settle)
+                        if str(h.added[0]) in SENT:      # whichever way it was sent: what waited on it is closed (lifecycle.settle)
                             session.info.setdefault("sent", set()).add(obj.id)
 
         @event.listens_for(_Session, "after_commit")

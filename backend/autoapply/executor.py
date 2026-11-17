@@ -39,6 +39,7 @@ from . import answers as ans, messages
 from . import auth, browser, config, db, fixtures, knowledge, learned, lifecycle, llm, metering, notify, repair, secrets, timing
 from .ats import audit, registry
 from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
+from .ats.base import tolerated
 from .drafts import _stat
 from .models import Application, Draft, Run, now
 
@@ -90,23 +91,84 @@ def _seen(page: Any, limit: int = 6000) -> dict[str, str]:
     """What the window shows: its address, its title (many sites say "Thank you for your application" only there) and its text."""
     try:
         got = page.evaluate("(n) => ({ title: document.title || '', text: document.body ? document.body.innerText.slice(0, n) : '' })", limit)
-    except Exception:  # noqa: BLE001 - between two pages there is nothing to read
+    except Exception as _e:  # noqa: BLE001 - between two pages there is nothing to read
+        tolerated(_e)
         got = {"title": "", "text": ""}
     try:
         url = page.url
-    except Exception:  # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
+        tolerated(_e)
         url = ""
     return {"url": url, "title": got["title"], "text": got["text"]}
 
 
-def _already_applied(page: Any) -> dict[str, str] | None:
-    """The page that opened instead of the form says this posting has been applied for already."""
+def _already_applied(page: Any, *, ask: bool = False) -> dict[str, str] | None:
+    """The page that opened instead of the form says this posting has been applied for already. ``ask``: where its
+    words are none of the known ones, the model reads the page (_judge) - the caller has no form in front of it and is
+    about to take that for an expired sign-in."""
     now_ = _seen(page, 3000)
     m = ALREADY_RE.search(now_["text"]) or ALREADY_RE.search(now_["title"])
     if not m and not re.search(r"[?&]result=duplicate\b", now_["url"], re.I):
-        return None
+        said = _judge(now_) if ask else None
+        if said is None:
+            return None
+        return {"url": now_["url"], "text": said["sentence"][:300], "already_applied": "yes", "read_by": "model"}
     line = next((ln.strip() for ln in now_["text"].splitlines() if ALREADY_RE.search(ln)), now_["title"])
     return {"url": now_["url"], "text": line[:300], "already_applied": "yes"}
+
+
+# The two answers that decide most: "has this application gone out?" and "was it applied for before?". Both are read
+# from the page by known phrases first (DONE_RE, ALREADY_RE) - instant, free, and right for most sites. Where the
+# phrases find nothing and the answer matters (after Submit; a page without the form; a window that was closed), the
+# model reads the page instead of the program concluding "not submitted". It has to quote the page's own sentence,
+# and a quote that is not on the page is not believed.
+JUDGE = llm.obj({
+    "state": {"type": "string", "enum": ["submitted", "already_applied", "neither"]},
+    "sentence": {"type": "string", "description": "the page's own sentence that says so, copied exactly as it stands on the page; empty for neither"},
+})
+JUDGE_RULES = """You are given the text a web page shows in a job applicant's browser. Decide what it says about the application:
+- submitted: the page states that the application HAS BEEN submitted or received (a confirmation, in any language).
+- already_applied: the page states that the applicant applied to this posting before (so it cannot be applied for again).
+- neither: anything else - the form is still there, a sign-in page, an error, a list of jobs, a thank-you for visiting or for
+  interest that does not say an application was received, a draft that was saved. When in doubt: neither.
+Copy the page's own sentence that says it, exactly, into `sentence`."""
+_judged: dict[str, dict[str, str] | None] = {}
+
+
+def _judge(seen: dict[str, str]) -> dict[str, str] | None:
+    """{"state": "submitted" | "already_applied", "sentence": ...} as the model reads the page, or None: it says
+    neither, could not be asked, or quoted something the page does not say."""
+    import hashlib
+
+    text = f"{seen.get('title') or ''}\n{seen.get('text') or ''}".strip()
+    if len(text) < 12:
+        return None
+    key = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+    if key in _judged:
+        return _judged[key]
+    if len(_judged) > 200:
+        _judged.clear()
+    out: dict[str, str] | None = None
+    try:
+        got = llm.json(f"<page url={seen.get('url', '')!r}>\n{text[:6000]}\n</page>", JUDGE, system=JUDGE_RULES, small=True, max_tokens=400)
+        quote = " ".join(str(got.get("sentence") or "").split())
+        if got.get("state") in ("submitted", "already_applied") and len(quote) >= 6 and quote.lower() in " ".join(text.split()).lower():
+            out = {"state": got["state"], "sentence": quote}
+    except Exception as e:  # noqa: BLE001 - no model: the page stays unread, as before
+        tolerated(e)
+        log.info("the page could not be read by the model (%s)", type(e).__name__)
+        return None
+    _judged[key] = out
+    return out
+
+
+def _no_form(page: Any) -> bool:
+    """Is there no form on the page any more (at most one visible field - a search box)?"""
+    try:
+        return int(page.evaluate("() => [...document.querySelectorAll('input:not([type=hidden]), select, textarea')].filter(e => e.getClientRects().length).length")) <= 1
+    except Exception as _e:  # noqa: BLE001 - a page between two addresses
+        tolerated(_e)
+        return False
 
 
 class NeedsVisibleRun(Exception):
@@ -203,6 +265,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         if not any(x["label"] == label for x in leftovers):
             leftovers.append({"label": label, "expected": expected, "kind": kind, "why": why})
 
+    trusted: list[str] = []                # fields let through on the AI's word, which the program could not check
+
+    def _trusted(b: dict[str, Any]) -> None:
+        trusted.append(b["label"])
+        _left("check", b["label"], str(b["expected"]), f"控件只显示“{str(b['actual'])[:40]}”，程序核对不了选中的是不是这一项；是 AI 选的，提交前请看一眼")
+
     def _handed(issue: dict[str, Any]) -> bool:
         """Is this finding of the form already on the user's list?"""
         label = norm_question(issue.get("label") or "")
@@ -244,7 +312,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             return []
         try:
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             back = {}
         known = {norm_question(q.label): q for q in schema.questions if i is None or q.page == i}
         out = []
@@ -254,7 +323,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             try:
                 boxes = page.locator("input[type=password]:visible")
                 empty = [k for k in range(boxes.count()) if not boxes.nth(k).input_value(timeout=2000)]
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 empty = []
             if empty and (secrets.get_password(ref.tenant_key) or auth.may_register(ref)[0]):
                 out.append({"kind": "message", "label": "Account", "selector": "", "value": "",
@@ -270,6 +340,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     adapted: list[dict[str, Any]] = []   # answers rewritten to fit a limit of the form: shown to the user, kept in the draft
     limits: dict[str, int] = {}          # question id -> the most characters the form accepts
     asked: list[dict[str, Any]] = []     # questions the form asks that neither the draft nor the profile answers: they join the draft as open questions
+    removed: list[dict[str, str]] = []   # entries the form had made by itself (from the résumé) that the profile contradicts: taken out by the agent
     held: list[dict[str, Any]] = []      # questions the site already holds an answer to (read on a walk): they join the draft as they stand
     located: dict[str, str] = {}         # question id -> where the take-over found its control (the driver fills it alone next time)
     read_now: list[str] = []             # steps read completely on this walk, by their title
@@ -319,9 +390,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                              "profile_says": str(h.get("profile_says") or "").strip()[:300]})
         for n in rep.get("needs_user") or []:
             _left("fix", n["label"], "", n.get("why") or "资料里没有这一项，需要你来填")
-            if n.get("type") and not any(norm_question(x["label"]) == norm_question(n["label"]) for x in asked):
-                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": n["type"], "options": [str(o) for o in n.get("options") or []][:60], "page": i,
-                              "selector": n.get("selector") or "", "provisional": str(n.get("provisional") or "")[:200] if scout else ""})
+            decision = bool(n.get("decision"))
+            if (n.get("type") or decision) and not any(norm_question(x["label"]) == norm_question(n["label"]) and x.get("entry", "") == str(n.get("entry") or "")[:160] for x in asked):
+                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": "radio" if decision else n["type"],
+                              "options": [str(o) for o in n.get("options") or []][:60], "page": i, "selector": "" if decision else n.get("selector") or "",
+                              "provisional": str(n.get("provisional") or "")[:200] if scout and not decision else "",
+                              "decision": decision, "entry": str(n.get("entry") or "")[:160]})
+        for r in rep.get("removed") or []:      # what the site had made by itself and the agent took out again: said to the applicant with the draft
+            if r not in removed:
+                removed.append(r)
         for qid in rep.get("unfixed") or []:
             _left("fix", lab.get(qid, qid), str(fill.get(qid, ""))[:120], "表单上的选项和草案里的答案对不上，或控件没法自动操作")
         skip_verify.update(rep.get("unfixed") or [])
@@ -356,11 +433,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         if _looks_submitted(page) and driver.form_gone(page, fill):
             try:
                 conf = driver.confirmation(page)
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 conf = None
             try:
                 seen_now = {"url": page.url, "text": page.evaluate("() => document.body.innerText.slice(0, 1500)")}
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 seen_now = {"url": "", "text": ""}
             user_done["evidence"] = conf or seen_now
             browser.snapshot(page, run_dir, "submitted_in_window")
@@ -649,7 +728,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     page.wait_for_timeout(600)
                     step("review_unfolded", sections=opened)
                 shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 shown = ""
             unseen = []
             for q in rest:
@@ -682,7 +762,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if generic:
                 from . import generic as gen
 
-                if not gen.form_present(page, schema, wait_s=4) and (dup := _already_applied(page)):
+                if not gen.form_present(page, schema, wait_s=4) and (dup := _already_applied(page, ask=True)):
                     # no form, and the site says why: it has this application already (sent in an earlier run whose
                     # confirmation page was not seen, or by the applicant themselves). Not a sign-in problem.
                     browser.snapshot(page, run_dir, "already_applied")
@@ -751,7 +831,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 browser.snapshot(page, run_dir, f"page_{i + 1}_filled")
                 if per_page:
                     _checked(lambda i=i: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, i, page_of, run_dir, step, title, application_id,
-                                                 after_repair=lambda rep, i=i: _after_verify_repair(rep, i)))
+                                                 after_repair=lambda rep, i=i: _after_verify_repair(rep, i), on_trust=_trusted))
                 # 4. the form has the last word on this page
                 open_issues = _issues(i)
                 fresh = [it for it in open_issues if not _handed(it)]  # what has already been handed to the user by name needs no second attempt
@@ -774,7 +854,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     step("next", page=i)
             if not per_page and not wizard:
                 _checked(lambda: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, None, page_of, run_dir, step, title, application_id,
-                                         after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1))))
+                                         after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1)), on_trust=_trusted))
             touched = any(st["op"] == "repair" for st in steps)
             if scout:
                 # the walk ends here: at the review page, or at a step that needs the applicant. Nothing is submitted, nobody is handed a window.
@@ -782,6 +862,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 outcome = {"status": "scouted", "reached_review": reached, "stopped_at": "" if reached or page.is_closed() else driver.step_title(page),
                            "read": list(read_now), "all_read": reached and (review_read.get("done", False) or not _unread())}
                 step("scouted", reached_review=reached, stopped_at=outcome["stopped_at"])
+            elif policy != "manual" and trusted:
+                # nothing the program could check says these fields hold the approved answers: not sent without a look
+                raise NeedsVisibleRun(f"有 {len(trusted)} 项程序核对不了、是 AI 选的，这次填好后由你过目并提交：{'；'.join(x[:40] for x in trusted[:4])}")
             elif policy != "manual" and (needs_you := _needs_you(open_issues)):
                 # The agent having worked on the form is no reason to stop: the answers are the approved ones and were read
                 # back. What stops an automatic submission is something that is the applicant's to settle.
@@ -801,7 +884,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 if leftovers or mapped or added:
                     step("handed_over", left=[x["label"] for x in leftovers][:20], mapped=[m["label"] for m in mapped][:20], added=[a["label"] for a in added][:20])
                 # the questions handed to the applicant are watched while they have the window: what they answer there is kept
-                watch = [Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"], locator={"selector": f"@label:{a['label']}"}) for a in asked] if generic else []
+                # (not a decision, which is no control, and not a field of one of several like-named entries: its label alone does not find it)
+                watch = [Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"], locator={"selector": f"@label:{a['label']}"})
+                         for a in asked if not a.get("decision") and not a.get("entry")] if generic else []
                 typed: dict[str, Any] = {}
                 outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added, adapted=adapted, watch=watch, typed=typed)
                 for a in asked:
@@ -822,6 +907,10 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     step("email_code")
                 conf = driver.confirmation(page)
                 shots = browser.snapshot(page, run_dir, "confirmation")
+                if conf is None and (said := _judge(_seen(page, 4000))) is not None:
+                    # none of the known phrases, and the page does say it (another language, another wording)
+                    conf = {"url": page.url, "text": said["sentence"][:300], "read_by": "model", **({"already_applied": "yes"} if said["state"] == "already_applied" else {})}
+                    step("confirmation_read", state=said["state"])
                 if conf is None:
                     errs = _errors(driver, page)
                     raise DriverError("no confirmation after submit", seen="; ".join(errs)[:500] or page.url)
@@ -836,11 +925,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         outcome = {"status": "submitted", "evidence": seen_there, "note": lifecycle.APPLIED_BEFORE, "earlier": True}
         ok = True
     except NeedsHuman as e:
-        outcome = {"status": "needs_human", "error": e.reason}
+        outcome = {"status": "needs_human", "error": e.reason, "waits_for": getattr(e, "waits_for", "")}
         if e.kind == "captcha":
             notify.add_todo("captcha", title, body=e.reason, ref=f"application:{application_id}", payload={"url": e.url})
-        elif generic:  # say what is needed, with the same sign-in card as everywhere else; the approved draft runs again afterwards
-            auth.ask_to_sign_in(ref, title, e.reason, url=e.url or ref.url, draft_id=draft_id, can_register=auth.may_register(ref)[0])
+            outcome["waits_for"] = f"application:{application_id}"
+        elif generic and e.kind == "login":  # the same sign-in card as everywhere else; the approved draft runs again afterwards
+            outcome["waits_for"] = auth.ask_to_sign_in(ref, title, e.reason, url=e.url or ref.url, draft_id=draft_id, can_register=auth.may_register(ref)[0])
+        elif generic:  # not a sign-in: the page could not be worked in this program's browser
+            notify.add_todo("blocked", title, body=e.reason, ref=f"job:{job_id}", payload={"url": e.url or ref.url, "job_id": job_id, "draft_id": draft_id, "why": e.kind})
+            outcome["waits_for"] = f"job:{job_id}"
     except NeedsVisibleRun as e:
         outcome = {"status": "approved", "note": str(e)}
         from . import tasks
@@ -865,8 +958,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     if scout:      # the application's status is not the walk's to change; what it found goes into the draft
         with db.session() as s:
             s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, spans=_scout_spans(), site=_site_of(schema), dir=str(run_dir)))
-            if mapped or added or adapted or asked or held or located or reordered:
-                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False,
+            if mapped or added or adapted or asked or held or located or reordered or removed:
+                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, removed=removed, send_back=False,
                               held=held, located=located)
         return {**{k: v for k, v in outcome.items() if k not in ("evidence", "driver_error", "mismatches", "diff")}, "added": len(added), "asked": len(asked), "adapted": len(adapted),
                 "held": len(held),
@@ -887,9 +980,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         s.flush()
         run_id = run.id
         new_questions = 0
-        if mapped or added or adapted or asked or located or reordered:
+        if mapped or added or adapted or asked or located or reordered or removed:
             back = outcome["status"] != "submitted"
-            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=back,
+            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, removed=removed, send_back=back,
                                           located=located) or 0
             if new_questions and back:       # the draft goes back to the applicant: it has questions only they can answer
                 app.status = "needs_input"
@@ -908,7 +1001,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             shown = "; ".join(map(str, a["value"])) if isinstance(a["value"], list) else str(a["value"])
             try:
                 knowledge.append_rule(f'Form question "{a["label"].strip()[:200]}": answer "{shown[:300]}".', source="user", section="Standard answers")
-                ans.cache_put(schema.ats, Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"]), a["value"], "answered by the applicant in the application window", confirmed=True)
+                ans.cache_put(schema.ats, Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"]), a["value"], "answered by the applicant in the application window", confirmed=True, tenant=schema.tenant)
             except Exception:  # noqa: BLE001 - remembering must not fail the run
                 log.exception("could not remember an answer given in the window")
     if new_questions and outcome["status"] != "submitted":
@@ -949,7 +1042,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
 def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], approved_values: dict[str, Any], absent_ids: set[str],
                   added: list[dict[str, Any]], *, generic: bool, limits: dict[str, int] | None = None, asked: list[dict[str, Any]] | None = None,
-                  send_back: bool = False, held: list[dict[str, Any]] | None = None, located: dict[str, str] | None = None) -> int:
+                  send_back: bool = False, held: list[dict[str, Any]] | None = None, located: dict[str, str] | None = None,
+                  removed: list[dict[str, str]] | None = None) -> int:
     """Write back into the draft what the take-over established, so the next run of it needs no agent:
     the form's own wording for approved answers, and the questions the first reading of the form did not see.
     For explored forms the new questions also join the schema (found by their label), which is what the driver replays."""
@@ -993,31 +1087,38 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
         if generic and not any(q["id"] == qid for q in questions):
             questions.append(Question(id=qid, label=a["label"], type=row["type"], required=True, page=a["page"], locator={"selector": a.get("selector") or qid}).__dict__)
         try:
-            ans.cache_put(schema.ats, Question(id=qid, label=a["label"], type=row["type"]), a["value"], row["basis"], confirmed=False)
+            ans.cache_put(schema.ats, Question(id=qid, label=a["label"], type=row["type"]), a["value"], row["basis"], confirmed=False, tenant=schema.tenant)
         except Exception:  # noqa: BLE001
             log.debug("answer not cached", exc_info=True)
     # Questions the form asks that neither the draft nor the profile answers: open questions of the draft from now on.
     # Answered once in the program, they are filled by their label on the next run (and remembered, if the applicant says so).
     fresh = 0
     for a in asked or []:
-        qid = f"@label:{a['label']}"
+        # a question of the form is found again by its label; a decision about an entry is not a control at all
+        qid = f"@decision:{a['label']}" if a.get("decision") else f"@label:{a['label']}" + (f" [{a['entry']}]" if a.get("entry") else "")
         typ = a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect") else "text"
         given = a.get("value") not in ("", None, [], False)      # the applicant answered it in the window
-        old = next((r for r in rows if norm_question(r.get("label", "")) == norm_question(a["label"])), None)
+        old = next((r for r in rows if r.get("id") == qid or (not a.get("entry") and not a.get("decision") and norm_question(r.get("label", "")) == norm_question(a["label"]))), None)
         if old is not None and (not given or old.get("value") not in ("", None, [])):
             continue
         row = {"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": True, "page": a["page"], "value": a["value"] if given else "",
-               "basis": "你在申请窗口里填的" if given else (("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:240]
+               "entry": a.get("entry", ""), "decision": bool(a.get("decision")),
+               "basis": "你在申请窗口里填的" if given else ((("网站自己生成了这一条，需要你决定怎么处理：" if a.get("decision") else "填表时遇到的问题，资料里没有答案：") + a.get("why", ""))[:240]
                                                       + (f"（为了读完后面的步骤，表单里临时填了「{a['provisional']}」，不会提交；你回答后会换成你的答案）" if a.get("provisional") else "")),
                "confidence": "high" if given else "low",
                "source": "profile" if given else "unresolved", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": given}
         rows = [r for r in rows if r is not old] + [row]
         if generic and not any(q["id"] == qid for q in questions):
-            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"], locator={"selector": a.get("selector") or qid}).__dict__)
+            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"],
+                                      locator={"selector": a.get("selector") or qid, **({"entry": a["entry"]} if a.get("entry") else {})}).__dict__)
         fresh += 0 if given else 1
     sch["questions"] = questions
     d.answers = rows
     d.schema = sch
+    for r in removed or []:
+        note = f"网站自己生成的一条内容被 AI 删除了：{r['what']}（{r['why']}）"
+        if note not in (d.notes or []):
+            d.notes = [*(d.notes or []), note]
     if asked:
         d.unresolved = [r for r in rows if r.get("source") == "unresolved" and r.get("required")]
     if fresh and send_back:      # back to the applicant: answering and approving it starts the filling again
@@ -1044,9 +1145,11 @@ def _repair(page: Any, schema: FormSchema, i: int, fill: dict[str, Any], problem
 
 
 def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], fill: dict[str, Any], i: int | None,
-            page_of: dict[str, int], run_dir: Path, step: Any, title: str, application_id: int, *, after_repair: Any = None) -> None:
+            page_of: dict[str, int], run_dir: Path, step: Any, title: str, application_id: int, *, after_repair: Any = None,
+            on_trust: Any = None) -> None:
     """Read back (page ``i``, or the whole form when None) and compare with the draft.
-    One repair attempt on the page that is currently open; any remaining mismatch stops the run."""
+    One repair attempt on the page that is currently open; any remaining mismatch stops the run.
+    ``on_trust(mismatch)``: a field that was let through on the agent's word, without the program being able to check it."""
     scope = [a for a in draft_answers if i is None or page_of.get(a["id"], 0) == i]
     back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
     bad = _really_different(page, schema, _held(driver, page, schema, verify(schema, scope, back)))
@@ -1061,7 +1164,13 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
                 after_repair(rep)
                 scope = [a for a in scope if a["id"] not in set(rep.get("unfixed") or [])]
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or [], schema))
+            taken: list[dict[str, Any]] = []
+            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or [], schema, taken))
+            if taken:
+                step("taken_on_trust", page=current, fields=[b["label"] for b in taken][:10])
+                for b in taken:
+                    if on_trust is not None:
+                        on_trust(b)
     wanted = [a for a in scope if a["value"] not in ("", None, [])]
     step("read_back", page=i, checked=sum(1 for a in wanted if a["id"] in back), unverified=[a["label"] for a in wanted if a["id"] not in back][:20], mismatches=len(bad))
     if bad:
@@ -1091,17 +1200,28 @@ def _held(driver: Any, page: Any, schema: FormSchema, bad: list[dict[str, Any]])
     return out
 
 
-def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema) -> list[dict[str, Any]]:
+def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema, taken: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """For a control that shows less than it holds and whose list does not say which entry it holds (see _held): when the
     agent was just sent to exactly this field, chose the approved entry and reports it done, and what the control shows
     is a part of that entry, the field holds the approved answer - the agent saw the choice being made; the read-back
     cannot see it. Anything the control shows that is NOT part of the approved entry stays a difference, whoever
     vouches for it. Only a control that is a choice among entries can show less than it holds: a text box that reads
-    "John" for "John Smith" holds "John"."""
+    "John" for "John Smith" holds "John".
+
+    This is the agent's word, and nothing the program checked: "+1" is also what the list shows for another country's
+    "+1". So what is let through here is put into ``taken`` - the run goes on, and the field is shown to the applicant
+    as one to look at before the application goes out (and an application is not sent automatically with one in it)."""
     from .ats.widgets import shows_part
 
     choice = {q.id for q in schema.questions if q.type in ("select", "radio") or (q.options and q.type not in ("text", "textarea", "multiselect", "checkbox", "file"))}
-    return [b for b in bad if not (b["id"] in fixed and b["id"] in choice and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]))]
+    out = []
+    for b in bad:
+        if b["id"] in fixed and b["id"] in choice and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]):
+            if taken is not None:
+                taken.append(b)
+        else:
+            out.append(b)
+    return out
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1199,17 +1319,13 @@ def _finish_account(page: Any, ref: JobRef, step: Any, run_dir: Any = None) -> N
             return
         from . import mail
 
-        since = datetime.now(timezone.utc) - timedelta(minutes=3)
-        got = mail.wait_for_verification(sender_hint=ref.host, timeout=120, since=since, site_host=ref.host)
-        if got and got.startswith("http"):
-            page.goto(got, wait_until="domcontentloaded")
-            page.wait_for_timeout(3000)
-            if not mail.link_refusal(page.url, ref.host):
-                auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="ok")
-                browser.save_state(ref.tenant_key, page.context)
-                step("account_confirmed", host=ref.host)
-                return
-        why = got[9:] if got and got.startswith("refused:") else ("没有收到确认邮件" if not got else "确认邮件里是验证码，不是链接")
+        how, val = auth.confirm_address(page, ref, wait=120)
+        if how == "link" and not mail.link_refusal(page.url, ref.host):
+            auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, status="ok")
+            browser.save_state(ref.tenant_key, page.context)
+            step("account_confirmed", host=ref.host)
+            return
+        why = val if how == "refused" else "没有收到确认邮件" if how == "none" else "确认邮件里是验证码，不是链接" if how == "code" else "打开确认链接后离开了这个网站"
         auth.upsert_account(ref.tenant_key, ats=ref.ats, host=ref.host, error=f"账号随申请建好了，邮箱确认还没完成：{why}"[:300])
         step("account_unconfirmed", why=why[:120])
     except Exception as e:  # noqa: BLE001
@@ -1231,7 +1347,8 @@ def _next_page(driver: Any, page: Any) -> bool:
 def _site_of(schema: FormSchema) -> str:
     try:
         return repair.site_key(schema)
-    except Exception:  # noqa: BLE001 - a run is recorded whether or not its site can be named
+    except Exception as _e:  # noqa: BLE001 - a run is recorded whether or not its site can be named
+        tolerated(_e)
         return ""
 
 
@@ -1263,6 +1380,7 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
     notify.close_todos("submit", f"application:{application_id}")  # a fresh card: what is left to do differs from run to run
     notify.add_todo("submit", title, ref=f"application:{application_id}", payload=payload or None, body="；".join(x for x in parts if x))
     code_tried = False
+    asked, asked_text = 0, ""
     last: dict[str, str] = {}
     watched = FormSchema(ats="generic", questions=list(watch or [])) if watch else None
     for tick in range(1200):  # up to ~20 minutes
@@ -1275,12 +1393,14 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
                 for qid, val in driver.read_back(page, watched).items():
                     if val not in ("", None, [], False):
                         typed[qid] = val
-            except Exception:  # noqa: BLE001 - the page is theirs right now; a failed read must not disturb them
+            except Exception as _e:  # noqa: BLE001 - the page is theirs right now; a failed read must not disturb them
+                tolerated(_e)
                 pass
         # After the user clicks Submit some sites e-mail a security code: read it from the inbox and enter it.
         try:
             wants_code = not code_tried and hasattr(driver, "needs_email_code") and driver.needs_email_code(page)
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             wants_code = False
         if wants_code:
             code_tried = True
@@ -1290,15 +1410,25 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
                 log.info("could not enter the e-mailed code automatically: %s", e)
         try:
             conf = driver.confirmation(page) if _looks_submitted(page) else None
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             conf = None
         if conf:
             notify.close_todos("submit", f"application:{application_id}")
             return {"status": "submitted", "evidence": conf}
+        now_ = _seen(page, 1500)
+        if tick >= 3 and tick % 3 == 0 and asked < 4 and now_["text"] and now_["text"] != asked_text and _no_form(page):
+            # the form is gone and the page says nothing the program knows: what does it say? (a few times per window at
+            # most, and never twice for the same page)
+            asked, asked_text = asked + 1, now_["text"]
+            said = _judge(now_)
+            if said is not None:
+                notify.close_todos("submit", f"application:{application_id}")
+                return {"status": "submitted", "evidence": {"url": now_["url"], "text": said["sentence"][:300], "read_by": "model"},
+                        **({"note": lifecycle.APPLIED_BEFORE, "earlier": True} if said["state"] == "already_applied" else {})}
         # Remember what the window last showed: the user may close it right after the confirmation appears.
         # Pressing Submit loads another page, and for a moment there is nothing to read: that is not a closed window.
         # (It was taken for one, and the window was closed on the applicant in the middle of the submission.)
-        now_ = _seen(page, 1500)
         if now_["text"] or now_["title"]:
             last = now_
         try:
@@ -1310,6 +1440,10 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
     if last and (DONE_RE.search(last["text"]) or DONE_RE.search(last.get("title", "")) or DONE_URL.search(last["url"])):
         notify.close_todos("submit", f"application:{application_id}")
         return {"status": "submitted", "evidence": last}
+    if last and (said := _judge(last)) is not None and said["state"] == "submitted":
+        # the window was closed on a page that says it in words the program does not know
+        notify.close_todos("submit", f"application:{application_id}")
+        return {"status": "submitted", "evidence": {"url": last.get("url", ""), "text": said["sentence"][:300], "read_by": "model"}}
     return {"status": "ready_to_submit", "error": "窗口已关闭或超时，没有看到确认页；是否已提交不确定，请以确认邮件为准", "last_seen": last}
 
 

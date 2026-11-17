@@ -25,7 +25,7 @@ from playwright.sync_api import TimeoutError as PWTimeout
 
 from .. import timing
 from . import widgets as w
-from .base import DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, SiteDown, host_is
+from .base import UNCONFIRMED_RE, DriverError, FormSchema, JobRef, NeedsHuman, PasswordPolicy, Question, SiteDown, Unconfirmed, host_is
 
 A = "[data-automation-id='{}']"
 
@@ -146,9 +146,29 @@ class WorkdayDriver:
             raise NeedsHuman("Workday is asking for a human verification at sign-in", kind="captcha", url=page.url)
         err = self._auth_error(page)
         if err:
-            if re.search(r"verify|verification|activate", err, re.I):
-                raise NeedsHuman(f"The account needs e-mail verification: {err[:150]}", kind="login", url=page.url)
+            if UNCONFIRMED_RE.search(err):
+                raise Unconfirmed(err[:150], kind="login", url=page.url)
             raise DriverError("sign-in rejected", seen=err[:200])
+
+    def request_confirmation(self, page: Page, ref: JobRef, email: str) -> bool:
+        """Ask the site to send its confirmation mail again, from the sign-in page that has just said the account is not
+        verified ("... or request a verification email"). True when the request was made. Written from the wording of
+        that message; a page that looks different is left alone (False)."""
+        link = page.get_by_role("link", name=re.compile(r"verification e-?mail|resend", re.I)).or_(page.get_by_role("button", name=re.compile(r"verification e-?mail|resend", re.I))).first
+        if not link.count() or not link.is_visible():
+            return False
+        link.click(timeout=w.T)
+        page.wait_for_timeout(2000)
+        box = page.locator("[role=dialog] input[type=email]:visible, [role=dialog] input[type=text]:visible").first
+        if box.count():            # some tenants ask which address to send it to
+            if not box.input_value():
+                box.fill(email)
+            send = page.locator("[role=dialog] button[type=submit]:visible").or_(page.locator("[role=dialog]").get_by_role("button", name=re.compile(r"send|submit|resend|request", re.I))).first
+            if not send.count():
+                return False
+            send.click(timeout=w.T)
+            page.wait_for_timeout(2000)
+        return True
 
     def register(self, page: Page, ref: JobRef, email: str, password: str) -> str:
         self._goto(page, f"{self.job_url(ref)}/apply/applyManually")
@@ -164,7 +184,7 @@ class WorkdayDriver:
         self._click_covered(page, "createAccountSubmitButton")
         try:
             page.wait_for_function(
-                "() => document.querySelector(\"[data-automation-id='utilityButtonAccountTasksMenu']\") || document.querySelector(\"[data-automation-id='errorMessage']\") || /verify your (email|account)|verification email/i.test(document.body.innerText)",
+                "() => document.querySelector(\"[data-automation-id='utilityButtonAccountTasksMenu']\") || document.querySelector(\"[data-automation-id='errorMessage']\") || document.querySelector('[role=alert]') || /verify your (email|account)|verification email/i.test(document.body.innerText)",
                 timeout=25000,
             )
         except PWTimeout:
@@ -175,8 +195,12 @@ class WorkdayDriver:
         if err:
             if re.search(r"already (exists|in use|registered)|sign in to (this|your) account|account .* exists", err, re.I):
                 return "exists"
+            if UNCONFIRMED_RE.search(err):
+                # "An email has been sent to you. Please verify your account." is shown in the same banner as an error.
+                # It is not one: the account was made, and what is left is the program's to do.
+                return "verify_email"
             return f"error: {err[:150]}"
-        if re.search(r"verify your (email|account)|verification email", page.inner_text("body"), re.I):
+        if UNCONFIRMED_RE.search(page.inner_text("body")):
             return "verify_email"
         if _a(page, "verifyPassword").count() and _a(page, "verifyPassword").first.is_visible():
             return "error: the sign-up form is still showing; it was not accepted"  # never report success on no evidence

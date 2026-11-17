@@ -26,9 +26,10 @@ from . import browser, knowledge, llm
 from . import prompts
 from .ats import widgets as w
 from .ats.base import ALREADY_RE, AlreadyApplied, url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
+from .ats.base import tolerated
+from .ats.generic_driver import POSITIONAL, SUBMIT_RE
 from .models import Job
 
-SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
 
 SYSTEM = """You are exploring a job application form on an applicant-tracking system that has no automated driver yet.
 Goal: reach the application form and describe every question on it, page by page, WITHOUT submitting anything.
@@ -65,6 +66,9 @@ How to work:
     "activate your account"), call email_verification right away - with no selector it opens an activation link; if the page shows a box
     for a code, pass that box's selector. Do not stop or report a problem before you have tried this. When you are signed in, call
     account_result("registered").
+  * Whenever the site says the e-mail address has to be confirmed / verified first - after sign-up, or when signing in with the stored
+    password - that is yours to do, not the applicant's: call email_verification (it also finds the mail the site sent when the account
+    was made), then sign in again. Only if that did not work, call account_result("unconfirmed") and finish with blocked="login".
   * If sign-up says the e-mail is already registered, call account_result("exists") and finish with blocked="login". Never use
     "forgot password".
   After signing in or registering, continue to the application form.
@@ -72,6 +76,10 @@ How to work:
   Do not look for a similar posting to use instead.
 - If the site says you have already applied to this posting (instead of a form, or on your list of applications there), stop and
   call finish with blocked="already_applied" and, in notes, the site's own sentence - with the date it gives, if it gives one.
+- If the site itself is not answering (an error page, a page that never loads, a maintenance notice), call finish with
+  blocked="site_down". If something else stops you - the Apply button leads nowhere, the page stays blank, the site refuses
+  this browser - call finish with blocked="other" and say in notes what you saw. `blocked` is always one of: login, captcha,
+  closed, already_applied, site_down, other.
 - Never type passwords. Never click a button that submits the application; the tool refuses those anyway.
 - A dialog that only informs about data privacy / data handling and blocks the form ("I understand", "Accept", "Agree"): acknowledge it
   and carry on. The applicant accepts such notices as part of applying.
@@ -222,7 +230,8 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         # A form keeps what was uploaded on an earlier visit. Uploading "to be sure" adds a second, third, fourth copy.
         try:
             shown = page.inner_text("body", timeout=5000).count(file_name)
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             shown = 0
         if shown:
             return (f"not uploaded: the form already shows {file_name!r}" + (f" {shown} times - remove the extra copies with their delete buttons so that one is left" if shown > 1 else "")
@@ -244,6 +253,11 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
 
     def finish(questions: list[dict[str, Any]] | None = None, pages: list[str] | None = None, blocked: str = "", notes: str = "",
                next_buttons: list[str] | None = None, apply_button: str = "") -> str:
+        blocked = re.sub(r"[^a-z]+", "_", str(blocked or "").lower()).strip("_")
+        if blocked and blocked not in BLOCKERS:
+            # what happens next is decided by this word, so it is one of a fixed few - not a word of the agent's own
+            return ("NOT RECORDED. `blocked` must be one of: " + ", ".join(BLOCKERS) + ". " + BLOCKERS_MEAN + " Choose the one that fits, put the details "
+                    "(the site's own sentence) in notes, and call finish again.")
         missing = [q.get("label", "")[:60] for q in questions or [] if q.get("type") in ("select", "radio", "multiselect") and not q.get("options")]
         if missing and not blocked and not result.get("_asked_options"):
             result["_asked_options"] = True  # asked once; a list that really cannot be read (a search box over thousands of entries) is accepted the second time
@@ -293,14 +307,18 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
                     "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st,
                     "max_length": {"type": "integer"}, "searchable": {"type": "boolean"}},
                     "required": ["label", "type", "required", "page", "selector"]}},
-                pages={"type": "array", "items": st}, blocked=st, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
+                pages={"type": "array", "items": st}, blocked={"type": "string", "enum": ["", *BLOCKERS]}, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
             ),
             finish,
         ),
     ]
 
 
-POSITIONAL = re.compile(r":nth-(match|of-type|child|last-child)|:nth\(|>>\s*nth=|:first-(child|of-type)|:last-(child|of-type)", re.I)
+# Why a reading of a form stopped. The agent's `finish` takes one of these and nothing else; generic._recon acts on each.
+BLOCKERS = ("login", "captcha", "closed", "already_applied", "site_down", "other")
+BLOCKERS_MEAN = ("login: the site wants a sign-in or an account that you could not get. captcha: a CAPTCHA. closed: the posting is gone or no longer "
+                 "takes applications. already_applied: the site says this posting was applied for. site_down: the site is not answering. "
+                 "other: anything else that stops you.")
 
 
 def weak_selector(sel: str) -> bool:
@@ -357,6 +375,31 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     aref = ref      # the site the account is on: the posting's own, unless the sign-in turns out to be elsewhere
     _a = auth.account(key) or {}
 
+    from . import sites
+
+    site_key = key      # the site the posting is on, whatever account the sign-in turns out to use
+
+    def _flow_begins() -> None:
+        """Remember where this sign-in began: the first page on which the agent did anything about the account."""
+        state.setdefault("flow_home", mail.site_domain(url_host(page.url)))
+
+    def _sent_here_by_the_site() -> bool:
+        """Is this page - on another address than the site - the site's own sign-in?
+
+        A site may keep its sign-in elsewhere: amazon.jobs asks for the e-mail on its own page and then sends the window to
+        a host of amazon.com for the password. That is still the site's sign-in, and the site's password belongs there.
+        It is told from "the application is on another system, which has an account of its own" by how the window got
+        here: the sign-in began on the site's own pages and the site led on - or this host is known as one this site's
+        password was typed on before (sites: sign_in_hosts). A sign-in that begins on the other address is that
+        address's own."""
+        host = url_host(page.url)
+        if not host or any(_on_provider(page, p) for p in browser.identities()):
+            return False
+        if host in (sites.fact(site_key, "sign_in_hosts") or []):
+            return True
+        home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url)) if h} - {""}
+        return bool(state.get("flow_home")) and state["flow_home"] in home
+
     def _own_account() -> str:
         """The key this site's sign-in is kept under - found out at the sign-in page: the page may be another site's, for
         which a sign-in is already saved (an employer whose postings appear under two addresses). Its cookies are put
@@ -365,7 +408,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         host = url_host(page.url)
         saved = (auth.account(key) or {}).get("host") or ""
         if host and saved and secrets.get_password(key) and mail.site_domain(saved) != mail.site_domain(host) \
-                and mail.site_domain(host) != mail.site_domain(aref.host) and not any(_on_provider(page, p) for p in browser.identities()):
+                and mail.site_domain(host) != mail.site_domain(aref.host) and not _sent_here_by_the_site() \
+                and not any(_on_provider(page, p) for p in browser.identities()):
             # The saved account is another site's: the same employer, but this posting signs in somewhere else (its
             # postings are listed on one system and applied for on another). That password is not this site's - the
             # account here is its own: the one saved for this very host, or none yet.
@@ -379,7 +423,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                     st = browser.load_state(key) or {}
                     if st.get("cookies"):
                         page.context.add_cookies(st["cookies"])
-                except Exception:  # noqa: BLE001
+                except Exception as _e:  # noqa: BLE001
+                    tolerated(_e)
                     pass
                 logging.getLogger("autoapply.generic").info("%s signs in on %s, not where its saved account is: the account there is %s", ref.tenant_key, host, key)
             return key
@@ -390,15 +435,15 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                 st = browser.load_state(got) or {}
                 if st.get("cookies"):
                     page.context.add_cookies(st["cookies"])
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 pass
             state["adopted"] = got
         return key
-    if _a.get("status") == "pending" and _a.get("created_at"):
-        state.setdefault("since", datetime.fromisoformat(_a["created_at"]).replace(tzinfo=timezone.utc))  # the link was mailed back then
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
+        _flow_begins()
         if _own_account() != ref.tenant_key and aref is ref and secrets.get_password(key):
             plan = {"do": "password", "why": "an account for this sign-in page is already saved (the same employer's site under another address): "
                                              "fill the e-mail and call fill_account_password; if the page turns out to be signed in already after a reload, go on"}
@@ -451,7 +496,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
             try:
                 p.wait_for_load_state("domcontentloaded", timeout=3000)
                 cur = re.sub(r"\s+", " ", p.inner_text("body", timeout=3000))[:300]
-            except Exception:  # noqa: BLE001 - still navigating
+            except Exception as _e:  # noqa: BLE001 - still navigating
+                tolerated(_e)
                 continue
             if cur and cur == last and (p.locator("button:visible, input:visible, [role=button]:visible").count() > 0):
                 where = "PROVIDER POP-UP WINDOW" if pop is not None else "PROVIDER PAGE (same tab)"
@@ -541,6 +587,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         return f"clicked '{label}'. Now: " + _describe(page)
 
     def fill_account_email(selector: str) -> str:
+        _flow_begins()
         page.locator(selector).first.fill(auth.login_email(), timeout=w.T)
         return "filled"
 
@@ -549,7 +596,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         here = mail.site_domain(url_host(page.url))
         _own_account()
         home = {mail.site_domain(h) for h in (aref.host, url_host(aref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
-        if home and here not in home:
+        if home and here not in home and not _sent_here_by_the_site():
             raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
         pw = secrets.get_password(key)
         if not pw:
@@ -566,9 +613,11 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         if (loc.get_attribute("type") or "").lower() not in ("password", "text"):
             raise ValueError("that is not a password box")
         loc.fill(pw, timeout=w.T)
+        state["password_on"] = url_host(page.url)
         return "filled (hidden)"
 
     def click_account_button(selector: str = "", text: str = "") -> str:
+        _flow_begins()
         loc = page.locator(selector).first if selector else page.get_by_role("button", name=text).or_(page.get_by_role("link", name=text)).first
         label = (loc.inner_text() or loc.get_attribute("value") or "").strip()
         on_account_form = page.locator("input[type=password]:visible").count() > 0 or bool(re.search(r"sign|login|register|account|verif", page.url, re.I))
@@ -582,38 +631,37 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         site = url_host(page.url) or ref.host
         if not (mail.site_domain(site) and mail.site_domain(site) == mail.site_domain(ref.host or site)):
             site = ref.host       # the page has wandered off the site: the link must be the site's, not this page's
-        got = mail.wait_for_verification(sender_hint=ref.host, timeout=180, since=state["since"], site_host=site)
-        if got is None:
-            return "no verification e-mail arrived within 3 minutes"
-        if got.startswith("refused:"):
+        if selector and state.get("code"):       # the mail was read by the call before this one, which had no box to type into
+            how, val = "code", state.pop("code")
+        else:
+            how, val = auth.confirm_address(page, aref, key=key, since=state["since"], site=site)
+        if how == "none":
+            state["no_mail"] = True
+            return "no verification e-mail arrived within 3 minutes. Call account_result('unconfirmed') and finish with blocked='login'."
+        state.pop("no_mail", None)
+        if how == "refused":
             # not opened: the applicant does this one themselves, and is told so
-            state["link_refused"] = got[9:]
-            return (f"The e-mail has a confirmation link, but it is not opened by the program ({got[9:]}). Do not look for another way: "
-                    "call account_result('failed', 'the confirmation link in the e-mail has to be opened by the applicant') and finish with blocked='login'.")
-        if got.startswith("http"):
-            before = page.url
-            page.goto(got, wait_until="domcontentloaded")      # the address carries a one-time token: it is not shown to the model or written to a log
-            page.wait_for_timeout(2500)
-            landed = url_host(page.url)
-            if mail.link_refusal(f"https://{landed}/", site):
-                # the site's link sent the window somewhere else: nothing is typed there
-                try:
-                    page.goto(before, wait_until="domcontentloaded")
-                except Exception:  # noqa: BLE001
-                    pass
-                return f"The link led away from the site (to {landed}); the window is back where it was. Report account_result('failed', ...) with that."
+            state["link_refused"] = val
+            return (f"The e-mail has a confirmation link, but it is not opened by the program ({val}). Do not look for another way: "
+                    "call account_result('unconfirmed', 'the confirmation link in the e-mail has to be opened by the applicant') and finish with blocked='login'.")
+        if how == "link":
             state["link_opened"] = True
-            return f"opened the confirmation link from the e-mail; now on {landed}{page.url.split(landed, 1)[-1].split('?')[0][:80]}. Read the page to see whether the address is confirmed."
+            return f"opened the confirmation link from the e-mail; now on {val}{page.url.split(val, 1)[-1].split('?')[0][:80]}. Read the page to see whether the address is confirmed."
         if not selector:
+            state["code"] = val       # kept for the call that names the box: the mail is not waited for twice
             return "the e-mail contains a code: call again with the selector of the code box"
         box = page.locator(selector).first
         box.click(timeout=w.T)
-        box.press_sequentially(got, delay=50)
+        box.press_sequentially(val, delay=50)
         return "code entered (hidden)"
 
     def account_result(outcome: str, notes: str = "") -> str:
         state["outcome"] = outcome
         if outcome in ("registered", "logged_in"):
+            typed_on = state.get("password_on") or ""
+            if typed_on and mail.site_domain(typed_on) != mail.site_domain(aref.host):
+                # the password was taken on another address than the site's: from now on that is known as this site's sign-in
+                sites.set_fact(site_key, "sign_in_hosts", sorted({*(sites.fact(site_key, "sign_in_hosts") or []), typed_on}))
             auth.upsert_account(key, ats=aref.ats, host=aref.host, status="ok", **({"created_by": f"sso:{state['sso']}"} if state.get("sso") else {}))
             browser.save_state(key, page.context)
             if outcome == "registered":
@@ -622,6 +670,12 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
             if state.get("created"):
                 secrets.delete_password(key)
             auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error="account already exists")
+        elif secrets.get_password(key) and (outcome == "unconfirmed" or state.get("link_refused") or state.get("no_mail")):
+            # the account exists and waits for its address to be confirmed: it stays that, so that the next run begins
+            # with the confirmation instead of asking the applicant to sign in to an account nobody can sign in to
+            why = f"确认邮件里的链接不是这个网站自己的，程序不会去点（{state['link_refused']}）" if state.get("link_refused") else "邮箱里没有找到它发来的确认邮件" if state.get("no_mail") else notes[:200]
+            auth.upsert_account(key, ats=aref.ats, host=aref.host, status="pending", error=f"{auth.UNCONFIRMED}{why}"[:300])
+            state["unconfirmed"] = why
         else:
             auth.upsert_account(key, ats=aref.ats, host=aref.host, status="needs_human", error=f"registration failed: {notes[:200]}")
         return "recorded"
@@ -650,7 +704,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                  s(text=st, selector=st), complete_profile),
         llm.Tool("email_verification", "Wait for the site's verification e-mail: opens a link, or types a code into `selector`.", s(selector=st), email_verification),
         llm.Tool("account_result", "Record the outcome of signing in or registering.",
-                 {**s(outcome={"type": "string", "enum": ["registered", "logged_in", "exists", "failed"]}, notes=st), "required": ["outcome"]}, account_result),
+                 {**s(outcome={"type": "string", "enum": ["registered", "logged_in", "exists", "unconfirmed", "failed"]}, notes=st), "required": ["outcome"]}, account_result),
     ]
 
 
@@ -670,7 +724,8 @@ def form_present(page: Page, schema: FormSchema, page_index: int = 0, *, wait_s:
                 texts = [(b.inner_text() or "").strip() for b in page.get_by_role("button").all()[:40] if b.is_visible()]
                 if any(FORWARD_RE.match(t) or SUBMIT_RE.search(t) for t in texts) and not page.locator("input[type=password]:visible").count():
                     return True
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 pass
             page.wait_for_timeout(1500)
         return False
@@ -682,7 +737,8 @@ def form_present(page: Page, schema: FormSchema, page_index: int = 0, *, wait_s:
         for q in [q for q in schema.questions if q.page == page_index and q.locator.get("selector")][:25]:
             try:
                 found += 1 if _loc(page, q).count() else 0  # by recorded selector or, failing that, by label
-            except Exception:  # noqa: BLE001 - a selector this page cannot parse counts as missing
+            except Exception as _e:  # noqa: BLE001 - a selector this page cannot parse counts as missing
+                tolerated(_e)
                 pass
         if found >= max(1, len(sels[:25]) // 3):
             return True
@@ -776,7 +832,9 @@ def recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
 def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     from . import db
 
-    hidden = ref.tenant_key not in (db.get_setting("browser.visible_sites") or [])
+    from . import sites
+
+    hidden = not sites.fact(sites.account(ref.tenant_key), "needs_window")
     refused = False
     result: dict[str, Any] = {}
     with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
@@ -787,7 +845,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         if resp is not None and resp.status >= 500:
             raise SiteDown(f"the site returned HTTP {resp.status}", seen=ref.url)
         page.wait_for_timeout(2000)
-        hints = "\n\n".join(x for x in (knowledge.playbook(f"site-{ref.tenant}") if ref.tenant else "", knowledge.playbook(ref.ats) or knowledge.playbook("other")) if x)
+        hints = "\n\n".join(x for x in (sites.notes(f"generic:{ref.tenant}") if ref.tenant else "", knowledge.playbook(ref.ats) or knowledge.playbook("other")) if x)
         ident = "\n".join(ln for ln in knowledge.read("profile").splitlines() if re.search(r"^- (Name on forms|Legal name|Phone|Mailing|Location|Email)", ln))[:1200]
         goal = f"Job: {job.company} - {job.title}\nStart URL: {ref.url}\nATS: {ref.ats}\n<applicant>\n{ident}\n</applicant>\n" + (f"\nNotes from earlier applications on this ATS:\n{hints[:4000]}\n" if hints else "")
         acct_state: dict[str, Any] = {}
@@ -800,28 +858,30 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
             try:
                 body = re.sub(r"\s+", " ", page.inner_text("body", timeout=5000)).strip()
                 refused = len(body) < 300 and bool(REFUSAL.search(body))
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 refused = False
         browser.snapshot(page, run_dir, "agent_recon_end")
         (run_dir / "agent_trace.json").write_text(json.dumps(out.steps, ensure_ascii=False, default=str)[:500000], encoding="utf-8")
         final_url = page.url
-    if re.search(r"unavailable|closed|not.?found|404|expired|filled", str(result.get("blocked") or ""), re.I):
-        raise DriverError(f"posting not found or closed: {result.get('notes', '')}"[:300], seen=final_url)
-    # (the blocker is a free word of the agent's: "already_registered" and "duplicate_account" are about an account, not
-    # about an application - only the blocker that says "applied", or the site's own sentence in the notes, counts)
-    why = re.sub(r"[^a-z]+", "_", str(result.get("blocked") or "").lower()).strip("_")
-    about_account = bool(re.search(r"regist|account|login|sign|captcha|password|verif", why))
-    if why and (re.fullmatch(r"(already_)?(applied|submitted)|duplicate_application|application_exists", why)
-                or (not about_account and ALREADY_RE.search(str(result.get("notes") or "")))):
-        raise AlreadyApplied({"url": final_url, "text": str(result.get("notes") or "The site shows this job as already applied.")[:300], "already_applied": "yes"})
+    # Why the reading stopped is one of BLOCKERS (finish() takes nothing else), and each has one consequence. Reading
+    # the agent's own words for it is what sent "already applied" and "the account exists" down the sign-in road.
+    why, notes = str(result.get("blocked") or ""), str(result.get("notes") or "")
+    if why == "closed":
+        raise DriverError(f"posting not found or closed: {notes}"[:300], seen=final_url)
+    if why == "already_applied" or (why == "other" and ALREADY_RE.search(notes)):
+        raise AlreadyApplied({"url": final_url, "text": (notes or "The site shows this job as already applied.")[:300], "already_applied": "yes"})
     if refused:
         raise _Refused()
-    if result.get("blocked") and re.search(r"unreach|site_error|not_loading|outage|maintenance|down", str(result["blocked"]), re.I) \
-            and any(DOWN.search(str(s.get("output", ""))) for s in out.steps if s.get("tool") == "goto"):
-        # the site (or the system behind its Apply button) is not answering right now: try again later, ask no one
-        raise SiteDown(f"the application site is not answering: {str(result.get('notes', ''))[:200]}", seen=final_url)
-    if result.get("blocked"):
-        raise NeedsHuman(f"{ref.ats}: {result['blocked']} required. {result.get('notes', '')}"[:300], kind="captcha" if result["blocked"] == "captcha" else "login", url=final_url)
+    if why == "site_down":
+        if any(DOWN.search(str(s.get("output", ""))) for s in out.steps if s.get("tool") == "goto"):
+            # the site (or the system behind its Apply button) is not answering right now: try again later, ask no one
+            raise SiteDown(f"the application site is not answering: {notes[:200]}", seen=final_url)
+        why = "other"       # the agent says so, the browser saw no failure: a person looks
+    if why in ("login", "captcha"):
+        raise NeedsHuman(f"{ref.ats}: {why} required. {notes}"[:300], kind=why, url=final_url)
+    if why:
+        raise NeedsHuman(f"{ref.ats}: the application page could not be worked. {notes}"[:300], kind="other", url=final_url)
     if not result.get("questions"):
         raise DriverError("the agent could not determine the form structure", seen=(out.final_text or out.stopped)[:300])
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])

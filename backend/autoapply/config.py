@@ -31,6 +31,15 @@ for _p in (DATA, FILES, MATERIALS, RUNS, SESSIONS, KNOWLEDGE, PLAYBOOKS):
 
 # Defaults for the key/value ``settings`` table. Anything here can be changed
 # from the Settings page; secrets (tokens, passwords) are NOT stored there.
+# Kept in the settings table, but the program's own record of what it found out - not something the settings page
+# shows or saves. The page used to get these and send them back with everything else: a page left open wrote an older
+# copy over what the program had recorded since (which browser a sign-in lives in, which site signs in on which).
+STATE = frozenset({"mail.gmail_history"})
+# Settings of earlier versions that are no longer settings: what the program found out about sites lives in sites.py now.
+# A settings page loaded before sends them back; they are ignored.
+RETIRED = frozenset({"accounts.alias", "sso.offered", "browser.visible_sites", "browser.session_made_in", "learned.drivers_written",
+                     "schedule.execute_minutes", "executor.concurrency"})
+
 DEFAULT_SETTINGS: dict[str, object] = {
     # models
     "llm.auth": "subscription",  # older installs: "subscription" | "api_key" (Anthropic); used only while llm.provider is empty
@@ -46,7 +55,6 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "recon.provisional": True,
     # {"generic:jobs.nvidia.com": "eightfold:nvidia"}: a posting found under one address whose sign-in is another site's, for
     # which a sign-in is already saved. Learned when the sign-in page is reached; the saved session and password are used.
-    "accounts.alias": {},
     # An e-mail that does not say which application it is about: read the applicant page of the employer's site (with
     # the sign-in already saved for it) to find out, before asking the applicant.
     "mail.site_lookup": True,
@@ -85,7 +93,6 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "learned.enabled": True,
     "learned.mode": "auto",
     "learned.share": "ask",   # a site's driver that held up: "ask" whether to report it to the project | "always" have it ready | "never" (share.py)
-    "learned.drivers_written": [],  # sites without a driver of their own for which the agent has been asked to write one (once per site)
     "auto_approve.per_ats": {},  # {"greenhouse": true}
     "auto_approve.min_score": 8.0,
     "auto_approve.min_driver_successes": 3,
@@ -98,12 +105,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "schedule.discover_minutes": 720,
     "schedule.mail_minutes": 60,
     "schedule.mail_new_minutes": 2,     # Gmail only: ask what arrived since the last look (0: off)
-    "schedule.execute_minutes": 5,
     "schedule.canary_minutes": 1440,
     "schedule.paused": False,
     # queueing
     "queue.min_score_for_draft": 8.0,
-    "executor.concurrency": 1,
     # notifications: per-category switches
     "notify.task_started": True,
     "notify.todo": True,
@@ -128,7 +133,13 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "intake.countries": [],
     "intake.max_age_days": 90,
     "intake.exempt_sources": ["pdportal", "manual"],
+    # Postings that say which programmes of study they are for (a university co-op portal does): yours, as words that
+    # occur in the programme's name ("Computer"). Empty: taken from the Education section of your profile.
+    "intake.programs": [],
     "scoring.max_per_run": 60,
+    "scoring.parallel": 4,           # postings read by the model at the same time
+    "scoring.brief_min_score": 6.0,  # the long overview of a posting is written only from this score up (and on request for the rest)
+    "sources.parallel": 4,           # employers' listings fetched at the same time
     # lifecycle (discover.archive_old): when a posting leaves the working lists
     "archive.closed_after_days": 30,   # offline / expired / skipped / rejected for this long
     "archive.silent_after_days": 150,  # applied, no reply for this long
@@ -151,10 +162,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # A notice about how the employer handles applicant data, shown in a dialog that blocks the form ("I understand" / "Accept"):
     # acknowledge it and go on. Such notices are a condition of applying at all; the answers on the form itself are not touched.
     "consent.acknowledge_notices": True,
-    "browser.visible_sites": [],   # tenant keys whose pages are refused in a hidden window: these run in a visible one (found out automatically)
     "browser.nodriver_enabled": False,
     "browser.executable": "",
-    "browser.session_made_in": {},   # {site key: "nodriver" | "playwright"} - the browser each saved sign-in was made in (browser_policy)
     "browser.rules": [
         {"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
         {"tenant": "idp:google", "backend": "nodriver", "operations": []},
@@ -175,7 +184,6 @@ DEFAULT_SETTINGS: dict[str, object] = {
     #   never - never use a provider; register with e-mail or ask you to sign in
     "sso.mode": "ask",
     "sso.sites": {},     # tenant key -> provider you approved for that site ("" = you said not to use one there)
-    "sso.offered": {},   # tenant key -> providers the site was seen to offer (filled in by the agent)   # use the saved Microsoft / Google / LinkedIn sign-in on sites that offer "Sign in with ..."
     # per-job résumé tailoring (tailor.py)
     "tailor.mode": "select",            # off | select (reorder / choose only, no wording changes) | rephrase (may reword bullets; checked against the original)
     "tailor.auto": True,                # write one while the draft is prepared; False = only when asked

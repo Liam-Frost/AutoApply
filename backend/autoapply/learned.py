@@ -47,7 +47,6 @@ from . import config
 
 log = logging.getLogger("autoapply.learned")
 
-STATUSES = ("proposed", "trial", "active", "reverted", "parked", "rejected")
 IN_FORCE = ("trial", "active")
 TRIALS_TO_PROMOTE = 2       # good runs before a revision is taken to hold up
 BAD_TRIALS_TO_REVERT = 2    # failed runs with it in force (without a strike of its own) before it is taken out
@@ -235,7 +234,7 @@ def gate(rev: dict[str, Any]) -> dict[str, Any]:
         check_recipe(json.loads(content(rev) or "{}"))
     else:
         _load(rev)
-    ats = rev["target"] if not rev["target"].startswith("site-") else "generic"
+    ats = rev["target"] if ":" not in rev["target"] and not rev["target"].startswith("site-") else "generic"
     before = fixtures.run_all(ats)
     with forcing([rev]):
         after = fixtures.run_all(ats)

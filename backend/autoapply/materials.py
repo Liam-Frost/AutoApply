@@ -15,7 +15,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader
 
 from . import config, db, knowledge, llm
 from . import prompts
@@ -303,21 +303,3 @@ def make_cover_letter(job: Job, *, instructions: str = "") -> dict[str, Any]:
 
 
 # --- PDF utilities -----------------------------------------------------------------------
-
-
-def merge_pdfs(paths: list[str], out: Path) -> dict[str, Any]:
-    """Merge PDFs. Encrypted inputs come out blank when merged, so they are
-    reported in ``skipped`` and must be uploaded separately."""
-    w = PdfWriter()
-    skipped = []
-    for p in paths:
-        r = PdfReader(p)
-        if r.is_encrypted:
-            skipped.append(p)
-            continue
-        for pg in r.pages:
-            w.add_page(pg)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "wb") as f:
-        w.write(f)
-    return {"path": str(out), "pages": len(w.pages), "skipped": skipped}

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 import Icon from '../components/Icon.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { toast } from '../ui'
+import { ask, toast } from '../ui'
 
 const props = defineProps({ id: String })
 const router = useRouter()
@@ -61,6 +61,10 @@ async function tailorNow() {
   } catch (e) { toast(e.message, 'bad') }
 }
 
+async function dropQuestion(a) {
+  if (!(await ask(`去掉“${a.label}”这个问题？它是填表时遇到的，不是你的资料里的问题。去掉后，如果表单仍然要求填它，AI 会在下次填表时按你的资料处理（例如删掉网站自己生成的那一条）。`, { ok: '去掉', danger: false }))) return
+  try { d.value = await api.del(`/drafts/${props.id}/answers/${encodeURIComponent(a.id)}`); editing.value = null } catch (e) { toast(e.message, 'bad') }
+}
 function startEdit(a) { typeOwn.value = false; editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : a.value; saveRule.value = ''; remember.value = false }
 async function commitEdit(a) {
   let v = editVal.value
@@ -195,6 +199,7 @@ onUnmounted(() => clearInterval(timer))
           <tr v-for="a in d.answers.filter((x) => (filled.includes(x) || isUnresolved(x) || editing === x.id) && (!onlyDelta || x.delta))" :key="a.id">
             <td>
               {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
+              <div v-if="a.entry" class="small muted" data-notr>{{ a.entry }}</div>
               <span v-if="a.delta" class="tag warn" style="margin-left: 4px">{{ a.delta === 'new' ? '新增' : '有变化' }}</span>
               <span v-if="a.held" class="tag" style="margin-left: 4px" title="这个答案已经存在雇主网站上，程序不会改动它。你在这里修改后，程序会按你改的去填。">网站上已有</span>
               <span v-if="a.conflict" class="tag warn" style="margin-left: 4px">和你的资料不一致</span>
@@ -217,7 +222,8 @@ onUnmounted(() => clearInterval(timer))
                 <div class="small muted" v-if="a.type === 'multiselect'">多选用 || 分隔；可选：{{ a.options.join(' / ') }}</div>
                 <label class="small" style="display: block; margin-top: 8px"><input v-model="remember" type="checkbox" /> 以后别的申请表上遇到这个问题，也这样回答</label>
                 <input v-if="remember" v-model="saveRule" placeholder="（可选）补充说明，例如：只对加拿大的岗位这样填" style="width: 100%; margin-top: 6px" />
-                <div class="row" style="margin-top: 6px"><button class="primary" @click="commitEdit(a)">保存</button><button @click="editing = null">取消</button></div>
+                <div class="row" style="margin-top: 6px"><button class="primary" @click="commitEdit(a)">保存</button><button @click="editing = null">取消</button>
+                  <button v-if="isUnresolved(a) && a.source === 'unresolved'" class="ghost" title="这一项不该由你来填（例如网站自己生成了一条不该有的内容）。去掉后，下次填表时 AI 会按你的资料处理它。" @click="dropQuestion(a)">不需要填这一项</button></div>
               </template>
               <template v-else>
                 <span v-if="isUnresolved(a)" class="tag bad">还没有答案</span>

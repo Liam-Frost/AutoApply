@@ -78,7 +78,7 @@ def test_a_page_for_a_person_is_shown_as_pictures(server):
 def test_a_site_that_refuses_the_hidden_browser_gets_a_window_on_a_virtual_screen(server):
     from autoapply import db
 
-    db.set_setting("browser.visible_sites", ["site:x"])
+    __import__("autoapply.sites", fromlist=["sites"]).set_fact("site:x", "needs_window", True)
     p = place(False, False, needs_window=True)                      # nobody looks: the shared screen, no remote window
     assert p.headless is False and p.env == {"DISPLAY": ":99", "XAUTHORITY": "/x"} and "--window-size=1280,800" in p.args
     assert p.window is None and p.screen is None and remote.windows() == []
@@ -93,7 +93,7 @@ def test_a_site_that_refuses_the_hidden_browser_gets_a_window_on_a_virtual_scree
 def test_without_a_virtual_screen_it_stays_hidden_and_a_person_gets_pictures(server, monkeypatch):
     from autoapply import db
 
-    db.set_setting("browser.visible_sites", ["site:x"])
+    __import__("autoapply.sites", fromlist=["sites"]).set_fact("site:x", "needs_window", True)
     monkeypatch.setattr(vscreen, "available", lambda: False)
     monkeypatch.setattr(vscreen, "can_view", lambda: False)
     p = place(True, False)
@@ -173,7 +173,7 @@ def test_a_real_browser_window_on_the_virtual_screen_reaches_the_page_through_th
     from autoapply.api.main import app
 
     db.init_db()
-    db.set_setting("browser.visible_sites", ["site:x"])
+    __import__("autoapply.sites", fromlist=["sites"]).set_fact("site:x", "needs_window", True)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.setattr(remote, "announce", lambda win: None)

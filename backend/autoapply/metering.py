@@ -92,6 +92,20 @@ def end_task() -> list[dict[str, str]]:
     return stages
 
 
+def carried(fn: Any) -> Any:
+    """``fn`` for a helper thread of the running task: what it asks of the model is the task's (its feature, its stages)."""
+    ctx = _ctx()
+
+    def run(*a: Any, **k: Any) -> Any:
+        _tls.ctx = ctx
+        try:
+            return fn(*a, **k)
+        finally:
+            _tls.ctx = {}
+
+    return run
+
+
 def stage(name: str) -> None:
     """Mark that the running task has reached a stage (kept on the task, so a failure can be placed)."""
     st = _ctx().get("stages")

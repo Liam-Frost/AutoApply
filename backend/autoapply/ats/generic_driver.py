@@ -19,6 +19,7 @@ from playwright.sync_api import Locator, Page, TimeoutError as PWTimeout
 from .. import learned, timing
 from . import widgets as w
 from .base import DriverError, FormSchema, JobRef, PasswordPolicy, Question, norm_question
+from .base import tolerated
 
 SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
 DONE_RE = r"thank(s| you) for (applying|your (application|interest|submission))|thank you|application (has been |was |is )?(received|submitted|sent|complete)|successfully (submitted|applied)|we(.ve| have) received|submission (received|complete)"
@@ -135,12 +136,14 @@ def _loc(page: Page, q: Question) -> Locator:
                 c = make()
                 if c.count() == 1:
                     return c.first
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 continue
     try:
         if not by_label_only and loc.count():
             return loc
-    except Exception:  # noqa: BLE001 - a selector this page cannot parse
+    except Exception as _e:  # noqa: BLE001 - a selector this page cannot parse
+        tolerated(_e)
         pass
     if label:
         # The label has to BE the question (give or take a "*", "(required)", a colon): a label that only contains the
@@ -155,7 +158,8 @@ def _loc(page: Page, q: Question) -> Locator:
                 c = make()
                 if c.count():
                     return c.first if hasattr(c, "first") else c
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 continue
     return loc
 
@@ -217,6 +221,13 @@ def _autocomplete(page: Page, loc: Locator, q: Question, value: str) -> bool:
 
 def set_value(page: Page, q: Question, value: Any) -> None:
     """Put ``value`` into the control for ``q``, choosing the widget helper from the element itself."""
+    if q.id.startswith("@decision:"):       # what the applicant decided about an entry the site made: the take-over carries it out
+        raise DriverError("this is the applicant's decision about an entry, to be carried out on the page - not a control to fill", question=q.label, expected=str(value))
+    where = q.locator or {}
+    if where.get("entry") and str(where.get("selector") or "").startswith("@label:"):
+        # one of several entries with the same labels, and no place of its own recorded: by its label it would be the first entry's field
+        raise DriverError(f"this field belongs to the entry \"{where['entry']}\"; other entries have a field with the same label, so it has to be found within that entry",
+                          question=q.label, expected=str(value))
     loc = _loc(page, q)
     if loc.count() == 0:
         raise DriverError("control not found", question=q.label, expected=str((q.locator or {}).get("selector") or q.id))
@@ -234,7 +245,8 @@ def _set_ordinary(page: Page, q: Question, value: Any, loc: Any, tag: str, typ: 
     if tag in ("input", "textarea") and q.type not in ("file", "checkbox", "radio"):
         try:
             locked = loc.evaluate("(e) => e.readOnly || e.disabled")
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             locked = False
         if locked:  # the site fills this in itself and does not let it be changed (the account's e-mail, a fixed country)
             shown = (loc.input_value() or "").strip()
@@ -369,7 +381,8 @@ def value_visible(page: Page, q: Question, expected: Any) -> bool:
                                return out.replace(/\s+/g, ' '); }""")
         low = near.lower().replace(re.sub(r"\s+", " ", q.label or "").strip().lower() or "~no label~", " ")
         return all(re.search(r"(?<![a-z0-9])" + re.escape(w_.lower()) + r"(?![a-z0-9])", low) is not None for w_ in want)
-    except Exception:  # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
+        tolerated(_e)
         return False
 
 
@@ -407,7 +420,8 @@ def acknowledge_notice(page: Page) -> bool:
                     b.click(timeout=5000)
                     page.wait_for_timeout(1200)
                     return True
-    except Exception:  # noqa: BLE001 - a dialog that will not answer is left to the next step
+    except Exception as _e:  # noqa: BLE001 - a dialog that will not answer is left to the next step
+        tolerated(_e)
         pass
     return False
 
@@ -437,7 +451,8 @@ class GenericDriver:
         try:
             if not first or any(_loc(page, q).count() and _loc(page, q).first.is_visible() for q in first):
                 return False
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             return False
         for name in [n for n in (self.schema.extra.get("apply_button"),) if n] + [APPLY_RE]:
             for role in ("button", "link"):
@@ -450,7 +465,8 @@ class GenericDriver:
                         btn.click(timeout=w.T)
                         page.wait_for_timeout(2500)
                         return True
-                except Exception:  # noqa: BLE001 - not clickable: try the next candidate
+                except Exception as _e:  # noqa: BLE001 - not clickable: try the next candidate
+                    tolerated(_e)
                     continue
         return False
 
@@ -478,7 +494,8 @@ class GenericDriver:
                     continue
                 if loc.evaluate(_SHOWN_JS):
                     out.append(q)
-            except Exception:  # noqa: BLE001 - a selector this page cannot parse: not here
+            except Exception as _e:  # noqa: BLE001 - a selector this page cannot parse: not here
+                tolerated(_e)
                 continue
         return out
 
@@ -500,7 +517,8 @@ class GenericDriver:
                             page.wait_for_timeout(500)
                             if self.signature(page) != before:
                                 return True
-                except Exception:  # noqa: BLE001 - not clickable: try the next candidate
+                except Exception as _e:  # noqa: BLE001 - not clickable: try the next candidate
+                    tolerated(_e)
                     continue
         return False
 
@@ -536,7 +554,8 @@ class GenericDriver:
         that leads elsewhere, never a button that goes on or submits. Returns how many were opened."""
         try:
             return int(page.evaluate(_UNFOLD_JS))
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             return 0
 
     def form_gone(self, page: Page, answers: dict[str, Any]) -> bool:
@@ -553,7 +572,8 @@ class GenericDriver:
         for _ in range(int(seconds / 0.5)):
             try:
                 now_ = page.evaluate(_STEP_JS)
-            except Exception:  # noqa: BLE001 - the page is being replaced
+            except Exception as _e:  # noqa: BLE001 - the page is being replaced
+                tolerated(_e)
                 now_ = {"parts": "", "loading": True, "controls": 0}
             same = same + 1 if (now_["parts"] == last and not now_.get("loading")) else 0
             last = now_["parts"]
@@ -570,7 +590,8 @@ class GenericDriver:
 
         try:
             seen = page.evaluate(_STEP_JS)["parts"]
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             seen = ""
         return page.url + "|" + hashlib.sha256(seen.encode()).hexdigest()[:16]
 
@@ -579,7 +600,8 @@ class GenericDriver:
         """The step the form marks as current, else the heading above its first visible control."""
         try:
             return page.evaluate(_STEP_JS)["title"] or ""
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             return ""
 
     def fill_page(self, page: Page, schema: FormSchema, page_index: int, answers: dict[str, Any]) -> None:
@@ -600,7 +622,8 @@ class GenericDriver:
                 if not loc.count() or _tag(loc)[0] not in ("input", "textarea"):
                     continue
                 cur = loc.input_value(timeout=2000)
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 continue
             if norm(cur) != norm(answers[q.id]) and cur.strip():      # an empty field is simply to be filled; it is no part of this
                 off.append((q, cur))
@@ -627,7 +650,8 @@ class GenericDriver:
                 if q.type == "file" and q is files[-1]:
                     try:
                         page.wait_for_load_state("networkidle", timeout=10000)
-                    except Exception:  # noqa: BLE001 - a busy page is not an error
+                    except Exception as _e:  # noqa: BLE001 - a busy page is not an error
+                        tolerated(_e)
                         pass
                     page.wait_for_timeout(1500)
                 if q.type == "file":
@@ -652,7 +676,8 @@ class GenericDriver:
                 old = [x for x in dict.fromkeys(near) if x and x != want and want not in x]
                 if old:
                     self.stale_files.append({"label": q.label, "want": want, "old": old[:4]})
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 continue
         if failures:
             raise FieldFailures(page_index, failures)
@@ -686,18 +711,20 @@ class GenericDriver:
                 loc = _loc(page, q)
                 if loc.count() and _tag(loc)[0] == "button":
                     out[i] = w.held_choice(page, loc)
-            except Exception:  # noqa: BLE001 - a control that cannot be asked is simply not settled here
+            except Exception as _e:  # noqa: BLE001 - a control that cannot be asked is simply not settled here
+                tolerated(_e)
                 continue
         return out
 
     def read_back(self, page: Page, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for q in schema.questions:
-            if page_index is not None and q.page != page_index:
+            if (page_index is not None and q.page != page_index) or q.id.startswith("@decision:"):
                 continue
             try:
                 v = get_value(page, q)
-            except Exception:  # noqa: BLE001 - an unreadable control is simply not verified
+            except Exception as _e:  # noqa: BLE001 - an unreadable control is simply not verified
+                tolerated(_e)
                 continue
             if v is not None:
                 out[q.id] = v
@@ -734,7 +761,8 @@ class GenericDriver:
                         break
                 else:
                     quiet = 0
-            except Exception:  # noqa: BLE001 - between two pages
+            except Exception as _e:  # noqa: BLE001 - between two pages
+                tolerated(_e)
                 continue
 
     @staticmethod
@@ -748,7 +776,8 @@ class GenericDriver:
               const busy = [...document.querySelectorAll('form[aria-busy=true], [role=progressbar], [aria-busy=true] button')].some(vis);
               return said || busy;
             }"""))
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             return True
 
     def confirmation(self, page: Page) -> dict[str, Any] | None:

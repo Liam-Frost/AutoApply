@@ -7,6 +7,7 @@ never logged). Tracking sends one e-mail body at a time to the small model.
 
 from __future__ import annotations
 
+import html
 import base64
 import json
 import logging
@@ -18,7 +19,7 @@ from typing import Any
 
 from . import db, llm, messages, notify, secrets
 from . import prompts
-from .models import Application, Job, MailEvent
+from .models import SENT, Application, Job, MailEvent
 
 log = logging.getLogger("autoapply.mail")
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -89,7 +90,8 @@ def _body(payload: dict[str, Any]) -> str:
         return "\n".join(plain)
     h = "\n".join(htmls)
     h = re.sub(r"<(script|style)[\s\S]*?</\1>", " ", h, flags=re.I)
-    h = re.sub(r'<a[^>]+href="([^"]+)"[^>]*>', r" \1 ", h, flags=re.I)
+    # the address as a browser would follow it: in HTML, "&" in an address is written "&amp;"
+    h = re.sub(r'<a[^>]+href="([^"]+)"[^>]*>', lambda m: f" {html.unescape(m.group(1))} ", h, flags=re.I)
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h))
 
 
@@ -285,10 +287,17 @@ def link_refusal(url: str, site_host: str) -> str:
     return ""
 
 
+# the subject of a mail that carries a code or a link for an account: never summarised, stored or given to a model
+ACCOUNT_MAIL = re.compile(r"(security|verification|one[- ]time|temporary|access|login)\s*(code|pin|passcode|password)|\b(otp|passcode)\b|\bverify\b|"
+                          r"\bactivate your\b|\bconfirm your\b.{0,40}\b(e-?mail|account|address)|reset your password", re.I)
+
+
 def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: datetime | None = None, site_host: str = "") -> str | None:
-    """Poll for a fresh verification e-mail. Returns the code or link, or None on timeout. With ``site_host``, a link is
-    returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
+    """Poll for a verification e-mail, the newest first. Returns the code or link, or None on timeout. With ``site_host``,
+    a link is returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
     since = since or (datetime.now(timezone.utc) - timedelta(minutes=3))
+    # a mail from hours ago (an account whose confirmation was never finished) lies under whatever arrived since
+    many = 10 if datetime.now(timezone.utc) - since < timedelta(minutes=15) else 80
     hint = re.sub(r"^(www|jobs|careers)\.", "", sender_hint).split(".")[0] if sender_hint else ""
     from . import mailbox
 
@@ -296,7 +305,7 @@ def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: d
     refused = ""
     while time.time() < deadline:
         try:
-            msgs = mailbox.fetch(since, 10)
+            msgs = mailbox.fetch(since, many)
         except mailbox.NotConfigured as e:
             raise MailNotConfigured(str(e)) from e
         for msg in msgs:
@@ -362,7 +371,7 @@ TRIAGE_SCHEMA = llm.obj(
 )
 STATUS_FOR = {"confirmation": "confirmed", "rejection": "rejected", "interview": "interview", "assessment": "assessment", "offer": "offer"}
 PREPARING = ("recon", "needs_input", "draft_ready", "revising", "approved", "executing", "needs_human", "failed", "drifted")   # before any submission
-RANK = {"submitted": 1, "confirmed": 2, "assessment": 3, "interview": 4, "offer": 5, "rejected": 6}
+RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along: a mail never moves an application backwards by itself
 QUERY = '(application OR applying OR applied OR interview OR assessment OR candidate OR position OR "thank you for your interest" OR unfortunately) -category:promotions'
 
 
@@ -390,8 +399,19 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
 
+_FORMS = {"inc", "ltd", "limited", "corp", "corporation", "co", "company", "llc", "llp", "plc", "gmbh", "ag", "sa", "the", "group", "holdings", "technologies", "technology"}
+
+
 def _same_company(c: str, jc: str) -> bool:
-    return bool(c and jc and (c in jc or jc in c or set(c.split()) & set(jc.split()) - {"inc", "ltd", "corp", "the", "technologies", "group"}))
+    """Are these two names one employer? When one name is inside the other ("Google" / "Google LLC", "Amazon" /
+    "Amazon Web Services") - by its words, legal forms set aside. One word in common is not enough: "4AG Robotics"
+    and "Global Robotics" share a word and nothing else."""
+    if not c or not jc:
+        return False
+    if c in jc or jc in c:
+        return True
+    a, b = set(c.split()) - _FORMS, set(jc.split()) - _FORMS
+    return bool(a and b and (a <= b or b <= a))
 
 
 def candidates(company: str) -> list[int]:
@@ -524,6 +544,14 @@ def reconcile() -> int:
     return fixed
 
 
+def _written(msg: Any) -> datetime:
+    """When a message was written, comparable whether or not it says its time zone (none: the oldest)."""
+    d = getattr(msg, "date", None)
+    if d is None:
+        return datetime.min
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
+
+
 def _known(message_id: str) -> bool:
     with db.session() as s:
         return s.query(MailEvent).filter_by(message_id=message_id).first() is not None
@@ -546,13 +574,15 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
     except mailbox.NotConfigured as e:
         raise MailNotConfigured(str(e)) from e
     new = updated = unmatched = 0
-    for msg in msgs:
+    # In the order they were written. A mailbox hands over the newest first; a cancellation followed by a new invitation
+    # would then be read backwards - the invitation changes nothing, and the older cancellation takes the interview away.
+    for msg in sorted(msgs, key=_written):
         mid = msg.id
         with db.session() as s:
             if s.query(MailEvent).filter_by(message_id=mid).first():
                 continue
         frm, subj, received, body = msg.sender, msg.subject, msg.date, msg.body
-        if re.search(r"(security|verification|one[- ]time|temporary|access|login)\s*(code|pin|passcode|password)|\b(otp|passcode)\b|verify your (e-?mail|account)", subj, re.I):
+        if ACCOUNT_MAIL.search(subj):
             # Codes are used by the sign-in / submit step only; they are never summarised, stored or notified.
             t = {"category": "other", "company": "", "job_title": "", "summary": "verification e-mail (not shown)"}
         else:
