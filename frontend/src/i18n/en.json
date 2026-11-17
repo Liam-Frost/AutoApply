@@ -3207,5 +3207,10 @@
 "按在哪里投筛选": "Filter by where to apply",
 "按截止时间筛选": "Filter by deadline",
 "规则管的是账号还是域名": "Whether the rule is for an account or a domain",
-"{0}：{1}，打开详情": "{0}: {1}, open the details"
+"{0}：{1}，打开详情": "{0}: {1}, open the details",
+"导航": "Navigation",
+"菜单": "Menu",
+"正在运行": "Running",
+"设置向导": "Setup guide",
+"{0} 件事需要你处理": "{0} thing(s) need you"
 }

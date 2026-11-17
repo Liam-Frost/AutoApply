@@ -178,6 +178,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **On a narrow screen the page comes first.** The sidebar was laid out across the top - on a phone, a third of the
+  screen of navigation, theme and language before the page began. It is a bar now: the page that is open, how many
+  things wait for you, whether the program is running, and "menu", which opens the full navigation as a panel (and
+  holds the keyboard while it is open). The postings and drafts tables show what a row is, where it stands and what
+  needs attention; the other columns are on the row's own page.
 - **Text that can be read in both themes.** The weakest text of the light theme (dates, counts, hints, group names)
   stood at 2.9:1 against its background and is at 4.5:1 or more on every surface now, with the secondary text
   darkened to keep the two apart; the dark theme's weak text likewise. In the dark theme, a count in the sidebar,

@@ -276,13 +276,25 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 
 .score { font-weight: 700; font-variant-numeric: tabular-nums; } .score.hi { color: var(--ok); } .score.mid { color: var(--info); } .score.lo { color: var(--text-3); }
 
+/* The bar that stands for the sidebar on a narrow screen (App.vue); not there on a wide one. */
+.topbar { display: none; }
+.menu-overlay { display: none; }
 @media (max-width: 1000px) {
-  .shell { grid-template-columns: 1fr; }
-  nav.side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .nav-label { display: none; }
-  .side-foot { width: 100%; margin-top: 4px; padding: 8px 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-  .side-foot .theme-seg { min-width: 200px; }
+  .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .topbar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 30; height: 52px; padding: 0 var(--s4); background: var(--surface); border-bottom: 1px solid var(--border); }
+  .topbar .brand { display: flex; align-items: center; gap: 8px; padding: 0; font-weight: 700; color: var(--text); text-decoration: none; }
+  .topbar .brand img { width: 24px; height: 24px; } .topbar .brand span { display: none; }
+  .topbar-page { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .count { background: var(--bad); color: var(--on-bad); border-radius: var(--r-pill); padding: 0 8px; font-size: 12px; font-weight: 700; line-height: 20px; min-width: 20px; text-align: center; text-decoration: none; }
+  .topbar .status-dot { margin: 0; }
+  /* the full navigation: closed until "menu" opens it, then a panel under the bar */
+  nav.side { display: none; }
+  nav.side.open { display: flex; position: fixed; inset: 52px 0 0 0; z-index: 45; height: auto; width: min(320px, 100vw); overflow: auto; border-right: 1px solid var(--border); box-shadow: var(--shadow-lg); }
+  nav.side.open .brand { display: none; }
+  .menu-overlay { display: block; inset: 52px 0 0 0; z-index: 44; }
   main.content { padding: var(--s4); }
+  /* a wide table shows what a row is, where it stands and what to do with it; the rest is in the row's own page */
+  table .col-more { display: none; }
   .cols, .grid-3, .grid-4 { grid-template-columns: 1fr; } .kv { grid-template-columns: 1fr; }
 }
 
@@ -343,7 +355,7 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3) var(--s4); }
 .facts .k { font-size: var(--fs-xs); color: var(--text-3); } .facts .v { font-weight: 550; overflow-wrap: anywhere; }
 .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-@media (max-width: 1000px) { .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } nav.side a.nav { padding: 6px 8px; } nav.side .brand { padding-bottom: 4px; width: 100%; } }
+@media (max-width: 1000px) { .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* materials: file list + preview */
 .mat { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: var(--s4); height: calc(100vh - 260px); min-height: 480px; }

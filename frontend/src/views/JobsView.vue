@@ -189,15 +189,15 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
           <th style="width: 36px"><input type="checkbox" :checked="allPicked" aria-label="全选" @change="toggleAll" /></th>
           <th :aria-sort="sorted('score')"><button type="button" class="th-sort" @click="sortBy('score')">评分{{ arrow('score') }}</button></th>
           <th :aria-sort="sorted('company')"><button type="button" class="th-sort" @click="sortBy('company')">岗位{{ arrow('company') }}</button></th>
-          <th v-if="cols.has('source')">来源</th>
-          <th v-if="cols.has('direction')">方向</th>
-          <th v-if="cols.has('salary')">薪资</th>
-          <th v-if="cols.has('channel')">在哪里投</th>
-          <th v-if="cols.has('posted')" :aria-sort="sorted('posted')"><button type="button" class="th-sort" @click="sortBy('posted')">发布{{ arrow('posted') }}</button></th>
-          <th v-if="cols.has('first_seen')" :aria-sort="sorted('first_seen')"><button type="button" class="th-sort" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</button></th>
+          <th v-if="cols.has('source')" class="col-more">来源</th>
+          <th v-if="cols.has('direction')" class="col-more">方向</th>
+          <th v-if="cols.has('salary')" class="col-more">薪资</th>
+          <th v-if="cols.has('channel')" class="col-more">在哪里投</th>
+          <th v-if="cols.has('posted')" class="col-more" :aria-sort="sorted('posted')"><button type="button" class="th-sort" @click="sortBy('posted')">发布{{ arrow('posted') }}</button></th>
+          <th v-if="cols.has('first_seen')" class="col-more" :aria-sort="sorted('first_seen')"><button type="button" class="th-sort" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</button></th>
           <th :aria-sort="sorted('deadline')"><button type="button" class="th-sort" @click="sortBy('deadline')">截止{{ arrow('deadline') }}</button></th>
           <th>状态</th>
-          <th>最新情况</th>
+          <th class="col-more">最新情况</th>
         </tr>
       </thead>
       <tbody>
@@ -209,15 +209,15 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
             <div>{{ j.title }} <a v-if="j.apply_url" :href="j.apply_url" target="_blank" rel="noopener" title="打开岗位链接" @click.stop>↗</a></div>
             <div class="small muted">{{ [j.location, persona.features.term ? j.term : '', persona.features.term && j.months ? j.months + ' 个月' : ''].filter(Boolean).join(' · ') }}</div>
           </td>
-          <td v-if="cols.has('source')" class="small nowrap">{{ j.source_label }}</td>
-          <td v-if="cols.has('direction')" class="small">{{ j.direction }}</td>
-          <td v-if="cols.has('salary')" class="small">{{ j.salary }}</td>
-          <td v-if="cols.has('channel')" class="small nowrap">{{ j.channel_label }}</td>
-          <td v-if="cols.has('posted')" class="small nowrap">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
-          <td v-if="cols.has('first_seen')" class="small nowrap">{{ j.first_seen || '—' }}</td>
+          <td v-if="cols.has('source')" class="small nowrap col-more">{{ j.source_label }}</td>
+          <td v-if="cols.has('direction')" class="small col-more">{{ j.direction }}</td>
+          <td v-if="cols.has('salary')" class="small col-more">{{ j.salary }}</td>
+          <td v-if="cols.has('channel')" class="small nowrap col-more">{{ j.channel_label }}</td>
+          <td v-if="cols.has('posted')" class="small nowrap col-more">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
+          <td v-if="cols.has('first_seen')" class="small nowrap col-more">{{ j.first_seen || '—' }}</td>
           <td class="small nowrap" :title="deadlineLabel(j.deadline).text">{{ (j.deadline || '').slice(5, 10) || '—' }}<span v-if="deadlineLabel(j.deadline).tone === 'soon'" class="tag warn" style="margin-left: 6px">{{ daysUntil(j.deadline) === 0 ? '今天' : '明天' }}</span><span v-else-if="deadlineLabel(j.deadline).tone === 'past' && j.stage_group === 'todo'" class="tag" style="margin-left: 6px">已截止</span></td>
           <td class="nowrap"><span class="tag" :class="j.stage_tone">{{ j.stage_label }}</span><span v-if="j.archived" class="tag" style="margin-left: 4px">已归档</span><span v-if="!j.online && j.stage !== 'offline'" class="tag" style="margin-left: 4px">已下线</span></td>
-          <td class="small muted" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
+          <td class="small muted col-more" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
         </tr>
       </tbody>
     </table>
