@@ -178,6 +178,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **Text that can be read in both themes.** The weakest text of the light theme (dates, counts, hints, group names)
+  stood at 2.9:1 against its background and is at 4.5:1 or more on every surface now, with the secondary text
+  darkened to keep the two apart; the dark theme's weak text likewise. In the dark theme, a count in the sidebar,
+  an error message and a button that deletes put white on a pale red (2.1:1): they use a colour made for standing
+  on it. A test holds every pair of text and background to the number, in both themes.
 - **Keyboard and screen reader: what a control is, and what it is called.** A column header that sorts is a button
   and says how the table is sorted. A posting's name is a link (Enter opens its details, and closing them puts the
   focus back on it). A label is tied to the control it names across the forms - a click on it reaches the control, a

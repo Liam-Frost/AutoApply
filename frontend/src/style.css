@@ -14,8 +14,8 @@
   --border: #e1e6ee;
   --border-strong: #c9d1dd;
   --text: #14233b;
-  --text-2: #5a6b82;
-  --text-3: #8b98ab;
+  --text-2: #4c5d75;
+  --text-3: #607086;      /* the weakest text is still text: 4.5:1 on every surface it stands on (tests/contrast.test.js) */
 
   /* actions */
   --primary: #1f4fd8;
@@ -27,7 +27,7 @@
   /* meaning */
   --ok: #17794a;      --ok-soft: #e2f4ea;
   --warn: #9a5b00;    --warn-soft: #fff1d6;
-  --bad: #b3261e;     --bad-soft: #fde8e6;
+  --bad: #b3261e;     --bad-soft: #fde8e6;   --on-bad: #ffffff;      /* text on the colour itself: a count, a message, a button that deletes */
   --info: #1f4fd8;    --info-soft: #e8eeff;
   --neutral-soft: #edf0f5;
 
@@ -54,9 +54,9 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0d131c; --surface: #151d29; --surface-2: #1c2634; --border: #273244; --border-strong: #3a475c;
-    --text: #e7ecf3; --text-2: #a3b0c2; --text-3: #75839a;
+    --text: #e7ecf3; --text-2: #a3b0c2; --text-3: #8392a9;
     --primary: #6f9bff; --primary-hover: #8aadff; --primary-soft: #1b2a4d; --on-primary: #0b1424; --focus: rgba(111, 155, 255, 0.35);
-    --ok: #6fd3a0; --ok-soft: #14301f; --warn: #f0c36a; --warn-soft: #3a2e12; --bad: #f29b94; --bad-soft: #3d1d1b;
+    --ok: #6fd3a0; --ok-soft: #14301f; --warn: #f0c36a; --warn-soft: #3a2e12; --bad: #f29b94; --bad-soft: #3d1d1b; --on-bad: #2a1210;
     --info: #9dbdff; --info-soft: #1b2a4d; --neutral-soft: #222c3b;
     --brand-navy: #e7ecf3; --logo-tile: #ffffff;
     --chart-1: #3987e5; --chart-grid: #273244;
@@ -66,9 +66,9 @@
 }
 :root[data-theme="dark"] {
   --bg: #0d131c; --surface: #151d29; --surface-2: #1c2634; --border: #273244; --border-strong: #3a475c;
-  --text: #e7ecf3; --text-2: #a3b0c2; --text-3: #75839a;
+  --text: #e7ecf3; --text-2: #a3b0c2; --text-3: #8392a9;
   --primary: #6f9bff; --primary-hover: #8aadff; --primary-soft: #1b2a4d; --on-primary: #0b1424; --focus: rgba(111, 155, 255, 0.35);
-  --ok: #6fd3a0; --ok-soft: #14301f; --warn: #f0c36a; --warn-soft: #3a2e12; --bad: #f29b94; --bad-soft: #3d1d1b;
+  --ok: #6fd3a0; --ok-soft: #14301f; --warn: #f0c36a; --warn-soft: #3a2e12; --bad: #f29b94; --bad-soft: #3d1d1b; --on-bad: #2a1210;
   --info: #9dbdff; --info-soft: #1b2a4d; --neutral-soft: #222c3b;
   --brand-navy: #e7ecf3; --logo-tile: #ffffff;
   --chart-1: #3987e5; --chart-grid: #273244;
@@ -106,7 +106,7 @@ nav.side a.nav { display: flex; align-items: center; gap: 10px; padding: 8px 10p
 nav.side a.nav svg { width: 18px; height: 18px; flex: none; }
 nav.side a.nav:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 nav.side a.nav.router-link-active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
-nav.side .count { margin-left: auto; background: var(--bad); color: #fff; border-radius: var(--r-pill); padding: 0 7px; font-size: 11px; font-weight: 700; line-height: 18px; min-width: 18px; text-align: center; }
+nav.side .count { margin-left: auto; background: var(--bad); color: var(--on-bad); border-radius: var(--r-pill); padding: 0 7px; font-size: 11px; font-weight: 700; line-height: 18px; min-width: 18px; text-align: center; }
 .side-foot { margin-top: auto; padding: var(--s3) var(--s2) 0; border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-2); display: grid; gap: var(--s2); }
 .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
 .status-dot.paused { background: var(--warn); } .status-dot.busy { background: var(--primary); animation: pulse 1.2s ease-in-out infinite; }
@@ -271,7 +271,7 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 /* toast */
 .toasts { position: fixed; right: var(--s5); bottom: var(--s5); display: grid; gap: var(--s2); z-index: 60; max-width: min(440px, calc(100vw - 32px)); }
 .toast { display: flex; gap: var(--s2); align-items: flex-start; background: var(--text); color: var(--surface); padding: 10px 14px; border-radius: var(--r-md); box-shadow: var(--shadow-lg); font-size: var(--fs-sm); }
-.toast.bad { background: var(--bad); color: #fff; }
+.toast.bad { background: var(--bad); color: var(--on-bad); }
 .toast button { border: 0; background: transparent; color: inherit; opacity: 0.7; padding: 0 2px; }
 
 .score { font-weight: 700; font-variant-numeric: tabular-nums; } .score.hi { color: var(--ok); } .score.mid { color: var(--info); } .score.lo { color: var(--text-3); }
@@ -410,7 +410,7 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 .dialog { position: fixed; z-index: 81; left: 50%; top: 32%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-lg, 14px); box-shadow: var(--shadow-lg); padding: 22px 22px 18px; }
 .dialog p { margin: 0 0 18px; font-size: 15px; line-height: 1.6; }
-button.danger.solid { background: var(--bad); border-color: var(--bad); color: #fff; } button.danger.solid:hover { filter: brightness(0.93); background: var(--bad); }
+button.danger.solid { background: var(--bad); border-color: var(--bad); color: var(--on-bad); } button.danger.solid:hover { filter: brightness(0.93); background: var(--bad); }
 
 /* to-dos: sections by urgency, the job a card is about */
 .todo-sec { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-weight: 650; font-size: var(--fs-sm); color: var(--text-2); }
