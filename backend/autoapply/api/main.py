@@ -2035,6 +2035,14 @@ def analytics_ai_prices(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"ok": True, "repriced": metering.reprice()}
 
 
+@app.get("/api/analytics/sent")
+def analytics_sent() -> dict[str, Any]:
+    """Everything that has gone out, and how much of it came to something (analytics.sent_summary)."""
+    from .. import analytics
+
+    return analytics.sent_summary()
+
+
 @app.get("/api/rules")
 def get_rules() -> dict[str, Any]:
     """What the settings come to: what the applicant would apply to, and what the program may do by itself."""
