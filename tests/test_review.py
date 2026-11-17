@@ -80,9 +80,33 @@ def test_an_answer_given_to_one_employer_is_only_a_suggestion_for_another(app_en
 
     assert answered("jobs.acme.example") == {"#w": ("No", "high", False), "#s": ("No", "high", True)}            # the employer it was confirmed for
     assert answered("careers.zeta.example") == {"#w": ("No", "medium", False), "#s": ("No", "medium", False)}    # elsewhere: offered, not confirmed
-    # a system with a driver of its own asks everyone the same: one scope, as before
-    ans.cache_put("greenhouse", q, "No", "approved", confirmed=True, tenant="acme")
-    assert ans._cache_get("greenhouse", q, "zeta").ats == "greenhouse"
+    # the same on a system that has a driver of its own: its employers ask in the same words and each means itself.
+    # ("Have you previously worked for us?" = Yes, confirmed on one Workday employer's form, went to the next one confirmed.)
+    w = Question(id="employed", label="Have you previously worked for us?", type="select", options=["Yes", "No"], required=True)
+    ans.cache_put("workday", w, "Yes", "worked there in 2025", confirmed=True, tenant="acme.wd1")
+    own, other = ans._cache_get("workday", w, "acme.wd1"), ans._cache_get("workday", w, "zeta.wd5")
+    assert (own.ats, own.answer, own.confirmed_by_user) == ("workday:acme.wd1", "Yes", 1)
+    assert (other.ats, other.answer, other.confirmed_by_user, other.origin) == ("workday", "Yes", 0, "acme.wd1")      # offered, and said where from
+
+    def on_workday(tenant):
+        schema = FormSchema(ats="workday", tenant=tenant, url="https://x", pages=["p"], questions=[w])
+        r = ans.resolve(schema, job)["answers"][0]
+        return r["value"], r["confidence"], r["basis"]
+
+    assert on_workday("acme.wd1")[:2] == ("Yes", "high")
+    assert on_workday("zeta.wd5")[:2] == ("Yes", "medium") and "another employer's form (acme.wd1)" in on_workday("zeta.wd5")[2]
+    # what was kept for the whole system before employers were told apart is still offered, and confirmed for nobody
+    from autoapply.models import AnswerCache
+
+    key, oh = sponsor.key()
+    with db.session() as s:
+        s.add(AnswerCache(ats="workday", question_key=key, options_hash=oh, answer="No", basis="approved", confirmed_by_user=1, sensitive=1))
+    schema = FormSchema(ats="workday", tenant="zeta.wd5", url="https://x", pages=["p"], questions=[sponsor])
+    r = ans.resolve(schema, job)["answers"][0]
+    assert (r["value"], r["confidence"], r["sensitive_confirmed"]) == ("No", "medium", False)
+    # a form whose employer is not known keeps the system as its scope
+    assert ans._scope("workday") == "workday" and ans._scope("workday", "acme.wd1") == "workday:acme.wd1" == __import__("autoapply.sites", fromlist=["x"]).of_form(
+        FormSchema(ats="workday", tenant="acme.wd1", source="agent"))
     ans.correct("generic", {"id": "#w", "label": q.label, "type": "radio", "options": q.options, "value": "Yes", "basis": "edited by user"}, "jobs.acme.example")
     assert answered("jobs.acme.example")["#w"][0] == "Yes" and answered("careers.zeta.example")["#w"][0] == "Yes"
 

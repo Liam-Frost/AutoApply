@@ -91,6 +91,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **An answer you confirmed for one employer is a suggestion for the next, on every system.** On the sites without
+  dedicated support this was already so. On Workday, Greenhouse and the others, answers were kept for the whole
+  system, as if every employer on it asked the same question: "Have you previously worked for us?", confirmed as
+  "Yes" on one employer's form, went to the next employer as your confirmed answer. Answers are now kept per
+  employer everywhere; what you answered elsewhere is still offered first - marked as less than certain, saying
+  which employer it came from, and not counted as confirmed. Answers kept before this are offered the same way.
+  A new employer's first form therefore has a few more answers to look at than before.
 - **A mail is not put on an application that did not exist when it was written.** Which application a mail is about
   was decided by employer and title, the newest first - and when the mail was written was not looked at: a mail of
   forty days ago could move an application made yesterday for a posting of the same name. Now an application that

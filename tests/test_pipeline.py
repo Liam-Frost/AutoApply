@@ -80,8 +80,9 @@ def test_draft_review_execute(pipeline):
     assert any("已提交" in t for t in pipeline["sent"])
     with db.session() as s:
         assert s.get(DriverStat, "fixture").consecutive_submits == 1
-        cached = {c.question_key: c for c in s.query(AnswerCache)}
-        assert cached["will you require sponsorship?"].confirmed_by_user == 1
+        cached = {(c.ats, c.question_key): c for c in s.query(AnswerCache)}
+        assert cached["fixture:local", "will you require sponsorship?"].confirmed_by_user == 1      # confirmed for this employer
+        assert cached["fixture", "will you require sponsorship?"].confirmed_by_user == 0            # offered to another, confirmed for none
         assert s.query(Todo).filter_by(status="open").count() == 0
 
     # executing again must not submit twice
@@ -271,13 +272,14 @@ def test_an_answer_can_be_changed_after_approval_until_the_application_has_gone_
 
     with db.session() as s:
         d = s.get(Draft, did)
-        ats, first = d.schema["ats"], next(a for a in d.answers if a["id"] == "first_name")
+        ats, tenant, first = d.schema["ats"], d.schema["tenant"], next(a for a in d.answers if a["id"] == "first_name")
     q = Question(id="first_name", label=first["label"], type=first["type"], options=first.get("options") or [])
-    ans.cache_put(ats, q, "Alexandre", "approved", confirmed=True)       # (as approve() left it)
+    ans.cache_put(ats, q, "Alexandre", "approved", confirmed=True, tenant=tenant)       # (as approve() left it)
     assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": "Alexander"}).status_code == 200
-    assert ans._cache_get(ats, q).answer == "Alexander" and ans._cache_get(ats, q).confirmed_by_user == 1
+    assert ans._cache_get(ats, q, tenant).answer == "Alexander" and ans._cache_get(ats, q, tenant).confirmed_by_user == 1
+    assert ans._cache_get(ats, q, "another-employer").answer == "Alexander"          # what another employer's form is offered is the corrected one too
     assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": ""}).status_code == 200
-    assert ans._cache_get(ats, q) is None                              # cleared: nothing is left to reuse
+    assert ans._cache_get(ats, q, tenant) is None and ans._cache_get(ats, q) is None   # cleared: nothing is left to reuse, here or elsewhere
     assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": "Alexander"}).status_code == 200
     # the next run fills in what the draft says now
     assert c.post(f"/api/drafts/{did}/execute").status_code == 200 and tasks.drain() == 1
