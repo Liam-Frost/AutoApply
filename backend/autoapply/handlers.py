@@ -8,7 +8,7 @@ from typing import Any
 from . import config, db, discover, drafts, executor, lifecycle, mail, messages, notify, scoring, tasks
 from .ats.base import AlreadyApplied, NeedsHuman
 from .models import UNKNOWN, Application, Job, Task
-from .tasks import enqueue, handler
+from .tasks import asked_again, enqueue, handler
 
 
 @handler("discover")
@@ -209,6 +209,7 @@ def resume_waiting(*handled: str) -> int:
             if not every and waits and waits not in handled:
                 continue
             t.status, t.error = "queued", ""
+            asked_again(t)      # (the applicant dealt with what it waited for: it is theirs from here)
             n += 1
             kind, _, num = t.ref.partition(":")
             if kind == "application" and num.split(":")[0].isdigit():

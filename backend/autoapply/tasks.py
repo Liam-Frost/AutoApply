@@ -58,6 +58,15 @@ def _asked(payload: dict[str, Any] | None) -> dict[str, Any]:
     return {k: v for k, v in (payload or {}).items() if not k.startswith("_") and v not in (None, "", [], {})}
 
 
+def asked_again(t: Task) -> None:
+    """An existing task goes back into the queue because the applicant said so - a card marked done, "retry", "take it
+    up", "do it first": it is theirs from here, as if they had just asked for it. (``enqueue`` marks the tasks it makes;
+    a row that is already there was left as the program's, so a sign-in that was held back for the quiet hours was
+    held back again the moment the applicant said "go ahead", and was not taken at all while paused.)"""
+    if by_hand.get() and not (t.payload or {}).get("_by_hand"):
+        t.payload = {**(t.payload or {}), "_by_hand": True}
+
+
 def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, priority: int = 100, dedupe: bool = True) -> int:
     """Queue work. The same work (kind and ref) that is already in the queue is not queued a second time - and what is
     asked for now is what gets done:
@@ -72,6 +81,16 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     with db.session() as s:
         if dedupe and ref:
             ex = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status.in_(("queued", "running"))).order_by(Task.due_at.isnot(None), Task.id).first()
+            if ex is None:
+                # The same work was put aside by the applicant ("not now"). Asked for by the program - the timer that
+                # reads on, the scan - it stays put aside: a second task would do what was set aside while the first
+                # still says "held". Asked for by the applicant, it is taken up.
+                held = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status == "held").order_by(Task.id).first()
+                if held is not None:
+                    if by_hand.get():
+                        held.status, held.payload = "queued", {**(held.payload or {}), **(payload or {})}
+                        _wake.set()
+                    return held.id
             if ex and ex.status == "queued":
                 if _asked(payload) != _asked(ex.payload):
                     ex.payload = {**(ex.payload or {}), **(payload or {})}
@@ -294,6 +313,7 @@ def take_up(task_id: int) -> None:
         if t.status != "held":
             raise NotNow("这个任务没有被暂缓。")
         t.status = "queued"
+        asked_again(t)
     _wake.set()
 
 
@@ -418,6 +438,7 @@ def retry(task_id: int) -> None:
         t = s.get(Task, task_id)
         may_retry(s, t)
         t.status, t.error = "queued", ""
+        asked_again(t)
     _wake.set()
 
 

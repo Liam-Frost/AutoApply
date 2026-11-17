@@ -152,27 +152,23 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     high: list[str] = []
     from . import tasks
 
-    room = draft_room()["room"]      # how many drafts may still be started by the program itself (drafts.max_pending)
+    fresh: set[int] = set()         # scored just now and at their threshold: they are among those the room is given to
     for jid, out in zip(ids, outs):
         if out is None:
             skipped += 1
             continue
         scored += 1
-        enqueue_deadline = None
         with db.session() as s:
             j = s.get(Job, jid)
             floor = min(min_score, prio_score) if employers.is_priority(j.company, j.source, prio) else min_score
             if not out["excluded"] and j.score is not None and j.score >= floor and j.apply_url:
                 high.append({"score": j.score, "company": j.company, "title": j.title, "deadline": j.deadline or ""})
-                if room > 0:
-                    j.status = "queued"
-                    enqueue_deadline = j.deadline or ""
-                    room -= 1
-                # (no room: it stays "scored" and gets its draft when one of those waiting is dealt with - queue_qualifying,
-                # every ten minutes, the best first)
-        if enqueue_deadline is not None:  # enqueue after the session closes (single SQLite writer)
-            tasks.enqueue("recon", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(enqueue_deadline))
-            queued += 1
+                fresh.add(jid)
+    # The room there is for drafts (drafts.max_pending) goes to the best of what qualifies - the postings scored just
+    # now together with those that were scored before and still wait. It used to go to the batch in the order it was
+    # read, newest first: with one place left, a posting scored 8 took it and one scored 10 in the same batch waited.
+    # (as many as were found just now, at most: the rest of the backlog is started a few at a time - queue_qualifying)
+    queued = _start_best(min(draft_room()["room"], len(fresh)), fresh)
     if high:
         notify.send("status_update", messages.high_scores(sorted(high, key=lambda r: -r["score"])), ref="score")
     if stopped:
@@ -206,23 +202,29 @@ def queue_qualifying(limit: int = 6) -> int:
     their drafts. Scoring does this for a posting at the moment it is scored; this is for everything that came to qualify
     afterwards - the threshold was lowered, an employer became a priority one, the program was closed in between.
     A few at a time, best first, so that one change of a setting does not start dozens of forms at once."""
+    if db.get_setting("schedule.paused") or db.get_setting("schedule.draining"):
+        return 0
+    return _start_best(min(limit, draft_room()["room"]))       # no more than the applicant has said they want waiting for them
+
+
+def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> int:
+    """Start drafts for the best postings that qualify, at most ``limit`` of them: scored, open, with no application, at
+    the score at which a draft is prepared - highest score first. ``fresh``: postings scored just now; they qualify
+    whatever their source (a posting of the school portal gets its draft when it is scored, not later by the clock)."""
     from . import employers, tasks
     from .models import Task
 
-    if db.get_setting("schedule.paused") or db.get_setting("schedule.draining"):
-        return 0
-    limit = min(limit, draft_room()["room"])       # no more than the applicant has said they want waiting for them
     if limit <= 0:
         return 0
     min_score = float(db.get_setting("queue.min_score_for_draft"))
     prio, prio_score = employers.priority_names(), float(db.get_setting("employers.priority_min_score") or 7.0)
     todo: list[tuple[int, str]] = []
     with db.session() as s:
-        busy = {t.ref for t in s.query(Task).filter(Task.kind == "recon", Task.status.in_(("queued", "running", "waiting_human")))}
+        busy = {t.ref for t in s.query(Task).filter(Task.kind == "recon", Task.status.in_(("queued", "running", "waiting_human", "held")))}
         rows = (s.query(Job).filter(Job.status == "scored", Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None), Job.score.isnot(None))
                 .order_by(Job.score.desc(), Job.id.desc()).all())
         for j in rows:
-            if j.application is not None or j.exclusion or not j.apply_url or j.source == "pdportal" or f"job:{j.id}" in busy:
+            if j.application is not None or j.exclusion or not j.apply_url or (j.source == "pdportal" and j.id not in fresh) or f"job:{j.id}" in busy:
                 continue
             floor = min(min_score, prio_score) if employers.is_priority(j.company, j.source, prio) else min_score
             if j.score >= floor:
