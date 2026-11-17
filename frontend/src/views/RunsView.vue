@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
@@ -12,7 +13,8 @@ const tasks = ref([])
 const notes = ref([])
 const ov = ref({ drivers: [], mail_recent: [] })
 const filter = ref('all')
-const tab = ref('plan')
+const route = useRoute()
+const tab = ref(['plan', 'activity', 'sched', 'notes', 'systems'].includes(String(route.query.tab)) ? String(route.query.tab) : 'plan')
 const sched = ref([])
 // The plan: what is being done, what comes next and in which order, what waits for you, what was set aside, what is
 // set for later. The record of what was done is the next tab.
