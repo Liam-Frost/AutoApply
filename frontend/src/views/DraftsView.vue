@@ -47,7 +47,7 @@ async function approvePicked() {
     const r = await api.post('/drafts/approve', { ids: approvable.value.map((d) => d.id) })
     if (r.approved.length) toast(`已批准 ${r.approved.length} 份，开始填写`)
     if (Object.keys(r.errors).length) toast(`有 ${Object.keys(r.errors).length} 份没能批准：` + Object.values(r.errors).join('；'), 'bad')
-    picked.value = new Set()
+    picked.value = new Set(Object.keys(r.errors || {}).map((k) => +k))      // what did not go through stays ticked, to be tried again
     await load()
   } catch (e) { toast(e.message, 'bad') } finally { busy.value = false }
 }
@@ -56,7 +56,7 @@ async function batch(action, done) {
   try {
     const r = await api.post('/drafts/batch', { action, ids: chosen.value.map((d) => d.id) })
     toast(done(r.done.length) + (Object.keys(r.errors).length ? `；${Object.keys(r.errors).length} 份没成功` : ''), Object.keys(r.errors).length ? 'bad' : undefined)
-    picked.value = new Set()
+    picked.value = new Set(Object.keys(r.errors || {}).map((k) => +k))      // what did not go through stays ticked, to be tried again
     await load()
   } catch (e) { toast(e.message, 'bad') } finally { busy.value = false }
 }

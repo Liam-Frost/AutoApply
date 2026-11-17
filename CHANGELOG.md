@@ -178,6 +178,16 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **"Not now" on a draft is not "send it back".** The button closed the draft, so that it could not be approved
+  any more. It is a way back to the list now, and the draft stays where it was. Sending a draft back is its own
+  button, asks first, and says what comes next. A posting whose only draft was sent back reads "not applied" again;
+  it stayed at "a draft is waiting for you" with no draft to open.
+- **A batch acts on what is shown.** Ticking a posting and then filtering it off the page left "0 postings" above
+  and "1 selected" below, and the batch buttons acted on it. What a filter, a search or a reload takes off the page
+  is unticked. And what a batch could not do stays ticked, to be tried again.
+- **"Due today" and "due tomorrow" go by the calendar.** At noon, a deadline of 23:59 the same day was "due
+  tomorrow" (half a day, rounded up to one), and a deadline that had passed that morning was "due today". Today is
+  today, with the time; what is over says so. The overview and the postings page use one function for it.
 - **"Sent" is one number, and the three words about what came of it mean the same everywhere.** The overview
   counted the applications whose posting is not archived, the analytics those with a day of sending: two numbers
   for "applications sent" with nothing to say why they differed (and "my applications" showed a third). Sent is now

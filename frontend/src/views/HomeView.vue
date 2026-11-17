@@ -8,6 +8,7 @@ import PageHead from '../components/PageHead.vue'
 import Explain from '../components/Explain.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
+import { deadlineLabel } from '../dates'
 import { fmtTime, run } from '../ui'
 
 const ov = inject('overview')
@@ -42,11 +43,6 @@ const weekly = computed(() => (ov.value.weekly || []).map((w) => {
 const weekTotal = computed(() => weekly.value.reduce((a, w) => a + w.value, 0))
 const thisWeek = computed(() => (weekly.value.length ? weekly.value[weekly.value.length - 1].value : 0))
 
-const daysLeft = (dl) => {
-  const d = new Date(dl.replace(' ', 'T'))
-  const diff = Math.ceil((d.getTime() - Date.now()) / 86400000)
-  return diff <= 0 ? '今天截止' : diff === 1 ? '明天截止' : `还有 ${diff} 天`
-}
 async function read() {
   ;[todos.value, drafts.value, sent.value] = await Promise.all([api.get('/todos'), api.get('/drafts'), api.get('/analytics/sent')])
   todos.value = todos.value.filter((t) => !t.snoozed_until)       // what was put off until later is not "waiting for you" until then
@@ -103,7 +99,7 @@ onMounted(load)
         <router-link v-for="j in ov.closing_soon || []" :key="j.id" :to="{ path: '/jobs', query: { open: j.id } }" class="item" style="color: inherit; text-decoration: none">
           <span class="score" :class="j.score >= 7.5 ? 'hi' : j.score >= 6 ? 'mid' : 'lo'" style="min-width: 28px">{{ j.score == null ? '—' : j.score.toFixed(1) }}</span>
           <div><div class="main">{{ j.company }}</div><div class="sub">{{ j.title }}<span v-if="!j.has_link"> · 还没有申请链接</span></div></div>
-          <span class="small nowrap" :class="daysLeft(j.deadline).startsWith('还有') ? 'muted' : ''" :style="daysLeft(j.deadline).startsWith('还有') ? '' : 'color: var(--warn); font-weight: 600'">{{ daysLeft(j.deadline) }}</span>
+          <span class="small nowrap" :class="deadlineLabel(j.deadline).tone ? '' : 'muted'" :style="deadlineLabel(j.deadline).tone === 'soon' ? 'color: var(--warn); font-weight: 600' : deadlineLabel(j.deadline).tone === 'past' ? 'color: var(--bad)' : ''">{{ deadlineLabel(j.deadline).text }}</span>
         </router-link>
       </div>
       <EmptyState v-if="!(ov.closing_soon || []).length" icon="clock" title="没有快截止的未投岗位" />

@@ -7,6 +7,7 @@ import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
+import { daysUntil, deadlineLabel, isPast, keepVisible } from '../dates'
 import TechDetails from '../components/TechDetails.vue'
 import { renderMarkdown } from '../md'
 import { run, toast, ask, persona } from '../ui'
@@ -66,7 +67,6 @@ const elsewhere = computed(() => {
   return jobs.value.filter((j) => !inGroup(j, group.value) && (showArchived.value || !j.archived)
     && `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)).length
 })
-function daysTo(dl) { return dl ? Math.ceil((new Date(dl.replace(' ', 'T')).getTime() - Date.now()) / 86400000) : null }
 const rows = computed(() => {
   const needle = f.q.trim().toLowerCase()
   const out = inScope.value.filter((j) => {
@@ -78,7 +78,7 @@ const rows = computed(() => {
     if (f.link && !j.apply_url) return false
     if (f.prio && !j.priority) return false
     if (f.deadline === 'none' && j.deadline) return false
-    if (f.deadline && f.deadline !== 'none') { const d = daysTo(j.deadline); if (d == null || d < 0 || d > +f.deadline) return false }
+    if (f.deadline && f.deadline !== 'none') { const d = daysUntil(j.deadline); if (d == null || isPast(j.deadline) || d > +f.deadline) return false }      // (dates.js: calendar days; what is over is not "due soon")
     return !needle || `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)
   })
   const k = sortKey.value
@@ -91,7 +91,9 @@ function sortBy(k) { if (sortKey.value === k) sortDir.value *= -1; else { sortKe
 const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? ' ↑' : ' ↓') : '')
 const scoreCls = (s) => (s == null ? '' : s >= 9 ? 'hi' : s >= 7.5 ? 'mid' : s < 6 ? 'lo' : '')
 
-// selection
+// selection: of the rows that are shown. A filter, a search or a reload that takes a row off the page unticks it -
+// a batch never acts on what cannot be seen.
+watch(() => rows.value, (now) => { picked.value = keepVisible(picked.value, now) })
 const allPicked = computed(() => rows.value.length > 0 && rows.value.every((j) => picked.value.has(j.id)))
 function togglePick(id) { const s = new Set(picked.value); s.has(id) ? s.delete(id) : s.add(id); picked.value = s }
 function toggleAll() { picked.value = allPicked.value ? new Set() : new Set(rows.value.map((j) => j.id)) }
@@ -106,8 +108,8 @@ const BULK = {
 async function bulk(action) {
   const ids = [...picked.value]
   if (action === 'draft' && ids.length > 5 && !(await ask(`要为 ${ids.length} 个岗位生成草案吗？每个需要一两分钟，会占用 AI 额度。`))) return
-  await run(() => api.post('/jobs/bulk', { action, ids }), BULK[action][1], load)
-  picked.value = new Set()
+  // (when the batch did not go through, what was ticked stays ticked: it can be tried again without ticking it all once more)
+  if ((await run(() => api.post('/jobs/bulk', { action, ids }), BULK[action][1], load)) !== false) picked.value = new Set()
 }
 
 async function read() {
@@ -211,7 +213,7 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
           <td v-if="cols.has('channel')" class="small nowrap">{{ j.channel_label }}</td>
           <td v-if="cols.has('posted')" class="small nowrap">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
           <td v-if="cols.has('first_seen')" class="small nowrap">{{ j.first_seen || '—' }}</td>
-          <td class="small nowrap">{{ (j.deadline || '').slice(5, 10) || '—' }}</td>
+          <td class="small nowrap" :title="deadlineLabel(j.deadline).text">{{ (j.deadline || '').slice(5, 10) || '—' }}<span v-if="deadlineLabel(j.deadline).tone === 'soon'" class="tag warn" style="margin-left: 6px">{{ daysUntil(j.deadline) === 0 ? '今天' : '明天' }}</span><span v-else-if="deadlineLabel(j.deadline).tone === 'past' && j.stage_group === 'todo'" class="tag" style="margin-left: 6px">已截止</span></td>
           <td class="nowrap"><span class="tag" :class="j.stage_tone">{{ j.stage_label }}</span><span v-if="j.archived" class="tag" style="margin-left: 4px">已归档</span><span v-if="!j.online && j.stage !== 'offline'" class="tag" style="margin-left: 4px">已下线</span></td>
           <td class="small muted" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
         </tr>
