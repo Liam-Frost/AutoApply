@@ -91,6 +91,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **Who presses Submit is said the same way everywhere.** A draft could say "submitted automatically" in one line
+  and, in the steps below it, "this system has no driver yet: you check and press Submit"; the settings page promised
+  that a site without dedicated support always stops for you. Neither has been true since which driver fills a form
+  stopped deciding who submits. The decision is made in one place, from your settings; the last step of a draft's
+  plan is that decision in words, made when you look at the draft (so an old draft says what is true now, and
+  changes when you change the setting), and the settings page names the two things that do stop an automatic
+  submission: an entry the program could not check and the AI chose, and a form that still reports something for you.
 - **"Submit was pressed, and no page said it was received" is a state of its own.** It used to be a failed run - or
   "filled, not confirmed" - and either way the card's main button was "fill in and submit again": the one thing that
   applies twice if the first time went through. Whether Submit was pressed is now a fact the run keeps (also in the
