@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import Icon from './Icon.vue'
 import { ask, run, session, toast } from '../ui'
+import { clone, same, useUnsaved } from '../dirty'
 
 const info = ref(null)
 const c = ref(null)
@@ -19,7 +20,14 @@ async function load() {
   proxies.value = c.value.trusted_proxies.join(', ')
   hosts.value = c.value.allowed_hosts.join(', ')
   pw.value.user = info.value.user
+  base.value = clone(shown())
 }
+// what this panel saves with its own button, as it was last read or saved
+const base = ref(null)
+const shown = () => ({ c: c.value, proxies: proxies.value, hosts: hosts.value })
+const dirty = computed(() => !!base.value && !same(shown(), base.value))
+function discard() { c.value = clone(base.value.c); proxies.value = base.value.proxies; hosts.value = base.value.hosts; where.value = c.value.host === '127.0.0.1' || c.value.host === 'localhost' ? 'local' : c.value.host === '0.0.0.0' ? 'all' : 'one' }
+const typedPw = computed(() => !!(pw.value.password || pw.value.again))      // (not the current one: a browser fills that in by itself)
 const list = (t) => t.split(/[\s,;]+/).filter(Boolean)
 const exposed = computed(() => where.value !== 'local')
 const unencrypted = computed(() => exposed.value && !c.value.https_by_proxy)
@@ -29,7 +37,7 @@ const save = () => run(async () => {
   await load()
 }, '已保存。监听地址、端口和路径前缀在重启服务后生效（托盘图标 → 重启服务）。')
 const changePassword = () => {
-  if (pw.value.password !== pw.value.again) return toast('两次输入的新密码不一样', 'bad')
+  if (pw.value.password !== pw.value.again) { toast('两次输入的新密码不一样', 'bad'); return false }
   return run(async () => {
     await api.post('/auth/password', { current: pw.value.current, password: pw.value.password, user: pw.value.user })
     pw.value = { current: '', password: '', again: '', user: pw.value.user }
@@ -37,6 +45,8 @@ const changePassword = () => {
     await load()
   }, '密码已更改，其他设备上的登录都已退出')
 }
+useUnsaved({ id: 'access', label: '访问设置', dirty: () => dirty.value, save: () => save(), discard })
+useUnsaved({ id: 'access-pw', label: '新密码', dirty: () => typedPw.value, save: () => changePassword(), discard: () => { pw.value = { current: '', password: '', again: '', user: info.value.user } } })
 const signOutAll = async () => (await ask('退出所有设备上的登录？这个浏览器也要重新登录。')) && run(async () => { await api.post('/auth/logout', { everywhere: true }); session.in = false }, '已全部退出')
 onMounted(load)
 </script>
@@ -48,7 +58,7 @@ onMounted(load)
       <p class="muted">默认只有这台电脑能打开。要在手机或别的电脑上用，就让它监听局域网的地址；不管从哪里打开，都要先登录。</p>
       <p v-if="info.restart_needed" class="callout"><Icon name="info" /><span>现在运行的服务监听 {{ info.running.host }}:{{ info.running.port }}，和这里保存的不一样：重启服务后生效（托盘图标 → 重启服务）。</span></p>
       <div class="kv">
-        <label>监听地址</label>
+        <label>监听地址 <span class="badge">重启后生效</span></label>
         <div class="row" style="flex-wrap: wrap">
           <div class="seg">
             <button :class="{ on: where === 'local' }" @click="pickWhere('local')">只有这台电脑</button>
@@ -58,8 +68,8 @@ onMounted(load)
           <input v-if="where === 'one'" v-model.trim="c.host" style="width: 180px" placeholder="192.168.1.20" aria-label="监听的 IP 地址" />
           <span v-if="where !== 'local' && info.addresses.length" class="hint">这台电脑的地址：{{ info.addresses.join('、') }}</span>
         </div>
-        <label>端口</label><div><input v-model.number="c.port" type="number" style="width: 110px" /></div>
-        <label>路径前缀</label><div><input v-model.trim="c.root_path" style="width: 220px" placeholder="留空" /> <span class="hint">放在反向代理的某个路径下面时才填，例如 /autoapply</span></div>
+        <label>端口 <span class="badge">重启后生效</span></label><div><input v-model.number="c.port" type="number" style="width: 110px" /></div>
+        <label>路径前缀 <span class="badge">重启后生效</span></label><div><input v-model.trim="c.root_path" style="width: 220px" placeholder="留空" /> <span class="hint">放在反向代理的某个路径下面时才填，例如 /autoapply</span></div>
         <label>登录保持</label><div><input v-model.number="c.session_days" type="number" style="width: 90px" /> 天 <span class="hint">到期后要重新登录</span></div>
       </div>
       <p v-if="unencrypted" class="callout warn" style="margin-top: 14px"><Icon name="alert" /><span>别的设备访问时，密码和页面内容在网络上是不加密的。只在你信任的网络（家里的局域网）里这样用；要从外面访问，请在前面放一个负责 HTTPS 的反向代理，并打开下面的开关。</span></p>
@@ -73,7 +83,8 @@ onMounted(load)
         <label>代理的地址</label><div><input v-model="proxies" placeholder="留空" style="width: 320px" /> <span class="hint">代理在别的机器上时，填它的 IP 地址，多个用逗号隔开</span></div>
         <label>访问用的域名</label><div><input v-model="hosts" placeholder="jobs.example.com" style="width: 320px" /> <span class="hint">通过域名访问时填，程序只应答填在这里的名字</span></div>
       </div>
-      <div class="row" style="margin-top: 14px"><button class="primary" @click="save"><Icon name="check" />保存访问设置</button></div>
+      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!dirty" @click="save"><Icon name="check" />保存访问设置</button>
+        <span v-if="dirty" class="badge warn">有改动还没保存</span><span v-else class="hint">这一页上面两块（从哪里打开、反向代理）都由这个按钮保存。</span></div>
     </div>
 
     <div class="card">

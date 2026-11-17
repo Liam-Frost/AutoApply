@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import AiPanel from '../components/AiPanel.vue'
 import EmployersPanel from '../components/EmployersPanel.vue'
@@ -14,6 +14,7 @@ import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
 import { useRouter } from 'vue-router'
 import { fmtTime, persona, run as runAction, toast } from '../ui'
+import { absorb, changed, clone, mayLeave, unsaved, useUnsaved } from '../dirty'
 
 const s = ref(null)
 const info = ref({ secrets: {}, gmail: {}, drivers: [] })
@@ -38,6 +39,43 @@ const checkUpdate = async () => {
   try { upd.value = await api.get('/system/update') } catch (e) { toast(e.message, 'bad') }
 }
 const TABS = { apply: '投递方式', materials: '申请材料', sources: '岗位来源', intake: '入库条件', notify: '通知与邮箱', ai: 'AI 模型', prompts: 'AI 提示词', network: '网络', access: '访问与安全', advanced: '高级' }
+
+// --- how what is on this page gets saved -------------------------------------------------------------------------------
+// Three ways, and each tab says which of them it uses: the button at the top right (most settings), a part's own button
+// (a mailbox, an AI service, a prompt, the access settings), and at once (adding an employer). The button at the top
+// saves what was changed and says how much that is; nothing reads the settings afresh over what is being edited.
+const SAVED_HOW = {
+  apply: '这一页的改动由右上角的“保存”一起保存；保存后，之后开始的任务按新设置做。',
+  materials: '这一页的改动由右上角的“保存”一起保存；保存后，之后开始的任务按新设置做。',
+  sources: '添加、移除雇主和它们的开关立即生效；其余的改动由右上角的“保存”保存。',
+  intake: '这一页的改动由右上角的“保存”一起保存；保存后，下一次扫描按新条件筛选。',
+  notify: 'Telegram 和通知开关由右上角的“保存”保存；邮箱用它自己的“保存”按钮。',
+  ai: '每家服务的地址、key 和模型用它下面的按钮保存，备用顺序用“保存备用顺序”；Claude 的模型、思考深度和长期令牌由右上角的“保存”保存。',
+  prompts: '每条提示词单独保存，下一次用到时生效。右上角的“保存”不管这一页。',
+  network: '这一页的改动由右上角的“保存”一起保存；保存后新打开的连接和浏览器窗口按新设置走。',
+  access: '这一页用自己的“保存访问设置”和“更改密码”按钮；右上角的“保存”不管这一页。',
+  advanced: '这一页的改动由右上角的“保存”一起保存；导出、检查更新这些按钮是立即执行的操作。',
+}
+const OWN = { ai: ['ai-provider', 'ai-backups'], prompts: ['prompt'], access: ['access', 'access-pw'], notify: ['mailbox'] }      // what a tab's parts keep to themselves (gone when the tab is left)
+// settings that belong to their own panels / endpoints: the button at the top does not send them
+const ELSEWHERE = ['employers', 'employers.migrated', 'mail.kind', 'mail.imap', 'llm.provider', 'llm.providers', 'persona', 'onboarding.done', 'sso.sites', 'sso.offered',
+  'sources.greenhouse', 'sources.lever', 'sources.ashby', 'sources.workday', 'sources.bigtech']
+const saved = ref({})         // the settings as they were last read or saved
+const saving = ref(false)
+const dirtyKeys = computed(() => (s.value ? changed(saved.value, s.value).filter((k) => !ELSEWHERE.includes(k)) : []))
+const typedSecrets = computed(() => Object.keys(sec.value).filter((k) => sec.value[k]))
+const pending = computed(() => dirtyKeys.value.length + typedSecrets.value.length)
+// on which tab each change was made (a change is made on the tab that is open): the tabs with something unsaved are marked
+const madeOn = reactive({})
+watch(() => [...dirtyKeys.value, ...typedSecrets.value.map((k) => 'secret:' + k)], (now) => {
+  for (const k of now) if (!madeOn[k]) madeOn[k] = tab.value
+  for (const k of Object.keys(madeOn)) if (!now.includes(k)) delete madeOn[k]
+})
+const marked = (k) => Object.values(madeOn).includes(k) || unsaved.value.some((a) => (OWN[k] || []).includes(a.id))
+async function go(k) {
+  if (k === tab.value || !(await mayLeave(OWN[tab.value] || []))) return
+  tab.value = k
+}
 const BIGTECH = [['amazon', 'Amazon'], ['apple', 'Apple'], ['google', 'Google'], ['microsoft', 'Microsoft'], ['meta', 'Meta'], ['nvidia', 'NVIDIA'], ['amd', 'AMD'], ['intel', 'Intel']]
 const COUNTRIES = [['CA', '加拿大'], ['US', '美国']]
 const scan = ref({ at: null, sources: [] })
@@ -57,7 +95,7 @@ const scanNow = () => act(() => api.post('/tasks', { kind: 'discover' }), '开�
 
 async function load() {
   const d = await api.get('/settings')
-  s.value = d.settings
+  if (!s.value) { s.value = d.settings; saved.value = clone(d.settings) } else absorb(s.value, saved.value, d.settings)      // (dirty.absorb: what is being edited stays)
   info.value = d
   api.get('/settings/claude-status').then((c) => (claude.value = c)).catch(() => {})
   api.get('/sources/last-scan').then((c) => (scan.value = c)).catch(() => {})
@@ -69,19 +107,31 @@ async function load() {
 }
 const lines = (t) => t.split('\n').map((x) => x.trim()).filter(Boolean)
 async function save() {
+  const keys = dirtyKeys.value
+  const n = pending.value
+  if (!n) { toast('没有需要保存的改动'); return true }
+  saving.value = true
   try {
-    const st = { ...s.value }
-    for (const k of ['employers', 'employers.migrated', 'mail.kind', 'mail.imap', 'llm.provider', 'llm.providers', 'persona', 'onboarding.done', 'sso.sites', 'sso.offered',
-      'sources.greenhouse', 'sources.lever', 'sources.ashby', 'sources.workday', 'sources.bigtech']) delete st[k]  // owned by their own panels / endpoints
+    const st = {}
+    for (const k of keys) st[k] = s.value[k]       // what was changed, and only that: a setting another part saved meanwhile is not sent back as it was
     const secrets = {}
     for (const k in sec.value) if (sec.value[k]) secrets[k] = sec.value[k]
     await api.put('/settings', { settings: st, secrets })
+    for (const k of keys) saved.value[k] = clone(s.value[k])
     sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
-    toast('设置已保存')
+    toast(`已保存 ${n} 项改动`)
     await load()
     if (netPanel.value) netPanel.value.load()
-  } catch (e) { toast(e.message, 'bad') }
+    return true
+  } catch (e) { toast(e.message, 'bad'); return false } finally { saving.value = false }
 }
+function discard() {
+  for (const k of dirtyKeys.value) s.value[k] = clone(saved.value[k])
+  sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
+}
+useUnsaved({ id: 'settings', label: '设置', dirty: () => pending.value > 0, save, discard })
+// (after an action of this page - a test message, a part saved by its own button - the settings are read afresh;
+// load takes what is new and leaves what is being edited)
 const act = (fn, ok) => runAction(fn, ok, load)
 const llmTest = () => act(() => api.post('/settings/llm-test'), 'AI 模型可以正常使用')
 const tgTest = () => act(() => api.post('/settings/telegram-test'), '测试消息已发送，请查看 Telegram')
@@ -100,12 +150,15 @@ onMounted(load)
 
 <template>
   <div v-if="s">
-    <PageHead title="设置" sub="改完记得点右上角的“保存”。">
-      <button v-if="tab !== 'prompts' && tab !== 'access'" class="primary" @click="save"><Icon name="check" />保存</button>
+    <PageHead title="设置">
+      <span v-if="pending" class="badge warn" role="status">有 {{ pending }} 项改动还没保存</span>
+      <button v-if="pending" class="ghost" :disabled="saving" @click="discard">放弃改动</button>
+      <button v-if="pending || (tab !== 'prompts' && tab !== 'access')" class="primary" :disabled="!pending || saving" @click="save"><Icon name="check" />{{ pending ? '保存' : '已保存' }}</button>
     </PageHead>
-    <div class="seg" style="margin-bottom: 16px">
-      <button v-for="(l, k) in TABS" :key="k" :class="{ on: tab === k }" @click="tab = k">{{ l }}</button>
+    <div class="seg" style="margin-bottom: 8px">
+      <button v-for="(l, k) in TABS" :key="k" :class="{ on: tab === k }" @click="go(k)">{{ l }}<span v-if="marked(k)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></button>
     </div>
+    <p class="hint" style="margin: 0 0 14px">{{ SAVED_HOW[tab] }}</p>
 
     <!-- 投递方式 -->
     <template v-if="tab === 'apply'">

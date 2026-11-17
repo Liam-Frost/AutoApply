@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { run, toast } from '../ui'
+import { clone, same, useUnsaved } from '../dirty'
 import Icon from './Icon.vue'
 
 const d = ref(null)
@@ -19,7 +20,13 @@ async function load() {
   d.value = await api.get('/mailbox')
   pick.value = d.value.kind === 'imap' ? d.value.imap.preset || 'custom' : 'gmail_api'
   fill()
+  base.value = clone(shown())
 }
+// which mailbox and how it is reached, as it was last read or saved
+const base = ref(null)
+const shown = () => ({ pick: pick.value, form: form.value })
+const dirty = computed(() => !!base.value && !same(shown(), base.value))
+function discard() { pick.value = base.value.pick; form.value = clone(base.value.form); result.value = null }
 function fill() {
   const i = d.value.imap
   const mine = d.value.kind === 'imap' && i.preset === pick.value
@@ -58,9 +65,13 @@ async function save() {
     else await api.put('/settings', { settings: { 'mail.kind': 'imap', 'mail.imap': imapBody() }, secrets: form.value.password ? { imap_password: form.value.password } : {} })
     toast('邮箱设置已保存')
     await load()
+    busy.value = false
+    return true
   } catch (e) { toast(e.message, 'bad') }
   busy.value = false
+  return false
 }
+useUnsaved({ id: 'mailbox', label: '邮箱', dirty: () => dirty.value, save, discard })
 function gmailClient(ev) {
   const f = ev.target.files[0]
   if (!f) return

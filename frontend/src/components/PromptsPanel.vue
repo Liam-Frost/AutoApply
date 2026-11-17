@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { ask, fmtTime, toast } from '../ui'
+import { mayLeave, useUnsaved } from '../dirty'
 import Icon from './Icon.vue'
 
 const rows = ref([])
@@ -27,17 +28,20 @@ async function load(keep) {
   if (r) { cur.value = r; text.value = r.body; showDefault.value = false }
 }
 async function pick(r) {
-  if (dirty.value && !(await ask('这条提示词有没保存的修改，切换后会丢掉。继续吗？', { ok: '丢掉修改' }))) return
+  if (r.key === cur.value.key || !(await mayLeave(['prompt']))) return
   cur.value = r; text.value = r.body; showDefault.value = false
 }
 async function save() {
-  if (cur.value.risk === 'high' && !(await ask('这条提示词指挥 AI 在真实的招聘网站上点击和填写。改得不好，可能读错申请表或卡在半路；固定规则（不提交、不碰密码、不绕过人机验证）不受影响。确定保存吗？', { ok: '保存' }))) return
+  if (tooLong.value || missing.value.length) { toast(tooLong.value ? '这条提示词太长了，没有保存' : `不能去掉：${missing.value.join('、')}，没有保存`, 'bad'); return false }
+  if (cur.value.risk === 'high' && !(await ask('这条提示词指挥 AI 在真实的招聘网站上点击和填写。改得不好，可能读错申请表或卡在半路；固定规则（不提交、不碰密码、不绕过人机验证）不受影响。确定保存吗？', { ok: '保存' }))) return false
   try {
     await api.put('/prompts/' + cur.value.key, { body: text.value })
     toast('已保存，下一次用到时生效')
     await load(cur.value.key)
-  } catch (e) { toast(e.message, 'bad') }
+    return true
+  } catch (e) { toast(e.message, 'bad'); return false }
 }
+useUnsaved({ id: 'prompt', get label() { return cur.value ? `提示词“${cur.value.title}”` : 'AI 提示词' }, dirty: () => !!dirty.value, save, discard: () => { text.value = cur.value.body } })
 async function reset() {
   if (!(await ask(`把「${cur.value.title}」恢复成程序自带的内容？你改过的版本会留在历史记录里。`, { ok: '恢复默认' }))) return
   try { await api.post(`/prompts/${cur.value.key}/reset`); toast('已恢复默认'); await load(cur.value.key) } catch (e) { toast(e.message, 'bad') }
@@ -68,6 +72,7 @@ onMounted(() => load())
       <div class="row">
         <span class="card-title grow">{{ cur.title }}</span>
         <span v-if="cur.risk === 'high'" class="badge warn">会操作真实网站，修改要谨慎</span>
+        <span v-if="dirty" class="badge warn">有改动还没保存</span>
         <span class="badge" :class="cur.edited ? 'info' : ''">{{ cur.edited ? '你改过的版本' : '程序自带的版本' }}</span>
       </div>
       <p class="muted" style="margin: 4px 0 12px">{{ cur.used }}</p>
