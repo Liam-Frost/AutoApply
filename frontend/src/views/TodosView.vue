@@ -5,7 +5,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { fmtTime, run as runAction, toast } from '../ui'
+import { ask, fmtTime, run as runAction, toast } from '../ui'
 
 const todos = ref([])
 const saveCred = ref(true)
@@ -85,6 +85,14 @@ const letRegister = (t) => act(() => api.post('/accounts/allow-register', { tena
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), '已继续')
 const dismiss = (t) => act(() => api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }), '已关闭')
 const runAgain = (t) => act(async () => { await api.post(`/drafts/${t.payload.draft_id}/execute`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已重新开始填写')
+// What a card about an application offers follows from where the application stands, not from the card.
+// Submit was pressed and the outcome is not known: filling it in again would be a second application if the first went through.
+const unknown = (t) => !!(t.application && t.application.status === 'submit_unknown')
+const checkMail = (t) => act(() => api.post(`/applications/${t.application.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出，这张卡片会自己关闭')
+async function runAgainNotSubmitted(t) {
+  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，重新填写会向雇主再投一次。', { ok: '确定没提交，重新填写' }))) return
+  await act(async () => { await api.post(`/drafts/${t.payload.draft_id}/execute`, { not_submitted: true }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已重新开始填写')
+}
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
@@ -103,7 +111,7 @@ async function share(t, choice) {
     load()
   } catch (e) { if (tab) tab.close(); toast(e.message, 'bad') }
 }
-const markSubmitted = (t) => act(() => api.post(`/applications/${t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
+const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 onMounted(() => { load(); timer = setInterval(load, 6000) })
 onUnmounted(() => clearInterval(timer))
 </script>
@@ -196,8 +204,15 @@ onUnmounted(() => clearInterval(timer))
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
         <template v-else-if="['failed', 'submit'].includes(t.kind) && t.payload && t.payload.draft_id">
-          <button v-if="t.payload.maybe_submitted" class="primary" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
-          <button :class="{ primary: !t.payload.maybe_submitted }" @click="runAgain(t)"><Icon name="refresh" />重新填写并提交</button>
+          <template v-if="unknown(t)">
+            <button class="primary" @click="checkMail(t)"><Icon name="mail" />现在检查确认邮件</button>
+            <button @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
+            <button class="ghost" @click="runAgainNotSubmitted(t)">没提交成功，重新填写</button>
+          </template>
+          <template v-else>
+            <button class="primary" @click="runAgain(t)"><Icon name="refresh" />{{ t.application && t.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
+            <button v-if="t.application && t.application.status === 'ready_to_submit'" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
+          </template>
           <router-link :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
           <button class="ghost" @click="dismiss(t)">不投了，关闭</button>
         </template>

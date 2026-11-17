@@ -24,7 +24,7 @@ function state(d) {
     return ['待审批', 'warn']
   }
   if (d.review_status === 'approved') {
-    return { approved: ['已批准，排队中', 'info'], executing: ['正在填写', 'info'], ready_to_submit: ['填好了，等你提交', 'warn'], failed: ['填写没成功', 'bad'],
+    return { approved: ['已批准，排队中', 'info'], executing: ['正在填写', 'info'], ready_to_submit: ['填好了，等你提交', 'warn'], submit_unknown: ['提交结果待确认', 'warn'], failed: ['填写没成功', 'bad'],
              needs_human: ['需要你处理', 'bad'], submitted: ['已提交', 'ok'], confirmed: ['已确认收到', 'ok'] }[d.app_status] || ['已批准', '']
   }
   return { superseded: ['已被新版本替代', ''], rejected: ['已退回', ''], closed: ['已关闭', ''] }[d.review_status] || ['—', '']
