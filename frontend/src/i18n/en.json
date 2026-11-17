@@ -2815,5 +2815,8 @@
 "学校门户要用你的学校账号登录：在“设置 → 岗位来源”里登录一次，程序扫描时就会自己读；也可以在你自己的浏览器里点一个书签导入。目前实际用过的只有 UBC。 列表里灰色的是已知但还没适配的门户：可以在门户里打开岗位，把网址粘贴到岗位页的“手动添加”；想帮忙适配，见仓库里的 CONTRIBUTING.md。": "A school portal uses your school sign-in: sign in once under “Settings → Job sources” and the program reads it when it scans; you can also import with a bookmark in your own browser. Only UBC has been used in practice so far. Portals shown in grey are known but not adapted yet: open a posting in the portal and paste its address into “Add manually” on the Jobs page; to help adapt one, see CONTRIBUTING.md in the repository.",
 "没有生成草案：这份申请点过提交，结果待确认": "No draft was made: Submit was pressed on this application and the outcome is not known yet",
 "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。": "Submit was pressed on this application and the outcome is not known yet. Check for the confirmation mail first; once you are sure it did not go through, choose “It was not submitted, fill it in again” on this application's card.",
-"你确认上一次没有提交成功": "You confirmed that the last attempt did not go through"
+"你确认上一次没有提交成功": "You confirmed that the last attempt did not go through",
+"你把这个岗位标成了不投": "You marked this posting as one you are not applying for",
+"这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。": "The application for this posting has gone out (or the outcome of its submission is not known yet); it cannot be marked as not applying.",
+"你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。": "You decided not to apply for this posting. To apply after all, prepare a new draft from the postings page."
 }
