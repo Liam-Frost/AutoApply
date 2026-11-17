@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LEAVE_OUT = re.compile(r"^(docs/images/|docs/private/|\.github/|scripts/demo\.py|scripts/make_[a-z]+\.(py|sh)|scripts/fetch_uv\.py|scripts/package/|Dockerfile$|\.dockerignore$|docker-compose\.yml$|tests/|\.gitattributes|\.gitignore|frontend/src/(?!i18n/[a-z-]+\.json$)|frontend/public/|frontend/[^/]+$)")
+LEAVE_OUT = re.compile(r"^(docs/images/|docs/private/|\.github/|scripts/demo\.py|scripts/make_[a-z]+\.(py|sh)|scripts/fetch_uv\.py|scripts/package/|Dockerfile$|\.dockerignore$|docker-compose\.yml$|tests/|\.gitattributes|\.gitignore|frontend/src/(?!i18n/[a-z-]+\.json$)|frontend/public/|frontend/tests/|frontend/[^/]+$)")
 PERSONAL = re.compile(r"^(data/|knowledge/|docs/screens/|\.venv/|node_modules/)")
 
 
