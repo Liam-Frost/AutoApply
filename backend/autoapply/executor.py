@@ -836,11 +836,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         outcome = {"status": "submitted", "evidence": seen_there, "note": lifecycle.APPLIED_BEFORE, "earlier": True}
         ok = True
     except NeedsHuman as e:
-        outcome = {"status": "needs_human", "error": e.reason}
+        outcome = {"status": "needs_human", "error": e.reason, "waits_for": getattr(e, "waits_for", "")}
         if e.kind == "captcha":
             notify.add_todo("captcha", title, body=e.reason, ref=f"application:{application_id}", payload={"url": e.url})
-        elif generic:  # say what is needed, with the same sign-in card as everywhere else; the approved draft runs again afterwards
-            auth.ask_to_sign_in(ref, title, e.reason, url=e.url or ref.url, draft_id=draft_id, can_register=auth.may_register(ref)[0])
+            outcome["waits_for"] = f"application:{application_id}"
+        elif generic and e.kind == "login":  # the same sign-in card as everywhere else; the approved draft runs again afterwards
+            outcome["waits_for"] = auth.ask_to_sign_in(ref, title, e.reason, url=e.url or ref.url, draft_id=draft_id, can_register=auth.may_register(ref)[0])
+        elif generic:  # not a sign-in: the page could not be worked in this program's browser
+            notify.add_todo("blocked", title, body=e.reason, ref=f"job:{job_id}", payload={"url": e.url or ref.url, "job_id": job_id, "draft_id": draft_id, "why": e.kind})
+            outcome["waits_for"] = f"job:{job_id}"
     except NeedsVisibleRun as e:
         outcome = {"status": "approved", "note": str(e)}
         from . import tasks

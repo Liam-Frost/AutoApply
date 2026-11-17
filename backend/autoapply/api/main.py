@@ -749,7 +749,7 @@ def sign_in_choice(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if provider and provider not in browser.identities():
         raise HTTPException(400, "unknown provider")
     auth.choose_sign_in(key, provider)
-    return {"resumed": handlers.resume_waiting()}
+    return {"resumed": handlers.resume_waiting(f"account:{key}", f"account:{auth.key_for(key)}")}
 
 
 @app.post("/api/todos/bulk")
@@ -784,7 +784,8 @@ def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
         t.status, t.done_at = body.get("status", "done"), now()
-    return {"resumed": handlers.resume_waiting() if body.get("resume", True) else 0}
+        handled = t.ref
+    return {"resumed": handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0}
 
 
 @app.get("/api/tasks")
@@ -1176,7 +1177,7 @@ def identity_login(provider: str) -> dict[str, Any]:
             res = {"ok": False, "reason": type(e).__name__}
         _IDP_STATE[provider] = "" if res.get("ok") else res.get("reason", "没有成功")
         if res.get("ok"):
-            handlers.resume_waiting()
+            handlers.resume_waiting(f"account:idp:{provider}")
             notify.send("task_result", messages.session_saved(f"{name} 账号", credentials=False), ref=f"account:idp:{provider}")
 
     _IDP_STATE[provider] = "trying"
@@ -1284,14 +1285,14 @@ async def import_session(file: UploadFile = File(...), passphrase: str = Form(""
         got = transfer.put(await file.read(), passphrase)
     except transfer.Refused as e:
         raise HTTPException(400, str(e)) from e
-    return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting()}
+    return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting(f"account:{got['tenant']}")}
 
 
 @app.post("/api/accounts/allow-register")
 def allow_register(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """The user has no account on this site: let the agent register, and resume the tasks that were waiting."""
     auth.allow_register(body["tenant_key"])
-    return {"resumed": handlers.resume_waiting()}
+    return {"resumed": handlers.resume_waiting(f"account:{body['tenant_key']}", f"account:{auth.key_for(body['tenant_key'])}")}
 
 
 @app.post("/api/accounts/takeover")
@@ -1313,7 +1314,7 @@ def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             for td in s.query(Todo).filter_by(ref=f"account:{key}", status="open"):
                 td.payload = {**(td.payload or {}), "last_try": "" if res.get("ok") else res.get("reason", "没有成功"), "trying": False}
         if res.get("ok"):
-            handlers.resume_waiting()
+            handlers.resume_waiting(f"account:{key}", f"account:{auth.key_for(key)}")
             notify.send("task_result", messages.session_saved(key, credentials=bool(res.get("credentials_saved"))), ref=f"account:{key}")
 
     with db.session() as s:

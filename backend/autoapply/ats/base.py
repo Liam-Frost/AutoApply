@@ -156,9 +156,10 @@ class SiteDown(DriverError):
 class NeedsHuman(Exception):
     """Login, CAPTCHA, MFA, or an existing account without stored credentials."""
 
-    def __init__(self, reason: str, *, kind: str = "login", url: str = "") -> None:
+    def __init__(self, reason: str, *, kind: str = "login", url: str = "", waits_for: str = "") -> None:
         super().__init__(reason)
         self.reason, self.kind, self.url = reason, kind, url
+        self.waits_for = waits_for      # the card that was made for it ("account:idp:google"): what the task waits for
 
 
 # the site says an application for this posting exists already: there is no form to fill, and nothing to send again

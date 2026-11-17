@@ -74,7 +74,7 @@ def run_one(t: Task) -> None:
     fn = _handlers.get(t.kind)
     usage = llm.reset_usage()
     metering.begin_task(t.id, t.kind, t.ref)     # every model request until the task ends belongs to it
-    status, result, error = "done", {}, ""
+    status, result, error, waits_for = "done", {}, "", ""
     try:
         if fn is None:
             raise KeyError(f"no handler for task kind {t.kind}")
@@ -83,6 +83,7 @@ def run_one(t: Task) -> None:
             result = fn(t) or {}
     except NeedsHuman as e:
         status, error = "waiting_human", e.reason
+        waits_for = getattr(e, "waits_for", "")
     except llm.LLMUnavailable as e:
         status, error = "failed", str(e)
         if "usage limit" in str(e).lower():
@@ -110,6 +111,8 @@ def run_one(t: Task) -> None:
     with db.session() as s:
         row = s.get(Task, t.id)
         row.status, row.result, row.error, row.finished_at = status, result, error, now()
+        if status == "waiting_human":      # what it waits for: handlers.resume_waiting() puts it back when that is dealt with
+            row.payload = {**(row.payload or {}), "waits_for": waits_for}
         row.stages = stages
         if usage.calls:
             s.add(Run(task_id=t.id, kind="llm", ref=t.ref, ok=int(status == "done"), llm_calls=usage.calls,

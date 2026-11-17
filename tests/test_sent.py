@@ -879,28 +879,67 @@ def test_only_a_date_tied_to_applying_is_when_it_was_sent_and_an_account_that_ex
     assert on("You have already applied for this position.") is None
 
 
-@pytest.mark.parametrize("blocked, notes, applied", [
-    ("already_applied", "", True), ("Already applied", "", True), ("duplicate_application", "", True),
-    ("other", "The page says: You have already applied for this position.", True),
-    ("already_registered", "This e-mail already has an account.", False), ("duplicate_account", "", False),
-    ("login", "An account exists. You have already applied to this job? Sign in to see.", False)])
-def test_what_the_reading_agent_calls_the_blocker_decides_whether_it_is_an_application(app_env, tmp_path, monkeypatch, blocked, notes, applied):
+@pytest.mark.parametrize("blocked, notes, raised", [
+    ("already_applied", "", "AlreadyApplied"), ("Already applied", "", "AlreadyApplied"),
+    ("other", "The page says: You have already applied for this position.", "AlreadyApplied"),
+    ("login", "An account exists. You have already applied to this job? Sign in to see.", "login"),
+    ("captcha", "", "captcha"), ("closed", "Position filled", "DriverError"),
+    ("other", "The Apply button leads to a blank page.", "other"), ("site_down", "It says: under maintenance", "other")])
+def test_why_a_reading_stopped_is_one_of_a_fixed_few_and_each_has_one_consequence(app_env, tmp_path, monkeypatch, blocked, notes, raised):
+    """The agent could give any word as the reason, and every word that was not known became "sign in": "already applied"
+    did, "the account exists" would have been taken for an application. It now chooses one of a fixed few."""
     from autoapply import generic, llm
-    from autoapply.ats.base import AlreadyApplied, JobRef, NeedsHuman
+    from autoapply.ats.base import AlreadyApplied, DriverError, JobRef, NeedsHuman
     from autoapply.models import Job
 
     page = tmp_path / "p.html"
     page.write_text("<title>Careers</title><main><h1>Analyst</h1></main>", encoding="utf-8")
+    said = []
 
     def agent(goal, tools, *, system, max_steps=60, on_step=None):
-        {x.name: x for x in tools}["finish"].fn(blocked=blocked, notes=notes)
+        finish = {x.name: x for x in tools}["finish"]
+        assert finish.input_schema["properties"]["blocked"]["enum"] == ["", *generic.BLOCKERS]
+        said.append(finish.fn(blocked="already_registered", notes="This e-mail already has an account."))       # a word of its own: sent back
+        said.append(finish.fn(blocked=blocked, notes=notes))
         return llm.AgentResult(final_text="done", steps=[])
 
     monkeypatch.setattr(llm, "agent", agent)
     job = Job(source="manual", source_id="b1", company="Acme", title="Analyst", apply_url=page.as_uri(), channel="employer site", jd_text="x" * 300)
     ref = JobRef(ats="generic", tenant="b.example.test", job_id="", url=page.as_uri(), host="b.example.test")
-    with pytest.raises(AlreadyApplied if applied else NeedsHuman):
+    expected = {"AlreadyApplied": AlreadyApplied, "DriverError": DriverError}.get(raised, NeedsHuman)
+    with pytest.raises(expected) as got:
         generic.recon(job, ref, tmp_path / "run")
+    assert said[0].startswith("NOT RECORDED. `blocked` must be one of: login, captcha, closed, already_applied, site_down, other") and said[1] == "recorded"
+    if expected is NeedsHuman:
+        assert got.value.kind == raised
+
+
+def test_a_task_is_resumed_by_what_it_waited_for_and_not_by_something_else(app_env):
+    """Signing in to Google put every waiting task back in the queue - the ones waiting for the university portal too,
+    which then failed once more and asked once more."""
+    from autoapply import db, handlers
+    from autoapply.models import Application, Job, Task
+
+    with db.session() as s:
+        jobs = [Job(source="manual", source_id=f"w{i}", company="Acme", title="Analyst", apply_url=f"https://x.example/{i}", channel="employer site", jd_text="x" * 300) for i in range(3)]
+        s.add_all(jobs)
+        s.flush()
+        apps = [Application(job_id=j.id, status="needs_human") for j in jobs]
+        s.add_all(apps)
+        s.flush()
+        s.add(Task(kind="execute", ref=f"application:{apps[0].id}", status="waiting_human", payload={"draft_id": 1, "waits_for": "account:idp:google"}))
+        s.add(Task(kind="recon", ref=f"job:{jobs[1].id}", status="waiting_human", payload={"job_id": jobs[1].id, "waits_for": "account:pdportal:ubc"}))
+        s.add(Task(kind="recon", ref=f"job:{jobs[2].id}", status="waiting_human", payload={"job_id": jobs[2].id}))        # from before it was recorded
+        ids = [a.id for a in apps]
+
+    def state():
+        with db.session() as s:
+            return [t.status for t in s.query(Task).order_by(Task.id)], [s.get(Application, i).status for i in ids]
+
+    assert handlers.resume_waiting("account:idp:google") == 2
+    assert state() == (["queued", "waiting_human", "queued"], ["recon", "needs_human", "recon"])
+    assert handlers.resume_waiting("account:generic:other.example") == 0
+    assert handlers.resume_waiting() == 1 and state()[0] == ["queued", "queued", "queued"]          # "try them all again"
 
 
 def test_a_reading_that_is_given_up_twice_takes_the_empty_application_away_both_times(app_env, monkeypatch):

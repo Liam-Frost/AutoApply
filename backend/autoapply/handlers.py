@@ -54,14 +54,16 @@ def _recon(t: Task) -> dict[str, Any]:
 
         if ref is not None and e.kind in ("login", "account", "register") and (auth.key_for(ref.tenant_key).startswith("idp:") or auth.provider_at(e.url or "", e.reason or "")):
             # the run stopped at a sign-in provider's own page: that provider's sign-in is what is missing
-            auth.ask_to_sign_in(ref, company, e.reason, url=e.url or url, retry_task=t.id)
-        elif e.kind not in ("login", "captcha", "mfa", "account", "verification", "register"):
+            e.waits_for = auth.ask_to_sign_in(ref, company, e.reason, url=e.url or url, retry_task=t.id)
+        elif e.kind not in ("login", "captcha"):
             # not a sign-in problem: the page does not work in this program's browser (blank page, site error, apply button leads nowhere)
             notify.add_todo("blocked", f"{company}", body=e.reason, ref=f"job:{job_id}", payload={"url": url, "job_id": job_id, "retry_task": t.id, "why": e.kind})
+            e.waits_for = f"job:{job_id}"
         elif e.kind == "captcha" or ref is None:
             notify.add_todo("login", f"{company}：需要你处理", body=e.reason, ref=f"job:{job_id}", payload={"url": e.url, "retry_task": t.id})
+            e.waits_for = f"job:{job_id}"
         else:  # signing in: the same card as every other login, with the choice to let the agent register instead
-            auth.ask_to_sign_in(ref, f"{company}（{ref.host or ref.tenant_key}）", e.reason, url=e.url or url, retry_task=t.id, can_register=True)
+            e.waits_for = auth.ask_to_sign_in(ref, f"{company}（{ref.host or ref.tenant_key}）", e.reason, url=e.url or url, retry_task=t.id, can_register=True)
         raise
     return {"draft_id": draft_id}
 
@@ -109,7 +111,7 @@ def _execute(t: Task) -> dict[str, Any]:
     app_id = int(t.ref.split(":")[1])
     out = executor.execute(app_id, int(t.payload["draft_id"]), task_id=t.id, force_manual=t.payload.get("force_manual", ""))
     if out["status"] == "needs_human":
-        raise NeedsHuman(out.get("error", "needs human"))
+        raise NeedsHuman(out.get("error", "needs human"), waits_for=out.get("waits_for", ""))
     return {k: v for k, v in out.items() if k != "evidence"}
 
 
@@ -185,17 +187,35 @@ def _canary(t: Task) -> dict[str, Any]:
     return out
 
 
-def resume_waiting(ref_prefix: str = "") -> int:
-    """After the user handles a login/takeover, put waiting tasks back in the queue."""
+def resume_waiting(*handled: str) -> int:
+    """The applicant has dealt with something: put the tasks that waited for it back in the queue.
+
+    ``handled``: what was dealt with, as the cards are filed ("account:idp:google", "job:718"). A task is resumed when
+    that is what it waited for - or when it is not known what it waited for (tasks from before this was recorded).
+    Signing in to Google no longer sends the tasks that wait for the university portal off to fail again.
+    Without ``handled``, every waiting task is resumed (the applicant says: try them all again)."""
+    from .models import Job
+
     n = 0
     with db.session() as s:
+        again: set[int] = set()
+        every = not handled
         for t in s.query(Task).filter_by(status="waiting_human"):
-            if ref_prefix and not t.ref.startswith(ref_prefix):
+            waits = str((t.payload or {}).get("waits_for") or "")
+            if not every and waits and waits not in handled:
                 continue
             t.status, t.error = "queued", ""
             n += 1
+            kind, _, num = t.ref.partition(":")
+            if kind == "application" and num.split(":")[0].isdigit():
+                again.add(int(num.split(":")[0]))
+            elif kind == "job" and num.isdigit():
+                j = s.get(Job, int(num))
+                if j is not None and j.application is not None:
+                    again.add(j.application.id)
         for a in s.query(Application).filter_by(status="needs_human"):
-            a.status = "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon"
+            if every or a.id in again:
+                a.status = "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon"
     if n:
         from . import tasks
 

@@ -72,6 +72,10 @@ How to work:
   Do not look for a similar posting to use instead.
 - If the site says you have already applied to this posting (instead of a form, or on your list of applications there), stop and
   call finish with blocked="already_applied" and, in notes, the site's own sentence - with the date it gives, if it gives one.
+- If the site itself is not answering (an error page, a page that never loads, a maintenance notice), call finish with
+  blocked="site_down". If something else stops you - the Apply button leads nowhere, the page stays blank, the site refuses
+  this browser - call finish with blocked="other" and say in notes what you saw. `blocked` is always one of: login, captcha,
+  closed, already_applied, site_down, other.
 - Never type passwords. Never click a button that submits the application; the tool refuses those anyway.
 - A dialog that only informs about data privacy / data handling and blocks the form ("I understand", "Accept", "Agree"): acknowledge it
   and carry on. The applicant accepts such notices as part of applying.
@@ -244,6 +248,11 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
 
     def finish(questions: list[dict[str, Any]] | None = None, pages: list[str] | None = None, blocked: str = "", notes: str = "",
                next_buttons: list[str] | None = None, apply_button: str = "") -> str:
+        blocked = re.sub(r"[^a-z]+", "_", str(blocked or "").lower()).strip("_")
+        if blocked and blocked not in BLOCKERS:
+            # what happens next is decided by this word, so it is one of a fixed few - not a word of the agent's own
+            return ("NOT RECORDED. `blocked` must be one of: " + ", ".join(BLOCKERS) + ". " + BLOCKERS_MEAN + " Choose the one that fits, put the details "
+                    "(the site's own sentence) in notes, and call finish again.")
         missing = [q.get("label", "")[:60] for q in questions or [] if q.get("type") in ("select", "radio", "multiselect") and not q.get("options")]
         if missing and not blocked and not result.get("_asked_options"):
             result["_asked_options"] = True  # asked once; a list that really cannot be read (a search box over thousands of entries) is accepted the second time
@@ -293,13 +302,18 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
                     "options": {"type": "array", "items": st}, "required": {"type": "boolean"}, "page": {"type": "integer"}, "selector": st,
                     "max_length": {"type": "integer"}, "searchable": {"type": "boolean"}},
                     "required": ["label", "type", "required", "page", "selector"]}},
-                pages={"type": "array", "items": st}, blocked=st, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
+                pages={"type": "array", "items": st}, blocked={"type": "string", "enum": ["", *BLOCKERS]}, notes=st, next_buttons={"type": "array", "items": st}, apply_button=st,
             ),
             finish,
         ),
     ]
 
 
+# Why a reading of a form stopped. The agent's `finish` takes one of these and nothing else; generic._recon acts on each.
+BLOCKERS = ("login", "captcha", "closed", "already_applied", "site_down", "other")
+BLOCKERS_MEAN = ("login: the site wants a sign-in or an account that you could not get. captcha: a CAPTCHA. closed: the posting is gone or no longer "
+                 "takes applications. already_applied: the site says this posting was applied for. site_down: the site is not answering. "
+                 "other: anything else that stops you.")
 POSITIONAL = re.compile(r":nth-(match|of-type|child|last-child)|:nth\(|>>\s*nth=|:first-(child|of-type)|:last-(child|of-type)", re.I)
 
 
@@ -805,23 +819,24 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         browser.snapshot(page, run_dir, "agent_recon_end")
         (run_dir / "agent_trace.json").write_text(json.dumps(out.steps, ensure_ascii=False, default=str)[:500000], encoding="utf-8")
         final_url = page.url
-    if re.search(r"unavailable|closed|not.?found|404|expired|filled", str(result.get("blocked") or ""), re.I):
-        raise DriverError(f"posting not found or closed: {result.get('notes', '')}"[:300], seen=final_url)
-    # (the blocker is a free word of the agent's: "already_registered" and "duplicate_account" are about an account, not
-    # about an application - only the blocker that says "applied", or the site's own sentence in the notes, counts)
-    why = re.sub(r"[^a-z]+", "_", str(result.get("blocked") or "").lower()).strip("_")
-    about_account = bool(re.search(r"regist|account|login|sign|captcha|password|verif", why))
-    if why and (re.fullmatch(r"(already_)?(applied|submitted)|duplicate_application|application_exists", why)
-                or (not about_account and ALREADY_RE.search(str(result.get("notes") or "")))):
-        raise AlreadyApplied({"url": final_url, "text": str(result.get("notes") or "The site shows this job as already applied.")[:300], "already_applied": "yes"})
+    # Why the reading stopped is one of BLOCKERS (finish() takes nothing else), and each has one consequence. Reading
+    # the agent's own words for it is what sent "already applied" and "the account exists" down the sign-in road.
+    why, notes = str(result.get("blocked") or ""), str(result.get("notes") or "")
+    if why == "closed":
+        raise DriverError(f"posting not found or closed: {notes}"[:300], seen=final_url)
+    if why == "already_applied" or (why == "other" and ALREADY_RE.search(notes)):
+        raise AlreadyApplied({"url": final_url, "text": (notes or "The site shows this job as already applied.")[:300], "already_applied": "yes"})
     if refused:
         raise _Refused()
-    if result.get("blocked") and re.search(r"unreach|site_error|not_loading|outage|maintenance|down", str(result["blocked"]), re.I) \
-            and any(DOWN.search(str(s.get("output", ""))) for s in out.steps if s.get("tool") == "goto"):
-        # the site (or the system behind its Apply button) is not answering right now: try again later, ask no one
-        raise SiteDown(f"the application site is not answering: {str(result.get('notes', ''))[:200]}", seen=final_url)
-    if result.get("blocked"):
-        raise NeedsHuman(f"{ref.ats}: {result['blocked']} required. {result.get('notes', '')}"[:300], kind="captcha" if result["blocked"] == "captcha" else "login", url=final_url)
+    if why == "site_down":
+        if any(DOWN.search(str(s.get("output", ""))) for s in out.steps if s.get("tool") == "goto"):
+            # the site (or the system behind its Apply button) is not answering right now: try again later, ask no one
+            raise SiteDown(f"the application site is not answering: {notes[:200]}", seen=final_url)
+        why = "other"       # the agent says so, the browser saw no failure: a person looks
+    if why in ("login", "captcha"):
+        raise NeedsHuman(f"{ref.ats}: {why} required. {notes}"[:300], kind=why, url=final_url)
+    if why:
+        raise NeedsHuman(f"{ref.ats}: the application page could not be worked. {notes}"[:300], kind="other", url=final_url)
     if not result.get("questions"):
         raise DriverError("the agent could not determine the form structure", seen=(out.final_text or out.stopped)[:300])
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])

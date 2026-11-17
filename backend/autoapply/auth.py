@@ -82,22 +82,25 @@ def provider_at(*places: str) -> str:
     return ""
 
 
-def ask_to_sign_in(ref: JobRef, title: str, reason: str, *, url: str = "", can_register: bool = False, **payload: Any) -> int:
+def ask_to_sign_in(ref: JobRef, title: str, reason: str, *, url: str = "", can_register: bool = False, **payload: Any) -> str:
     """The one card that asks the applicant to sign in, wherever the need was met (reading a form, filling it).
 
     It names whose sign-in is missing. When the site's sign-in is a provider's own (Google's careers site and Google),
     or the run stopped on a provider's sign-in page, what is missing is the provider's session: the card is the
     provider's, signing in there is the whole of it, and "use my Google account" is not offered for Google itself.
-    Otherwise it is the site's: with the choices of signing in, a provider the site offers, or registering."""
+    Otherwise it is the site's: with the choices of signing in, a provider the site offers, or registering.
+    Returns what the card is filed under ("account:idp:google") - what the task that met it now waits for."""
     key = key_for(ref.tenant_key)
     provider = key[4:] if key.startswith("idp:") else provider_at(url, reason)
     spec = browser.identities().get(provider) if provider else None
     if spec:
-        return notify.add_todo("takeover", spec["name"], body=reason, ref=f"account:idp:{provider}",
-                               payload={**payload, "tenant_key": f"idp:{provider}", "ats": "idp", "url": spec["url"], "job_url": ref.url, "provider": spec["name"],
-                                        "for": title, "can_register": False})
-    return notify.add_todo("takeover", title, body=reason, ref=f"account:{key}",
-                           payload={**payload, "tenant_key": key, "ats": ref.ats, "url": url or ref.url, "job_url": ref.url, "can_register": can_register})
+        notify.add_todo("takeover", spec["name"], body=reason, ref=f"account:idp:{provider}",
+                        payload={**payload, "tenant_key": f"idp:{provider}", "ats": "idp", "url": spec["url"], "job_url": ref.url, "provider": spec["name"],
+                                 "for": title, "can_register": False})
+        return f"account:idp:{provider}"
+    notify.add_todo("takeover", title, body=reason, ref=f"account:{key}",
+                    payload={**payload, "tenant_key": key, "ats": ref.ats, "url": url or ref.url, "job_url": ref.url, "can_register": can_register})
+    return f"account:{key}"
 
 
 def adopt(tenant_key: str, host: str) -> str | None:
