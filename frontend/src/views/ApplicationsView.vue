@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import { fmtTime } from '../ui'
 
 const rows = ref([])
@@ -28,6 +28,7 @@ const shown = computed(() => {
 const count = (k) => rows.value.filter((r) => r.group === k).length
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 

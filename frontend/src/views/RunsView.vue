@@ -6,7 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run, toast } from '../ui'
 
@@ -57,6 +57,7 @@ const CAT = { task_started: '开始', todo: '待办', status_update: '进展', t
 const sysName = (d) => ({ greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', pdportal: 'UBC PD Portal', generic: '其他网站（通用方式）', lever: 'Lever' }[d.ats] || d.ats)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load, { every: 4000, when: () => ((plan.value && plan.value.running) || []).length > 0 || (ov.value.running || []).length > 0 })
 onMounted(load)
 </script>
 

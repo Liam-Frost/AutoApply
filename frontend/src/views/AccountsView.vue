@@ -5,7 +5,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { fmtTime, run as runAction, ask, toast } from '../ui'
 
@@ -103,6 +103,7 @@ function importSession(ev) {
 }
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(() => { load(); loadCarry(); timer = setInterval(loadIdps, 5000) })
 onUnmounted(() => clearInterval(timer))
 </script>

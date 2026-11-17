@@ -1,6 +1,6 @@
 // The state of something a page reads from the server (src/data.js).
 import { describe, expect, it } from 'vitest'
-import { after, clock, dataState } from '../src/data.js'
+import { after, clock, dataState, mayRefresh, signature } from '../src/data.js'
 
 describe('after a read', () => {
   it('is ready when it worked, with the moment it was read', () => {
@@ -62,5 +62,26 @@ describe('clock', () => {
   it('is hours and minutes, and nothing for no time', () => {
     expect(clock(new Date(2026, 10, 18, 9, 5).getTime())).toMatch(/^0?9:05$/)
     expect(clock(null)).toBe('')
+  })
+})
+
+describe('reading a list again', () => {
+  it('the counts of the sidebar say when something changed', () => {
+    const a = { open_todos: 3, pending_drafts: 2, queued_tasks: 0, running: [], paused: false }
+    expect(signature(a)).toBe(signature({ ...a, mail_recent: ['x'], drivers: [1] }))        // what is not a count of work does not matter
+    expect(signature(a)).not.toBe(signature({ ...a, open_todos: 2 }))
+    expect(signature(a)).not.toBe(signature({ ...a, pending_drafts: 3 }))
+    expect(signature(a)).not.toBe(signature({ ...a, queued_tasks: 1 }))
+    expect(signature(a)).not.toBe(signature({ ...a, running: [{ id: 7, label: 'x' }] }))
+    expect(signature({ ...a, running: [{ id: 7 }] })).not.toBe(signature({ ...a, running: [{ id: 8 }] }))      // another task took its place
+    expect(signature(a)).not.toBe(signature({ ...a, paused: true }))
+    expect(signature(null)).toBe('')
+  })
+  it('not while a question is open, not in a window nobody looks at, not twice in a moment', () => {
+    expect(mayRefresh(10_000, 0, false, false)).toBe(true)
+    expect(mayRefresh(10_000, 0, true, false)).toBe(false)
+    expect(mayRefresh(10_000, 0, false, true)).toBe(false)
+    expect(mayRefresh(10_000, 9_000, false, false)).toBe(false)
+    expect(mayRefresh(10_000, 8_500, false, false)).toBe(true)
   })
 })

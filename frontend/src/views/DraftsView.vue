@@ -5,7 +5,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import { ask, toast } from '../ui'
 
 const drafts = ref([])
@@ -67,6 +67,7 @@ async function dropPicked() {
 const redoPicked = () => batch('rebuild', (n) => `已开始重新生成 ${n} 份草案`)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 

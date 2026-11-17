@@ -6,7 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import { fmtTime, run } from '../ui'
 
 const ov = inject('overview')
@@ -50,6 +50,7 @@ const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), '开始�
 const mail = () => run(() => api.post('/tasks', { kind: 'mail' }), '开始检查邮箱', reload)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 

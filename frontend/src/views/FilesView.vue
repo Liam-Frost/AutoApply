@@ -5,7 +5,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import PdfView from '../components/PdfView.vue'
 import { fmtTime, run, toast, ask, persona } from '../ui'
 
@@ -113,6 +113,7 @@ async function cleanUp() {
 const previewable = (d) => ['pdf', 'docx', 'doc'].includes(d.ext)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 

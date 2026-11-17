@@ -178,6 +178,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A list follows what happens while it is open.** Postings, drafts, applications, the overview, to-dos, accounts,
+  the library and the activity record read themselves again when the counts in the sidebar change (a draft got
+  ready, a card was settled from the phone) and when the window is looked at again; the activity record every few
+  seconds while a task is running. The filter, the search, what is ticked and the scroll position stay. (Most pages
+  showed what they read when they were opened, until they were opened again; the to-dos had a timer of their own
+  that ran whether anyone was looking or not.)
 - **A button that is doing something says so, and does it once.** Approving a draft, filling a form in again,
   saving the settings, preparing a draft and every other action that goes through the shared runner: the button that
   was pressed is shown as busy until the action is over, and pressing it again meanwhile does nothing (three clicks

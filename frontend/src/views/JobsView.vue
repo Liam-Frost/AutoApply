@@ -6,7 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { renderMarkdown } from '../md'
 import { run, toast, ask, persona } from '../ui'
@@ -141,6 +141,7 @@ watch(() => route.query.open, (id) => { if (id) open({ id }) })
 if (route.query.q) f.q = String(route.query.q)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(async () => { await load(); if (route.query.open) open({ id: route.query.open }) })
 </script>
 

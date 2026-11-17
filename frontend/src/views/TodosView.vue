@@ -1,11 +1,11 @@
 <script setup>
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
-import { dataState } from '../data'
+import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run as runAction, toast } from '../ui'
 
@@ -13,7 +13,6 @@ const todos = ref([])
 const saveCred = ref(true)
 const picked = ref({})      // to-do id -> the application chosen for an e-mail that names no posting
 const reloadOverview = inject('reloadOverview', () => {})
-let timer
 
 // How each kind of to-do is presented: icon, tone, the title and the one-line explanation.
 const VIEW = {
@@ -141,8 +140,8 @@ async function share(t, choice) {
 const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
-onMounted(() => { load(); timer = setInterval(load, 6000) })
-onUnmounted(() => clearInterval(timer))
+useRefresh(load, { every: 15000 })
+onMounted(load)
 </script>
 
 <template>
