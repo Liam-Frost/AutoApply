@@ -43,6 +43,7 @@ const checkUpdate = async () => {
 // --- where everything is ---------------------------------------------------------------------------------------------
 // [group, its name, what it is for, [[section, its name], ...]]. The sections of a group are on one page, in this order.
 const GROUPS = [
+  ['overview', '总览', '这些设置合起来是什么意思：你会投什么，程序现在自己能做到哪一步。只读；每一条都能点到改它的地方。', []],
   ['goals', '求职目标与匹配', '想找什么样的岗位：哪些根本不看，哪些优先。', [['profile', '求职档案'], ['filters', '入库前的硬条件'], ['search', '在大型官网上搜什么'], ['sources', '来源与关注公司']]],
   ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动准备草案'], ['submit', '审批与提交'], ['permissions', '操作权限'], ['adaptive', '出问题时自己调整'], ['schedule', '工作计划']]],
   ['materials', '材料与回答', '简历怎么调、求职信怎么写、答过的问题怎么再用。', [['resume', '简历'], ['cover', '求职信'], ['answers', '回答的复用']]],
@@ -50,7 +51,13 @@ const GROUPS = [
   ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['events', '通知什么、什么时候']]],
   ['system', '系统与数据', '网络、浏览器、远程访问、备份，和平时用不到的专家工具。', [['network', '网络连接（出站）'], ['browser', '浏览器兼容'], ['remote', '远程访问（入站）'], ['security', '账号安全'], ['retention', '数据保留'], ['backup', '备份与更新'], ['diagnose', '诊断'], ['expert', '专家工具']]],
 ]
-const group = computed(() => (GROUPS.some((g) => g[0] === route.params.group) ? route.params.group : 'goals'))
+const group = computed(() => (GROUPS.some((g) => g[0] === route.params.group) ? route.params.group : 'overview'))
+// what the settings come to, as the server reads them (rules.py): asked for when the overview is opened, and again after a save
+const rules = ref(null)
+const loadRules = () => api.get('/rules').then((d) => (rules.value = d)).catch((e) => toast(e.message, 'bad'))
+watch(group, (g) => { if (g === 'overview') loadRules() }, { immediate: true })
+const WHO = { auto: ['程序自己做', 'ok'], you: ['等你', 'warn'], mixed: ['看情况', 'info'], off: ['不做', ''] }
+const KIND_TONE = { fact: 'info', filter: 'warn', preference: '', threshold: 'ok', source: '' }
 const here = computed(() => GROUPS.find((g) => g[0] === group.value))
 function settle() {
   // an address that names no group, or one that is not there (an old link): the first group
@@ -111,6 +118,7 @@ async function save() {
     sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
     toast(`已保存 ${n} 项改动`)
     await load()
+    if (group.value === 'overview') loadRules()
     if (netPanel.value) netPanel.value.load()
     return true
   } catch (e) { toast(e.message, 'bad'); return false } finally { saving.value = false }
@@ -164,9 +172,38 @@ onMounted(load)
       <router-link v-for="[g, name] in GROUPS" :key="g" :to="'/settings/' + g" class="seg-link" :class="{ on: group === g }">{{ name }}<span v-if="marked(g)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></router-link>
     </nav>
     <p class="muted" style="margin: 0 0 6px">{{ here[2] }}</p>
-    <nav class="set-toc" aria-label="这一组里的各节">
+    <nav v-if="here[3].length" class="set-toc" aria-label="这一组里的各节">
       <router-link v-for="[k, name] in here[3]" :key="k" :to="`/settings/${group}/${k}`" :class="{ on: route.params.section === k }">{{ name }}</router-link>
     </nav>
+
+    <!-- 总览：这些设置合起来是什么意思 -->
+    <template v-if="group === 'overview'">
+      <p v-if="pending" class="callout warn"><Icon name="alert" /><span>下面写的是已经保存的设置。你还有 {{ pending }} 项改动没保存，保存后这里才会变。</span></p>
+      <div v-if="rules" class="cols">
+        <div class="card">
+          <div class="card-title">我会投什么</div>
+          <p class="muted">从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的才准备草案。</p>
+          <ul class="rule-list">
+            <li v-for="(r, i) in rules.apply" :key="i">
+              <span class="tag" :class="KIND_TONE[r.kind]">{{ r.label }}</span>
+              <div class="grow"><router-link :to="r.where">{{ r.text }}</router-link><div v-if="r.note" class="small muted">{{ r.note }}</div></div>
+            </li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-title">程序现在被允许做什么</div>
+          <p class="muted">一份申请从发现到提交的每一步，现在由谁来做。<template v-if="rules.paused"><b>自动运行已暂停</b>：程序自己发起的事都停着。</template></p>
+          <ul class="rule-list">
+            <li v-for="st in rules.allowed" :key="st.key">
+              <span class="tag" :class="WHO[st.who][1]">{{ WHO[st.who][0] }}</span>
+              <div class="grow"><b>{{ st.name }}</b>：<router-link :to="st.where">{{ st.text }}</router-link>
+                <ul v-if="st.more.length" class="small muted" style="margin: 4px 0 0 18px"><li v-for="(m, i) in st.more" :key="i">{{ m }}</li></ul></div>
+            </li>
+          </ul>
+          <p class="hint" style="margin-top: 10px">具体到每一份草案，草案页上写着它由谁提交、为什么，每条原因都能点到决定它的设置。</p>
+        </div>
+      </div>
+    </template>
 
     <!-- 求职目标与匹配 -->
     <template v-if="group === 'goals'">

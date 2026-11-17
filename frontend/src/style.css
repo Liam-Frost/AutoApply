@@ -636,3 +636,8 @@ pre.code { padding: var(--s3); background: var(--surface); border: 1px solid var
 .set-sec.here > .set-head h3 { color: var(--primary); }
 .set-sec.here > .card:first-of-type, .set-sec.here > details.card:first-of-type { box-shadow: 0 0 0 2px var(--primary-soft); }
 details.card > summary { cursor: pointer; }
+.rule-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.rule-list > li { display: flex; gap: 10px; align-items: flex-start; }
+.rule-list > li > .tag { flex: none; min-width: 84px; justify-content: center; margin-top: 1px; }
+.rule-list a { color: inherit; text-decoration: none; border-bottom: 1px dashed var(--border); }
+.rule-list a:hover { color: var(--primary); border-bottom-color: var(--primary); }
