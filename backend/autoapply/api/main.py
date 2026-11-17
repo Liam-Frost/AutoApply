@@ -655,7 +655,7 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
         if app.status == UNKNOWN and not body.get("not_submitted"):
             raise HTTPException(409, "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。")
         app_id, deadline = app.id, app.job.deadline
-        lifecycle.move(app, "approved", source="user")
+        lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN, note="你确认上一次没有提交成功" if app.status == UNKNOWN else "")
     return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
 
 

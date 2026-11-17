@@ -16,9 +16,14 @@ from . import prompts
 from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
 from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SentEarly, SiteDown, unreachable
-from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
+from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
+
+
+class OutcomeUnknown(Exception):
+    """Nothing is drafted for this posting: Submit was pressed on its form and whether the application went out is not
+    known. (What is said is for the applicant.)"""
 
 
 def _stat(ats: str, field: str, *, reset_streak: bool = False, streak: bool = False) -> None:
@@ -191,6 +196,10 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
             s.add(app)
         elif app.status in SENT:
             raise ValueError(f"job {job_id} already has an application in status {app.status}")
+        elif app.status == UNKNOWN:
+            # Submit was pressed on this form and nobody knows yet whether it went out: it is not read again (and so not
+            # drafted, approved and filled again) until the applicant has said it did not.
+            raise OutcomeUnknown(lifecycle.closed_to_work(app))
         else:
             lifecycle.move(app, "recon", source="draft")
         s.flush()
@@ -211,7 +220,9 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         log.error("job %s: the form was sent while it was being read (%s)", job_id, seen_early)
         said = f"表单在读取过程中被提交了（按下的是“{str(seen_early.get('by') or '提交')[:60]}”）；当时表单里有什么就发出了什么"
         lifecycle.outcome_unknown(app_id, f"{job.company} · {job.title}", said)
-        raise NeedsHuman(said, kind="other", waits_for=f"application:{app_id}") from e
+        # (Not a page that did not work and can be tried again: the card that outcome_unknown left is the only thing
+        # to do about this application, and it is not "read the form again".)
+        raise OutcomeUnknown(said) from e
     except NeedsHuman as e:
         _set_app(app_id, "needs_human", f"recon blocked: {e.reason}")
         raise
@@ -840,9 +851,16 @@ def _library() -> list[str]:
 
 def revise(draft_id: int, comment: str) -> dict[str, Any]:
     """Apply a natural-language review comment; produces a new draft version."""
-    with db.session() as s0:  # files the applicant uploaded since the draft was prepared go into their fields first
+    with db.session() as s0:
         d0 = s0.get(Draft, draft_id)
-        if d0 is not None and d0.review_status == "pending":
+        if d0 is not None and d0.review_status == "superseded":
+            # The comment was written on a version that another comment has replaced since (it waited behind that one
+            # in the queue). It is about the draft, and the draft is its newest version - not a second line of
+            # versions grown from the old one, without what the first comment changed.
+            newest = [x for x in d0.application.drafts if x.review_status in ("pending", "approved")]
+            if newest:
+                d0, draft_id = newest[-1], newest[-1].id
+        if d0 is not None and d0.review_status == "pending":      # files the applicant uploaded since the draft was prepared go into their fields first
             refresh_files(d0)
     cur = get(draft_id)
     listing = "\n".join(f"- id={a['id']} | {a['label']!r} | type={a['type']} | options={a.get('options') or ''} | current={a['value']!r}" for a in cur["answers"])

@@ -52,20 +52,38 @@ def deadline_priority(deadline: str) -> int:
 by_hand: ContextVar[bool] = ContextVar("by_hand", default=False)
 
 
+def _asked(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """What a request asks for: its payload without the queue's own notes (``_delay``, the retry counts, who asked) and
+    without what is empty ("no instructions" is the same request as none given)."""
+    return {k: v for k, v in (payload or {}).items() if not k.startswith("_") and v not in (None, "", [], {})}
+
+
 def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, priority: int = 100, dedupe: bool = True) -> int:
+    """Queue work. The same work (kind and ref) that is already in the queue is not queued a second time - and what is
+    asked for now is what gets done:
+
+    - it waits (also: for a later time, a retry in half an hour): that task takes what this request says - the comment
+      that was just written, not the one from before - and is taken forward if it was put off;
+    - it is being done this moment, and this request says something else: a task of its own, after that one. The one
+      that is running cannot be told anything any more, and answering "queued" for a request that nothing will carry
+      out is not an answer."""
     if by_hand.get():
         payload = {**(payload or {}), "_by_hand": True}
     with db.session() as s:
         if dedupe and ref:
             ex = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status.in_(("queued", "running"))).order_by(Task.due_at.isnot(None), Task.id).first()
-            if ex:
-                if by_hand.get() and ex.status == "queued" and not (ex.payload or {}).get("_by_hand"):
+            if ex and ex.status == "queued":
+                if _asked(payload) != _asked(ex.payload):
+                    ex.payload = {**(ex.payload or {}), **(payload or {})}
+                if by_hand.get() and not (ex.payload or {}).get("_by_hand"):
                     ex.payload = {**(ex.payload or {}), "_by_hand": True}       # the applicant asks for it now: it is theirs from here
-                if ex.status == "queued" and ex.due_at is not None:
-                    # the same work is waiting for a later time (a retry in half an hour) and is wanted now: it is
-                    # taken forward, not queued a second time - and not left to wait while the caller thinks it runs
+                if ex.due_at is not None:
+                    # the same work is waiting for a later time and is wanted now: it is taken forward, not queued a
+                    # second time - and not left to wait while the caller thinks it runs
                     ex.due_at, ex.priority = None, min(ex.priority, priority)
                     _wake.set()
+                return ex.id
+            if ex and _asked(payload) == _asked(ex.payload):
                 return ex.id
         t = Task(kind=kind, ref=ref, payload=payload or {}, priority=priority)
         s.add(t)
@@ -385,13 +403,14 @@ def application_of(s: Any, ref: str) -> Any:
 
 def may_retry(s: Any, t: Task) -> None:
     """Work on an application's form is not done again for an application that has gone out (a task from before it was
-    sent, retried from the list of what has run). Raises NothingToRetry."""
+    sent, retried from the list of what has run), nor for one whose submission has an unknown outcome. Raises
+    NothingToRetry."""
     from . import lifecycle
 
     if t.kind in lifecycle.WORK:
-        a = application_of(s, t.ref)
-        if lifecycle.is_sent(a):
-            raise NothingToRetry(f"这份申请已经是“{lifecycle.LABEL.get(a.status, a.status)}”，没有可以重做的了")
+        why = lifecycle.closed_to_work(application_of(s, t.ref))
+        if why:
+            raise NothingToRetry(why)
 
 
 def retry(task_id: int) -> None:

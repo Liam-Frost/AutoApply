@@ -7,7 +7,7 @@ from typing import Any
 
 from . import config, db, discover, drafts, executor, lifecycle, mail, messages, notify, scoring, tasks
 from .ats.base import AlreadyApplied, NeedsHuman
-from .models import Application, Job, Task
+from .models import UNKNOWN, Application, Job, Task
 from .tasks import enqueue, handler
 
 
@@ -42,6 +42,10 @@ def _recon(t: Task) -> dict[str, Any]:
         draft_id = drafts.build(job_id, run_dir=config.RUNS / f"recon_job_{job_id}_t{t.id}", instructions=t.payload.get("instructions", ""))
     except AlreadyApplied:      # drafts.build has recorded it as sent and closed what waited on it: nothing is left to draft
         return {"already_applied": True}
+    except drafts.OutcomeUnknown as e:
+        # Submit was pressed on this form - just now, while it was being read, or before - and the outcome is not known.
+        # That is on the application and on its one card; this task has nothing to wait for and nothing to try again.
+        return {"status": UNKNOWN, "note": str(e)}
     except NeedsHuman as e:
         from .ats import registry
         from .models import Job
