@@ -70,15 +70,6 @@ async function decide(v, action, question) {
   if (question && !(await ask(question, { ok: '确定', danger: false }))) return
   try { await api.post(`/learned/${v.id}/${action}`); rev.value = null; emit('reload') } catch (e) { toast(e.message, 'bad') }
 }
-async function setShare(v) {
-  try { await api.put('/settings', { settings: { 'learned.share': v } }); emit('reload') } catch (e) { toast(e.message, 'bad') }
-}
-async function setMode(mode) {
-  try { await api.put('/settings', { settings: { 'learned.mode': mode } }); emit('reload') } catch (e) { toast(e.message, 'bad') }
-}
-async function setEnabled(on) {
-  try { await api.put('/settings', { settings: { 'learned.enabled': on } }); emit('reload') } catch (e) { toast(e.message, 'bad') }
-}
 const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median_ms) : '—')
 
 // what the program knows about one site, all of it in one place
@@ -169,13 +160,8 @@ async function forgetSite(row) {
     <div class="card">
       <div class="card-title">程序从运行里学到的做法</div>
       <p class="muted">一次运行里有明显偏离平时的地方（某一步特别慢、AI 反复接手、驱动填不好某个字段）时，程序会让 AI 写下下次该怎么做：一份“配方”，或者一小段代码。它先通过检查，然后在之后的运行里试用；试用中出错就在同一次运行里退回原来的做法，并自动撤回。这些都保存在数据文件夹里，升级程序不会丢。</p>
-      <div class="an-bar" style="margin-bottom: 12px">
-        <label class="row" style="gap: 6px"><input type="checkbox" :checked="d.enabled" @change="setEnabled($event.target.checked)" />让程序从运行里学习</label>
-        <span class="small muted">学到之后</span>
-        <AaSelect :value="d.mode" small aria-label="学到之后" @change="setMode($event.target.value)"><option value="auto">通过检查就自动试用</option><option value="ask">先问我</option></AaSelect>
-        <span class="small muted">为新网站写的驱动稳定之后</span>
-        <AaSelect :value="d.share || 'ask'" small aria-label="为新网站写的驱动稳定之后" @change="setShare($event.target.value)"><option value="ask">问我要不要分享给项目</option><option value="always">直接准备好 issue</option><option value="never">不分享</option></AaSelect>
-      </div>
+      <p class="small" style="margin: 0 0 12px">现在：{{ d.enabled ? (d.mode === 'ask' ? '学习已打开，学到的做法先问你再用' : '学习已打开，学到的做法通过检查就自动试用') : '学习已关闭' }}。
+        <router-link to="/settings/automation/adaptive">在设置里改</router-link></p>
       <EmptyState v-if="!d.learned.length" icon="wrench" title="还没有学到什么" text="有运行出现不寻常的地方之后，这里会列出程序学到的每一项做法、原因和效果。" />
       <div v-else class="an-scroll">
         <table class="an-table">

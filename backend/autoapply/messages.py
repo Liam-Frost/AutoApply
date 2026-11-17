@@ -241,14 +241,14 @@ def quota_low(name: str, lines: list[tuple[str, str]], *, out: bool, backup: str
         hint = (f"接下来会自动改用备用服务：{backup}。" if out else f"用完后会自动改用备用服务：{backup}。") if primary else "这是一个备用服务；轮到它时如果还没恢复，会跳到下一个。"
     else:
         hint = "没有设置备用服务：用完后需要 AI 的任务会停下来，等额度恢复再继续。可以在“设置 → AI 模型”里加一个备用。"
-    return Card("⛔" if out else "⚠️", "AI 额度用完了" if out else "AI 额度快用完了", fields=[("服务", name), *lines], hint=hint, path="/settings", link="打开设置")
+    return Card("⛔" if out else "⚠️", "AI 额度用完了" if out else "AI 额度快用完了", fields=[("服务", name), *lines], hint=hint, path="/settings/accounts/ai", link="打开设置")
 
 
 def llm_switched(frm: str, to: str, why: str, until: str) -> Card:
     reason = ("用量额度用完了" if re.search(r"usage limit|limit reached|额度|quota|欠费|billing", why, re.I) else "请求太频繁，被限流了" if re.search(r"rate.?limit|429", why, re.I)
               else "登录或 key 失效了" if re.search(r"login|key|authenticat|拒绝", why, re.I) else "暂时连不上或出错了")
     return Card("🔁", "AI 服务已切换到备用", fields=[("原来用的", frm), ("现在用的", to), ("原因", reason)],
-                hint=(f"{until} 之后会再试原来的服务，" if until else "") + "恢复后自动切回；不需要你操作。", path="/settings", link="打开设置")
+                hint=(f"{until} 之后会再试原来的服务，" if until else "") + "恢复后自动切回；不需要你操作。", path="/settings/accounts/ai", link="打开设置")
 
 
 # --- to-do -------------------------------------------------------------------------------
