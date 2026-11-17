@@ -46,7 +46,9 @@ def test_pressed_by_the_program_and_no_page_says_received(pipeline, monkeypatch)
     # "look in the mailbox now" is a mail pass, now
     assert c.post(f"/api/applications/{app_id}/check-mail").status_code == 200
     with db.session() as s:
-        assert s.query(Task).filter_by(kind="mail", status="queued").count() == 1
+        looks = s.query(Task).filter_by(kind="mail", status="queued", ref=f"confirm:{app_id}").all()
+        assert sum(1 for t in looks if t.due_at is None) == 1                    # the one asked for now
+        assert sum(1 for t in looks if t.due_at is not None) == len(db.get_setting("mail.confirm_check_minutes"))      # and the later ones, as after any submission
     # the employer's confirmation settles it - it is not "too early to believe" for a form the program filled and sent
     assert mail._record(app_id, "confirmation", "we have received your application", None, "m1")[:2] == (1, False)
     assert _state(pipeline["job_id"])[1:] == ("confirmed", [])

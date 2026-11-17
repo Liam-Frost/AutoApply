@@ -1494,6 +1494,7 @@
 "在这里申请 key ↗": "Get a key here ↗",
 "填表时按表单的要求改写": "Rewritten while filling, to fit what the form requires",
 "备用服务第 {0} 次": "Backup service, attempt {0}",
+"定在 {0} 之后再做": "Set for after {0}",
 "审批前先把分步表单读完": "Read multi-step forms to the end before approval",
 "岗位已添加，稍后会评分": "Posting added, it'll be scored shortly",
 "已上传 {0} 个文件": "Uploaded {0} files",

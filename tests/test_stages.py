@@ -28,13 +28,16 @@ def test_stage_mapping():
 
 
 def test_confirmation_check_is_scheduled_after_submit(app_env, monkeypatch):
-    from autoapply import tasks
+    """The look for the confirmation mail some minutes after a submission is a task in the queue, waiting for its time."""
+    from datetime import timedelta
 
-    seen = []
-    monkeypatch.setattr(tasks, "enqueue", lambda kind, **kw: seen.append((kind, kw["ref"])))
-    monkeypatch.setattr(tasks, "_sched", None)
-    tasks.enqueue_later_for_real("mail", ref="confirm:1", minutes=0.001)
-    import time
+    from autoapply import db, tasks
+    from autoapply.models import Task, now
 
-    time.sleep(0.5)
-    assert seen == [("mail", "confirm:1")]
+    ran = []
+    monkeypatch.setitem(tasks._handlers, "mail", lambda t: ran.append(t.ref) or {})
+    tid = tasks.enqueue_later("mail", ref="confirm:1", minutes=5)
+    assert tasks.drain() == 0 and ran == []                  # not before its time
+    with db.session() as s:
+        s.get(Task, tid).due_at = now() - timedelta(seconds=1)
+    assert tasks.drain() == 1 and ran == ["confirm:1"]
