@@ -290,6 +290,21 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
         return "logged_in"
 
     if getattr(driver, "sso", False):
+        # The site signs in through an institution's login. Its own session is short; the institution's often is not.
+        # Going through the sign-in again then needs nobody: no password is asked for. Only when a password or a second
+        # factor IS asked for is it the applicant's turn.
+        resume = getattr(driver, "resume", None)
+        try:
+            resumed = bool(resume(page, ref)) if resume is not None else False
+        except (NeedsHuman, SiteDown):
+            raise
+        except Exception as e:  # noqa: BLE001 - it could not be tried: the applicant is asked, as before
+            log.info("could not go through the sign-in of %s again by itself: %s", key, type(e).__name__)
+            resumed = False
+        if resumed and driver.is_logged_in(page, ref, navigate=False):
+            upsert_account(key, ats=ref.ats, host=ref.host, status="ok")
+            browser.save_state(key, page.context)
+            return "logged_in"
         _need_takeover(ref, driver, f"The {ref.ats} session has expired; please sign in (SSO / MFA).")
 
     email = (acct or {}).get("login_email") or login_email()
@@ -386,9 +401,9 @@ def _need_takeover(ref: JobRef, driver: Driver, reason: str, kind: str = "login"
         ref.tenant_key,
         body=reason,
         ref=f"account:{ref.tenant_key}",
-        payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": url, "job_url": ref.url, "can_register": True},
+        payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": url, "job_url": ref.url, "can_register": not getattr(driver, "sso", False)},
     )
-    raise NeedsHuman(reason, kind=kind, url=url)
+    raise NeedsHuman(reason, kind=kind, url=url, waits_for=f"account:{ref.tenant_key}")
 
 
 # --- human takeover ------------------------------------------------------------------
@@ -493,6 +508,10 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
         idp = any(where == d or where.endswith("." + d) for v in browser.identities().values() for d in v["domains"])
         if pw and (where == site or not idp):
             captured["user"], captured["pw"] = user, pw
+            try:
+                captured["host"] = urlparse(source["frame"].url).netloc.lower()
+            except Exception:  # noqa: BLE001
+                pass
 
     state: dict | None = None
     ok = closed = False
@@ -561,6 +580,13 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     if save_credentials and captured.get("pw"):
         upsert_account(tenant_key, host=host, email=captured.get("user") or login_email(), password=captured["pw"], status="ok", created_by="takeover")
         saved = True
+        typed_on = captured.get("host") or ""
+        if typed_on and _site(typed_on) != _site(host):
+            # the site took its password on another address (its sign-in lives there): known from now on, so that the
+            # program types it there too instead of taking that page for another site's
+            from . import sites
+
+            sites.set_fact(tenant_key, "sign_in_hosts", sorted({*(sites.fact(tenant_key, "sign_in_hosts") or []), typed_on}))
     else:
         upsert_account(tenant_key, host=host, status="ok", created_by="takeover")
     notify.close_todos("takeover", f"account:{tenant_key}")

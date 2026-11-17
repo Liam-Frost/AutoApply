@@ -345,3 +345,89 @@ def test_a_question_the_filling_ran_into_can_be_taken_out_of_the_draft_and_an_an
         assert d.unresolved == [] and [q["id"] for q in d.schema["questions"]] == ["#first"] and len(d.notes) == 2
         assert s.get(Application, app_id).status in ("draft_ready", "recon")                    # nothing left to answer: it goes on
         assert s.query(Todo).filter_by(kind="answer", status="open").count() == 0
+
+
+# --- whose password a sign-in page takes ---
+
+
+def test_a_site_that_sends_its_sign_in_to_another_address_gets_its_password_there(app_env):
+    """amazon.jobs asks for the e-mail on its own page and sends the window to a host of amazon.com for the password. The
+    program took that page for "another site, with an account of its own", found no password for it, and gave up at the
+    password box - with the site's password saved all along."""
+    from playwright.sync_api import sync_playwright
+
+    from autoapply import auth, generic, secrets, sites
+    from autoapply.ats.base import JobRef
+
+    auth.upsert_account("generic:www.acme.jobs", ats="generic", host="www.acme.jobs", email="me@example.test", password="site-pw", status="ok")
+    ref = JobRef("generic", "www.acme.jobs", "", "https://www.acme.jobs/en/jobs/1", "www.acme.jobs")
+    form = '<main><h1>Sign in</h1><input id="e" type="email"><button id="go">Continue</button><input id="p" type="password"></main>'
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.route("**/*", lambda r: r.fulfill(content_type="text/html", body=form))
+        # the sign-in begins on the site's own page ...
+        page.goto("https://passport.acme.jobs/login")
+        state: dict = {}
+        tools = {t.name: t for t in generic.account_tools(page, ref, state)}
+        assert tools["account_info"].fn(offered=[])["do"] == "password"
+        tools["fill_account_email"].fn(selector="#e")
+        # ... and the site sends the window elsewhere for the password
+        page.goto("https://signin.idp-acme.com/?login_hint=me")
+        assert tools["fill_account_password"].fn(selector="#p").startswith("filled") and page.input_value("#p") == "site-pw"
+        tools["account_result"].fn(outcome="logged_in")
+        assert sites.fact("generic:www.acme.jobs", "sign_in_hosts") == ["signin.idp-acme.com"]         # known from now on
+        assert auth.account("generic:signin.idp-acme.com") is None                                    # no account invented for the other address
+        # next time the window lands there directly (the session ran out mid-form): it is this site's sign-in, known
+        tools = {t.name: t for t in generic.account_tools(page, ref, {})}
+        assert tools["fill_account_password"].fn(selector="#p").startswith("filled")
+        # a page the site did NOT lead to gets nothing: a sign-in that begins on another address is that address's own
+        page.goto("https://login.other-system.com/")
+        page.fill("#p", "")
+        tools = {t.name: t for t in generic.account_tools(page, ref, {})}
+        with pytest.raises((PermissionError, ValueError)):
+            tools["fill_account_password"].fn(selector="#p")
+        assert page.input_value("#p") == ""
+        b.close()
+    assert secrets.get_password("generic:www.acme.jobs") == "site-pw"
+
+
+def test_a_sign_in_through_an_institution_is_gone_through_again_before_anyone_is_asked(app_env, monkeypatch):
+    """The portal's session lasts about an hour; the university's login behind it much longer. An expired portal session
+    went straight to "please sign in" - without the one step that needs nobody."""
+    from autoapply import auth, browser
+    from autoapply.ats.base import JobRef, NeedsHuman
+    from autoapply.models import Todo
+
+    monkeypatch.setattr(browser, "save_state", lambda *a, **k: None)
+    ref = JobRef("pdportal", "ubc", "150971", "https://pdportal.apsc.ubc.ca/myAccount/co-op/postings.htm#posting=150971", "pdportal.apsc.ubc.ca")
+
+    class Portal:
+        requires_login, sso, ats = True, True, "pdportal"
+
+        def __init__(self, holds):
+            self.holds, self.signed_in, self.tried = holds, False, 0
+
+        def is_logged_in(self, page, ref, navigate=True):
+            return self.signed_in
+
+        def resume(self, page, ref):
+            self.tried += 1
+            self.signed_in = self.holds
+            return self.holds
+
+        def login_url(self, ref):
+            return "https://pdportal.apsc.ubc.ca/home.htm"
+
+    page = type("P", (), {"context": None})()
+    held = Portal(holds=True)
+    assert auth.ensure_session(page, held, ref) == "logged_in" and held.tried == 1
+    with db.session() as s:
+        assert s.query(Todo).count() == 0                        # nobody was asked
+    gone = Portal(holds=False)
+    with pytest.raises(NeedsHuman) as e:
+        auth.ensure_session(page, gone, ref)
+    assert gone.tried == 1 and e.value.waits_for == "account:pdportal:ubc"
+    with db.session() as s:
+        card = s.query(Todo).one()
+        assert card.kind == "takeover" and card.payload["can_register"] is False       # an institution's login is not something to register for

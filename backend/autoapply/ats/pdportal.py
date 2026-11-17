@@ -86,6 +86,26 @@ class PDPortalDriver:
             return False
         return "Not Logged In" not in page.inner_text("body")[:600]
 
+    def resume(self, page: Page, ref: JobRef) -> bool:
+        """The portal's session has run out. The university's login (CWL) may still hold: then following the portal's
+        own sign-in link comes straight back, signed in, with nothing asked. True when it did. Nothing is typed here
+        and no second factor is touched: a page that asks for either is the applicant's (False)."""
+        page.goto(self.login_url(ref), wait_until="domcontentloaded")
+        if self.signed_in_url(page.url) and "Not Logged In" not in page.inner_text("body")[:600]:
+            return True
+        link = page.locator("a[href*='cwl' i], a[href*='shibboleth' i], a[href*='sso' i]").or_(page.get_by_role("link", name=re.compile(r"CWL|student.*log ?in", re.I))).first
+        if not link.count():
+            return False
+        link.click(timeout=w.T)
+        for _ in range(25):
+            page.wait_for_timeout(1000)
+            if self.signed_in_url(page.url):
+                page.wait_for_load_state("domcontentloaded")
+                return "Not Logged In" not in page.inner_text("body")[:600]
+            if page.locator("input[type=password]:visible").count():
+                return False                # the university's login asks for the password: the applicant's turn
+        return False
+
     def login(self, page: Page, ref: JobRef, email: str, password: str) -> None:
         raise NeedsHuman("PD Portal uses CWL + Duo; please sign in yourself.", kind="login", url=self.login_url(ref))
 

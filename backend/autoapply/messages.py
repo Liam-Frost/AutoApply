@@ -115,7 +115,15 @@ def discover_done(total: dict[str, int], new_by_source: dict[str, int], errors: 
     c.fields = [("读到", str(total["read"]) if total.get("read") else ""), ("符合条件", str(total["seen"])), ("新增", str(total["new"])), ("重新上架", str(total["back"]) if total["back"] else ""), ("已下线", str(total["offline"]) if total["offline"] else "")]
     c.items = [f"{name}　+{n}" for name, n in sorted(new_by_source.items(), key=lambda x: -x[1])[:8] if n]
     if errors:
-        c.detail = "未能读取的来源：\n" + "\n".join(f"{k}：{'需要你登录（见待办）' if v.startswith('needs login') else '网站拒绝自动访问（见待办）' if 'blocked by the site' in v else _cut(v, 80)}" for k, v in errors.items())
+        # sources that failed for the same reason are named together: eight boards of one service turned away by its
+        # security check are one thing to know, not eight
+        said: dict[str, list[str]] = {}
+        for k, v in errors.items():
+            why = "需要你登录（见待办）" if v.startswith("needs login") else "网站拒绝自动访问（见待办）" if "blocked by the site" in v else _cut(v, 80)
+            said.setdefault(why, []).append(k)
+        c.detail = "未能读取的来源：\n" + "\n".join(f"{'、'.join(names)}：{why}" for why, names in said.items())
+        if any("安全检查拒绝" in why for why in said):
+            c.hint = "被安全检查拒绝的来源和登录无关：对方的防护不接受这台电脑当前的网络出口（常见于代理或 VPN）。几小时内不会再去请求它们。"
     if not total["new"] and not errors:
         c.hint = "没有新岗位。"
     return c

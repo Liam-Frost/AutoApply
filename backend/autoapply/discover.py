@@ -264,7 +264,14 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
             continue
         if err is not None:
             log.warning("source %s failed: %s", e["name"], err)
-            summary["errors"][e["name"]] = f"{type(err).__name__}: {str(err)[:200]}"
+            from .sources.public import Refused
+
+            if isinstance(err, Refused):       # the same answer for every board of that service: said once
+                who = str(err).split(" ", 1)[0]
+                summary.setdefault("refused", {}).setdefault(who, []).append(e["name"])
+                summary["errors"][e["name"]] = f"网站的安全检查拒绝了这台电脑当前的网络（{who}）"
+            else:
+                summary["errors"][e["name"]] = f"{type(err).__name__}: {str(err)[:200]}"
             continue
         # a feed shows only a board's newest postings: one that has scrolled off it is usually still open, so it is given much longer
         extra = {"stale_days": 45} if e["kind"] == "feed" else {}

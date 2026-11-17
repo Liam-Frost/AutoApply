@@ -195,3 +195,49 @@ def test_a_scan_does_not_hold_an_application_up(app_env):
     assert tasks._claim("forms").kind == "execute" and tasks._claim("background").kind == "discover"
     assert tasks._claim("forms").kind == "recon" and tasks._claim("background").kind == "score"
     assert tasks._claim("forms") is None and tasks._claim("background").kind == "mail" and tasks._claim() is None
+
+
+# --- a service that turns this computer's network away ---
+
+
+def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_whole_service(monkeypatch):
+    """Eight Workday boards failed on every scan with "429 Too Many Requests". It was not a rate limit: the answer was a
+    page saying "Security Check - enable JavaScript and cookies". Each board was asked four times with growing pauses,
+    and the next board of the same service was asked all over again."""
+    import httpx
+
+    from autoapply.sources import public
+
+    monkeypatch.setattr(public, "_refused", {})
+    monkeypatch.setattr(public, "_last", {})
+    asked = []
+
+    def answer(request):
+        asked.append(request.url.host)
+        if request.url.host.endswith("myworkdayjobs.com"):
+            return httpx.Response(429, headers={"content-type": "text/html; charset=UTF-8"}, text="<html><body>Security Check<br>Enable JavaScript and cookies to continue</body></html>")
+        if request.url.path == "/busy":
+            return httpx.Response(429, headers={"content-type": "application/json", "Retry-After": "0"}, json={"error": "slow down"})
+        return httpx.Response(200, json={"jobPostings": []})
+
+    with httpx.Client(transport=httpx.MockTransport(answer)) as c:
+        with pytest.raises(public.Refused, match="security check"):
+            public._send(c, "POST", "https://rbc.wd3.myworkdayjobs.com/wday/cxs/rbc/X/jobs", gap=0)
+        assert asked == ["rbc.wd3.myworkdayjobs.com"]                       # once, not four times
+        with pytest.raises(public.Refused, match="not asked again"):
+            public._send(c, "POST", "https://td.wd3.myworkdayjobs.com/wday/cxs/td/Y/jobs", gap=0)
+        assert len(asked) == 1                                              # another board of the same service: not asked at all
+        # a server that really is busy is still waited for and asked again; another service is not affected
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        assert public._send(c, "GET", "https://api.lever.co/busy", gap=0).status_code == 429 and asked.count("api.lever.co") == 4
+        assert public._send(c, "GET", "https://api.lever.co/v0/postings/x", gap=0).status_code == 200
+
+
+def test_boards_of_one_service_turned_away_are_told_as_one_thing(app_env):
+    from autoapply import messages
+
+    card = messages.discover_done({"read": 10, "seen": 2, "new": 1, "back": 0, "offline": 0}, {"Meta": 1},
+                                  {"RBC": "网站的安全检查拒绝了这台电脑当前的网络（myworkdayjobs.com）", "TD": "网站的安全检查拒绝了这台电脑当前的网络（myworkdayjobs.com）",
+                                   "Spotify": "HTTPStatusError: Server error '500 Internal Server Error'"})
+    lines = card.detail.splitlines()
+    assert lines[1].startswith("RBC、TD：网站的安全检查拒绝") and lines[2].startswith("Spotify：") and "代理或 VPN" in card.hint

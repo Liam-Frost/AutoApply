@@ -372,6 +372,31 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     aref = ref      # the site the account is on: the posting's own, unless the sign-in turns out to be elsewhere
     _a = auth.account(key) or {}
 
+    from . import sites
+
+    site_key = key      # the site the posting is on, whatever account the sign-in turns out to use
+
+    def _flow_begins() -> None:
+        """Remember where this sign-in began: the first page on which the agent did anything about the account."""
+        state.setdefault("flow_home", mail.site_domain(url_host(page.url)))
+
+    def _sent_here_by_the_site() -> bool:
+        """Is this page - on another address than the site - the site's own sign-in?
+
+        A site may keep its sign-in elsewhere: amazon.jobs asks for the e-mail on its own page and then sends the window to
+        a host of amazon.com for the password. That is still the site's sign-in, and the site's password belongs there.
+        It is told from "the application is on another system, which has an account of its own" by how the window got
+        here: the sign-in began on the site's own pages and the site led on - or this host is known as one this site's
+        password was typed on before (sites: sign_in_hosts). A sign-in that begins on the other address is that
+        address's own."""
+        host = url_host(page.url)
+        if not host or any(_on_provider(page, p) for p in browser.identities()):
+            return False
+        if host in (sites.fact(site_key, "sign_in_hosts") or []):
+            return True
+        home = {mail.site_domain(h) for h in (ref.host, url_host(ref.url)) if h} - {""}
+        return bool(state.get("flow_home")) and state["flow_home"] in home
+
     def _own_account() -> str:
         """The key this site's sign-in is kept under - found out at the sign-in page: the page may be another site's, for
         which a sign-in is already saved (an employer whose postings appear under two addresses). Its cookies are put
@@ -380,7 +405,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         host = url_host(page.url)
         saved = (auth.account(key) or {}).get("host") or ""
         if host and saved and secrets.get_password(key) and mail.site_domain(saved) != mail.site_domain(host) \
-                and mail.site_domain(host) != mail.site_domain(aref.host) and not any(_on_provider(page, p) for p in browser.identities()):
+                and mail.site_domain(host) != mail.site_domain(aref.host) and not _sent_here_by_the_site() \
+                and not any(_on_provider(page, p) for p in browser.identities()):
             # The saved account is another site's: the same employer, but this posting signs in somewhere else (its
             # postings are listed on one system and applied for on another). That password is not this site's - the
             # account here is its own: the one saved for this very host, or none yet.
@@ -416,6 +442,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     state.setdefault("since", datetime.now(timezone.utc))
 
     def account_info(offered: list[str] | None = None) -> dict[str, Any]:
+        _flow_begins()
         if _own_account() != ref.tenant_key and aref is ref and secrets.get_password(key):
             plan = {"do": "password", "why": "an account for this sign-in page is already saved (the same employer's site under another address): "
                                              "fill the e-mail and call fill_account_password; if the page turns out to be signed in already after a reload, go on"}
@@ -559,6 +586,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         return f"clicked '{label}'. Now: " + _describe(page)
 
     def fill_account_email(selector: str) -> str:
+        _flow_begins()
         page.locator(selector).first.fill(auth.login_email(), timeout=w.T)
         return "filled"
 
@@ -567,7 +595,7 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         here = mail.site_domain(url_host(page.url))
         _own_account()
         home = {mail.site_domain(h) for h in (aref.host, url_host(aref.url), (auth.account(key) or {}).get("host") or "") if h} - {""}
-        if home and here not in home:
+        if home and here not in home and not _sent_here_by_the_site():
             raise PermissionError(f"refused: this page is on {url_host(page.url)}, not on the site this password belongs to ({', '.join(sorted(home))})")
         pw = secrets.get_password(key)
         if not pw:
@@ -584,9 +612,11 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
         if (loc.get_attribute("type") or "").lower() not in ("password", "text"):
             raise ValueError("that is not a password box")
         loc.fill(pw, timeout=w.T)
+        state["password_on"] = url_host(page.url)
         return "filled (hidden)"
 
     def click_account_button(selector: str = "", text: str = "") -> str:
+        _flow_begins()
         loc = page.locator(selector).first if selector else page.get_by_role("button", name=text).or_(page.get_by_role("link", name=text)).first
         label = (loc.inner_text() or loc.get_attribute("value") or "").strip()
         on_account_form = page.locator("input[type=password]:visible").count() > 0 or bool(re.search(r"sign|login|register|account|verif", page.url, re.I))
@@ -633,6 +663,10 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
     def account_result(outcome: str, notes: str = "") -> str:
         state["outcome"] = outcome
         if outcome in ("registered", "logged_in"):
+            typed_on = state.get("password_on") or ""
+            if typed_on and mail.site_domain(typed_on) != mail.site_domain(aref.host):
+                # the password was taken on another address than the site's: from now on that is known as this site's sign-in
+                sites.set_fact(site_key, "sign_in_hosts", sorted({*(sites.fact(site_key, "sign_in_hosts") or []), typed_on}))
             auth.upsert_account(key, ats=aref.ats, host=aref.host, status="ok", **({"created_by": f"sso:{state['sso']}"} if state.get("sso") else {}))
             browser.save_state(key, page.context)
             if outcome == "registered":

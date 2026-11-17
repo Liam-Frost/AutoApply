@@ -11,7 +11,7 @@ Now a site is a row (models.Site), and this module is the only way to it:
                     system that has one, "idp:google" for a sign-in provider. (How a whole system is worked - "workday",
                     "greenhouse" - is kept under the system's name; its notes are the applicant's playbook for it.)
     account(key)    where the site signs in: itself, or the site it turned out to share its sign-in with (same_as)
-    fact / set_fact what was found out: sso_offered, needs_window, session_browser, driver_written
+    fact / set_fact what was found out: sso_offered, needs_window, session_browser, driver_written, sign_in_hosts
     notes / note    what the AI wrote down about working the site, newest first
     plan / save_plan  the steps of its form (siteplan.py reads and writes through here)
     revisions       what was learned for it as recipes and plugins (learned.py keeps their text as files - code has to
@@ -34,7 +34,9 @@ from .models import Site, now
 
 log = logging.getLogger("autoapply.sites")
 
-FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "driver_written": False}
+# sign_in_hosts: the hosts this site sends the window to for its sign-in, on which its password was typed and worked
+# ("atozpublic.idprism-auth.amazon.com" for www.amazon.jobs): the site's own sign-in, though on another address.
+FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "driver_written": False, "sign_in_hosts": []}
 KEEP_NOTES = 12
 
 

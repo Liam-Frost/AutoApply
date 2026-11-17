@@ -117,6 +117,21 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   announces, changes, recalls or cancels. A cancellation does not move the application to that stage - and takes it
   back to where it was if it stood there; the notice says "Interview cancelled", "Interview arrangements changed",
   "Offer withdrawn" and so on.
+- **A site that keeps its sign-in on another address gets its password there.** Amazon's careers site asks for the
+  e-mail on its own page and sends the window to another Amazon address for the password. The program took that for
+  "another site, with its own account", found no password for it and stopped at the password box, with the right
+  password saved. A sign-in that begins on the site's own pages and is led on by the site is the site's sign-in; the
+  address is remembered once the password has worked there (also when you sign in by hand). A sign-in that begins on
+  another address still gets nothing typed.
+- **A sign-in through an institution is gone through again before you are asked.** The co-op portal's own session
+  lasts about an hour, the university login behind it longer: when the portal's has run out, the program follows the
+  portal's sign-in link once - nothing is typed - and asks you only if a password or a second factor is wanted.
+  The card for such a site no longer offers to register an account.
+- **A site's security check is told as what it is.** Eight sources on Workday failed every scan with "429 Too Many
+  Requests": not a rate limit, but a security check that does not accept requests from this computer's network
+  address. Each was asked four times, with growing pauses. Now one such answer is enough: the service is left alone
+  for six hours, the scan says so in one line, and requests to one service are paced together even when sources are
+  fetched side by side.
 - **Postings for other programmes of study are set aside before anything reads them.** A university co-op portal
   lists every faculty's postings, and each says which programmes it is for. That statement is now used: a posting
   whose programmes do not include yours is marked "not applying" with the programmes it names, without being scored.

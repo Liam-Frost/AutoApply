@@ -56,24 +56,52 @@ def ashby(board: str) -> Iterator[dict[str, Any]]:
         }
 
 
-_last: dict[str, float] = {}      # host -> when the last request to it was sent
+class Refused(RuntimeError):
+    """The site's protection turned this computer's network away: a security check that wants a browser, not "busy" and not
+    a sign-in. Asking again does not help and is not done - not for this address, and not for the others of the same service."""
+
+
+_last: dict[str, float] = {}        # service -> when the last request to it was sent
+_refused: dict[str, float] = {}     # service -> when it turned a request away with its security check
+_locks: dict[str, Any] = {}
+REFUSED_FOR = 6 * 3600              # seconds a service that refused is left alone
+CHALLENGE = re.compile(r"security check|enable javascript and cookies|just a moment|attention required|cf-chl|verify you are human", re.I)
+
+
+def service(host: str) -> str:
+    """Whose servers a host is: "myworkdayjobs.com" for every employer's board on Workday. Requests are paced, and a refusal
+    counts, for the service - an employer's board is only a name on it."""
+    parts = (host or "").lower().split(":")[0].split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
 def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any) -> httpx.Response:
     """One request, sent the way a site can live with: not sooner than ``gap`` seconds after the previous one to the same
-    host, and when the site says "too many requests" (429) or "busy" (503), wait as long as it asks (Retry-After) -
-    or longer each time when it does not say - and try again, three times at most."""
+    service - also when several sources are fetched side by side - and when the site says "too many requests" (429) or
+    "busy" (503), wait as long as it asks (Retry-After), or longer each time when it does not say, and try again, three
+    times at most. A security check in place of an answer is not "busy": it raises Refused at once, and the service is
+    left alone for six hours."""
+    import threading
     import time
     from urllib.parse import urlparse
 
-    host = urlparse(url).netloc
+    who = service(urlparse(url).netloc)
+    since = _refused.get(who)
+    if since is not None and time.monotonic() - since < REFUSED_FOR:
+        raise Refused(f"{who} turned this computer's network away with a security check earlier; it is not asked again for a few hours")
+    lock = _locks.setdefault(who, threading.Lock())
     r = None
     for attempt in range(4):
-        wait = _last.get(host, 0) + gap - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        r = c.request(method, url, **kw)
-        _last[host] = time.monotonic()
+        with lock:
+            wait = _last.get(who, 0) + gap - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            r = c.request(method, url, **kw)
+            _last[who] = time.monotonic()
+        if r.status_code in (403, 429, 503) and "html" in r.headers.get("content-type", "") and CHALLENGE.search(r.text[:4000]):
+            _refused[who] = time.monotonic()
+            raise Refused(f"{who} answers with a security check (HTTP {r.status_code}) instead of its listing: its protection does not accept requests "
+                          "from this computer's network address (often a proxy or VPN exit). This is not a sign-in problem and not a busy server")
         if r.status_code not in (429, 503) or attempt == 3:
             break
         asked = r.headers.get("Retry-After", "")
