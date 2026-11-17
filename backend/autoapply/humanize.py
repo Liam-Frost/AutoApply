@@ -166,7 +166,7 @@ APP_STATUS = {
     "recon": "正在读取申请表", "revising": "正在按你的意见修改", "needs_input": "有问题等你回答", "draft_ready": "等你审批",
     "approved": "已批准，排队填写", "executing": "正在填写", "drifted": "申请表有变化，重新读取中", "ready_to_submit": "填好了，还没有提交",
     "submit_unknown": "提交结果待确认", "needs_human": "需要你处理", "failed": "没有提交成功", "submitted": "已提交", "confirmed": "已收到确认信", "assessment": "笔试 / OA / VA",
-    "interview": "面试", "offer": "收到 Offer", "rejected": "已被拒", "withdrawn": "不投了",
+    "interview": "面试", "offer": "收到 Offer", "rejected": "已被拒", "withdrawn": "不投了", "returned": "草案已退回",
 }
 REVIEW = {"pending": "等你审批", "approved": "已批准", "superseded": "已被新版本替代", "rejected": "已退回", "closed": "已关闭（申请已经提交）"}
 
