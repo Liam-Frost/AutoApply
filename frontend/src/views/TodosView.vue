@@ -213,6 +213,7 @@ onUnmounted(() => clearInterval(timer))
             <button class="primary" @click="runAgain(t)"><Icon name="refresh" />{{ t.application && t.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
             <button v-if="t.application && t.application.status === 'ready_to_submit'" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
           </template>
+          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
           <router-link :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
           <button class="ghost" @click="dismiss(t)">不投了，关闭</button>
         </template>

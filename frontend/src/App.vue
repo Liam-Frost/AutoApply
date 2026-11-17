@@ -49,6 +49,7 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/todos" class="nav"><Icon name="bell" />需要我处理 <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
       <router-link to="/drafts" class="nav"><Icon name="draft" />草案审批 <span v-if="ov.pending_drafts" class="count">{{ ov.pending_drafts }}</span></router-link>
       <router-link to="/jobs" class="nav"><Icon name="briefcase" />岗位</router-link>
+      <router-link to="/applications" class="nav"><Icon name="check" />我的申请</router-link>
 
       <div class="nav-label">我的资料</div>
       <router-link to="/profile" class="nav"><Icon name="user" />个人资料</router-link>

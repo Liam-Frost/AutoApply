@@ -11,6 +11,8 @@ import ContactsView from './views/ContactsView.vue'
 import HomeView from './views/HomeView.vue'
 import WelcomeView from './views/WelcomeView.vue'
 import JobsView from './views/JobsView.vue'
+import ApplicationsView from './views/ApplicationsView.vue'
+import ApplicationDetail from './views/ApplicationDetail.vue'
 import DraftsView from './views/DraftsView.vue'
 import DraftDetail from './views/DraftDetail.vue'
 import TodosView from './views/TodosView.vue'
@@ -30,6 +32,8 @@ const router = createRouter({
     { path: '/files', component: FilesView },
     { path: '/analytics', component: AnalyticsView },
     { path: '/jobs', component: JobsView },
+    { path: '/applications', component: ApplicationsView },
+    { path: '/applications/:id', component: ApplicationDetail, props: true },
     { path: '/drafts', component: DraftsView },
     { path: '/drafts/:id', component: DraftDetail, props: true },
     { path: '/todos', component: TodosView },
