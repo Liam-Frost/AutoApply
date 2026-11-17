@@ -223,3 +223,28 @@ def test_a_page_without_the_form_that_says_already_applied_in_other_words_is_not
     _model(monkeypatch, {"state": "already_applied", "sentence": JA_DUP})
     assert executor._already_applied(Page()) is None                       # the phrases alone: nothing
     assert executor._already_applied(Page(), ask=True) == {"url": "https://x.example/apply", "text": JA_DUP, "already_applied": "yes", "read_by": "model"}
+
+
+def test_a_field_let_through_on_the_agents_word_is_shown_to_the_applicant_and_not_sent_unseen(app_env, tmp_path, monkeypatch):
+    """A list that shows "+1" for "+1 Canada" and does not mark its chosen entry cannot be checked by the program. The
+    agent's word was taken silently. It is still taken - the form goes on - but the field is named as one to look at."""
+    from types import SimpleNamespace
+
+    from autoapply import executor
+    from autoapply.ats.base import FormSchema, Question
+
+    schema = FormSchema(ats="generic", url="https://x", pages=["p"], questions=[Question(id="code", label="Phone code", type="select", options=["+1 United States", "+1 Canada"])])
+    answers = [{"id": "code", "label": "Phone code", "type": "select", "value": "+1 Canada", "options": schema.questions[0].options}]
+    driver = SimpleNamespace(read_back=lambda page, schema, i=None: {"code": "+1"})
+    monkeypatch.setattr(executor, "_really_different", lambda page, schema, bad: bad)
+    monkeypatch.setattr(executor, "_repair", lambda *a, **k: {"fixed": ["code"], "unfixed": [], "cause": "chose the entry"})
+    monkeypatch.setattr(executor.browser, "snapshot", lambda *a, **k: {})
+    steps, seen = [], []
+    executor._verify(driver, object(), schema, answers, {"code": "+1 Canada"}, 0, {"code": 0}, tmp_path, lambda op, **kw: steps.append((op, kw)), "Acme", 1, on_trust=seen.append)
+    assert [b["label"] for b in seen] == ["Phone code"] and ("taken_on_trust", {"page": 0, "fields": ["Phone code"]}) in steps
+    # without the agent having worked on that field, "+1" is a difference as before
+    monkeypatch.setattr(executor, "_repair", lambda *a, **k: {"fixed": [], "unfixed": ["code"], "cause": ""})
+    seen.clear()
+    with pytest.raises(executor.VerifyFailed):
+        executor._verify(driver, object(), schema, answers, {"code": "+1 Canada"}, 0, {"code": 0}, tmp_path, lambda op, **kw: None, "Acme", 1, on_trust=seen.append)
+    assert seen == []

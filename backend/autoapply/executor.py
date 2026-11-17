@@ -265,6 +265,12 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         if not any(x["label"] == label for x in leftovers):
             leftovers.append({"label": label, "expected": expected, "kind": kind, "why": why})
 
+    trusted: list[str] = []                # fields let through on the AI's word, which the program could not check
+
+    def _trusted(b: dict[str, Any]) -> None:
+        trusted.append(b["label"])
+        _left("check", b["label"], str(b["expected"]), f"控件只显示“{str(b['actual'])[:40]}”，程序核对不了选中的是不是这一项；是 AI 选的，提交前请看一眼")
+
     def _handed(issue: dict[str, Any]) -> bool:
         """Is this finding of the form already on the user's list?"""
         label = norm_question(issue.get("label") or "")
@@ -818,7 +824,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 browser.snapshot(page, run_dir, f"page_{i + 1}_filled")
                 if per_page:
                     _checked(lambda i=i: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, i, page_of, run_dir, step, title, application_id,
-                                                 after_repair=lambda rep, i=i: _after_verify_repair(rep, i)))
+                                                 after_repair=lambda rep, i=i: _after_verify_repair(rep, i), on_trust=_trusted))
                 # 4. the form has the last word on this page
                 open_issues = _issues(i)
                 fresh = [it for it in open_issues if not _handed(it)]  # what has already been handed to the user by name needs no second attempt
@@ -841,7 +847,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     step("next", page=i)
             if not per_page and not wizard:
                 _checked(lambda: _verify(driver, page, schema, [a for a in draft_answers if a["id"] not in skip_verify], fill, None, page_of, run_dir, step, title, application_id,
-                                         after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1))))
+                                         after_repair=lambda rep: _after_verify_repair(rep, max(0, len(pages) - 1)), on_trust=_trusted))
             touched = any(st["op"] == "repair" for st in steps)
             if scout:
                 # the walk ends here: at the review page, or at a step that needs the applicant. Nothing is submitted, nobody is handed a window.
@@ -849,6 +855,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 outcome = {"status": "scouted", "reached_review": reached, "stopped_at": "" if reached or page.is_closed() else driver.step_title(page),
                            "read": list(read_now), "all_read": reached and (review_read.get("done", False) or not _unread())}
                 step("scouted", reached_review=reached, stopped_at=outcome["stopped_at"])
+            elif policy != "manual" and trusted:
+                # nothing the program could check says these fields hold the approved answers: not sent without a look
+                raise NeedsVisibleRun("有 " + str(len(trusted)) + " 项程序核对不了、是 AI 选的，这次填好后由你过目并提交：" + "；".join(x[:40] for x in trusted[:4]))
             elif policy != "manual" and (needs_you := _needs_you(open_issues)):
                 # The agent having worked on the form is no reason to stop: the answers are the approved ones and were read
                 # back. What stops an automatic submission is something that is the applicant's to settle.
@@ -1119,9 +1128,11 @@ def _repair(page: Any, schema: FormSchema, i: int, fill: dict[str, Any], problem
 
 
 def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], fill: dict[str, Any], i: int | None,
-            page_of: dict[str, int], run_dir: Path, step: Any, title: str, application_id: int, *, after_repair: Any = None) -> None:
+            page_of: dict[str, int], run_dir: Path, step: Any, title: str, application_id: int, *, after_repair: Any = None,
+            on_trust: Any = None) -> None:
     """Read back (page ``i``, or the whole form when None) and compare with the draft.
-    One repair attempt on the page that is currently open; any remaining mismatch stops the run."""
+    One repair attempt on the page that is currently open; any remaining mismatch stops the run.
+    ``on_trust(mismatch)``: a field that was let through on the agent's word, without the program being able to check it."""
     scope = [a for a in draft_answers if i is None or page_of.get(a["id"], 0) == i]
     back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
     bad = _really_different(page, schema, _held(driver, page, schema, verify(schema, scope, back)))
@@ -1136,7 +1147,13 @@ def _verify(driver: Any, page: Any, schema: FormSchema, draft_answers: list[dict
                 after_repair(rep)
                 scope = [a for a in scope if a["id"] not in set(rep.get("unfixed") or [])]
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or [], schema))
+            taken: list[dict[str, Any]] = []
+            bad = _really_different(page, schema, _not_vouched(_held(driver, page, schema, verify(schema, scope, back)), rep.get("fixed") or [], schema, taken))
+            if taken:
+                step("taken_on_trust", page=current, fields=[b["label"] for b in taken][:10])
+                for b in taken:
+                    if on_trust is not None:
+                        on_trust(b)
     wanted = [a for a in scope if a["value"] not in ("", None, [])]
     step("read_back", page=i, checked=sum(1 for a in wanted if a["id"] in back), unverified=[a["label"] for a in wanted if a["id"] not in back][:20], mismatches=len(bad))
     if bad:
@@ -1166,17 +1183,28 @@ def _held(driver: Any, page: Any, schema: FormSchema, bad: list[dict[str, Any]])
     return out
 
 
-def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema) -> list[dict[str, Any]]:
+def _not_vouched(bad: list[dict[str, Any]], fixed: list[str], schema: FormSchema, taken: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """For a control that shows less than it holds and whose list does not say which entry it holds (see _held): when the
     agent was just sent to exactly this field, chose the approved entry and reports it done, and what the control shows
     is a part of that entry, the field holds the approved answer - the agent saw the choice being made; the read-back
     cannot see it. Anything the control shows that is NOT part of the approved entry stays a difference, whoever
     vouches for it. Only a control that is a choice among entries can show less than it holds: a text box that reads
-    "John" for "John Smith" holds "John"."""
+    "John" for "John Smith" holds "John".
+
+    This is the agent's word, and nothing the program checked: "+1" is also what the list shows for another country's
+    "+1". So what is let through here is put into ``taken`` - the run goes on, and the field is shown to the applicant
+    as one to look at before the application goes out (and an application is not sent automatically with one in it)."""
     from .ats.widgets import shows_part
 
     choice = {q.id for q in schema.questions if q.type in ("select", "radio") or (q.options and q.type not in ("text", "textarea", "multiselect", "checkbox", "file"))}
-    return [b for b in bad if not (b["id"] in fixed and b["id"] in choice and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]))]
+    out = []
+    for b in bad:
+        if b["id"] in fixed and b["id"] in choice and not isinstance(b["expected"], list) and shows_part(b["actual"], b["expected"]):
+            if taken is not None:
+                taken.append(b)
+        else:
+            out.append(b)
+    return out
 
 
 def _really_different(page: Any, schema: FormSchema, bad: list[dict[str, Any]]) -> list[dict[str, Any]]:

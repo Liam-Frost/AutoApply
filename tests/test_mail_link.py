@@ -162,6 +162,9 @@ def test_a_control_that_shows_less_than_it_holds_is_taken_from_the_agent_that_ch
 
     code = {"id": "code", "label": "Code", "expected": "+1\nCanada", "actual": "+1"}
     assert _not_vouched([code], ["code"], schema) == []
+    taken = []                                           # ... and what is let through on the agent's word is named, for the applicant to look at
+    assert _not_vouched([code, {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}], ["code", "city"], schema, taken)[0]["id"] == "city"
+    assert [b["id"] for b in taken] == ["code"]
     assert _not_vouched([code], [], schema) == [code]
     wrong = {**code, "actual": "+44"}
     assert _not_vouched([wrong], ["code"], schema) == [wrong]
