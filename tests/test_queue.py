@@ -214,7 +214,7 @@ def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_wh
 
     def answer(request):
         asked.append(request.url.host)
-        if request.url.host.endswith("myworkdayjobs.com"):
+        if request.url.host == "myworkdayjobs.com" or request.url.host.endswith(".myworkdayjobs.com"):
             return httpx.Response(429, headers={"content-type": "text/html; charset=UTF-8"}, text="<html><body>Security Check<br>Enable JavaScript and cookies to continue</body></html>")
         if request.url.path == "/busy":
             return httpx.Response(429, headers={"content-type": "application/json", "Retry-After": "0"}, json={"error": "slow down"})

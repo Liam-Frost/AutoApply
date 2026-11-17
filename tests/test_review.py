@@ -431,3 +431,93 @@ def test_a_sign_in_through_an_institution_is_gone_through_again_before_anyone_is
     with db.session() as s:
         card = s.query(Todo).one()
         assert card.kind == "takeover" and card.payload["can_register"] is False       # an institution's login is not something to register for
+
+
+# --- found in review of the pull requests ---
+
+
+def test_a_providers_card_is_finished_the_providers_way(app_env, monkeypatch):
+    """The card for an expired Google sign-in is opened by the same button as a site's card. That call names no check
+    for "signed in", and a provider has no driver to ask: the window could be signed in and nothing noticed it."""
+    from contextlib import contextmanager
+
+    from autoapply import auth, browser, browser_policy
+
+    spec = browser.identities()["google"]
+    seen = {}
+
+    class Ctx:
+        def __init__(self):
+            self.pages = [type("P", (), {"url": "https://myaccount.google.com/"})()]
+
+        def cookies(self):
+            return []
+
+    class Page:
+        context = Ctx()
+
+        def goto(self, url, **k):
+            seen["opened"] = url
+
+    @contextmanager
+    def open_page(tenant, **kw):
+        yield Page()
+
+    assert spec["done"]("https://myaccount.google.com/")
+    monkeypatch.setattr(browser_policy, "select", lambda *a, **k: type("S", (), {"backend": "nodriver"})())
+    monkeypatch.setattr(browser, "open_page", open_page)
+    monkeypatch.setattr(browser, "save_state", lambda key, ctx: seen.setdefault("saved", key))
+    got = auth.takeover("idp:google", "", timeout_s=3)          # as the card's button calls it: no check given
+    assert got["ok"] is True and got["credentials_saved"] is False and seen == {"opened": spec["url"], "saved": "idp:google"}
+
+
+def test_a_forgotten_sign_in_takes_its_browser_with_it_and_a_carried_one_replaces_what_is_there(app_env):
+    from autoapply import browser, sites, transfer
+
+    state = {"cookies": [{"name": "sid", "value": "new", "domain": ".acme.wd1.myworkdayjobs.com", "path": "/"}], "origins": []}
+    browser.write_state("workday:acme.wd1", state, made_in="nodriver")
+    profile = browser._native_profile("workday:acme.wd1")
+    profile.mkdir(parents=True)
+    (profile / "Cookies").write_text("the old session", encoding="utf-8")
+    assert sites.fact("workday:acme.wd1", "session_browser") == "nodriver"
+    blob = transfer.export("workday:acme.wd1", "long enough passphrase", host="acme.wd1.myworkdayjobs.com")
+    # carried in: the profile that would go on using the old session is gone, the new sign-in is what is there
+    assert transfer.put(blob, "long enough passphrase")["tenant"] == "workday:acme.wd1"
+    assert not profile.exists() and browser.load_state("workday:acme.wd1") == state and sites.fact("workday:acme.wd1", "session_browser") == ""
+    # forgotten: the browser it was made in is forgotten with it
+    browser.write_state("workday:acme.wd1", state, made_in="nodriver")
+    browser.clear_state("workday:acme.wd1")
+    assert browser.load_state("workday:acme.wd1") is None and sites.fact("workday:acme.wd1", "session_browser") == ""
+
+
+def test_mail_is_dealt_with_in_the_order_it_was_written(app_env, monkeypatch):
+    """A mailbox hands over the newest first. Read that way, "cancelled" then "new invitation" took the interview away."""
+    from datetime import datetime, timedelta, timezone
+
+    from autoapply import mail, mailbox, notify
+    from autoapply.models import Application, Job
+
+    with db.session() as s:
+        job = Job(source="manual", source_id="r1", company="Acme", title="Software Intern", apply_url="https://x.example/1", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        a = Application(job_id=job.id, status="interview", submitted_at=datetime(2026, 11, 1))
+        s.add(a)
+        s.flush()
+        app_id = a.id
+    now = datetime.now(timezone.utc)
+    box = [mailbox.Message(id="newer", sender="Acme <hr@acme.test>", subject="Interview: new time", body="Your interview is now on Friday.", date=now),
+           mailbox.Message(id="older", sender="Acme <hr@acme.test>", subject="Interview cancelled", body="Thursday's interview is cancelled.", date=(now - timedelta(hours=2)).replace(tzinfo=None))]
+    monkeypatch.setattr(mailbox, "fetch", lambda *a, **k: box)        # newest first, as mailboxes do
+    read = []
+
+    def triage(subj, frm, body):
+        read.append(subj)
+        return {"category": "interview", "company": "Acme", "job_title": "Software Intern", "summary": subj, "event": "cancelled" if "cancelled" in subj else "new"}
+
+    monkeypatch.setattr(mail, "triage", triage)
+    monkeypatch.setattr(notify, "send", lambda *a, **k: None)
+    mail.track()
+    assert read == ["Interview cancelled", "Interview: new time"]
+    with db.session() as s:
+        assert s.get(Application, app_id).status == "interview"

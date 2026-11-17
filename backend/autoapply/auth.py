@@ -626,6 +626,14 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     from .ats import registry
     from . import browser_policy
 
+    if tenant_key.startswith("idp:") and done is None:
+        # A sign-in provider (Google, LinkedIn ...) has no driver to ask "is this signed in?" and no password to keep:
+        # what tells that its sign-in is finished is the provider's own check. A card for a provider is opened by the
+        # same button as a card for a site, so the difference is made here, not by whoever calls.
+        spec = browser.identities().get(tenant_key[4:])
+        if spec is not None:
+            done, save_credentials, url = spec["done"], False, url or spec["url"]
+
     selected = browser_policy.select(tenant_key, url, "login")
     if selected.backend == "nodriver":
         check = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)

@@ -182,6 +182,21 @@ def clear_state(tenant_key: str) -> None:
         _state_path(tenant_key).unlink(missing_ok=True)
         if profile.exists():
             shutil.rmtree(profile)
+    # where the sign-in was made is a fact about that sign-in: gone with it, so that the next one is made in the browser
+    # the rules choose now, not in the one a sign-in that no longer exists was made in
+    from . import sites
+
+    key = sites.account(tenant_key)
+    if sites.fact(key, "session_browser"):
+        sites.set_fact(key, "session_browser", "")
+
+
+def replace_state(tenant_key: str, state: dict) -> None:
+    """Put a sign-in in place of whatever is there (one carried over from another computer). The ordinary browser keeps
+    its own cookies from start to start and only takes from a saved sign-in what it does not have - so an old profile
+    would go on using the session that is being replaced. It is removed with the old sign-in; the new one seeds a new one."""
+    clear_state(tenant_key)
+    write_state(tenant_key, state, made_in="")       # made on another computer: which browser holds it here is not known
 
 
 def _native_profile(tenant_key: str) -> Path:

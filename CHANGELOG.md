@@ -91,6 +91,15 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A card that asks you to sign in to Google (or another provider) finishes when you have.** The card's button opened
+  the window without the provider's own check for "signed in", so the window could be signed in and nothing noticed:
+  the session was not kept and the tasks that waited went on waiting.
+- **Forgetting a sign-in forgets which browser it was made in.** After a sign-in was removed, the next one was still
+  opened in the browser of the one that no longer existed, whatever the rules said.
+- **A sign-in carried over from another computer replaces the one that is there.** The ordinary browser kept using the
+  cookies of the session that was being replaced, while the import said it had worked.
+- **Mail is read in the order it was written.** A cancelled interview followed by a new invitation, read newest first,
+  took the interview away again.
 - **A sign-in stays in the browser it was made in.** Which browser does a site's work used to be decided by the kind
   of work, so a site you had signed in to in the ordinary browser was read or filled in the automated one, with the
   cookies carried over - where the site showed you as signed out and asked for a sign-in you already had (Google's

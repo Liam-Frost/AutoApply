@@ -544,6 +544,14 @@ def reconcile() -> int:
     return fixed
 
 
+def _written(msg: Any) -> datetime:
+    """When a message was written, comparable whether or not it says its time zone (none: the oldest)."""
+    d = getattr(msg, "date", None)
+    if d is None:
+        return datetime.min
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
+
+
 def _known(message_id: str) -> bool:
     with db.session() as s:
         return s.query(MailEvent).filter_by(message_id=message_id).first() is not None
@@ -566,7 +574,9 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
     except mailbox.NotConfigured as e:
         raise MailNotConfigured(str(e)) from e
     new = updated = unmatched = 0
-    for msg in msgs:
+    # In the order they were written. A mailbox hands over the newest first; a cancellation followed by a new invitation
+    # would then be read backwards - the invitation changes nothing, and the older cancellation takes the interview away.
+    for msg in sorted(msgs, key=_written):
         mid = msg.id
         with db.session() as s:
             if s.query(MailEvent).filter_by(message_id=mid).first():
