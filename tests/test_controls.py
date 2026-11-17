@@ -170,7 +170,7 @@ def test_sign_in_plan_prefers_what_the_user_already_has(app_env):
     assert auth.sign_in_plan(ref, ["microsoft", "linkedin"])["do"] == "register"  # not signed in to any provider
     browser.write_state("idp:linkedin", {"cookies": [{"name": "li_at", "value": "x", "domain": ".linkedin.com", "path": "/", "expires": 4102444800}], "origins": []})
     p = auth.sign_in_plan(ref, ["microsoft", "linkedin", "myspace"])
-    assert p["do"] == "ask_user" and p["signed_in_providers"] == ["linkedin"] and db.get_setting("sso.offered")[ref.tenant_key] == ["microsoft", "linkedin"]
+    assert p["do"] == "ask_user" and p["signed_in_providers"] == ["linkedin"] and __import__("autoapply.sites", fromlist=["sites"]).fact(ref.tenant_key, "sso_offered") == ["microsoft", "linkedin"]
     auth.choose_sign_in(ref.tenant_key, "linkedin")
     assert auth.sign_in_plan(ref, ["microsoft", "linkedin"]) | {} == {**auth.sign_in_plan(ref, ["linkedin"]), "offered": ["microsoft", "linkedin"]}
     assert auth.sign_in_plan(ref, ["linkedin"])["do"] == "sso" and auth.sign_in_plan(ref, ["linkedin"])["provider"] == "linkedin"

@@ -234,7 +234,7 @@ def gate(rev: dict[str, Any]) -> dict[str, Any]:
         check_recipe(json.loads(content(rev) or "{}"))
     else:
         _load(rev)
-    ats = rev["target"] if not rev["target"].startswith("site-") else "generic"
+    ats = rev["target"] if ":" not in rev["target"] and not rev["target"].startswith("site-") else "generic"
     before = fixtures.run_all(ats)
     with forcing([rev]):
         after = fixtures.run_all(ats)

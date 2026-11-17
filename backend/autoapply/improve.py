@@ -33,7 +33,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from . import db, learned, llm, timing
+from . import db, learned, llm, sites, timing
 from .models import Run
 
 log = logging.getLogger("autoapply.improve")
@@ -138,7 +138,7 @@ def driver_due(run_id: int) -> bool:
         if r is None or r.kind != "execute" or not r.ok or not r.spans:
             return False
         site = r.site or ""
-    return site.startswith("site-") and site not in (db.get_setting("learned.drivers_written") or [])
+    return sites.explored(site) and not sites.fact(site, "driver_written")
 
 
 PROPOSAL = llm.obj({
@@ -232,7 +232,7 @@ def propose(run_id: int, *, driver: bool = False) -> dict[str, Any]:
     with db.session() as s:
         r = s.get(Run, run_id)
         run_dir, site, ats = r.dir, r.site or "", r.ats
-    if driver and (not site.startswith("site-") or site in (db.get_setting("learned.drivers_written") or [])):
+    if driver and (not sites.explored(site) or sites.fact(site, "driver_written")):
         driver = False
     if not found["findings"] and not driver:
         return {"skipped": "nothing stands out in this run"}
@@ -254,11 +254,11 @@ def propose(run_id: int, *, driver: bool = False) -> dict[str, Any]:
                             "take_overs": _reports(old.dir or "")})
         steps = {title: [str(q.get("label") or "")[:80] for q in (qs or [])][:25] for title, qs in list((siteplan.load(site).get("steps") or {}).items())[:12]}
         prompt += (f"\n<the_runs_on_this_site>\n{json.dumps(earlier, ensure_ascii=False, indent=1)}\n</the_runs_on_this_site>\n"
-                   f"<notes_kept_about_this_site>\n{(knowledge.playbook(site) or '')[:4000]}\n</notes_kept_about_this_site>\n"
+                   f"<notes_kept_about_this_site>\n{(sites.notes(site) or '')[:4000]}\n</notes_kept_about_this_site>\n"
                    f"<steps_of_its_form>\n{json.dumps(steps, ensure_ascii=False)[:4000]}\n</steps_of_its_form>")
     out = llm.json(prompt, PROPOSAL, system=RULES + (DRIVER if driver else ""), max_tokens=9000 if driver else 6000)
     if driver:      # asked once per site, whatever came of it: what stands out in later runs is still looked at
-        db.set_setting("learned.drivers_written", sorted({*(db.get_setting("learned.drivers_written") or []), site}))
+        sites.set_fact(site, "driver_written", True)
     base = usual(site, ats)
     made = []
     for p in (out.get("revisions") or [])[:3 if driver else 2]:

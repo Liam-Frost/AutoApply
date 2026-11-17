@@ -254,7 +254,7 @@ def test_a_run_that_stood_out_is_looked_at_and_what_the_agent_writes_goes_throug
         s.add(r)
         s.flush()
         rid = r.id
-    db.set_setting("learned.drivers_written", ["site-jobs.example.com"])      # (its driver has been asked for: see the next test)
+    __import__("autoapply.sites", fromlist=["sites"]).set_fact("site-jobs.example.com", "driver_written", True)      # (its driver has been asked for: see the next test)
     quiet = run(usual_run())
     improve.after_run(quiet, [])
     improve.after_run(rid, [])
@@ -291,7 +291,7 @@ def test_the_first_application_that_goes_through_on_a_site_without_a_driver_has_
     from autoapply.models import Task
 
     site = "site-careers.example.org"
-    knowledge.add_site_note(site, "The phone code list shows only +1 once chosen.")
+    __import__("autoapply.sites", fromlist=["sites"]).note(site, "The phone code list shows only +1 once chosen.")
     ids = []
     for n, ok in enumerate((0, 1)):                       # an attempt that did not get through, then one that did
         d = tmp_path / f"r{n}"
@@ -323,7 +323,7 @@ def test_the_first_application_that_goes_through_on_a_site_without_a_driver_has_
     assert out["driver_for"] == site and [r["status"] for r in out["revisions"]] == ["trial"]
     kept = learned.revisions()[-1]
     assert (kept["target"], kept["origin"]) == (site, "driver")           # a site's driver is the site's, whatever scope was said
-    assert db.get_setting("learned.drivers_written") == [site]
+    assert __import__("autoapply.sites", fromlist=["sites"]).fact(site, "driver_written") is True and __import__("autoapply.sites", fromlist=["sites"]).having("driver_written") == ["generic:careers.example.org"]
     assert not improve.driver_due(run(usual_run(), site=site))            # once per site
     store.setattr(llm, "json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked a second time")))
     assert improve.propose(run(usual_run(), site=site), driver=True) == {"skipped": "nothing stands out in this run"}
@@ -449,7 +449,8 @@ def test_what_was_learned_is_in_a_backup(store):
     out = backup.export()
     with zipfile.ZipFile(out["path"]) as z:
         names = set(z.namelist())
-    assert {"data/learned/index.json", f"data/learned/{rev['id']}/recipe.json", "data/sites/site-jobs.example.com.json"} <= names
+    assert {"data/learned/index.json", f"data/learned/{rev['id']}/recipe.json", "data/app.db"} <= names       # the steps of forms are in the database
+    assert siteplan.load("generic:jobs.example.com")["steps"] == {"One": []}                                   # ... under the site's one key
 
 
 def test_something_proposed_before_an_upgrade_goes_through_the_gate_again_when_it_is_approved(store, monkeypatch):

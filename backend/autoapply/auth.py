@@ -65,7 +65,9 @@ def upsert_account(tenant_key: str, *, ats: str = "", host: str = "", email: str
 
 def key_for(tenant_key: str) -> str:
     """The key a site's sign-in is kept under: its own, or the one of the site it turned out to sign in on."""
-    return str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
+    from . import sites
+
+    return sites.account(tenant_key)
 
 
 def provider_at(*places: str) -> str:
@@ -117,7 +119,9 @@ def adopt(tenant_key: str, host: str) -> str | None:
         rows = [(a.tenant_key, a.has_password) for a in s.query(Account).filter(Account.host == host, Account.tenant_key != tenant_key)]
     for key, has_pw in rows:
         if (has_pw and secrets.get_password(key)) or browser.load_state(key):
-            db.set_setting("accounts.alias", {**(db.get_setting("accounts.alias") or {}), tenant_key: key})
+            from . import sites
+
+            sites.link(tenant_key, key)
             log.info("%s signs in on %s, where a sign-in is saved as %s: using it", tenant_key, host, key)
             return key
     return None
@@ -220,9 +224,9 @@ def sign_in_plan(ref: JobRef, offered: list[str] | None = None, also: str = "") 
                        "Do not register, do not choose another account, do not type anything on the provider's page."}
     offered = [p for p in (offered or []) if p in browser.identities()]
     if offered:
-        seen = dict(db.get_setting("sso.offered") or {})
-        if seen.get(key) != offered:
-            db.set_setting("sso.offered", {**seen, key: offered})
+        from . import sites
+
+        sites.set_fact(key, "sso_offered", offered)
     signed_in = [p for p in (db.get_setting("sso.order") or []) if p in offered and (i := browser.session_info(f"idp:{p}")) and not i["expired"]]
     can_register, why = may_register(ref, also)
     acct = account(key) or {}

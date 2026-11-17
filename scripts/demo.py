@@ -344,7 +344,7 @@ def seed_timing(s, now: datetime) -> None:  # noqa: ANN001
     code = "def set_value(page, q, value, w):\n    if q.label != \"Start date\":\n        return False\n    w.set_text(page.locator(\"#start-date\"), str(value))\n    return True\n"
     made = (now - timedelta(days=16)).isoformat(timespec="seconds")
     revs = [
-        {"id": "demo000001", "kind": "recipe", "target": "site-careers.alder.example", "title": "区号列表已经显示所选条目时不再重选", "status": "active",
+        {"id": "demo000001", "kind": "recipe", "target": "generic:careers.alder.example", "title": "区号列表已经显示所选条目时不再重选", "status": "active",
          "why": "这个网站的电话区号列表选中后只显示“+1”，驱动每次都判定为没选上，AI 因此反复接手同一页。", "expected": "不再为 Code 字段接手，每次运行少等两到三次 AI。",
          "why_status": "在 4 次运行里表现正常", "created": made, "from_run": 12, "version": "1.0.3", "strikes": 0, "baseline": {"runs": 6, "median_ms": 212000},
          "trials": [{"run": 20 + i, "ok": True, "ms": 96000 + i * 3000, "human": 0, "used": True} for i in range(4)],
@@ -361,6 +361,15 @@ def seed_timing(s, now: datetime) -> None:  # noqa: ANN001
         (learned.root() / rev["id"]).mkdir(exist_ok=True)
         (learned.root() / rev["id"] / name).write_text(body, encoding="utf-8")
     learned._save(revs)
+    # ... and what the program knows about one site, all in one place (sites.py)
+    from autoapply.models import Site
+
+    notes = ["The forward button on the questions step is labelled 'Save and continue'.", "The phone code list shows only the code once an entry is chosen.",
+             "The résumé is uploaded on the first step; the form fills name and e-mail from it."]
+    s.add(Site(key="generic:careers.alder.example", facts={"driver_written": True}, notes=[{"at": (now - timedelta(days=3 * n)).date().isoformat(), "text": t} for n, t in enumerate(notes)],
+               steps={"pages": ["Contact", "Questions", "Review"], "steps": {
+                   "Contact": {"questions": [{"label": x, "type": "text", "selector": f"#c{i}"} for i, x in enumerate(("First name", "Last name", "E-mail", "Phone code", "Phone number"))]},
+                   "Questions": {"questions": [{"label": x, "type": "radio", "selector": f"#q{i}"} for i, x in enumerate(("Are you legally authorised to work here?", "Will you require sponsorship?", "Earliest start date"))]}}}))
 
     def spans(takeovers: int, slow_field: bool) -> list[dict]:
         out, t = [], 0

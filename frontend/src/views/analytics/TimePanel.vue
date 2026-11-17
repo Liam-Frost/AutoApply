@@ -80,6 +80,17 @@ async function setEnabled(on) {
   try { await api.put('/settings', { settings: { 'learned.enabled': on } }); emit('reload') } catch (e) { toast(e.message, 'bad') }
 }
 const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median_ms) : '—')
+
+// what the program knows about one site, all of it in one place
+const site = ref(null)
+async function showSite(row) {
+  if (site.value && site.value.key === row.key) { site.value = null; return }
+  try { site.value = await api.get(`/sites/${encodeURIComponent(row.key)}`) } catch (e) { toast(e.message, 'bad') }
+}
+async function forgetSite(row) {
+  if (!(await ask(`清除程序对“${row.name}”学到的内容？笔记、表单步骤会删除，学到的做法会撤回；登录状态不受影响。下次投这个网站时程序会重新了解它。`, { ok: '清除', danger: true }))) return
+  try { await api.post(`/sites/${encodeURIComponent(row.key)}/forget`); site.value = null; emit('reload') } catch (e) { toast(e.message, 'bad') }
+}
 </script>
 
 <template>
@@ -173,7 +184,7 @@ const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median
             <template v-for="v in d.learned" :key="v.id">
               <tr style="cursor: pointer" @click="showRev(v)">
                 <td class="name">{{ v.title }} <span class="tag">{{ KIND_OF[v.kind] }}</span></td>
-                <td data-notr>{{ v.target.replace(/^site-/, '') }}</td>
+                <td data-notr>{{ v.target.replace(/^(site-|generic:)/, '') }}</td>
                 <td><span class="tag" :class="(STATUS[v.status] || [])[1]">{{ (STATUS[v.status] || [v.status])[0] }}</span></td>
                 <td class="num">{{ v.good }} / {{ v.trials }}</td>
                 <td class="num">{{ before(v) }}</td>
@@ -193,6 +204,40 @@ const before = (v) => (v.baseline && v.baseline.median_ms ? ms(v.baseline.median
                   <pre class="code" data-notr style="margin-top: 8px; max-height: 260px; overflow: auto">{{ rev.content }}</pre>
                   <div v-if="rev.history && rev.history.length" class="small muted" style="margin-top: 6px">
                     <span v-for="(h, i) in rev.history" :key="i">{{ i ? ' → ' : '' }}{{ (STATUS[h.status] || [h.status])[0] }}（{{ (h.at || '').slice(5, 16).replace('T', ' ') }}）</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">程序对各个网站的了解</div>
+      <p class="muted">程序在一个网站上学到的东西都记在这个网站名下：AI 写下的笔记、表单每一步有哪些字段、学到的做法。下次投这个网站的岗位时直接用，不用重新摸索。点一行查看内容；清除之后程序会重新了解这个网站。</p>
+      <EmptyState v-if="!(d.sites || []).length" icon="wrench" title="还没有记下哪个网站" text="投过没有专门驱动的网站之后，这里会列出程序对它的了解。" />
+      <div v-else class="an-scroll">
+        <table class="an-table">
+          <thead><tr><th>网站</th><th class="num">笔记</th><th class="num">表单步骤</th><th class="num">字段</th><th class="num">学到的做法</th><th></th></tr></thead>
+          <tbody>
+            <template v-for="row in d.sites" :key="row.key">
+              <tr style="cursor: pointer" @click="showSite(row)">
+                <td class="name" data-notr>{{ row.name }}</td>
+                <td class="num">{{ row.notes }}</td><td class="num">{{ row.steps }}</td><td class="num">{{ row.questions }}</td><td class="num">{{ row.revisions }}</td>
+                <td class="nowrap" @click.stop><button class="sm ghost danger" @click="forgetSite(row)">清除</button></td>
+              </tr>
+              <tr v-if="site && site.key === row.key">
+                <td colspan="6" style="background: var(--surface-2)">
+                  <div v-if="site.signs_in_on" class="small muted">登录状态来自：<span data-notr>{{ site.signs_in_on.replace(/^(generic:|idp:)/, '') }}</span></div>
+                  <div v-if="site.notes.length" class="small" style="margin-top: 6px"><b>笔记</b>
+                    <ul style="margin: 4px 0 0 18px"><li v-for="(n, i) in site.notes" :key="i" data-notr>{{ n.at ? '（' + n.at + '）' : '' }}{{ n.text }}</li></ul>
+                  </div>
+                  <div v-if="site.steps.length" class="small" style="margin-top: 6px"><b>表单步骤</b>
+                    <ul style="margin: 4px 0 0 18px"><li v-for="st in site.steps" :key="st.title" data-notr>{{ st.title }}：{{ st.questions.slice(0, 12).join('、') }}{{ st.questions.length > 12 ? ' …' : '' }}</li></ul>
+                  </div>
+                  <div v-if="site.revisions.length" class="small" style="margin-top: 6px"><b>学到的做法</b>
+                    <ul style="margin: 4px 0 0 18px"><li v-for="r in site.revisions" :key="r.id">{{ r.title }} <span class="tag" :class="(STATUS[r.status] || [])[1]">{{ (STATUS[r.status] || [r.status])[0] }}</span></li></ul>
                   </div>
                 </td>
               </tr>

@@ -21,10 +21,10 @@ from . import config, secrets
 
 
 def _state_path(tenant_key: str) -> Path:
-    from . import db
+    from . import sites
 
     # a site whose sign-in is another site's keeps no session of its own: it reads and writes that site's
-    tenant_key = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
+    tenant_key = sites.account(tenant_key)
     safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in tenant_key)
     return config.SESSIONS / f"{safe}.bin"
 
@@ -57,17 +57,14 @@ def write_state(tenant_key: str, state: dict, *, made_in: str | None = None) -> 
 
     made = made_in if made_in is not None else getattr(_now, "backend", None)
     if made is not None:
-        from . import browser_policy, db
+        from . import browser_policy, sites
 
-        key, record = browser_policy.canonical(tenant_key), dict(db.get_setting("browser.session_made_in") or {})
-        if made_in is None and record.get(key) in browser_policy.BACKENDS and record[key] != made:
+        key = sites.account(tenant_key)
+        was = sites.fact(key, "session_browser")
+        if made_in is None and was in browser_policy.BACKENDS and was != made:
             # a run in the other browser (the applicant's choice for one task) does not replace the site's sign-in
             return
-        if made in browser_policy.BACKENDS and record.get(key) != made:
-            db.set_setting("browser.session_made_in", {**record, key: made})
-        elif made not in browser_policy.BACKENDS and key in record:
-            record.pop(key)
-            db.set_setting("browser.session_made_in", record)
+        sites.set_fact(key, "session_browser", made if made in browser_policy.BACKENDS else "")
 
     target = _state_path(tenant_key)
     temporary = None
@@ -318,8 +315,9 @@ def _window_place(for_person: bool, headless: bool, tenant_key: str | None, url:
     place.headless = headless
     if headless or not no_screen():
         return place                                    # hidden as asked, or there is a screen for the window
-    canonical = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key or "")
-    refused = canonical in (db.get_setting("browser.visible_sites") or [])
+    from . import sites
+
+    refused = bool(sites.fact(sites.account(tenant_key), "needs_window"))
     if (needs_window or refused) and (vscreen.can_view() if for_person else vscreen.available()):
         try:
             place.screen = vscreen.private() if for_person else None
@@ -348,15 +346,14 @@ class RefusedHidden(Exception):
 
 
 def needs_window(tenant_key: str) -> bool:
-    """Note that this site refuses the hidden browser: from now on its pages open in a window (browser.visible_sites).
+    """Note that this site refuses the hidden browser: from now on its pages open in a window (sites: needs_window).
     False when that was already known - then a window did not help either, and the caller says so instead of trying again."""
-    from . import browser_policy, db
+    from . import sites
 
-    key = browser_policy.canonical(tenant_key)
-    seen = list(db.get_setting("browser.visible_sites") or [])
-    if key in seen:
+    key = sites.account(tenant_key)
+    if sites.fact(key, "needs_window"):
         return False
-    db.set_setting("browser.visible_sites", [*seen, key])
+    sites.set_fact(key, "needs_window", True)
     logging.getLogger("autoapply.browser").info("%s refuses the hidden browser: its pages open in a window from now on", key)
     return True
 
@@ -415,8 +412,9 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
     from . import metering
     metering.stage(f"browser:{selected.backend} ({selected.reason})")
     logging.getLogger("autoapply.browser").info("Browser backend %s (%s)", selected.backend, selected.reason)
-    canonical = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key or "")
-    if headless and canonical in (db.get_setting("browser.visible_sites") or []):
+    from . import sites
+
+    if headless and tenant_key and sites.fact(sites.account(tenant_key), "needs_window"):
         headless = False
     if selected.backend == "nodriver":
         from . import nodriver_backend
@@ -454,10 +452,7 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
         from . import db, net
 
         if tenant_key:      # a site whose sign-in is another site's: that site's saved session
-            tenant_key = str((db.get_setting("accounts.alias") or {}).get(tenant_key) or tenant_key)
-
-        if headless and tenant_key and tenant_key in (db.get_setting("browser.visible_sites") or []):
-            headless = False  # this site was seen refusing the hidden window
+            tenant_key = sites.account(tenant_key)
         place = _window_place(for_person, headless, tenant_key, url, operation, needs_window=not headless and not for_person).__enter__()
         options = net.browser_options()
         if place.args:

@@ -74,6 +74,11 @@ async def lifespan(app: FastAPI):
         if db.get_setting("agent.reads") == ["workday"]:
             db.set_setting("agent.reads", ["*"])
         db.set_setting("migrated.agent_reads_all", True)
+    if not db.get_setting("migrated.sites"):
+        from .. import sites as _sites_
+
+        _sites_.migrate()
+        db.set_setting("migrated.sites", True)
     if not db.get_setting("migrated.site_rules_whole"):
         from .. import browser_policy as _policy
 
@@ -732,13 +737,14 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
     from .. import browser as _browser
 
-    offered = db.get_setting("sso.offered") or {}
+    from .. import sites as _sites
     ready = {k: v["name"] for k, v in _browser.identities().items() if (i := _browser.session_info(f"idp:{k}")) and not i["expired"]}
     for r in rows:  # what the page shows: the employer's name and one plain sentence; raw text stays available as detail
         key = (r["payload"] or {}).get("tenant_key") or (r["ref"][8:] if r["ref"].startswith("account:") else "")
         if r["kind"] in ("takeover", "login") and key and not key.startswith("idp:"):  # ways to sign in that need nothing more from the user than a choice (not for a provider itself)
-            r["sso"] = [{"key": p, "name": ready[p]} for p in offered.get(key, []) if p in ready]
-            r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered.get(key, []) if p in _browser.identities() and p not in ready]
+            offered = _sites.fact(key, "sso_offered")
+            r["sso"] = [{"key": p, "name": ready[p]} for p in offered if p in ready]
+            r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered if p in _browser.identities() and p not in ready]
         r["site"] = humanize.site(key) if key else None
         r["explained"] = humanize.explain(r["body"])
         r["subject"] = humanize.subject(r["ref"])
@@ -1704,6 +1710,33 @@ def learned_one(rev_id: str) -> dict[str, Any]:
     return {**rev, "content": learned.content(rev)}
 
 
+@app.get("/api/sites")
+def sites_list() -> list[dict[str, Any]]:
+    """Every site the program knows something about, with how much: notes, steps of its form, what was learned for it."""
+    from .. import sites
+
+    rows = sites.listing()
+    for r in rows:
+        r["employer"] = humanize.site(r["key"])["name"] if ":" in r["key"] and not r["key"].startswith("idp:") else ""
+    return rows
+
+
+@app.get("/api/sites/{key:path}")
+def site_one(key: str) -> dict[str, Any]:
+    """Everything the program knows about one site."""
+    from .. import sites
+
+    return sites.about(key)
+
+
+@app.post("/api/sites/{key:path}/forget")
+def site_forget(key: str) -> dict[str, Any]:
+    """Drop what was learned about working one site (notes, steps; its revisions are taken out). Its sign-in is kept."""
+    from .. import sites
+
+    return sites.forget(key)
+
+
 @app.post("/api/learned/{rev_id}/share")
 def learned_share(rev_id: str, body: dict[str, Any]) -> dict[str, Any]:
     """The applicant's answer to "report this driver to the project?": once, always, skip, never. For once and always
@@ -1849,7 +1882,7 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
-        if k.startswith("migrated.") or k in config.STATE or k in ("schedule.execute_minutes", "executor.concurrency"):
+        if k.startswith("migrated.") or k in config.STATE or k in config.RETIRED:
             continue        # the program's own bookkeeping, or a setting that is gone: sent back by a page loaded earlier
         if k not in config.DEFAULT_SETTINGS:
             raise HTTPException(400, f"unknown setting {k}")

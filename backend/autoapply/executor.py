@@ -857,7 +857,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 step("scouted", reached_review=reached, stopped_at=outcome["stopped_at"])
             elif policy != "manual" and trusted:
                 # nothing the program could check says these fields hold the approved answers: not sent without a look
-                raise NeedsVisibleRun("有 " + str(len(trusted)) + " 项程序核对不了、是 AI 选的，这次填好后由你过目并提交：" + "；".join(x[:40] for x in trusted[:4]))
+                raise NeedsVisibleRun(f"有 {len(trusted)} 项程序核对不了、是 AI 选的，这次填好后由你过目并提交：{'；'.join(x[:40] for x in trusted[:4])}")
             elif policy != "manual" and (needs_you := _needs_you(open_issues)):
                 # The agent having worked on the form is no reason to stop: the answers are the approved ones and were read
                 # back. What stops an automatic submission is something that is the applicant's to settle.

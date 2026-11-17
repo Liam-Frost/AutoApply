@@ -247,6 +247,19 @@ class LLMRequest(Base):
     source: Mapped[str] = mapped_column(String, default="live")          # live | legacy (a per-task total from before requests were recorded)
 
 
+class Site(Base):
+    """What the program knows about one site (sites.py is the only way to it)."""
+
+    __tablename__ = "sites"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)          # "generic:careers.acme.com", "workday:acme.wd1", "idp:google"
+    same_as: Mapped[str] = mapped_column(String, default="")            # the site whose sign-in this one uses
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, driver_written
+    notes: Mapped[list] = mapped_column(JSON, default=list)             # [{"at": "2026-11-17", "text": ...}], newest first
+    steps: Mapped[dict] = mapped_column(JSON, default=dict)             # the steps of its form (siteplan.py)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
+
+
 class ApplicationEvent(Base):
     """Every change of an application's status, with the time. The status alone only says where an application is now;
     this says where it has been (an interview before a rejection)."""

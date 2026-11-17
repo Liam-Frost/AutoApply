@@ -190,7 +190,7 @@ def test_a_sites_work_is_done_in_the_browser_its_sign_in_lives_in_whatever_the_w
     from autoapply import browser_policy as bp, db
 
     db.set_setting("browser.nodriver_enabled", True)
-    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    __import__("autoapply.sites", fromlist=["sites"]).link("generic:www.google.com", "idp:google")
     db.set_setting("browser.rules", [{"tenant": "pdportal:ubc", "backend": "nodriver", "operations": ["login"]},          # as saved by earlier versions
                                      {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
                                      {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]}])
@@ -204,7 +204,7 @@ def test_a_sites_work_is_done_in_the_browser_its_sign_in_lives_in_whatever_the_w
     assert bp.select("generic:careers.example.org", operation="apply").backend == "playwright"
     # where a sign-in was made is remembered with it, and decides from then on - with no rule at all
     db.set_setting("browser.rules", [])
-    db.set_setting("browser.session_made_in", {"idp:microsoft": "nodriver", "idp:google": "nodriver"})
+    [__import__("autoapply.sites", fromlist=["sites"]).set_fact(k, "session_browser", "nodriver") for k in ("idp:microsoft", "idp:google")]
     assert bp.select("generic:careers.example.org", operation="read").backend == "nodriver"
     assert bp.select("generic:www.google.com", operation="apply").reason == "where the sign-in for idp:google was made"
     assert bp.select("generic:www.google.com", operation="apply", override="playwright").backend == "playwright"      # the applicant's choice for one task
@@ -224,7 +224,7 @@ def test_where_a_sign_in_was_made_is_kept_with_it_and_it_is_not_carried_into_the
         browser.write_state("idp:google", google)
     finally:
         browser._now.backend = None
-    assert db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"}
+    assert __import__("autoapply.sites", fromlist=["sites"]).fact("idp:google", "session_browser") == "nodriver"
     # the automated browser is not shown Google's cookies; the ordinary browser is
     assert browser.with_identities(None, "generic:jobs.example.com", "playwright") is None
     assert [c["name"] for c in browser.with_identities(None, "generic:jobs.example.com", "nodriver")["cookies"]] == ["SID"]
@@ -234,9 +234,9 @@ def test_where_a_sign_in_was_made_is_kept_with_it_and_it_is_not_carried_into_the
         browser.write_state("idp:google", {"cookies": [], "origins": []})
     finally:
         browser._now.backend = None
-    assert browser.load_state("idp:google") == google and db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"}
+    assert browser.load_state("idp:google") == google and __import__("autoapply.sites", fromlist=["sites"]).fact("idp:google", "session_browser") == "nodriver"
     browser.write_state("idp:google", google, made_in="")          # carried over from another computer: not known any more
-    assert db.get_setting("browser.session_made_in") == {}
+    assert __import__("autoapply.sites", fromlist=["sites"]).fact("idp:google", "session_browser") == ""
 
 
 def test_the_card_names_whose_sign_in_is_missing(app_env):
@@ -249,8 +249,8 @@ def test_the_card_names_whose_sign_in_is_missing(app_env):
     from autoapply.ats.base import JobRef
     from autoapply.models import Todo
 
-    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
-    db.set_setting("sso.offered", {"generic:www.google.com": ["google"], "generic:jobs.example.com": ["google"]})
+    __import__("autoapply.sites", fromlist=["sites"]).link("generic:www.google.com", "idp:google")
+    [__import__("autoapply.sites", fromlist=["sites"]).set_fact(k, "sso_offered", ["google"]) for k in ("generic:www.google.com", "generic:jobs.example.com")]
     careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
     other = JobRef(ats="generic", tenant="jobs.example.com", job_id="", url="https://jobs.example.com/p/1", host="jobs.example.com")
     auth.ask_to_sign_in(careers, "Google · Intern", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser?continue=x", draft_id=45)
@@ -273,7 +273,7 @@ def test_a_site_whose_sign_in_is_a_providers_own_has_nothing_to_choose_or_regist
     from autoapply import auth, db
     from autoapply.ats.base import JobRef
 
-    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    __import__("autoapply.sites", fromlist=["sites"]).link("generic:www.google.com", "idp:google")
     db.set_setting("sso.mode", "auto")
     careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
     plan = auth.sign_in_plan(careers, ["google", "linkedin"])
@@ -396,7 +396,7 @@ def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_as
     order = [True, False]                    # hidden: turned away; in a window: let in
     with pytest.raises(NeedsHuman, match="session expired"):
         list(pdportal.scan(set()))
-    assert len(pages) == 2 and db.get_setting("browser.visible_sites") == ["pdportal:ubc"]
+    assert len(pages) == 2 and __import__("autoapply.sites", fromlist=["sites"]).fact("pdportal:ubc", "needs_window") is True
     order = [True]                           # turned away in a window as well: its pass has run out
     with pytest.raises(NeedsHuman, match="firewall"):
         list(pdportal.scan(set()))

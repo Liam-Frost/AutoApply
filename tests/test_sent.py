@@ -502,7 +502,7 @@ def test_what_the_agent_learns_on_a_site_is_used_on_its_next_posting_and_an_appr
     assert (out["reached_review"], out["added"], calls) == (True, 1, ["read"])
     plan = siteplan.step("site-plan.example.test", "Work Eligibility")
     assert [(q["label"], q["type"], q["selector"]) for q in plan] == [("Visa status", "text", "[name=visa]")]
-    assert "Study permit" not in siteplan._path("site-plan.example.test").read_text(encoding="utf-8")      # structure only, never an answer
+    assert "Study permit" not in str(siteplan.load("site-plan.example.test"))      # structure only, never an answer
 
     # approved: filled and submitted by the program; the confirmation page is the evidence
     monkeypatch.setattr(llm, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no agent is needed for a form that was walked once")))
@@ -719,7 +719,7 @@ def test_a_saved_account_of_another_site_is_not_offered_where_this_posting_signs
     from autoapply.ats.base import JobRef
 
     auth.upsert_account("eightfold:acme", ats="eightfold", host="jobs.acme.com", email="me@example.test", password="first-site-pw", status="ok")
-    db.set_setting("accounts.alias", {"generic:jobs.acme.com": "eightfold:acme"})
+    __import__("autoapply.sites", fromlist=["sites"]).link("generic:jobs.acme.com", "eightfold:acme")
     ref = JobRef("generic", "jobs.acme.com", "", "https://jobs.acme.com/careers/job/1", "jobs.acme.com")
     with sync_playwright() as pw:
         b = pw.chromium.launch()

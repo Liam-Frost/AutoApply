@@ -117,6 +117,17 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   announces, changes, recalls or cancels. A cancellation does not move the application to that stage - and takes it
   back to where it was if it stood there; the notice says "Interview cancelled", "Interview arrangements changed",
   "Offer withdrawn" and so on.
+- **What the program knows about a site is kept in one place.** It was in five - notes in a file per site, the steps
+  of its form in another, recipes and plugins in a folder, and what was found out about signing in spread over
+  settings - under three spellings of the site's name. Each site is now one record under one name: where it signs in,
+  which browser its sign-in lives in, the notes, the steps of its form, and what was learned for it. *Analysis ->
+  Time & learning* lists the sites, shows all of it for one, and can clear one (its sign-in stays). What earlier
+  versions kept is brought over at the first start; the files it is read from are moved into a folder named
+  "migrated" beside them, not deleted. Answers stay where they were: an answer is yours, not the site's.
+- **A field the program cannot check is shown to you instead of passing silently.** A list that shows "+1" for
+  "+1 Canada" and does not mark its chosen entry was accepted on the AI's word. It still is - the form is not stopped
+  for it - but the field is listed on the card as one to look at, and an application with such a field is not
+  submitted automatically.
 - **From a review of the whole program** - places where a fault had been patched for the one case that showed it:
   - *Why reading a form stopped* was a word of the AI's own, and every word the program did not know meant "sign
     in". It is now one of six (sign-in, CAPTCHA, closed, already applied, site not answering, other), each with one

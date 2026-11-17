@@ -17,13 +17,17 @@ def test_the_programs_own_bookkeeping_is_not_shown_to_or_saved_by_the_settings_p
 
     c = TestClient(app)
     shown = c.get("/api/settings").json()["settings"]
-    assert not (config.STATE & set(shown)) and "browser.rules" in shown and "schedule.execute_minutes" not in shown
-    db.set_setting("browser.session_made_in", {"idp:google": "nodriver"})
-    db.set_setting("accounts.alias", {"generic:www.google.com": "idp:google"})
+    from autoapply import sites
+
+    assert not ((config.STATE | config.RETIRED) & set(shown)) and "browser.rules" in shown
+    sites.set_fact("idp:google", "session_browser", "nodriver")
+    sites.link("generic:www.google.com", "idp:google")
+    db.set_setting("mail.gmail_history", "77")
     # a page loaded before this change sends everything back, the bookkeeping and two settings that no longer exist
     old_page = {**shown, "browser.session_made_in": {}, "accounts.alias": {}, "mail.gmail_history": "1", "schedule.execute_minutes": 5, "executor.concurrency": 1}
     assert c.put("/api/settings", json={"settings": old_page}).status_code == 200
-    assert db.get_setting("browser.session_made_in") == {"idp:google": "nodriver"} and db.get_setting("accounts.alias") == {"generic:www.google.com": "idp:google"}
+    assert sites.fact("idp:google", "session_browser") == "nodriver" and sites.account("generic:www.google.com") == "idp:google"
+    assert db.get_setting("mail.gmail_history") == "77"
     assert c.put("/api/settings", json={"settings": {"no.such.setting": 1}}).status_code == 400
 
 

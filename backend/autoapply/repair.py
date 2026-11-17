@@ -225,9 +225,23 @@ def enabled() -> bool:
     return bool(db.get_setting("repair.enabled"))
 
 
+def _notes_of(schema: FormSchema) -> str:
+    from . import sites
+
+    return sites.notes(sites.of_form(schema))
+
+
+def _note(schema: FormSchema, text: str) -> None:
+    from . import sites
+
+    sites.note(sites.of_form(schema), text)
+
+
 def site_key(schema: FormSchema) -> str:
-    """Where notes about this form are kept: the site for explored forms, the system for coded drivers."""
-    return f"site-{schema.tenant}" if schema.source == "agent" and schema.tenant else schema.ats
+    """Where what is learned about working this form is kept (sites.of_form): the site for explored forms, the system for coded drivers."""
+    from . import sites
+
+    return sites.of_form(schema)
 
 
 def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, Any], problem: dict[str, Any], run_dir: Path,
@@ -408,7 +422,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             t.fn = counted(t.fn)
     tools.insert(0, llm.Tool("check_form", "What the form itself still complains about right now: fields it marks invalid, error messages, required fields "
                                            "that are empty. Call it after your changes and before done.", {"type": "object", "properties": {}, "additionalProperties": False}, check_form))
-    notes = knowledge.playbook(site_key(schema))
+    notes = _notes_of(schema)
     goal = (
         f"ATS: {schema.ats}\nPage {page_index + 1} of the application form, URL {page.url}\n\n"
         f"What the driver reported:\n{json.dumps(problem, ensure_ascii=False)[:1500]}\n\n"
@@ -478,7 +492,7 @@ def advance(page: Page, schema: FormSchema, run_dir: Path, *, step: int) -> dict
     done_tool = llm.Tool("done", "Report where the form is now and stop.", {"type": "object", "properties": {"state": {"type": "string", "enum": ["moved", "review", "blocked"]}, "why": st, "note": st},
                                                                          "required": ["state"], "additionalProperties": False}, done)
     tools = [t for t in generic.l0_tools(page, run_dir, {}, finish_tool=done_tool) if t.name in ("read_page", "list_controls", "screenshot", "click", "press", "done")]
-    notes = knowledge.playbook(site_key(schema))
+    notes = _notes_of(schema)
     goal = f"Step {step + 1} of the application form is open, URL {page.url}." + (f"\n\nNotes from earlier work on this site:\n{notes[:2000]}" if notes else "")
     res = llm.agent(goal, tools, system=NAV_SYSTEM, max_steps=20)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -487,7 +501,7 @@ def advance(page: Page, schema: FormSchema, run_dir: Path, *, step: int) -> dict
         out = {"state": "blocked", "why": (res.final_text or res.stopped)[:300], "note": ""}
     if out["state"] == "moved" and out.get("note"):
         try:
-            knowledge.add_site_note(site_key(schema), f"To leave a step whose forward button is not Next / Continue: {out['note']}")
+            _note(schema, f"To leave a step whose forward button is not Next / Continue: {out['note']}")
         except Exception:  # noqa: BLE001
             log.debug("site note not saved", exc_info=True)
     return out
@@ -509,7 +523,7 @@ def _learn(schema: FormSchema, page_index: int, report: dict[str, Any]) -> None:
                      + "; ".join(hidden[:12]) + ".")
     if lines:
         try:
-            knowledge.add_site_note(site_key(schema), " ".join(lines))
+            _note(schema, " ".join(lines))
         except Exception:  # noqa: BLE001 - a note that cannot be saved must not fail the application
             log.exception("could not save the site note")
 

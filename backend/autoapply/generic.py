@@ -797,7 +797,9 @@ def recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
 def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     from . import db
 
-    hidden = ref.tenant_key not in (db.get_setting("browser.visible_sites") or [])
+    from . import sites
+
+    hidden = not sites.fact(sites.account(ref.tenant_key), "needs_window")
     refused = False
     result: dict[str, Any] = {}
     with browser.open_page(ref.tenant_key, url=ref.url, operation="read") as page:
@@ -808,7 +810,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         if resp is not None and resp.status >= 500:
             raise SiteDown(f"the site returned HTTP {resp.status}", seen=ref.url)
         page.wait_for_timeout(2000)
-        hints = "\n\n".join(x for x in (knowledge.playbook(f"site-{ref.tenant}") if ref.tenant else "", knowledge.playbook(ref.ats) or knowledge.playbook("other")) if x)
+        hints = "\n\n".join(x for x in (sites.notes(f"generic:{ref.tenant}") if ref.tenant else "", knowledge.playbook(ref.ats) or knowledge.playbook("other")) if x)
         ident = "\n".join(ln for ln in knowledge.read("profile").splitlines() if re.search(r"^- (Name on forms|Legal name|Phone|Mailing|Location|Email)", ln))[:1200]
         goal = f"Job: {job.company} - {job.title}\nStart URL: {ref.url}\nATS: {ref.ats}\n<applicant>\n{ident}\n</applicant>\n" + (f"\nNotes from earlier applications on this ATS:\n{hints[:4000]}\n" if hints else "")
         acct_state: dict[str, Any] = {}
