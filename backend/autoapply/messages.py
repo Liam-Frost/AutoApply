@@ -240,7 +240,7 @@ def quota_low(name: str, lines: list[tuple[str, str]], *, out: bool, backup: str
     if backup:
         hint = (f"接下来会自动改用备用服务：{backup}。" if out else f"用完后会自动改用备用服务：{backup}。") if primary else "这是一个备用服务；轮到它时如果还没恢复，会跳到下一个。"
     else:
-        hint = "没有设置备用服务：用完后需要 AI 的任务会停下来，等额度恢复再继续。可以在“设置 → AI 模型”里加一个备用。"
+        hint = "没有设置备用服务：用完后需要 AI 的任务会停下来，等额度恢复再继续。可以在“设置 → 账号与连接 → AI 服务”里加一个备用。"
     return Card("⛔" if out else "⚠️", "AI 额度用完了" if out else "AI 额度快用完了", fields=[("服务", name), *lines], hint=hint, path="/settings/accounts/ai", link="打开设置")
 
 

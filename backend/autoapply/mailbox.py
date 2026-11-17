@@ -149,7 +149,7 @@ def _connect(cfg: dict[str, Any] | None = None, password: str | None = None) -> 
         return m
     pw = password or secrets.get(IMAP_PASSWORD)
     if not (c["host"] and c["user"] and pw):
-        raise NotConfigured("邮箱还没有设置（设置 → 通知与邮箱）。")
+        raise NotConfigured("邮箱还没有设置（设置 → 账号与连接 → 收件邮箱）。")
     try:
         m = imaplib.IMAP4_SSL(c["host"], c["port"], timeout=30)
     except Exception as e:  # noqa: BLE001

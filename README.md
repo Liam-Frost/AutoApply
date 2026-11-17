@@ -118,12 +118,12 @@ docker compose exec autoapply autoapply set-admin     # choose the administrator
 
 Then open `http://127.0.0.1:8000` on that computer. Everything that is yours is in the volume `autoapply-data`.
 
-**Without Docker**: `sh AutoApply-<version>-linux.run --yes --service` installs for the current user and registers a systemd user service (started with the computer, restarted when it fails). `autoapply doctor --deep` then lists what the computer lacks - the browser's libraries, a virtual screen, LibreOffice, fonts - each with the command that adds it; the same list is under *Settings → Advanced*.
+**Without Docker**: `sh AutoApply-<version>-linux.run --yes --service` installs for the current user and registers a systemd user service (started with the computer, restarted when it fails). `autoapply doctor --deep` then lists what the computer lacks - the browser's libraries, a virtual screen, LibreOffice, fonts - each with the command that adds it; the same list is under *Settings → System and data → Diagnostics*.
 
 What is different on a server:
 
 - **Windows that need you open in the web page.** Signing in to a site, pressing *Submit* yourself, taking over a form: on a desktop these open a browser window. Without a screen the page is shown in AutoApply's own page - a notice at the top, and a Telegram message with a link if you set that up - and you click and type there. A site that refuses a hidden browser gets a real window on a virtual screen, which is shown the same way.
-- **Use HTTPS from other devices.** The server speaks plain HTTP. For access from anywhere but the computer itself, put a reverse proxy that does HTTPS in front and turn on *a reverse proxy does the HTTPS* under *Settings → Access & security*. Until then the remote window is refused to other devices, because passwords are typed into it.
+- **Use HTTPS from other devices.** The server speaks plain HTTP. For access from anywhere but the computer itself, put a reverse proxy that does HTTPS in front and turn on *a reverse proxy does the HTTPS* under *Settings → System and data → Remote access*. Until then the remote window is refused to other devices, because passwords are typed into it.
 - **Passwords and keys are in an encrypted file**, `data/secrets.bin`, because a server has no keyring. By default its master key is beside it; to keep the key elsewhere set `AUTOAPPLY_MASTER_KEY_FILE` (a Docker secret, a systemd credential). Keep a copy of that key: without it the saved passwords are lost.
 - **A sign-in that cannot be done on a server can be carried over.** Passkeys, and sites that only accept a computer they know: sign in with AutoApply on your own computer, export the sign-in under *Site accounts* (encrypted with a passphrase), import it on the server.
 
@@ -156,7 +156,7 @@ Who presses *Submit* is your choice per site or company: by default the program 
 
 ## AI services, backups and allowance
 
-*Settings → AI model.*
+*Settings → Accounts and connections → AI service.*
 
 | Service | How you pay | Allowance can be read |
 |---|---|---|
@@ -182,8 +182,8 @@ The Claude subscription is the best-tested service. Others work through the same
 - Passwords and API keys are in the system keyring - on a server, which has none, in an encrypted file. Saved sign-ins are encrypted.
 - Nothing is sent anywhere except to the AI service you chose and to the job sites themselves. There is no telemetry and no account.
 - The page asks for a login - one account, whose name and password you choose the first time you open it on the computer it runs on. Only a salted hash of the password is kept.
-- The server listens on `127.0.0.1` unless you change that under Settings -> Access & security, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
-- *Settings → Advanced → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
+- The server listens on `127.0.0.1` unless you change that under Settings → System and data → Remote access, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
+- *Settings → System and data → Backup and updates → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
 
 ## What the previous version got wrong, and what changed
 

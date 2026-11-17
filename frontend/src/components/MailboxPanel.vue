@@ -125,7 +125,7 @@ onMounted(load)
           <label>授权码 / 应用专用密码</label><input v-model="form.password" type="password" autocomplete="new-password" :placeholder="d.imap.has_password && inUse ? '已保存，留空表示不改' : '不是邮箱的登录密码'" />
         </template>
       </div>
-      <p class="hint" style="margin-top: 8px">授权码 / 授权令牌保存在本机的系统凭据管理器里。邮件连接不经过“设置 → 网络”里的代理，是直接连到邮箱服务器的。</p>
+      <p class="hint" style="margin-top: 8px">授权码 / 授权令牌保存在本机的系统凭据管理器里。邮件连接不经过“设置 → 系统与数据 → 网络连接”里的代理，是直接连到邮箱服务器的。</p>
     </template>
 
     <div class="row" style="margin-top: 12px">

@@ -136,7 +136,7 @@ def _access() -> dict[str, str] | None:
         return None
     if c.get("https_by_proxy"):
         return _finding("access", "ok", "从其他设备访问，经由负责 HTTPS 的反向代理")
-    return _finding("access", "warn", "从其他设备访问时没有加密", "登录密码，以及你在远程窗口里输入的密码，会以明文在网络上传输。请在前面放一个负责 HTTPS 的反向代理，并在“访问与安全”里打开对应的开关。")
+    return _finding("access", "warn", "从其他设备访问时没有加密", "登录密码，以及你在远程窗口里输入的密码，会以明文在网络上传输。请在前面放一个负责 HTTPS 的反向代理，并在“设置 → 系统与数据 → 远程访问”里打开对应的开关。")
 
 
 def run(deep: bool = False) -> list[dict[str, str]]:

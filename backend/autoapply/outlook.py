@@ -89,7 +89,7 @@ def _save(t: dict[str, Any]) -> None:
 def access_token() -> str:
     raw = secrets.get(TOKEN)
     if not raw:
-        raise NotReady("Outlook 邮箱还没有授权（设置 → 通知与邮箱）。")
+        raise NotReady("Outlook 邮箱还没有授权（设置 → 账号与连接 → 收件邮箱）。")
     t = json.loads(raw)
     if t.get("expires_at", 0) > time.time():
         return t["access_token"]

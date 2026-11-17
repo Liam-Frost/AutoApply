@@ -61,7 +61,7 @@ _RULES: list[tuple[str, str]] = [
     (r"还没有安装 ChatGPT 接入组件", "ChatGPT 的接入组件还没有安装。"),
     (r"AI 服务的额度用完了或账户欠费", "这家 AI 服务的余额用完了或账户欠费。"),
     (r"拒绝了这个 API key|API key is missing or invalid", "API key 没填、填错了，或者没有权限。"),
-    (r"连不上 AI 服务|cannot reach the Claude API", "连不上这家 AI 服务。检查网络和“设置 → 网络”。"),
+    (r"连不上 AI 服务|cannot reach the Claude API", "连不上这家 AI 服务。检查网络和“设置 → 系统与数据 → 网络连接”。"),
     (r"还没有选模型", "这家服务还没有选模型。"),
     (r"subscription login is not usable|not logged in", "登录失效了，需要重新登录这家服务。"),
     (r"网站暂时打不开|SiteDown|HTTP 5\d\d|Server error '5\d\d|error page|empty page|could not open the posting|net::ERR|Page\.goto: Timeout|Site Maintenance",

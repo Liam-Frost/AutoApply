@@ -2551,7 +2551,7 @@ def _remote(request: Request, window_id: str):
 
     who = access.caller(request.client.host if request.client else "", request.headers)
     if not who["local"] and not who["https"] and not who.get("near"):
-        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“访问与安全”里打开对应的开关。")
+        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“设置 → 系统与数据 → 远程访问”里打开对应的开关。")
     win = remote.get(window_id)
     if win is None:
         raise HTTPException(404, "这个窗口已经关闭了。")

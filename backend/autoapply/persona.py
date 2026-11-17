@@ -236,7 +236,7 @@ def suggest(p: dict[str, Any]) -> dict[str, Any]:
     except llm.LLMError:
         # why is in the program's log; the page gets the fact, not the text of an internal error
         log.warning("persona suggestions fell back to the template", exc_info=True)
-        out["note"] = "AI 暂时用不了，先给了一份通用模板，可以直接改；AI 服务的状态在“设置 → AI 模型”里可以测试。"
+        out["note"] = "AI 暂时用不了，先给了一份通用模板，可以直接改；AI 服务的状态在“设置 → 账号与连接 → AI 服务”里可以测试。"
     return out
 
 
