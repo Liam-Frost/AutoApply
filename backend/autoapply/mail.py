@@ -363,6 +363,12 @@ TRIAGE_SCHEMA = llm.obj(
                                  "moved to another time, a time or place confirmed. reminder: nothing new, it is recalled. cancelled: it is called off - an "
                                  "interview cancelled, an assessment no longer needed, an offer withdrawn. An e-mail that cancels an interview is category "
                                  "interview, event cancelled - never event new."},
+        "action": {"type": "string", "description": "what the applicant has to do, if the e-mail asks for something: 'complete the online assessment', 'choose an interview "
+                                                    "slot', 'attend the interview', 'reply with availability'. One short phrase, in Simplified Chinese. Empty when it asks for nothing."},
+        "due": {"type": "string", "description": "the date, or date and time, by which or at which that is to be done - ONLY if the e-mail states one. ISO form: 2026-11-24 or "
+                                                 "2026-11-24T10:00. Use the year the e-mail implies. Empty when the e-mail states no date: never work one out from 'within a week' "
+                                                 "or from when the e-mail was sent."},
+        "due_text": {"type": "string", "description": "that date and time in the e-mail's own words, with the time zone if it names one ('Tuesday, Nov 24 at 10:00 AM PST'). Empty when none."},
         "received": {"type": "boolean", "description": "true only if the e-mail states that a COMPLETED application was received or submitted. false for an application "
                                                          "that was started, saved or is in progress, a reminder to finish it, an account or profile that was created, "
                                                          "an e-mail address to confirm, a sign-in or security code."},
@@ -434,17 +440,29 @@ def link(message_id: str, application_ids: list[int], *, by: str = "user") -> in
         if by != "user" and me.linked_by == "user":
             return 0        # the applicant has said which application this is about: nothing the program finds later changes that
         me.application_id, me.linked_by = int(application_ids[0]), by
-        category, summary, received, event = me.category, me.summary, me.received_at, me.event or "new"
+        category, summary, received, event, asks = me.category, me.summary, me.received_at, me.event or "new", dict(me.asks or {})
         for app_id in application_ids:
             updated, early, title = _record(int(app_id), category, summary, received, message_id, event, session=s)
             changed += updated
             if not early:
                 tell.append((int(app_id), title))
     for app_id, title in tell:
+        _asked(app_id, title, category, event, summary, asks, message_id)
         _tell(lambda: notify.send("status_update", messages.mail_update(category, title, summary, event=event), ref=f"application:{app_id}", tag=category))
     notify.close_todos("mail_unmatched", f"mail:{message_id}")
     log.info("mail %s linked to application(s) %s (%s)", message_id[:12], application_ids, by)
     return changed
+
+
+def _asked(app_id: int, title: str, category: str, event: str, summary: str, asks: dict[str, Any] | None, mid: str) -> None:
+    """What the mail asks of the applicant becomes a card with its date (reminders.from_mail) - whichever way the mail
+    came to its application: named by the mail, or by the applicant afterwards."""
+    try:
+        from . import reminders
+
+        reminders.from_mail(app_id, title, category, event, summary, asks, mid)
+    except Exception:  # noqa: BLE001 - the mail is on record and announced; a card that could not be made does not undo that
+        log.exception("could not make a card for what a mail asks")
 
 
 def _tell(send: Any) -> None:
@@ -646,8 +664,9 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             # The mail and what it does to its application are one write. Written apart, a failure in between left the
             # mail "read" for good and the application where it was: an interview invitation on file, the application
             # still "submitted". Now a failure leaves neither, and the next pass reads the mail again.
+            asks = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text") if t.get(k)}
             s.add(MailEvent(message_id=mid, sender=frm[:200], subject=subj[:300], received_at=received, category=t["category"], event=t.get("event") or "new",
-                            application_id=app_id, company_guess=t["company"], summary=t["summary"]))
+                            application_id=app_id, company_guess=t["company"], summary=t["summary"], asks=asks or None))
             if app_id is not None and t["category"] != "other":
                 changed, early, title = _record(app_id, t["category"], t["summary"], received, mid, t.get("event") or "new", session=s)
         new += 1
@@ -665,6 +684,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
         updated += changed
         if early:
             continue
+        _asked(app_id, title, t["category"], t.get("event") or "new", t["summary"], asks, mid)
         _tell(lambda: notify.send("status_update", messages.mail_update(t["category"], title, t["summary"], event=t.get("event") or "new"), ref=f"application:{app_id}", tag=t["category"]))
     if quick:
         commit_history()        # every message of the batch is recorded: only now is it behind us

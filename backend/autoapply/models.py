@@ -166,6 +166,7 @@ class MailEvent(Base):
     subject: Mapped[str] = mapped_column(String, default="")
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     category: Mapped[str] = mapped_column(String, default="")  # confirmation|rejection|interview|assessment|info_request|other
+    asks: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # what it asks of the applicant: {action, due, due_text} as the mail states it
     linked_by: Mapped[str] = mapped_column(String, default="")  # who said which application it is about: "" the program, "site" the employer's list, "user"
     event: Mapped[str] = mapped_column(String, default="new")  # what the mail says about it: new|changed|reminder|cancelled (mail.EVENTS)
     application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
@@ -313,6 +314,8 @@ class Todo(Base):
     status: Mapped[str] = mapped_column(String, default="open")  # open|done|dismissed
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)           # when it is for (local time): an interview, an assessment's deadline
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)    # put off by the applicant: shown again from then (local time)
 
 
 class Notification(Base):
@@ -324,6 +327,7 @@ class Notification(Base):
     ref: Mapped[str] = mapped_column(String, default="")
     sent: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str] = mapped_column(Text, default="")
+    held: Mapped[int] = mapped_column(Integer, default=0)      # kept back for the quiet hours: goes out when they end
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 

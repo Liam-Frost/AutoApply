@@ -61,9 +61,64 @@ def link(path: str) -> str:
     return f"{str(db.get_setting('app.base_url')).rstrip('/')}{path}"
 
 
-def send(category: str, card: Card | str, *, ref: str = "", path: str = "", tag: str = "") -> bool:
+def quiet_now(at: Any = None) -> bool:
+    """Are these the quiet hours the applicant set (nothing is pushed to the phone)?"""
+    from datetime import datetime
+
+    q = db.get_setting("notify.quiet") or {}
+    if not q.get("on"):
+        return False
+    try:
+        (fh, fm), (th, tm) = (map(int, str(q.get(k) or "").split(":")) for k in ("from", "to"))
+    except (ValueError, TypeError):
+        return False
+    at = at or datetime.now()
+    now_m, start, end = at.hour * 60 + at.minute, fh * 60 + fm, th * 60 + tm
+    if start == end:
+        return False
+    return start <= now_m < end if start < end else (now_m >= start or now_m < end)
+
+
+def flush_held(at: Any = None) -> int:
+    """The quiet hours are over: what was kept back goes out, as one message (not a burst of them at eight in the morning)."""
+    if quiet_now(at):
+        return 0
+    from . import i18n
+
+    with db.session() as s:
+        rows = [(n.id, n.text) for n in s.query(Notification).filter_by(held=1).order_by(Notification.id)]
+    if not rows:
+        return 0
+    head = i18n.tr(f"静默时段里有 {len(rows)} 条通知：")
+    parts, size = [], len(head)
+    for _, text in rows:
+        piece = i18n.tr_lines(text)
+        if size + len(piece) > 3300:
+            parts.append(i18n.tr(f"……还有 {len(rows) - len(parts)} 条，见活动记录里“发出的通知”。"))
+            break
+        parts.append(piece)
+        size += len(piece) + 2
+    sent, err = False, ""
+    for ch in _channels():
+        try:
+            ch.send(head + "\n\n" + "\n\n".join(parts))
+            sent = True
+        except Exception as e:  # noqa: BLE001
+            err = str(e)
+            log.warning("held notifications could not be sent: %s", err)
+    with db.session() as s:
+        for n in s.query(Notification).filter(Notification.id.in_([i for i, _ in rows])):
+            n.held, n.sent, n.error = 0, int(sent), err
+    return len(rows)
+
+
+def send(category: str, card: Card | str, *, ref: str = "", path: str = "", tag: str = "", through_quiet: bool = False) -> bool:
     """Record a notification and push it to every configured channel.
-    ``card`` is normally a ``messages.Card``; a bare string is sent as a one-line card."""
+    ``card`` is normally a ``messages.Card``; a bare string is sent as a one-line card.
+
+    In the quiet hours it is recorded and kept back (flush_held sends it when they end) - unless ``through_quiet``:
+    something the applicant is waiting for right now, having started it themselves (the approval on their phone of a
+    sign-in they asked for)."""
     assert category in CATEGORIES, category
     if isinstance(card, str):
         card = Card("🔔", card)
@@ -77,6 +132,11 @@ def send(category: str, card: Card | str, *, ref: str = "", path: str = "", tag:
     out = card.localized()        # what leaves the program follows the interface language
     enabled = bool(db.get_setting(f"notify.{category}")) or tag in ALWAYS
     sent, err = False, ""
+    hold = enabled and not through_quiet and quiet_now()
+    if hold:
+        with db.session() as s:
+            s.add(Notification(category=category, text=text, ref=ref, sent=0, error="", held=1))
+        return False
     if enabled:
         for ch in _channels():
             try:
@@ -102,7 +162,9 @@ def test_message() -> None:
 
 def add_todo(kind: str, title: str, *, body: str = "", ref: str = "", payload: dict | None = None, push: bool = True) -> int:
     """Create a to-do (deduplicated on kind+ref while open) and notify.
-    ``push=False`` when the caller sends its own, more specific notification for the same event."""
+    ``push=False`` when the caller sends its own, more specific notification for the same event.
+
+    One thing that many tasks wait for is one card and one notice: the second task to meet it finds the card there."""
     with db.session() as s:
         existing = s.query(Todo).filter_by(kind=kind, ref=ref, status="open").first() if ref else None
         if existing:

@@ -122,6 +122,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "notify.status_update": True,
     "notify.task_result": True,
     "notify.telegram_chat_id": "",
+    # Hours in which nothing is pushed to the phone ({"on", "from", "to"}, local time; "to" may be on the next day).
+    # What comes in then is kept and goes out as one message when the hours end. Off by default.
+    "notify.quiet": {"on": False, "from": "22:00", "to": "08:00"},
     "app.base_url": "http://127.0.0.1:8000",
     # discovery
     "sources.greenhouse": [],  # board tokens
