@@ -35,7 +35,7 @@ _APP = {
     "recon": "drafting", "revising": "drafting",
     "needs_input": "needs_input", "draft_ready": "draft_ready",
     "approved": "applying", "executing": "applying", "drifted": "applying",
-    "ready_to_submit": "needs_you", "needs_human": "needs_you",
+    "ready_to_submit": "needs_you", "submit_unknown": "needs_you", "needs_human": "needs_you",
     "failed": "failed", "submitted": "submitted", "confirmed": "confirmed",
     "assessment": "assessment", "interview": "interview", "offer": "offer", "rejected": "rejected",
     "withdrawn": "skipped",

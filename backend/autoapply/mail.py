@@ -19,7 +19,7 @@ from typing import Any
 
 from . import db, lifecycle, llm, messages, notify, secrets
 from . import prompts
-from .models import RANK, SENT, Application, Job, MailEvent  # noqa: F401  (RANK: how far along; a mail never moves an application backwards by itself)
+from .models import RANK, SENT, UNKNOWN, Application, Job, MailEvent  # noqa: F401  (RANK: how far along; a mail never moves an application backwards by itself)
 
 log = logging.getLogger("autoapply.mail")
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -419,7 +419,7 @@ def candidates(company: str) -> list[int]:
     c = _norm(company)
     with db.session() as s:
         rows = [(a.submitted_at or a.created_at, a.id) for a in s.query(Application).join(Job).all()
-                if _same_company(c, _norm(a.job.company)) and (a.submitted_at is not None or RANK.get(a.status, 0) >= 1)]
+                if _same_company(c, _norm(a.job.company)) and (a.submitted_at is not None or RANK.get(a.status, 0) >= 1 or a.status == UNKNOWN)]
     return [i for _, i in sorted(rows, reverse=True)]
 
 

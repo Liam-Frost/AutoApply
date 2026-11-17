@@ -217,7 +217,7 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
         return "interrupted" if "interrupted" in (error or "") else "failed"
     if kind == "execute":
         st = str((result or {}).get("status") or "")
-        return {"submitted": "success", "ready_to_submit": "handed", "needs_human": "waiting", "approved": "rerun"}.get(st, "failed" if st in ("failed", "drifted") else "success")
+        return {"submitted": "success", "ready_to_submit": "handed", "submit_unknown": "handed", "needs_human": "waiting", "approved": "rerun"}.get(st, "failed" if st in ("failed", "drifted") else "success")
     if kind == "scout" and str((result or {}).get("status") or "") in ("failed", "needs_human"):      # the walk itself did not work
         return "failed"
     return "success"

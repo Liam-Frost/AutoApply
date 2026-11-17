@@ -163,8 +163,8 @@ def basis(text: str) -> str:
 
 APP_STATUS = {
     "recon": "正在读取申请表", "revising": "正在按你的意见修改", "needs_input": "有问题等你回答", "draft_ready": "等你审批",
-    "approved": "已批准，排队填写", "executing": "正在填写", "drifted": "申请表有变化，重新读取中", "ready_to_submit": "填好了，还没确认提交",
-    "needs_human": "需要你处理", "failed": "没有提交成功", "submitted": "已提交", "confirmed": "已收到确认信", "assessment": "笔试 / OA / VA",
+    "approved": "已批准，排队填写", "executing": "正在填写", "drifted": "申请表有变化，重新读取中", "ready_to_submit": "填好了，还没有提交",
+    "submit_unknown": "提交结果待确认", "needs_human": "需要你处理", "failed": "没有提交成功", "submitted": "已提交", "confirmed": "已收到确认信", "assessment": "笔试 / OA / VA",
     "interview": "面试", "offer": "收到 Offer", "rejected": "已被拒", "withdrawn": "不投了",
 }
 REVIEW = {"pending": "等你审批", "approved": "已批准", "superseded": "已被新版本替代", "rejected": "已退回", "closed": "已关闭（申请已经提交）"}
@@ -217,7 +217,7 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
     if kind == "revise":
         return "已按你的意见生成新版本"
     if kind == "execute":
-        return {"submitted": "已提交", "ready_to_submit": "已填好，但没有确认提交成功", "drifted": "申请表有变化，已重新读取", "failed": "没有提交",
+        return {"submitted": "已提交", "ready_to_submit": "已填好，还没有提交", "submit_unknown": "点了提交，结果待确认", "drifted": "申请表有变化，已重新读取", "failed": "没有提交",
                 "needs_human": "需要你处理", "approved": "改为在可见窗口里重跑"}.get(str(r.get("status")), "")
     if kind == "site_status":
         r = result or {}

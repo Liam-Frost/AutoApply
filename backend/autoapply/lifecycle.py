@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from . import db
-from .models import RANK, SENT, Application, Draft, Task, Todo, now
+from .models import RANK, SENT, UNKNOWN, Application, Draft, Task, Todo, now
 
 log = logging.getLogger("autoapply.lifecycle")
 
@@ -164,6 +164,32 @@ def applied_before(application_id: int, seen: Any = None) -> None:
                 a.submitted_at = applied_on(seen["text"])
         a.last_event = APPLIED_BEFORE
     notify.send("task_result", messages.submitted(title, evidence=seen["text"], note="already applied"), ref=f"application:{application_id}")
+
+
+def unknown_from_before() -> list[int]:
+    """Runs of earlier versions that pressed Submit and saw no confirmation were filed as failed, with a card that offered
+    to fill the form in again. They are what they are: submissions whose outcome is not known. Returns the applications."""
+    from . import notify
+
+    found: dict[int, tuple[int, int | None, str]] = {}
+    with db.session() as s:
+        for t in s.query(Todo).filter(Todo.status == "open", Todo.kind.in_(("failed", "submit"))):
+            p = t.payload or {}
+            if not (p.get("maybe_submitted") or "no confirmation after submit" in (t.body or "")):
+                continue
+            d = s.get(Draft, int(p["draft_id"])) if p.get("draft_id") else None
+            a = s.get(Application, int(p["application_id"])) if p.get("application_id") else (d.application if d is not None else None)
+            if a is None or a.status in SENT or a.status not in ("failed", "ready_to_submit"):
+                continue
+            job = a.job
+            found[a.id] = (t.id, d.id if d is not None else None, f"{job.company} · {job.title}" if job is not None else "")
+            t.status, t.done_at = "done", now()
+            if move(a, UNKNOWN, source="recover"):
+                a.last_event = "点过提交，但没有看到提交成功的页面；等确认邮件核实"
+    for app_id, (_, draft_id, title) in found.items():
+        notify.add_todo("submit", f"{title}：提交结果待确认", ref=f"application:{app_id}", payload={"draft_id": draft_id, "application_id": app_id},
+                        body="点过提交，但没有看到提交成功的页面。如果已经提交成功，雇主的确认邮件会把它记为已投出；你也可以现在就查。", push=False)
+    return sorted(found)
 
 
 def settle_all() -> int:

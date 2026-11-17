@@ -36,12 +36,12 @@ from pathlib import Path
 from typing import Any
 
 from . import answers as ans, messages
-from . import auth, browser, config, db, fixtures, knowledge, learned, lifecycle, llm, metering, notify, repair, secrets, timing
+from . import auth, browser, config, db, fixtures, knowledge, learned, lifecycle, llm, metering, notify, repair, secrets, submitwatch, timing
 from .ats import audit, registry
 from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .ats.base import tolerated
 from .drafts import _stat
-from .models import SENT, Application, Draft, Run, now
+from .models import SENT, UNKNOWN, Application, Draft, Run, now
 
 log = logging.getLogger("autoapply.executor")
 
@@ -206,6 +206,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             # It has gone out - submitted, or already further: confirmed, an interview, a rejection. There is nothing
             # to fill again, whoever asks (a retry of an old task, a card that was still open). Its status is not touched.
             return {"status": app.status, "note": "already submitted"}  # idempotent
+        if app.status == UNKNOWN:
+            # Submit was pressed and the outcome is not known. Filling the form again is for the applicant to decide,
+            # after they have said it did not go through (the API moves it back to "approved" then) - not for a task
+            # that happens to be in the queue.
+            return {"status": app.status, "note": "waiting for the outcome of a submission"}
         raw = dict(d.schema)
         ref_d = raw.pop("_ref")
         schema = FormSchema.from_dict(raw)
@@ -915,8 +920,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     step("confirmation_read", state=said["state"])
                 if conf is None:
                     errs = _errors(driver, page)
-                    raise DriverError("no confirmation after submit", seen="; ".join(errs)[:500] or page.url)
-                outcome = {"status": "submitted", "evidence": {**conf, **shots}}
+                    if errs:        # the form answered the click with its own complaints: it was not sent
+                        raise DriverError("the form did not accept the submission", seen="; ".join(errs)[:500])
+                    # Submit was pressed, the form complains of nothing, and no page says "received". That is not a
+                    # failed run to do again: the application may be out.
+                    step("submit_unknown", how="pressed by the program", url=page.url)
+                    outcome = {"status": UNKNOWN, "submit_clicked": True, "last_seen": _seen(page, 1500),
+                               "error": "程序点了提交，表单没有报错，但也没有出现提交成功的页面"}
+                else:
+                    outcome = {"status": "submitted", "evidence": {**conf, **shots}}
             if generic and outcome.get("status") == "submitted":
                 _finish_account(page, ref, step, run_dir)
             if driver.requires_login:
@@ -1039,12 +1051,25 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             (run_dir / "last_seen.txt").write_text(f"{outcome['last_seen'].get('url', '')}\n\n{outcome['last_seen'].get('text', '')}", encoding="utf-8")
         except OSError:
             pass
-    if outcome["status"] == "ready_to_submit" and outcome.get("error"):
-        # Filled (and possibly clicked) but no confirmation: one card that says so and offers a re-run.
+    if outcome["status"] == UNKNOWN:
+        # Submit was pressed; whether it went through is not known. Not a card that offers to fill it in again: one that
+        # says what is open and what settles it. The confirmation mail is looked for like after any submission.
+        from . import tasks
+
+        for kind in ("failed", "submit"):
+            notify.close_todos(kind, f"application:{application_id}")
+        notify.add_todo("submit", f"{title}：提交结果待确认", body=f"{outcome.get('error', '')}。如果已经提交成功，雇主的确认邮件会把它记为已投出；程序会继续留意邮箱，你也可以现在就查。"[:500],
+                        ref=f"application:{application_id}", payload={"draft_id": draft_id, "application_id": application_id},
+                        push=not db.get_setting("notify.task_result"))
+        for m in db.get_setting("mail.confirm_check_minutes") or []:
+            tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+        notify.send("task_result", messages.submit_unknown(title, said=outcome.get("error", "")), ref=f"application:{application_id}")
+    elif outcome["status"] == "ready_to_submit" and outcome.get("error"):
+        # Filled, the window is gone, and Submit was not pressed: one card that says so and offers to open it again.
         # (A run that stopped for a login or a CAPTCHA already has its own card saying what is needed.)
         notify.close_todos("submit", f"application:{application_id}")
-        notify.add_todo("failed", f"{title}：没有确认提交成功", body=outcome["error"][:500], ref=f"application:{application_id}",
-                        payload={"draft_id": draft_id, "application_id": application_id, "maybe_submitted": outcome["status"] == "ready_to_submit"},
+        notify.add_todo("failed", f"{title}：填好了，还没有提交", body=outcome["error"][:500], ref=f"application:{application_id}",
+                        payload={"draft_id": draft_id, "application_id": application_id},
                         push=not db.get_setting("notify.task_result"))
         notify.send("task_result", messages.failed(title, error=outcome["error"]), ref=f"application:{application_id}")
     return outcome
@@ -1393,9 +1418,12 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
     asked, asked_text = 0, ""
     last: dict[str, str] = {}
     watched = FormSchema(ats="generic", questions=list(watch or [])) if watch else None
+    submitwatch.install(page)
+    pressed: dict[str, Any] | None = None       # what was seen of a submission in this window
     for tick in range(1200):  # up to ~20 minutes
         if page.is_closed():
             break
+        pressed = submitwatch.seen(page) or pressed      # asked every second: what Submit leaves behind may be the last thing the window shows
         if watched is not None and typed is not None and tick % 2 == 0:
             # What the applicant enters for the questions that were handed to them: read while the field is on the page
             # (it is gone once they go on to the next step), kept for the draft and remembered.
@@ -1454,7 +1482,10 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
         # the window was closed on a page that says it in words the program does not know
         notify.close_todos("submit", f"application:{application_id}")
         return {"status": "submitted", "evidence": {"url": last.get("url", ""), "text": said["sentence"][:300], "read_by": "model"}}
-    return {"status": "ready_to_submit", "error": "窗口已关闭或超时，没有看到确认页；是否已提交不确定，请以确认邮件为准", "last_seen": last}
+    if pressed:
+        # Submit was pressed in the window, and no page that says "received" was seen before it closed
+        return {"status": UNKNOWN, "submit_clicked": True, "last_seen": last, "error": "你在窗口里点了提交，但窗口关闭前没有出现提交成功的页面"}
+    return {"status": "ready_to_submit", "error": "表单已经填好，窗口关闭或超时前没有点提交", "last_seen": last}
 
 
 def _email_code_step(driver: Any, page: Any, run_dir: Path | None, since: datetime) -> bool:

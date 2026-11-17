@@ -24,6 +24,10 @@ class Base(DeclarativeBase):
 # (drafts), counts as "applied at this employer" (auth) and is recorded as a change worth settling (db) all read it here.
 SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along a sent application is
+# Submit was pressed and no page said "received". Whether the application went out is not known: it is not a sent one
+# (nothing shows it), and it is not one to fill in again either (that would be a second application if the first went
+# through). It waits for what settles it - the confirmation mail, or the applicant's word.
+UNKNOWN = "submit_unknown"
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String, primary_key=True)

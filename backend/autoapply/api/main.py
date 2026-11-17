@@ -30,7 +30,7 @@ from .. import net, persona, prompts
 from .. import auth, config, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..ats import registry
 from ..models import Contact
-from ..models import SENT, Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
+from ..models import SENT, UNKNOWN, Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
 
 
 @asynccontextmanager
@@ -92,6 +92,12 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not apply the programmes rule to stored postings")
         db.set_setting("migrated.programmes_rule", True)
+    if not db.get_setting("migrated.submit_unknown"):
+        try:
+            lifecycle.unknown_from_before()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("could not re-file submissions whose outcome is not known")
+        db.set_setting("migrated.submit_unknown", True)
     if not db.get_setting("migrated.unconfirmed_accounts"):
         try:
             auth.requeue_unconfirmed()
@@ -511,7 +517,7 @@ def list_drafts(all: bool = False) -> list[dict[str, Any]]:  # noqa: A002
             from sqlalchemy import and_, or_
 
             q = q.filter(or_(Draft.review_status == "pending",
-                             and_(Draft.review_status == "approved", Application.status.in_(("approved", "executing", "ready_to_submit", "failed", "needs_human")))))
+                             and_(Draft.review_status == "approved", Application.status.in_(("approved", "executing", "ready_to_submit", UNKNOWN, "failed", "needs_human")))))
         out = []
         for d in q.order_by(Job.deadline, Job.score.desc()).all():
             j = d.application.job
@@ -629,8 +635,11 @@ def approve_draft(draft_id: int) -> dict[str, Any]:
 
 
 @app.post("/api/drafts/{draft_id}/execute")
-def execute_again(draft_id: int) -> dict[str, Any]:
-    """Run an approved draft again after a run that ended without submitting (window closed, timeout, failure)."""
+def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Run an approved draft again after a run that ended without submitting (window closed, timeout, failure).
+
+    When Submit was pressed and the outcome is not known, that is a second application if the first went through: it is
+    done only on the applicant's word that it did not (``not_submitted``)."""
     with db.session() as s:
         d = _404(s.get(Draft, draft_id))
         app = d.application
@@ -640,9 +649,19 @@ def execute_again(draft_id: int) -> dict[str, Any]:
             raise _already_sent(app)
         if app.status == "executing":
             raise HTTPException(400, "a run is in progress")
+        if app.status == UNKNOWN and not body.get("not_submitted"):
+            raise HTTPException(409, "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。")
         app_id, deadline = app.id, app.job.deadline
         lifecycle.move(app, "approved", source="user")
     return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
+
+
+@app.post("/api/applications/{application_id}/check-mail")
+def check_mail_now(application_id: int) -> dict[str, Any]:
+    """Look in the mailbox now for what settles an application whose submission is not confirmed."""
+    with db.session() as s:
+        _404(s.get(Application, application_id))
+    return {"task_id": tasks.enqueue("mail", ref=f"confirm:{application_id}", payload={}, priority=10, dedupe=False)}
 
 
 @app.post("/api/applications/{application_id}/mark-submitted")
@@ -751,6 +770,10 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                 j = a.job
             elif p.get("job_url"):
                 j = by_url.get(p["job_url"])
+            # where the application the card is about stands: what the card offers follows from that, not from the card
+            about = j.application if j is not None else None
+            if about is not None and (p.get("draft_id") or p.get("application_id") or r["ref"].startswith("application:")):
+                r["application"] = {"id": about.id, "status": about.status}
             if r["kind"] == "mail_unmatched":      # the applications the applicant can say it belongs to
                 from ..models import MailEvent
 
