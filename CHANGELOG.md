@@ -91,6 +91,21 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **An application that has gone out only moves forward.** Where an application stands was written in some thirty
+  places, each with its own idea of what it might overwrite. Three things followed:
+  - An application that had reached an interview, an assessment, an offer or a rejection could be filled in again:
+    the run refused to start for "submitted" and "confirmed" only, and retrying an old task did not look at all.
+  - A run that ended late wrote its outcome over what a mail had said in the meantime - a confirmation or an
+    invitation that arrived while the window waited for Submit went back to "submitted" or "failed", and the mail's
+    evidence was replaced by the page's.
+  - A mail was stored first and applied to its application second: a failure in between left the mail "read" for
+    good and the application where it was.
+
+  The status now has one way in, and the rule sits on the status itself, where nothing can go round it. A run puts
+  its outcome on the record as the record stands when it ends; what it saw on the page is added to the evidence, and
+  a failure is not reported about an application that has gone out. A mail and what it does are written together.
+  Retrying work on the form of a sent application is refused, and says why. The history of an application keeps who
+  said each change: the run, a mail, the employer's site, or you.
 - **A card that asks you to sign in to Google (or another provider) finishes when you have.** The card's button opened
   the window without the provider's own check for "signed in", so the window could be signed in and nothing noticed:
   the session was not kept and the tasks that waited went on waiting.

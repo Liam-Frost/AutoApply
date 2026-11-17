@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import config, db, discover, drafts, executor, mail, messages, notify, scoring, tasks
+from . import config, db, discover, drafts, executor, lifecycle, mail, messages, notify, scoring, tasks
 from .ats.base import AlreadyApplied, NeedsHuman
 from .models import Application, Job, Task
 from .tasks import enqueue, handler
@@ -215,7 +215,7 @@ def resume_waiting(*handled: str) -> int:
                     again.add(j.application.id)
         for a in s.query(Application).filter_by(status="needs_human"):
             if every or a.id in again:
-                a.status = "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon"
+                lifecycle.move(a, "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon", source="resume")
     if n:
         from . import tasks
 

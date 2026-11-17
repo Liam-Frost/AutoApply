@@ -282,19 +282,20 @@ def test_an_answer_can_be_changed_after_approval_until_the_application_has_gone_
     # the next run fills in what the draft says now
     assert c.post(f"/api/drafts/{did}/execute").status_code == 200 and tasks.drain() == 1
     assert _status(pipeline["job_id"])[0] == "submitted" and pipeline["driver"].submits == 1      # read back against the draft before it was sent
-    with db.session() as s:
-        s.get(Application, app_id).status = "failed"
+    from autoapply import lifecycle
+
+    # (the scene is set back by hand, the way only a correction by the applicant may: a sent application does not go back by itself)
+    lifecycle.move(app_id, "failed", source="user", back=True)
 
     # while a run fills the form from it, and once the application is out, it is closed - and says why
     for status, word in (("executing", "正在"), ("submitted", "已经发出去")):
-        with db.session() as s:
-            s.get(Application, app_id).status = status
+        lifecycle.move(app_id, status, source="user", back=True)
         assert word in c.get(f"/api/drafts/{did}").json()["locked"]
         refused = c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": "Someone else"})
         assert refused.status_code == 409 and word in refused.json()["detail"]
     with db.session() as s:
         assert next(a["value"] for a in s.get(Draft, did).answers if a["id"] == "first_name") == "Alexander"
-        s.get(Application, app_id).status = "failed"
+        lifecycle.move(s.get(Application, app_id), "failed", source="user", back=True)
         s.get(Draft, did).review_status = "superseded"                                   # an old version
     assert c.patch(f"/api/drafts/{did}/answers/first_name", json={"value": "x"}).status_code == 409
     assert c.patch("/api/drafts/999999/answers/first_name", json={"value": "x"}).status_code == 404

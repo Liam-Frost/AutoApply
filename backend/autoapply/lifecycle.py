@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from . import db
-from .models import SENT, Application, Draft, Task, Todo, now
+from .models import RANK, SENT, Application, Draft, Task, Todo, now
 
 log = logging.getLogger("autoapply.lifecycle")
 
@@ -22,6 +22,63 @@ LABEL = {"submitted": "已提交", "confirmed": "已确认收到", "assessment":
 # cards that ask the applicant to do something for this application; a card about a driver, a setting or a mail is not one
 CARDS = ("failed", "submit", "answer", "takeover", "login", "blocked", "captcha")
 WORK = ("recon", "scout", "execute", "revise", "reanswer", "tailor")     # tasks that prepare or fill an application
+
+
+def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = None, at: datetime | None = None, back: bool = False) -> bool:
+    """Put an application at ``to``. The one way an application's status is written.
+
+    ``app``: the application (in the caller's session) or its id. ``source``: who says so - "run" (the program filled
+    or submitted), "mail", "site" (the employer's site shows it), "user", "draft" (preparing it), "resume", "recover".
+    Returns whether the application is at ``to`` afterwards. It is not when it has gone out and ``to`` would take it
+    back (models: the rule is kept at the attribute): the caller's news is old, and what it says about the present -
+    "failed", "being read" - is not said.
+
+    ``evidence`` is added to what is there, never put in its place - also when the status was kept: what a run saw on
+    the page is worth keeping even if a mail got there first. ``at``: when it was sent, used when it becomes a sent
+    application and no date is known yet. ``back``: the two cases that may take a sent application back - the applicant
+    correcting the record, and a mail calling off the stage it stands at."""
+    if not isinstance(app, Application):
+        with db.session() as s:
+            a = s.get(Application, int(app))
+            return a is not None and move(a, to, source=source, evidence=evidence, at=at, back=back)
+    was = app.status
+    if to != was:
+        app.__dict__["_moving"] = {"source": source, "back": back}
+        try:
+            app.status = to
+        finally:
+            app.__dict__.pop("_moving", None)
+        if app.status != was:
+            app.__dict__["_moved_by"] = source       # kept with the change (db: the history of an application's status)
+    if evidence:
+        add_evidence(app, evidence)
+    if app.status == to and to in SENT and was not in SENT and at is not None and app.submitted_at is None:
+        app.submitted_at = at
+    return app.status == to
+
+
+def add_evidence(app: Application, more: dict[str, Any]) -> None:
+    """Add to what shows an application was sent. What a page showed (text, url, screenshot) is the latest page's; the
+    mails about it are all kept (``mail_ids``; ``mail_id`` stays the latest, for what reads one); nothing else that is
+    there is dropped."""
+    ev = dict(app.evidence or {})
+    mid = more.get("mail_id")
+    if mid:
+        ids = list(ev.get("mail_ids") or ([ev["mail_id"]] if ev.get("mail_id") else []))
+        if mid not in ids:
+            ids.append(mid)
+        ev["mail_ids"] = ids
+    ev.update({k: v for k, v in more.items() if v not in (None, "")})
+    app.evidence = ev
+
+
+def is_sent(app: Application | None) -> bool:
+    return app is not None and app.status in SENT
+
+
+def furthest(a: str, b: str) -> str:
+    """The stage that is further along of two (a stage that is not a sent one is before all that are)."""
+    return a if RANK.get(a, 0) >= RANK.get(b, 0) else b
 
 
 def settle(application_id: int) -> dict[str, int]:
@@ -101,8 +158,7 @@ def applied_before(application_id: int, seen: Any = None) -> None:
             return
         title = f"{a.job.company} · {a.job.title}" if a.job is not None else ""
         if a.status not in SENT:
-            a.status = "submitted"
-            a.evidence = seen
+            move(a, "submitted", source="site", evidence=seen)
             a.detail = f"the site shows it as applied (seen {now().date().isoformat()})"
             if a.submitted_at is None:
                 a.submitted_at = applied_on(seen["text"])
