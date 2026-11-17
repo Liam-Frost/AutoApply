@@ -287,3 +287,28 @@ def test_an_application_cut_off_while_being_filled_can_be_started_again(app_env)
         assert s.get(Application, a1).status == "failed" and "中断" in s.get(Application, a1).last_event
         assert s.get(Application, a2).status == "executing"
         assert {t.ref: t.status for t in s.query(Task)} == {f"application:{a1}": "failed", f"application:{a2}": "queued"}
+
+
+def test_every_server_file_with_text_for_the_applicant_is_on_the_list_to_translate():
+    """The list of server files whose text is translated was kept by hand. A new module's messages stayed Chinese in the
+    English interface until someone read them there (lifecycle.py, quota.py, backup.py had been missing for a while)."""
+    import ast
+    import importlib.util
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("i18n_extract", root / "scripts" / "i18n_extract.py")
+    ex = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ex)
+    cjk = re.compile(r"[\u4e00-\u9fff]")
+    unknown = []
+    for p in sorted((root / "backend" / "autoapply").rglob("*.py")):
+        rel = p.relative_to(root / "backend" / "autoapply").as_posix()
+        if rel in ex.SERVER or rel in ex.NOT_INTERFACE:
+            continue
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and cjk.search(n.value) for n in ast.walk(tree)):
+            unknown.append(rel)
+    assert unknown == []          # add it to SERVER in scripts/i18n_extract.py - or to NOT_INTERFACE, saying what its Chinese text is
+    assert not set(ex.SERVER) & set(ex.NOT_INTERFACE)
