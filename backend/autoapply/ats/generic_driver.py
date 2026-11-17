@@ -221,6 +221,13 @@ def _autocomplete(page: Page, loc: Locator, q: Question, value: str) -> bool:
 
 def set_value(page: Page, q: Question, value: Any) -> None:
     """Put ``value`` into the control for ``q``, choosing the widget helper from the element itself."""
+    if q.id.startswith("@decision:"):       # what the applicant decided about an entry the site made: the take-over carries it out
+        raise DriverError("this is the applicant's decision about an entry, to be carried out on the page - not a control to fill", question=q.label, expected=str(value))
+    where = q.locator or {}
+    if where.get("entry") and str(where.get("selector") or "").startswith("@label:"):
+        # one of several entries with the same labels, and no place of its own recorded: by its label it would be the first entry's field
+        raise DriverError(f"this field belongs to the entry \"{where['entry']}\"; other entries have a field with the same label, so it has to be found within that entry",
+                          question=q.label, expected=str(value))
     loc = _loc(page, q)
     if loc.count() == 0:
         raise DriverError("control not found", question=q.label, expected=str((q.locator or {}).get("selector") or q.id))
@@ -712,7 +719,7 @@ class GenericDriver:
     def read_back(self, page: Page, schema: FormSchema, page_index: int | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for q in schema.questions:
-            if page_index is not None and q.page != page_index:
+            if (page_index is not None and q.page != page_index) or q.id.startswith("@decision:"):
                 continue
             try:
                 v = get_value(page, q)

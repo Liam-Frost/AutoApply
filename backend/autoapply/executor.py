@@ -340,6 +340,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     adapted: list[dict[str, Any]] = []   # answers rewritten to fit a limit of the form: shown to the user, kept in the draft
     limits: dict[str, int] = {}          # question id -> the most characters the form accepts
     asked: list[dict[str, Any]] = []     # questions the form asks that neither the draft nor the profile answers: they join the draft as open questions
+    removed: list[dict[str, str]] = []   # entries the form had made by itself (from the résumé) that the profile contradicts: taken out by the agent
     held: list[dict[str, Any]] = []      # questions the site already holds an answer to (read on a walk): they join the draft as they stand
     located: dict[str, str] = {}         # question id -> where the take-over found its control (the driver fills it alone next time)
     read_now: list[str] = []             # steps read completely on this walk, by their title
@@ -389,9 +390,15 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                              "profile_says": str(h.get("profile_says") or "").strip()[:300]})
         for n in rep.get("needs_user") or []:
             _left("fix", n["label"], "", n.get("why") or "资料里没有这一项，需要你来填")
-            if n.get("type") and not any(norm_question(x["label"]) == norm_question(n["label"]) for x in asked):
-                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": n["type"], "options": [str(o) for o in n.get("options") or []][:60], "page": i,
-                              "selector": n.get("selector") or "", "provisional": str(n.get("provisional") or "")[:200] if scout else ""})
+            decision = bool(n.get("decision"))
+            if (n.get("type") or decision) and not any(norm_question(x["label"]) == norm_question(n["label"]) and x.get("entry", "") == str(n.get("entry") or "")[:160] for x in asked):
+                asked.append({"label": str(n["label"])[:400], "why": str(n.get("why") or "")[:300], "type": "radio" if decision else n["type"],
+                              "options": [str(o) for o in n.get("options") or []][:60], "page": i, "selector": "" if decision else n.get("selector") or "",
+                              "provisional": str(n.get("provisional") or "")[:200] if scout and not decision else "",
+                              "decision": decision, "entry": str(n.get("entry") or "")[:160]})
+        for r in rep.get("removed") or []:      # what the site had made by itself and the agent took out again: said to the applicant with the draft
+            if r not in removed:
+                removed.append(r)
         for qid in rep.get("unfixed") or []:
             _left("fix", lab.get(qid, qid), str(fill.get(qid, ""))[:120], "表单上的选项和草案里的答案对不上，或控件没法自动操作")
         skip_verify.update(rep.get("unfixed") or [])
@@ -877,7 +884,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 if leftovers or mapped or added:
                     step("handed_over", left=[x["label"] for x in leftovers][:20], mapped=[m["label"] for m in mapped][:20], added=[a["label"] for a in added][:20])
                 # the questions handed to the applicant are watched while they have the window: what they answer there is kept
-                watch = [Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"], locator={"selector": f"@label:{a['label']}"}) for a in asked] if generic else []
+                # (not a decision, which is no control, and not a field of one of several like-named entries: its label alone does not find it)
+                watch = [Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"], locator={"selector": f"@label:{a['label']}"})
+                         for a in asked if not a.get("decision") and not a.get("entry")] if generic else []
                 typed: dict[str, Any] = {}
                 outcome = _wait_for_manual_submit(driver, page, title, application_id, draft_id, leftovers=leftovers, mapped=mapped, added=added, adapted=adapted, watch=watch, typed=typed)
                 for a in asked:
@@ -949,8 +958,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
     if scout:      # the application's status is not the walk's to change; what it found goes into the draft
         with db.session() as s:
             s.add(Run(task_id=task_id, kind="scout", ref=f"application:{application_id}", ats=ref.ats, ok=int(outcome.get("status") == "scouted"), steps=steps, spans=_scout_spans(), site=_site_of(schema), dir=str(run_dir)))
-            if mapped or added or adapted or asked or held or located or reordered:
-                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=False,
+            if mapped or added or adapted or asked or held or located or reordered or removed:
+                _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, removed=removed, send_back=False,
                               held=held, located=located)
         return {**{k: v for k, v in outcome.items() if k not in ("evidence", "driver_error", "mismatches", "diff")}, "added": len(added), "asked": len(asked), "adapted": len(adapted),
                 "held": len(held),
@@ -971,9 +980,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         s.flush()
         run_id = run.id
         new_questions = 0
-        if mapped or added or adapted or asked or located or reordered:
+        if mapped or added or adapted or asked or located or reordered or removed:
             back = outcome["status"] != "submitted"
-            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, send_back=back,
+            new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, removed=removed, send_back=back,
                                           located=located) or 0
             if new_questions and back:       # the draft goes back to the applicant: it has questions only they can answer
                 app.status = "needs_input"
@@ -1033,7 +1042,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
 
 def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]], approved_values: dict[str, Any], absent_ids: set[str],
                   added: list[dict[str, Any]], *, generic: bool, limits: dict[str, int] | None = None, asked: list[dict[str, Any]] | None = None,
-                  send_back: bool = False, held: list[dict[str, Any]] | None = None, located: dict[str, str] | None = None) -> int:
+                  send_back: bool = False, held: list[dict[str, Any]] | None = None, located: dict[str, str] | None = None,
+                  removed: list[dict[str, str]] | None = None) -> int:
     """Write back into the draft what the take-over established, so the next run of it needs no agent:
     the form's own wording for approved answers, and the questions the first reading of the form did not see.
     For explored forms the new questions also join the schema (found by their label), which is what the driver replays."""
@@ -1084,24 +1094,31 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
     # Answered once in the program, they are filled by their label on the next run (and remembered, if the applicant says so).
     fresh = 0
     for a in asked or []:
-        qid = f"@label:{a['label']}"
+        # a question of the form is found again by its label; a decision about an entry is not a control at all
+        qid = f"@decision:{a['label']}" if a.get("decision") else f"@label:{a['label']}" + (f" [{a['entry']}]" if a.get("entry") else "")
         typ = a["type"] if a["type"] in ("text", "textarea", "select", "radio", "checkbox", "date", "multiselect") else "text"
         given = a.get("value") not in ("", None, [], False)      # the applicant answered it in the window
-        old = next((r for r in rows if norm_question(r.get("label", "")) == norm_question(a["label"])), None)
+        old = next((r for r in rows if r.get("id") == qid or (not a.get("entry") and not a.get("decision") and norm_question(r.get("label", "")) == norm_question(a["label"]))), None)
         if old is not None and (not given or old.get("value") not in ("", None, [])):
             continue
         row = {"id": qid, "label": a["label"], "type": typ, "options": a.get("options") or [], "required": True, "page": a["page"], "value": a["value"] if given else "",
-               "basis": "你在申请窗口里填的" if given else (("填表时遇到的问题，资料里没有答案：" + a.get("why", ""))[:240]
+               "entry": a.get("entry", ""), "decision": bool(a.get("decision")),
+               "basis": "你在申请窗口里填的" if given else ((("网站自己生成了这一条，需要你决定怎么处理：" if a.get("decision") else "填表时遇到的问题，资料里没有答案：") + a.get("why", ""))[:240]
                                                       + (f"（为了读完后面的步骤，表单里临时填了「{a['provisional']}」，不会提交；你回答后会换成你的答案）" if a.get("provisional") else "")),
                "confidence": "high" if given else "low",
                "source": "profile" if given else "unresolved", "sensitive": sensitivity(a["label"]), "sensitive_confirmed": given}
         rows = [r for r in rows if r is not old] + [row]
         if generic and not any(q["id"] == qid for q in questions):
-            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"], locator={"selector": a.get("selector") or qid}).__dict__)
+            questions.append(Question(id=qid, label=a["label"], type=typ, options=a.get("options") or [], required=True, page=a["page"],
+                                      locator={"selector": a.get("selector") or qid, **({"entry": a["entry"]} if a.get("entry") else {})}).__dict__)
         fresh += 0 if given else 1
     sch["questions"] = questions
     d.answers = rows
     d.schema = sch
+    for r in removed or []:
+        note = f"网站自己生成的一条内容被 AI 删除了：{r['what']}（{r['why']}）"
+        if note not in (d.notes or []):
+            d.notes = [*(d.notes or []), note]
     if asked:
         d.unresolved = [r for r in rows if r.get("source") == "unresolved" and r.get("required")]
     if fresh and send_back:      # back to the applicant: answering and approving it starts the filling again

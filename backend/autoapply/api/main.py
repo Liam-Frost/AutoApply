@@ -538,6 +538,18 @@ def edit_answer(draft_id: int, qid: str, body: dict[str, Any] = Body(...)) -> di
     return get_draft(draft_id)
 
 
+@app.delete("/api/drafts/{draft_id}/answers/{qid:path}")
+def drop_question(draft_id: int, qid: str) -> dict[str, Any]:
+    """Take a question the filling ran into out of the draft: the applicant says it is not one to answer."""
+    with db.session() as s:
+        _404(s.get(Draft, draft_id))
+    try:
+        drafts.drop_question(draft_id, qid)
+    except drafts.Locked as e:
+        raise HTTPException(409, str(e)) from e
+    return get_draft(draft_id)
+
+
 @app.post("/api/drafts/{draft_id}/scout")
 def scout_draft(draft_id: int) -> dict[str, Any]:
     """Read the steps of the form that open only once the earlier ones are filled, by walking it with this draft's

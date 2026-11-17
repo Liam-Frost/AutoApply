@@ -698,6 +698,39 @@ def locked(d: Draft) -> str:
     return ""
 
 
+def drop_question(draft_id: int, qid: str) -> None:
+    """The applicant says a question the filling ran into should not be answered at all (the site made an entry by
+    itself that does not belong there; a field that is not theirs to fill). It leaves the draft. The form is the judge
+    of whether that holds: if it still wants the field on the next run, the take-over meets it again - and by then it
+    knows the entry is not wanted. Only a question that was added while filling and has no answer can be taken out."""
+    with db.session() as s:
+        d = s.get(Draft, draft_id)
+        why = locked(d)
+        if why:
+            raise Locked(why)
+        row = next((a for a in d.answers if a["id"] == qid), None)
+        if row is None or row.get("source") != "unresolved" or row.get("value") not in ("", None, []):
+            raise Locked("只有填表时遇到、还没有答案的问题可以去掉。")
+        d.answers = [a for a in d.answers if a["id"] != qid]
+        d.unresolved = [u for u in d.unresolved if u["id"] != qid]
+        sch = dict(d.schema)
+        sch["questions"] = [q for q in sch.get("questions") or [] if q.get("id") != qid]
+        d.schema = sch
+        d.notes = [*(d.notes or []), f"你去掉了一个填表时遇到的问题：“{str(row.get('label') or '')[:120]}”" + (f"（{row['entry']}）" if row.get("entry") else "")]
+        resolved_all = not d.unresolved and d.application.status == "needs_input"
+        if resolved_all:
+            d.application.status = "draft_ready"
+        walk_on = resolved_all and d.review_status == "pending" and needs_walk(d) and bool(db.get_setting("recon.walk"))
+        if walk_on:
+            d.application.status = "recon"
+    if resolved_all:
+        notify.close_todos("answer", f"draft:{draft_id}")
+    if walk_on:
+        from . import tasks
+
+        tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=20)
+
+
 def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", remember: bool = False) -> None:
     """User edits one answer inline. The edit is authoritative: high confidence, user-confirmed."""
     with db.session() as s:

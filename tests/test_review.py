@@ -252,3 +252,96 @@ def test_a_field_let_through_on_the_agents_word_is_shown_to_the_applicant_and_no
     with pytest.raises(executor.VerifyFailed):
         executor._verify(driver, object(), schema, answers, {"code": "+1 Canada"}, 0, {"code": 0}, tmp_path, lambda op, **kw: None, "Acme", 1, on_trust=seen.append)
     assert seen == []
+
+
+# --- what the site filled in by itself (an entry it made from the résumé) ---
+
+
+def test_the_take_over_is_told_what_to_do_with_an_entry_the_site_made_and_can_report_it(app_env):
+    from autoapply import repair
+
+    assert "An entry the form made by itself" in repair.SYSTEM and "`removed`" in repair.SYSTEM and "@decision:" in repair.SYSTEM
+
+
+def test_a_decision_about_an_entry_joins_the_draft_as_one_question_and_is_not_filled_as_a_control(app_env):
+    """Google's form made a second "work experience" out of a personal project on the résumé and wanted its Job title
+    and City. The applicant got two bare questions - "Job title", "City" - with no way to say: that entry should go."""
+    from autoapply import db, executor
+    from autoapply.ats.base import DriverError, FormSchema, Question
+    from autoapply.ats.generic_driver import GenericDriver, set_value
+    from autoapply.models import Application, Draft, Job
+
+    schema = FormSchema(ats="generic", tenant="careers.example.test", url="https://x", source="agent", pages=["Profile"],
+                        questions=[Question(id="#first", label="First name", type="text", page=0)])
+    with db.session() as s:
+        job = Job(source="manual", source_id="e1", company="Acme", title="Intern", apply_url="https://x", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        a = Application(job_id=job.id, status="approved")
+        s.add(a)
+        s.flush()
+        d = Draft(application_id=a.id, schema=schema.to_dict(), review_status="approved", notes=[], answers=[
+            {"id": "#first", "label": "First name", "type": "text", "options": [], "required": True, "page": 0, "value": "Alex", "basis": "profile", "confidence": "high",
+             "source": "profile", "sensitive": "", "sensitive_confirmed": False}])
+        s.add(d)
+        s.flush()
+        asked = [{"label": "Work experience 2: AutoApply", "why": "The site made it from the résumé; the profile lists AutoApply under projects.", "type": "radio",
+                  "options": ["Remove this entry", "Keep it - I will give the missing details"], "page": 0, "selector": "", "provisional": "", "decision": True, "entry": ""},
+                 {"label": "Job title", "why": "Required in the entry.", "type": "text", "options": [], "page": 0, "selector": "", "provisional": "", "decision": False, "entry": "Work experience 1: Lenovo"},
+                 {"label": "Job title", "why": "Required in the entry.", "type": "text", "options": [], "page": 0, "selector": "", "provisional": "", "decision": False, "entry": "Work experience 3: TCM"}]
+        fresh = executor._keep_learned(d, schema, d.answers, {"#first": "Alex"}, set(), [], generic=True, asked=asked, send_back=True,
+                                       removed=[{"what": "Work experience 4: Course project", "why": "the profile lists it under projects"}])
+        did = d.id
+    assert fresh == 3
+    with db.session() as s:
+        d = s.get(Draft, did)
+        rows = {r["id"]: r for r in d.answers}
+        decision = rows["@decision:Work experience 2: AutoApply"]
+        assert decision["type"] == "radio" and decision["options"][0] == "Remove this entry" and decision["basis"].startswith("网站自己生成了这一条")
+        # the same label in two entries is two questions, each saying which entry it is
+        assert {rows[k]["entry"] for k in rows if k.startswith("@label:Job title")} == {"Work experience 1: Lenovo", "Work experience 3: TCM"}
+        assert any("Course project" in n and "AI 删除了" in n for n in d.notes) and d.review_status == "pending"
+        q = next(Question(**x) for x in d.schema["questions"] if x["id"].startswith("@decision:"))
+    with db.session() as s:
+        twin = next(Question(**x) for x in s.get(Draft, did).schema["questions"] if x["id"].startswith("@label:Job title"))
+    with pytest.raises(DriverError, match="belongs to the entry"):
+        set_value(object(), twin, "Intern")                    # not filled into whichever "Job title" comes first on the page
+    with pytest.raises(DriverError, match="applicant's decision"):
+        set_value(object(), q, "Remove this entry")           # handed to the take-over, never looked for as a control
+    assert GenericDriver(FormSchema(ats="generic", url="x", questions=[q])).read_back(object(), FormSchema(ats="generic", url="x", questions=[q])) == {}
+
+
+def test_a_question_the_filling_ran_into_can_be_taken_out_of_the_draft_and_an_answer_of_the_applicants_cannot(app_env):
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app
+    from autoapply.models import Application, Draft, Job, Todo
+
+    row = lambda qid, label, value, source: {"id": qid, "label": label, "type": "text", "options": [], "required": True, "page": 0, "value": value,  # noqa: E731
+                                              "basis": "", "confidence": "low", "source": source, "sensitive": "", "sensitive_confirmed": False, "entry": "Work experience 2: AutoApply"}
+    with db.session() as s:
+        job = Job(source="manual", source_id="e2", company="Acme", title="Intern", apply_url="https://x", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        a = Application(job_id=job.id, status="needs_input")
+        s.add(a)
+        s.flush()
+        answers = [row("#first", "First name", "Alex", "profile"), row("@label:Job title", "Job title", "", "unresolved"), row("@label:City", "City", "", "unresolved")]
+        d = Draft(application_id=a.id, review_status="pending", notes=[], answers=answers, unresolved=answers[1:],
+                  schema={"ats": "generic", "tenant": "careers.example.test", "url": "https://x", "source": "agent", "pages": ["Profile"],
+                          "questions": [{"id": r["id"], "label": r["label"], "type": "text", "page": 0} for r in answers]})
+        s.add(d)
+        s.flush()
+        s.add(Todo(kind="answer", title="Acme", ref=f"draft:{d.id}", payload={"draft_id": d.id}))
+        did, app_id = d.id, a.id
+    c = TestClient(app)
+    assert c.delete(f"/api/drafts/{did}/answers/%23first").status_code == 409                 # an answer of the applicant's stays
+    got = c.delete(f"/api/drafts/{did}/answers/@label:Job title").json()
+    assert [r["id"] for r in got["answers"]] == ["#first", "@label:City"] and len(got["unresolved"]) == 1
+    c.delete(f"/api/drafts/{did}/answers/@label:City")
+    with db.session() as s:
+        d = s.get(Draft, did)
+        assert d.unresolved == [] and [q["id"] for q in d.schema["questions"]] == ["#first"] and len(d.notes) == 2
+        assert s.get(Application, app_id).status in ("draft_ready", "recon")                    # nothing left to answer: it goes on
+        assert s.query(Todo).filter_by(kind="answer", status="open").count() == 0

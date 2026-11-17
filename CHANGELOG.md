@@ -124,6 +124,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   Time & learning* lists the sites, shows all of it for one, and can clear one (its sign-in stays). What earlier
   versions kept is brought over at the first start; the files it is read from are moved into a folder named
   "migrated" beside them, not deleted. Answers stay where they were: an answer is yours, not the site's.
+- **An entry a site makes by itself is no longer handed to you as bare empty fields.** A form that reads the uploaded
+  résumé can turn a personal project into a second "work experience" and then want its job title and city; you got
+  two questions, "Job title" and "City", with no way to say that the entry should go. Now the AI holds such an entry
+  against your profile: it fills what the profile states, removes an entry the profile plainly contradicts (and says
+  so with the draft), and where it cannot tell asks you one question about the whole entry - remove it, or keep it.
+  Fields of one of several like-named entries say which entry they belong to and are not filled into whichever comes
+  first. And a question the filling ran into can be taken out of the draft ("This is not one to fill in").
 - **A field the program cannot check is shown to you instead of passing silently.** A list that shows "+1" for
   "+1 Canada" and does not mark its chosen entry was accepted on the AI's word. It still is - the form is not stopped
   for it - but the field is listed on the card as one to look at, and an application with such a field is not

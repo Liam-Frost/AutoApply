@@ -73,6 +73,23 @@ Rules:
   list (use `options` with the country's name as search) and choose the entry for the applicant's country calling code;
   the number itself goes in national format without the country code. If the form still rejects it, try the other entry
   for the same country, then report it under `needs_user` with the message the form shows.
+- An entry the form made by itself - a block of work experience or education it filled in from the uploaded résumé,
+  rows it kept from an earlier visit: this is the site's guess, not the applicant's answer. Hold it against the profile:
+  * it is what the profile says and a required field of it is empty: fill that field from the profile (`added`);
+  * the profile plainly says it is NOT that kind of thing (a personal project the site took for an employer, a course it
+    took for a degree), or it repeats another entry: remove the entry with the form's own control for that (Remove,
+    Delete, the bin icon of that entry - never one that clears the whole form) and report it under `removed`: what it
+    was, and the profile line that says so. Do not fill it in to make the error go away;
+  * you cannot tell: neither fill nor remove. Hand the WHOLE entry to the applicant as ONE `needs_user` item with
+    `decision` true: `label` names the entry ("Work experience 2: AutoApply"), `options` are what can be done with it in
+    the applicant's words ("Remove this entry", "Keep it - I will give the missing details"), `why` says what the site
+    made and what the profile says. Not one item per empty field of it.
+- A question that belongs to one of several entries with the same labels (the second "Job title"): say which entry in
+  `entry` ("Work experience 2: AutoApply"), and give a selector for that entry's own control - found by its label alone
+  it would be the first entry's.
+- An item in your list whose id starts with "@decision:" is not a control: it is what the applicant decided about an
+  entry ("Remove this entry"). Carry it out on the page and report its id under `fixed`; if the entry is not there any
+  more, report it under `absent`.
 - A field in the list that is simply not on the page (the form shows it only for other countries or choices): report
   it under `absent`, not `unfixed`.
 - You cannot submit, and you must not navigate away from this page. Do not type passwords.
@@ -92,6 +109,7 @@ How to work:
 
 When finished call done with:
   fixed: ids you set successfully; unfixed: ids you could not set (reason in notes); mapped; absent; added; needs_user;
+  removed: entries the form had made by itself and you removed (what, why);
   cause: one or two sentences on why the driver could not finish this page (what the page really looks like);
   suggestion: what should be done differently next time on this site (selector, widget type, order, a question that
   appears after another, the wording of a list entry...). The suggestion is saved and shown to whoever works on this
@@ -319,10 +337,15 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
     def done(fixed: list[str] | None = None, unfixed: list[str] | None = None, cause: str = "", suggestion: str = "", notes: str = "",
              mapped: list[dict[str, str]] | None = None, absent: list[str] | None = None, added: list[dict[str, str]] | None = None,
              needs_user: list[dict[str, str]] | None = None, adapted: list[dict[str, Any]] | None = None,
-             held: list[dict[str, Any]] | None = None, located: list[dict[str, str]] | None = None, shows: list[dict[str, str]] | None = None) -> str:
+             held: list[dict[str, Any]] | None = None, located: list[dict[str, str]] | None = None, shows: list[dict[str, str]] | None = None,
+             removed: list[dict[str, str]] | None = None) -> str:
         ids = {q.id for q in on_page}
         known = ids | {q.id for q in elsewhere}
-        reworded = [str(r["label"])[:90] for rows in (added, needs_user, held) for r in rows or [] if r.get("label") and not on_the_page(r["label"])]
+        # (a decision about an entry is named by the agent - "Work experience 2: AutoApply" - and is not a label of the form)
+        reworded = [str(r["label"])[:90] for rows in (added, needs_user, held) for r in rows or [] if r.get("label") and not r.get("decision") and not on_the_page(r["label"])]
+        for r in needs_user or []:
+            if r.get("decision") and len([o for o in r.get("options") or [] if str(o).strip()]) < 2:
+                return "NOT ACCEPTED: a decision handed to the applicant needs its `options` - what can be done with the entry, at least two. Then call done again."
         if reworded and refusals["n"] < 2:
             refusals["n"] += 1
             return ("NOT ACCEPTED: these labels are not the form's own wording: " + " | ".join(reworded[:8])
@@ -353,6 +376,7 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             return ("NOT ACCEPTED: the page is not finished. The form still reports:\n" + "\n".join(f"- {t}" for t in still)
                     + "\nSettle each of these (fill it from the profile, correct the rejected value), or list each one you cannot settle under needs_user "
                       "with the reason. Then call done again.")
+        report["removed"] = [{"what": str(r.get("what") or "")[:200], "why": str(r.get("why") or "")[:300]} for r in removed or [] if str(r.get("what") or "").strip()]
         report.update({"fixed": fixed or [], "unfixed": [i for i in unfixed or [] if i in ids], "cause": cause, "suggestion": suggestion, "notes": notes,
                        "mapped": [m for m in mapped or [] if m.get("id") in known and m.get("chosen")], "absent": [i for i in absent or [] if i in ids],
                        "added": [a for a in added or [] if a.get("label") and a.get("value")],
@@ -377,7 +401,9 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
                                                                "required": ["label", "value"], "additionalProperties": False}},
                                                            "needs_user": {"type": "array", "items": {"type": "object", "properties": {
                                                                "label": st, "why": st, "type": {"type": "string", "enum": ["text", "textarea", "select", "radio", "checkbox", "date", "multiselect"]},
-                                                               "options": arr, "selector": st, "provisional": st}, "required": ["label", "why"], "additionalProperties": False}},
+                                                               "options": arr, "selector": st, "provisional": st, "entry": st, "decision": {"type": "boolean"}},
+                                                               "required": ["label", "why"], "additionalProperties": False}},
+                                                           "removed": obj("what", "why"),
                                                            "adapted": {"type": "array", "items": {"type": "object", "properties": {"id": st, "value": st, "max_chars": {"type": "integer"}, "why": st},
                                                                                                   "required": ["id", "value"], "additionalProperties": False}}},
                           "required": ["fixed", "unfixed", "cause", "suggestion"], "additionalProperties": False}, done)
