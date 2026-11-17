@@ -528,6 +528,13 @@ def _numbers(job: Job) -> list[str]:
     return [sid] if re.fullmatch(r"[A-Za-z]{0,6}[-_]?\d{4,12}", sid) else []
 
 
+def ask_which(message_id: str, subject: str, category: str, event: str, summary: str, *, push: bool = True) -> None:
+    """The card "which application is this mail about?" - for a mail that could not be matched, and for one the
+    applicant took off the application it was matched to."""
+    notify.add_todo("mail_unmatched", (subject or "")[:80], body=f"{messages.mail_label(category, event or 'new')[1]}：{summary}", ref=f"mail:{message_id}",
+                    payload={"message_id": message_id, "category": category}, push=push)
+
+
 def match_application(company: str, title: str, received: datetime | None, text: str = "") -> int | None:
     """The application an e-mail is about, or None when what it says does not single one out (it then goes to the
     applicant as "which application is this about?").
@@ -674,7 +681,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             continue
         if app_id is None:
             unmatched += 1
-            notify.add_todo("mail_unmatched", subj[:80], body=f"{messages.mail_label(t['category'], t.get('event') or 'new')[1]}：{t['summary']}", ref=f"mail:{mid}", payload={"message_id": mid, "category": t["category"]})
+            ask_which(mid, subj, t["category"], t.get("event") or "new", t["summary"])
             if db.get_setting("mail.site_lookup") and candidates(t["company"]):
                 # the e-mail does not say which application; the employer's site does - look there before the applicant has to
                 from . import tasks

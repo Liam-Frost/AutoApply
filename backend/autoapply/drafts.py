@@ -21,6 +21,12 @@ from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, DraftCo
 log = logging.getLogger("autoapply.drafts")
 
 
+def _asked_by_the_applicant() -> bool:
+    from . import tasks
+
+    return tasks.running_by_hand() or tasks.by_hand.get()
+
+
 class OutcomeUnknown(Exception):
     """Nothing is drafted for this posting: Submit was pressed on its form and whether the application went out is not
     known. (What is said is for the applicant.)"""
@@ -200,6 +206,10 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
             # Submit was pressed on this form and nobody knows yet whether it went out: it is not read again (and so not
             # drafted, approved and filled again) until the applicant has said it did not.
             raise OutcomeUnknown(lifecycle.closed_to_work(app))
+        elif app.status == "withdrawn" and not _asked_by_the_applicant():
+            # They decided not to apply. A draft they ask for themselves takes it up again; the program does not - not a
+            # task that was still queued, not a form that changed, not "read the later steps".
+            raise ValueError(f"job {job_id}: the applicant is not applying for this one")
         else:
             lifecycle.move(app, "recon", source="draft")
         s.flush()
@@ -576,7 +586,7 @@ def walk_pending(limit: int = 3) -> int:
         return 0
     todo: list[tuple[int, str]] = []
     with db.session() as s:
-        busy = {t.ref for t in s.query(Task).filter(Task.kind.in_(("scout", "recon", "execute")), Task.status.in_(("queued", "running")))}
+        busy = {t.ref for t in s.query(Task).filter(Task.kind.in_(("scout", "recon", "execute")), Task.status.in_(("queued", "running", "held")))}      # (held: put aside by the applicant - it is not started for them)
         for d in s.query(Draft).filter_by(review_status="pending").order_by(Draft.id.desc()):
             app = d.application
             if app is None or app.status not in ("draft_ready", "recon", "needs_input") or (d.unresolved and not db.get_setting("recon.provisional")):

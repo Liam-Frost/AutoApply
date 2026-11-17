@@ -89,7 +89,44 @@ def closed_to_work(app: Application | None) -> str:
         return f"这份申请已经是“{LABEL.get(app.status, app.status)}”，没有可以重做的了"
     if app.status == UNKNOWN:
         return "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。"
+    if app.status == "withdrawn":
+        return "你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。"
     return ""
+
+
+def withdraw(application_id: int) -> dict[str, int]:
+    """The applicant decided not to apply (recorded by hand, "not applying" on the draft, on the posting, on a batch of
+    postings): what was on its way stops. The work on its form that waits in the queue is called off, the cards that
+    ask for something are closed, and a draft that was approved or waits for approval is closed - a task that was
+    queued before the decision used to fill the form in and submit it all the same."""
+    closed = {"todos": 0, "tasks": 0, "drafts": 0}
+    with db.session() as s:
+        a = s.get(Application, application_id)
+        if a is None or a.status != "withdrawn":
+            return closed
+        closed.update(_close_waiting(s, a))
+        for d in a.drafts:
+            if d.review_status in ("pending", "approved"):
+                d.review_status = "closed"
+                closed["drafts"] += 1
+    if any(closed.values()):
+        log.info("application %s was withdrawn: closed %s", application_id, closed)
+    return closed
+
+
+def not_applying(job: Any, *, source: str = "user") -> bool:
+    """Mark a posting as one the applicant is not applying for. If something is under way for it - a draft, an approved
+    draft with its filling queued - that is withdrawn with it (``withdraw``, through the status change). Returns False,
+    and changes nothing, when the application has gone out or its outcome is not known: that is not undone by a tick
+    in a list."""
+    a = job.application
+    if a is not None and (a.status in SENT or a.status == UNKNOWN):
+        return False
+    job.status = "skipped"
+    if a is not None and a.status != "withdrawn":
+        move(a, "withdrawn", source=source)
+        a.last_event = "你把这个岗位标成了不投"
+    return True
 
 
 def _refs(a: Application) -> tuple[set[str], list[int], set[str]]:

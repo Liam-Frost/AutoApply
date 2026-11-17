@@ -376,10 +376,11 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             a = j.application
             sent = a is not None and a.status in ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
             if action == "skip":
-                if sent:
+                # (lifecycle.not_applying: what was under way for the posting - an approved draft, its filling in the
+                # queue - is withdrawn with it; a posting whose application went out is left as it is)
+                if sent or not lifecycle.not_applying(j):
                     skipped += 1
                 else:
-                    j.status = "skipped"
                     done += 1
             elif action == "restore":
                 if j.status == "skipped":
@@ -412,8 +413,13 @@ def patch_job(job_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         j = _404(s.get(Job, job_id))
         for k, v in body.items():
-            if k in allowed:
-                setattr(j, k, v)
+            if k not in allowed:
+                continue
+            if k == "status" and v == "skipped":
+                if not lifecycle.not_applying(j):
+                    raise HTTPException(409, "这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。")
+                continue
+            setattr(j, k, v)
     return {"ok": True}
 
 
