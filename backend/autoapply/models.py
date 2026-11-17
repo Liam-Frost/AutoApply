@@ -23,6 +23,7 @@ class Base(DeclarativeBase):
 # An application in one of these has gone out. The one definition: what closes its cards (lifecycle), locks its draft
 # (drafts), counts as "applied at this employer" (auth) and is recorded as a change worth settling (db) all read it here.
 SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
+RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along a sent application is
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String, primary_key=True)
@@ -272,6 +273,7 @@ class ApplicationEvent(Base):
     at: Mapped[datetime] = mapped_column(DateTime, default=now)
     old: Mapped[str] = mapped_column(String, default="")
     new: Mapped[str] = mapped_column(String, default="")
+    source: Mapped[str] = mapped_column(String, default="")  # who said so: run | mail | site | user | draft | resume | recover
 
 
 class Contact(Base):
@@ -352,3 +354,51 @@ class DriverStat(Base):
     exec_ok: Mapped[int] = mapped_column(Integer, default=0)
     exec_fail: Mapped[int] = mapped_column(Integer, default=0)
     consecutive_submits: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# --- an application's status has one way in --------------------------------------------------------------------------
+#
+# Where an application stands is written through lifecycle.move, and the rule it keeps is kept here, at the attribute
+# itself, so that no writer can go round it: an application that has gone out (SENT) only moves forward. A run that ends
+# late does not take "confirmed" back to "failed"; a draft that is rebuilt does not take "interview" back to "being
+# read". The two things that may go back say so (lifecycle.move(..., back=True)): the applicant correcting the record,
+# and a mail that calls off the stage the application stands at.
+
+def _guard_status(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
+    old = oldvalue if isinstance(oldvalue, str) else ""
+    if not old or value == old:
+        return value
+    moving = target.__dict__.get("_moving")
+    if moving is None:
+        _direct_write(target, old, value)
+    if old in SENT and not (value in SENT and RANK[value] >= RANK[old]) and not (moving or {}).get("back"):
+        import logging
+
+        logging.getLogger("autoapply.lifecycle").info("application %s stays %s: %s does not take a sent application back", getattr(target, "id", "?"), old, value)
+        return old
+    return value
+
+
+def _direct_write(target: Any, old: str, value: Any) -> None:
+    """A status written without lifecycle.move, by the program's own code: a mistake in the program. It is said (and in
+    the tests it stops the run); the rule above is applied to it all the same. A test that sets a scene up by writing a
+    status itself is not the program."""
+    import logging
+    import os
+    import sys
+
+    f = sys._getframe(2)
+    here = os.path.dirname(os.path.abspath(__file__))
+    while f is not None and ("sqlalchemy" in f.f_code.co_filename or f.f_code.co_filename == __file__):
+        f = f.f_back
+    if f is None or not os.path.abspath(f.f_code.co_filename).startswith(here):
+        return
+    where = f"{os.path.basename(f.f_code.co_filename)}:{f.f_lineno}"
+    if os.environ.get("AUTOAPPLY_STRICT_STATUS"):
+        raise AssertionError(f"{where} writes an application's status directly ({old} -> {value}); use lifecycle.move")
+    logging.getLogger("autoapply.lifecycle").error("%s writes an application's status directly (%s -> %s); use lifecycle.move", where, old, value)
+
+
+from sqlalchemy import event as _event  # noqa: E402
+
+_event.listen(Application.status, "set", _guard_status, retval=True, active_history=True)
