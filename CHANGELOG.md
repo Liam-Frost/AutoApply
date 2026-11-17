@@ -91,6 +91,18 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **"Submit was pressed, and no page said it was received" is a state of its own.** It used to be a failed run - or
+  "filled, not confirmed" - and either way the card's main button was "fill in and submit again": the one thing that
+  applies twice if the first time went through. Whether Submit was pressed is now a fact the run keeps (also in the
+  window you submit in: the page is watched for the form being sent), and the application stands at "outcome of the
+  submission not known" until something settles it:
+  - the employer's confirmation e-mail, which the program goes on looking for - or looks for now, from the card;
+  - "I did submit it";
+  - "it did not go through: fill it in again" - asked once more before it is done, and done by nothing else.
+
+  A form that answers the click with its own complaints was not sent, and is a failed run as before. A window that
+  closed without Submit being pressed is "filled in, not submitted yet", and its card offers to open the window again.
+  Cards that older versions filed as failures of this kind are re-filed when the program starts.
 - **An application that has gone out only moves forward.** Where an application stands was written in some thirty
   places, each with its own idea of what it might overwrite. Three things followed:
   - An application that had reached an interview, an assessment, an offer or a rejection could be filled in again:
