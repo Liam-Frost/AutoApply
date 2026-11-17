@@ -226,3 +226,65 @@ def test_an_e_mail_that_cancels_an_interview_is_not_an_invitation_to_one(app_env
     with db.session() as s:
         s.add(MailEvent(message_id="m9", sender="x", subject="Interview cancelled", category="interview", event="cancelled", summary="cancelled", company_guess="4AG"))
     assert mail.link("m9", [app_id]) == 1 and sent[-1].heading == "面试被取消"
+
+
+# --- which application a mail is about ---
+
+
+def test_a_mail_is_not_about_an_application_that_did_not_exist_when_it_was_written(app_env):
+    """A mail of forty days ago was put on an application made yesterday for a posting of the same name: the newest
+    application at the employer with the best title won, and when the mail was written was not looked at."""
+    from datetime import timedelta
+
+    from autoapply.models import Application, Job, now
+
+    t = now()
+    with db.session() as s:
+        jobs = [Job(source="workday", source_id=sid, company="Acme", title=title, apply_url=f"https://acme.test/{sid}", channel="employer site", jd_text="x" * 300)
+                for sid, title in (("R03394", "Engineer"), ("R04410", "Engineer"), ("R05555", "Engineer"), ("7", "Analyst"))]
+        s.add_all(jobs)
+        s.flush()
+        old = Application(job_id=jobs[0].id, status="submitted", created_at=t - timedelta(days=50), submitted_at=t - timedelta(days=49))
+        new = Application(job_id=jobs[1].id, status="submitted", created_at=t - timedelta(days=1), submitted_at=t)
+        # sent by hand long ago, met by the program only yesterday: it existed when it was sent
+        by_hand = Application(job_id=jobs[2].id, status="submitted", created_at=t - timedelta(days=1), submitted_at=t - timedelta(days=45))
+        other = Application(job_id=jobs[3].id, status="submitted", created_at=t - timedelta(days=60), submitted_at=t - timedelta(days=60))
+        s.add_all([old, new, by_hand, other])
+        s.flush()
+        old, new, by_hand, other = old.id, new.id, by_hand.id, other.id
+    forty_days_ago = t - timedelta(days=40)
+    assert mail.match_application("Acme", "Engineer", forty_days_ago) == by_hand            # the last one sent before the mail - not the one made yesterday
+    assert mail.match_application("Acme", "Engineer", t - timedelta(days=47)) == old         # only one of that name existed then
+    assert mail.match_application("Acme", "Engineer", t + timedelta(minutes=5)) == new       # a mail of now: the newest, as before
+    assert mail.match_application("Acme", "Engineer", t - timedelta(days=70)) is None        # none existed: the applicant is asked
+    assert mail.match_application("Acme", "Engineer", None) == new                           # a mail that carries no date is not held to one
+    # the posting's own number in the mail settles it, whatever the titles and dates say
+    assert mail.match_application("Acme", "Engineer", t, "Regarding your application for requisition R03394 (Engineer)") == old
+    assert mail.match_application("Acme", "", t, "Your application R05555-2 was received") == by_hand      # with a suffix after it
+    assert mail.match_application("Acme", "", t, "Your application XR055551 was received") is None       # inside another number: not this one
+    assert mail.match_application("Acme", "Engineer", t, "ref r04410.") == new
+    assert mail.match_application("Acme", "Engineer", t, "posting 7 of 12") == new           # a short number is in every mail: it names nothing
+
+
+def test_what_the_applicant_said_a_mail_is_about_is_not_changed_by_what_the_program_finds_later(app_env, monkeypatch):
+    from autoapply import notify
+    from autoapply.models import Application, Job, MailEvent
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: None)
+    with db.session() as s:
+        ids = []
+        for i in (1, 2):
+            j = Job(source="manual", source_id=f"k{i}", company="Acme", title=f"Role {i}", apply_url=f"https://acme.test/{i}", channel="employer site", jd_text="x" * 300)
+            s.add(j)
+            s.flush()
+            a = Application(job_id=j.id, status="submitted")
+            s.add(a)
+            s.flush()
+            ids.append(a.id)
+        s.add(MailEvent(message_id="m1", sender="hr@acme.test", subject="Interview", category="interview", event="new", summary="invited", company_guess="Acme"))
+    assert mail.link("m1", [ids[0]], by="site") == 1                 # the employer's list says: the first
+    assert mail.link("m1", [ids[1]], by="user") == 1                 # the applicant corrects it: the second
+    assert mail.link("m1", [ids[0]], by="site") == 0                 # the program looks at the list again: it stays as the applicant said
+    with db.session() as s:
+        me = s.query(MailEvent).filter_by(message_id="m1").one()
+        assert (me.application_id, me.linked_by) == (ids[1], "user")

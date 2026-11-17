@@ -91,6 +91,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A mail is not put on an application that did not exist when it was written.** Which application a mail is about
+  was decided by employer and title, the newest first - and when the mail was written was not looked at: a mail of
+  forty days ago could move an application made yesterday for a posting of the same name. Now an application that
+  came after the mail is not considered (an application you sent by hand and the program met later counts from when
+  it was sent); the posting's own number in the mail settles it when it is there; and what you said a mail is about
+  on its card is not changed by anything the program finds afterwards.
 - **Work that is for later is still there after you save a setting, and after a restart.** "Try again in half an
   hour" - the retry of a site that did not answer, the look for a confirmation e-mail after a submission - was a
   timer in the program's memory. Saving any setting rebuilt the schedule and dropped every one of them; so did
