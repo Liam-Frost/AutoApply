@@ -302,3 +302,30 @@ def test_the_same_work_asked_for_now_is_taken_forward_not_queued_twice(app_env, 
     with db.session() as s:
         assert s.query(Task).filter_by(kind="mail", status="queued").count() == 2
     assert tasks.drain() == 0
+
+
+def test_work_that_is_asked_for_again_does_what_was_asked_last(app_env):
+    """A revision that ran into the usage limit waits in the queue for half an hour with its comment. The applicant
+    writes another comment meanwhile: the waiting task was taken forward - with the old comment - and the new one was
+    answered "queued" and never carried out."""
+    from autoapply import tasks
+    from autoapply.models import Task
+
+    old = tasks.enqueue_later("revise", ref="draft:7", payload={"draft_id": 7, "comment": "ask for 30 an hour", "_limit_retries": 1}, minutes=30, priority=10)
+    new = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "ask for 35 an hour"}, priority=10)
+    with db.session() as s:
+        t = s.get(Task, new)
+        assert new == old and t.due_at is None and t.payload["comment"] == "ask for 35 an hour" and t.payload["_limit_retries"] == 1
+        assert s.query(Task).filter_by(kind="revise").count() == 1
+    # the same of one that simply waits its turn
+    assert tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "and mention the start date"}, priority=10) == old
+    with db.session() as s:
+        t = s.get(Task, old)
+        assert t.payload["comment"] == "and mention the start date"
+        t.status = "running"
+    # one that is being done cannot be told anything any more: the same request is that task, another one is a task after it
+    assert tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "and mention the start date"}) == old
+    assert tasks.enqueue("recon", ref="job:3", payload={"job_id": 3}) == tasks.enqueue("recon", ref="job:3", payload={"job_id": 3, "instructions": ""})
+    later = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "no, 40"})
+    with db.session() as s:
+        assert later != old and s.get(Task, later).status == "queued" and s.get(Task, old).payload["comment"] == "and mention the start date"
