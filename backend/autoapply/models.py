@@ -187,6 +187,7 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # not before this time (a retry, a later look); None: as soon as its turn comes
     stages: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)  # [{stage, at}] the task went through (None on tasks from before this was kept)
 
 

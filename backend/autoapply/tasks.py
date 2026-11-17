@@ -48,8 +48,13 @@ def deadline_priority(deadline: str) -> int:
 def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, priority: int = 100, dedupe: bool = True) -> int:
     with db.session() as s:
         if dedupe and ref:
-            ex = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status.in_(("queued", "running"))).first()
+            ex = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status.in_(("queued", "running"))).order_by(Task.due_at.isnot(None), Task.id).first()
             if ex:
+                if ex.status == "queued" and ex.due_at is not None:
+                    # the same work is waiting for a later time (a retry in half an hour) and is wanted now: it is
+                    # taken forward, not queued a second time - and not left to wait while the caller thinks it runs
+                    ex.due_at, ex.priority = None, min(ex.priority, priority)
+                    _wake.set()
                 return ex.id
         t = Task(kind=kind, ref=ref, payload=payload or {}, priority=priority)
         s.add(t)
@@ -73,7 +78,8 @@ def _claim(lane: str = "") -> Task | None:
             q = q.filter(Task.kind.in_(BACKGROUND))
         elif lane == "forms":
             q = q.filter(Task.kind.notin_(BACKGROUND))
-        t = q.order_by(Task.priority, Task.id).first()
+        # a task that is for later (a retry, a look for the confirmation mail in half an hour) is not taken before its time
+        t = q.filter((Task.due_at.is_(None)) | (Task.due_at <= now())).order_by(Task.priority, Task.id).first()
         if t is None:
             return None
         t.status, t.started_at, t.attempts = "running", now(), t.attempts + 1
@@ -266,10 +272,14 @@ def _mail_new() -> None:
         log.info("could not ask the mailbox what is new (%s)", type(e).__name__)
 
 
+PERIODIC = ("discover", "mail", "mail_new", "canary", "upkeep", "unscored", "quota")      # what the clock starts by itself
+
+
 def _schedule_jobs() -> None:
     assert _sched is not None
     for job in _sched.get_jobs():
-        job.remove()
+        if job.id in PERIODIC:      # only what is set up below; nothing else that waits for its time is this function's to drop
+            job.remove()
     plan = {
         "discover": ("schedule.discover_minutes", lambda: enqueue("discover", ref="schedule", priority=200)),
         "mail": ("schedule.mail_minutes", lambda: enqueue("mail", ref="schedule", priority=50)),
@@ -348,17 +358,24 @@ def schedule_status() -> list[dict[str, Any]]:
     return out
 
 
-def enqueue_later(kind: str, *, ref: str = "", payload: dict | None = None, minutes: float = 5, priority: int = 100) -> None:
-    """Queue a task after a delay (one-off). Falls back to a timer when the scheduler is not running."""
-    from datetime import datetime, timedelta
+def enqueue_later(kind: str, *, ref: str = "", payload: dict | None = None, minutes: float = 5, priority: int = 100) -> int:
+    """Queue a task for later (one-off): it is in the queue from now, and not taken before its time.
 
-    fn = lambda: enqueue(kind, ref=ref, payload=payload or {}, priority=priority)  # noqa: E731
-    if _sched is not None:
-        _sched.add_job(fn, "date", run_date=datetime.now() + timedelta(minutes=minutes), id=f"later:{kind}:{ref}:{minutes}", replace_existing=True)
-    else:
-        t = threading.Timer(minutes * 60, fn)
-        t.daemon = True
-        t.start()
+    It used to be a timer in the program's memory: saving the settings dropped every one of them, and so did a restart -
+    the retry of a site that was down, the look for a confirmation mail half an hour after a submission. A row in the
+    queue is still there after either. Asking twice for the same work after the same delay moves the one that waits."""
+    from datetime import timedelta
+
+    due = now() + timedelta(minutes=float(minutes))
+    with db.session() as s:
+        for ex in s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status == "queued", Task.due_at.isnot(None)):
+            if (ex.payload or {}).get("_delay") == float(minutes):
+                ex.due_at, ex.payload, ex.priority = due, {**(payload or {}), "_delay": float(minutes)}, priority
+                return ex.id
+        t = Task(kind=kind, ref=ref, payload={**(payload or {}), "_delay": float(minutes)}, priority=priority, due_at=due)
+        s.add(t)
+        s.flush()
+        return t.id
 
 
 def reschedule() -> None:

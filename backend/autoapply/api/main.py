@@ -873,6 +873,7 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
         rows = [{"id": t.id, "kind": t.kind, "status": t.status, "ref": t.ref, "error": t.error, "result": t.result, "attempts": t.attempts,
                  "created_at": t.created_at.isoformat(), "started_at": t.started_at.isoformat() if t.started_at else None,
                  "finished_at": t.finished_at.isoformat() if t.finished_at else None,
+                 "due_at": t.due_at.isoformat() if t.due_at and t.status == "queued" else None,      # waiting for its time, not for its turn
                  "browser_stages": [x["stage"] for x in (t.stages or []) if x.get("stage", "").startswith("browser:")]}
                 for t in s.query(Task).order_by(Task.id.desc()).limit(limit)]
     for r in rows:

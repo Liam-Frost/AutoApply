@@ -28,7 +28,7 @@ const stepsOf = (t) => {
   return r ? r.steps.map((s) => JSON.stringify(s)).join('\n') + `\n\n截图和页面快照：${r.dir}` : ''
 }
 const tech = (t) => [t.explained.detail, t.status === 'done' && t.result && Object.keys(t.result).length ? JSON.stringify(t.result, null, 1) : '', stepsOf(t)].filter(Boolean).join('\n\n')
-const line = (t) => t.summary || t.explained.message || (t.status === 'running' ? '正在进行…' : t.status === 'queued' ? '等前面的任务完成' : '')
+const line = (t) => t.summary || t.explained.message || (t.status === 'running' ? '正在进行…' : t.status === 'queued' ? (t.due_at ? `定在 ${fmtTime(t.due_at)} 之后再做` : '等前面的任务完成') : '')
 const retry = (t) => run(() => api.post(`/tasks/${t.id}/retry`), '已重新排队', load)
 const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已使用 nodriver 重新排队', load)
 const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果' }
