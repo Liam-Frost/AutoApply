@@ -6,6 +6,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Added
 
+- **What each source gave, and why the rest was not taken in.** "Sources and watched employers" lists every source
+  with when it was last read (and, for one that cannot be read now, when it last could and what it gave then), how
+  many postings it gave, how many passed the hard conditions, and the reasons the others were dropped, counted; and
+  where the postings it did give stand now: at the threshold, below it, ruled out by a scoring rule, not scored yet.
+  A summary over all sources says which kind of reason accounts for "it read hundreds and there is nothing to apply
+  for", with a link to try the conditions on a few titles. Numbers only: postings that were dropped are not kept.
+  (It showed the latest scan and nothing before it; a source that failed today showed an error and no history.)
 - **An overview of what the settings come to** (Settings opens on it). Two halves, read-only, every line leading to
   the place where it is changed. *What I apply to*: what you told the program, the hard conditions a posting has to
   pass before it is taken in, your scoring preferences, and the thresholds from which a draft is prepared - each
@@ -171,6 +178,8 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- A source that could not be reached (a timeout, a name that does not resolve) is said to be unreachable; it was
+  shown as "this step was not completed".
 - **Saving one part of a page took back what was being edited in another.** Saving an AI service, sending a test
   message or any other action on the settings page read every setting afresh and so undid unsaved changes on every
   tab; saving one editor of the profile reset the others. Reading afresh now takes what is new and leaves what is

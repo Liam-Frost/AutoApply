@@ -93,6 +93,20 @@ def seed(lang: str) -> None:
     soon = int(time.time()) + 3 * 3600
     week = int(time.time()) + 4 * 86400
     db.set_setting("llm.provider", "claude_subscription")
+    # the employers that are watched, and what the last scans read from each (the page "sources and watched employers")
+    watched = [("Northwind Analytics", "greenhouse", True), ("Lumen Health", "greenhouse", True), ("Orchard Retail", "greenhouse", False), ("Kestrel Systems", "ashby", False),
+               ("Pinecrest Labs", "lever", False), ("Vantage Media", "lever", False)]
+    db.set_setting("employers", [{"id": f"demo-{name.split()[0].lower()}", "name": name, "url": f"https://careers.{name.split()[0].lower()}.example/jobs", "kind": kind,
+                                  "ref": {"board": name.split()[0].lower()}, "priority": prio, "enabled": True} for name, kind, prio in watched])
+    seen = lambda hours: (now - timedelta(hours=hours)).isoformat()  # noqa: E731
+    db.set_setting("sources.history", {
+        "Northwind Analytics": {"last_at": seen(2), "ok_at": seen(2), "error": "", "error_at": "", "fails": 0, "read": 46, "kept": 3, "new": 1, "screened": True, "dropped": {"kind": 31, "role": 7, "country": 5}},
+        "Lumen Health": {"last_at": seen(2), "ok_at": seen(2), "error": "", "error_at": "", "fails": 0, "read": 118, "kept": 4, "new": 0, "screened": True, "dropped": {"kind": 83, "excluded": 19, "role": 12}},
+        "Orchard Retail": {"last_at": seen(2), "ok_at": seen(2), "error": "", "error_at": "", "fails": 0, "read": 64, "kept": 2, "new": 1, "screened": True, "dropped": {"kind": 40, "country": 14, "old": 8}},
+        "Kestrel Systems": {"last_at": seen(2), "ok_at": seen(2), "error": "", "error_at": "", "fails": 0, "read": 22, "kept": 1, "new": 0, "screened": True, "dropped": {"kind": 15, "role": 6}},
+        "Pinecrest Labs": {"last_at": seen(2), "ok_at": seen(26), "error": "ConnectTimeout: timed out", "error_at": seen(2), "fails": 2, "read": 37, "kept": 2, "new": 0, "screened": True, "dropped": {"kind": 29, "excluded": 6}},
+        "Vantage Media": {"last_at": seen(2), "ok_at": seen(2), "error": "", "error_at": "", "fails": 0, "read": 15, "kept": 1, "new": 0, "screened": True, "dropped": {"kind": 9, "excluded": 5}},
+    })
     db.set_setting("llm.providers", {"deepseek": {"base_url": "", "model": "deepseek-chat", "small_model": "deepseek-chat"}})
     db.set_setting("llm.failover", [{"provider": "chatgpt", "model": "", "small_model": ""}])
     db.set_setting("llm.quota", {

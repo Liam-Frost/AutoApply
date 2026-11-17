@@ -9,11 +9,13 @@ import PageHead from '../components/PageHead.vue'
 import TechDetails from '../components/TechDetails.vue'
 import { fmtTime, persona, run, toast } from '../ui'
 
-const scan = ref({ at: null, sources: [] })
+// what each source gave when it was last read, why the rest was dropped, and where its postings stand now (discover.report)
+const rep = ref({ at: null, sources: [], total: { read: 0, kept: 0, new: 0, dropped: [], now: {} } })
+const open = ref('')        // the source whose reasons are shown in full
 const bm = ref({ href: '' })
 const portal = ref({ on: false, base: '', account: null })
 async function load() {
-  api.get('/sources/last-scan').then((c) => (scan.value = c)).catch(() => {})
+  api.get('/sources/report').then((c) => (rep.value = c)).catch((e) => toast(e.message, 'bad'))
   if (persona.features.portal !== 'ubc') return
   api.get('/import/pdportal/bookmarklet').then((c) => (bm.value = c)).catch(() => {})
   const [st, accounts] = await Promise.all([api.get('/settings'), api.get('/accounts').catch(() => [])])
@@ -55,24 +57,39 @@ var s=document.createElement('script');s.src='{{ portal.base }}/pdportal-import.
   </div>
 
   <div class="card">
-    <div class="row"><span class="card-title grow">上次扫描</span><router-link to="/settings/automation/schedule" class="small">多久扫描一次</router-link></div>
-    <p v-if="!scan.at" class="muted">还没有扫描过。</p>
+    <div class="row"><span class="card-title grow">每个来源读到了什么</span><router-link to="/settings/automation/schedule" class="small">多久扫描一次</router-link></div>
+    <p v-if="!rep.at" class="muted">还没有扫描过。</p>
     <template v-else>
-      <p class="muted">{{ fmtTime(scan.at) }}<span v-if="scan.duplicates"> · 合并了 {{ scan.duplicates }} 个重复的岗位</span></p>
+      <p class="muted" style="margin-bottom: 6px">最近一次扫描：{{ fmtTime(rep.at) }}。一共读到 {{ rep.total.read }} 个岗位，{{ rep.total.kept }} 个过了硬条件，其中 {{ rep.total.new }} 个是新的。</p>
+      <p v-if="rep.total.dropped.length" class="small" style="margin: 0 0 4px">没过硬条件的，按原因：<span v-for="d in rep.total.dropped" :key="d.key" class="tag" style="margin: 0 6px 4px 0">{{ d.label }} <b>{{ d.n }}</b></span>
+        <router-link to="/settings/goals/filters">用几个标题试一下这些条件</router-link></p>
+      <p v-if="rep.total.now.total" class="small" style="margin: 0 0 10px">留在库里的 {{ rep.total.now.total }} 个现在：<span class="tag ok" style="margin-right: 6px">够分数线 <b>{{ rep.total.now.above }}</b></span><span class="tag" style="margin-right: 6px">不够分数线 <b>{{ rep.total.now.below }}</b></span><span class="tag warn" style="margin-right: 6px">被评分规则排除 <b>{{ rep.total.now.excluded }}</b></span><span class="tag info">还没评分 <b>{{ rep.total.now.unscored }}</b></span></p>
       <table>
-        <thead><tr><th>来源</th><th>读到</th><th>符合条件</th><th>新增</th><th>没留下的原因</th></tr></thead>
+        <thead><tr><th>来源</th><th>上次读到</th><th class="num">读到</th><th class="num">过了硬条件</th><th class="num">新增</th><th>没过的原因</th><th>库里现在</th></tr></thead>
         <tbody>
-          <tr v-for="r in scan.sources" :key="r.name">
-            <td><b>{{ r.name }}</b></td>
-            <td>{{ r.error ? '—' : r.read }}</td><td>{{ r.error ? '—' : r.kept }}</td><td>{{ r.error ? '—' : r.new }}</td>
-            <td class="small muted">
-              <template v-if="r.error"><span style="color: var(--bad)">{{ r.error }}</span><TechDetails :text="r.error_detail" /></template>
-              <template v-else>{{ Object.entries(r.dropped).map(([k, v]) => `${k} ${v}`).join(' · ') || '—' }}</template>
-            </td>
-          </tr>
+          <template v-for="r in rep.sources" :key="r.name">
+            <tr>
+              <td><b>{{ r.name === 'pdportal' ? r.label : r.name }}</b><span v-if="r.priority" class="tag" style="margin-left: 6px">重点</span><div v-if="r.name !== 'pdportal'" class="small muted">{{ r.label }}</div></td>
+              <td class="small">
+                <template v-if="r.error"><span style="color: var(--bad)">{{ fmtTime(r.error_at) }} 没读到</span><template v-if="r.fails > 1">（连续 {{ r.fails }} 次）</template>
+                  <div class="muted">{{ r.ok_at ? `上次读到是 ${fmtTime(r.ok_at)}` : '还没有成功读到过' }}</div></template>
+                <template v-else-if="r.ok_at">{{ fmtTime(r.ok_at) }}</template>
+                <span v-else class="muted">还没有读过</span>
+              </td>
+              <td class="num">{{ r.read ?? '—' }}</td><td class="num">{{ r.read == null ? '—' : r.screened ? r.kept : '不筛' }}</td><td class="num">{{ r.new ?? '—' }}</td>
+              <td class="small">
+                <template v-if="r.dropped.length">{{ r.dropped[0].label }} {{ r.dropped[0].n }}<button v-if="r.dropped.length > 1" class="sm ghost" :aria-expanded="open === r.name" @click="open = open === r.name ? '' : r.name">{{ open === r.name ? '收起' : `还有 ${r.dropped.length - 1} 种` }}</button></template>
+                <span v-else-if="r.read != null && !r.screened" class="muted">这个来源不受硬条件限制</span>
+                <span v-else class="muted">—</span>
+              </td>
+              <td class="small"><template v-if="r.now.total">够线 <b>{{ r.now.above }}</b> · 不够 {{ r.now.below }} · 排除 {{ r.now.excluded }} · 没评 {{ r.now.unscored }}<div class="muted">分数线 {{ r.line }}</div></template><span v-else class="muted">没有在招的岗位</span></td>
+            </tr>
+            <tr v-if="r.error"><td colspan="7" class="small" style="border-top: 0; padding-top: 0"><span style="color: var(--bad)">{{ r.error }}</span><TechDetails :text="r.error_detail" /></td></tr>
+            <tr v-if="open === r.name"><td colspan="7" class="small" style="border-top: 0; padding-top: 0"><span v-for="d in r.dropped" :key="d.key" class="tag" style="margin: 0 6px 4px 0">{{ d.label }} <b>{{ d.n }}</b></span></td></tr>
+          </template>
         </tbody>
       </table>
-      <p class="hint" style="margin-top: 8px">“符合条件”按<router-link to="/settings/goals/filters">入库前的硬条件</router-link>算。</p>
+      <p class="hint" style="margin-top: 8px">“过了硬条件”按<router-link to="/settings/goals/filters">入库前的硬条件</router-link>算；分数线在<router-link to="/settings/automation/prepare">自动准备草案</router-link>里。这里只记数量，被筛掉的岗位本身不保存。</p>
     </template>
   </div>
 </template>
