@@ -178,6 +178,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **The PDF preview keeps to its box, and draws each page once.** "Fit to width" was the width at the moment the
+  file was opened: after the window or the layout changed, the pages stayed as wide as before. They are drawn again
+  for the new width. Zooming twice in a row, or while the pages were still appearing, left two drawings filling the
+  same box - every page twice, in two sizes; a newer drawing now stops the older one, and the pages that are shown
+  stay until the new ones are there. Each page says which page it is.
 - **A page comes back as it was left.** On the postings page the group, the filters, the sort order and the posting
   that is open are in the address: a reload shows the same list, the browser's Back closes the open posting (and
   keeps the filters), and the address can be kept or sent. The analytics page keeps its view and its stretch of time

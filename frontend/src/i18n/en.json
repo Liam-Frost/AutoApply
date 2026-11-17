@@ -3212,5 +3212,6 @@
 "菜单": "Menu",
 "正在运行": "Running",
 "设置向导": "Setup guide",
-"{0} 件事需要你处理": "{0} thing(s) need you"
+"{0} 件事需要你处理": "{0} thing(s) need you",
+"第 {0} 页，共 {1} 页": "Page {0} of {1}"
 }
