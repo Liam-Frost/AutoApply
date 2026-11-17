@@ -32,6 +32,8 @@ def app_env(tmp_path, monkeypatch):
     """Isolated data dir, knowledge dir, in-memory keyring, fresh SQLite."""
     monkeypatch.setenv("AUTOAPPLY_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("AUTOAPPLY_KNOWLEDGE", str(tmp_path / "knowledge"))
+    # an application's status is written through lifecycle.move: in the tests, the program's own code doing otherwise stops the run
+    monkeypatch.setenv("AUTOAPPLY_STRICT_STATUS", "1")
     keyring.set_keyring(MemoryKeyring())
     from autoapply import secrets as _secret_store
 
