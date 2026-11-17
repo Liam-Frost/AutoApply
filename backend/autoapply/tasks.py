@@ -101,7 +101,24 @@ def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
         return t
 
 
+_running = threading.local()      # what the task this thread is running was started by
+
+
+def running_by_hand() -> bool:
+    """Is the task this thread is running one the applicant asked for (so that they are at the program now)? False for
+    what the program does by itself - and outside any task."""
+    return bool(getattr(_running, "by_hand", False))
+
+
 def run_one(t: Task) -> None:
+    _running.by_hand = bool((t.payload or {}).get("_by_hand"))
+    try:
+        _run_one(t)
+    finally:
+        _running.by_hand = False
+
+
+def _run_one(t: Task) -> None:
     fn = _handlers.get(t.kind)
     usage = llm.reset_usage()
     metering.begin_task(t.id, t.kind, t.ref)     # every model request until the task ends belongs to it
@@ -466,6 +483,12 @@ def _schedule_jobs() -> None:
             scoring.queue_qualifying()
         except Exception:  # noqa: BLE001
             log.exception("upkeep failed")
+        try:      # what is due tomorrow and today, cards put off until now, contacts to get back to, notices held for the night
+            from . import reminders
+
+            reminders.check()
+        except Exception:  # noqa: BLE001
+            log.exception("reminders failed")
 
     _sched.add_job(upkeep, "interval", minutes=10, id="upkeep", replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=90))
 

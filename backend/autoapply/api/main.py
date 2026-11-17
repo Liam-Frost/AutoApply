@@ -830,13 +830,17 @@ def reject_draft(draft_id: int, body: dict[str, Any] = Body(default={})) -> dict
 @app.get("/api/todos")
 def list_todos(status: str = "open") -> list[dict[str, Any]]:
     with db.session() as s:
+        from .. import reminders as _reminders
+
         rows = [{"id": t.id, "kind": t.kind, "ref": t.ref, "title": t.title, "body": t.body, "payload": t.payload, "status": t.status,
-                 "created_at": t.created_at.isoformat()} for t in s.query(Todo).filter_by(status=status).order_by(Todo.id.desc()).limit(200)]
+                 "created_at": t.created_at.isoformat(), "due_at": t.due_at.isoformat() if t.due_at else None,
+                 "date_only": bool((t.payload or {}).get("date_only")), "snoozed_until": t.snoozed_until.isoformat() if _reminders.snoozed(t) else None}
+                for t in s.query(Todo).filter_by(status=status).order_by(Todo.id.desc()).limit(200)]
     from datetime import datetime
     from ..models import Draft
 
     CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
-           "mail_unmatched": "answer"}
+           "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
         for r in rows:
@@ -879,6 +883,11 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                     days = (datetime.fromisoformat(j.deadline.replace(" ", "T")) - datetime.now()).days if j.deadline else None
                 except ValueError:
                     days = None
+            if r["due_at"]:      # a card with a date of its own (an interview, an assessment's deadline) counts by that date, not by the posting's
+                try:
+                    days = (datetime.fromisoformat(r["due_at"]).date() - datetime.now().date()).days
+                except ValueError:
+                    pass
             r["days_left"] = days
             # 0 = now (a window is open and waiting), 1 = soon (deadline close), 2 = when you can, 3 = just so you know
             r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
@@ -935,6 +944,42 @@ def todo_link(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             raise HTTPException(404, "no such application")
         mid = str((t.payload or {}).get("message_id") or t.ref[5:])
     return {"updated": mail.link(mid, ids, by="user")}
+
+
+def _when(text: Any) -> Any:
+    from datetime import datetime as _dt
+
+    if not text:
+        return None
+    try:
+        d = _dt.fromisoformat(str(text)[:19])
+    except ValueError as e:
+        raise HTTPException(400, "日期的格式不对") from e
+    return d.replace(tzinfo=None)
+
+
+@app.post("/api/todos/{todo_id}/snooze")
+def todo_snooze(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Show this card again later ({"until": "2026-11-24T09:00"}), or now ({"until": null})."""
+    from .. import reminders
+
+    try:
+        reminders.snooze(todo_id, _when(body.get("until")))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    return {"ok": True}
+
+
+@app.post("/api/todos/{todo_id}/due")
+def todo_due(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """The applicant sets, corrects or removes the date a card is for."""
+    from .. import reminders
+
+    try:
+        reminders.set_due(todo_id, _when(body.get("due")))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    return {"ok": True}
 
 
 @app.post("/api/todos/{todo_id}/done")
@@ -994,20 +1039,6 @@ def queue_drain(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     return tasks.set_draining(bool(body.get("on", True)))
 
 
-@app.post("/api/tasks/{task_id}/{what}")
-def task_control(task_id: int, what: str) -> dict[str, Any]:
-    do = {"cancel": tasks.cancel, "hold": tasks.hold, "take-up": tasks.take_up, "first": tasks.first}.get(what)
-    if do is None:
-        raise HTTPException(404, "not found")
-    try:
-        do(task_id)
-    except KeyError as e:
-        raise HTTPException(404, "not found") from e
-    except tasks.NotNow as e:
-        raise HTTPException(409, str(e)) from e
-    return {"ok": True}
-
-
 @app.post("/api/tasks/{task_id}/retry")
 def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     backend = body.get("browser_backend")
@@ -1037,6 +1068,20 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
     return {"ok": True}
 
 
+@app.post("/api/tasks/{task_id}/{what}")
+def task_control(task_id: int, what: str) -> dict[str, Any]:
+    do = {"cancel": tasks.cancel, "hold": tasks.hold, "take-up": tasks.take_up, "first": tasks.first}.get(what)
+    if do is None:
+        raise HTTPException(404, "not found")
+    try:
+        do(task_id)
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except tasks.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    return {"ok": True}
+
+
 @app.get("/api/runs")
 def list_runs(limit: int = 100) -> list[dict[str, Any]]:
     with db.session() as s:
@@ -1058,10 +1103,13 @@ def list_notifications(limit: int = 100) -> list[dict[str, Any]]:
 
 @app.get("/api/overview")
 def overview() -> dict[str, Any]:
+    from datetime import datetime
+
     with db.session() as s:
         return {
             "pending_drafts": s.query(func.count(Draft.id)).filter(Draft.review_status == "pending").scalar(),
-            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open").scalar(),
+            # (what the applicant put off until later is not counted until then)
+            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open", (Todo.snoozed_until.is_(None)) | (Todo.snoozed_until <= datetime.now())).scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),
             "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),

@@ -36,7 +36,9 @@ log = logging.getLogger("autoapply.sites")
 
 # sign_in_hosts: the hosts this site sends the window to for its sign-in, on which its password was typed and worked
 # ("atozpublic.idprism-auth.amazon.com" for www.amazon.jobs): the site's own sign-in, though on another address.
-FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "driver_written": False, "sign_in_hosts": []}
+# second_factor: did the last sign-in with the stored password ask for an approval on the applicant's phone (True / False;
+# None while that is not known)? A sign-in that will ring their phone is not begun by the program in their quiet hours.
+FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "driver_written": False, "sign_in_hosts": [], "second_factor": None}
 KEEP_NOTES = 12
 
 
