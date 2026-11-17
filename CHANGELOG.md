@@ -6,6 +6,18 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Added
 
+- **What a mail asks of you becomes a to-do with its date.** An invitation to an interview or an assessment ended
+  in a notice and a status; what to do and by when stayed in the mail. It is now a card with the date the mail
+  states (and the mail's own wording of it, time zone and all): said the day before and on the day, moved when the
+  employer moves it, closed when the employer calls it off. You can complete it, change its date, or add one. A
+  date is only ever what the mail states - a mail that names none gets a card without one. A contact's follow-up
+  day makes a card the same way.
+- **"Remind me later."** Any card can be put off - until tomorrow, in three days, next Monday, or a day you choose.
+  It is out of the way and out of the count until then, and is shown and said again when the time comes.
+- **Quiet hours.** Set hours in which nothing is sent to your phone (off by default). What comes in then is kept
+  and sent as one message when they end; it is on the page all along. A sign-in the program begins by itself that
+  would ask for an approval on your phone is not begun in those hours - a card waits for you instead. The approval
+  of a sign-in you started yourself still reaches you.
 - **The plan: what is being done, what comes next, and what you can do about it.** The activity page opens on the
   plan now - what is running, what is queued in the order it will be taken, what waits for you and for what, what
   you set aside, and what is set for a later time. A queued task can be done first, set aside and taken up again,
