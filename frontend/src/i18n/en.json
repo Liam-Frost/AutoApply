@@ -2023,6 +2023,7 @@
 "输错的次数太多了，请 {0} 分钟后再试。": "Too many wrong attempts. Try again in {0} minute(s).",
 "还有 {0} 处没填好，需要你在窗口里处理": "{0} fields still need you in the window",
 "这个岗位没有岗位说明全文，没法按它调整简历": "This posting has no full job description, so the résumé can't be tailored to it",
+"这份申请已经是“{0}”，没有可以重做的了": "This application is already “{0}”: there is nothing to do again",
 "这份草案你已经批准，但申请还没有提交成功。": "You approved this draft, but the application hasn't been submitted yet.",
 "这几项答案按表单的限制改写过，提交前请过目": "These answers were rewritten to fit a limit of the form; please look them over before submitting",
 "这家 AI 服务的额度用完了，要等它重置。": "This AI service hit its usage limit. Wait for it to reset.",
