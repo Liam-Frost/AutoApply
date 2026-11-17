@@ -7,8 +7,10 @@ import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import { fmtTime, run as runAction, toast, ask } from '../ui'
 import { clone, mayLeave, same, useUnsaved } from '../dirty'
+import { useRoute } from 'vue-router'
 
-const tab = ref('sections')
+const route = useRoute()
+const tab = ref(['sections', 'pay', 'stories', 'init', 'scoring', 'markdown', 'history'].includes(route.query.tab) ? route.query.tab : 'sections')
 // salary, notice period, referees: a form that keeps two sections of the profile up to date
 const st = ref({ compensation: {}, referees: [], suggested: {} })
 const CONTACT = [['ask_first', '给出前先问我'], ['after_offer', '拿到录用通知后才能联系'], ['anytime', '随时可以联系']]

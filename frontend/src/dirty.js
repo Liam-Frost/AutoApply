@@ -4,6 +4,7 @@
 // here (useUnsaved). One place then asks before any of it is lost: leaving the page, reloading it, switching what is
 // being edited (mayLeave). Nothing is asked when nothing was changed.
 import { computed, getCurrentInstance, onBeforeUnmount, reactive } from 'vue'
+import { useRoute } from 'vue-router'
 import { choose } from './ui'
 
 export const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
@@ -37,11 +38,19 @@ export function absorb(now, base, fresh) {
 
 // --- the areas that are being edited ---------------------------------------------------------------------------------
 
-const areas = reactive([])      // { id, label, dirty: () => boolean, save: async () => false | any, discard: () => void }
+// `scope`: the part of the program in which the area stays on the page - going from one address under it to another
+// does not lose it, so nothing is asked. The settings as a whole live under /settings; what a group of them keeps to
+// itself (a prompt, an AI service's form) lives under /settings/<group>, which is where it is given by default.
+const areas = reactive([])      // { id, label, dirty: () => boolean, save: async () => false | any, discard: () => void, scope? }
+const within = (path, scope) => !!scope && (path === scope || path.startsWith(scope + '/'))
 export const unsaved = computed(() => areas.filter((a) => a.dirty()))
 
 // Called by a component for each thing it edits. `save` resolves to false when it did not save (it has said why itself).
 export function useUnsaved(area) {
+  if (getCurrentInstance()) {
+    const route = useRoute()
+    if (!area.scope && route && route.path.startsWith('/settings/')) area.scope = route.path.split('/').slice(0, 3).join('/')
+  }
   areas.push(area)
   const off = () => { const i = areas.findIndex((a) => a.id === area.id); if (i >= 0) areas.splice(i, 1) }
   if (getCurrentInstance()) onBeforeUnmount(off)
@@ -50,9 +59,10 @@ export function useUnsaved(area) {
 
 let asking = null
 // May what is on the page be left? `only`: the ids of the areas that would be lost (all of them when left out).
+// `to`: the address that is gone to - the areas that stay on the page there are not asked about.
 // Resolves to true - nothing to lose, saved, or given up - or false: stay.
-export function mayLeave(only) {
-  const open = unsaved.value.filter((a) => !only || only.includes(a.id))
+export function mayLeave(only, to) {
+  const open = unsaved.value.filter((a) => (!only || only.includes(a.id)) && !(to && within(to, a.scope)))
   if (!open.length) return Promise.resolve(true)
   if (asking) return asking
   asking = (async () => {
@@ -75,7 +85,7 @@ export function mayLeave(only) {
 
 // Leaving the page by a link asks; closing or reloading the tab gets the browser's own question.
 export function installGuards(router) {
-  router.beforeEach((to, from) => (to.path === from.path ? true : mayLeave()))
+  router.beforeEach((to, from) => (to.path === from.path ? true : mayLeave(null, to.path)))
   window.addEventListener('beforeunload', (ev) => {
     if (!unsaved.value.length) return
     ev.preventDefault()

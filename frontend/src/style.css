@@ -621,3 +621,18 @@ pre.code { padding: var(--s3); background: var(--surface); border: 1px solid var
 
 /* a tab (or anything else) that holds changes which are not saved yet */
 .unsaved-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--warn); vertical-align: middle; }
+
+/* the settings: groups (links that look like the segmented buttons), the sections of a group, a section that was linked to */
+.seg a.seg-link { padding: 5px 12px; color: var(--text-2); border-radius: 5px; font-weight: 550; text-decoration: none; }
+.seg a.seg-link:hover { color: var(--text); }
+.seg a.seg-link.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.set-toc { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 14px; font-size: var(--fs-sm); }
+.set-toc a { color: var(--text-2); text-decoration: none; padding: 2px 0; border-bottom: 2px solid transparent; }
+.set-toc a:hover { color: var(--text); }
+.set-toc a.on { color: var(--text); border-bottom-color: var(--primary); }
+.set-sec { scroll-margin-top: 12px; margin-bottom: 8px; }
+.set-head { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; }
+.set-head h3 { margin: 0; font-size: var(--fs-md, 16px); }
+.set-sec.here > .set-head h3 { color: var(--primary); }
+.set-sec.here > .card:first-of-type, .set-sec.here > details.card:first-of-type { box-shadow: 0 0 0 2px var(--primary-soft); }
+details.card > summary { cursor: pointer; }
