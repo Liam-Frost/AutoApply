@@ -17,9 +17,9 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-from . import db, llm, messages, notify, secrets
+from . import db, lifecycle, llm, messages, notify, secrets
 from . import prompts
-from .models import SENT, Application, Job, MailEvent
+from .models import RANK, SENT, Application, Job, MailEvent  # noqa: F401  (RANK: how far along; a mail never moves an application backwards by itself)
 
 log = logging.getLogger("autoapply.mail")
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -371,7 +371,6 @@ TRIAGE_SCHEMA = llm.obj(
 )
 STATUS_FOR = {"confirmation": "confirmed", "rejection": "rejected", "interview": "interview", "assessment": "assessment", "offer": "offer"}
 PREPARING = ("recon", "needs_input", "draft_ready", "revising", "approved", "executing", "needs_human", "failed", "drifted")   # before any submission
-RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along: a mail never moves an application backwards by itself
 QUERY = '(application OR applying OR applied OR interview OR assessment OR candidate OR position OR "thank you for your interest" OR unfortunately) -category:promotions'
 
 
@@ -427,56 +426,74 @@ def candidates(company: str) -> list[int]:
 def link(message_id: str, application_ids: list[int], *, by: str = "user") -> int:
     """This e-mail is about these applications (said by the applicant on the card, or found on the employer's site).
     Each gets what the e-mail says - the same as if the e-mail had named it. Returns how many changed state."""
-    with db.session() as s:
+    changed, tell = 0, []
+    with db.session() as s:      # the link and what follows from it: together, or not at all
         me = s.query(MailEvent).filter_by(message_id=message_id).first()
         if me is None or not application_ids:
             return 0
         me.application_id = int(application_ids[0])
         category, summary, received, event = me.category, me.summary, me.received_at, me.event or "new"
-    changed = 0
-    for app_id in application_ids:
-        updated, early, title = _record(int(app_id), category, summary, received, message_id, event)
-        changed += updated
-        if not early:
-            notify.send("status_update", messages.mail_update(category, title, summary, event=event), ref=f"application:{app_id}", tag=category)
+        for app_id in application_ids:
+            updated, early, title = _record(int(app_id), category, summary, received, message_id, event, session=s)
+            changed += updated
+            if not early:
+                tell.append((int(app_id), title))
+    for app_id, title in tell:
+        _tell(lambda: notify.send("status_update", messages.mail_update(category, title, summary, event=event), ref=f"application:{app_id}", tag=category))
     notify.close_todos("mail_unmatched", f"mail:{message_id}")
     log.info("mail %s linked to application(s) %s (%s)", message_id[:12], application_ids, by)
     return changed
 
 
-def _record(app_id: int, category: str, summary: str, received: datetime | None, mid: str, event: str = "new") -> tuple[int, bool, str]:
+def _tell(send: Any) -> None:
+    """Say what a mail changed. What it changed is on record by now; a notice that cannot be sent does not undo that
+    and does not stop the mail that comes after it."""
+    try:
+        send()
+    except Exception:  # noqa: BLE001
+        log.exception("a notice about a mail could not be sent")
+
+
+def _record(app_id: int, category: str, summary: str, received: datetime | None, mid: str, event: str = "new", *, session: Any = None) -> tuple[int, bool, str]:
     """Put what an e-mail says on its application. Returns (1 if the state changed, was it too early to believe, title).
+
+    ``session``: the caller's, when the mail itself is being written in it - the mail and what it does to the
+    application are then one write: both there, or neither (and the mail is read again on the next pass).
 
     An e-mail that calls something off does not move the application to that stage. If the application stands at
     exactly that stage (the interview it was invited to is the one being cancelled), it goes back to where it was
     before - whether another interview follows or a rejection, the next e-mail says."""
+    if session is None:
+        with db.session() as s:
+            return _record(app_id, category, summary, received, mid, event, session=s)
     new_status, updated = STATUS_FOR.get(category), 0
-    with db.session() as s:
-        a = s.get(Application, app_id)
-        title = f"{a.job.company} · {a.job.title}"
-        a.last_event = f"{category}{'' if event in ('', 'new') else ' (' + event + ')'}: {summary}"[:500]
-        if event == "cancelled" and category in ("interview", "assessment", "offer"):
-            if a.status == new_status:
-                from .models import ApplicationEvent
+    s = session
+    a = s.get(Application, app_id)
+    title = f"{a.job.company} · {a.job.title}"
+    a.last_event = f"{category}{'' if event in ('', 'new') else ' (' + event + ')'}: {summary}"[:500]
+    if event == "cancelled" and category in ("interview", "assessment", "offer"):
+        if a.status == new_status:
+            from .models import ApplicationEvent
 
-                came = s.query(ApplicationEvent).filter_by(application_id=a.id, new=new_status).order_by(ApplicationEvent.id.desc()).first()
-                a.status = came.old if came is not None and came.old in RANK and came.old != new_status else "submitted"
-                updated = 1
-            return updated, False, title
-        # A confirmation confirms a submission. An application this program is still preparing (no submission by it, none
-        # reported by the user) is not turned into "confirmed" by an e-mail: sites send "we have your application" style
-        # mail when an application is merely started. The mail is kept on the record and shown; the status stays.
-        early = category == "confirmation" and a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received)
-        if early:
-            a.last_event = f"收到一封像确认信的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{summary}"[:500]
-        elif new_status and RANK.get(new_status, 0) > RANK.get(a.status, 0):
-            a.status = new_status
-            if a.submitted_at is None:      # the program had not seen the submission; the employer has
-                a.submitted_at = received
-                a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
+            came = s.query(ApplicationEvent).filter_by(application_id=a.id, new=new_status).order_by(ApplicationEvent.id.desc()).first()
+            # the one thing a mail does that takes an application back: the stage it stands at is called off
+            lifecycle.move(a, came.old if came is not None and came.old in RANK and came.old != new_status else "submitted", source="mail", back=True)
             updated = 1
-        if category == "confirmation" and not early:
-            a.evidence = {**(a.evidence or {}), "mail_id": mid}
+        return updated, False, title
+    # A confirmation confirms a submission. An application this program is still preparing (no submission by it, none
+    # reported by the user) is not turned into "confirmed" by an e-mail: sites send "we have your application" style
+    # mail when an application is merely started. The mail is kept on the record and shown; the status stays.
+    early = category == "confirmation" and a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received)
+    if early:
+        a.last_event = f"收到一封像确认信的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{summary}"[:500]
+    elif new_status and RANK.get(new_status, 0) > RANK.get(a.status, 0):
+        lifecycle.move(a, new_status, source="mail")
+        if a.submitted_at is None:      # the program had not seen the submission; the employer has
+            a.submitted_at = received
+            a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
+        updated = 1
+    if category == "confirmation" and not early:
+        lifecycle.add_evidence(a, {"mail_id": mid})
     return updated, early, title
 
 
@@ -535,10 +552,10 @@ def reconcile() -> int:
                 continue
             if a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received):
                 continue
-            a.status = "confirmed"
+            lifecycle.move(a, "confirmed", source="mail")
             a.submitted_at = a.submitted_at or received
             a.last_event = f"confirmation: {summary}"[:500]
-            a.evidence = {**(a.evidence or {}), "mail_id": mid}
+            lifecycle.add_evidence(a, {"mail_id": mid})
             a.detail = a.detail or f"submitted {(received or datetime.now(timezone.utc)).date().isoformat()} (confirmed by the employer's e-mail)"
             fixed += 1
     return fixed
@@ -590,9 +607,15 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             if t["category"] == "confirmation" and t.get("received") is False:
                 t = {**t, "category": "other"}       # about an application that was begun, or about an account: nothing was received yet
         app_id = match_application(t["company"], t["job_title"], received) if t["category"] != "other" else None
+        changed, early, title = 0, False, ""
         with db.session() as s:
+            # The mail and what it does to its application are one write. Written apart, a failure in between left the
+            # mail "read" for good and the application where it was: an interview invitation on file, the application
+            # still "submitted". Now a failure leaves neither, and the next pass reads the mail again.
             s.add(MailEvent(message_id=mid, sender=frm[:200], subject=subj[:300], received_at=received, category=t["category"], event=t.get("event") or "new",
                             application_id=app_id, company_guess=t["company"], summary=t["summary"]))
+            if app_id is not None and t["category"] != "other":
+                changed, early, title = _record(app_id, t["category"], t["summary"], received, mid, t.get("event") or "new", session=s)
         new += 1
         if t["category"] == "other":
             continue
@@ -605,11 +628,10 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
 
                 tasks.enqueue("site_status", ref=f"mail:{mid}", payload={"message_id": mid}, priority=60)
             continue
-        changed, early, title = _record(app_id, t["category"], t["summary"], received, mid, t.get("event") or "new")
         updated += changed
         if early:
             continue
-        notify.send("status_update", messages.mail_update(t["category"], title, t["summary"], event=t.get("event") or "new"), ref=f"application:{app_id}", tag=t["category"])
+        _tell(lambda: notify.send("status_update", messages.mail_update(t["category"], title, t["summary"], event=t.get("event") or "new"), ref=f"application:{app_id}", tag=t["category"]))
     if quick:
         commit_history()        # every message of the batch is recorded: only now is it behind us
     return {"new_mail": new, "status_updates": updated, "unmatched": unmatched}

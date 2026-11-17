@@ -27,10 +27,10 @@ mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".js")
 
 from .. import net, persona, prompts
-from .. import auth, config, db, discover, drafts, handlers, humanize, knowledge, llm, mail, messages, notify, secrets, stages, tasks
+from .. import auth, config, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..ats import registry
 from ..models import Contact
-from ..models import Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
+from ..models import SENT, Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
 
 
 @asynccontextmanager
@@ -459,9 +459,10 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
         if a is None:
             a = Application(job_id=j.id, channel=j.channel)
             s.add(a)
-        elif a.status in ("confirmed", "interview", "assessment", "offer", "rejected"):
+            s.flush()       # it exists before it is moved: the move is kept in its history like any other
+        elif a.status in SENT and a.status != "submitted":
             raise _already_sent(a)
-        a.status, a.submitted_at = "submitted", a.submitted_at or now()
+        lifecycle.move(a, "submitted", source="user", at=now())
         a.last_event = "你确认已自己在官网提交；等确认邮件核实"
         a.detail = f"submitted {now().date().isoformat()} (by the user on the employer's site)"
         j.status = "applied"
@@ -595,7 +596,7 @@ def scout_draft(draft_id: int) -> dict[str, Any]:
         sch = dict(d.schema)
         sch["extra"] = {**(sch.get("extra") or {}), "scouted": 0}      # asked for by hand: the count of automatic rounds starts over
         d.schema = sch
-        d.application.status = "recon"
+        lifecycle.move(d.application, "recon", source="user")
     return {"task_id": tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)}
 
 
@@ -613,7 +614,7 @@ def reanswer_draft(draft_id: int) -> dict[str, Any]:
 def comment_draft(draft_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         d = _404(s.get(Draft, draft_id))
-        d.application.status = "revising"
+        lifecycle.move(d.application, "revising", source="user")
     tid = tasks.enqueue("revise", ref=f"draft:{draft_id}", payload={"draft_id": draft_id, "comment": body["comment"]}, priority=10)
     return {"task_id": tid}
 
@@ -635,12 +636,12 @@ def execute_again(draft_id: int) -> dict[str, Any]:
         app = d.application
         if d.review_status != "approved":
             raise HTTPException(400, "draft is not approved")
-        if app.status in ("submitted", "confirmed", "interview", "assessment", "offer", "rejected"):
+        if app.status in SENT:
             raise _already_sent(app)
         if app.status == "executing":
             raise HTTPException(400, "a run is in progress")
         app_id, deadline = app.id, app.job.deadline
-        app.status = "approved"
+        lifecycle.move(app, "approved", source="user")
     return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
 
 
@@ -649,9 +650,9 @@ def mark_submitted(application_id: int) -> dict[str, Any]:
     """The user submitted by hand and the confirmation page was not captured. Recorded as the user's word, not as evidence."""
     with db.session() as s:
         a = _404(s.get(Application, application_id))
-        if a.status in ("confirmed", "interview", "assessment", "offer", "rejected"):
+        if a.status in SENT and a.status != "submitted":
             raise _already_sent(a)
-        a.status, a.submitted_at = "submitted", a.submitted_at or now()
+        lifecycle.move(a, "submitted", source="user", at=now())
         a.last_event = "你确认已手动提交；没有保存到确认页，等确认邮件核实"
         a.detail = f"submitted {now().date().isoformat()} (confirmed by the user, no confirmation page captured)"
     for kind in ("failed", "submit"):
@@ -891,10 +892,17 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
                 raise HTTPException(404, "Task not found")
             if task.status not in ("failed", "waiting_human") or task.kind not in ("recon", "discover", "revise"):
                 raise HTTPException(400, "Backend retry is available for stopped discovery and draft-reading tasks")
+            try:
+                tasks.may_retry(s, task)
+            except tasks.NothingToRetry as exc:
+                raise HTTPException(409, str(exc)) from exc
             task.payload = {**task.payload, "browser_backend": backend}
             task.status, task.error = "queued", ""
         return {"ok": True}
-    tasks.retry(task_id)
+    try:
+        tasks.retry(task_id)
+    except tasks.NothingToRetry as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"ok": True}
 
 

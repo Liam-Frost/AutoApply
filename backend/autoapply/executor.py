@@ -41,7 +41,7 @@ from .ats import audit, registry
 from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
 from .ats.base import tolerated
 from .drafts import _stat
-from .models import Application, Draft, Run, now
+from .models import SENT, Application, Draft, Run, now
 
 log = logging.getLogger("autoapply.executor")
 
@@ -202,7 +202,9 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             return {"status": "skipped", "note": "the draft is no longer pending"}
         if not scout and d.review_status != "approved":
             raise PermissionError("draft is not approved")  # guard rail 4
-        if app.status in ("submitted", "confirmed"):
+        if app.status in SENT:
+            # It has gone out - submitted, or already further: confirmed, an interview, a rejection. There is nothing
+            # to fill again, whoever asks (a retry of an old task, a card that was still open). Its status is not touched.
             return {"status": app.status, "note": "already submitted"}  # idempotent
         raw = dict(d.schema)
         ref_d = raw.pop("_ref")
@@ -213,7 +215,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         title = f"{job.company} · {job.title}"
         s.expunge(job)
         if not scout:
-            app.status = "executing"
+            lifecycle.move(app, "executing", source="run")
     ref = JobRef(**ref_d)
     driver = registry.get(ref.ats)
     mode = submit_mode(ref.ats, title.split(" · ")[0], draft_answers, has_driver=driver is not None)
@@ -966,13 +968,21 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 "mapped": len(mapped), "steps": sum(1 for st in steps if st["op"] == "fill_step")}
     with db.session() as s:
         app = s.get(Application, application_id)
-        app.status = outcome["status"]
+        told = outcome["status"]
+        # What the run has to tell is put on the record as it stands NOW. While the window waited for Submit, a mail may
+        # have confirmed the application, or invited to an interview: then the run's news is old. What it saw on the
+        # page is still added to the evidence; a failure it ended with is not said about an application that has gone out.
+        arrived = lifecycle.move(app, told, source="run", evidence=(outcome.get("evidence") or None) if told == "submitted" else None,
+                                 at=now() if told == "submitted" else None)
+        sent = app.status in SENT
         was_auto = bool(app.auto_approved)
-        app.last_event = outcome.get("error") or outcome.get("note") or ""
-        if outcome["status"] == "submitted":
-            app.submitted_at = now()
-            app.evidence = outcome.get("evidence", {})
-            app.detail = f"submitted {now().date().isoformat()} via {ref.ats}" + (" (auto-approved)" if app.auto_approved else "")
+        if arrived:
+            app.last_event = outcome.get("error") or outcome.get("note") or ""
+            if told == "submitted":
+                app.detail = f"submitted {now().date().isoformat()} via {ref.ats}" + (" (auto-approved)" if app.auto_approved else "")
+        elif told not in SENT:
+            step("superseded", told=told, stands_at=app.status)
+            outcome = {"status": app.status, "note": f"the application had already got to '{app.status}' when this run ended with '{told}'", "superseded": told}
         spans = timing.end()
         run = Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, spans=spans, site=_site_of(schema),
                   learned=learned.in_force(), dir=str(run_dir))
@@ -981,11 +991,11 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         run_id = run.id
         new_questions = 0
         if mapped or added or adapted or asked or located or reordered or removed:
-            back = outcome["status"] != "submitted"
+            back = not sent
             new_questions = _keep_learned(s.get(Draft, draft_id), schema, draft_answers, approved_values, absent_ids, added, generic=generic, limits=limits, asked=asked, removed=removed, send_back=back,
                                           located=located) or 0
             if new_questions and back:       # the draft goes back to the applicant: it has questions only they can answer
-                app.status = "needs_input"
+                lifecycle.move(app, "needs_input", source="run")
                 app.last_event = f"填表时遇到 {new_questions} 个草案里没有、资料里也没有答案的问题，已加进草案；回答并批准后接着填"
     # outside the session: SQLite allows one writer at a time
     # What was learned and was in force is judged by this run; then the run itself is looked at for what to learn next.
@@ -1004,7 +1014,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                 ans.cache_put(schema.ats, Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"]), a["value"], "answered by the applicant in the application window", confirmed=True, tenant=schema.tenant)
             except Exception:  # noqa: BLE001 - remembering must not fail the run
                 log.exception("could not remember an answer given in the window")
-    if new_questions and outcome["status"] != "submitted":
+    if new_questions and not sent:
         names = "\n".join("· " + a["label"][:90] for a in asked if a.get("value") in ("", None, [], False))[:600]
         notify.close_todos("submit", f"application:{application_id}")
         notify.add_todo("answer", title, ref=f"draft:{draft_id}", payload={"draft_id": draft_id},

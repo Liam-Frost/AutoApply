@@ -176,12 +176,50 @@ def recover() -> None:
         waiting = {t.ref for t in s.query(Task).filter(Task.kind == "execute", Task.status.in_(("queued", "running")))}
         for a in s.query(Application).filter_by(status="executing"):
             if f"application:{a.id}" not in waiting:
-                a.status, a.last_event = "failed", "填写被中断（程序在填写途中被关闭），可以重新开始"
+                from . import lifecycle
+
+                if lifecycle.move(a, "failed", source="recover"):
+                    a.last_event = "填写被中断（程序在填写途中被关闭），可以重新开始"
+
+
+class NothingToRetry(ValueError):
+    """The task is about an application that has gone out: there is nothing to do again."""
+
+
+def application_of(s: Any, ref: str) -> Any:
+    """The application a task works on, from what the task is filed under ("application:12", "draft:40", "job:7")."""
+    from .models import Application, Draft, Job
+
+    kind, _, num = (ref or "").partition(":")
+    num = num.split(":")[0]
+    if not num.isdigit():
+        return None
+    if kind == "application":
+        return s.get(Application, int(num))
+    if kind == "draft":
+        d = s.get(Draft, int(num))
+        return d.application if d is not None else None
+    if kind == "job":
+        j = s.get(Job, int(num))
+        return j.application if j is not None else None
+    return None
+
+
+def may_retry(s: Any, t: Task) -> None:
+    """Work on an application's form is not done again for an application that has gone out (a task from before it was
+    sent, retried from the list of what has run). Raises NothingToRetry."""
+    from . import lifecycle
+
+    if t.kind in lifecycle.WORK:
+        a = application_of(s, t.ref)
+        if lifecycle.is_sent(a):
+            raise NothingToRetry(f"这份申请已经是“{lifecycle.LABEL.get(a.status, a.status)}”，没有可以重做的了")
 
 
 def retry(task_id: int) -> None:
     with db.session() as s:
         t = s.get(Task, task_id)
+        may_retry(s, t)
         t.status, t.error = "queued", ""
     _wake.set()
 

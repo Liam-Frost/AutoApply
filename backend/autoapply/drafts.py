@@ -189,10 +189,10 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         if app is None:
             app = Application(job_id=job.id, status="recon", channel=job.channel)
             s.add(app)
-        elif app.status in ("submitted", "confirmed", "interview", "assessment", "offer", "rejected"):
+        elif app.status in SENT:
             raise ValueError(f"job {job_id} already has an application in status {app.status}")
         else:
-            app.status = "recon"
+            lifecycle.move(app, "recon", source="draft")
         s.flush()
         app_id = app.id
     run_dir = run_dir or (config.RUNS / f"recon_job_{job_id}")
@@ -317,7 +317,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
             auto_approve_check=check,
         )
         s.add(d)
-        app.status = "needs_input" if res["unresolved"] else "draft_ready"
+        lifecycle.move(app, "needs_input" if res["unresolved"] else "draft_ready", source="draft")
         app.last_event = ""      # what an earlier attempt ended with is not what is true now
         s.flush()
         draft_id = d.id
@@ -325,7 +325,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
         # to its end first, and the applicant is asked once, for everything.
         to_scout = bool(unseen_steps(schema)) and bool(db.get_setting("recon.walk")) and (not res["unresolved"] or bool(db.get_setting("recon.provisional")))
         if to_scout:
-            app.status = "recon"      # still being read: the later steps are next
+            lifecycle.move(app, "recon", source="draft")      # still being read: the later steps are next
     for old_id in stale:  # their open questions belong to a draft that no longer exists
         notify.close_todos("answer", f"draft:{old_id}")
     if any("No résumé has been uploaded" in n for n in notes):
@@ -401,7 +401,7 @@ def reanswer(draft_id: int) -> dict[str, Any]:
         d.notes = list(d.notes) + [f"Proposed rule (confirm to save to profile): {r}" for r in res["new_rules"]]
         a = s.get(Application, app_id)
         if a.status in ("needs_input", "draft_ready"):
-            a.status = "needs_input" if left else "draft_ready"
+            lifecycle.move(a, "needs_input" if left else "draft_ready", source="draft")
         labels = [str(u["label"])[:90] for u in d.unresolved[:6]]
         title = f"{job.company} · {job.title}"
     notify.close_todos("answer", f"draft:{draft_id}")
@@ -488,8 +488,7 @@ def _carry_over(res: dict[str, Any], prev: dict[str, Any]) -> int:
 def _set_app(app_id: int, status: str, event: str = "") -> None:
     with db.session() as s:
         a = s.get(Application, app_id)
-        a.status = status
-        if event:
+        if lifecycle.move(a, status, source="draft") and event:      # (an application that has gone out keeps what it says)
             a.last_event = event
 
 
@@ -560,7 +559,7 @@ def walk_pending(limit: int = 3) -> int:
                 continue
             if int((d.schema.get("extra") or {}).get("scouted") or 0) >= 3 or not needs_walk(d):
                 continue
-            app.status = "recon"
+            lifecycle.move(app, "recon", source="draft")
             todo.append((d.id, app.job.deadline or ""))
             if len(todo) >= limit:
                 break
@@ -615,7 +614,7 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
         with db.session() as s:
             d = s.get(Draft, draft_id)
             if d.application.status == "recon":      # not left as "being read" for ever
-                d.application.status = "needs_input" if d.unresolved else "draft_ready"
+                lifecycle.move(d.application, "needs_input" if d.unresolved else "draft_ready", source="draft")
         return {"skipped": "walked six times already"}
     try:
         out = executor.execute(app_id, draft_id, task_id=task_id, scout=True)
@@ -660,7 +659,7 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
             d.notes = notes
             d.auto_approve_check = {**(d.auto_approve_check or {}), "eligible": False}      # the check was made before these answers existed
             if d.review_status == "pending" and app.status in ("recon", "draft_ready", "needs_input"):
-                app.status = "needs_input" if d.unresolved else "draft_ready"
+                lifecycle.move(app, "needs_input" if d.unresolved else "draft_ready", source="draft")
             title, unresolved = f"{job.company} · {job.title}", list(d.unresolved or [])
             answers = list(d.answers)
         notify.close_todos("answer", f"draft:{draft_id}")
@@ -721,10 +720,10 @@ def drop_question(draft_id: int, qid: str) -> None:
         d.notes = [*(d.notes or []), f"你去掉了一个填表时遇到的问题：“{str(row.get('label') or '')[:120]}”" + (f"（{row['entry']}）" if row.get("entry") else "")]
         resolved_all = not d.unresolved and d.application.status == "needs_input"
         if resolved_all:
-            d.application.status = "draft_ready"
+            lifecycle.move(d.application, "draft_ready", source="draft")
         walk_on = resolved_all and d.review_status == "pending" and needs_walk(d) and bool(db.get_setting("recon.walk"))
         if walk_on:
-            d.application.status = "recon"
+            lifecycle.move(d.application, "recon", source="draft")
     if resolved_all:
         notify.close_todos("answer", f"draft:{draft_id}")
     if walk_on:
@@ -757,14 +756,14 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         d.unresolved = [u for u in d.unresolved if u["id"] != qid or value in ("", None, [])]
         resolved_all = not d.unresolved and d.application.status == "needs_input"
         if resolved_all:
-            d.application.status = "draft_ready"
+            lifecycle.move(d.application, "draft_ready", source="draft")
         # every open question is answered and the form still has steps that were not read: the walk goes on from there
         walk_on = resolved_all and d.review_status == "pending" and needs_walk(d) and bool(db.get_setting("recon.walk"))
         # a form that is read by filling it (Workday) and stopped at a step: with the answers in, it is read again from there
         read_on = (resolved_all and d.review_status == "pending" and d.schema.get("source") == "walk" and bool((d.schema.get("extra") or {}).get("stopped_at"))
                    and bool(db.get_setting("recon.walk")))
         if walk_on or read_on:
-            d.application.status = "recon"
+            lifecycle.move(d.application, "recon", source="draft")
         job_id, deadline = d.application.job_id, d.application.job.deadline
         edited = next((dict(a) for a in new if a["id"] == qid), None)
     if corrected and edited is not None and edited.get("type") != "file":
@@ -879,7 +878,7 @@ def revise(draft_id: int, comment: str) -> dict[str, Any]:
                    unresolved=[u for u in d.unresolved if not (u["id"] in edits and edits[u["id"]]["value"])],
                    materials=mats, plan=d.plan, notes=d.notes, auto_approve_check={"eligible": False, "failed": ["revised_by_user"], "checks": {}})
         s.add(nd)
-        d.application.status = "needs_input" if nd.unresolved else "draft_ready"
+        lifecycle.move(d.application, "needs_input" if nd.unresolved else "draft_ready", source="draft")
         s.flush()
         new_id = nd.id
     notify.close_todos("answer", f"draft:{draft_id}")
@@ -897,7 +896,8 @@ def approve(draft_id: int, *, auto: bool = False) -> None:
             raise ValueError(f"draft is {d.review_status}")
         d.review_status, d.approved_at = "approved", now()
         app, job = d.application, d.application.job
-        app.status, app.auto_approved = "approved", int(auto)
+        lifecycle.move(app, "approved", source="auto" if auto else "user")
+        app.auto_approved = int(auto)
         ats, tenant = d.schema.get("ats", ""), str(d.schema.get("tenant") or "")
         answers_copy = list(d.answers)
         title = f"{job.company} · {job.title}"
@@ -916,4 +916,4 @@ def reject(draft_id: int, *, withdraw: bool = False) -> None:
     with db.session() as s:
         d = s.get(Draft, draft_id)
         d.review_status = "rejected"
-        d.application.status = "withdrawn" if withdraw else "draft_ready"
+        lifecycle.move(d.application, "withdrawn" if withdraw else "draft_ready", source="user")
