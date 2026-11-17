@@ -431,7 +431,9 @@ def link(message_id: str, application_ids: list[int], *, by: str = "user") -> in
         me = s.query(MailEvent).filter_by(message_id=message_id).first()
         if me is None or not application_ids:
             return 0
-        me.application_id = int(application_ids[0])
+        if by != "user" and me.linked_by == "user":
+            return 0        # the applicant has said which application this is about: nothing the program finds later changes that
+        me.application_id, me.linked_by = int(application_ids[0]), by
         category, summary, received, event = me.category, me.summary, me.received_at, me.event or "new"
         for app_id in application_ids:
             updated, early, title = _record(int(app_id), category, summary, received, message_id, event, session=s)
@@ -497,29 +499,61 @@ def _record(app_id: int, category: str, summary: str, received: datetime | None,
     return updated, early, title
 
 
-def match_application(company: str, title: str, received: datetime | None) -> int | None:
-    """Best application for an e-mail: company must match; title breaks ties."""
+def _utc(d: datetime | None) -> datetime | None:
+    return None if d is None else (d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc))
+
+
+def _numbers(job: Job) -> list[str]:
+    """What a recruiter's mail would call this posting: its requisition or posting number, when it has one that is
+    more than a few digits (a short number is in every mail)."""
+    sid = str(job.source_id or "").split(":")[-1].strip()
+    return [sid] if re.fullmatch(r"[A-Za-z]{0,6}[-_]?\d{4,12}", sid) else []
+
+
+def match_application(company: str, title: str, received: datetime | None, text: str = "") -> int | None:
+    """The application an e-mail is about, or None when what it says does not single one out (it then goes to the
+    applicant as "which application is this about?").
+
+    The employer has to be the same. Then, in this order:
+    - an application that did not exist when the mail was written is not what the mail is about. (A mail of forty days
+      ago was put on an application made yesterday for a posting of the same name.) "Existed": the earlier of when the
+      program made it and when it was sent - an application the applicant sent by hand and the program met later has
+      its real date of sending.
+    - the posting's own number in the mail (``text``: subject and body) settles it.
+    - the title: more of its words in common is better; among equals, the one sent last before the mail.
+    Several applications at the employer and nothing in the mail about which: the one that is furthest along, if
+    exactly one is; otherwise None."""
     c = _norm(company)
     if not c:
         return None
+    when = _utc(received)
+    low = (text or "").lower()
     with db.session() as s:
         cands = []
         for a in s.query(Application).join(Job).all():
             jc = _norm(a.job.company)
             if not _same_company(c, jc):
                 continue
+            began = min(x for x in (_utc(a.created_at), _utc(a.submitted_at)) if x is not None) if (a.created_at or a.submitted_at) else None
+            if when is not None and began is not None and began > when + timedelta(hours=1):
+                continue
+            named = any(re.search(r"(?<![a-z0-9])" + re.escape(n.lower()) + r"(?![a-z0-9])", low) for n in _numbers(a.job)) if low else False
             t, jt = set(_norm(title).split()), set(_norm(a.job.title).split())
             overlap = len(t & jt) / max(1, len(t | jt))
-            cands.append((overlap, a.submitted_at or a.created_at, a.id, RANK.get(a.status, 0)))
+            at = _utc(a.submitted_at or a.created_at) or datetime.min.replace(tzinfo=timezone.utc)
+            cands.append((named, overlap, at, a.id, RANK.get(a.status, 0)))
         if not cands:
             return None
-        cands.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        if len(cands) > 1 and cands[0][0] == cands[1][0] == 0:
+        by_number = [x for x in cands if x[0]]
+        if len(by_number) == 1:
+            return by_number[0][3]
+        cands.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        if len(cands) > 1 and cands[0][1] == cands[1][1] == 0 and not cands[0][0]:
             # Several applications at this company and no title to tell them apart: a follow-up
             # belongs to the one that is furthest along, if exactly one is.
-            live = [x for x in cands if 2 < x[3] < 6]
-            return live[0][2] if len(live) == 1 else None
-        return cands[0][2]
+            live = [x for x in cands if 2 < x[4] < 6]
+            return live[0][3] if len(live) == 1 else None
+        return cands[0][3]
 
 
 def _was_filled(s: Any, application_id: int, before: datetime | None) -> bool:
@@ -606,7 +640,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             t = triage(subj, frm, body)
             if t["category"] == "confirmation" and t.get("received") is False:
                 t = {**t, "category": "other"}       # about an application that was begun, or about an account: nothing was received yet
-        app_id = match_application(t["company"], t["job_title"], received) if t["category"] != "other" else None
+        app_id = match_application(t["company"], t["job_title"], received, f"{subj}\n{body}") if t["category"] != "other" else None
         changed, early, title = 0, False, ""
         with db.session() as s:
             # The mail and what it does to its application are one write. Written apart, a failure in between left the
