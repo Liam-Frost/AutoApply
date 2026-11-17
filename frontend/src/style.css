@@ -649,3 +649,12 @@ details.card > summary { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .data-stale { align-items: center; margin-bottom: 12px; }
 .status-dot.down { background: var(--bad); }
+
+
+/* an action that is under way: the button that started it (ui.run) */
+[data-busy] { pointer-events: none; opacity: 0.6; position: relative; }
+[data-busy]::after { content: ""; width: 12px; height: 12px; margin-left: 6px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
+@media (prefers-reduced-motion: reduce) { [data-busy]::after { animation: none; } }
+.form-error { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--bad-soft); color: var(--bad); font-size: var(--fs-sm); }
+.toast a { color: inherit; text-decoration: underline; white-space: nowrap; }
+.toast.warn { border-color: var(--warn); }

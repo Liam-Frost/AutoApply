@@ -101,7 +101,7 @@ onUnmounted(() => clearInterval(timer))
   </template>
   <div class="toasts" role="status" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
-      <span class="grow">{{ t.text }}</span>
+      <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link></span>
       <button aria-label="关闭" @click="dismissToast(t.id)">✕</button>
     </div>
   </div>
