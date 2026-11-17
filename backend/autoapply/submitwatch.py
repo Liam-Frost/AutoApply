@@ -61,6 +61,6 @@ def seen(page: Any) -> dict[str, Any] | None:
         return None
     try:
         got = json.loads(raw)
-    except ValueError:
+    except (TypeError, ValueError):       # not what the watcher writes: nothing was seen
         return None
-    return got if isinstance(got, dict) else None
+    return got if isinstance(got, dict) and got.get("how") else None
