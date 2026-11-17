@@ -13,6 +13,7 @@ import DoctorPanel from '../components/DoctorPanel.vue'
 import PromptsPanel from '../components/PromptsPanel.vue'
 import PageHead from '../components/PageHead.vue'
 import SetSection from '../components/SetSection.vue'
+import FormError from '../components/FormError.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { persona, run as runAction, toast } from '../ui'
 import { absorb, changed, clone, unsaved, useUnsaved } from '../dirty'
@@ -107,21 +108,25 @@ async function save() {
   const keys = dirtyKeys.value
   const n = pending.value
   if (!n) { toast('没有需要保存的改动'); return true }
+  if (saving.value) return false
   saving.value = true
   try {
-    const st = {}
-    for (const k of keys) st[k] = s.value[k]       // what was changed, and only that: a setting another part saved meanwhile is not sent back as it was
-    const secrets = {}
-    for (const k in sec.value) if (sec.value[k]) secrets[k] = sec.value[k]
-    await api.put('/settings', { settings: st, secrets })
-    for (const k of keys) saved.value[k] = clone(s.value[k])
-    sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
-    toast(`已保存 ${n} 项改动`)
-    await load()
-    if (group.value === 'overview') loadRules()
-    if (netPanel.value) netPanel.value.load()
-    return true
-  } catch (e) { toast(e.message, 'bad'); return false } finally { saving.value = false }
+    // (ui.run: what the server refused stays on the page, next to the button, until it is saved again)
+    const done = await runAction(async () => {
+      const st = {}
+      for (const k of keys) st[k] = s.value[k]       // what was changed, and only that: a setting another part saved meanwhile is not sent back as it was
+      const secrets = {}
+      for (const k in sec.value) if (sec.value[k]) secrets[k] = sec.value[k]
+      await api.put('/settings', { settings: st, secrets })
+      for (const k of keys) saved.value[k] = clone(s.value[k])
+      sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
+    }, `已保存 ${n} 项改动`, async () => {
+      await load()
+      if (group.value === 'overview') loadRules()
+      if (netPanel.value) netPanel.value.load()
+    }, { form: 'settings' })
+    return done !== false
+  } finally { saving.value = false }
 }
 function discard() {
   for (const k of dirtyKeys.value) s.value[k] = clone(saved.value[k])
@@ -166,8 +171,9 @@ onMounted(load)
     <PageHead title="设置">
       <span v-if="pending" class="badge warn" role="status">有 {{ pending }} 项改动还没保存</span>
       <button v-if="pending" class="ghost" :disabled="saving" @click="discard">放弃改动</button>
-      <button class="primary" :disabled="!pending || saving" @click="save"><Icon name="check" />{{ pending ? '保存' : '已保存' }}</button>
+      <button class="primary" :disabled="!pending || saving" @click="save"><Icon name="check" />{{ saving ? '正在保存…' : pending ? '保存' : '已保存' }}</button>
     </PageHead>
+    <FormError name="settings" />
     <nav class="seg" style="margin-bottom: 8px" aria-label="设置的分组">
       <router-link v-for="[g, name] in GROUPS" :key="g" :to="'/settings/' + g" class="seg-link" :class="{ on: group === g }">{{ name }}<span v-if="marked(g)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></router-link>
     </nav>

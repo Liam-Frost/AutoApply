@@ -178,6 +178,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **A button that is doing something says so, and does it once.** Approving a draft, filling a form in again,
+  saving the settings, preparing a draft and every other action that goes through the shared runner: the button that
+  was pressed is shown as busy until the action is over, and pressing it again meanwhile does nothing (three clicks
+  on "approve" used to be three requests). When an action succeeded and the page could not be read afresh, it says
+  that - not "failed". Work that was queued says so with a link to where it stands in the work plan. What the server
+  refuses when the settings are saved stays under the button until they are saved again, instead of in a message
+  that is gone after nine seconds.
 - **A page says whether what it shows is there, still being read, or out of date.** Postings, drafts, to-dos,
   activity, the overview, accounts, the library and the applications started from an empty list: until the answer
   came they said "0" and showed the picture for "nothing here", and when the service could not be reached they went

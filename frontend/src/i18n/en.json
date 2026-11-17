@@ -3155,5 +3155,8 @@
 "{0}没有读出来": "{0} could not be read",
 "（上次更新 {0}）": " (last updated {0})",
 "连接不上服务：它可能正在重启，或者已经停了": "Cannot reach the service: it may be restarting, or it has stopped",
-"连接不上服务。下面是 {0} 读到的内容，可能已经不是最新的。": "Cannot reach the service. What is shown below was read at {0} and may be out of date."
+"连接不上服务。下面是 {0} 读到的内容，可能已经不是最新的。": "Cannot reach the service. What is shown below was read at {0} and may be out of date.",
+"正在批准…": "Approving…",
+"看它排在哪": "See where it stands in the queue",
+"已经做完了，但页面没能读到最新的内容：{0}": "It is done, but the page could not be read afresh: {0}"
 }

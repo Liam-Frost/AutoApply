@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 import Icon from '../components/Icon.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { ask, toast } from '../ui'
+import { ask, toast, busy as acting, run } from '../ui'
 
 const props = defineProps({ id: String })
 const router = useRouter()
@@ -48,7 +48,7 @@ const tailorNote = ref('')
 const hasResume = computed(() => d.value && d.value.materials.some((m) => ['resume_site', 'resume_portal', 'tailored_resume'].includes(m.kind)))
 const tailored = computed(() => d.value && d.value.materials.find((m) => m.kind === 'tailored_resume'))
 async function useResume(which) {
-  try { await api.post(`/drafts/${props.id}/resume`, { which }); await load(); toast(which === 'base' ? '已换回你上传的原版简历' : '已换成调整过的简历') } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/resume`, { which }), which === 'base' ? '已换回你上传的原版简历' : '已换成调整过的简历', load)
 }
 async function tailorNow() {
   try {
@@ -127,26 +127,26 @@ async function reanswer() {
 }
 async function runAgain() {
   
-  try { await api.post(`/drafts/${props.id}/execute`); toast('已重新开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/execute`), '已重新开始填写', load, { name: 'execute' })
 }
 // Submit was pressed and the outcome is not known: what settles it comes first, filling it in again last and on the applicant's word
 async function checkMail() {
-  try { await api.post(`/applications/${d.value.application.id}/check-mail`); toast('正在查邮箱；有确认邮件的话，这份申请会记为已投出') } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/applications/${d.value.application.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出')
 }
 async function runAgainNotSubmitted() {
   if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，重新填写会向雇主再投一次。', { ok: '确定没提交，重新填写' }))) return
-  try { await api.post(`/drafts/${props.id}/execute`, { not_submitted: true }); toast('已重新开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/execute`, { not_submitted: true }), '已重新开始填写', load, { name: 'execute' })
 }
 async function markSubmitted() {
   
-  try { await api.post(`/applications/${d.value.application.id}/mark-submitted`); toast('已记为“投递成功”，稍后会查确认邮件'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/applications/${d.value.application.id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件', load)
 }
 async function approve() {
   
-  try { await api.post(`/drafts/${props.id}/approve`); toast('已批准，开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/approve`), '已批准，开始填写', load, { name: 'approve' })
 }
 async function reject(withdraw) {
-  try { await api.post(`/drafts/${props.id}/reject`, { withdraw }); router.push('/drafts') } catch (e) { toast(e.message, 'bad') }
+  if (await run(() => api.post(`/drafts/${props.id}/reject`, { withdraw }), '', null, { name: 'reject' })) router.push('/drafts')
 }
 watch(() => props.id, load)
 onMounted(load)
@@ -316,7 +316,7 @@ onUnmounted(() => clearInterval(timer))
       <div class="row" style="margin-top: 10px">
         <button class="primary" @click="checkMail"><Icon name="mail" />现在检查确认邮件</button>
         <button @click="markSubmitted">我已经提交了</button>
-        <button class="ghost" @click="runAgainNotSubmitted">没提交成功，重新填写</button>
+        <button class="ghost" :disabled="acting('execute')" @click="runAgainNotSubmitted">没提交成功，重新填写</button>
       </div>
     </div>
 
@@ -326,7 +326,7 @@ onUnmounted(() => clearInterval(timer))
       <div v-if="editable" class="muted" style="margin-top: 6px">哪一项答案不对，可以直接在上面点“修改”改掉，不用重新批准；改完点下面的按钮，程序按现在的答案再填一次。</div>
       <TechDetails :text="d.application.explained.detail" />
       <div class="row" style="margin-top: 10px">
-        <button class="primary" @click="runAgain"><Icon name="refresh" />{{ d.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
+        <button class="primary" :disabled="acting('execute')" @click="runAgain"><Icon name="refresh" />{{ d.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
         <button v-if="d.application.status === 'ready_to_submit'" @click="markSubmitted">我已经提交了</button>
       </div>
     </div>
@@ -344,9 +344,9 @@ onUnmounted(() => clearInterval(timer))
         <div v-for="(c, i) in d.comments" :key="i" class="small muted" style="margin-top: 6px">你：{{ c.comment }} → {{ c.result }}</div>
       </div>
       <div class="row" style="position: sticky; bottom: 0; background: var(--bg); padding: 12px 0">
-        <button class="primary" :disabled="!!d.unresolved.length" @click="approve">{{ d.submit_mode && d.submit_mode.mode === 'manual' ? '批准，填好后我来点提交' : '批准，自动填写并提交' }}</button>
-        <button @click="reject(false)">先不批准</button>
-        <button class="ghost danger" @click="reject(true)">不投这个岗位了</button>
+        <button class="primary" :disabled="!!d.unresolved.length || acting('approve')" @click="approve">{{ acting('approve') ? '正在批准…' : d.submit_mode && d.submit_mode.mode === 'manual' ? '批准，填好后我来点提交' : '批准，自动填写并提交' }}</button>
+        <button :disabled="acting('reject') || acting('approve')" @click="reject(false)">先不批准</button>
+        <button class="ghost danger" :disabled="acting('reject') || acting('approve')" @click="reject(true)">不投这个岗位了</button>
         <span v-if="d.unresolved.length" class="muted">回答完上面的问题才能批准</span>
       </div>
     </template>
