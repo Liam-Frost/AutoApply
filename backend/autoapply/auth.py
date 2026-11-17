@@ -24,7 +24,7 @@ from playwright.sync_api import Page
 
 from . import browser, db, messages, notify, secrets
 from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError
-from .models import Account, now
+from .models import SENT, Account, now
 
 log = logging.getLogger("autoapply.auth")
 
@@ -165,7 +165,6 @@ def login_email() -> str:
     return str(db.get_setting("account.email") or "")
 
 
-APPLIED = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 
 
 def likely_registered(ref: JobRef) -> str:
@@ -183,7 +182,7 @@ def likely_registered(ref: JobRef) -> str:
         companies = {j.company for j in q if j.company}
         if not companies:
             return ""
-        hit = s.query(Application).join(Job).filter(Application.status.in_(APPLIED), Job.company.in_(companies)).first()
+        hit = s.query(Application).join(Job).filter(Application.status.in_(SENT), Job.company.in_(companies)).first()
         return f"你之前投过 {hit.job.company}，应该已经有账号" if hit else ""
 
 

@@ -16,7 +16,7 @@ from . import prompts
 from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
 from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
-from .models import Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
+from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
 
@@ -51,8 +51,8 @@ def recon(job: Job, run_dir, given: dict[str, Any] | None = None) -> tuple[JobRe
 
         return generic.recon(job, ref, run_dir)
     reads = db.get_setting("agent.reads") or []
-    # (the university's portal does not allow programs to operate it: nothing reads it, coded or not)
-    if ("*" in reads or ref.ats in reads) and ref.ats != "pdportal":
+    # (a driver can say its site is not to be explored by the agent: read_by_agent = False)
+    if ("*" in reads or ref.ats in reads) and getattr(driver, "read_by_agent", True):
         # A form that is a walk through several steps is read by the agent: it looks at each page and decides what to do
         # there. The coded driver does what code does well - signing in with the saved session or password - and hands over.
         from . import generic
@@ -674,7 +674,6 @@ def scout(draft_id: int, *, task_id: int | None = None) -> dict[str, Any]:
     return out
 
 
-SENT = ("submitted", "confirmed", "interview", "assessment", "offer", "rejected")
 
 
 class Locked(ValueError):
@@ -709,6 +708,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         new = []
         label = next((a.get("label", "") for a in d.answers if a["id"] == qid), "")
         corrected = d.review_status == "approved" and str(d.schema.get("ats") or "")       # the approval cached the old value as theirs
+        tenant = str(d.schema.get("tenant") or "")
         if d.review_status == "approved":
             # after the approval: kept where the applicant's other changes to this draft are listed
             before = next((a.get("value") for a in d.answers if a["id"] == qid), None)
@@ -733,7 +733,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         job_id, deadline = d.application.job_id, d.application.job.deadline
         edited = next((dict(a) for a in new if a["id"] == qid), None)
     if corrected and edited is not None and edited.get("type") != "file":
-        ans.correct(corrected, edited)
+        ans.correct(corrected, edited, tenant)
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
     if walk_on:
@@ -863,13 +863,13 @@ def approve(draft_id: int, *, auto: bool = False) -> None:
         d.review_status, d.approved_at = "approved", now()
         app, job = d.application, d.application.job
         app.status, app.auto_approved = "approved", int(auto)
-        ats = d.schema.get("ats", "")
+        ats, tenant = d.schema.get("ats", ""), str(d.schema.get("tenant") or "")
         answers_copy = list(d.answers)
         title = f"{job.company} · {job.title}"
         app_id = app.id
         deadline = job.deadline
     # A human approval confirms the answers (including sensitive ones) for reuse.
-    ans.remember(ats, answers_copy, confirmed=not auto)
+    ans.remember(ats, answers_copy, confirmed=not auto, tenant=tenant)
     from . import tasks
 
     tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))

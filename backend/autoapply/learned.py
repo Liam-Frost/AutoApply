@@ -47,7 +47,6 @@ from . import config
 
 log = logging.getLogger("autoapply.learned")
 
-STATUSES = ("proposed", "trial", "active", "reverted", "parked", "rejected")
 IN_FORCE = ("trial", "active")
 TRIALS_TO_PROMOTE = 2       # good runs before a revision is taken to hold up
 BAD_TRIALS_TO_REVERT = 2    # failed runs with it in force (without a strike of its own) before it is taken out

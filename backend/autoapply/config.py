@@ -31,6 +31,11 @@ for _p in (DATA, FILES, MATERIALS, RUNS, SESSIONS, KNOWLEDGE, PLAYBOOKS):
 
 # Defaults for the key/value ``settings`` table. Anything here can be changed
 # from the Settings page; secrets (tokens, passwords) are NOT stored there.
+# Kept in the settings table, but the program's own record of what it found out - not something the settings page
+# shows or saves. The page used to get these and send them back with everything else: a page left open wrote an older
+# copy over what the program had recorded since (which browser a sign-in lives in, which site signs in on which).
+STATE = frozenset({"accounts.alias", "sso.offered", "browser.visible_sites", "browser.session_made_in", "learned.drivers_written", "mail.gmail_history"})
+
 DEFAULT_SETTINGS: dict[str, object] = {
     # models
     "llm.auth": "subscription",  # older installs: "subscription" | "api_key" (Anthropic); used only while llm.provider is empty
@@ -98,12 +103,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "schedule.discover_minutes": 720,
     "schedule.mail_minutes": 60,
     "schedule.mail_new_minutes": 2,     # Gmail only: ask what arrived since the last look (0: off)
-    "schedule.execute_minutes": 5,
     "schedule.canary_minutes": 1440,
     "schedule.paused": False,
     # queueing
     "queue.min_score_for_draft": 8.0,
-    "executor.concurrency": 1,
     # notifications: per-category switches
     "notify.task_started": True,
     "notify.todo": True,

@@ -115,23 +115,37 @@ def file_slots(schema: FormSchema, job: Job, cover_letter: dict[str, Any] | None
     return answers, materials, notes
 
 
-def _cache_get(ats: str, q: Question) -> AnswerCache | None:
-    key, oh = q.key()
-    with db.session() as s:
-        return s.query(AnswerCache).filter_by(ats=ats, question_key=key, options_hash=oh).first()
+def _scope(ats: str, tenant: str = "") -> str:
+    """Whose answers a cached answer is. A system with a driver of its own asks the same questions of everyone, so its
+    name is the scope. The sites without one ("generic") are each an employer of their own: "generic:<site>"."""
+    return f"generic:{tenant}" if ats == "generic" and tenant else ats
 
 
-def cache_put(ats: str, q: Question, value: Any, basis: str, *, confirmed: bool) -> None:
+def _cache_get(ats: str, q: Question, tenant: str = "") -> AnswerCache | None:
+    """The cached answer for this question: this employer's own first, then (for the sites without a driver) one given
+    elsewhere - the caller tells them apart by the row's scope."""
     key, oh = q.key()
     with db.session() as s:
-        row = s.query(AnswerCache).filter_by(ats=ats, question_key=key, options_hash=oh).first()
-        if row is None:
-            row = AnswerCache(ats=ats, question_key=key, options_hash=oh, answer=value)
-            s.add(row)
-        row.answer, row.basis = value, basis
-        row.sensitive = int(bool(sensitivity(q.label)))
-        if confirmed:
-            row.confirmed_by_user = 1
+        for scope in dict.fromkeys((_scope(ats, tenant), ats)):
+            hit = s.query(AnswerCache).filter_by(ats=scope, question_key=key, options_hash=oh).first()
+            if hit is not None:
+                s.expunge(hit)
+                return hit
+    return None
+
+
+def cache_put(ats: str, q: Question, value: Any, basis: str, *, confirmed: bool, tenant: str = "") -> None:
+    key, oh = q.key()
+    with db.session() as s:
+        for scope in dict.fromkeys((_scope(ats, tenant), ats)):
+            row = s.query(AnswerCache).filter_by(ats=scope, question_key=key, options_hash=oh).first()
+            if row is None:
+                row = AnswerCache(ats=scope, question_key=key, options_hash=oh, answer=value)
+                s.add(row)
+            row.answer, row.basis = value, basis
+            row.sensitive = int(bool(sensitivity(q.label)))
+            if confirmed:
+                row.confirmed_by_user = 1
 
 
 def _coerce(q: Question, raw: str) -> Any:
@@ -152,19 +166,6 @@ def _valid(q: Question, value: Any) -> bool:
     return True
 
 
-def _pdportal_fixed(q: Question, job: Job) -> tuple[Any, str] | None:
-    """PD Portal package form: document pickers and the package name need no model."""
-    if q.id == "package":
-        company = "".join(c if c.isalnum() else "_" for c in (job.company or "Application")).strip("_")[:40]
-        return f"{company}_{job.source_id}", "naming rule <Company>_<JobID>"
-    if q.type == "select":
-        if not q.required:
-            return "", "not required by this posting"
-        if len(q.options) == 1:
-            return q.options[0], "only document of this type in My Documents"
-    return None
-
-
 def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None = None, resume: dict[str, Any] | None = None,
             only: set[str] | None = None) -> dict[str, Any]:
     """Return {"answers": [...], "unresolved": [...], "materials": [...], "notes": [...], "new_rules": [...]}.
@@ -172,6 +173,9 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
     file_answers, materials, notes = file_slots(schema, job, cover_letter, resume)
     rows: list[dict[str, Any]] = []
     pending: list[Question] = []
+    from .ats import registry
+
+    fixed_answer = getattr(registry.get(schema.ats), "fixed_answer", None)
 
     def row(q: Question, value: Any, basis: str, confidence: str, source: str, *, confirmed: bool = False) -> dict[str, Any]:
         tag = sensitivity(q.label)
@@ -190,14 +194,19 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
             else:
                 rows.append(row(q, "", "no document for this slot", "high", "materials"))
             continue
-        if schema.ats == "pdportal":
-            fixed = _pdportal_fixed(q, job)
+        if fixed_answer is not None:      # answers the system's own rules give (a driver's fixed_answer): no model, no cache
+            fixed = fixed_answer(q, job)
             if fixed is not None:
                 rows.append(row(q, fixed[0], fixed[1], "high", "profile"))
                 continue
-        hit = _cache_get(schema.ats, q)
+        hit = _cache_get(schema.ats, q, schema.tenant)
         if hit is not None and _valid(q, hit.answer):
-            rows.append(row(q, hit.answer, hit.basis or "answer cache", "high", "cache", confirmed=bool(hit.confirmed_by_user)))
+            if hit.ats == _scope(schema.ats, schema.tenant):
+                rows.append(row(q, hit.answer, hit.basis or "answer cache", "high", "cache", confirmed=bool(hit.confirmed_by_user)))
+            else:
+                # given on another employer's form: a good first answer, but not one the applicant confirmed for THIS
+                # employer ("have you worked for us before?" reads the same everywhere and means something else each time)
+                rows.append(row(q, hit.answer, f"answered on another employer's form: {hit.basis or 'answer cache'}"[:300], "medium", "cache", confirmed=False))
         else:
             pending.append(q)
 
@@ -284,7 +293,7 @@ def to_fill_map(answers: list[dict[str, Any]]) -> dict[str, Any]:
     return {a["id"]: a["value"] for a in answers if a["value"] not in ("", None, [])}
 
 
-def remember(ats: str, answers: list[dict[str, Any]], *, confirmed: bool) -> None:
+def remember(ats: str, answers: list[dict[str, Any]], *, confirmed: bool, tenant: str = "") -> None:
     """After a draft is approved, cache its non-file answers for the next form of this ATS."""
     for a in answers:
         if a["type"] == "file" or a["value"] in ("", None, []):
@@ -292,18 +301,19 @@ def remember(ats: str, answers: list[dict[str, Any]], *, confirmed: bool) -> Non
         if a["type"] in ("text", "textarea") and len(str(a["value"])) > 200:
             continue  # job-specific prose is not reusable
         q = Question(id=a["id"], label=a["label"], type=a["type"], options=a.get("options") or [])
-        cache_put(ats, q, a["value"], a.get("basis", ""), confirmed=confirmed)
+        cache_put(ats, q, a["value"], a.get("basis", ""), confirmed=confirmed, tenant=tenant)
 
 
-def correct(ats: str, answer: dict[str, Any]) -> None:
+def correct(ats: str, answer: dict[str, Any], tenant: str = "") -> None:
     """The applicant changed an answer after approving the draft. The approval had put the old value into the cache as
     theirs; the cache now holds the new one - or nothing, when the answer was cleared or is no longer reusable - so
     that the next form of this ATS is not answered with what they have just corrected."""
     q = Question(id=answer["id"], label=answer["label"], type=answer["type"], options=answer.get("options") or [])
     key, oh = q.key()
     with db.session() as s:
-        s.query(AnswerCache).filter_by(ats=ats, question_key=key, options_hash=oh).delete()
-    remember(ats, [answer], confirmed=True)
+        for scope in dict.fromkeys((_scope(ats, tenant), ats)):
+            s.query(AnswerCache).filter_by(ats=scope, question_key=key, options_hash=oh).delete()
+    remember(ats, [answer], confirmed=True, tenant=tenant)
 
 
 # --- auto-approve (plan section 6.6) -------------------------------------------------

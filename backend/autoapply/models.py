@@ -20,28 +20,9 @@ class Base(DeclarativeBase):
 # --- application status machine -------------------------------------------------
 # job-level "decision" statuses mirror the columns of the old jobs.tsv so the
 # table view keeps working; application.status tracks the pipeline.
-JOB_STATUSES = ["new", "scored", "queued", "skipped", "offline"]
-APP_STATUSES = [
-    "recon",  # reconnaissance running
-    "draft_ready",  # waiting for review
-    "needs_input",  # unresolved questions
-    "revising",  # agent applying user comments
-    "approved",  # waiting for executor
-    "executing",
-    "drifted",  # live form differs from draft; delta needs review
-    "needs_human",  # login / captcha / takeover
-    "ready_to_submit",  # manual policy: filled to review page, user submits
-    "submitted",  # evidence captured
-    "confirmed",  # confirmation e-mail matched
-    "assessment",
-    "interview",
-    "offer",
-    "rejected",
-    "failed",
-    "withdrawn",
-]
-
-
+# An application in one of these has gone out. The one definition: what closes its cards (lifecycle), locks its draft
+# (drafts), counts as "applied at this employer" (auth) and is recorded as a change worth settling (db) all read it here.
+SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String, primary_key=True)

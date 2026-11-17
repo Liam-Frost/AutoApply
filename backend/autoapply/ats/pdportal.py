@@ -48,6 +48,20 @@ class PDPortalDriver:
     requires_login = True
     sso = True  # CWL + Duo: never automated, always handed to the user
     password_policy = PasswordPolicy()
+    read_by_agent = False        # the portal does not allow programs to explore it: its form is read by this driver only (drafts.recon)
+
+    @staticmethod
+    def fixed_answer(q: Question, job: Any) -> tuple[Any, str] | None:
+        """The portal's package form: its document pickers and the package's name follow rules, and need no model."""
+        if q.id == "package":
+            company = "".join(c if c.isalnum() else "_" for c in (job.company or "Application")).strip("_")[:40]
+            return f"{company}_{job.source_id}", "naming rule <Company>_<JobID>"
+        if q.type == "select":
+            if not q.required:
+                return "", "not required by this posting"
+            if len(q.options) == 1:
+                return q.options[0], "only document of this type in My Documents"
+        return None
 
     def detect(self, url: str) -> JobRef | None:
         u = urlparse(url)

@@ -14,11 +14,10 @@ from datetime import datetime
 from typing import Any
 
 from . import db
-from .models import Application, Draft, Task, Todo, now
+from .models import SENT, Application, Draft, Task, Todo, now
 
 log = logging.getLogger("autoapply.lifecycle")
 
-SENT = ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
 LABEL = {"submitted": "已提交", "confirmed": "已确认收到", "assessment": "测评中", "interview": "面试中", "offer": "已拿到 offer", "rejected": "已被拒"}
 # cards that ask the applicant to do something for this application; a card about a driver, a setting or a mail is not one
 CARDS = ("failed", "submit", "answer", "takeover", "login", "blocked", "captcha")

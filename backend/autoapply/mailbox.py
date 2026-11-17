@@ -45,6 +45,25 @@ JOB_WORDS = re.compile(r"application|applying|applied|interview|assessment|candi
                        r"申请|面试|笔试|测评|录用|offer|投递|简历|应聘", re.I)
 
 
+def _relevant(x: Any) -> bool:
+    """Is this message worth reading as one about an application? It uses the words such mail uses - or it comes from
+    an employer the applicant has applied to, in whatever words and language it is written."""
+    if JOB_WORDS.search(x.subject + " " + x.body[:1500]):
+        return True
+    sender = re.sub(r"[^a-z0-9]+", " ", str(x.sender or "").lower())
+    return any(name in sender for name in _employers())
+
+
+def _employers() -> list[str]:
+    """The names of the employers with an application that has gone out, as they would appear in a sender (lower case,
+    words only; names too short to be told from an ordinary word are left out)."""
+    from .models import SENT, Application, Job
+
+    with db.session() as s:
+        names = {re.sub(r"[^a-z0-9]+", " ", (c or "").lower()).strip() for (c,) in s.query(Job.company).join(Application).filter(Application.status.in_(SENT))}
+    return [n for n in names if len(n) >= 4]
+
+
 @dataclass
 class Message:
     id: str
@@ -214,7 +233,7 @@ def fetch_new(limit: int = 50, *, skip: Any = None) -> list[Message] | None:
     if added is None:
         return None
     msgs = [_gmail_message(g) for g in added]
-    return [x for x in msgs if JOB_WORDS.search(x.subject + " " + x.body[:1500])]
+    return [x for x in msgs if _relevant(x)]
 
 
 def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: Any = None) -> list[Message]:
@@ -223,7 +242,7 @@ def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: 
     if kind() == "imap":
         msgs = _imap_fetch(since, limit * 3 if job_related else limit)
         if job_related:
-            msgs = [x for x in msgs if JOB_WORDS.search(x.subject + " " + x.body[:1500])][:limit]
+            msgs = [x for x in msgs if _relevant(x)][:limit]
         return msgs
     from . import mail
 

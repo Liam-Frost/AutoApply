@@ -1,7 +1,7 @@
 """In-process task queue (one SQLite table) and scheduler. No Celery, no Redis.
 
 A single worker thread pulls queued tasks by priority. Browser work is
-serialised by design (executor.concurrency defaults to 1).
+serialised by design: one task at a time.
 """
 
 from __future__ import annotations

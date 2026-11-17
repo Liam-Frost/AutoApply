@@ -26,9 +26,10 @@ from . import browser, knowledge, llm
 from . import prompts
 from .ats import widgets as w
 from .ats.base import ALREADY_RE, AlreadyApplied, url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
+from .ats.base import tolerated
+from .ats.generic_driver import POSITIONAL, SUBMIT_RE
 from .models import Job
 
-SUBMIT_RE = re.compile(r"\b(submit|send application|finish|complete application|confirm and)\b", re.I)
 
 SYSTEM = """You are exploring a job application form on an applicant-tracking system that has no automated driver yet.
 Goal: reach the application form and describe every question on it, page by page, WITHOUT submitting anything.
@@ -226,7 +227,8 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         # A form keeps what was uploaded on an earlier visit. Uploading "to be sure" adds a second, third, fourth copy.
         try:
             shown = page.inner_text("body", timeout=5000).count(file_name)
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             shown = 0
         if shown:
             return (f"not uploaded: the form already shows {file_name!r}" + (f" {shown} times - remove the extra copies with their delete buttons so that one is left" if shown > 1 else "")
@@ -314,7 +316,6 @@ BLOCKERS = ("login", "captcha", "closed", "already_applied", "site_down", "other
 BLOCKERS_MEAN = ("login: the site wants a sign-in or an account that you could not get. captcha: a CAPTCHA. closed: the posting is gone or no longer "
                  "takes applications. already_applied: the site says this posting was applied for. site_down: the site is not answering. "
                  "other: anything else that stops you.")
-POSITIONAL = re.compile(r":nth-(match|of-type|child|last-child)|:nth\(|>>\s*nth=|:first-(child|of-type)|:last-(child|of-type)", re.I)
 
 
 def weak_selector(sel: str) -> bool:
@@ -393,7 +394,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                     st = browser.load_state(key) or {}
                     if st.get("cookies"):
                         page.context.add_cookies(st["cookies"])
-                except Exception:  # noqa: BLE001
+                except Exception as _e:  # noqa: BLE001
+                    tolerated(_e)
                     pass
                 logging.getLogger("autoapply.generic").info("%s signs in on %s, not where its saved account is: the account there is %s", ref.tenant_key, host, key)
             return key
@@ -404,7 +406,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                 st = browser.load_state(got) or {}
                 if st.get("cookies"):
                     page.context.add_cookies(st["cookies"])
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 pass
             state["adopted"] = got
         return key
@@ -465,7 +468,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
             try:
                 p.wait_for_load_state("domcontentloaded", timeout=3000)
                 cur = re.sub(r"\s+", " ", p.inner_text("body", timeout=3000))[:300]
-            except Exception:  # noqa: BLE001 - still navigating
+            except Exception as _e:  # noqa: BLE001 - still navigating
+                tolerated(_e)
                 continue
             if cur and cur == last and (p.locator("button:visible, input:visible, [role=button]:visible").count() > 0):
                 where = "PROVIDER POP-UP WINDOW" if pop is not None else "PROVIDER PAGE (same tab)"
@@ -613,7 +617,8 @@ def account_tools(page: Page, ref: JobRef, state: dict[str, Any]) -> list[llm.To
                 # the site's link sent the window somewhere else: nothing is typed there
                 try:
                     page.goto(before, wait_until="domcontentloaded")
-                except Exception:  # noqa: BLE001
+                except Exception as _e:  # noqa: BLE001
+                    tolerated(_e)
                     pass
                 return f"The link led away from the site (to {landed}); the window is back where it was. Report account_result('failed', ...) with that."
             state["link_opened"] = True
@@ -684,7 +689,8 @@ def form_present(page: Page, schema: FormSchema, page_index: int = 0, *, wait_s:
                 texts = [(b.inner_text() or "").strip() for b in page.get_by_role("button").all()[:40] if b.is_visible()]
                 if any(FORWARD_RE.match(t) or SUBMIT_RE.search(t) for t in texts) and not page.locator("input[type=password]:visible").count():
                     return True
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 pass
             page.wait_for_timeout(1500)
         return False
@@ -696,7 +702,8 @@ def form_present(page: Page, schema: FormSchema, page_index: int = 0, *, wait_s:
         for q in [q for q in schema.questions if q.page == page_index and q.locator.get("selector")][:25]:
             try:
                 found += 1 if _loc(page, q).count() else 0  # by recorded selector or, failing that, by label
-            except Exception:  # noqa: BLE001 - a selector this page cannot parse counts as missing
+            except Exception as _e:  # noqa: BLE001 - a selector this page cannot parse counts as missing
+                tolerated(_e)
                 pass
         if found >= max(1, len(sels[:25]) // 3):
             return True
@@ -814,7 +821,8 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
             try:
                 body = re.sub(r"\s+", " ", page.inner_text("body", timeout=5000)).strip()
                 refused = len(body) < 300 and bool(REFUSAL.search(body))
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 refused = False
         browser.snapshot(page, run_dir, "agent_recon_end")
         (run_dir / "agent_trace.json").write_text(json.dumps(out.steps, ensure_ascii=False, default=str)[:500000], encoding="utf-8")

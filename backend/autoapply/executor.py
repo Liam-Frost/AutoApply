@@ -39,6 +39,7 @@ from . import answers as ans, messages
 from . import auth, browser, config, db, fixtures, knowledge, learned, lifecycle, llm, metering, notify, repair, secrets, timing
 from .ats import audit, registry
 from .ats.base import ALREADY_RE, AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, Question, blocking_drift, diff_schemas, norm_question, sensitivity, values_equal
+from .ats.base import tolerated
 from .drafts import _stat
 from .models import Application, Draft, Run, now
 
@@ -90,11 +91,13 @@ def _seen(page: Any, limit: int = 6000) -> dict[str, str]:
     """What the window shows: its address, its title (many sites say "Thank you for your application" only there) and its text."""
     try:
         got = page.evaluate("(n) => ({ title: document.title || '', text: document.body ? document.body.innerText.slice(0, n) : '' })", limit)
-    except Exception:  # noqa: BLE001 - between two pages there is nothing to read
+    except Exception as _e:  # noqa: BLE001 - between two pages there is nothing to read
+        tolerated(_e)
         got = {"title": "", "text": ""}
     try:
         url = page.url
-    except Exception:  # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
+        tolerated(_e)
         url = ""
     return {"url": url, "title": got["title"], "text": got["text"]}
 
@@ -244,7 +247,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             return []
         try:
             back = driver.read_back(page, schema, i) if i is not None else driver.read_back(page, schema)
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             back = {}
         known = {norm_question(q.label): q for q in schema.questions if i is None or q.page == i}
         out = []
@@ -254,7 +258,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             try:
                 boxes = page.locator("input[type=password]:visible")
                 empty = [k for k in range(boxes.count()) if not boxes.nth(k).input_value(timeout=2000)]
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 empty = []
             if empty and (secrets.get_password(ref.tenant_key) or auth.may_register(ref)[0]):
                 out.append({"kind": "message", "label": "Account", "selector": "", "value": "",
@@ -356,11 +361,13 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         if _looks_submitted(page) and driver.form_gone(page, fill):
             try:
                 conf = driver.confirmation(page)
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 conf = None
             try:
                 seen_now = {"url": page.url, "text": page.evaluate("() => document.body.innerText.slice(0, 1500)")}
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 seen_now = {"url": "", "text": ""}
             user_done["evidence"] = conf or seen_now
             browser.snapshot(page, run_dir, "submitted_in_window")
@@ -649,7 +656,8 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     page.wait_for_timeout(600)
                     step("review_unfolded", sections=opened)
                 shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
-            except Exception:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001
+                tolerated(_e)
                 shown = ""
             unseen = []
             for q in rest:
@@ -912,7 +920,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             shown = "; ".join(map(str, a["value"])) if isinstance(a["value"], list) else str(a["value"])
             try:
                 knowledge.append_rule(f'Form question "{a["label"].strip()[:200]}": answer "{shown[:300]}".', source="user", section="Standard answers")
-                ans.cache_put(schema.ats, Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"]), a["value"], "answered by the applicant in the application window", confirmed=True)
+                ans.cache_put(schema.ats, Question(id=f"@label:{a['label']}", label=a["label"], type=a["type"], options=a["options"]), a["value"], "answered by the applicant in the application window", confirmed=True, tenant=schema.tenant)
             except Exception:  # noqa: BLE001 - remembering must not fail the run
                 log.exception("could not remember an answer given in the window")
     if new_questions and outcome["status"] != "submitted":
@@ -997,7 +1005,7 @@ def _keep_learned(d: Any, schema: FormSchema, draft_answers: list[dict[str, Any]
         if generic and not any(q["id"] == qid for q in questions):
             questions.append(Question(id=qid, label=a["label"], type=row["type"], required=True, page=a["page"], locator={"selector": a.get("selector") or qid}).__dict__)
         try:
-            ans.cache_put(schema.ats, Question(id=qid, label=a["label"], type=row["type"]), a["value"], row["basis"], confirmed=False)
+            ans.cache_put(schema.ats, Question(id=qid, label=a["label"], type=row["type"]), a["value"], row["basis"], confirmed=False, tenant=schema.tenant)
         except Exception:  # noqa: BLE001
             log.debug("answer not cached", exc_info=True)
     # Questions the form asks that neither the draft nor the profile answers: open questions of the draft from now on.
@@ -1235,7 +1243,8 @@ def _next_page(driver: Any, page: Any) -> bool:
 def _site_of(schema: FormSchema) -> str:
     try:
         return repair.site_key(schema)
-    except Exception:  # noqa: BLE001 - a run is recorded whether or not its site can be named
+    except Exception as _e:  # noqa: BLE001 - a run is recorded whether or not its site can be named
+        tolerated(_e)
         return ""
 
 
@@ -1279,12 +1288,14 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
                 for qid, val in driver.read_back(page, watched).items():
                     if val not in ("", None, [], False):
                         typed[qid] = val
-            except Exception:  # noqa: BLE001 - the page is theirs right now; a failed read must not disturb them
+            except Exception as _e:  # noqa: BLE001 - the page is theirs right now; a failed read must not disturb them
+                tolerated(_e)
                 pass
         # After the user clicks Submit some sites e-mail a security code: read it from the inbox and enter it.
         try:
             wants_code = not code_tried and hasattr(driver, "needs_email_code") and driver.needs_email_code(page)
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             wants_code = False
         if wants_code:
             code_tried = True
@@ -1294,7 +1305,8 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
                 log.info("could not enter the e-mailed code automatically: %s", e)
         try:
             conf = driver.confirmation(page) if _looks_submitted(page) else None
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             conf = None
         if conf:
             notify.close_todos("submit", f"application:{application_id}")

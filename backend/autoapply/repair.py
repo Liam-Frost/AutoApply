@@ -33,6 +33,7 @@ from . import answers, db, fixtures, generic, knowledge, llm, notify
 from . import prompts
 from .ats import audit
 from .ats.base import FormSchema
+from .ats.base import tolerated
 
 log = logging.getLogger("autoapply.repair")
 
@@ -285,7 +286,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         """Is this the form's own wording? A label the agent shortened or reworded cannot be found again by the driver."""
         try:
             shown = " ".join(page.inner_text("body", timeout=5000).lower().split())
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             return True
         return " ".join(str(label).lower().split()).rstrip("*").strip()[:70] in shown
 
@@ -296,7 +298,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
             return ""
         try:
             return sel if page.locator(sel).count() else ""
-        except Exception:  # noqa: BLE001 - not a selector this page can parse
+        except Exception as _e:  # noqa: BLE001 - not a selector this page can parse
+            tolerated(_e)
             return ""
 
     def done(fixed: list[str] | None = None, unfixed: list[str] | None = None, cause: str = "", suggestion: str = "", notes: str = "",
@@ -375,7 +378,8 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
     if site is not None:
         try:      # a form that creates the applicant's account along with the application has password boxes on it
             account = page.locator("input[type=password]:visible").count() > 0
-        except Exception:  # noqa: BLE001
+        except Exception as _e:  # noqa: BLE001
+            tolerated(_e)
             account = False
         if account:      # the tools that type the applicant's e-mail and the site's password (never shown to the model) and press an account button
             tools += [t for t in generic.account_tools(page, site, {}) if t.name in ("fill_account_password", "fill_account_email", "click_account_button")]

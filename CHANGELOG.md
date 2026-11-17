@@ -117,6 +117,23 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   announces, changes, recalls or cancels. A cancellation does not move the application to that stage - and takes it
   back to where it was if it stood there; the notice says "Interview cancelled", "Interview arrangements changed",
   "Offer withdrawn" and so on.
+- **From a review of the whole program** - places where a fault had been patched for the one case that showed it:
+  - *Why reading a form stopped* was a word of the AI's own, and every word the program did not know meant "sign
+    in". It is now one of six (sign-in, CAPTCHA, closed, already applied, site not answering, other), each with one
+    consequence; a page that simply could not be worked is no longer a sign-in card.
+  - *Signing in somewhere resumed every waiting task* - also the ones waiting for another site, which failed again
+    and asked again. A task is now resumed by what it waited for.
+  - *An answer confirmed for one employer* was reused on every other site without a driver of its own as if confirmed
+    there too ("Have you worked for us before?"). It is still offered, as a suggestion to check.
+  - *Two employers sharing one word* in their names ("... Robotics") were taken for one when an e-mail was matched to
+    an application.
+  - *Mail from an employer you applied to* is read even when it uses none of the usual words (another language).
+  - *The settings page no longer overwrites the program's own record* (which browser a sign-in lives in, which site
+    signs in on which, how far the mailbox was read) when a page that was left open is saved.
+  - A handler that lets a busy page pass no longer lets a mistake in the program pass with it.
+  - One list of the states in which an application counts as sent, instead of five; the portal's special rules live
+    in the portal's driver; two settings nothing read, an unused copy of the browser rules, unused code and a card
+    text for a card that is no longer made are gone; site rules saved with "login only" are stored as what they mean.
 - **The card says whose sign-in is missing.** When the run stopped on a provider's own sign-in page - or the site's
   sign-in is the provider's, as with Google's careers site - there is one card for the provider ("sign in to Google
   again"), not a card per posting offering "use my Google account" for Google itself.

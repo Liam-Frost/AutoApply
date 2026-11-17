@@ -74,6 +74,11 @@ async def lifespan(app: FastAPI):
         if db.get_setting("agent.reads") == ["workday"]:
             db.set_setting("agent.reads", ["*"])
         db.set_setting("migrated.agent_reads_all", True)
+    if not db.get_setting("migrated.site_rules_whole"):
+        from .. import browser_policy as _policy
+
+        _policy.store_rules_whole()
+        db.set_setting("migrated.site_rules_whole", True)
     if not db.get_setting("migrated.generic_patch_cards"):
         # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
         from ..models import Todo, now
@@ -1803,7 +1808,7 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
     # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
-    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
@@ -1844,8 +1849,8 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
-        if k.startswith("migrated."):      # sent back by a page that was loaded before this was filtered out
-            continue
+        if k.startswith("migrated.") or k in config.STATE or k in ("schedule.execute_minutes", "executor.concurrency"):
+            continue        # the program's own bookkeeping, or a setting that is gone: sent back by a page loaded earlier
         if k not in config.DEFAULT_SETTINGS:
             raise HTTPException(400, f"unknown setting {k}")
         db.set_setting(k, v)

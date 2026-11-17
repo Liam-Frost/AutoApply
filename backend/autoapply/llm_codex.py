@@ -195,7 +195,3 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
     return text, steps, usage
 
 
-def parse_json(raw: str) -> Any:
-    from .llm_openai import _parse_json
-
-    return _parse_json(raw) if raw.strip() else _json.loads("{}")

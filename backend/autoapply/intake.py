@@ -47,8 +47,6 @@ COUNTRY_PATTERNS.update({
     "IT": r"\bitaly\b|\bitalia\b|\b(?:milan|milano|rome|roma|turin|torino|bologna)\b|\bITA\b",
     "SE": r"\bsweden\b|\b(?:stockholm|gothenburg|göteborg|malmö)\b|\bSWE\b",
 })
-COUNTRY_NAMES = {"CA": "加拿大", "US": "美国", "GB": "英国", "AU": "澳大利亚", "DE": "德国", "SG": "新加坡", "CN": "中国", "HK": "中国香港", "FR": "法国", "NL": "荷兰", "IE": "爱尔兰", "ES": "西班牙", "IT": "意大利",
-                 "SE": "瑞典"}
 
 
 def _has(text: str, kw: str) -> bool:

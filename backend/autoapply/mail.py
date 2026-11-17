@@ -18,7 +18,7 @@ from typing import Any
 
 from . import db, llm, messages, notify, secrets
 from . import prompts
-from .models import Application, Job, MailEvent
+from .models import SENT, Application, Job, MailEvent
 
 log = logging.getLogger("autoapply.mail")
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -362,7 +362,7 @@ TRIAGE_SCHEMA = llm.obj(
 )
 STATUS_FOR = {"confirmation": "confirmed", "rejection": "rejected", "interview": "interview", "assessment": "assessment", "offer": "offer"}
 PREPARING = ("recon", "needs_input", "draft_ready", "revising", "approved", "executing", "needs_human", "failed", "drifted")   # before any submission
-RANK = {"submitted": 1, "confirmed": 2, "assessment": 3, "interview": 4, "offer": 5, "rejected": 6}
+RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along: a mail never moves an application backwards by itself
 QUERY = '(application OR applying OR applied OR interview OR assessment OR candidate OR position OR "thank you for your interest" OR unfortunately) -category:promotions'
 
 
@@ -390,8 +390,19 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
 
+_FORMS = {"inc", "ltd", "limited", "corp", "corporation", "co", "company", "llc", "llp", "plc", "gmbh", "ag", "sa", "the", "group", "holdings", "technologies", "technology"}
+
+
 def _same_company(c: str, jc: str) -> bool:
-    return bool(c and jc and (c in jc or jc in c or set(c.split()) & set(jc.split()) - {"inc", "ltd", "corp", "the", "technologies", "group"}))
+    """Are these two names one employer? When one name is inside the other ("Google" / "Google LLC", "Amazon" /
+    "Amazon Web Services") - by its words, legal forms set aside. One word in common is not enough: "4AG Robotics"
+    and "Global Robotics" share a word and nothing else."""
+    if not c or not jc:
+        return False
+    if c in jc or jc in c:
+        return True
+    a, b = set(c.split()) - _FORMS, set(jc.split()) - _FORMS
+    return bool(a and b and (a <= b or b <= a))
 
 
 def candidates(company: str) -> list[int]:

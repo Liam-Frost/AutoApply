@@ -12,8 +12,6 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-QTYPES = ("text", "textarea", "select", "multiselect", "checkbox", "radio", "file", "date")
-
 SENSITIVE_PATTERNS = [
     (r"sponsor", "sponsorship"),
     (r"salary|compensation|pay expectation|desired (annual )?pay", "salary"),
@@ -135,6 +133,17 @@ def blocking_drift(d: dict[str, list[dict[str, Any]]]) -> bool:
 
 
 # --- errors --------------------------------------------------------------------
+
+
+BUGS = (AttributeError, NameError, ImportError)
+
+
+def tolerated(e: BaseException) -> None:
+    """Called first in a handler that lets a failure pass ("the page is busy", "the control is not there yet"): what a
+    page does may be let pass, a mistake in the program may not. A method the browser adapter does not have, a name
+    that does not exist - these were swallowed by the same handlers, and showed up later as something else."""
+    if isinstance(e, BUGS):
+        raise e
 
 
 class DriverError(Exception):

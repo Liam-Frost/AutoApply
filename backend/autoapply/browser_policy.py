@@ -35,11 +35,7 @@ def task_backend(backend):
         yield
     finally:
         _override.reset(token)
-PRESETS = [
-    {"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
-    {"tenant": "idp:google", "backend": "nodriver", "operations": ["login"]},
-    {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]},
-]
+
 
 
 @dataclass(frozen=True)
@@ -100,6 +96,16 @@ def select(tenant: str | None, url: str = "", operation: str = "apply", override
         if host == target.lower() or host.endswith("." + target.lower()):
             return Selection(rule["backend"], f"domain: {target}")
     return Selection("playwright", "default")
+
+
+def store_rules_whole() -> None:
+    """A rule for a site says which browser its sign-in lives in - for all of its work. Rules saved when they could be
+    limited to "login" have been ignored in that part since; here they are stored as what they now mean (once, at start)."""
+    from . import db
+
+    rules = db.get_setting("browser.rules") or []
+    if any(r.get("tenant") and r.get("operations") for r in rules):
+        db.set_setting("browser.rules", [{**r, "operations": []} if r.get("tenant") else r for r in rules])
 
 
 def canonical(tenant: str | None) -> str:
