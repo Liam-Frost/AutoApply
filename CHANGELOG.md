@@ -130,6 +130,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   - *Mail from an employer you applied to* is read even when it uses none of the usual words (another language).
   - *The settings page no longer overwrites the program's own record* (which browser a sign-in lives in, which site
     signs in on which, how far the mailbox was read) when a page that was left open is saved.
+  - *"Has it been submitted?" and "was it applied for before?"* were read from the page by a list of English
+    phrases; a confirmation in other words or another language was "not submitted". Where the phrases find nothing and
+    the answer matters - after Submit, on a page without the form, when the window is closed - the AI now reads the
+    page. It has to quote the page's own sentence, and a quote that is not on the page is not believed.
   - A handler that lets a busy page pass no longer lets a mistake in the program pass with it.
   - One list of the states in which an application counts as sent, instead of five; the portal's special rules live
     in the portal's driver; two settings nothing read, an unused copy of the browser rules, unused code and a card

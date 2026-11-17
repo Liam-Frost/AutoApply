@@ -113,3 +113,113 @@ def test_a_rule_for_a_site_saved_with_operations_is_stored_as_what_it_means_now(
     browser_policy.store_rules_whole()
     assert db.get_setting("browser.rules") == [{"tenant": "pdportal:ubc", "backend": "nodriver", "operations": []},
                                                {"domain": "accounts.google.com", "backend": "nodriver", "operations": ["login"]}]
+
+
+# --- "has it gone out?" and "was it applied for before?": the model reads the page where the known phrases find nothing ---
+
+JA_DONE = "ご応募ありがとうございました。応募を受け付けました。"
+JA_DUP = "この求人にはすでに応募済みです。"
+
+
+def _model(monkeypatch, answer):
+    from autoapply import executor, llm
+
+    calls = []
+
+    def json(prompt, schema, **kw):
+        calls.append(prompt)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer(prompt) if callable(answer) else answer
+
+    monkeypatch.setattr(llm, "json", json)
+    executor._judged.clear()
+    return calls
+
+
+def test_a_page_that_says_it_in_words_the_program_does_not_know_is_read_by_the_model_and_has_to_be_quoted(app_env, monkeypatch):
+    from autoapply import executor, llm
+
+    page = {"url": "https://x.example/done", "title": "採用情報", "text": f"応募完了\n{JA_DONE}\nマイページへ"}
+    calls = _model(monkeypatch, {"state": "submitted", "sentence": JA_DONE})
+    assert executor._judge(page) == {"state": "submitted", "sentence": JA_DONE}
+    assert executor._judge(page) == {"state": "submitted", "sentence": JA_DONE} and len(calls) == 1          # the same page is not asked about twice
+    # a sentence that is not on the page is not believed, whatever state comes with it
+    _model(monkeypatch, {"state": "submitted", "sentence": "Thank you, your application has been received."})
+    assert executor._judge(page) is None
+    _model(monkeypatch, {"state": "neither", "sentence": ""})
+    assert executor._judge({**page, "text": "Sign in to continue your application"}) is None
+    _model(monkeypatch, llm.LLMUnavailable("no model"))
+    assert executor._judge(page) is None                    # no model: as before, the page stays unread
+    assert executor._judge({"url": "", "title": "", "text": ""}) is None
+
+
+class _Window:
+    """A window as the waiting loop sees it: what it shows, tick by tick, and whether it is still open."""
+
+    def __init__(self, shows, fields=0):
+        self.shows, self.fields, self.url, self.ticks = list(shows), fields, "https://x.example/apply", 0
+
+    def is_closed(self):
+        return not self.shows
+
+    def evaluate(self, js, *a):
+        if "querySelectorAll('input" in js:
+            return self.fields
+        return {"title": "", "text": self.shows[0] if self.shows else ""}
+
+    def wait_for_timeout(self, ms):
+        self.ticks += 1
+        if len(self.shows) > 1 or self.close_after is not None and self.ticks >= self.close_after:
+            self.shows.pop(0)
+
+    close_after = None
+
+
+def test_the_window_waits_for_a_confirmation_in_any_wording_and_does_not_ask_while_the_form_is_there(app_env, monkeypatch):
+    from types import SimpleNamespace
+
+    from autoapply import executor
+    from autoapply.models import Application, Job
+
+    with db.session() as s:
+        job = Job(source="manual", source_id="j1", company="Kyoto Robotics", title="Intern", apply_url="https://x.example/1", channel="employer site", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        a = Application(job_id=job.id, status="approved")
+        s.add(a)
+        s.flush()
+        app_id = a.id
+    driver = SimpleNamespace(confirmation=lambda page: None)
+    calls = _model(monkeypatch, lambda prompt: {"state": "submitted", "sentence": JA_DONE} if JA_DONE in prompt else {"state": "neither", "sentence": ""})
+    # the form stays on the page for a while (nothing is asked), then the confirmation appears
+    window = _Window(["応募フォーム"] * 5 + [f"応募完了\n{JA_DONE}"] * 8)
+    window.fields = 6
+    real_wait = window.wait_for_timeout
+    window.wait_for_timeout = lambda ms: (real_wait(ms), setattr(window, "fields", 0 if JA_DONE in (window.shows[0] if window.shows else "") else 6))[0]
+    out = executor._manual_submit_wait(driver, window, "Kyoto Robotics · Intern", app_id)
+    assert out["status"] == "submitted" and out["evidence"] == {"url": window.url, "text": JA_DONE, "read_by": "model"} and len(calls) == 1
+    # the applicant closes the window on that page before the loop looked: what it last showed is read
+    calls = _model(monkeypatch, {"state": "submitted", "sentence": JA_DONE})
+    closed = _Window([f"応募完了\n{JA_DONE}"], fields=3)
+    closed.close_after = 1
+    assert executor._manual_submit_wait(driver, closed, "Kyoto Robotics · Intern", app_id)["evidence"]["read_by"] == "model"
+    # ... and a window closed on the form is still "not known", with nothing made up
+    _model(monkeypatch, {"state": "neither", "sentence": ""})
+    left = _Window(["応募フォーム"], fields=6)
+    left.close_after = 1
+    assert executor._manual_submit_wait(driver, left, "Kyoto Robotics · Intern", app_id)["status"] == "ready_to_submit"
+
+
+def test_a_page_without_the_form_that_says_already_applied_in_other_words_is_not_taken_for_an_expired_sign_in(app_env, monkeypatch):
+    from autoapply import executor
+
+    class Page:
+        url = "https://x.example/apply"
+
+        def evaluate(self, js, *a):
+            return {"title": "", "text": JA_DUP}
+
+    _model(monkeypatch, {"state": "already_applied", "sentence": JA_DUP})
+    assert executor._already_applied(Page()) is None                       # the phrases alone: nothing
+    assert executor._already_applied(Page(), ask=True) == {"url": "https://x.example/apply", "text": JA_DUP, "already_applied": "yes", "read_by": "model"}

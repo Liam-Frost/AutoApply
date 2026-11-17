@@ -102,14 +102,73 @@ def _seen(page: Any, limit: int = 6000) -> dict[str, str]:
     return {"url": url, "title": got["title"], "text": got["text"]}
 
 
-def _already_applied(page: Any) -> dict[str, str] | None:
-    """The page that opened instead of the form says this posting has been applied for already."""
+def _already_applied(page: Any, *, ask: bool = False) -> dict[str, str] | None:
+    """The page that opened instead of the form says this posting has been applied for already. ``ask``: where its
+    words are none of the known ones, the model reads the page (_judge) - the caller has no form in front of it and is
+    about to take that for an expired sign-in."""
     now_ = _seen(page, 3000)
     m = ALREADY_RE.search(now_["text"]) or ALREADY_RE.search(now_["title"])
     if not m and not re.search(r"[?&]result=duplicate\b", now_["url"], re.I):
-        return None
+        said = _judge(now_) if ask else None
+        if said is None:
+            return None
+        return {"url": now_["url"], "text": said["sentence"][:300], "already_applied": "yes", "read_by": "model"}
     line = next((ln.strip() for ln in now_["text"].splitlines() if ALREADY_RE.search(ln)), now_["title"])
     return {"url": now_["url"], "text": line[:300], "already_applied": "yes"}
+
+
+# The two answers that decide most: "has this application gone out?" and "was it applied for before?". Both are read
+# from the page by known phrases first (DONE_RE, ALREADY_RE) - instant, free, and right for most sites. Where the
+# phrases find nothing and the answer matters (after Submit; a page without the form; a window that was closed), the
+# model reads the page instead of the program concluding "not submitted". It has to quote the page's own sentence,
+# and a quote that is not on the page is not believed.
+JUDGE = llm.obj({
+    "state": {"type": "string", "enum": ["submitted", "already_applied", "neither"]},
+    "sentence": {"type": "string", "description": "the page's own sentence that says so, copied exactly as it stands on the page; empty for neither"},
+})
+JUDGE_RULES = """You are given the text a web page shows in a job applicant's browser. Decide what it says about the application:
+- submitted: the page states that the application HAS BEEN submitted or received (a confirmation, in any language).
+- already_applied: the page states that the applicant applied to this posting before (so it cannot be applied for again).
+- neither: anything else - the form is still there, a sign-in page, an error, a list of jobs, a thank-you for visiting or for
+  interest that does not say an application was received, a draft that was saved. When in doubt: neither.
+Copy the page's own sentence that says it, exactly, into `sentence`."""
+_judged: dict[str, dict[str, str] | None] = {}
+
+
+def _judge(seen: dict[str, str]) -> dict[str, str] | None:
+    """{"state": "submitted" | "already_applied", "sentence": ...} as the model reads the page, or None: it says
+    neither, could not be asked, or quoted something the page does not say."""
+    import hashlib
+
+    text = f"{seen.get('title') or ''}\n{seen.get('text') or ''}".strip()
+    if len(text) < 12:
+        return None
+    key = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+    if key in _judged:
+        return _judged[key]
+    if len(_judged) > 200:
+        _judged.clear()
+    out: dict[str, str] | None = None
+    try:
+        got = llm.json(f"<page url={seen.get('url', '')!r}>\n{text[:6000]}\n</page>", JUDGE, system=JUDGE_RULES, small=True, max_tokens=400)
+        quote = " ".join(str(got.get("sentence") or "").split())
+        if got.get("state") in ("submitted", "already_applied") and len(quote) >= 6 and quote.lower() in " ".join(text.split()).lower():
+            out = {"state": got["state"], "sentence": quote}
+    except Exception as e:  # noqa: BLE001 - no model: the page stays unread, as before
+        tolerated(e)
+        log.info("the page could not be read by the model (%s)", type(e).__name__)
+        return None
+    _judged[key] = out
+    return out
+
+
+def _no_form(page: Any) -> bool:
+    """Is there no form on the page any more (at most one visible field - a search box)?"""
+    try:
+        return int(page.evaluate("() => [...document.querySelectorAll('input:not([type=hidden]), select, textarea')].filter(e => e.getClientRects().length).length")) <= 1
+    except Exception as _e:  # noqa: BLE001 - a page between two addresses
+        tolerated(_e)
+        return False
 
 
 class NeedsVisibleRun(Exception):
@@ -690,7 +749,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             if generic:
                 from . import generic as gen
 
-                if not gen.form_present(page, schema, wait_s=4) and (dup := _already_applied(page)):
+                if not gen.form_present(page, schema, wait_s=4) and (dup := _already_applied(page, ask=True)):
                     # no form, and the site says why: it has this application already (sent in an earlier run whose
                     # confirmation page was not seen, or by the applicant themselves). Not a sign-in problem.
                     browser.snapshot(page, run_dir, "already_applied")
@@ -830,6 +889,10 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
                     step("email_code")
                 conf = driver.confirmation(page)
                 shots = browser.snapshot(page, run_dir, "confirmation")
+                if conf is None and (said := _judge(_seen(page, 4000))) is not None:
+                    # none of the known phrases, and the page does say it (another language, another wording)
+                    conf = {"url": page.url, "text": said["sentence"][:300], "read_by": "model", **({"already_applied": "yes"} if said["state"] == "already_applied" else {})}
+                    step("confirmation_read", state=said["state"])
                 if conf is None:
                     errs = _errors(driver, page)
                     raise DriverError("no confirmation after submit", seen="; ".join(errs)[:500] or page.url)
@@ -1276,6 +1339,7 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
     notify.close_todos("submit", f"application:{application_id}")  # a fresh card: what is left to do differs from run to run
     notify.add_todo("submit", title, ref=f"application:{application_id}", payload=payload or None, body="；".join(x for x in parts if x))
     code_tried = False
+    asked, asked_text = 0, ""
     last: dict[str, str] = {}
     watched = FormSchema(ats="generic", questions=list(watch or [])) if watch else None
     for tick in range(1200):  # up to ~20 minutes
@@ -1311,10 +1375,19 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
         if conf:
             notify.close_todos("submit", f"application:{application_id}")
             return {"status": "submitted", "evidence": conf}
+        now_ = _seen(page, 1500)
+        if tick >= 3 and tick % 3 == 0 and asked < 4 and now_["text"] and now_["text"] != asked_text and _no_form(page):
+            # the form is gone and the page says nothing the program knows: what does it say? (a few times per window at
+            # most, and never twice for the same page)
+            asked, asked_text = asked + 1, now_["text"]
+            said = _judge(now_)
+            if said is not None:
+                notify.close_todos("submit", f"application:{application_id}")
+                return {"status": "submitted", "evidence": {"url": now_["url"], "text": said["sentence"][:300], "read_by": "model"},
+                        **({"note": lifecycle.APPLIED_BEFORE, "earlier": True} if said["state"] == "already_applied" else {})}
         # Remember what the window last showed: the user may close it right after the confirmation appears.
         # Pressing Submit loads another page, and for a moment there is nothing to read: that is not a closed window.
         # (It was taken for one, and the window was closed on the applicant in the middle of the submission.)
-        now_ = _seen(page, 1500)
         if now_["text"] or now_["title"]:
             last = now_
         try:
@@ -1326,6 +1399,10 @@ def _manual_submit_wait(driver: Any, page: Any, title: str, application_id: int,
     if last and (DONE_RE.search(last["text"]) or DONE_RE.search(last.get("title", "")) or DONE_URL.search(last["url"])):
         notify.close_todos("submit", f"application:{application_id}")
         return {"status": "submitted", "evidence": last}
+    if last and (said := _judge(last)) is not None and said["state"] == "submitted":
+        # the window was closed on a page that says it in words the program does not know
+        notify.close_todos("submit", f"application:{application_id}")
+        return {"status": "submitted", "evidence": {"url": last.get("url", ""), "text": said["sentence"][:300], "read_by": "model"}}
     return {"status": "ready_to_submit", "error": "窗口已关闭或超时，没有看到确认页；是否已提交不确定，请以确认邮件为准", "last_seen": last}
 
 
