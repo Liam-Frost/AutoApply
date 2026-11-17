@@ -174,6 +174,12 @@ def check_code(code: str) -> None:
             raise Refused(f"the code uses {node.id}(), which a plugin may not")
         elif isinstance(node, ast.Attribute) and node.attr.startswith("__") and node.attr.endswith("__"):
             raise Refused(f"the code reaches for {node.attr}, which a plugin may not")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            from . import gate
+
+            why = gate.scan_script(node.value)      # script for the page: nothing that clicks or sends from inside it
+            if why:
+                raise Refused(f"the code cannot be used: {why}")
     names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
     declares = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "TOOLS" for t in n.targets) for n in tree.body)
     if not names & {"set_value", "get_value"} and not declares:
@@ -383,6 +389,14 @@ def _shows_part(shown: Any, entry: Any) -> bool:
     return bool(s) and len(s) < len(e) and all(x in e for x in s)
 
 
+def _guarded(page: Any) -> Any:
+    """The page a plugin's code works on: the same page, asking the gate before it clicks or presses a key (gate.guarded).
+    What a plugin learned is how to work a control - never how to send the application."""
+    from . import gate
+
+    return gate.guarded(page)
+
+
 def set_value(page: Any, q: Any, value: Any, loc: Any, tag: str) -> bool:
     """Fill a field the way that was learned for it. True: done. False: nothing was learned for it, or what was
     learned did not work - the caller goes on as it always did, and the revision has a strike."""
@@ -397,7 +411,7 @@ def set_value(page: Any, q: Any, value: Any, loc: Any, tag: str) -> bool:
             continue
         try:
             fn = _load(rev).get("set_value")
-            if fn is not None and fn(page, q, value, w) is True:
+            if fn is not None and fn(_guarded(page), q, value, w) is True:
                 f["used"].add(rev["id"])
                 f["filled"][q.id] = rev["id"]
                 return True
@@ -454,7 +468,7 @@ def tools(page: Any) -> list[Any]:
                     return "This tool failed earlier in this run and is not available: use the ordinary tools."
                 try:
                     with timing.span("tool", f"site_{_name}", rev=_rev["id"]):
-                        said = _fn(page, w, **kw)
+                        said = _fn(_guarded(page), w, **kw)
                     f["used"].add(_rev["id"])
                     return str(said if said is not None else "done")[:2000]
                 except Exception as e:  # noqa: BLE001 - the agent goes on with its own tools
@@ -510,7 +524,7 @@ def get_value(page: Any, q: Any) -> Any:
         try:
             fn = _load(rev).get("get_value")
             if fn is not None:
-                got = fn(page, q, w)
+                got = fn(_guarded(page), q, w)
                 if got is not NotImplemented and got is not None:
                     f["used"].add(rev["id"])
                     return got

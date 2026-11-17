@@ -22,10 +22,10 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
-from . import browser, knowledge, llm
+from . import browser, gate, knowledge, llm
 from . import prompts
 from .ats import widgets as w
-from .ats.base import ALREADY_RE, AlreadyApplied, url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SiteDown
+from .ats.base import ALREADY_RE, AlreadyApplied, url_host, DriverError, FormSchema, JobRef, NeedsHuman, Question, SentEarly, SiteDown
 from .ats.base import tolerated
 from .ats.generic_driver import POSITIONAL, SUBMIT_RE
 from .models import Job
@@ -126,9 +126,8 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
 
     def click(selector: str = "", text: str = "") -> str:
         loc = page.locator(selector).first if selector else page.get_by_role("button", name=text).or_(page.get_by_role("link", name=text)).first
-        label = (loc.inner_text() or loc.get_attribute("value") or "").strip()
-        if SUBMIT_RE.search(label):
-            raise PermissionError(f"refused: '{label}' looks like a submit button; submitting is not available to the agent")
+        # (what it is called by any of the ways a control gets a name - not only its text; see gate)
+        label = str(gate.check_click(page, loc).get("name") or "").split(" | ")[0].strip()
         before = list(page.context.pages)
         loc.click(timeout=w.T)
         page.wait_for_timeout(1500)
@@ -160,6 +159,8 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
     def select(selector: str, option: str) -> str:
         loc = page.locator(selector).first
         tag = loc.evaluate("(e) => e.tagName.toLowerCase()")
+        if tag != "select":
+            gate.check_click(page, loc)      # choosing from it begins with a click on it
         if tag == "select":
             w.select_native(loc, option)
         elif tag == "button":
@@ -176,6 +177,7 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         loc = page.locator(selector).first
         if loc.evaluate("(e) => e.tagName.toLowerCase()") == "select":
             return json.dumps(loc.evaluate("(e) => [...e.options].map(o => o.text.trim()).filter(Boolean)")[:120], ensure_ascii=False)
+        gate.check_click(page, loc)          # reading its entries begins with a click on it
         if search:
             # typed, key by key, into whatever the list takes typing in (its own search box when it has one)
             found = w.search_entries(page, loc, search[:30])
@@ -200,9 +202,11 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
             box = page.locator(selector).first
             if (box.get_attribute("type") or "") == "password":
                 raise PermissionError("refused: the agent does not type passwords")
+            gate.check_click(page, box)
             box.click(timeout=w.T)
         elif page.evaluate("() => (document.activeElement || {}).type === 'password'"):
             raise PermissionError("refused: the agent does not type passwords")
+        gate.check_typing(page, str(text)[:200])      # a line break is an Enter, wherever the focus now is
         page.keyboard.type(str(text)[:200], delay=60)
         page.wait_for_timeout(900)
         return "typed"
@@ -211,8 +215,10 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         allowed = {"Tab", "Shift+Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Backspace", "Delete", "Space", "Home", "End", "PageDown", "PageUp", "Enter"}
         if key not in allowed:
             raise PermissionError(f"refused: only these keys are available: {sorted(allowed)}")
-        if key == "Enter" and not page.locator("[role=option]:visible, [role=listbox]:visible").count():
-            raise PermissionError("refused: Enter is only available while a list of options is open (in a form field it would submit the form)")
+        # Space and Enter are asked of what they land on (the control named, or what has the focus): on a button they press
+        # it; Enter in a field sends its form unless it takes an entry of a list. A list open somewhere else on the
+        # page is no licence.
+        gate.check_key(page, key, page.locator(selector).first if selector else None)
         if selector:
             page.locator(selector).first.press(key, timeout=w.T)
         else:
@@ -221,6 +227,7 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         return "ok"
 
     def check(selector: str, checked: bool = True) -> str:
+        gate.check_click(page, page.locator(selector).first)
         w.set_checkbox(page.locator(selector).first, checked)
         return "ok"
 
@@ -240,6 +247,7 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         if loc.evaluate("(e) => e.tagName.toLowerCase() === 'input' && e.type === 'file'"):
             w.upload(loc, [files[file_name]])
         else:
+            gate.check_click(page, loc)
             with page.expect_file_chooser(timeout=w.T) as fc:
                 loc.click(timeout=w.T)
             fc.value.set_files(files[file_name])
@@ -287,14 +295,15 @@ def l0_tools(page: Page, run_dir: Path, result: dict[str, Any], *, files: dict[s
         llm.Tool("read_page", "Visible text of the current page.", s(max_chars={"type": "integer"}), read_page),
         llm.Tool("list_controls", "JSON list of form controls with id, name, label, type, options, required, current value.", s(), list_controls),
         llm.Tool("screenshot", "Screenshot of the current viewport.", s(), screenshot),
-        llm.Tool("click", "Click by CSS selector, or by visible button/link text. Submit-like buttons are refused.", s(selector=st, text=st), click),
+        llm.Tool("click", "Click by CSS selector, or by visible button/link text. The control that sends the application is refused, whatever it is called by.",
+                 s(selector=st, text=st), click),
         llm.Tool("fill", "Type into a text input or textarea (not passwords).", {**s(selector=st, value=st), "required": ["selector", "value"]}, fill),
         llm.Tool("select", "Choose an option in a dropdown (native, react-select, or listbox button).", {**s(selector=st, option=st), "required": ["selector", "option"]}, select),
         llm.Tool("type_keys", "Type text as real key presses, into `selector` or into whatever has the focus. Use it where `fill` has no effect: the search box "
                               "of a pick-list, an autocomplete that only reacts to typing, a masked date or phone field. Then read the page or click the entry that appeared.",
                  {**s(text=st, selector=st), "required": ["text"]}, type_keys),
-        llm.Tool("press", "Press one key (Tab, Escape, the arrow keys, Backspace, Space; Enter only while a list of options is open), in a control or wherever the "
-                          "focus is. Tab out of a field to make the form validate it.", {**s(key=st, selector=st), "required": ["key"]}, press),
+        llm.Tool("press", "Press one key (Tab, Escape, the arrow keys, Backspace, Space; Enter only where it takes an entry of an open list, or in a text area), in a "
+                          "control or wherever the focus is. Tab out of a field to make the form validate it.", {**s(key=st, selector=st), "required": ["key"]}, press),
         llm.Tool("options", "Open a dropdown and read its entries word for word (up to 80), then close it without choosing. For a long searchable list "
                             "(countries, phone codes) pass `search` to type a few letters first.", {**s(selector=st, search=st), "required": ["selector"]}, options),
         llm.Tool("goto", "Navigate to a URL.", {**s(url=st), "required": ["url"]}, goto),
@@ -845,11 +854,16 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         if resp is not None and resp.status >= 500:
             raise SiteDown(f"the site returned HTTP {resp.status}", seen=ref.url)
         page.wait_for_timeout(2000)
+        from . import submitwatch
+
+        submitwatch.install(page)       # reading a form sends nothing; if something is sent all the same, it is seen
         hints = "\n\n".join(x for x in (sites.notes(f"generic:{ref.tenant}") if ref.tenant else "", knowledge.playbook(ref.ats) or knowledge.playbook("other")) if x)
         ident = "\n".join(ln for ln in knowledge.read("profile").splitlines() if re.search(r"^- (Name on forms|Legal name|Phone|Mailing|Location|Email)", ln))[:1200]
         goal = f"Job: {job.company} - {job.title}\nStart URL: {ref.url}\nATS: {ref.ats}\n<applicant>\n{ident}\n</applicant>\n" + (f"\nNotes from earlier applications on this ATS:\n{hints[:4000]}\n" if hints else "")
         acct_state: dict[str, Any] = {}
         out = llm.agent(goal, l0_tools(page, run_dir, result) + account_tools(page, ref, acct_state), system=prompts.get("generic_agent"), max_steps=70)
+        if (early := submitwatch.sent(page)) is not None:
+            raise SentEarly(early)
         if (not acct_state.get("outcome") and acct_state.get("created")) or (acct_state and result.get("questions")):
             # keep the freshest session: a password was generated without a reported outcome, or the run got through a
             # sign-in and reached the form (cookies set after the sign-in step would otherwise be lost)
