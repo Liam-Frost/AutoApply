@@ -253,6 +253,9 @@ async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
         # called with the prefix it is served under (a proxy that does not strip it, or the page opened directly)
         request.scope["path"] = request.scope["path"][len(root):] or "/"
         request.scope["raw_path"] = request.scope["path"].encode()
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        # the applicant is doing something on the page: a task queued while this request is answered is one they asked for
+        tasks.by_hand.set(True)
     why = _foreign(request)
     if not why:
         who = access.caller(request.client.host if request.client else "", request.headers)
@@ -977,6 +980,34 @@ def run_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"task_id": tasks.enqueue(kind, ref="manual", payload=body.get("payload", {}), priority=20, dedupe=False)}
 
 
+@app.get("/api/queue")
+def queue_plan() -> dict[str, Any]:
+    """What is being done, what comes next, what waits for the applicant, what was set aside, what is for later."""
+    from .. import scoring
+
+    return {**tasks.plan(), "drafts": scoring.draft_room()}
+
+
+@app.post("/api/queue/drain")
+def queue_drain(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Finish what is being done and start nothing new (to close or restart the program) - or go on again."""
+    return tasks.set_draining(bool(body.get("on", True)))
+
+
+@app.post("/api/tasks/{task_id}/{what}")
+def task_control(task_id: int, what: str) -> dict[str, Any]:
+    do = {"cancel": tasks.cancel, "hold": tasks.hold, "take-up": tasks.take_up, "first": tasks.first}.get(what)
+    if do is None:
+        raise HTTPException(404, "not found")
+    try:
+        do(task_id)
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except tasks.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    return {"ok": True}
+
+
 @app.post("/api/tasks/{task_id}/retry")
 def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     backend = body.get("browser_backend")
@@ -1033,6 +1064,7 @@ def overview() -> dict[str, Any]:
             "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open").scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),
+            "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),
             "remote": _open_remote_windows(),
             "drivers": [{"ats": d.ats, "recon_ok": d.recon_ok, "recon_fail": d.recon_fail, "exec_ok": d.exec_ok, "exec_fail": d.exec_fail,
                          "streak": d.consecutive_submits} for d in s.query(DriverStat).all()],
