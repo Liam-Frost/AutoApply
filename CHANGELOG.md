@@ -129,6 +129,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   - Mail that carries a code or a link for an account is recognised by more subjects ("Verify your candidate
     account", "Confirm your ... email address") and, as before, never summarised or shown to a model.
   - A link read from an HTML mail is kept as a browser would follow it ("&amp;" in its address was left in).
+- **An address that gives no answer is a site that is down, wherever it happens.** A connection that timed out at the
+  first page of a sign-in was reported as a failed task and left there, while a site that answered with an error page
+  was tried again. Both are the same thing now: tried again by itself (the first time after five minutes), nobody is
+  asked to do anything, and it is never counted as a password that failed or a page that could not be worked.
 - **The co-op portal is signed in to by the program; only the approval on your phone is yours.** The portal's sign-in
   used to be handed to you whole, every time its session ran out. Save your CWL login name and password for it on the
   Accounts page, and the program goes through the portal's sign-in itself: the password is typed on the university's

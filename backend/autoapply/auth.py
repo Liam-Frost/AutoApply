@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import Page
 
 from . import browser, db, messages, notify, secrets
-from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError, Unconfirmed
+from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError, Unconfirmed, unreachable
 from .models import SENT, Account, now
 
 log = logging.getLogger("autoapply.auth")
@@ -406,6 +406,8 @@ def _confirm_and_sign_in(page: Page, driver: Driver, ref: JobRef, email: str, pw
         except (NeedsHuman, SiteDown):
             raise
         except Exception as e:  # noqa: BLE001
+            if unreachable(e):
+                raise
             why = f"邮箱确认后登录没有成功：{secrets.redact(str(e), pw)[:150]}"
             break
         if driver.is_logged_in(page, ref):
@@ -461,6 +463,8 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
         except SiteDown:
             raise
         except Exception as e:  # noqa: BLE001 - it could not be tried: the applicant is asked, as before
+            if unreachable(e):
+                raise
             log.info("could not go through the sign-in of %s again by itself: %s", key, type(e).__name__)
             resumed = False
         if resumed and driver.is_logged_in(page, ref, navigate=False):
@@ -493,6 +497,8 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
         except SiteDown:
             raise
         except Exception as e:  # noqa: BLE001
+            if unreachable(e):       # no answer from the site: nothing about the password or the page, and nobody is asked
+                raise
             msg = secrets.redact(str(e), pw)
             if isinstance(e, DriverError) and re.search(r"sign-in rejected|rejected|incorrect|invalid (password|credentials)|wrong password", str(e), re.I):
                 # The site itself refused the stored password: that counts. Two refusals and the program stops trying it,
@@ -533,6 +539,9 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
     except NeedsHuman:
         raise
     except Exception as e:  # noqa: BLE001
+        if unreachable(e):
+            delete_account(key)  # the sign-up page did not open: nothing was sent
+            raise
         outcome = f"error: {secrets.redact(str(e), new_pw)[:200]}"
     if outcome == "exists":
         # Account predates us: drop the unused password and hand over. No reset.

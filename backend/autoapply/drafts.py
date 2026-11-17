@@ -15,7 +15,7 @@ from . import answers as ans, messages
 from . import prompts
 from . import auth, browser, config, db, knowledge, lifecycle, llm, materials, metering, notify
 from .ats import registry
-from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown
+from .ats.base import AlreadyApplied, DriverError, FormSchema, JobRef, NeedsHuman, SiteDown, unreachable
 from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, DriverStat, Job, MailEvent, now
 
 log = logging.getLogger("autoapply.drafts")
@@ -100,7 +100,9 @@ def _applied_there(driver: Any, page: Any, ref: JobRef) -> None:
         there = driver.already_applied(page, ref)
     except (NeedsHuman, SiteDown):
         raise
-    except Exception:  # noqa: BLE001 - the list could not be read: the form itself will say so if it has been applied for
+    except Exception as e:  # noqa: BLE001 - the list could not be read: the form itself will say so if it has been applied for
+        if unreachable(e):
+            raise
         log.info("could not check the list of applications on %s", ref.tenant_key, exc_info=True)
         return
     if there:
@@ -212,7 +214,7 @@ def build(job_id: int, *, run_dir=None, instructions: str = "") -> int:  # noqa:
                 j = s.get(Job, job_id)
                 j.note = f"雇主官网上已找不到这个岗位，可能已关闭（{now().date().isoformat()} 核对）"
             raise DriverError("岗位在雇主官网上已关闭或链接失效，没有生成草案") from e
-        if isinstance(e, SiteDown):  # the site is unreachable right now: leave the job as it was
+        if unreachable(e):  # the site is unreachable right now: leave the job as it was
             _undo(app_id)
             raise
         _set_app(app_id, "failed", "recon failed")

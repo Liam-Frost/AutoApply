@@ -162,6 +162,18 @@ class SiteDown(DriverError):
     and not a driver bug: nothing is counted against the account and no one is asked to sign in."""
 
 
+# what a browser says when an address gave no answer at all: the connection, not the page
+UNREACHABLE = re.compile(r"net::ERR_(TIMED_OUT|CONNECTION_\w+|NAME_NOT_RESOLVED|EMPTY_RESPONSE|SSL_\w+|INTERNET_DISCONNECTED|NETWORK_\w+|ADDRESS_UNREACHABLE|PROXY_\w+|TUNNEL_\w+)"
+                         r"|Page\.goto: Timeout \d+ms exceeded", re.I)
+
+
+def unreachable(e: BaseException) -> bool:
+    """Did this fail because the site (or the network on the way to it) gave no answer? That is "down for now" wherever
+    it happens - at the first page of a sign-in as much as where a driver looks for an error page - and is tried again
+    later. It says nothing about the form, the account, the password or the program, and nobody is asked to do anything."""
+    return isinstance(e, SiteDown) or (not isinstance(e, NeedsHuman) and bool(UNREACHABLE.search(str(e))))
+
+
 class NeedsHuman(Exception):
     """Login, CAPTCHA, MFA, or an existing account without stored credentials."""
 

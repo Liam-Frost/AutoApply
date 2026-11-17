@@ -16,7 +16,7 @@ from typing import Any, Callable
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import db, llm, metering, notify
-from .ats.base import NeedsHuman, SiteDown
+from .ats.base import NeedsHuman, unreachable
 from .models import Run, Task, now
 
 log = logging.getLogger("autoapply.tasks")
@@ -106,19 +106,24 @@ def run_one(t: Task) -> None:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
             notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")
-    except SiteDown as e:
-        # The employer's site is not answering. Try again later; nobody needs to do anything.
-        n = int(t.payload.get("_down_retries", 0))
-        status, error = "failed", f"网站暂时打不开：{e}" + ("；30 分钟后自动重试" if n < 6 and t.kind == "recon" else "")
-        if t.kind == "recon" and n < 6:
-            enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_down_retries": n + 1}, minutes=30, priority=t.priority)
     except Exception as e:  # noqa: BLE001
-        status, error = "failed", f"{type(e).__name__}: {e}"
-        log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
-        if t.kind in ("revise", "recon"):  # started by the user from the UI: say why it failed
-            from . import messages
+        if unreachable(e):
+            # The employer's site is not answering - an error page, or no answer at all from its address (a connection
+            # that timed out is the same thing, wherever in the run it happened). Try again later; nobody needs to do
+            # anything. The first time soon: a network that dropped for a moment is back in minutes.
+            n = int(t.payload.get("_down_retries", 0))
+            again, wait = t.kind == "recon" and n < 6, 5 if n == 0 else 30
+            status, error = "failed", f"网站暂时打不开：{str(e).splitlines()[0][:200]}" + (f"；{wait} 分钟后自动重试" if again else "")
+            log.warning("task %s (%s): the site did not answer: %s", t.id, t.kind, str(e).splitlines()[0][:200])
+            if again:
+                enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_down_retries": n + 1}, minutes=wait, priority=t.priority)
+        else:
+            status, error = "failed", f"{type(e).__name__}: {e}"
+            log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
+            if t.kind in ("revise", "recon"):  # started by the user from the UI: say why it failed
+                from . import messages
 
-            notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
+                notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
     stages = metering.end_task()
     with db.session() as s:
         row = s.get(Task, t.id)

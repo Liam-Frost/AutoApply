@@ -254,3 +254,65 @@ def test_account_mail_is_told_by_its_subject_and_its_links_are_kept_whole():
     # in HTML "&" in an address is written "&amp;": the address is kept as a browser would follow it
     part = base64.urlsafe_b64encode(b'<p><a href="https://www.acme.test/confirm?nonce=1&amp;email=2&amp;hash=3">Confirm</a></p>').decode()
     assert "https://www.acme.test/confirm?nonce=1&email=2&hash=3 " in mail._body({"mimeType": "text/html", "body": {"data": part}})
+
+
+# --- an address that gave no answer ---
+
+TIMED_OUT = 'Page.goto: net::ERR_TIMED_OUT at https://tmx.wd3.myworkdayjobs.com/en-US/TMX_Careers/userHome\nCall log:\n  - navigating to "..."'
+
+
+def test_an_address_that_gives_no_answer_is_a_site_that_is_down_wherever_it_happens(app_env, monkeypatch):
+    """The run that was to confirm the account stopped at its first page: the connection timed out. That was reported as
+    a failed task and left there; a site that answers with an error page, three lines further on, was tried again."""
+    from autoapply import auth, notify, tasks
+    from autoapply.ats.base import NeedsHuman, SiteDown, unreachable
+    from autoapply.models import Task, Todo
+
+    assert unreachable(Exception(TIMED_OUT)) and unreachable(SiteDown("HTTP 521")) and unreachable(Exception("Page.goto: Timeout 30000ms exceeded."))
+    assert not unreachable(Exception("Locator.wait_for: Timeout 20000ms exceeded.")) and not unreachable(NeedsHuman("net::ERR_TIMED_OUT"))
+
+    later, told = [], []
+    monkeypatch.setattr(tasks, "enqueue_later", lambda kind, **k: later.append((kind, k["ref"], k["minutes"], k["payload"].get("_down_retries"))))
+    monkeypatch.setattr(notify, "send", lambda *a, **k: told.append(a))
+
+    def recon(t):
+        raise Exception(TIMED_OUT)
+
+    monkeypatch.setitem(tasks._handlers, "recon", recon)
+    with db.session() as s:
+        s.add(Task(kind="recon", ref="job:844", status="running", payload={}))
+        s.add(Task(kind="recon", ref="job:845", status="running", payload={"_down_retries": 1}))
+    with db.session() as s:
+        rows = s.query(Task).order_by(Task.id).all()
+        s.expunge_all()
+    for t in rows:
+        tasks.run_one(t)
+    with db.session() as s:
+        errors = [t.error for t in s.query(Task).order_by(Task.id)]
+    assert errors[0].startswith("网站暂时打不开") and "5 分钟后自动重试" in errors[0] and "Call log" not in errors[0] and "30 分钟后自动重试" in errors[1]
+    assert later == [("recon", "job:844", 5, 1), ("recon", "job:845", 30, 2)] and told == []        # tried again; nobody is told to do anything
+
+    # at a sign-in it is not "the password failed", not "the page could not be worked", and no card
+    class Driver:
+        requires_login, ats = True, "workday"
+
+        def is_logged_in(self, page, ref, navigate=True):
+            return False
+
+        def login(self, page, ref, email, pw):
+            raise Exception(TIMED_OUT)
+
+        def login_url(self, ref):
+            return "https://tmx.wd3.myworkdayjobs.com/en-US/TMX_Careers/login"
+
+    from autoapply.ats.workday import WorkdayDriver
+
+    ref = WorkdayDriver().detect(JOB)
+    db.set_setting("account.email", "me@example.test")
+    auth.upsert_account(ref.tenant_key, ats="workday", host=HOST, email="me@example.test", password="pw-1", status="pending", created_by="agent")
+    with pytest.raises(Exception, match="ERR_TIMED_OUT") as e:
+        auth.ensure_session(object(), Driver(), ref)
+    assert not isinstance(e.value, NeedsHuman)
+    a = auth.account(ref.tenant_key)
+    with db.session() as s:
+        assert a["status"] == "pending" and a["fail_count"] == 0 and s.query(Todo).count() == 0
