@@ -3144,5 +3144,11 @@
 "留在库里的 {0} 个现在：": "The {0} in the library now: ",
 "里。这里只记数量，被筛掉的岗位本身不保存。": ". Only numbers are kept here; the postings that were dropped are not stored.",
 "· 不够 {0} · 排除 {1} · 没评 {2}": "· below {0} · ruled out {1} · not scored {2}",
-"最近一次扫描：{0}。一共读到 {1} 个岗位，{2} 个过了硬条件，其中 {3} 个是新的。": "Latest scan: {0}. {1} postings were read in all, {2} passed the hard conditions, {3} of them new."
+"最近一次扫描：{0}。一共读到 {1} 个岗位，{2} 个过了硬条件，其中 {3} 个是新的。": "Latest scan: {0}. {1} postings were read in all, {2} passed the hard conditions, {3} of them new.",
+"没有生成草案：这份申请点过提交，结果待确认": "No draft was made: Submit was pressed on this application and the outcome is not known yet",
+"这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。": "Submit was pressed on this application and the outcome is not known yet. Check for the confirmation mail first; once you are sure it did not go through, choose “It was not submitted, fill it in again” on this application's card.",
+"你确认上一次没有提交成功": "You confirmed that the last attempt did not go through",
+"你把这个岗位标成了不投": "You marked this posting as one you are not applying for",
+"这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。": "The application for this posting has gone out (or the outcome of its submission is not known yet); it cannot be marked as not applying.",
+"你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。": "You decided not to apply for this posting. To apply after all, prepare a new draft from the postings page."
 }

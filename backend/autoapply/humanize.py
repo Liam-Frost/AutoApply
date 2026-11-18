@@ -214,6 +214,8 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
         return (f"评了 {r.get('scored', 0)} 个岗位" + (f"，{r['queued_for_draft']} 个高分岗位排队生成草案" if r.get("queued_for_draft") else "")
                 + (f"；还有 {r['remaining']} 个没评，几分钟后接着评" if r.get("remaining") else "")) if "scored" in r else "已评分"
     if kind == "recon":
+        if r.get("status") == "submit_unknown":
+            return "没有生成草案：这份申请点过提交，结果待确认"
         return "草案已生成，等你审批" if r.get("draft_id") else ""
     if kind == "revise":
         return "已按你的意见生成新版本"
