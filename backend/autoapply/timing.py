@@ -145,3 +145,19 @@ def by_name(spans: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, int]
         if s.get("ok") is False or str(s.get("ok")) == "False":
             o["failed"] += 1
     return out
+
+
+HUMAN_STEPS = ("handed_over",)
+
+
+def stops_for_applicant(steps: list[dict[str, Any]] | None) -> int:
+    """How many times a run handed the form to the applicant - to look at, to fill what only they can, to send.
+    Counted from the run's steps (the step "handed_over"; one step, one stop), not from the spans of their time.
+    (A task that stopped before there was a run - a sign-in, a challenge - is not a run: it is the task's outcome,
+    "waiting", and is counted there.)"""
+    return sum(1 for st in steps or [] if isinstance(st, dict) and st.get("op") in HUMAN_STEPS)
+
+
+def takeovers(steps: list[dict[str, Any]] | None) -> int:
+    """How many times the AI took a page over from the driver in a run."""
+    return sum(1 for st in steps or [] if isinstance(st, dict) and st.get("op") == "repair")

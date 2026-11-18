@@ -1,7 +1,8 @@
 """Numbers for the analysis page: three views over one time window.
 
 * ``applications`` - what came of the applications that were sent;
-* ``automation``   - what the program's tasks (workflow executions) did, and where they failed;
+* ``automation``   - what the program's tasks (workflow executions) did, and where they failed - also per recruiting
+                     system (``_systems``): how reading its forms and filling them went, what it took, who had to step in;
 * ``ai``           - what the model calls used and what they cost, by model, by feature and per result.
 
 Rules that hold everywhere:
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
 from . import db, humanize, llm, metering, stages
-from .models import SENT, Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
+from .models import SENT, Application, ApplicationEvent, Draft, Job, LLMRequest, MailEvent, Run, Task
 
 MIN_SAMPLE = 5          # a share over fewer applications than this is not shown as a percentage
 POSITIVE = ("assessment", "interview", "offer")
@@ -389,12 +390,89 @@ def runs(w: Window, *, kind: str = "", outcome: str = "", offset: int = 0, limit
     return {"total": len(rows), "offset": max(0, int(offset or 0)), "limit": limit, "rows": out}
 
 
+def system_label(ats: str) -> str:
+    return "UBC PD Portal" if ats == "pdportal" else humanize.ats_name(ats) if ats and ats != "generic" else "其他网站（没有专门的驱动）"
+
+
+def _systems(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per recruiting system, from the tasks of the window: how reading its forms went, how filling them went, how
+    often a run stopped for the applicant, and what the model was asked for it.
+
+    Every site's form is read by the agent and the system's driver is a tool for it (the decision is written down in
+    REFACTOR_PLAN). Whether that serves a system well is a question of these figures, system by system - not of one
+    figure for all of them. The definitions are the ones the rest of this view uses:
+
+    - a task belongs to the system of the posting it is about (its "job:", "application:" or "draft:");
+    - success rate = succeeded / ran to an end of its own (succeeded + failed + interrupted). A fill that ends with the
+      form handed over, or with Submit pressed and no confirmation, is not in it either way - it is shown beside it;
+    - the time of a fill is the run's working time (timing.working_ms): the applicant's own time is not in it;
+    - a stop for the applicant is a step of the run that waited for them (timing.stops_for_applicant), counted from
+      the steps of every run - the column on the run was never written before, so it is not read;
+    - the model's use is everything asked on behalf of the system's postings in the window - reading, answering,
+      revising, filling, the failed tasks too - and a cost only where one is known.
+    """
+    from . import timing
+
+    jobs = {i: ats or "generic" for i, ats in s.query(Job.id, Job.ats)}
+    apps = dict(s.query(Application.id, Application.job_id).all())
+    drafts = dict(s.query(Draft.id, Draft.application_id).all())
+
+    def posting(ref: str) -> int | None:
+        kind, _, rest = (ref or "").partition(":")
+        num = rest.split(":")[0]
+        if not num.isdigit():
+            return None
+        n = int(num)
+        return n if kind == "job" else apps.get(n) if kind == "application" else apps.get(drafts.get(n)) if kind == "draft" else None
+
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        job = posting(r["ref"])
+        if job in jobs:
+            groups[jobs[job]].append({**r, "job": job})
+    fills = {r["id"] for rs in groups.values() for r in rs if r["kind"] == "execute"}
+    runs: dict[int, list[dict[str, int]]] = defaultdict(list)
+    if fills:
+        for task_id, spans, steps in s.query(Run.task_id, Run.spans, Run.steps).filter(Run.kind == "execute", Run.task_id.isnot(None)):
+            if task_id in fills:
+                runs[task_id].append({"working_ms": timing.working_ms(spans or []) if spans else None, "stops": timing.stops_for_applicant(steps), "takeovers": timing.takeovers(steps)})
+
+    def part(xs: list[dict[str, Any]]) -> dict[str, Any]:
+        c = {k: sum(1 for r in xs if r["outcome"] == k) for k in OUTCOMES}
+        settled = c["success"] + c["failed"] + c["interrupted"]
+        ran = sorted(r["duration"] for r in xs if r["duration"] is not None and r["outcome"] in ("success", "failed"))
+        return {"total": len(xs) - sum(c[k] for k in NOT_COUNTED), "success": c["success"], "failed": c["failed"] + c["interrupted"], "settled": settled,
+                "success_rate": round(c["success"] / settled, 4) if settled else None, "median_s": _median(ran),
+                "handed": c["handed"], "unknown": c["unknown"], "waiting": c["waiting"] + c["rerun"], "running": c["running"]}
+
+    out = []
+    for key, rs in groups.items():
+        fill = [r for r in rs if r["kind"] == "execute"]
+        mine = [x for r in fill for x in runs.get(r["id"], [])]
+        worked = [x["working_ms"] for x in mine if x["working_ms"] is not None]
+        got = [ai[r["id"]] for r in rs if r["id"] in ai]
+        postings = len({r["job"] for r in rs})
+        tokens = sum(g["tokens"] for g in got)
+        out.append({
+            "ats": key, "label": system_label(key), "postings": postings,
+            "read": part([r for r in rs if r["kind"] == "recon"]),
+            "fill": {**part(fill), "working_ms": int(_median(worked)) if worked else None},
+            "human": {"runs": len(mine), "stops": sum(x["stops"] for x in mine), "runs_stopped": sum(1 for x in mine if x["stops"]),
+                      "stops_per_run": round(sum(x["stops"] for x in mine) / len(mine), 2) if mine else None,
+                      "takeovers_per_run": round(sum(x["takeovers"] for x in mine) / len(mine), 2) if mine else None},
+            "ai": {"requests": sum(g["requests"] for g in got), "tokens": tokens, "tokens_per_posting": round(tokens / postings) if postings and tokens else None,
+                   "cost": sum(g["cost"] for g in got) if any(g["priced"] for g in got) else None, "cost_unknown_requests": sum(g["unknown"] for g in got)},
+        })
+    return sorted(out, key=lambda r: -(r["read"]["total"] + r["fill"]["total"]))
+
+
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     """What the program's tasks did in the window (by the day a task started)."""
     with db.session() as s:
         rows = _task_rows(s, w)
         prev_n = sum(1 for t in s.query(Task.started_at, Task.created_at) if w.had(_naive(t[0] or t[1]))) if w.prev_lo is not None else None
         ai = _ai_by_task(s, [r["id"] for r in rows])
+        systems = _systems(s, rows, ai)
         kinds = sorted({r["kind"] for r in rows}, key=lambda k: -sum(1 for r in rows if r["kind"] == k))
         shown = [r for r in rows if not kind or r["kind"] == kind]
         recent = sorted(shown, key=lambda r: (r["at"], r["id"]), reverse=True)[:8]
@@ -458,6 +536,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
                     "auto_retries": sum(1 for r in shown if r["auto_retry"]), "restarted": sum(1 for r in shown if r["attempts"] > 1)},
         "outcomes": OUTCOMES,
         "recent": [_run_row(r, ai, subjects.get(r["id"], "")) for r in recent], "recent_total": len(shown),
+        "systems": systems,      # (all kinds of task, whatever ``kind`` narrows the rest to: a system is read and filled)
     }
 
 
@@ -486,7 +565,7 @@ def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str,
     with db.session() as s:
         rows = [r for r in s.query(Run).filter(Run.kind == "execute", Run.spans.isnot(None)).order_by(Run.id.desc()).limit(2000) if w.has(_naive(r.created_at)) and (not ats or r.ats == ats)]
         runs = [{"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "learned": list(r.learned or []),
-                 "working_ms": timing.working_ms(r.spans or []), "totals": timing.totals(r.spans or []), "takeovers": sum(1 for st in (r.steps or []) if st.get("op") == "repair")} for r in rows]
+                 "working_ms": timing.working_ms(r.spans or []), "totals": timing.totals(r.spans or []), "takeovers": timing.takeovers(r.steps), "stops": timing.stops_for_applicant(r.steps)} for r in rows]
     systems: dict[str, list[dict[str, Any]]] = {}
     for r in runs:
         systems.setdefault(r["ats"], []).append(r)

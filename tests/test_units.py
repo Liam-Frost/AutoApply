@@ -434,3 +434,85 @@ def test_which_browser_a_task_worked_in_is_said_in_words():
     assert "程序自带的浏览器" in said("browser:playwright (tenant: greenhouse:acme)")
     for s in ("browser:nodriver (tenant: x)", "browser:nodriver (something new)"):
         assert "browser:" not in said(s) and "nodriver" not in said(s)
+
+
+def test_the_analysis_page_compares_the_recruiting_systems(app_env):
+    """Every site's form is read by the agent now. Whether that serves a system well is asked system by system: how
+    reading and filling went, how long the program worked, how often it handed the form over, what the model was
+    asked - by the definitions the rest of the page uses (not Run.ok, not "the task is done")."""
+    from datetime import timedelta
+
+    from autoapply import analytics, db, timing
+    from autoapply.models import Application, Draft, Job, LLMRequest, Run, Task, now
+
+    at = now() - timedelta(hours=3)
+
+    def task(kind, ref, status="done", result=None, error="", minutes=2.0):
+        t = Task(kind=kind, ref=ref, status=status, result=result or {}, error=error, attempts=1, created_at=at, started_at=at, finished_at=at + timedelta(minutes=minutes))
+        s.add(t)
+        s.flush()
+        return t
+
+    def asked(t, tokens, cost=None):
+        s.add(LLMRequest(request_id=f"r{t.id}-{tokens}", call_id=f"c{t.id}", started_at=at, provider="anthropic", model="m", kind="agent", feature="explore_form", task_id=t.id,
+                         workflow=t.kind, ref=t.ref, status="ok", turns=1, input_tokens=tokens, output_tokens=0, cost_micros=cost, source="live"))
+
+    def run(t, ats, steps, ms):
+        s.add(Run(task_id=t.id, kind="execute", ref=t.ref, ats=ats, ok=1, steps=[{"op": x} for x in steps], spans=[{"k": "driver", "n": "field", "t": 0, "ms": ms}, {"k": "human", "n": "window", "t": ms, "ms": 600000}],
+                  human_interventions=0, created_at=at))
+
+    with db.session() as s:
+        jobs = {}
+        for ats in ("workday", "greenhouse", ""):
+            j = Job(source="x", source_id=f"s{ats}", title="Intern", company=f"Co {ats}", ats=ats, status="scored")
+            s.add(j)
+            s.flush()
+            a = Application(job_id=j.id, status="draft_ready")
+            s.add(a)
+            s.flush()
+            d = Draft(application_id=a.id, version=1, schema={}, answers=[], unresolved=[], materials=[], review_status="pending")
+            s.add(d)
+            s.flush()
+            jobs[ats] = (j.id, a.id, d.id)
+        wj, wa, wd = jobs["workday"]
+        # Workday: read three times (one failed, one still waiting for a sign-in), revised once, filled four times
+        asked(task("recon", f"job:{wj}", minutes=4), 9000, 300)
+        task("recon", f"job:{wj}", "failed", error="could not open the posting", minutes=1)
+        task("recon", f"job:{wj}", "waiting_human", error="login required")
+        asked(task("revise", f"draft:{wd}"), 1000)                                             # no price for this one
+        sent = task("execute", f"application:{wa}", result={"status": "submitted"}, minutes=3)
+        run(sent, "workday", ["open", "fill_page", "repair", "repair", "read_back", "submit"], 90000)
+        asked(sent, 5000, 200)
+        handed = task("execute", f"application:{wa}", result={"status": "ready_to_submit"}, minutes=15)
+        run(handed, "workday", ["open", "fill_page", "read_back", "handed_over"], 60000)
+        failed = task("execute", f"application:{wa}", result={"status": "failed", "error": "could not advance to the next page"})
+        run(failed, "workday", ["open", "fill_page", "cannot_advance"], 30000)
+        task("execute", f"application:{wa}", result={"status": "submit_unknown"})
+        task("execute", f"application:{wa}", result={"status": "skipped", "note": "already submitted"})   # found nothing to do: not counted
+        # Greenhouse: read once, nothing filled; a site with no driver: filled once, by the applicant's hand in the end
+        task("recon", f"job:{jobs['greenhouse'][0]}", minutes=2)
+        other = task("execute", f"application:{jobs[''][1]}", result={"status": "submitted"})
+        run(other, "generic", ["open", "fill_page", "handed_over", "submit"], 45000)
+        # not about a posting at all
+        task("discover", "schedule")
+        task("mail", "schedule")
+    got = {y["ats"]: y for y in analytics.automation(analytics.window(7))["systems"]}
+    assert list(got) == ["workday", "greenhouse", "generic"] or list(got) == ["workday", "generic", "greenhouse"]
+    w = got["workday"]
+    assert w["label"] == "Workday" and w["postings"] == 1
+    assert (w["read"]["total"], w["read"]["success"], w["read"]["failed"], w["read"]["waiting"], w["read"]["settled"], w["read"]["success_rate"]) == (3, 1, 1, 1, 2, 0.5)
+    assert w["read"]["median_s"] == 150.0                                                      # of the ones that ran to an end: four minutes and one
+    f = w["fill"]
+    assert (f["total"], f["success"], f["handed"], f["unknown"], f["failed"], f["settled"], f["success_rate"]) == (4, 1, 1, 1, 1, 2, 0.5)
+    assert f["working_ms"] == 60000                                                            # the program's own time, the middle one of three runs; not the ten minutes the window was open
+    assert w["human"] == {"runs": 3, "stops": 1, "runs_stopped": 1, "stops_per_run": 0.33, "takeovers_per_run": 0.67}
+    assert w["ai"] == {"requests": 3, "tokens": 15000, "tokens_per_posting": 15000, "cost": 500, "cost_unknown_requests": 1}
+    g = got["greenhouse"]
+    assert (g["read"]["success_rate"], g["fill"]["total"], g["fill"]["success_rate"], g["fill"]["working_ms"], g["human"]["stops_per_run"], g["ai"]["cost"]) == (1.0, 0, None, None, None, None)
+    o = got["generic"]
+    assert o["label"].startswith("其他网站") and o["fill"]["success"] == 1 and o["human"]["stops_per_run"] == 1.0
+    # what a run records of itself, from the steps real runs have
+    assert timing.stops_for_applicant([{"op": "open"}, {"op": "handed_over"}, {"op": "submit"}, "junk"]) == 1 and timing.stops_for_applicant(None) == 0
+    assert timing.takeovers([{"op": "repair"}, {"op": "repair_skipped"}, {"op": "repair"}]) == 2
+    # the view narrowed to one kind of task still compares whole systems
+    assert {y["ats"] for y in analytics.automation(analytics.window(7), kind="mail")["systems"]} == set(got)

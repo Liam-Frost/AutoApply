@@ -294,8 +294,10 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
         # the stretch that ended with this step, as a whole: what lies inside it (fields, tools, requests, loads) is
         # recorded where it happens, and what is left over is the program's own work on that step
         whole = (time.monotonic() - last_mark[0]) * 1000.0
-        timing.mark("human" if op in ("wait_user", "manual", "handover") else "driver", f"step:{op}", max(0.0, whole - timing.inside(last_mark[0])), started=last_mark[0],
-                    page=kw.get("page"))
+        # (The applicant's own time is not in it: it is recorded where the window waits for them, as a span of its own.
+        # This line named three steps as theirs that no run has - the stretch before the form is handed over is the
+        # program's work, like any other.)
+        timing.mark("driver", f"step:{op}", max(0.0, whole - timing.inside(last_mark[0])), started=last_mark[0], page=kw.get("page"))
         last_mark[0] = time.monotonic()
     if not scout:
         notify.send("task_started", messages.execute_started(title, ats=ref.ats, policy=policy, pages=len(schema.pages or []), reasons=mode["reasons"]), ref=f"application:{application_id}")
@@ -1062,7 +1064,7 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             outcome = {"status": app.status, "note": f"the application had already got to '{app.status}' when this run ended with '{told}'", "superseded": told}
         spans = timing.end()
         run = Run(task_id=task_id, kind="execute", ref=f"application:{application_id}", ats=ref.ats, ok=int(ok), steps=steps, spans=spans, site=_site_of(schema),
-                  learned=learned.in_force(), dir=str(run_dir))
+                  learned=learned.in_force(), dir=str(run_dir), human_interventions=timing.stops_for_applicant(steps))      # (the column was there and never written)
         s.add(run)
         s.flush()
         run_id = run.id
