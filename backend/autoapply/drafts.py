@@ -557,6 +557,7 @@ def get(draft_id: int) -> dict[str, Any]:
             # steps of the form that have not been read yet (they open only once the earlier ones are filled)
             "unseen": _unseen_of(d),
             "walk_open": bool((d.schema.get("extra") or {}).get("walk_open")),      # a walk stopped before the review page
+            "agent": bool((d.schema.get("extra") or {}).get("agent")),              # the record of the application agent (agent/work.py)
             "answers": d.answers, "unresolved": d.unresolved, "materials": _files_as_they_are(d.materials), "plan": _plan_now(d.plan, mode), "notes": d.notes,
             "auto_approve_check": d.auto_approve_check,
             "submit_mode": mode,

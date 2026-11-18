@@ -122,6 +122,8 @@ async function runAgainNotSubmitted(t) {
 }
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
+const moreBudget = (t) => act(() => api.post(`/applications/${t.payload.application_id}/budget`), '已追加一份预算，Agent 接着做')
+const tryAgain = (t) => act(async () => { await api.post(`/jobs/${t.payload.job_id}/draft`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, 'Agent 已重新开始')
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
 // a driver the program wrote: the issue opens in the applicant's own browser, filled in, for them to read and submit
@@ -242,6 +244,16 @@ onMounted(load)
           <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? '改日期' : '加上日期' }}</button>
           <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请和原邮件</router-link>
           <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">打开人脉</router-link>
+        </template>
+        <template v-else-if="['failed', 'submit'].includes(t.kind) && t.payload && t.payload.application_id && !t.payload.draft_id">
+          <template v-if="unknown(t)">
+            <button class="primary" @click="checkMail(t)"><Icon name="mail" />现在检查确认邮件</button>
+            <button @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
+          </template>
+          <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />再给一份预算，接着做</button>
+          <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />让 Agent 再试一次</button>
+          <router-link :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请</router-link>
+          <button v-if="!unknown(t)" class="ghost" @click="dismiss(t)">不投了，关闭</button>
         </template>
         <template v-else-if="['failed', 'submit'].includes(t.kind) && t.payload && t.payload.draft_id">
           <template v-if="unknown(t)">

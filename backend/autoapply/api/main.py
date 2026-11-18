@@ -574,6 +574,10 @@ def get_draft(draft_id: int) -> dict[str, Any]:
     from .. import tailor as _tailor
 
     d["tailor"] = {"available": _tailor.base_doc() is not None, "mode": db.get_setting("tailor.mode"), "has_jd": True}
+    if d.get("agent"):      # what the agent wrote down while it worked this application, and what it has used
+        from ..agent import work as _work
+
+        d["journal"], d["spent"] = _work.journal(d["application"]["id"]), _work.spent(d["application"]["id"])
     d["review_label"] = humanize.REVIEW.get(d["review_status"], d["review_status"])
     d["application"]["status_label"] = humanize.APP_STATUS.get(d["application"]["status"], d["application"]["status"])
     d["application"]["explained"] = humanize.explain(d["application"]["last_event"])
@@ -700,6 +704,20 @@ def get_application(application_id: int) -> dict[str, Any]:
     out = _404(applications.detail(application_id))
     out["contacts"] = _contacts_for(out["company"])
     return out
+
+
+@app.post("/api/applications/{application_id}/budget")
+def more_budget(application_id: int) -> dict[str, Any]:
+    """The applicant gives an application whose budget is used up another one, and the agent goes on."""
+    from ..agent import work as _work
+
+    with db.session() as s:
+        a = _404(s.get(Application, application_id))
+        if a.status in SENT:
+            raise _already_sent(a)
+        job_id, deadline = a.job_id, a.job.deadline
+    _work.grant(application_id)
+    return {"task_id": tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
 
 @app.post("/api/applications/{application_id}/correct")

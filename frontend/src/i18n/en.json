@@ -3396,5 +3396,20 @@
 "{0}：连续 {1} 次停在同一个地方": "{0}: stopped at the same place {1} times in a row",
 "这份申请的预算用完了，等你决定是否继续": "This application's budget is used up; it waits for you to decide whether to go on",
 "Agent 已经要点提交了，运行在给出结果之前中断；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。": "The agent was about to press submit and the run was cut off before it said what came of it; this application may already be out. The program first checks the site and the mailbox, and does not press it again.",
-"已经用了 {0} 步、约 {1} 分钟，分 {2} 次运行，还没有做完。最后的记录：{3} 要继续的话，再给它一份预算。": "{0} steps and about {1} minutes have been used, over {2} run(s), and it is not finished. The last entry: {3} To go on, give it another budget."
+"已经用了 {0} 步、约 {1} 分钟，分 {2} 次运行，还没有做完。最后的记录：{3} 要继续的话，再给它一份预算。": "{0} steps and about {1} minutes have been used, over {2} run(s), and it is not finished. The last entry: {3} To go on, give it another budget.",
+"问你：{0}": "Asks you: {0}",
+"等你处理：{0}": "Waits for you: {0}",
+"即将点提交：{0}": "About to press submit: {0}",
+"开始一次运行": "A run begins",
+"Agent 做了什么": "What the agent did",
+"再给一份预算，接着做": "Give it another budget and go on",
+"Agent 已重新开始": "The agent has started again",
+"让 Agent 再试一次": "Have the agent try again",
+"这次运行中断（{0} 次操作）：{1}": "This run was cut off ({0} actions): {1}",
+"这次运行结束（{0} 次操作）：{1}": "This run ended ({0} actions): {1}",
+"记下了这个网站的一条经验：{0}": "Wrote down something about this site: {0}",
+"已追加一份预算，Agent 接着做": "Another budget is given; the agent goes on",
+"已用 {0} / {1} 步，约 {2} 分钟，{3} 次运行": "{0} / {1} steps used, about {2} minutes, {3} run(s)",
+"这份记录是 Agent 自己在网站上做完之后写的：每一项填了什么、依据是什么，都在下面的表里。这里是它途中记下的话。": "This record was written by the agent after it worked the site itself: what was entered for each item and where that comes from is in the table below. Here is what it wrote down on the way.",
+"批准后，Agent 回到这份申请，把网站上现在的内容和这份记录逐项核对（网站自己改过的会改回来），然后提交，并把确认页的原话和网址存下来作为证据。有它改不回来的差异时不会提交，会带着差异回到你这里。": "Once you approve, the agent goes back to this application, compares what the site holds now with this record item by item (putting right what the site changed by itself), then sends it and keeps the confirmation page's own words and address as evidence. If something differs in a way it cannot put right, it does not send and comes back to you with the difference."
 }

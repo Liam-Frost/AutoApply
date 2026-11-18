@@ -708,3 +708,9 @@ tr[tabindex="-1"]:focus, h3[tabindex="-1"]:focus { outline: none; }
 .backup-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 12px; }
 .backup-notes h4 { margin: 0 0 4px; font-size: var(--fs-sm); }
 .backup-notes ul { margin: 0 0 0 18px; padding: 0; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.7; }
+
+/* what the application agent wrote down while it worked an application */
+.journal { list-style: none; margin: var(--s3) 0 0; padding: 0; max-height: 320px; overflow: auto; }
+.journal li { display: flex; gap: var(--s3); padding: 4px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.journal li:first-child { border-top: 0; }
+.journal .j-strong { font-weight: 600; }

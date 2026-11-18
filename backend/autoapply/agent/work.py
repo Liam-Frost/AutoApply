@@ -46,6 +46,51 @@ def folder_of(application_id: int) -> Path:
     return config.DATA / "agent" / f"app_{application_id}"
 
 
+def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
+    """What the agent did on this application, for the applicant to read: each run, the lines it wrote down itself,
+    what it asked, how it ended - and how many actions each run took (the actions themselves stay in the file)."""
+    p = folder_of(application_id) / "journal.jsonl"
+    if not p.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    calls = 0
+    for ln in p.read_text(encoding="utf-8").splitlines():
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        kind = e.get("kind")
+        if kind == "tool":
+            calls += 1
+            continue
+        if kind == "run":
+            calls = 0
+            out.append({"at": e.get("at"), "kind": "run", "text": str(e.get("mode") or "")})
+        elif kind == "log":
+            out.append({"at": e.get("at"), "kind": "log", "text": str(e.get("text") or "")})
+        elif kind == "ask":
+            out.append({"at": e.get("at"), "kind": "ask", "text": str(e.get("question") or "")})
+        elif kind == "note":
+            out.append({"at": e.get("at"), "kind": "note", "text": str(e.get("text") or "")})
+        elif kind == "sending":
+            out.append({"at": e.get("at"), "kind": "sending", "text": str(e.get("button") or "")})
+        elif kind == "needs_applicant":
+            out.append({"at": e.get("at"), "kind": "waits", "text": str(e.get("why") or "")})
+        elif kind == "report":
+            out.append({"at": e.get("at"), "kind": "report", "text": str(e.get("summary") or ""), "outcome": e.get("outcome"), "calls": calls})
+        elif kind == "ended":
+            out.append({"at": e.get("at"), "kind": "ended", "text": str(e.get("why") or ""), "calls": calls})
+    return out[-limit:]
+
+
+def spent(application_id: int) -> dict[str, Any]:
+    """What this application has used of its budget, over all its runs."""
+    used, total = _spent_so_far(folder_of(application_id)), _budget()
+    grants = max(1, int(used.get("granted") or 1))
+    return {"steps": int(used["steps"]), "minutes": round(used["seconds"] / 60, 1), "runs": int(used.get("runs") or 0),
+            "of_steps": int(total["steps"] * grants), "of_minutes": round(total["seconds"] * grants / 60)}
+
+
 # --- what a run is given ---------------------------------------------------------------------------------------------
 def mode_for(app_status: str, draft: Draft | None) -> str:
     if app_status == UNKNOWN:
@@ -106,6 +151,10 @@ def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
                                 extra=" · ".join(x for x in (f"Term: {job.term} {job.months}".strip() if (job.term or job.months) else "", f"Place: {job.location or job.work_type}" if (job.location or job.work_type) else "",
                                                              f"Documents asked for: {job.docs_required}" if job.docs_required else "") if x))
     folder, site = folder_of(app_id), brief.site_key(posting.url)
+    from .. import tasks
+
+    if tasks.running_by_hand():      # the applicant asked for it: what counted "the same place again" starts anew
+        (folder / "places.json").unlink(missing_ok=True)
     left = _left(folder)
     if left["steps"] < 20 or left["seconds"] < 120:
         return _budget_used(app_id, title, folder)
@@ -267,7 +316,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
             app = s.get(Application, app_id)
             lifecycle.move(app, "failed", source="run")
             app.last_event = why[:300]
-        notify.add_todo("failed", f"{title}：没有做成", body=why, ref=f"application:{app_id}", payload={"application_id": app_id})
+        notify.add_todo("failed", f"{title}：没有做成", body=why, ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id})
         notify.send("task_result", messages.failed(title, error=why), ref=f"application:{app_id}")
         return {"status": "cannot", "steps": result.steps}
     return _without_report(app_id, job_id, title, result, folder)
@@ -345,7 +394,7 @@ def _without_report(app_id: int, job_id: int, title: str, result: run.Result, fo
             lifecycle.move(app, "failed", source="run")
             app.last_event = "连续几次停在同一个地方"
     if same >= SAME_PLACE:
-        notify.add_todo("failed", f"{title}：连续 {same} 次停在同一个地方", ref=f"application:{app_id}", payload={"application_id": app_id},
+        notify.add_todo("failed", f"{title}：连续 {same} 次停在同一个地方", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
                         body=f"停在：{place[:200]}\n{run.journal_text(folder)[-900:]}")
         return {"status": "stuck", "at": place[:200], "steps": result.steps}
     tasks.enqueue_later("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=1, priority=60)

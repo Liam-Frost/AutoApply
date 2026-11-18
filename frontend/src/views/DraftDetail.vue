@@ -5,7 +5,7 @@ import { api } from '../api'
 import Icon from '../components/Icon.vue'
 import TechDetails from '../components/TechDetails.vue'
 import { decisions, toDecide } from '../draftsum'
-import { ask, toast, busy as acting, run } from '../ui'
+import { ask, fmtTime, toast, busy as acting, run } from '../ui'
 
 const props = defineProps({ id: String })
 const router = useRouter()
@@ -200,11 +200,30 @@ onUnmounted(() => clearInterval(timer))
       <div class="muted small">在你的个人资料里找不到这些问题的答案。在下面的表里点“修改”填上；顺手存成规则，下次就不用再问。</div>
       <ul style="margin: 8px 0 0; padding-left: 20px"><li v-for="u in d.unresolved" :key="u.id">{{ u.label }}</li></ul>
     
-      <div class="row" style="margin-top: 10px"><button :disabled="reasking" @click="reanswer"><Icon name="refresh" />{{ reasking ? '正在重新回答…' : '让 AI 按我的资料再答一次' }}</button>
+      <div v-if="!d.agent" class="row" style="margin-top: 10px"><button :disabled="reasking" @click="reanswer"><Icon name="refresh" />{{ reasking ? '正在重新回答…' : '让 AI 按我的资料再答一次' }}</button>
         <span class="muted small">刚补充过个人资料，或觉得这些问题资料里明明有答案时用。已经有答案的不会动。</span></div>
     </div>
 
-    <div v-if="d.review_status === 'pending' && ((d.unseen && d.unseen.length) || d.walk_open)" class="callout" style="display: block">
+    <div v-if="d.agent && d.journal && d.journal.length" class="panel" style="margin-bottom: 16px">
+      <div class="row"><h3 class="grow" style="margin: 0">Agent 做了什么</h3>
+        <span v-if="d.spent" class="muted small">已用 {{ d.spent.steps }} / {{ d.spent.of_steps }} 步，约 {{ d.spent.minutes }} 分钟，{{ d.spent.runs }} 次运行</span></div>
+      <div class="muted small">这份记录是 Agent 自己在网站上做完之后写的：每一项填了什么、依据是什么，都在下面的表里。这里是它途中记下的话。</div>
+      <ul class="journal">
+        <li v-for="(e, i) in d.journal" :key="i" :class="'j-' + e.kind">
+          <span class="muted small nowrap">{{ fmtTime(e.at) }}</span>
+          <span v-if="e.kind === 'run'" class="badge">开始一次运行</span>
+          <span v-else-if="e.kind === 'ask'" class="j-strong">问你：{{ e.text }}</span>
+          <span v-else-if="e.kind === 'waits'" class="j-strong">等你处理：{{ e.text }}</span>
+          <span v-else-if="e.kind === 'sending'" class="j-strong">即将点提交：{{ e.text }}</span>
+          <span v-else-if="e.kind === 'report'">这次运行结束（{{ e.calls }} 次操作）：{{ e.text }}</span>
+          <span v-else-if="e.kind === 'ended'" class="j-strong">这次运行中断（{{ e.calls }} 次操作）：{{ e.text }}</span>
+          <span v-else-if="e.kind === 'note'" class="muted">记下了这个网站的一条经验：{{ e.text }}</span>
+          <span v-else>{{ e.text }}</span>
+        </li>
+      </ul>
+    </div>
+
+    <div v-if="!d.agent && d.review_status === 'pending' && ((d.unseen && d.unseen.length) || d.walk_open)" class="callout" style="display: block">
       <b v-if="d.unseen && d.unseen.length">这张表还有 {{ d.unseen.length }} 步没读到</b><b v-else>上一次往下读没有走到确认页</b>
       <div class="small" style="margin-top: 4px">这些步骤要先填完前面的才打得开。程序会带着这份草案的答案在隐藏窗口里一步步往下填，把后面问到的问题读回来加进草案；不会提交，也不用你点什么，几分钟内自己开始。
         填进去的内容雇主网站可能会自动保存为未完成的申请。</div>
@@ -328,17 +347,18 @@ onUnmounted(() => clearInterval(timer))
       <div>
         <h3 id="draft-after" :class="{ lit: lit === 'after' }">批准之后会发生什么</h3>
         <div class="panel">
-          <p v-if="d.submit_mode" style="margin-top: 0">
+          <p v-if="d.agent" style="margin: 0">批准后，Agent 回到这份申请，把网站上现在的内容和这份记录逐项核对（网站自己改过的会改回来），然后提交，并把确认页的原话和网址存下来作为证据。有它改不回来的差异时不会提交，会带着差异回到你这里。</p>
+          <p v-else-if="d.submit_mode" style="margin-top: 0">
             <b>批准后：</b>
             <span v-if="d.submit_mode.mode === 'auto'">填写并核对无误后<b>自动提交</b>，不需要你再操作。</span>
             <span v-else>填好后停下，<b>由你检查并点击提交</b>。<span>原因：</span><template v-for="(w, i) in d.submit_mode.why || d.submit_mode.reasons.map((text) => ({ text }))" :key="i"><template v-if="i">；</template><router-link v-if="w.where" :to="w.where" title="打开决定这一条的设置">{{ w.text }}</router-link><template v-else>{{ w.text }}</template></template></span>
           </p>
-          <ol style="margin: 0; padding-left: 18px"><li v-for="(s, i) in d.plan" :key="i">{{ s.text }}</li></ol>
+          <ol v-if="!d.agent" style="margin: 0; padding-left: 18px"><li v-for="(s, i) in d.plan" :key="i">{{ s.text }}</li></ol>
         </div>
       </div>
     </div>
 
-    <details class="tech" style="margin: 4px 0 16px">
+    <details v-if="!d.agent" class="tech" style="margin: 4px 0 16px">
       <summary>为什么这份草案需要我审批（没有自动通过）</summary>
       <div class="panel small" style="margin-top: 8px">
         <span v-for="(v, k) in d.auto_approve_check.checks" :key="k" class="tag" :class="v ? 'ok' : 'bad'" style="margin: 0 6px 6px 0">{{ v ? '✓' : '✗' }} {{ CHECK[k] || k }}</span>
