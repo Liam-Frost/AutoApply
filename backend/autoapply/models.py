@@ -375,6 +375,12 @@ class DriverStat(Base):
 # late does not take "confirmed" back to "failed"; a draft that is rebuilt does not take "interview" back to "being
 # read". The two things that may go back say so (lifecycle.move(..., back=True)): the applicant correcting the record,
 # and a mail that calls off the stage the application stands at.
+#
+# The same holds for an application whose submission has an unknown outcome (UNKNOWN): Submit was pressed, and it may
+# be with the employer. It goes on to a sent stage when something shows it was received; it goes anywhere else - back
+# to being read, drafted, approved, filled - only on the applicant's word that it was not sent (``not_sent=True``) or
+# their correction of the record. A task that was still queued, a card that offered "try again", an answer changed in
+# the draft: none of them is that word, and each of them used to be a way to a second application.
 
 def _guard_status(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
     old = oldvalue if isinstance(oldvalue, str) else ""
@@ -387,6 +393,11 @@ def _guard_status(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any
         import logging
 
         logging.getLogger("autoapply.lifecycle").info("application %s stays %s: %s does not take a sent application back", getattr(target, "id", "?"), old, value)
+        return old
+    if old == UNKNOWN and value not in SENT and not ((moving or {}).get("back") or (moving or {}).get("not_sent")):
+        import logging
+
+        logging.getLogger("autoapply.lifecycle").info("application %s stays %s: only the applicant's word that it was not sent takes it to %s", getattr(target, "id", "?"), old, value)
         return old
     return value
 

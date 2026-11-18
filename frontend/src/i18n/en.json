@@ -3238,5 +3238,11 @@
 "{0} 项需要你过目，其余的是资料里写明的事实": "{0} to look at; the rest are facts your profile states",
 "用{0}：这个网站的账号规则是这样定的（{1}）": "In {0}: this site's account rule says so ({1})",
 "网站把程序自带的浏览器挡在外面时用（nodriver）": "For when a site keeps the program's own browser out (nodriver)",
-"用{0}：这个网站通过第三方账号登录，那个账号的登录在它里面": "In {0}: this site is signed in to through another account, whose sign-in is in it"
+"用{0}：这个网站通过第三方账号登录，那个账号的登录在它里面": "In {0}: this site is signed in to through another account, whose sign-in is in it",
+"没有生成草案：这份申请点过提交，结果待确认": "No draft was made: Submit was pressed on this application and the outcome is not known yet",
+"这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。": "Submit was pressed on this application and the outcome is not known yet. Check for the confirmation mail first; once you are sure it did not go through, choose “It was not submitted, fill it in again” on this application's card.",
+"你确认上一次没有提交成功": "You confirmed that the last attempt did not go through",
+"你把这个岗位标成了不投": "You marked this posting as one you are not applying for",
+"这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。": "The application for this posting has gone out (or the outcome of its submission is not known yet); it cannot be marked as not applying.",
+"你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。": "You decided not to apply for this posting. To apply after all, prepare a new draft from the postings page."
 }

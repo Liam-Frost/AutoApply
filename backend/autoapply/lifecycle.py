@@ -24,7 +24,8 @@ CARDS = ("failed", "submit", "answer", "takeover", "login", "blocked", "captcha"
 WORK = ("recon", "scout", "execute", "revise", "reanswer", "tailor")     # tasks that prepare or fill an application
 
 
-def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = None, at: datetime | None = None, back: bool = False, note: str = "") -> bool:
+def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = None, at: datetime | None = None, back: bool = False, note: str = "",
+         not_sent: bool = False) -> bool:
     """Put an application at ``to``. The one way an application's status is written.
 
     ``app``: the application (in the caller's session) or its id. ``source``: who says so - "run" (the program filled
@@ -36,14 +37,16 @@ def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = No
     ``evidence`` is added to what is there, never put in its place - also when the status was kept: what a run saw on
     the page is worth keeping even if a mail got there first. ``at``: when it was sent, used when it becomes a sent
     application and no date is known yet. ``back``: the two cases that may take a sent application back - the applicant
-    correcting the record, and a mail calling off the stage it stands at."""
+    correcting the record, and a mail calling off the stage it stands at. ``not_sent``: the applicant's word that a
+    submission whose outcome was not known did not go through - the one thing, besides their correcting the record,
+    that takes such an application anywhere but on to a sent stage."""
     if not isinstance(app, Application):
         with db.session() as s:
             a = s.get(Application, int(app))
-            return a is not None and move(a, to, source=source, evidence=evidence, at=at, back=back, note=note)
+            return a is not None and move(a, to, source=source, evidence=evidence, at=at, back=back, note=note, not_sent=not_sent)
     was = app.status
     if to != was:
-        app.__dict__["_moving"] = {"source": source, "back": back}
+        app.__dict__["_moving"] = {"source": source, "back": back, "not_sent": not_sent}
         try:
             app.status = to
         finally:
@@ -77,6 +80,82 @@ def is_sent(app: Application | None) -> bool:
     return app is not None and app.status in SENT
 
 
+def closed_to_work(app: Application | None) -> str:
+    """Why nothing is to read, draft or fill for this application any more ('' when there is): it has gone out, or
+    Submit was pressed and whether it went out is not known yet. Said in the applicant's words."""
+    if app is None:
+        return ""
+    if app.status in SENT:
+        return f"这份申请已经是“{LABEL.get(app.status, app.status)}”，没有可以重做的了"
+    if app.status == UNKNOWN:
+        return "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。"
+    if app.status == "withdrawn":
+        return "你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。"
+    return ""
+
+
+def withdraw(application_id: int) -> dict[str, int]:
+    """The applicant decided not to apply (recorded by hand, "not applying" on the draft, on the posting, on a batch of
+    postings): what was on its way stops. The work on its form that waits in the queue is called off, the cards that
+    ask for something are closed, and a draft that was approved or waits for approval is closed - a task that was
+    queued before the decision used to fill the form in and submit it all the same."""
+    closed = {"todos": 0, "tasks": 0, "drafts": 0}
+    with db.session() as s:
+        a = s.get(Application, application_id)
+        if a is None or a.status != "withdrawn":
+            return closed
+        closed.update(_close_waiting(s, a))
+        for d in a.drafts:
+            if d.review_status in ("pending", "approved"):
+                d.review_status = "closed"
+                closed["drafts"] += 1
+    if any(closed.values()):
+        log.info("application %s was withdrawn: closed %s", application_id, closed)
+    return closed
+
+
+def not_applying(job: Any, *, source: str = "user") -> bool:
+    """Mark a posting as one the applicant is not applying for. If something is under way for it - a draft, an approved
+    draft with its filling queued - that is withdrawn with it (``withdraw``, through the status change). Returns False,
+    and changes nothing, when the application has gone out or its outcome is not known: that is not undone by a tick
+    in a list."""
+    a = job.application
+    if a is not None and (a.status in SENT or a.status == UNKNOWN):
+        return False
+    job.status = "skipped"
+    if a is not None and a.status != "withdrawn":
+        move(a, "withdrawn", source=source)
+        a.last_event = "你把这个岗位标成了不投"
+    return True
+
+
+def _refs(a: Application) -> tuple[set[str], list[int], set[str]]:
+    """What the cards and tasks of an application are filed under: (refs, its drafts, the posting's addresses)."""
+    job = a.job
+    draft_ids = [d.id for d in a.drafts]
+    refs = {f"application:{a.id}", *(f"draft:{i}" for i in draft_ids)} | ({f"job:{job.id}"} if job is not None else set())
+    return refs, draft_ids, ({job.apply_url} if job is not None and job.apply_url else set())
+
+
+def _close_waiting(s: Any, a: Application, *, but: tuple[str, ...] = ()) -> dict[str, int]:
+    """Close the cards that ask the applicant to do something for this application, and the work on its form that has
+    not begun. (``but``: kinds of card that stay.)"""
+    closed = {"todos": 0, "tasks": 0}
+    refs, draft_ids, urls = _refs(a)
+    for t in s.query(Todo).filter_by(status="open"):
+        p = t.payload or {}
+        # cards filed under the site (a sign-in for this posting) carry the posting's address or its draft
+        mine = t.ref in refs or p.get("application_id") == a.id or p.get("draft_id") in draft_ids or (p.get("job_url") in urls if urls else False)
+        if mine and t.kind in CARDS and t.kind not in but:
+            t.status, t.done_at = "done", now()
+            closed["todos"] += 1
+    for t in s.query(Task).filter(Task.kind.in_(WORK), Task.status.in_(("queued", "waiting_human", "held"))):      # (held: put aside by the applicant - tasks.hold)
+        if t.ref.split(":manual")[0] in refs:
+            t.status = "cancelled"
+            closed["tasks"] += 1
+    return closed
+
+
 def furthest(a: str, b: str) -> str:
     """The stage that is further along of two (a stage that is not a sent one is before all that are)."""
     return a if RANK.get(a, 0) >= RANK.get(b, 0) else b
@@ -94,23 +173,11 @@ def settle(application_id: int) -> dict[str, int]:
         # was sent at an unknown time keeps no date: giving it "now" once dated 59 old applications to one afternoon.)
         if job is not None and job.status not in ("applied", "closed"):
             job.status = "applied"
-        draft_ids = [d.id for d in a.drafts]
-        refs = {f"application:{a.id}", *(f"draft:{i}" for i in draft_ids)} | ({f"job:{job.id}"} if job is not None else set())
-        urls = {job.apply_url} if job is not None and job.apply_url else set()
-        for t in s.query(Todo).filter_by(status="open"):
-            p = t.payload or {}
-            # cards filed under the site (a sign-in for this posting) carry the posting's address or its draft
-            mine = t.ref in refs or p.get("application_id") == a.id or p.get("draft_id") in draft_ids or (p.get("job_url") in urls if urls else False)
-            if mine and t.kind in CARDS:
-                t.status, t.done_at = "done", now()
-                closed["todos"] += 1
+        closed.update(_close_waiting(s, a))
         for d in a.drafts:
             if d.review_status == "pending":      # nothing is left to approve
                 d.review_status = "closed"
                 closed["drafts"] += 1
-        for t in s.query(Task).filter(Task.kind.in_(WORK), Task.ref.in_(refs), Task.status.in_(("queued", "waiting_human"))):
-            t.status = "cancelled"
-            closed["tasks"] += 1
     if any(closed.values()):
         log.info("application %s is sent: closed %s", application_id, closed)
     return closed
@@ -179,8 +246,10 @@ def outcome_unknown(application_id: int, title: str, said: str, *, draft_id: int
             return
         if move(a, UNKNOWN, source=source):
             a.last_event = said[:500]
-    for kind in ("failed", "submit"):
-        notify.close_todos(kind, f"application:{application_id}")
+        # Nothing is to be read or filled for it until the outcome is known: the cards that offered to ("try again",
+        # "sign in and go on", "answer this") and the work that waited in the queue are closed, as for one that went out.
+        # The drafts stay - if it turns out not to have been sent, they are what is filled in again.
+        _close_waiting(s, a)
     notify.add_todo("submit", f"{title}：提交结果待确认", body=f"{said}。如果已经提交成功，雇主的确认邮件会把它记为已投出；程序会继续留意邮箱，你也可以现在就查。"[:500],
                     ref=f"application:{application_id}", payload={"draft_id": draft_id, "application_id": application_id},
                     push=not db.get_setting("notify.task_result"))
@@ -209,6 +278,7 @@ def unknown_from_before() -> list[int]:
             t.status, t.done_at = "done", now()
             if move(a, UNKNOWN, source="recover"):
                 a.last_event = "点过提交，但没有看到提交成功的页面；等确认邮件核实"
+                _close_waiting(s, a)
     for app_id, (_, draft_id, title) in found.items():
         notify.add_todo("submit", f"{title}：提交结果待确认", ref=f"application:{app_id}", payload={"draft_id": draft_id, "application_id": app_id},
                         body="点过提交，但没有看到提交成功的页面。如果已经提交成功，雇主的确认邮件会把它记为已投出；你也可以现在就查。", push=False)

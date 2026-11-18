@@ -152,7 +152,8 @@ def correct(application_id: int, *, status: str = "", submitted_at: datetime | N
             if _utc(old) != _utc(submitted_at):
                 s.add(ApplicationEvent(application_id=a.id, old=a.status, new=a.status, source="user",
                                        note=f"投出日期改为 {submitted_at.date().isoformat()}" + (f"（原为 {old.date().isoformat()}）" if old else "")))
-        elif status and status == was and note:
+        elif note and (not status or status == was):
+            # a note with nothing else changed (the page sends no status when it is the one the application has)
             s.add(ApplicationEvent(application_id=a.id, old=was, new=was, source="user", note=note))
     return detail(application_id) or {}
 
@@ -165,6 +166,7 @@ def unlink_mail(application_id: int, message_id: str) -> bool:
         if m is None:
             return False
         m.application_id, m.linked_by = None, "user"
+        back = (m.message_id, m.subject or "", m.category, m.event or "new", m.summary or "") if m.category != "other" else None
         a = s.get(Application, application_id)
         ev = dict(a.evidence or {})
         if message_id in (ev.get("mail_ids") or []) or ev.get("mail_id") == message_id:
@@ -173,6 +175,13 @@ def unlink_mail(application_id: int, message_id: str) -> bool:
             ev["mail_id"] = ids[-1] if ids else ""
             a.evidence = ev
         s.add(ApplicationEvent(application_id=application_id, old=a.status, new=a.status, source="user", note=f"邮件“{(m.subject or '')[:80]}”不是关于这份申请的"))
+    if back is not None:
+        # It is about some application, only not this one: the card that asks which comes back. (A mail the program
+        # matched by itself never had one, and a mail matched by hand had its card closed; the mailbox is not read
+        # twice for the same mail - so the mail went nowhere, though the page said it would wait among the to-dos.)
+        from . import mail
+
+        mail.ask_which(*back, push=False)
     return True
 
 

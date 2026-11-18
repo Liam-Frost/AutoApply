@@ -338,20 +338,27 @@ def report() -> dict[str, Any]:
 
     st = db.all_settings()
     hist = dict(st["sources.history"] or {})
-    line, prio_line = float(st["queue.min_score_for_draft"]), float(st["employers.priority_min_score"] or 7.0)
+    from . import scoring
+
+    line = scoring.draft_line()      # the queue's own line, posting by posting: what is counted here is what gets a draft there
     with db.session() as s:
-        jobs = [(j.source, j.tenant or "", j.score, j.status, bool(j.exclusion)) for j in s.query(Job).filter(Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None))]
+        # (source, listing, score, status, ruled out, the line this posting is held to)
+        jobs = [(j.source, j.tenant or "", j.score, j.status, bool(j.exclusion), line(j.company, j.source))
+                for j in s.query(Job).filter(Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None))]
 
-    def stand(mine: list[tuple[Any, ...]], bar: float) -> dict[str, int]:
+    def stand(mine: list[tuple[Any, ...]]) -> dict[str, int]:
         return {"total": len(mine), "unscored": sum(1 for j in mine if j[2] is None), "excluded": sum(1 for j in mine if j[2] is not None and (j[4] or j[3] == "skipped")),
-                "below": sum(1 for j in mine if j[2] is not None and not (j[4] or j[3] == "skipped") and j[2] < bar),
-                "above": sum(1 for j in mine if j[2] is not None and not (j[4] or j[3] == "skipped") and j[2] >= bar)}
+                "below": sum(1 for j in mine if j[2] is not None and not (j[4] or j[3] == "skipped") and j[2] < j[5]),
+                "above": sum(1 for j in mine if j[2] is not None and not (j[4] or j[3] == "skipped") and j[2] >= j[5])}
 
-    def row(name: str, label: str, mine: list[tuple[Any, ...]], bar: float, **more: Any) -> dict[str, Any]:
+    def row(name: str, label: str, mine: list[tuple[Any, ...]], own: float, **more: Any) -> dict[str, Any]:
+        """``own``: the line a posting of this employer is held to - what the row says when it has no postings now."""
         h = hist.get(name) or {}
         dropped = [{"key": k, "label": intake.REASONS.get(k, k), "n": n} for k, n in sorted((h.get("dropped") or {}).items(), key=lambda kv: -kv[1])]
+        lines = sorted({j[5] for j in mine}) or [own]      # more than one on a board that lists several employers, some of them priority
         return {"name": name, "label": label, "ok_at": h.get("ok_at") or None, "error": h.get("error") or "", "error_at": h.get("error_at") or None, "fails": int(h.get("fails", 0)),
-                "read": h.get("read"), "kept": h.get("kept"), "new": h.get("new"), "screened": bool(h.get("screened")), "dropped": dropped, "now": stand(mine, bar), "line": bar, **more}
+                "read": h.get("read"), "kept": h.get("kept"), "new": h.get("new"), "screened": bool(h.get("screened")), "dropped": dropped, "now": stand(mine),
+                "line": lines[0], "lines": lines, **more}
 
     rows = []
     for e in employers.listing():
@@ -359,9 +366,9 @@ def report() -> dict[str, Any]:
             continue
         src, scope = employers.source_of(e)
         mine = [j for j in jobs if j[0] == src and (e["kind"] == "builtin" or j[1] == scope)]
-        rows.append(row(e["name"], employers.KIND_LABEL.get(e["kind"], e["kind"]), mine, prio_line if e.get("priority") else line, priority=bool(e.get("priority"))))
+        rows.append(row(e["name"], employers.KIND_LABEL.get(e["kind"], e["kind"]), mine, line(e["name"], src), priority=bool(e.get("priority"))))
     if st["sources.pdportal"]:
-        rows.append(row("pdportal", "UBC PD Portal", [j for j in jobs if j[0] == "pdportal"], line, priority=False, exempt=True))
+        rows.append(row("pdportal", "UBC PD Portal", [j for j in jobs if j[0] == "pdportal"], line("", "pdportal"), priority=False, exempt=True))
     last = max((str(h.get("last_at") or "") for h in hist.values()), default="") or None
     total: dict[str, int] = {}
     for r in rows:

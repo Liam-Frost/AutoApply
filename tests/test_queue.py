@@ -550,3 +550,151 @@ def test_what_each_source_gave_and_why_the_rest_was_dropped_is_kept(app_env, mon
     # it is the program's own record, not a setting: a settings page that sends everything back does not write it
     c = TestClient(app)
     assert c.put("/api/settings", json={"settings": {"sources.history": {}}}).status_code == 200 and db.get_setting("sources.history")
+
+
+def test_work_that_is_asked_for_again_does_what_was_asked_last(app_env):
+    """A revision that ran into the usage limit waits in the queue for half an hour with its comment. The applicant
+    writes another comment meanwhile: the waiting task was taken forward - with the old comment - and the new one was
+    answered "queued" and never carried out."""
+    from autoapply import tasks
+    from autoapply.models import Task
+
+    old = tasks.enqueue_later("revise", ref="draft:7", payload={"draft_id": 7, "comment": "ask for 30 an hour", "_limit_retries": 1}, minutes=30, priority=10)
+    new = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "ask for 35 an hour"}, priority=10)
+    with db.session() as s:
+        t = s.get(Task, new)
+        assert new == old and t.due_at is None and t.payload["comment"] == "ask for 35 an hour" and t.payload["_limit_retries"] == 1
+        assert s.query(Task).filter_by(kind="revise").count() == 1
+    # the same of one that simply waits its turn
+    assert tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "and mention the start date"}, priority=10) == old
+    with db.session() as s:
+        t = s.get(Task, old)
+        assert t.payload["comment"] == "and mention the start date"
+        t.status = "running"
+    # one that is being done cannot be told anything any more: the same request is that task, another one is a task after it
+    assert tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "and mention the start date"}) == old
+    assert tasks.enqueue("recon", ref="job:3", payload={"job_id": 3}) == tasks.enqueue("recon", ref="job:3", payload={"job_id": 3, "instructions": ""})
+    later = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "no, 40"})
+    with db.session() as s:
+        assert later != old and s.get(Task, later).status == "queued" and s.get(Task, old).payload["comment"] == "and mention the start date"
+
+
+def test_what_was_put_aside_stays_put_aside_and_what_the_applicant_puts_back_is_theirs(app_env):
+    """A task the applicant put aside ("not now") was not counted when the program asked whether the work was already
+    queued: the next pass of the timer queued it a second time and did it. And a task the applicant put back - a card
+    marked done, retry, take it up - went back as the program's own: held back again for the quiet hours, not taken
+    while paused."""
+    from autoapply import handlers, tasks
+    from autoapply.models import Task
+
+    tid = tasks.enqueue("scout", ref="draft:5", payload={"draft_id": 5})
+    tasks.hold(tid)
+    assert tasks.enqueue("scout", ref="draft:5", payload={"draft_id": 5}) == tid          # the program asks again: it stays where the applicant put it
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="scout").count() == 1 and s.get(Task, tid).status == "held"
+    token = tasks.by_hand.set(True)
+    try:
+        assert tasks.enqueue("scout", ref="draft:5", payload={"draft_id": 5}) == tid      # the applicant asks: it is taken up
+        with db.session() as s:
+            t = s.get(Task, tid)
+            assert t.status == "queued" and t.payload["_by_hand"] is True
+            # what waits for the applicant, what failed, what was put aside: put back by them, they are theirs
+            waits = Task(kind="recon", ref="job:9", payload={"job_id": 9, "waits_for": "account:idp:school"}, status="waiting_human")
+            failed = Task(kind="recon", ref="job:10", payload={"job_id": 10}, status="failed", error="x")
+            aside = Task(kind="recon", ref="job:11", payload={"job_id": 11}, status="held")
+            s.add_all([waits, failed, aside])
+            s.flush()
+            ids = (waits.id, failed.id, aside.id)
+        assert handlers.resume_waiting("account:idp:school") == 1
+        tasks.retry(ids[1])
+        tasks.take_up(ids[2])
+    finally:
+        tasks.by_hand.reset(token)
+    with db.session() as s:
+        assert [(s.get(Task, i).status, s.get(Task, i).payload.get("_by_hand")) for i in ids] == [("queued", True)] * 3
+        # the program putting a task back by itself (the clock, a restart) does not make it the applicant's
+        own = Task(kind="recon", ref="job:12", payload={"job_id": 12}, status="failed", error="x")
+        s.add(own)
+        s.flush()
+        own_id = own.id
+    tasks.retry(own_id)
+    with db.session() as s:
+        assert s.get(Task, own_id).status == "queued" and "_by_hand" not in s.get(Task, own_id).payload
+
+
+def test_the_room_for_drafts_goes_to_the_best_postings(app_env, monkeypatch):
+    """With one place left, the batch that was just scored got it in the order it was read - newest first: a posting
+    scored 8 took the place, and one scored 10 in the same batch, and one scored 9.5 that had been waiting, did not."""
+    from autoapply import notify, scoring
+    from autoapply.models import Job, Task
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: True)
+    db.set_setting("queue.min_score_for_draft", 7.0)
+    db.set_setting("drafts.max_pending", 1)
+    with db.session() as s:
+        waiting = _job(s, 1, score=9.5)                               # scored before, still waiting for room
+        best = _job(s, 2, status="new", score=None)                   # read second (older), scores 10
+        fine = _job(s, 3, status="new", score=None)                   # read first (newest), scores 8
+    scores = {best: 10.0, fine: 8.0}
+
+    def score_job(jid):
+        with db.session() as s:
+            j = s.get(Job, jid)
+            j.score, j.status = scores[jid], "scored"
+        return {"excluded": False}
+
+    monkeypatch.setattr(scoring, "score_job", score_job)
+    monkeypatch.setattr(scoring, "set_aside_by_rule", lambda ids: ids)
+    out = scoring.score_pending()
+    refs = lambda: sorted(t.ref for t in db.session().__enter__().query(Task).filter_by(kind="recon"))  # noqa: E731
+    assert refs() == [f"job:{best}"] and out.get("queued_for_draft", out.get("queued")) == 1
+    with db.session() as s:
+        assert [s.get(Job, i).status for i in (best, waiting, fine)] == ["queued", "scored", "scored"]
+    # room for more: the next places go by score as well - the one that waited at 9.5 before the 8
+    db.set_setting("drafts.max_pending", 0)
+    assert scoring.queue_qualifying(limit=1) == 1 and refs() == sorted([f"job:{best}", f"job:{waiting}"])
+
+
+def test_the_sources_page_counts_with_the_line_the_queue_uses(app_env, monkeypatch):
+    """How many postings of a source are above the line was counted with the source's line; the queue asks the posting's
+    employer. A job board marked as priority does not make the employers on it priority - and a priority line above
+    the general one does not raise the bar for anybody."""
+    from autoapply import discover, employers, scoring
+    from autoapply.models import Job
+
+    db.set_setting("sources.pdportal", False)
+    db.set_setting("queue.min_score_for_draft", 8.0)
+    db.set_setting("employers.priority_min_score", 6.0)
+    listed = [{"id": "board", "name": "Campus Board", "kind": "feed", "ref": {"url": "https://board.example/rss"}, "priority": True, "enabled": True},
+              {"id": "acme", "name": "Acme", "kind": "greenhouse", "ref": {"board": "acme"}, "priority": True, "enabled": True}]
+    monkeypatch.setattr(employers, "listing", lambda: listed)
+    with db.session() as s:
+        for n, (company, source, tenant, score) in enumerate([("Gamma", "feed", "board", 7.0), ("Acme", "feed", "board", 7.0), ("Delta", "feed", "board", 8.5),
+                                                               ("Acme", "greenhouse", "acme", 6.5), ("Acme", "greenhouse", "acme", 8.5)]):
+            s.add(Job(source=source, source_id=f"s{n}", title=f"Intern {n}", company=company, tenant=tenant, status="scored", score=score,
+                      apply_url=f"https://x.example/{n}", jd_text="d" * 300))
+
+    def rows():
+        got = discover.report()["sources"]
+        return [next(r for r in got if r["name"] == n) for n in ("Campus Board", "Acme")]
+
+    board, acme = rows()
+    # on the board: Acme's posting is held to the priority line, the other two employers' to the general one
+    assert (board["now"]["above"], board["now"]["below"], board["lines"], board["line"]) == (2, 1, [6.0, 8.0], 6.0)
+    assert (acme["now"]["above"], acme["now"]["below"], acme["lines"]) == (2, 0, [6.0])
+    # a priority line above the general one: the general one still gets a draft (the lower of the two counts)
+    db.set_setting("employers.priority_min_score", 9.0)
+    board, acme = rows()
+    assert (board["now"]["above"], board["now"]["below"], board["lines"]) == (1, 2, [8.0])
+    assert (acme["now"]["above"], acme["now"]["below"], acme["lines"]) == (1, 1, [8.0])
+    # and what the page counts as above the line is what the queue starts
+    db.set_setting("employers.priority_min_score", 6.0)
+    above = sum(r["now"]["above"] for r in rows())
+    assert scoring._start_best(10) == above == 4
+    with db.session() as s:
+        assert sorted((j.company, j.score) for j in s.query(Job).filter_by(status="queued")) == [("Acme", 6.5), ("Acme", 7.0), ("Acme", 8.5), ("Delta", 8.5)]
+    # an employer with nothing listed now still says which line its postings would be held to
+    with db.session() as s:
+        for j in s.query(Job).filter_by(source="greenhouse"):
+            j.online = 0
+    assert rows()[1]["lines"] == [6.0] and rows()[1]["now"]["total"] == 0

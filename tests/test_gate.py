@@ -31,6 +31,9 @@ FORM = """<main><h1>Application</h1>
 <p id="state">open</p>
 <div id="elsewhere" role="listbox"><div role="option">a list that is open somewhere else on the page</div></div>
 <form id="search"><input id="q" name="q"><button type="submit" id="find">Submit</button></form>
+<form id="signin" class="o"><input id="su" name="email"><input id="sp" type="password"><button type="submit" id="sgo">Submit</button></form>
+<form id="otp" class="o"><input id="code" name="otp" autocomplete="one-time-code"><button type="submit" id="cgo">Submit</button></form>
+<form id="last" class="o"><label for="agree">I agree to the terms</label><input type="checkbox" id="agree"><button type="submit" id="lgo">Submit</button></form>
 </main>
 <script>
 window.sent = 0; window.nexts = 0; window.found = 0;
@@ -42,6 +45,7 @@ f.addEventListener('submit', (ev) => {
 });
 document.getElementById('pic').addEventListener('click', () => f.requestSubmit(document.getElementById('go')));
 document.getElementById('search').addEventListener('submit', (ev) => { ev.preventDefault(); window.found++; });
+document.querySelectorAll('form.o').forEach((x) => x.addEventListener('submit', (ev) => ev.preventDefault()));
 document.getElementById('open').addEventListener('click', () => {
   document.getElementById('lb').hidden = false; document.getElementById('c').setAttribute('aria-expanded', 'true'); document.getElementById('c').focus();
 });
@@ -159,8 +163,8 @@ def test_what_gets_past_is_seen_and_told_from_a_step_or_a_search(form):
 
     page, _ = form
     page.locator("#q").fill("intern")
-    page.locator("#find").click()                 # a search box whose button is called "Submit": a form of one field
-    assert page.evaluate("() => window.found") == 1 and submitwatch.seen(page)["sends"] is True and submitwatch.sent(page) is None
+    page.locator("#find").click()                 # a search box whose button is called "Submit"
+    assert page.evaluate("() => window.found") == 1 and submitwatch.seen(page)["form"] == "search" and submitwatch.sent(page) is None
     page.locator("#next").click()
     assert submitwatch.sent(page) is None
     page.locator("#icon").click()                 # (as a person, or something that got past the gate, would)
@@ -168,6 +172,112 @@ def test_what_gets_past_is_seen_and_told_from_a_step_or_a_search(form):
     assert got and got["how"] == "form" and got["by"] == "Submit application" and _counts(page)[0] == 1
     page.locator("#next").click()                 # what came after does not write over it
     assert submitwatch.sent(page)["by"] == "Submit application"
+
+
+def test_the_last_step_is_told_by_what_the_form_is_for_not_by_how_many_fields_it_has(form):
+    """"A search box is a form of one field" - so a form of fewer than three fields was never the application. The last
+    step of many applications is one checkbox and Submit: pressed there, nothing was seen, the run ended "filled, not
+    submitted" and offered to do it again."""
+    from autoapply import submitwatch
+
+    page, _ = form
+    page.locator("#su").fill("a@example.com")
+    page.locator("#sp").fill("not-a-real-one")
+    page.locator("#sgo").click()                  # signing in, by a button called "Submit"
+    assert submitwatch.seen(page)["form"] == "sign-in" and submitwatch.sent(page) is None
+    page.locator("#code").fill("123456")
+    page.locator("#cgo").click()                  # a code from a mail
+    assert submitwatch.seen(page)["form"] == "code" and submitwatch.sent(page) is None
+    page.locator("#agree").check()
+    page.locator("#lgo").click()                  # one checkbox and "Submit": the application
+    got = submitwatch.sent(page)
+    assert got and got["how"] == "form" and got["by"] == "Submit" and got["form"] == ""
+
+
+def test_the_plugins_page_asks_however_the_call_is_written_and_whatever_it_was_handed(form):
+    """``press(key="Enter")`` was read as ``press("")`` and let through; a page-level ``dispatch_event`` took the
+    selector for the event; an element handle, the mouse, the page a locator belongs to were the real ones."""
+    from autoapply import gate, submitwatch
+
+    page, _ = form
+    g = gate.guarded(page)
+    page.locator("#go").scroll_into_view_if_needed()
+    at = lambda sel: page.locator(sel).evaluate("(el) => { const r = el.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }")  # noqa: E731
+    go = at("#go")
+    ways = [lambda: g.locator("#go").press(key="Space"), lambda: g.locator("#n").press(key="Enter"), lambda: g.press("#n", key="Enter"),
+            lambda: g.press(selector="#n", key="Enter"), lambda: g.click(selector="#go"), lambda: g.locator("#n").type(text="a\nb"),
+            lambda: g.type("#n", text="a\n"), lambda: g.locator("#go").dispatch_event("click"), lambda: g.locator("#f").dispatch_event("submit"),
+            lambda: g.locator("#n").page.click("#go"), lambda: [p for p in g.context.pages if p.url == page.url][0].locator("#go").click(),
+            lambda: g.locator("button").all()[2].click(), lambda: g.mouse.click(go[0], go[1]), lambda: g.mouse.click(x=go[0], y=go[1])]
+    if hasattr(page, "query_selector"):        # what only the program's own browser has
+        ways += [lambda: g.query_selector("#go").click(), lambda: g.locator("#go").element_handle().click(), lambda: g.main_frame.click("#go"),
+                 lambda: g.dispatch_event("#go", "click"), lambda: g.dispatch_event(selector="#go", type="click"), lambda: g.locator("#go").dispatch_event(type="click"),
+                 lambda: g.wait_for_selector("#icon").press("Enter"), lambda: g.mouse.down(), lambda: (g.mouse.move(go[0], go[1]), g.mouse.down())]
+    page.locator("#n").focus()
+    ways += [lambda: g.keyboard.press(key="Enter"), lambda: g.keyboard.type(text="a\nb")]
+    for i, press in enumerate(ways):
+        with pytest.raises(gate.Refused):
+            press()
+            raise AssertionError(f"way {i} was let through")
+    assert _counts(page) == [0, 0] and page.inner_text("#state") == "open" and submitwatch.sent(page) is None
+    # and what is not the control that sends is pressed as before, written either way
+    g.locator("#next").press(key="Space")
+    nxt = at("#next")
+    g.mouse.click(nxt[0], nxt[1])
+    g.locator("#n").fill(value="Liam")
+    assert _counts(page) == [0, 2] and g.locator("#n").input_value() == "Liam"
+
+
+def test_a_form_sent_while_it_was_only_being_read_is_not_read_again_on_a_card(pipeline, monkeypatch):  # noqa: F811
+    """It was put where it belongs - "outcome not known" - and then handed to the branch for pages that do not work: a
+    card "let the program try again", whose button read the form again, moved the application back to "being read" and
+    left nothing between it and a second submission."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import drafts, lifecycle, tasks
+    from autoapply.api.main import app
+    from autoapply.ats.base import SentEarly
+    from autoapply.models import UNKNOWN, Job, Task, Todo
+
+    did = drafts.build(pipeline["job_id"])      # a draft is there, and work on it waits in the queue
+    with db.session() as s:
+        app_id = s.get(Job, pipeline["job_id"]).application.id
+    waiting = tasks.enqueue_later("scout", ref=f"draft:{did}", payload={"draft_id": did}, minutes=60)
+    real = drafts.recon
+
+    def sent_while_reading(*a, **k):
+        raise SentEarly({"how": "form", "sends": True, "by": "Submit application"})
+
+    monkeypatch.setattr(drafts, "recon", sent_while_reading)
+    tid = tasks.enqueue("recon", ref=f"job:{pipeline['job_id']}", payload={"job_id": pipeline["job_id"], "instructions": "again"})
+    tasks.drain()
+    monkeypatch.setattr(drafts, "recon", real)
+    with db.session() as s:
+        a = s.get(Job, pipeline["job_id"]).application
+        cards = [(t.kind, t.title.split("：")[-1], (t.payload or {}).get("retry_task")) for t in s.query(Todo).filter_by(status="open")]
+        t = s.get(Task, tid)
+        assert a.status == UNKNOWN and "读取过程中被提交" in a.last_event
+        assert (t.status, t.result["status"]) == ("done", UNKNOWN)                        # not "waiting for you" with a way to run it again
+        assert s.get(Task, waiting).status == "cancelled"                              # what waited in the queue does not run on it either
+    assert cards == [("submit", "提交结果待确认", None)]
+    c = TestClient(app)
+    assert c.post(f"/api/tasks/{tid}/retry").status_code == 409
+    # whatever else asks: reading it again, a comment, an answer changed, an approval - it stays where it is
+    with pytest.raises(drafts.OutcomeUnknown):
+        drafts.build(pipeline["job_id"])
+    for to in ("recon", "revising", "draft_ready", "approved", "failed", "needs_human"):
+        assert lifecycle.move(app_id, to, source="draft") is False
+    tasks.enqueue("recon", ref=f"job:{pipeline['job_id']}", payload={"job_id": pipeline["job_id"]})
+    tasks.drain()
+    with db.session() as s:
+        assert s.get(Job, pipeline["job_id"]).application.status == UNKNOWN and pipeline["driver"].submits == 0
+    # the applicant's word that it was not sent is what takes it on
+    with db.session() as s:
+        s.get(Job, pipeline["job_id"]).application.drafts[-1].review_status = "approved"
+    assert c.post(f"/api/drafts/{did}/execute", json={}).status_code == 409
+    assert c.post(f"/api/drafts/{did}/execute", json={"not_submitted": True}).status_code == 200
+    with db.session() as s:
+        assert s.get(Job, pipeline["job_id"]).application.status == "approved"
 
 
 def test_an_application_sent_while_it_was_being_filled_is_not_sent_again_and_not_called_a_failure(pipeline, monkeypatch):  # noqa: F811
