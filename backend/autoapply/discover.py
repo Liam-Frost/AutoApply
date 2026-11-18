@@ -254,7 +254,7 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
     # (sources.parallel). Storing what came back is done here, one source after the other - the database has one writer.
     from concurrent.futures import ThreadPoolExecutor
 
-    from . import metering
+    from . import context
 
     todo = [e for e in employers.listing() if e.get("enabled", True)]
 
@@ -268,7 +268,7 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
     workers = max(1, min(8, int(st.get("sources.parallel") or 1)))
     if workers > 1 and len(todo) > 1:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="source") as pool:
-            fetched = list(pool.map(metering.carried(fetch), todo))
+            fetched = list(pool.map(context.carried(fetch), todo))
     else:
         fetched = [fetch(e) for e in todo]
     needs_someone: NeedsHuman | None = None

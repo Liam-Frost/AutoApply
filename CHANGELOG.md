@@ -191,6 +191,7 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- A task told to use the ordinary browser ("retry in the ordinary browser" on a scan) now reads every listing in it. Listings are fetched side by side on helper threads, and those were handed the task's metering record only - not the browser it was told to use, not whether the applicant had asked for it, and not its own count of model calls, which missed everything its helpers asked the model. What a task is now goes with every part of its work as one copy of the context (`context.py`), and each helper's model call is its own: several helpers wrote the call they were making into one shared record.
 - Reading one employer's board no longer takes other employers' postings offline. The rule for capped or filtered listings ("not shown for N days") looked at every posting of the same service, so a board that was down or switched off lost its postings to the next board that answered. Both rules now look only at the listing that was read, and the days are counted from the first reading that did not show the posting rather than from when it was last seen - a listing that could not be read for a week has said nothing in that week.
 - **The PDF preview keeps to its box, and draws each page once.** "Fit to width" was the width at the moment the
   file was opened: after the window or the layout changed, the pages stayed as wide as before. They are drawn again

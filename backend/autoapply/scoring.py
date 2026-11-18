@@ -114,7 +114,7 @@ def set_aside_by_rule(ids: list[int]) -> list[int]:
 def score_pending(limit: int | None = None) -> dict[str, int]:
     from concurrent.futures import ThreadPoolExecutor
 
-    from . import metering
+    from . import context
 
     limit = limit or int(db.get_setting("scoring.max_per_run") or 60)
     with db.session() as s:
@@ -142,7 +142,7 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     workers = max(1, min(8, int(db.get_setting("scoring.parallel") or 1)))
     if workers > 1 and len(ids) > 1:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="score") as pool:
-            outs = list(pool.map(metering.carried(read), ids))
+            outs = list(pool.map(context.carried(read), ids))
     else:
         outs = [read(jid) for jid in ids]
     min_score = float(db.get_setting("queue.min_score_for_draft"))

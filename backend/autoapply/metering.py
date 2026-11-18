@@ -29,9 +29,9 @@ import contextlib
 import json
 import logging
 import re
-import threading
 import time
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -42,7 +42,9 @@ from urllib.parse import urlparse
 from . import db
 
 log = logging.getLogger("autoapply.metering")
-_tls = threading.local()
+# Who is asking: the task, and the call it is making. A context variable, as everything that belongs to a task is
+# (context.py) - a helper thread of the task gets a copy.
+_asking: ContextVar[dict[str, Any] | None] = ContextVar("metering", default=None)
 
 # Which feature of the program a call belongs to, by where it was made. A call from a module that is not listed is
 # named after that module, so a new feature shows up by itself.
@@ -76,34 +78,29 @@ def workflow_label(key: str) -> str:
 
 
 def _ctx() -> dict[str, Any]:
-    if not hasattr(_tls, "ctx"):
-        _tls.ctx = {}
-    return _tls.ctx
+    c = _asking.get()
+    if c is None:
+        c = {}
+        _asking.set(c)
+    return c
 
 
 def begin_task(task_id: int, kind: str, ref: str) -> None:
     """The worker thread starts a task: every request made until ``end_task`` belongs to it."""
-    _tls.ctx = {"task_id": task_id, "workflow": kind, "ref": ref or "", "stages": []}
+    _asking.set({"task_id": task_id, "workflow": kind, "ref": ref or "", "stages": []})
 
 
 def end_task() -> list[dict[str, str]]:
     stages = list(_ctx().get("stages") or [])
-    _tls.ctx = {}
+    _asking.set({})
     return stages
 
 
-def carried(fn: Any) -> Any:
-    """``fn`` for a helper thread of the running task: what it asks of the model is the task's (its feature, its stages)."""
-    ctx = _ctx()
-
-    def run(*a: Any, **k: Any) -> Any:
-        _tls.ctx = ctx
-        try:
-            return fn(*a, **k)
-        finally:
-            _tls.ctx = {}
-
-    return run
+def own_calls() -> None:
+    """A helper thread starts on a piece of the task (context.carried): the call it makes, the feature it names and the
+    attempt it is at are its own - several helpers wrote them into one record, and a request was filed under the call
+    of whichever had started last. The task, and the list of its stages, stay the task's."""
+    _asking.set(dict(_ctx()))
 
 
 def stage(name: str) -> None:

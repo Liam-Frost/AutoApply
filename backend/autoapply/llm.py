@@ -21,6 +21,7 @@ import re
 import sys
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -52,28 +53,37 @@ class Usage:
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    _lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def count(self, calls: int, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        with self._lock:        # a task's helper threads count on the same meter
+            self.calls += int(calls or 0)
+            self.input_tokens += int(input_tokens or 0)
+            self.output_tokens += int(output_tokens or 0)
 
     def add(self, resp: Any) -> None:
-        self.calls += 1
         u = getattr(resp, "usage", None)
-        if u is not None:
-            self.input_tokens += int(getattr(u, "input_tokens", 0) or 0)
-            self.output_tokens += int(getattr(u, "output_tokens", 0) or 0)
+        self.count(1, getattr(u, "input_tokens", 0) if u is not None else 0, getattr(u, "output_tokens", 0) if u is not None else 0)
 
 
-_tls = threading.local()
+_tls = threading.local()        # .entry: the service this thread's call is trying right now - a thread's, not a task's
+_usage: ContextVar[Usage | None] = ContextVar("llm_usage", default=None)
 
 
 def usage() -> Usage:
-    """Per-thread usage meter; a task resets it at start and stores it on its Run."""
-    if not hasattr(_tls, "usage"):
-        _tls.usage = Usage()
-    return _tls.usage
+    """The usage meter of the work that is running; a task resets it at start and stores it on its Run. It is the
+    task's on every thread that does a part of it (context.py)."""
+    u = _usage.get()
+    if u is None:
+        u = Usage()
+        _usage.set(u)
+    return u
 
 
 def reset_usage() -> Usage:
-    _tls.usage = Usage()
-    return _tls.usage
+    u = Usage()
+    _usage.set(u)
+    return u
 
 
 feature = metering.feature      # ``with llm.feature("name"):`` names the feature for the calls inside
@@ -343,10 +353,7 @@ def _oa(fn: Callable[[llm_openai.Client, str], Any], *, small: bool = False) -> 
         try:
             return fn(c, model)
         finally:
-            u = usage()
-            u.calls += c.calls
-            u.input_tokens += c.input_tokens
-            u.output_tokens += c.output_tokens
+            usage().count(c.calls, c.input_tokens, c.output_tokens)
             for r in c.log:      # every HTTP request of this call, the failed ones too
                 cost = (r["usage"] or {}).get("cost") if isinstance(r.get("usage"), dict) else None      # some services (OpenRouter) say what the request cost
                 metering.record(provider=p, model=r.get("model") or model, started=r["t0"], latency_ms=r.get("ms"), tokens=metering.openai_usage(r.get("usage")), raw=r.get("usage"),
@@ -373,10 +380,7 @@ def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, An
         err = (LLMUnavailable if isinstance(e, llm_codex.Unavailable) else LLMError)(str(e))
         _failed(model, t0, err)       # the command line reports usage only with an answer: what a failed turn used is not known
         raise err from e
-    u = usage()
-    u.calls += 1 + len(steps)
-    u.input_tokens += used.get("input", 0)
-    u.output_tokens += used.get("output", 0)
+    usage().count(1 + len(steps), used.get("input", 0), used.get("output", 0))
     metering.record(provider=provider(), model=model, started=t0, tokens=metering.codex_usage(used), raw=used, turns=1 + len(steps))
     return out, steps
 
@@ -404,10 +408,7 @@ def _sdk(content: Any, *, small: bool, system: str | None, effort: str | None, *
             err = LLMError(f"Claude (subscription) error: {e}")
         _failed(model, t0, err, **used(getattr(e, "partial", None)))     # a query that failed part-way has still used what it reports
         raise err from e
-    u = usage()
-    u.calls += max(1, res.turns)
-    u.input_tokens += res.input_tokens
-    u.output_tokens += res.output_tokens
+    usage().count(max(1, res.turns), res.input_tokens, res.output_tokens)
     metering.record(provider=provider(), model=model, started=t0, **(used(res) or {"turns": max(1, res.turns)}))
     return res
 

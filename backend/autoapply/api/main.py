@@ -27,7 +27,7 @@ mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".js")
 
 from .. import net, persona, prompts
-from .. import auth, config, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
+from .. import auth, config, context, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..ats import registry
 from ..models import Contact
 from ..models import SENT, UNKNOWN, Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
@@ -1427,7 +1427,7 @@ def identity_login(provider: str) -> dict[str, Any]:
             notify.send("task_result", messages.session_saved(f"{name} 账号", credentials=False), ref=f"account:idp:{provider}")
 
     _IDP_STATE[provider] = "trying"
-    threading.Thread(target=run, daemon=True, name="identity").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="identity").start()
     return {"started": True}
 
 
@@ -1566,7 +1566,7 @@ def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         for td in s.query(Todo).filter_by(ref=f"account:{key}", status="open"):
             td.payload = {**(td.payload or {}), "trying": True, "last_try": ""}
-    threading.Thread(target=run, daemon=True, name="takeover").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="takeover").start()
     return {"started": True}
 
 
@@ -2547,7 +2547,7 @@ def gmail_authorize() -> dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             notify.add_todo("config", "Gmail 授权失败", body=str(e)[:300], ref="config:gmail")
 
-    threading.Thread(target=run, daemon=True, name="gmail-oauth").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="gmail-oauth").start()
     return {"started": True}
 
 
