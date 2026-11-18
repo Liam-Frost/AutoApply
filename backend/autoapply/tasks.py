@@ -186,7 +186,7 @@ def _run_one(t: Task) -> None:
             # The subscription's quota is used up for now. Try again later instead of dropping the work.
             notify.add_todo("config", "AI 服务的额度暂时用完" + ("（备用的也都试过了）" if "所有配置的 AI 服务" in str(e) else ""), ref="config:llm-limit",
                             body=f"{str(e)[:200]}\n需要模型的任务会每 30 分钟自动重试一次，额度恢复后继续；不需要你操作。")
-            if t.kind in ("recon", "revise", "score") and int(t.payload.get("_limit_retries", 0)) < 12:
+            if t.kind in ("recon", "revise", "score", "execute") and int(t.payload.get("_limit_retries", 0)) < 12:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
             notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")

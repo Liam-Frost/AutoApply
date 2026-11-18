@@ -70,8 +70,9 @@ the site's list of the applicant's applications. Only if it is not there do you 
 
 ## Saying what you did
 
-- `log` a line at each milestone: signed in, which step you finished, what you had to work around. One line when
-  you are about to press the button that sends the application - before you press it.
+- `log` a line at each milestone: signed in, which step you finished, what you had to work around.
+- Immediately before the one press that sends the application, call `sending`. If the run is cut off after that,
+  the program knows the application may be out and looks before anything is pressed again.
 - `note` what the next person on this site should know: how its widgets behave, what its parser gets wrong, where
   the next step hides. Short, concrete, dated by the program. Not what happened today - what is true of the site.
 - `ask` when only the applicant can answer. Say whether the question is about them in general or about this job.

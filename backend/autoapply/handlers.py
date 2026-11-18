@@ -41,6 +41,12 @@ def _score(t: Task) -> dict[str, Any]:
 @handler("recon")
 def _recon(t: Task) -> dict[str, Any]:
     job_id = int(t.payload["job_id"])
+    from .agent import work
+
+    if work.enabled():      # one agent works the application from the posting to the confirmation (agent/)
+        if knowledge.blank():
+            raise NeedsHuman("个人资料还是空的，申请表没法回答。个人资料有了之后会自动继续。", kind="profile", waits_for=profile_init.wanted())
+        return work.work(job_id, task_id=t.id)
     if knowledge.blank():
         # Nothing is known about the applicant: every question of the form would come back unanswered, after minutes
         # at the employer's site. The task waits for the profile - which may be on its way (written from the résumé
@@ -110,25 +116,54 @@ def _tailor(t: Task) -> dict[str, Any]:
     return {"document_id": doc["id"], "changes": len(info["changes"]), "in_draft": bool(swapped), "problems": info["problems"]}
 
 
+def _job_of_draft(draft_id: int) -> int | None:
+    from .models import Draft
+
+    with db.session() as s:
+        d = s.get(Draft, draft_id)
+        return d.application.job_id if d is not None else None
+
+
 @handler("reanswer")
 def _reanswer(t: Task) -> dict[str, Any]:
+    from .agent import work
+
+    if work.enabled():      # the agent has the whole application: asking again is working it again
+        job_id = _job_of_draft(int(t.payload["draft_id"]))
+        return work.work(job_id, task_id=t.id) if job_id else {"skipped": "the draft is gone"}
     return drafts.reanswer(int(t.payload["draft_id"]))
 
 
 @handler("scout")
 def _scout(t: Task) -> dict[str, Any]:
     """Read the later steps of a form by walking it with the draft's answers (nothing is submitted)."""
+    from .agent import work
+
+    if work.enabled():
+        return {"skipped": "the agent reads every step when it works the application"}
     return drafts.scout(int(t.payload["draft_id"]), task_id=t.id)
 
 
 @handler("revise")
 def _revise(t: Task) -> dict[str, Any]:
+    from .agent import work
+
+    if work.enabled():      # what the applicant wrote about the record is in the next run's brief (work.answers_of)
+        job_id = _job_of_draft(int(t.payload["draft_id"]))
+        return work.work(job_id, task_id=t.id) if job_id else {"skipped": "the draft is gone"}
     return drafts.revise(int(t.payload["draft_id"]), t.payload["comment"])
 
 
 @handler("execute")
 def _execute(t: Task) -> dict[str, Any]:
     app_id = int(t.ref.split(":")[1])
+    from .agent import work
+
+    if work.enabled():
+        with db.session() as s:
+            a = s.get(Application, app_id)
+            job_id = a.job_id if a is not None else None
+        return work.work(job_id, task_id=t.id) if job_id else {"skipped": "the application is gone"}
     out = executor.execute(app_id, int(t.payload["draft_id"]), task_id=t.id, force_manual=t.payload.get("force_manual", ""))
     if out["status"] == "needs_human":
         raise NeedsHuman(out.get("error", "needs human"), waits_for=out.get("waits_for", ""))

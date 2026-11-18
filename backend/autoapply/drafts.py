@@ -807,13 +807,21 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
                    and bool(db.get_setting("recon.walk")))
         if walk_on or read_on:
             lifecycle.move(d.application, "recon", source="draft")
+        # A record of the application agent: with the last question answered nothing is open, and under "send when
+        # nothing is open" the agent goes on without another word from the applicant.
+        agent_on = (resolved_all and d.review_status == "pending" and bool((d.schema.get("extra") or {}).get("agent"))
+                    and str(db.get_setting("policy.default") or "") == "auto_approve")
         job_id, deadline = d.application.job_id, d.application.job.deadline
         edited = next((dict(a) for a in new if a["id"] == qid), None)
     if corrected and edited is not None and edited.get("type") != "file":
         ans.correct(corrected, edited, tenant)
     if resolved_all:  # outside the session: SQLite allows one writer at a time
         notify.close_todos("answer", f"draft:{draft_id}")
-    if walk_on:
+    if agent_on:
+        from . import tasks
+
+        tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))
+    if walk_on and not agent_on:
         from . import tasks
 
         tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=20)

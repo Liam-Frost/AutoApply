@@ -61,6 +61,31 @@ class Desk:
         self.write("log", text=str(text)[:1000])
         return "written down."
 
+    def sending(self, button: str = "") -> str:
+        """Called immediately before the press that sends the application. If the run is cut off after this and
+        before its report, the application may be out: the program then finds that out before anything is pressed
+        again (work.py)."""
+        if self.mode in ("prepare", "hand_over", "verify"):
+            return "This run does not send the application (see Mode). Do not press it."
+        self.write("sending", button=str(button)[:120], url=self.hands.page.url)
+        return "noted. Press it now, then report what the site answers."
+
+    def hand_window(self, minutes: float = 20) -> str:
+        """The window is the applicant's: they look the application over and press the last button themselves. Waits
+        until they close the window or the time is up, then gives it back."""
+        self.write("handed", url=self.hands.page.url)
+        until = time.monotonic() + max(1.0, min(float(minutes or 20), 60.0)) * 60
+        while time.monotonic() < until:
+            try:
+                if not [p for p in self.hands.page.context.pages if not p.is_closed()]:
+                    return "The applicant closed the window. Nothing more can be seen in it: report what you know (ready, unless you saw it go out)."
+            except Exception:  # noqa: BLE001 - the window is gone
+                return "The window is gone. Report what you know (ready, unless you saw it go out)."
+            if self.hands.page.evaluate("() => !!window.__aaDone"):
+                break
+            time.sleep(2)
+        return "The window is yours again. Look at what it shows now and at the site's list of applications, and report what the applicant did."
+
     # --- the site's notes ----------------------------------------------------------------------------------------
     def note(self, text: str, about: str = "") -> str:
         from .. import sites
@@ -183,7 +208,11 @@ class Desk:
             raise ValueError(f"outcome is one of {OUTCOMES}")
         if outcome == "submitted" and not (confirmation and str(confirmation.get('words') or '').strip() and str(confirmation.get('ties_to_posting') or '').strip()):
             raise ValueError("an application that went out is reported with its confirmation: the page's own words, its address, and what ties it to this posting")
-        self.reported = {"outcome": outcome, "summary": str(summary)[:3000], "answers": list(answers or []), "files": list(files or []), "open": [str(x) for x in (open or [])],
+        try:
+            at = str(self.hands.page.url)
+        except Exception:  # noqa: BLE001
+            at = ""
+        self.reported = {"outcome": outcome, "summary": str(summary)[:3000], "url": at, "answers": list(answers or []), "files": list(files or []), "open": [str(x) for x in (open or [])],
                          "confirmation": dict(confirmation or {}), "sent": bool(sent or outcome == "submitted"), "asked": list(self.asked),
                          "at": datetime.now().isoformat(timespec="seconds"), "mode": self.mode}
         (self.folder / "record.json").write_text(json.dumps(self.reported, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -202,7 +231,11 @@ class Desk:
             return {"type": "object", "properties": props, "required": required or [], "additionalProperties": False}
 
         return [
-            llm.Tool("log", "Write a line in this application's journal: a milestone, what you worked around, that you are about to send.", spec(["text"], text=s), self.log),
+            llm.Tool("log", "Write a line in this application's journal: a milestone, what you worked around.", spec(["text"], text=s), self.log),
+            llm.Tool("sending", "Call this immediately BEFORE the one press that sends the application to the employer - every time, and only then. `button`: what that button is called.",
+                     spec(button=s), self.sending),
+            llm.Tool("hand_window", "Give the window to the applicant, who looks the application over and presses the last button themselves (a run told to stop at the last step). "
+                                    "Comes back when they are done.", spec(minutes={"type": "number"}), self.hand_window),
             llm.Tool("note", "Write down something that is true of this site for whoever applies here next. `about`: a recruiting system's name (workday, greenhouse ...) when it is "
                              "true of that system on every employer's site; empty for this site.", spec(["text"], text=s, about=s), self.note),
             llm.Tool("notes", "Read what is written down about a recruiting system.", spec(["about"], about=s), self.notes),
@@ -269,20 +302,22 @@ def journal_text(folder: Path) -> str:
 
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
-          job_id: int | None = None) -> Result:
+          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None) -> Result:
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
     site = brief.site_key(posting.url)
     hands = Hands(page, files=applicant.files, shots=folder / "shots")
     desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id)
-    record = None
-    if (folder / "record.json").exists():
+    if record is None and (folder / "record.json").exists():
         try:
             record = json.loads((folder / "record.json").read_text(encoding="utf-8"))
         except ValueError:
             record = None
-    budget = agentbudget.for_kind("apply")
+    per_run = agentbudget.for_kind("apply")
+    if budget:      # what this application has left over all its runs, when that is less than a run's share
+        per_run = agentbudget.Budget(int(max(1, min(per_run.steps, budget["steps"]))), max(60.0, min(per_run.seconds, budget["seconds"])), "apply")
+    budget = per_run
     systems = sorted(k.split(":", 1)[1] for k in _keys_with_notes() if k.startswith("system:"))
     goal = brief.goal(posting, applicant, mode=mode, site_notes=sites.notes(site), systems=systems, journal=journal_text(folder), record=record, answers=answers,
                       account=desk.account(), budget=f"About {budget.steps} tool calls and {int(budget.seconds // 60)} minutes for this run. Log where you are before it runs out.")

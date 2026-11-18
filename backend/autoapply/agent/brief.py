@@ -22,8 +22,13 @@ MODES = {
             "do not send: report the difference.",
     "auto": "SEND IF NOTHING IS OPEN. Work the application to the end. If every question has an answer from what you were given and nothing is in doubt, send it. "
             "If a question is open or you are unsure of something that matters, do not send: stop before the last press and report, as in a prepare run.",
-    "hand_over": "STOP AT THE LAST STEP. Work the application up to the point where one press would send it, do not make that press, and say so: "
-                 "the applicant presses it themselves in this window.",
+    "verify": "FIND OUT WHETHER IT WENT OUT. An earlier run wrote that it was about to send this application and then stopped without saying what came of it. "
+              "Do not touch the form and do not send anything. Look where the site shows the applicant's applications (a dashboard, 'My applications', the posting's own page "
+              "saying 'applied'), and at the applicant's mail from this employer. Then report: `submitted` with the confirmation if it is out; `ready` if the site shows it "
+              "as not sent (a draft, or not there at all); `needs_you` if you cannot tell - say what you saw.",
+    "hand_over": "STOP AT THE LAST STEP. Work the application up to the point where one press would send it and do not make that press. Then call `hand_window`: "
+                 "the applicant looks it over and presses it themselves in this window. When the window comes back to you, find out what they did (look at the page, "
+                 "at the site's list of applications) and report it: `submitted` with the confirmation, or `ready` if it was not sent.",
 }
 
 

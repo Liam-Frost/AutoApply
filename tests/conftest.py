@@ -53,6 +53,9 @@ def app_env(tmp_path, monkeypatch):
     # The coded drivers are tested as what they are - tools. In the program every site is read by the agent ("*");
     # a test that is about that says so itself.
     db.set_setting("agent.reads", [])
+    # The tests written before the application agent are about the pipeline it replaces, and run it. The tests of the
+    # agent's own side (test_agent_*.py) switch it on themselves.
+    db.set_setting("agent.pipeline", "legacy")
     # Tests never show a window and never wait for a person. A run that hands the form to the applicant does so in a
     # visible window and waits up to twenty minutes; a test that gets there without saying what the applicant does would
     # sit on the screen of whoever runs the tests. So: every window is hidden, and that wait fails at once unless the
