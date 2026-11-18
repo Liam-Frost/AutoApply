@@ -46,13 +46,30 @@ export const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString('zh-CN', { ho
 //   - the window is looked at again after it was not;
 //   - and, where the page asks for it, every few seconds while something it shows is under way.
 // The page's own state is not touched: the filter, the search, what is ticked and where it is scrolled to stay, since
-// only what was read is put in its place.
+// only what was read is put in its place. And nothing is read by itself while something is being typed: a field that
+// shows what was read (an interval, a name) would have the typing replaced by what the server still has.
 
 // What of the sidebar's overview says "something changed". (Pure: tests/data.test.js.)
-export const signature = (ov) => (ov ? [ov.open_todos || 0, ov.pending_drafts || 0, ov.queued_tasks || 0, (ov.running || []).map((r) => r.id ?? r.label ?? '').join(','), ov.paused ? 1 : 0, ov.draining ? 1 : 0].join('|') : '')
+export const signature = (ov) => (ov ? [ov.open_todos || 0, ov.pending_drafts || 0, ov.queued_tasks || 0, (ov.running || []).map((r) => r.id ?? r.label ?? '').join(','), ov.paused ? 1 : 0, ov.draining ? 1 : 0,
+  // where the applications stand: one that was confirmed or turned down (from a mail, from another device) changes no count of work
+  Object.entries(ov.stage_counts || {}).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, n]) => k + ':' + n).join(',')].join('|') : '')
 
-// Is this a moment to read again? Not while a question is open, not more often than every second and a half.
-export const mayRefresh = (now, last, asking, hidden) => !asking && !hidden && now - last >= 1500
+// Is this a moment to read again? Not while a question is open, not while something is being typed, not more often
+// than every second and a half.
+export const mayRefresh = (now, last, asking, hidden, typing = false) => !asking && !hidden && !typing && now - last >= 1500
+
+// Is something being typed? The keyboard is in a field, and the field does not hold what it held when the keyboard
+// came to it. (A field that was only clicked into is not being typed in; one that was changed and left is done.)
+const EDITABLE = (el) => !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'file'].includes(el.type)))
+export const typingIn = (active, held) => !!held && !!active && held.el === active && EDITABLE(active) && String(active.value) !== String(held.value)
+let held = null
+let listening = false
+function listen() {
+  if (listening || typeof document === 'undefined') return
+  listening = true
+  document.addEventListener('focusin', (e) => { held = EDITABLE(e.target) ? { el: e.target, value: e.target.value } : null })
+  document.addEventListener('focusout', () => { held = null })
+}
 
 // `opts.every` (ms) with `opts.when`: read again on that beat while `when()` holds.
 export function useRefresh(load, opts = {}) {
@@ -62,13 +79,14 @@ export function useRefresh(load, opts = {}) {
   const hidden = () => typeof document !== 'undefined' && document.hidden
   const again = () => {
     const now = Date.now()
-    if (!mayRefresh(now, last, dialog.open, hidden())) return
+    if (!mayRefresh(now, last, dialog.open, hidden(), typingIn(typeof document !== 'undefined' ? document.activeElement : null, held))) return
     last = now
     load()
   }
   if (ov) watch(() => signature(ov.value), again)
   const seen = () => { if (!hidden()) again() }
   onMounted(() => {
+    listen()
     window.addEventListener('focus', again)
     document.addEventListener('visibilitychange', seen)
     if (opts.every) timer = setInterval(() => { if (!opts.when || opts.when()) again() }, opts.every)

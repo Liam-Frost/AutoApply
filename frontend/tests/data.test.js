@@ -1,6 +1,6 @@
 // The state of something a page reads from the server (src/data.js).
 import { describe, expect, it } from 'vitest'
-import { after, clock, dataState, mayRefresh, signature } from '../src/data.js'
+import { after, clock, dataState, mayRefresh, signature, typingIn } from '../src/data.js'
 
 describe('after a read', () => {
   it('is ready when it worked, with the moment it was read', () => {
@@ -76,12 +76,35 @@ describe('reading a list again', () => {
     expect(signature({ ...a, running: [{ id: 7 }] })).not.toBe(signature({ ...a, running: [{ id: 8 }] }))      // another task took its place
     expect(signature(a)).not.toBe(signature({ ...a, paused: true }))
     expect(signature(null)).toBe('')
+    // where the applications stand is part of it: one that was confirmed elsewhere changes no count of work
+    const b = { ...a, stage_counts: { submitted: 3, confirmed: 1 } }
+    expect(signature(b)).not.toBe(signature({ ...a, stage_counts: { submitted: 2, confirmed: 2 } }))
+    expect(signature(b)).toBe(signature({ ...a, stage_counts: { confirmed: 1, submitted: 3 } }))      // the order they are listed in does not matter
   })
   it('not while a question is open, not in a window nobody looks at, not twice in a moment', () => {
     expect(mayRefresh(10_000, 0, false, false)).toBe(true)
     expect(mayRefresh(10_000, 0, true, false)).toBe(false)
     expect(mayRefresh(10_000, 0, false, true)).toBe(false)
+    expect(mayRefresh(10_000, 0, false, false, true)).toBe(false)       // something is being typed
     expect(mayRefresh(10_000, 9_000, false, false)).toBe(false)
     expect(mayRefresh(10_000, 8_500, false, false)).toBe(true)
+  })
+})
+
+describe('something is being typed', () => {
+  const field = (value, more = {}) => ({ tagName: 'INPUT', type: 'number', value, ...more })
+  it('when the field the keyboard is in no longer holds what it held', () => {
+    const f = field('30')
+    const held = { el: f, value: '30' }
+    expect(typingIn(f, held)).toBe(false)              // clicked into, nothing typed
+    f.value = '4'
+    expect(typingIn(f, held)).toBe(true)               // "45" half typed: reading again now would put "30" back
+    expect(typingIn(field('4'), held)).toBe(false)     // the keyboard is somewhere else
+    expect(typingIn(null, held)).toBe(false)
+    expect(typingIn(f, null)).toBe(false)
+  })
+  it('in a text box, a list or a number - not in a tick box or a button', () => {
+    for (const el of [{ tagName: 'TEXTAREA', value: 'b' }, { tagName: 'SELECT', value: 'b' }, field('b', { type: 'text' }), field('b', { type: 'search' })]) expect(typingIn(el, { el, value: 'a' })).toBe(true)
+    for (const el of [field('b', { type: 'checkbox' }), field('b', { type: 'radio' }), { tagName: 'BUTTON', value: 'b' }, { tagName: 'DIV', value: 'b' }]) expect(typingIn(el, { el, value: 'a' })).toBe(false)
   })
 })

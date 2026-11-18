@@ -84,6 +84,28 @@ describe('a layer that holds the keyboard', () => {
     closeDrawer()
     expect([page.inert, onTop(drawer)]).toEqual([false, false])
   })
+  it('a question that closes over a layer inside the page leaves the page usable', () => {
+    // the menu of a narrow screen is part of the page; the question "you have unsaved changes" is put over everything.
+    // Closing the question undid only what it had done to the menu, and the page - the menu's own parent - stayed shut.
+    const menu = el('menu', [el('link')])
+    menu.closest = (sel) => (sel === '#app' ? page : null)
+    const closeMenu = hold(menu)
+    expect([page.inert, menu.inert]).toEqual([false, false])      // the page is not shut on a layer that is inside it
+    const ask = el('dialog', [el('stay'), el('leave')])
+    const answer = hold(ask)
+    expect([page.inert, menu.inert, ask.inert]).toEqual([true, true, false])
+    answer()                                                       // "go on editing"
+    expect([page.inert, menu.inert, onTop(menu)]).toEqual([false, false, true])
+    closeMenu()
+    expect(page.inert).toBe(false)
+    // and the other way round: the layer inside the page closes first (it was the link that asked), then the question
+    const again = hold(menu)
+    const ask2 = hold(ask)
+    again()
+    expect([page.inert, ask.inert]).toEqual([true, false])
+    ask2()
+    expect(page.inert).toBe(false)
+  })
   it('does not give the focus back to something that is gone', () => {
     const drawer = el('drawer')
     const release = hold(drawer)
