@@ -131,6 +131,7 @@ def test_without_a_saved_login_nothing_is_typed_and_the_card_says_how_to_have_it
     from autoapply.ats.base import NeedsHuman
 
     monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default=None))      # nothing chooses for this test
+    db.set_setting("browser.nodriver_enabled", False)                                                   # (the round that runs everything in the ordinary browser switches it on)
     auth.upsert_account(KEY, ats="pdportal", host=PORTAL, status="unknown", created_by="takeover")
     db.set_setting("account.email", "me@example.test")          # the applicant's e-mail is not a CWL name: it is not tried
     with pytest.raises(NeedsHuman) as e:
@@ -277,6 +278,9 @@ def test_what_a_sign_in_form_sends_is_told_from_what_other_forms_send():
     assert credentials_sent("who=a%40b.example&pwd=pw3") == ("a@b.example", "pw3")              # a name the pattern does not know: the address is taken
     assert credentials_sent("q=backend+intern&page=2") is None and credentials_sent("") is None and credentials_sent("{not json") is None
     assert credentials_sent("new_password=x&confirm_password=x") is None                          # a change of password is not a sign-in
+    # a second factor is sent in a field with "pass" in its name: it is used once and is not the account's password
+    assert credentials_sent("passcode=123456") is None and credentials_sent('{"passcode": "123456", "device": "phone1"}') is None
+    assert credentials_sent("j_username=cwlname&j_password=pw&otp_code=123456") == ("cwlname", "pw")
 
 
 def test_a_card_offers_to_remember_the_login_only_where_its_window_can(app_env, monkeypatch):
@@ -288,6 +292,7 @@ def test_a_card_offers_to_remember_the_login_only_where_its_window_can(app_env, 
     from autoapply.api.main import app
 
     monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default=None))      # nothing chooses for this test
+    db.set_setting("browser.nodriver_enabled", False)                                                   # (the round that runs everything in the ordinary browser switches it on)
     assert auth.remembers_login("someats:acme", "https://acme.example/login") is True          # the automated browser's window sees what is typed
     assert auth.remembers_login("idp:google") is False                                           # a provider's password is never stored
     assert auth.remembers_login(KEY, f"https://{PORTAL}/home.htm") is False                      # a window the program does not look into

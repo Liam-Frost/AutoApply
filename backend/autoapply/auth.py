@@ -716,7 +716,9 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
             def heard(address: str, method: str, body: str) -> None:
                 where = urlparse(address).netloc.lower()
                 found = credentials_sent(body) if _this_sites_password(where, site_) else None
-                if found:
+                # (a login without its name does not take the place of one that had it: what follows a sign-in -
+                # a code, a confirmation - is not the sign-in sent again)
+                if found and (found[0] or not sent.get("user")):
                     sent.update(user=found[0], pw=found[1], host=where)
 
             def listen() -> None:
@@ -941,6 +943,8 @@ def _this_sites_password(where: str, site: str) -> bool:
 
 _PASSWORD_FIELD = re.compile(r"pass|pwd|(?<![a-z])pw(?![a-z])", re.I)
 _OTHER_PASSWORD = re.compile(r"new|confirm|repeat|again|retype|verify", re.I)
+# what a second factor is sent as: used once, and never the account's password ("passcode" has "pass" in it)
+_ONE_TIME = re.compile(r"code|otp|token|(?<![a-z])pin(?![a-z])|mfa|2fa|totp|challenge|answer", re.I)
 _LOGIN_FIELD = re.compile(r"user|e-?mail|login|identifier|account", re.I)
 
 
@@ -966,7 +970,7 @@ def credentials_sent(body: str) -> tuple[str, str] | None:
             return None
     else:
         fields = parse_qsl(text, keep_blank_values=False)
-    pw = next((v for k, v in fields if v and _PASSWORD_FIELD.search(k) and not _OTHER_PASSWORD.search(k)), "")
+    pw = next((v for k, v in fields if v and _PASSWORD_FIELD.search(k) and not _OTHER_PASSWORD.search(k) and not _ONE_TIME.search(k)), "")
     if not pw:
         return None
     user = (next((v for k, v in fields if v and _LOGIN_FIELD.search(k) and not _PASSWORD_FIELD.search(k)), "")
