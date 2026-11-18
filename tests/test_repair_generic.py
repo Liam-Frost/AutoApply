@@ -184,6 +184,106 @@ def test_fixture_regression_detects_a_lost_field(app_env):
     assert res["failed"] == 1 and res["results"][0]["missing"] == ["Phone"]
 
 
+def test_a_saved_page_that_stops_matching_is_kept_until_the_form_gives_a_newer_one(app_env, monkeypatch):
+    """The self-check deleted every saved page that did not match and counted it as repaired: whether the page was
+    out of date or the code had lost something, the next check had nothing left to fail on. And it closed every
+    "driver" card, whatever it was about.
+
+    (F-10.)"""
+    from pathlib import Path
+
+    from autoapply import browser, db, doctor, fixtures, handlers, humanize, tasks  # noqa: F401 - handlers registers the self-check
+    from autoapply.models import Task, Todo
+
+    schema = _agent_schema()
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri())
+        first = Path(fixtures.save(schema, page, 0, reason="test")).with_suffix(".json")
+    data = json.loads(first.read_text(encoding="utf-8"))
+    data["questions"].append({**data["questions"][0], "id": "#phone", "label": "Phone", "locator": {"selector": "#phone"}})      # what the page no longer has
+    first.write_text(json.dumps(data), encoding="utf-8")
+    name = f"someats/{first.stem}"
+    with db.session() as s:      # the cards of the self-check as it was
+        s.add(Todo(kind="driver", ref=f"fixture:{name}", title="someats 驱动回归失败", body="missing: ['Phone']"))
+        s.add(Todo(kind="driver", ref="fixture:someats/20250101_000000_gone_p1_exec", title="someats 驱动回归失败", body="a page that was deleted since"))
+        s.add(Todo(kind="driver", ref="driver:greenhouse", title="greenhouse 驱动巡检失败", body="timeout"))
+
+    def check():
+        tasks.enqueue("canary", ref="test", dedupe=False)
+        tasks.drain(1)
+        with db.session() as s:
+            t = s.query(Task).filter_by(kind="canary").order_by(Task.id.desc()).first()
+            return t.status, t.result, {td.ref: (td.status, (td.payload or {}).get("closed_because", "")) for td in s.query(Todo).filter_by(kind="driver")}
+
+    status, out, cards = check()
+    # the page is still there, marked; nothing is called repaired; nobody is asked for anything new
+    assert status == "done" and out["fixtures"] == {"total": 1, "failed": 1, "failing": [name], "new": [name], "recovered": [], "archived": []}
+    assert first.exists() and first.with_suffix(".html").exists()
+    mark = json.loads(first.read_text(encoding="utf-8"))["check"]
+    assert mark["ok"] is False and mark["missing"] == ["Phone"] and mark["failing_since"]
+    # the cards: the one about this page stays - it still does not match; the other two have their answer
+    assert cards[f"fixture:{name}"] == ("open", "")
+    assert cards["fixture:someats/20250101_000000_gone_p1_exec"] == ("done", "the saved page is not there any more")
+    assert cards["driver:greenhouse"] == ("done", "forms of this system are read by the agent; nothing waits on this") and out["cards_closed"] == 2
+    with db.session() as s:
+        assert s.query(Todo).filter(Todo.kind != "driver").count() == 0
+    assert "1 个保存的表单页面" in humanize.result_summary("canary", "done", out) and "不需要你处理" in humanize.result_summary("canary", "done", out)
+    found = doctor._saved_pages()
+    assert found["level"] == "info" and name in found["detail"] and "不需要你处理" in found["fix"]
+    # the next check: the same finding, since the same moment - not a new one
+    _, out, _ = check()
+    assert out["fixtures"]["new"] == [] and out["fixtures"]["failed"] == 1
+    assert json.loads(first.read_text(encoding="utf-8"))["check"]["failing_since"] == mark["failing_since"]
+    # samples are pruned by count among the ones that pass; the failing one is not one of them
+    monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 1)
+    other = _agent_schema()
+    other.tenant = "beta"
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri() + "?posting=2")
+        for why in ("a", "b"):
+            fixtures.save(other, page, 0, reason=why)
+    assert first.exists() and len(list(first.parent.glob("*.json"))) == 2
+    # another employer's form passing says nothing about this one
+    _, out, cards = check()
+    assert out["fixtures"]["archived"] == [] and out["fixtures"]["failed"] == 1 and cards[f"fixture:{name}"][0] == "open"
+    # the form is filled and verified again: a later sample of the same page, which passes - the old one is moved aside
+    monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 12)
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri() + "?again=1")
+        later = Path(fixtures.save(schema, page, 0, reason="exec"))
+    _, out, cards = check()
+    assert out["fixtures"]["archived"] == [name] and out["fixtures"]["failed"] == 0 and out["fixtures"]["total"] == 2
+    assert not first.exists() and (first.parent / "archive" / first.name).exists() and (first.parent / "archive" / first.with_suffix(".html").name).exists()
+    assert json.loads((first.parent / "archive" / first.name).read_text(encoding="utf-8"))["check"]["superseded_by"] == later.stem
+    assert cards[f"fixture:{name}"] == ("done", "replaced by a later sample of the same form that passes")
+    assert doctor._saved_pages()["level"] == "ok" and humanize.result_summary("canary", "done", out) == "自检完成"
+    assert fixtures.run_all()["fixtures"] == 2      # what was moved aside is not replayed
+
+
+def test_a_saved_page_that_matches_again_is_marked_so(app_env):
+    from pathlib import Path
+
+    from autoapply import browser, fixtures
+
+    schema = _agent_schema()
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri())
+        meta = Path(fixtures.save(schema, page, 0, reason="test")).with_suffix(".json")
+    good = meta.read_text(encoding="utf-8")
+    data = json.loads(good)
+    data["questions"].append({**data["questions"][0], "id": "#phone", "label": "Phone", "locator": {"selector": "#phone"}})
+    meta.write_text(json.dumps(data), encoding="utf-8")
+    assert fixtures.record(fixtures.run_all()["results"])["new"] == [f"someats/{meta.stem}"]
+    assert [f["name"] for f in fixtures.failing()] == [f"someats/{meta.stem}"] and fixtures.failing("otherats") == []
+    meta.write_text(good, encoding="utf-8")      # the code reads the page as it was saved again
+    assert fixtures.record(fixtures.run_all()["results"]) == {"new": [], "still": [], "recovered": []}      # (the mark went with the edit)
+    data["check"] = {"ok": False, "at": "2026-01-01T00:00:00", "failing_since": "2026-01-01T00:00:00", "missing": ["Phone"]}
+    data["questions"].pop()
+    meta.write_text(json.dumps(data), encoding="utf-8")
+    assert fixtures.record(fixtures.run_all()["results"])["recovered"] == [f"someats/{meta.stem}"]
+    assert json.loads(meta.read_text(encoding="utf-8"))["check"]["ok"] is True and fixtures.failing() == []
+
+
 def test_data_privacy_notice_is_acknowledged_and_nothing_else(app_env):
     from playwright.sync_api import sync_playwright
 

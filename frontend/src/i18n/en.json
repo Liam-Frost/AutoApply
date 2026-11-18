@@ -3252,5 +3252,10 @@
 "{0}（第 {1} 版）": "{0} (version {1})",
 "没在用的版本": "Version not in use",
 "这个岗位现有的草案带的还是这一版。之后新生成的草案会用“在用”的那一版。": "The draft that exists for this posting still carries this version. Drafts made from here on will use the version marked “In use”.",
-"清理 {0} 个文件（为岗位生成、已经没在用的版本，以及已归档岗位的文件）？会从磁盘上删除，不能恢复。": "Clean up {0} files (versions written for postings that are no longer in use, and files of archived postings)? They will be deleted from disk and cannot be restored."
+"清理 {0} 个文件（为岗位生成、已经没在用的版本，以及已归档岗位的文件）？会从磁盘上删除，不能恢复。": "Clean up {0} files (versions written for postings that are no longer in use, and files of archived postings)? They will be deleted from disk and cannot be restored.",
+"{0}（从 {1} 起）": "{0} (since {1})",
+"保存的 {0} 个表单页面，自检时都能照原样读出来": "All {0} saved form pages are read back as they were saved when the self-check replays them",
+"保存的 {0} 个表单页面里，有 {1} 个和现在读到的不一致": "Of the {0} saved form pages, {1} no longer match what is read from them now",
+"自检完成；有 {0} 个保存的表单页面和现在读到的不一致，已保留并记下，不需要你处理": "Self-check done; {0} saved form pages no longer match what is read from them now. They are kept and noted; nothing for you to do",
+"不需要你处理。这些页面会保留着：同一张表单下一次填写并核对成功后，新的样本会替换它们。如果是程序更新之后才出现的，反馈时请附上这一条。": "Nothing for you to do. These pages are kept: the next time the same form is filled and verified, the new sample replaces them. If this appeared right after an update of the program, please include this line when you send feedback."
 }

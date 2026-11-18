@@ -227,7 +227,8 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
         return {"already linked": "邮件已经关联过了", "no saved sign-in for this employer's site": "这个雇主的网站没有保存的登录，没法查"}.get(
             r.get("skipped", ""), f"读到网站上的 {r.get('read', 0)} 个申请，但没能确定邮件属于哪一个，留给你指定")
     if kind == "canary":
-        return "自检完成"
+        n = int(((result or {}).get("fixtures") or {}).get("failed") or 0)
+        return f"自检完成；有 {n} 个保存的表单页面和现在读到的不一致，已保留并记下，不需要你处理" if n else "自检完成"
     return ""
 
 

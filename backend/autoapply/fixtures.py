@@ -5,6 +5,25 @@ plus the questions the driver is expected to recognise on it. ``run_all``
 replays every fixture through the current driver code offline, so a driver
 change that stops recognising an old page is caught before a real application.
 
+What they guard - and what they do not. Every site's form is read by the agent
+now; the questions of a draft do not come from this code. What the driver still
+does on every run is find each question's control on the page, fill it and read
+it back. A fixture is a page on which that worked (it is saved after a fill that
+was verified), and replaying it asks: does the current code still find those
+controls and read them the same way? So the samples protect the driver's side of
+filling and reading back - finding the controls and reading them. They say
+nothing about reading a form for the first time (that is the agent's), and
+nothing about whether typing into a control works (a replay has no scripts;
+that is found out in a run, or in the trial of a revision).
+
+A sample that stops matching is evidence, and which of the two it is evidence
+of cannot be told from the sample: the page it was saved from may have been
+rebuilt since, or the code may have lost something it could do. So it is never
+thrown away for failing. It stays, marked with since when and what was missing
+(``record``), and leaves only when the form itself has spoken again: a newer
+sample of the same form page that passes (``archive_superseded``) - and then it
+is moved aside, not deleted.
+
 Fixtures live under ``data/fixtures/<ats>/`` (they can contain the applicant's
 answers as page text, so they stay out of git).
 """
@@ -27,7 +46,8 @@ from .models import now
 def root() -> Path:
     return config.DATA / "fixtures"
 
-KEEP_PER_ATS = 12
+KEEP_PER_ATS = 12       # samples kept per system - of the ones that are not failing; a failing one is not pruned by count
+KEEP_ARCHIVED = 30      # superseded samples kept aside per system
 
 
 def _clean(html: str) -> str:
@@ -45,14 +65,40 @@ def save(schema: FormSchema, page: Any, page_index: int, *, reason: str = "") ->
     (d / f"{stem}.html").write_text(_clean(page.content()), encoding="utf-8")
     meta = {
         "ats": schema.ats, "tenant": schema.tenant, "page": page_index, "reason": reason, "url": page.url, "source": schema.source,
+        "saved_at": now().isoformat(),
         "questions": [asdict(q) for q in schema.questions if q.page == page_index],
     }
     (d / f"{stem}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-    old = sorted(d.glob("*.json"))[:-KEEP_PER_ATS]
-    for p in old:
+    fine = [p for p in sorted(d.glob("*.json")) if not _failing(p)]
+    for p in fine[:-KEEP_PER_ATS]:
         p.unlink(missing_ok=True)
         p.with_suffix(".html").unlink(missing_ok=True)
     return str(d / f"{stem}.html")
+
+
+def _meta(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _failing(path: Path) -> bool:
+    return (_meta(path).get("check") or {}).get("ok") is False
+
+
+def _when(path: Path, meta: dict[str, Any]) -> str:
+    """When a sample was saved, for telling the later of two: written on it, or (the ones from before that) the start
+    of its name - which has seconds only, so two saved in the same second are told apart by what is written."""
+    stamp = path.stem[:15]
+    return str(meta.get("saved_at") or (f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}T{stamp[9:11]}:{stamp[11:13]}:{stamp[13:15]}" if stamp[:8].isdigit() else ""))
+
+
+def form_key(meta: dict[str, Any]) -> tuple[str, str, int, str]:
+    """Which page of which form a sample is of: the system, the employer, the page, and the address without what
+    follows "?" (two samples of one posting's form are the same form; another posting's is another)."""
+    url = str(meta.get("url") or "").split("#")[0].split("?")[0].rstrip("/").lower()
+    return str(meta.get("ats") or ""), str(meta.get("tenant") or ""), int(meta.get("page") or 0), url
 
 
 def _driver_for(meta: dict[str, Any], qs: list[Question]):  # noqa: ANN202
@@ -83,16 +129,75 @@ def check(page: Any, meta_path: Path) -> dict[str, Any]:
     return {**out, "ok": not missing and not changed, "recognised": len(live), "missing": missing[:20], "changed": changed[:20]}
 
 
-def drop(ats: str, name: str) -> int:
-    """Remove a saved page that no longer matches what the program reads from it (1 when something was removed)."""
-    n = 0
-    for f in (root() / ats).glob(f"{name}.*"):
-        try:
-            f.unlink()
-            n = 1
-        except OSError:
-            pass
-    return n
+def record(results: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Write on each sample how the replay went: when, and for a failing one since when and what was wrong.
+
+    Returns the names ("ats/fixture") of the samples that fail for the first time (``new``), that still fail
+    (``still``) and that failed before and pass now (``recovered``)."""
+    out: dict[str, list[str]] = {"new": [], "still": [], "recovered": []}
+    at = now().isoformat(timespec="seconds")
+    for r in results:
+        path = root() / r["ats"] / f"{r['fixture']}.json"
+        meta = _meta(path)
+        if not meta:
+            continue
+        was = meta.get("check") or {}
+        name = f"{r['ats']}/{r['fixture']}"
+        if r["ok"]:
+            if was.get("ok") is False:
+                out["recovered"].append(name)
+            meta["check"] = {"ok": True, "at": at}
+        else:
+            out["still" if was.get("ok") is False else "new"].append(name)
+            meta["check"] = {"ok": False, "at": at, "failing_since": was.get("failing_since") or at,
+                             **{k: r[k] for k in ("error", "missing", "changed") if r.get(k)}}
+        path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    return out
+
+
+def archive_superseded() -> list[str]:
+    """Move aside the failing samples that the form itself has replaced: a later sample of the same form page that
+    passes. (Not the ones that merely fail: nothing says which side changed.) Returns their names."""
+    moved: list[str] = []
+    if not root().exists():
+        return moved
+    by_form: dict[tuple[str, str, int, str], list[tuple[Path, dict[str, Any]]]] = {}
+    for path in sorted(root().glob("*/*.json")):
+        meta = _meta(path)
+        if meta:
+            by_form.setdefault(form_key(meta), []).append((path, meta))
+    for rows in by_form.values():
+        rows.sort(key=lambda r: (_when(*r), r[0].name))
+        for n, (path, meta) in enumerate(rows):
+            if (meta.get("check") or {}).get("ok") is not False:
+                continue
+            newer = next((p for p, m in rows[n + 1:] if (m.get("check") or {}).get("ok") is True), None)
+            if newer is None:
+                continue
+            aside = path.parent / "archive"
+            aside.mkdir(exist_ok=True)
+            meta["check"] = {**meta["check"], "superseded_by": newer.stem, "archived_at": now().isoformat(timespec="seconds")}
+            (aside / path.name).write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+            path.unlink(missing_ok=True)
+            html = path.with_suffix(".html")
+            if html.exists():
+                html.replace(aside / html.name)
+            moved.append(f"{meta.get('ats')}/{path.stem}")
+            for old in sorted(aside.glob("*.json"))[:-KEEP_ARCHIVED]:
+                old.unlink(missing_ok=True)
+                old.with_suffix(".html").unlink(missing_ok=True)
+    return moved
+
+
+def failing(ats: str | None = None) -> list[dict[str, Any]]:
+    """The samples that did not match at the last replay: {name, ats, since, missing, changed, error}."""
+    out = []
+    for path in sorted(root().glob(f"{ats or '*'}/*.json")) if root().exists() else []:
+        c = _meta(path).get("check") or {}
+        if c.get("ok") is False:
+            out.append({"name": f"{path.parent.name}/{path.stem}", "ats": path.parent.name, "fixture": path.stem, "since": c.get("failing_since", ""),
+                        "missing": c.get("missing", []), "changed": c.get("changed", []), "error": c.get("error", "")})
+    return out
 
 
 def run_all(ats: str | None = None) -> dict[str, Any]:
