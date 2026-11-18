@@ -430,12 +430,14 @@ def _create(*, small: bool, max_tokens: int, system: str | None, messages: list,
         betas.append(FALLBACK_BETA)
         kwargs["fallbacks"] = "default"
     t0 = time.time()
+    within = kwargs.pop("timeout", None)        # seconds this one request may take (an agent's budget); tried once, not again
     try:
         try:
+            api = client().with_options(timeout=max(1.0, float(within)), max_retries=0) if within is not None else client()
             if betas:
-                resp = client().beta.messages.create(betas=betas, **kwargs)
+                resp = api.beta.messages.create(betas=betas, **kwargs)
             else:
-                resp = client().messages.create(**kwargs)
+                resp = api.messages.create(**kwargs)
         except anthropic.AuthenticationError as e:
             raise LLMUnavailable("Claude API key is missing or invalid. Set it in Settings.") from e
         except anthropic.RateLimitError as e:
@@ -649,7 +651,17 @@ def _agent(goal: str, tools: list[Tool], *, system: str, budget: agentbudget.Bud
         if budget.expired():
             result.stopped = budget.ended
             return result
-        resp = _create(small=False, max_tokens=16000, system=system, messages=messages, tools=[t.spec() for t in tools])
+        # (the request is given what is left of the budget and no more; an answer that comes after it is not in time)
+        try:
+            resp = _create(small=False, max_tokens=16000, system=system, messages=messages, tools=[t.spec() for t in tools], timeout=budget.left())
+        except LLMError:
+            if budget.expired():
+                result.stopped = budget.ended
+                return result
+            raise
+        if budget.expired():
+            result.stopped = budget.ended
+            return result
         messages.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason == "pause_turn":
             continue

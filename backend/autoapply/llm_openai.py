@@ -49,14 +49,16 @@ class Client:
         self.log: list[dict[str, Any]] = []     # one entry per request: when, how long, how it ended, the usage as reported
 
     # --- plumbing ---
-    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, body: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+        """``timeout`` (seconds): the most this one request may take - for a caller that has a deadline of its own."""
         import time
 
         t0 = time.time()
         entry: dict[str, Any] = {"t0": t0, "model": body.get("model", ""), "status": "error", "usage": None, "id": "", "error": ""}
         self.log.append(entry)
         try:
-            r = self.http.post(self.base + "/chat/completions", json=body)
+            limits = {"timeout": httpx.Timeout(max(1.0, timeout), connect=min(30.0, max(1.0, timeout)))} if timeout is not None else {}
+            r = self.http.post(self.base + "/chat/completions", json=body, **limits)
         except httpx.HTTPError as e:
             entry.update(ms=int((time.time() - t0) * 1000), status="timeout" if isinstance(e, httpx.TimeoutException) else "unavailable", error=type(e).__name__)
             raise Unavailable(f"连不上 AI 服务（{type(e).__name__}）。检查接口地址和“设置 → 系统与数据 → 网络连接”。") from e
@@ -135,7 +137,16 @@ class Client:
                 return "", steps, budget.ended
             body = _body(model, messages, 16000)
             body["tools"] = specs
-            msg = self._post(body)["choices"][0]["message"]
+            # The request is given what is left of the budget and no more: the deadline is the run's, and a model
+            # that answers after it has not answered in time - whatever it says.
+            try:
+                msg = self._post(body, timeout=budget.left())["choices"][0]["message"]
+            except (Unavailable, Failed):
+                if budget.expired():
+                    return "", steps, budget.ended
+                raise
+            if budget.expired():
+                return "", steps, budget.ended
             calls = msg.get("tool_calls") or []
             messages.append({"role": "assistant", "content": msg.get("content") or "", **({"tool_calls": calls} if calls else {})})
             if not calls:

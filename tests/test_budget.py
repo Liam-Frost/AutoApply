@@ -301,3 +301,63 @@ def test_the_budgets_are_a_setting_shown_whole_and_checked_when_saved(app_env):
         r = c.put("/api/settings", json={"settings": {"agent.budgets": bad}})
         assert r.status_code == 400, bad
     assert agentbudget.for_kind("navigate").steps == 55      # a refused table changed nothing
+
+
+def test_a_request_to_the_model_is_given_what_is_left_of_the_budget_and_no_more(app_env, monkeypatch):
+    """The deadline was looked at before a request and not after: a request could run for the client's own five
+    minutes, and an answer that came after the deadline was taken as if it had come in time."""
+    import httpx
+
+    from autoapply import agentbudget, llm, llm_openai, secrets
+
+    # an OpenAI-compatible service that takes longer than there is, and then answers
+    given = []
+    real_post = llm_openai.Client._post
+
+    def post(self, body, *, timeout=None):
+        given.append(timeout)
+        return real_post(self, body, timeout=timeout)
+
+    def slow(req):
+        time.sleep(0.4)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "here is my answer"}}], "usage": {"prompt_tokens": 5, "completion_tokens": 1}})
+
+    real = llm_openai.Client
+    monkeypatch.setattr(llm_openai.Client, "_post", post)
+    monkeypatch.setattr(llm_openai, "Client", lambda base, key, **kw: real(base, key, transport=httpx.MockTransport(slow)))
+    db.set_setting("llm.provider", "deepseek")
+    db.set_setting("llm.providers", {"deepseek": {"base_url": "", "model": "big-1", "small_model": "small-1"}})
+    secrets.put(llm.key_name("deepseek"), "sk-test")
+    res = llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(10, 0.2))
+    assert res.stopped == "timeout" and res.final_text == ""                     # it answered - after the time was up
+    assert len(given) == 1 and 0 < given[0] <= 0.2 + 1e-6                        # the request was told how long it had
+    # the same request failing after the deadline is the budget's end, not the service's failure (no backup is tried for it)
+    monkeypatch.setattr(llm_openai, "Client", lambda base, key, **kw: real(base, key, transport=httpx.MockTransport(lambda req: (time.sleep(0.3), httpx.Response(500, text="late"))[1])))
+    assert llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(10, 0.2)).stopped == "timeout"
+    # ...and before the deadline it is a failure like any other
+    monkeypatch.setattr(llm_openai, "Client", lambda base, key, **kw: real(base, key, transport=httpx.MockTransport(lambda req: httpx.Response(500, text="broken"))))
+    with pytest.raises(llm.LLMError):
+        llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(10, 30))
+
+    # the Anthropic loop: the same three
+    db.set_setting("llm.provider", "anthropic")
+    asked = []
+
+    def late(**kw):
+        asked.append(kw.get("timeout"))
+        time.sleep(0.3)
+        return types.SimpleNamespace(stop_reason="end_turn", usage=None, content=[types.SimpleNamespace(type="text", text="here is my answer")])
+
+    monkeypatch.setattr(llm, "_create", late)
+    res = llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(10, 0.2))
+    assert res.stopped == "timeout" and res.final_text == "" and 0 < asked[0] <= 0.2 + 1e-6
+
+    def cut_off(**kw):
+        time.sleep(0.3)
+        raise llm.LLMUnavailable("cannot reach the Claude API: timed out")
+
+    monkeypatch.setattr(llm, "_create", cut_off)
+    assert llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(10, 0.2)).stopped == "timeout"
+    monkeypatch.setattr(llm, "_create", lambda **kw: (_ for _ in ()).throw(llm.LLMUnavailable("cannot reach the Claude API")))
+    with pytest.raises(llm.LLMUnavailable):
+        llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(10, 30))
