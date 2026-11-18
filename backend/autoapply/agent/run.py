@@ -118,7 +118,8 @@ class Desk:
         page.evaluate("() => { const e = window.__aaAt; if (e && e.select) e.select(); }")
         page.keyboard.insert_text(pw)
         if not then_click:
-            return "typed (hidden). If the form wants it a second time, call this again for that box; then press the button with then_click so that the box does not stay filled."
+            return ("typed (hidden). If the form wants it a second time (verify password), call this again for that box - without new, so that it is the same password - "
+                    "and give then_click there, so that the boxes do not stay filled.")
         said = self.hands.click(ref=then_click)
         time.sleep(1.5)
         try:        # a sign-in that did not go through leaves the box filled: emptied, so that nothing on the page holds the password
@@ -168,7 +169,8 @@ class Desk:
                             "is about this job only. `options`: the form's choices, when it has them. `why`: where the form asks it.", spec(["question"], question=s, about=s, options=arr, why=s), self.ask),
             llm.Tool("account", "What the program has on record for this site: the login name, whether a password is stored.", spec(), self.account),
             llm.Tool("type_password", "Have the applicant's password for this site typed into the password box `ref` (you do not see it), then press `then_click` (the sign-in or "
-                                      "create-account button). `new`: make up and store a password first - for registering an account.", spec(["ref"], ref=s, then_click=s, new=b), self.type_password),
+                                      "create-account button). `new`: make up and store a password first - for registering an account; a second box that wants the same "
+                                      "password again is filled by a second call without `new`.", spec(["ref"], ref=s, then_click=s, new=b), self.type_password),
             llm.Tool("sign_in_by_hand", "Hand the window to the applicant for something only they can do: a sign-in without a stored password, a code on their phone, a CAPTCHA. "
                                         "Ends this run; the next one goes on from here.", spec(["why"], why=s), self.sign_in_by_hand),
             llm.Tool("report", "End the run. outcome: ready (everything is in, one press from sending, not sent) | submitted (it went out: give the confirmation) | "

@@ -29,6 +29,13 @@ POSTINGS = {
                 "own one feature end to end, and be on the release rotation with a mentor. We look for: solid Go or Python, SQL you are not afraid of, and evidence that "
                 "you have shipped something other people used. A cover letter is optional.",
     },
+    "account": {
+        "company": "Tailspin Toys", "title": "Platform Engineering Intern",
+        "text": "Tailspin Toys runs one of the largest online toy stores in Canada. The platform group is hiring a Platform Engineering Intern for a four-month term from "
+                "January 2027, on site in Toronto, Ontario. You will work on the order pipeline (Python services, PostgreSQL, Docker on Kubernetes), automate one manual "
+                "release step, and write the runbook for it. Requirements: enrolled in an engineering or computer science degree, comfortable in Python, able to work on "
+                "site for the full term. Applications are made through our careers portal, where you create an account first.",
+    },
 }
 
 

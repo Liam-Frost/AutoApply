@@ -30,7 +30,7 @@ PROFILE = """# Applicant profile
 
 - Name: Alex Chen (legal name: Alexander Chen; goes by Alex)
 - E-mail: alex.chen@example.com
-- Phone: +1 604-555-0143 (Canada)
+- Phone: +1 604-555-0143 (Canada, mobile)
 - Lives in: Vancouver, British Columbia, Canada. Address: 2100 Example Street, Vancouver, BC V6T 1Z4
 - Links: portfolio https://alexchen.example ; GitHub https://github.com/alexchen-example
 
@@ -49,7 +49,7 @@ PROFILE = """# Applicant profile
 
 ## Standard answers
 
-- Has never worked for any employer other than those under Experience.
+- Has never worked for any employer other than those under Experience. Is over 18.
 - Gender: man. Race / ethnicity: Asian (East Asian). No disability. Not a veteran. Answers these when asked.
 
 ## Experience
@@ -149,8 +149,30 @@ def grade_embedded(saved: dict, sent: list, result, stage: int) -> list[tuple[st
     ]
 
 
-GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded}
-STAGES = {"profile_first": "1,2", "embedded": "1"}
+def grade_account(saved: dict, sent: list, result, stage: int, folder: Path | None = None) -> list[tuple[str, bool, str]]:
+    acct, info, exp, q = saved.get("account") or {}, saved.get("info") or {}, saved.get("exp") or {}, saved.get("q") or {}
+    conf = (result.record or {}).get("confirmation") or {}
+    pw = str(acct.get("pw") or "")
+    written = "".join(p.read_text(encoding="utf-8", errors="replace") for p in (folder.glob("*") if folder else []) if p.is_file())
+    jobs, schools = exp.get("jobs") or [], exp.get("schools") or []
+    return [
+        ("an account was made with the applicant's e-mail", acct.get("email") == "alex.chen@example.com" and len(pw) >= 12, f"{acct.get('email')} / password of {len(pw)} characters"),
+        ("the password is nowhere in what the agent was told, did or wrote", bool(pw) and pw not in written, "found in the application's folder" if pw and pw in written else "no password"),
+        ("the legal name where the form asks for it", (info.get("first"), info.get("last")) == ("Alexander", "Chen"), f"{info.get('first')} {info.get('last')}"),
+        ("address", "2100 Example" in str(info.get("address")) and info.get("city") == "Vancouver" and info.get("province") == "British Columbia" and str(info.get("postal")).replace(" ", "").upper() == "V6T1Z4",
+         f"{info.get('address')}, {info.get('city')}, {info.get('province')} {info.get('postal')}"),
+        ("phone", info.get("phone_type") == "Mobile" and _digits(info.get("phone"))[-10:] == "6045550143", f"{info.get('phone_type')} {info.get('phone')}"),
+        ("résumé attached", bool(exp.get("resume")), str(exp.get("resume"))),
+        ("the job is entered by hand, with its dates; the project is not entered as a job", len(jobs) == 1 and jobs[0].get("company") == "Contoso" and (jobs[0].get("from"), jobs[0].get("to")) == ("05/2026", "08/2026"), json.dumps(jobs)[:200]),
+        ("education entered", len(schools) == 1 and "British Columbia" in schools[0].get("school", "") and schools[0].get("degree") == "Bachelor's Degree" and "Computer Engineering" in schools[0].get("field", ""), json.dumps(schools)[:200]),
+        ("application questions", (q.get("adult"), q.get("onsite")) == ("Yes", "Yes"), f"{q.get('adult')} / {q.get('onsite')}"),
+        ("sent, once", len(sent) == 1, f"sent {len(sent)} time(s); outcome {result.outcome or result.stopped}"),
+        ("reported as submitted, with the application number", result.outcome == "submitted" and "R-20931" in json.dumps(conf), json.dumps(conf, ensure_ascii=False)[:200] or (result.outcome or result.stopped)),
+    ]
+
+
+GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded, "account": grade_account}
+STAGES = {"profile_first": "1,2", "embedded": "1", "account": "1"}
 
 
 def main() -> None:
@@ -200,7 +222,7 @@ def main() -> None:
         began = time.time()
         with browser.open_page(None, headless=not a.headed, backend=a.backend) as page:      # a new window every time: nothing of the last run is in it
             result = run.apply(page, posting, applicant, folder, mode="auto", answers=answers)
-        checks = GRADERS[a.form](site.saved.get(a.form) or {}, site.sent.get(a.form) or [], result, stage)
+        checks = GRADERS[a.form](site.saved.get(a.form) or {}, site.sent.get(a.form) or [], result, stage, **({"folder": folder} if a.form == "account" else {}))
         ok = sum(1 for _, good, _ in checks if good)
         total, passed = total + len(checks), passed + ok
         print(f"--- run {stage}: {result.outcome or 'no report'} · {result.steps} tool calls · {result.seconds:.0f} s (wall {time.time() - began:.0f} s) · stopped: {result.stopped}")
