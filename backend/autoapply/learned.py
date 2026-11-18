@@ -19,8 +19,10 @@ and leaves them. Each is a revision with a history:
   parked     did not pass the gate, or was learned on another version of the program and has not passed again yet
   rejected   the applicant said no
 
-The gate (before anything is in force): a plugin's code may only use what a driver uses (ALLOWED), must load, and
-the saved pages of the site must still be read as before with the revision in force. The trial (in force): the
+The gate (before anything is in force): a plugin's code may only use what a driver uses (ALLOWED), must load, must
+keep to the contract for learned tools on a form it was not written for (contract.py: it fills what it says it
+fills, reads what is there, leaves the rest alone, sends nothing), and the saved pages of the site must still be
+read as before with the revision in force. A rule of a recipe has to name the field it is for. The trial (in force): the
 revision's part of a run is wrapped - if it raises or leaves its field wrong, the ordinary way takes over in the same
 run and the revision gets a strike. A strike reverts it. A revision can therefore make a run slower once; it cannot
 make an application wrong: the read-back against the approved draft and the submit rules are the executor's and are
@@ -131,6 +133,9 @@ class Refused(ValueError):
     """Why a revision may not be in force; the message is kept with it."""
 
 
+NO_FIELD = "\x00 7431 no field of any form is called this \x00"      # a label pattern that matches this matches everything
+
+
 def check_recipe(recipe: Any) -> dict[str, Any]:
     if not isinstance(recipe, dict):
         raise Refused("a recipe is an object")
@@ -145,6 +150,8 @@ def check_recipe(recipe: Any) -> dict[str, Any]:
             re.compile(when["label"])
         except re.error as e:
             raise Refused(f"when.label is not a regular expression: {e}") from e
+        if re.search(when["label"], NO_FIELD, re.I):
+            raise Refused("when.label matches any field at all: a control rule is for the field it names")
         out["controls"].append({"when": {"label": when["label"], **({"type": str(when["type"])} if when.get("type") else {})}, "do": do,
                                 "wait_ms": max(0, min(int(c.get("wait_ms") or 0), 5000))})
     for w in recipe.get("waits") or []:
@@ -239,7 +246,11 @@ def gate(rev: dict[str, Any]) -> dict[str, Any]:
     if rev["kind"] == "recipe":
         check_recipe(json.loads(content(rev) or "{}"))
     else:
-        _load(rev)
+        from . import contract
+
+        broke = contract.check(_load(rev))      # on a form it was not written for: honest about what it fills and reads, and nothing else touched
+        if broke:
+            raise Refused("it does not keep to the contract for learned tools: " + "; ".join(broke[:3]))
     ats = rev["target"] if ":" not in rev["target"] and not rev["target"].startswith("site-") else "generic"
     before = fixtures.run_all(ats)
     with forcing([rev]):

@@ -575,3 +575,69 @@ def test_a_plugin_can_give_the_take_over_agent_a_tool_and_a_tool_that_fails_is_t
     assert [(s["k"], s["n"], s.get("ok", True)) for s in timing.end()] == [("tool", "site_count_inputs", True), ("tool", "site_breaks", False)]
     changed = learned.end(ok=True, working_ms=5000, interventions=1, run_id=1)
     assert [(c["title"], c["status"]) for c in changed] == [("Tools", "reverted")] and "tool breaks" in changed[0]["why_status"]
+
+
+# --- the contract a plugin keeps to before it is tried on an application ---
+
+HONEST = '''def set_value(page, q, value, w):
+    if q.label != "Contract: preferred name":
+        return False
+    page.locator(q.locator["selector"]).fill(str(value))
+    return True
+
+def get_value(page, q, w):
+    if q.label != "Contract: preferred name":
+        return NotImplemented
+    return page.locator(q.locator["selector"]).input_value()
+'''
+
+
+@pytest.mark.parametrize("code, why", [
+    # says it filled every field, and filled none
+    ("def set_value(page, q, value, w):\n    return True\n", "said it had filled"),
+    # declines - after writing into the first box it finds
+    ("def set_value(page, q, value, w):\n    page.locator('input').first.fill('x')\n    return False\n", "declined .* and still: the field c_text changed"),
+    # goes for its own control whatever it is asked about
+    ("def set_value(page, q, value, w):\n    page.locator('#nick').fill(str(value), timeout=300)\n    return True\n", "failed on a field that is not its own"),
+    # fills the right box and another one with it
+    ("def set_value(page, q, value, w):\n    if q.type != 'textarea':\n        return False\n    page.locator('#c_area').fill(str(value))\n"
+     "    page.locator('#c_text').fill('too')\n    return True\n", "the field c_text changed from 'as it was' to 'too'"),
+    # reads every field as the same thing
+    ("def get_value(page, q, w):\n    return 'yes'\n", "get_value read .* as 'yes'"),
+    # a tool that leaves the page
+    ("TOOLS = [{'name': 'open_help', 'description': 'Opens the help page of the form in the same window.', 'params': {}}]\n"
+     "def tool_open_help(page, w):\n    page.goto('about:blank')\n    return 'opened'\n", "the tool open_help: it took the page somewhere else"),
+])
+def test_a_plugin_that_does_not_keep_to_the_contract_is_not_tried_on_an_application(store, code, why):
+    """The saved pages have no scripts: they say how a form is read, not what a plugin does when it is let at a field.
+    A plugin is asked about every field of its site - so it is first let at a form it was not written for."""
+    rev = learned.add("plugin", "site-jobs.example.com", "Not honest", "w", code)
+    assert rev["status"] == "parked" and "contract for learned tools" in rev["why_status"]
+    import re
+
+    assert re.search(why, rev["why_status"]), rev["why_status"]
+    assert learned.in_force() == []
+
+
+def test_a_plugin_that_keeps_to_the_contract_goes_on_to_its_trial(store):
+    from autoapply import contract
+
+    assert learned.add("plugin", "site-jobs.example.com", "Honest", "w", HONEST)["status"] == "trial"
+    assert learned.add("plugin", "site-jobs.example.com", "Declines everything here", "w", PLUGIN)["status"] == "trial"
+    # a tool cannot send the form: the page it is handed refuses, and the form stays unsent
+    sender = ("TOOLS = [{'name': 'press_the_button', 'description': 'Presses the last button of the form, whatever it is.', 'params': {}}]\n"
+              "def tool_press_the_button(page, w):\n    page.locator('button').last.click()\n    return 'pressed'\n")
+    scope: dict = {}
+    exec(sender, scope)  # noqa: S102
+    assert contract.check(scope) == []
+    # what the contract page is: every kind of field a plugin is asked about, one of them in a frame
+    assert [f[2] for f in contract.FIELDS] == ["text", "textarea", "select", "checkbox", "file", "text"]
+
+
+def test_a_recipe_names_the_field_it_is_for(store):
+    for broad in (".*", "^", "(Code)?", "\w"):
+        with pytest.raises(learned.Refused, match="matches any field"):
+            learned.check_recipe({"controls": [{"when": {"label": broad}, "do": "native"}]})
+    with pytest.raises(learned.Refused, match="names the field it is for"):
+        learned.check_recipe({"controls": [{"when": {"label": " "}, "do": "native"}]})
+    assert learned.check_recipe(json.loads(RECIPE))["controls"][0]["do"] == "leave_if_shown"
