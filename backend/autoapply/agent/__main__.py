@@ -20,13 +20,19 @@ def main() -> None:
     ap.add_argument("--mode", default="prepare", choices=["prepare", "auto", "send", "hand_over"])
     ap.add_argument("--hidden", action="store_true", help="no window (default: a window the applicant can watch)")
     ap.add_argument("--answer", action="append", default=[], help='what the applicant answered: "question=answer" (repeatable)')
+    ap.add_argument("--model", default="", help="the model for this run only (the program's setting is not changed)")
+    ap.add_argument("--effort", default="", help="the effort for this run only")
     a = ap.parse_args()
 
     from .. import browser, config, db
     from ..models import Job
     from . import brief, run
 
-    db.init_db()
+    if not config.DB_PATH.exists():
+        db.init_db()
+    if a.model or a.effort:      # for this run only: nothing is written to the settings
+        own, real = {k: v for k, v in (("llm.model", a.model), ("llm.effort", a.effort)) if v}, db.get_setting
+        db.get_setting = lambda key, *rest, **kw: own[key] if key in own else real(key, *rest, **kw)
     with db.session() as s:
         j = s.get(Job, a.job)
         if j is None or not j.apply_url:
