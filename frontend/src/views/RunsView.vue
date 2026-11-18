@@ -13,10 +13,10 @@ import { ask, fmtTime, run, toast } from '../ui'
 const runs = ref([])
 const tasks = ref([])
 const notes = ref([])
-const ov = ref({ drivers: [], mail_recent: [] })
+const ov = ref({ mail_recent: [] })
 const filter = ref('all')
 const route = useRoute()
-const tab = ref(['plan', 'activity', 'sched', 'notes', 'systems'].includes(String(route.query.tab)) ? String(route.query.tab) : 'plan')
+const tab = ref(['plan', 'activity', 'sched', 'notes'].includes(String(route.query.tab)) ? String(route.query.tab) : 'plan')
 const sched = ref([])
 // The plan: what is being done, what comes next and in which order, what waits for you, what was set aside, what is
 // set for later. The record of what was done is the next tab.
@@ -54,7 +54,7 @@ const line = (t) => t.summary || t.explained.message || (t.status === 'running' 
 const retry = (t) => run(() => api.post(`/tasks/${t.id}/retry`), '已重新排队', load)
 const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已重新排队，这一次用普通浏览器', load)
 const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果' }
-const sysName = (d) => ({ greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', pdportal: 'UBC PD Portal', generic: '其他网站（通用方式）', lever: 'Lever' }[d.ats] || d.ats)
+
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
 useRefresh(load, { every: 4000, when: () => ((plan.value && plan.value.running) || []).length > 0 || (ov.value.running || []).length > 0 })
@@ -74,7 +74,6 @@ onMounted(load)
       <button :class="{ on: tab === 'activity' }" @click="tab = 'activity'">做过的事</button>
       <button :class="{ on: tab === 'sched' }" @click="tab = 'sched'">定时任务</button>
       <button :class="{ on: tab === 'notes' }" @click="tab = 'notes'">发出的通知</button>
-      <button :class="{ on: tab === 'systems' }" @click="tab = 'systems'">各招聘系统的表现</button>
     </div>
     <span class="grow"></span>
     <div v-if="tab === 'activity'" class="seg">
@@ -107,7 +106,7 @@ onMounted(load)
             <span class="badge info" style="min-width: 64px; justify-content: center">进行中</span>
             <div><div class="main">{{ t.label }}<span v-if="t.subject" class="muted" style="font-weight: 400"> · {{ t.subject }}</span></div>
               <div class="sub">开始于 {{ fmtTime(t.started_at) }}。</div></div>
-            <div v-if="['recon', 'execute', 'revise', 'reanswer'].includes(t.kind)" class="right"><button class="sm" :disabled="!!busy" @click="control(t, 'stop', '已叫停，Agent 会在下一步操作之前停下')">叫停</button></div>
+            <div v-if="t.kind === 'apply'" class="right"><button class="sm" :disabled="!!busy" @click="control(t, 'stop', '已叫停，Agent 会在下一步操作之前停下')">叫停</button></div>
           </div>
         </div>
         <div v-if="!plan.running.length" class="muted">现在没有任务在执行。</div>
@@ -201,7 +200,7 @@ onMounted(load)
         <div class="right">
           <div class="small muted nowrap">{{ fmtTime(t.finished_at || t.started_at || t.created_at) }}</div>
           <button v-if="['failed', 'waiting_human'].includes(t.status) && t.kind !== 'execute'" class="sm ghost" style="margin-top: 4px" @click="retry(t)">再试一次</button>
-          <button v-if="['failed', 'waiting_human'].includes(t.status) && ['recon', 'discover', 'revise'].includes(t.kind)" class="sm ghost" style="margin-top: 4px" title="网站把程序自带的浏览器挡在外面时用（nodriver）" @click="retryNative(t)">换普通浏览器重试</button>
+          <button v-if="['failed', 'waiting_human'].includes(t.status) && ['apply', 'discover'].includes(t.kind)" class="sm ghost" style="margin-top: 4px" title="网站把程序自带的浏览器挡在外面时用（nodriver）" @click="retryNative(t)">换普通浏览器重试</button>
         </div>
       </div>
     </div>
@@ -219,20 +218,5 @@ onMounted(load)
     <EmptyState v-if="!notes.length" icon="bell" title="还没有发出过通知" text="在设置里配置 Telegram 后，进展和待办会推送给你。" />
   </div>
 
-  <div v-if="tab === 'systems'" class="card">
-    <p class="muted">每种招聘系统上，读取申请表和填写提交各成功了几次。连续成功次数达到设置里的门槛后，才允许对这个系统开启“自动通过”。</p>
-    <table>
-      <thead><tr><th>招聘系统</th><th>读取申请表</th><th>填写并提交</th><th>连续成功提交</th></tr></thead>
-      <tbody>
-        <tr v-for="d in ov.drivers" :key="d.ats">
-          <td><b>{{ sysName(d) }}</b></td>
-          <td>{{ d.recon_ok }} 次成功<span v-if="d.recon_fail" class="muted"> · {{ d.recon_fail }} 次没成功</span></td>
-          <td>{{ d.exec_ok }} 次成功<span v-if="d.exec_fail" class="muted"> · {{ d.exec_fail }} 次没成功</span></td>
-          <td>{{ d.streak }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <EmptyState v-if="!ov.drivers.length" icon="activity" title="还没有运行过" />
-  </div>
   </template>
 </template>

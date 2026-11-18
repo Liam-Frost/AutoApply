@@ -33,7 +33,7 @@ async function pick(r) {
 }
 async function save() {
   if (tooLong.value || missing.value.length) { toast(tooLong.value ? '这条提示词太长了，没有保存' : `不能去掉：${missing.value.join('、')}，没有保存`, 'bad'); return false }
-  if (cur.value.risk === 'high' && !(await ask('这条提示词指挥 AI 在真实的招聘网站上点击和填写。改得不好，可能读错申请表或卡在半路；固定规则（不提交、不碰密码、不绕过人机验证）不受影响。确定保存吗？', { ok: '保存' }))) return false
+  if (cur.value.risk === 'high' && !(await ask('这条提示词指挥 AI 在真实的招聘网站上点击和填写。改得不好，可能填错申请表或卡在半路；固定规则（按你定的方式提交、不编造、不碰密码、不绕过人机验证）仍然会附在后面。确定保存吗？', { ok: '保存' }))) return false
   try {
     await api.put('/prompts/' + cur.value.key, { body: text.value })
     toast('已保存，下一次用到时生效')
@@ -56,7 +56,7 @@ onMounted(() => load())
 <template>
   <div class="card">
     <div class="card-title">AI 提示词</div>
-    <p class="muted">程序在各个环节交给 AI 的工作说明都在这里，可以按你的习惯改。每条下面的“固定规则”始终会附在后面、不能修改；这些规则同时也由程序本身强制执行（比如 AI 根本没有“提交”这个操作），所以改提示词可能让结果变差，但不会让它替你乱投、编造经历或碰你的密码。</p>
+    <p class="muted">程序在各个环节交给 AI 的工作说明都在这里，可以按你的习惯改。每条下面的“固定规则”始终会附在后面、优先于你写的内容、不能修改。其中“不碰密码”由程序本身保证：密码由程序输入，AI 拿不到；其余几条是给 AI 的硬性指令。所以改提示词可能让结果变差，请改一处看一处。</p>
   </div>
   <div v-if="cur" class="pr">
     <div class="card pr-nav">
