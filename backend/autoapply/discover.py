@@ -291,6 +291,7 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
 
     summary["duplicates"] = link_duplicates()
     summary["archived"] = archive_old()
+    remember(summary)
     tot = {k: sum(v[k] for v in summary["sources"].values()) for k in ("seen", "new", "back", "offline")}
     tot["read"] = sum(v.get("read", 0) for v in summary["intake"].values())
     summary["total"] = tot
@@ -301,6 +302,82 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
     if notify_user:
         notify.send("task_result", messages.discover_done(tot, {k: v["new"] for k, v in summary["sources"].items()}, summary["errors"]), ref="discover")
     return summary
+
+
+def remember(summary: dict[str, Any]) -> None:
+    """Keep, per source, what this scan read from it and why the rest was not taken in - and when it could last be read.
+
+    The result of a scan lived in the task that ran it: the page showed the latest scan and nothing else, so a source
+    that fails today showed an error and no sign of when it last worked or what it gave then. "It read a lot and there
+    is nothing to apply for" could not be traced to a reason beyond the latest run either. Counts only: the postings
+    that were dropped are not kept."""
+    at = now().isoformat()
+    hist = dict(db.get_setting("sources.history") or {})
+    for name in set(summary.get("sources", {})) | set(summary.get("errors", {})) | set(summary.get("intake", {})):
+        row = dict(hist.get(name) or {})
+        err = summary.get("errors", {}).get(name, "")
+        row["last_at"] = at
+        if err:
+            row.update(error=str(err)[:300], error_at=at, fails=int(row.get("fails", 0)) + 1)
+        else:
+            st, ik = summary.get("sources", {}).get(name, {}), summary.get("intake", {}).get(name, {})
+            row.update(ok_at=at, error="", error_at="", fails=0, read=int(ik.get("read", st.get("seen", 0))), kept=int(ik.get("kept", st.get("seen", 0))),
+                       new=int(st.get("new", 0)), dropped={k: int(v) for k, v in (ik.get("dropped") or {}).items()}, screened="read" in ik)
+        hist[name] = row
+    # a source that is gone from the list and was not read for a month is forgotten
+    from datetime import timedelta
+
+    old = (now() - timedelta(days=30)).isoformat()
+    db.set_setting("sources.history", {k: v for k, v in hist.items() if str(v.get("last_at") or "") >= old})
+
+
+def report() -> dict[str, Any]:
+    """For every source that is read: when it last could be read, what it gave then, why the rest was dropped, and where
+    the postings it gave stand now - enough for the line, not enough, ruled out, not scored yet."""
+    from . import employers, intake
+
+    st = db.all_settings()
+    hist = dict(st["sources.history"] or {})
+    from . import scoring
+
+    line = scoring.draft_line()      # the queue's own line, posting by posting: what is counted here is what gets a draft there
+    with db.session() as s:
+        # (source, listing, score, status, ruled out, the line this posting is held to)
+        jobs = [(j.source, j.tenant or "", j.score, j.status, bool(j.exclusion), line(j.company, j.source))
+                for j in s.query(Job).filter(Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None))]
+
+    def stand(mine: list[tuple[Any, ...]]) -> dict[str, int]:
+        return {"total": len(mine), "unscored": sum(1 for j in mine if j[2] is None), "excluded": sum(1 for j in mine if j[2] is not None and (j[4] or j[3] == "skipped")),
+                "below": sum(1 for j in mine if j[2] is not None and not (j[4] or j[3] == "skipped") and j[2] < j[5]),
+                "above": sum(1 for j in mine if j[2] is not None and not (j[4] or j[3] == "skipped") and j[2] >= j[5])}
+
+    def row(name: str, label: str, mine: list[tuple[Any, ...]], own: float, **more: Any) -> dict[str, Any]:
+        """``own``: the line a posting of this employer is held to - what the row says when it has no postings now."""
+        h = hist.get(name) or {}
+        dropped = [{"key": k, "label": intake.REASONS.get(k, k), "n": n} for k, n in sorted((h.get("dropped") or {}).items(), key=lambda kv: -kv[1])]
+        lines = sorted({j[5] for j in mine}) or [own]      # more than one on a board that lists several employers, some of them priority
+        return {"name": name, "label": label, "ok_at": h.get("ok_at") or None, "error": h.get("error") or "", "error_at": h.get("error_at") or None, "fails": int(h.get("fails", 0)),
+                "read": h.get("read"), "kept": h.get("kept"), "new": h.get("new"), "screened": bool(h.get("screened")), "dropped": dropped, "now": stand(mine),
+                "line": lines[0], "lines": lines, **more}
+
+    rows = []
+    for e in employers.listing():
+        if not e.get("enabled", True):
+            continue
+        src, scope = employers.source_of(e)
+        mine = [j for j in jobs if j[0] == src and (e["kind"] == "builtin" or j[1] == scope)]
+        rows.append(row(e["name"], employers.KIND_LABEL.get(e["kind"], e["kind"]), mine, line(e["name"], src), priority=bool(e.get("priority"))))
+    if st["sources.pdportal"]:
+        rows.append(row("pdportal", "UBC PD Portal", [j for j in jobs if j[0] == "pdportal"], line("", "pdportal"), priority=False, exempt=True))
+    last = max((str(h.get("last_at") or "") for h in hist.values()), default="") or None
+    total: dict[str, int] = {}
+    for r in rows:
+        for d in r["dropped"]:
+            total[d["key"]] = total.get(d["key"], 0) + d["n"]
+    return {"at": last, "sources": rows,
+            "total": {"read": sum(int(r["read"] or 0) for r in rows), "kept": sum(int(r["kept"] or 0) for r in rows), "new": sum(int(r["new"] or 0) for r in rows),
+                      "dropped": [{"key": k, "label": intake.REASONS.get(k, k), "n": n} for k, n in sorted(total.items(), key=lambda kv: -kv[1])],
+                      "now": {k: sum(r["now"][k] for r in rows) for k in ("total", "unscored", "excluded", "below", "above")}}}
 
 
 def add_manual(url: str, *, company: str = "", title: str = "", jd_text: str = "") -> int:

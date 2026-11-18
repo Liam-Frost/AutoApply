@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CJK = re.compile(r"[一-鿿]")
 SERVER = ["access.py", "sites.py", "sources/pdportal.py", "ats/pdportal.py", "mail.py", "learned.py", "improve.py", "share.py", "doctor.py", "remote.py", "transfer.py", "humanize.py", "stages.py", "intake.py", "persona.py", "employers.py", "mailbox.py", "browser.py", "prompts.py", "llm_openai.py", "llm_codex.py", "outlook.py",
           "convert.py", "tailor.py", "handlers.py", "tasks.py", "discover.py", "drafts.py", "auth.py", "executor.py", "api/main.py", "net.py", "messages.py", "scoring.py", "metering.py", "analytics.py",
-          "applications.py", "lifecycle.py", "reminders.py", "notify.py", "backup.py", "quota.py", "repair.py", "llm.py", "sources/public.py", "sources/watch.py"]
+          "applications.py", "lifecycle.py", "reminders.py", "rules.py", "notify.py", "backup.py", "quota.py", "repair.py", "llm.py", "sources/public.py", "sources/watch.py"]
 # Server files that hold Chinese text which is NOT shown to anyone as the program's words - with what it is instead.
 # Every server file with Chinese text in it is in SERVER or here (tests/test_units.py checks it): a new file whose
 # messages would otherwise stay untranslated is noticed when it is written, not when someone reads the English interface.

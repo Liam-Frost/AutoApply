@@ -59,7 +59,7 @@ class Client:
             r = self.http.post(self.base + "/chat/completions", json=body)
         except httpx.HTTPError as e:
             entry.update(ms=int((time.time() - t0) * 1000), status="timeout" if isinstance(e, httpx.TimeoutException) else "unavailable", error=type(e).__name__)
-            raise Unavailable(f"连不上 AI 服务（{type(e).__name__}）。检查接口地址和“设置 → 网络”。") from e
+            raise Unavailable(f"连不上 AI 服务（{type(e).__name__}）。检查接口地址和“设置 → 系统与数据 → 网络连接”。") from e
         entry["ms"] = int((time.time() - t0) * 1000)
         if r.status_code in (401, 403):
             entry.update(status="unavailable", error=f"HTTP {r.status_code}")
@@ -169,7 +169,7 @@ class Client:
 
 def _body(model: str, messages: list[dict[str, Any]], max_tokens: int) -> dict[str, Any]:
     if not model:
-        raise Unavailable("还没有选模型。请在“设置 → AI 模型”里选择或填写模型名称。")
+        raise Unavailable("还没有选模型。请在“设置 → 账号与连接 → AI 服务”里选择或填写模型名称。")
     return {"model": model, "messages": messages, "max_completion_tokens" if model.startswith(("gpt-5", "o1", "o3", "o4")) else "max_tokens": max_tokens}
 
 

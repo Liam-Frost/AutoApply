@@ -205,7 +205,7 @@ onMounted(load)
 
     <div v-else-if="step === 5" class="card wiz-card">
       <h2>从哪里找</h2>
-      <p class="muted">先选几个开始，之后可以在“设置 → 岗位来源”里随时增减，也可以在岗位页粘贴任何岗位的网址手动添加。</p>
+      <p class="muted">先选几个开始，之后可以在“岗位 → 来源与关注公司”里随时增减，也可以在岗位页粘贴任何岗位的网址手动添加。</p>
       <div class="field"><label>大型科技公司的官网</label>
         <div class="row"><label v-for="[k, n] in BIG" :key="k" class="nowrap"><input type="checkbox" :checked="!!bigtech[k]" @change="bigtech = { ...bigtech, [k]: !bigtech[k] }" /> {{ n }}</label></div>
         <div class="hint">这些公司各种职能的岗位都有，按上一步的条件筛选。{{ ['software', 'engineering', 'design'].includes(p.field) ? '' : '你的领域默认没有勾选，需要的话自己勾。' }}</div></div>
@@ -215,10 +215,10 @@ onMounted(load)
           <option v-for="x in portals.filter((x) => x.status === 'supported')" :key="x.key" :value="x.key">{{ x.school }} · {{ x.name }}</option>
           <option v-for="x in portals.filter((x) => x.status !== 'supported')" :key="x.key" :value="'other:' + x.key" disabled>{{ x.school ? x.school + ' · ' : '' }}{{ x.name }}（{{ x.status === 'same_system' ? '同一套系统，还没适配' : '还没有导入器' }}）</option>
         </AaSelect>
-        <div class="hint">学校门户要用你的学校账号登录：在“设置 → 岗位来源”里登录一次，程序扫描时就会自己读；也可以在你自己的浏览器里点一个书签导入。目前实际用过的只有 UBC。
+        <div class="hint">学校门户要用你的学校账号登录：在“岗位 → 来源与关注公司”里登录一次，程序扫描时就会自己读；也可以在你自己的浏览器里点一个书签导入。目前实际用过的只有 UBC。
           列表里灰色的是已知但还没适配的门户：可以在门户里打开岗位，把网址粘贴到岗位页的“手动添加”；想帮忙适配，见仓库里的 CONTRIBUTING.md。</div></div>
       <div class="field"><label>你自己想盯住的公司</label>
-        <div class="hint">把这家公司招聘页的网址贴进来。这里添加的会马上保存，之后在“设置 → 岗位来源”里管理。</div></div>
+        <div class="hint">把这家公司招聘页的网址贴进来。这里添加的会马上保存，之后在“岗位 → 来源与关注公司”里管理。</div></div>
       <EmployersPanel :s="s" />
       <div class="row"><button @click="go(4)">上一步</button><button class="primary" @click="go(6)">下一步</button></div>
     </div>
@@ -247,10 +247,10 @@ onMounted(load)
         <div><div class="k">领域</div><div class="v">{{ (meta.fields.find((x) => x.key === p.field) || {}).name }}</div></div>
         <div><div class="k">地区</div><div class="v">{{ p.countries.join('、') || '不限' }}</div></div>
         <div><div class="k">投法</div><div class="v">{{ p.strategy === 'targeted' ? '精投：我自己挑，自己点提交' : '多投：自动准备草案，我批准后投' }}</div></div>
-        <div><div class="k">岗位来源</div><div class="v">{{ BIG.filter(([k]) => bigtech[k]).map(([, n]) => n).join('、') || '还没选（之后在设置里加）' }}{{ p.portal ? '、学校门户' : '' }}</div></div>
+        <div><div class="k">岗位来源</div><div class="v">{{ BIG.filter(([k]) => bigtech[k]).map(([, n]) => n).join('、') || '还没选（之后在“岗位 → 来源与关注公司”里加）' }}{{ p.portal ? '、学校门户' : '' }}</div></div>
         <div><div class="k">个人资料</div><div class="v">{{ resume.profile ? '已生成' : '还没有，之后在“个人资料”页填' }}</div></div>
       </div>
-      <p class="hint">还可以之后设置：Telegram 通知和邮箱跟踪（设置 → 通知与邮箱）、网络代理（设置 → 网络）。</p>
+      <p class="hint">还可以之后设置：Telegram 通知（设置 → 通知与提醒）、邮箱跟踪（设置 → 账号与连接 → 收件邮箱）、网络代理（设置 → 系统与数据 → 网络连接）。</p>
       <div class="row" style="margin-top: 12px">
         <button @click="go(5)">上一步</button>
         <button class="primary" :disabled="busy === 'done'" @click="finish(BIG.some(([k]) => bigtech[k]))"><Icon name="check" />{{ BIG.some(([k]) => bigtech[k]) ? '完成，并马上扫描一次岗位' : '完成' }}</button>

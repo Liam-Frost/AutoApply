@@ -2041,25 +2041,22 @@ def analytics_ai_prices(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"ok": True, "repriced": metering.reprice()}
 
 
-@app.get("/api/sources/last-scan")
-def last_scan() -> dict[str, Any]:
-    """What the most recent scan read from each source and how much of it the intake rules kept."""
-    from .. import intake as intake_mod
+@app.get("/api/rules")
+def get_rules() -> dict[str, Any]:
+    """What the settings come to: what the applicant would apply to, and what the program may do by itself."""
+    from .. import rules
 
-    with db.session() as s:
-        t = s.query(Task).filter(Task.kind == "discover", Task.status == "done").order_by(Task.id.desc()).first()
-        if t is None:
-            return {"at": None, "sources": []}
-        res, at = dict(t.result or {}), t.finished_at.isoformat() if t.finished_at else None
-    rows = []
-    names = set(res.get("sources", {})) | set(res.get("errors", {})) | set(res.get("intake", {}))
-    for name in sorted(names):
-        key, _, sub_name = name.partition(":")
-        st, ik, err = res.get("sources", {}).get(name, {}), res.get("intake", {}).get(name, {}), res.get("errors", {}).get(name, "")
-        rows.append({"name": SOURCE_LABEL.get(key, key) + (f"（{sub_name}）" if sub_name else ""), "read": ik.get("read", st.get("seen", 0)), "kept": ik.get("kept", st.get("seen", 0)),
-                     "new": st.get("new", 0), "dropped": {intake_mod.REASONS.get(k, k): v for k, v in (ik.get("dropped") or {}).items()},
-                     "error": humanize.explain(err)["message"] if err else "", "error_detail": err})
-    return {"at": at, "sources": rows, "duplicates": res.get("duplicates", 0)}
+    return rules.summary()
+
+
+@app.get("/api/sources/report")
+def sources_report() -> dict[str, Any]:
+    """Every source that is read: when it last could be read, what it gave, why the rest was dropped, where its
+    postings stand now (discover.report). The error of a source is said in the applicant's words."""
+    out = discover.report()
+    for r in out["sources"]:
+        r["error_detail"], r["error"] = r["error"], (humanize.explain(r["error"])["message"] if r["error"] else "")
+    return out
 
 
 @app.post("/api/sources/try-rules")
@@ -2557,7 +2554,7 @@ def _remote(request: Request, window_id: str):
 
     who = access.caller(request.client.host if request.client else "", request.headers)
     if not who["local"] and not who["https"] and not who.get("near"):
-        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“访问与安全”里打开对应的开关。")
+        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“设置 → 系统与数据 → 远程访问”里打开对应的开关。")
     win = remote.get(window_id)
     if win is None:
         raise HTTPException(404, "这个窗口已经关闭了。")

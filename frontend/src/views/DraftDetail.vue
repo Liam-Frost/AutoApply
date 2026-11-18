@@ -293,7 +293,7 @@ onUnmounted(() => clearInterval(timer))
           <p v-if="d.submit_mode" style="margin-top: 0">
             <b>批准后：</b>
             <span v-if="d.submit_mode.mode === 'auto'">填写并核对无误后<b>自动提交</b>，不需要你再操作。</span>
-            <span v-else>填好后停下，<b>由你检查并点击提交</b>。原因：{{ d.submit_mode.reasons.join('；') }}</span>
+            <span v-else>填好后停下，<b>由你检查并点击提交</b>。<span>原因：</span><template v-for="(w, i) in d.submit_mode.why || d.submit_mode.reasons.map((text) => ({ text }))" :key="i"><template v-if="i">；</template><router-link v-if="w.where" :to="w.where" title="打开决定这一条的设置">{{ w.text }}</router-link><template v-else>{{ w.text }}</template></template></span>
           </p>
           <ol style="margin: 0; padding-left: 18px"><li v-for="(s, i) in d.plan" :key="i">{{ s.text }}</li></ol>
         </div>

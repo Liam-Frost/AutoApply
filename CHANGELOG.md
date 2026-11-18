@@ -6,6 +6,29 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Added
 
+- **What each source gave, and why the rest was not taken in.** "Sources and watched employers" lists every source
+  with when it was last read (and, for one that cannot be read now, when it last could and what it gave then), how
+  many postings it gave, how many passed the hard conditions, and the reasons the others were dropped, counted; and
+  where the postings it did give stand now: at the threshold, below it, ruled out by a scoring rule, not scored yet.
+  A summary over all sources says which kind of reason accounts for "it read hundreds and there is nothing to apply
+  for", with a link to try the conditions on a few titles. Numbers only: postings that were dropped are not kept.
+  (It showed the latest scan and nothing before it; a source that failed today showed an error and no history.)
+- **An overview of what the settings come to** (Settings opens on it). Two halves, read-only, every line leading to
+  the place where it is changed. *What I apply to*: what you told the program, the hard conditions a posting has to
+  pass before it is taken in, your scoring preferences, and the thresholds from which a draft is prepared - each
+  marked as which of these it is. *What the program may do now*: finding postings, preparing drafts, approving,
+  pressing Submit, creating accounts, accepting privacy notices, letting the AI take over, learning - each with who
+  does it now and the exceptions by system and by company. It is read from where the program reads its rules, not
+  written beside them.
+- On a draft, every reason why it is you who presses Submit leads to the setting that decides it.
+- **What you typed and did not save is not lost without a word.** Leaving a page with unsaved changes - the settings,
+  a prompt, any editor of the profile - asks first: save, discard, or keep editing. So does switching what is being
+  edited (another prompt, another AI service, another section or tab of the profile), and closing or reloading the tab
+  gets the browser's own question. Nothing is asked when nothing was changed.
+- **The settings say how each tab is saved.** A line under the tabs names it: the button at the top right, a part's
+  own button, or at once. The button shows how many changes wait ("3 changes not saved yet"), is inactive when there
+  are none, and the tabs that hold unsaved changes are marked. The three access settings that need a restart are
+  labelled so.
 - **What a mail asks of you becomes a to-do with its date.** An invitation to an interview or an assessment ended
   in a notice and a status; what to do and by when stayed in the mail. It is now a card with the date the mail
   states (and the mail's own wording of it, time zone and all): said the day before and on the day, moved when the
@@ -99,6 +122,31 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
+- **The settings are grouped by what they are about, and every section has an address.** Ten tabs named after parts
+  of the program became six groups - search goals and matching, automation and work plan, materials and answers,
+  accounts and connections, notices and reminders, system and data - each a page of named sections
+  (`/settings/automation/submit`, `/settings/accounts/ai`, ...). What moved where:
+  the two score thresholds for preparing a draft now stand side by side; automatic approval is an expanding part of
+  "approval and submission" instead of a card under "advanced", and that section says in plain sentences what the
+  choices on the page come to; how often the mailbox is checked is in the work plan (it sat under "sources"), with a
+  link from the mailbox; archiving and the re-posting window are "data retention" (they sat under "intake
+  conditions") and say that archiving changes no application; the outbound proxy, the browser used for a site and
+  the inbound access are three sections that say how they differ; how long a login lasts and the password are
+  "account security", saved apart from where the server listens; the prompts are an expert tool at the end.
+  Learning from runs and sharing what was learned are settings now (they could only be found on the analytics
+  page, which still shows what was learned and links here). The conventions of your cover-letter template (names
+  in bold, links to keep, text to replace) can be set on the page; they could only be set in the data.
+- **Sources and watched employers are a page of the postings**, not three cards of the settings: the employers you
+  watch, the school portal with its switch, sign-in state and sign-in, and what the last scan read. The portal's
+  switch is there once (it was in two places).
+- **Cards and notices lead to the section that needs changing.** A card about the mailbox authorisation, the AI
+  service or its allowance, or a site that refuses the program's browser has a button that opens that section; the
+  notices about the AI allowance link to it too.
+- **Network accounts page: the everyday part first.** Which browser an account uses, importing passwords from
+  Chrome, carrying a sign-in to another computer and adding an account by hand are under "advanced".
+- Turning résumé adjustment on without a Word résumé says so on the spot, with a link to the upload. The AI service
+  section says when a change of service or model takes effect: for tasks that start afterwards, not the one in
+  progress.
 - **The Windows installer is rebuilt.** It was a self-extracting archive around a PowerShell script that drew its
   own window, which is why the taskbar showed PowerShell, the file had no icon or version details, and the progress
   line showed unreadable characters. The window looks the same - the program's own design, English or Chinese, light
@@ -130,6 +178,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- A source that could not be reached (a timeout, a name that does not resolve) is said to be unreachable; it was
+  shown as "this step was not completed".
+- **Saving one part of a page took back what was being edited in another.** Saving an AI service, sending a test
+  message or any other action on the settings page read every setting afresh and so undid unsaved changes on every
+  tab; saving one editor of the profile reset the others. Reading afresh now takes what is new and leaves what is
+  being edited. "Save" on the settings page sends what was changed and nothing else, and says how much it saved -
+  it used to answer "settings saved" also where it saved nothing (the form of an AI service has its own button).
 - **No tool of the AI sends an application - whatever the button is called by, and whichever tool would press it.**
   The AI that reads forms and the one that steps in while filling could not click a button whose text says "Submit".
   That was the whole of it: a button named only by an `aria-label` (an icon) passed; the tools that open a list or

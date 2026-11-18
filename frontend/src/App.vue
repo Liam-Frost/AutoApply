@@ -80,10 +80,16 @@ onUnmounted(() => clearInterval(timer))
     <main class="content"><RemoteBanner /><router-view :key="$route.path.startsWith('/remote/') ? $route.path : undefined" /></main>
   </div>
   <template v-if="dialog.open">
-    <div class="overlay" style="z-index: 80" @click="answer(false)"></div>
-    <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(false)">
+    <div class="overlay" style="z-index: 80" @click="answer(dialog.cancel)"></div>
+    <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(dialog.cancel)">
       <p>{{ dialog.text }}</p>
-      <div class="row" style="justify-content: flex-end">
+      <div v-if="dialog.choices" class="row" style="justify-content: flex-end; flex-wrap: wrap">
+        <template v-for="c in dialog.choices" :key="c.key">
+          <button v-if="c.focus" v-focus :class="c.cls" @click="answer(c.key)">{{ c.label }}</button>
+          <button v-else :class="c.cls" @click="answer(c.key)">{{ c.label }}</button>
+        </template>
+      </div>
+      <div v-else class="row" style="justify-content: flex-end">
         <button @click="answer(false)">取消</button>
         <button v-focus :class="dialog.danger ? 'danger solid' : 'primary'" @click="answer(true)">{{ dialog.ok }}</button>
       </div>

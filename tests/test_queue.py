@@ -486,6 +486,72 @@ def test_the_program_does_not_start_more_drafts_than_the_applicant_wants_waiting
     assert scoring.queue_qualifying(limit=6) == 3
 
 
+def test_what_each_source_gave_and_why_the_rest_was_dropped_is_kept(app_env, monkeypatch):
+    """"It read hundreds and there is nothing to apply for." The page showed the latest scan only, per source a line of
+    reasons; a source that failed today showed its error and nothing of when it last worked or what it gave then, and
+    where the postings it did give stand now - enough for the line, not enough, ruled out - was nowhere."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import discover, employers
+    from autoapply.api.main import app
+    from autoapply.models import Job
+
+    db.set_setting("employers", [{"id": "a", "name": "Alpha", "url": "https://a.example", "kind": "greenhouse", "ref": {"board": "alpha"}, "priority": False, "enabled": True},
+                                 {"id": "b", "name": "Beta", "url": "https://b.example", "kind": "greenhouse", "ref": {"board": "beta"}, "priority": True, "enabled": True}])
+    db.set_setting("sources.pdportal", False)
+    db.set_setting("intake.enabled", True)
+    db.set_setting("intake.title_any", ["intern"])
+    db.set_setting("intake.title_role_any", [])
+    db.set_setting("intake.title_none", ["sales"])
+    db.set_setting("intake.countries", ["CA"])
+    db.set_setting("queue.min_score_for_draft", 8.0)
+    db.set_setting("employers.priority_min_score", 6.0)
+    monkeypatch.setattr(employers, "migrate_legacy", lambda: None)
+    down = {"Beta": False}
+    titles = {"alpha": [("Software Intern", "Vancouver, BC, Canada"), ("Data Intern", "Toronto, ON, Canada"), ("Sales Intern", "Toronto, ON, Canada"),
+                        ("Senior Engineer", "Vancouver, BC, Canada"), ("Staff Engineer", "Vancouver, BC, Canada"), ("ML Intern", "Austin, TX, US")],
+              "beta": [("Hardware Intern", "Ottawa, ON, Canada"), ("Director", "Ottawa, ON, Canada")]}
+
+    def rows_for(e, terms, keep):
+        if down[e["name"]] if e["name"] in down else False:
+            raise RuntimeError("the board is not answering")
+        board = e["ref"]["board"]
+        return iter([{"source": "greenhouse", "source_id": f"{board}-{i}", "title": t, "location": loc, "company": e["name"], "tenant": board,
+                      "apply_url": f"https://x.example/{board}/{i}", "jd_text": "d" * 300} for i, (t, loc) in enumerate(titles[board])])
+
+    monkeypatch.setattr(employers, "rows_for", rows_for)
+    discover.run(notify_user=False)
+    with db.session() as s:            # the scores come later: one of Alpha's is not enough for the line, one is ruled out; Beta's is enough for a priority employer's line
+        by = {j.title: j for j in s.query(Job)}
+        by["Software Intern"].score, by["Software Intern"].status = 7.0, "scored"
+        by["Data Intern"].score, by["Data Intern"].status, by["Data Intern"].exclusion = 0.0, "skipped", "needs a clearance"
+        by["Hardware Intern"].score, by["Hardware Intern"].status = 7.0, "scored"
+    got = TestClient(app).get("/api/sources/report").json()
+    a, b = (next(r for r in got["sources"] if r["name"] == n) for n in ("Alpha", "Beta"))
+    assert (a["read"], a["kept"], a["new"], a["screened"]) == (6, 2, 2, True) and {d["key"]: d["n"] for d in a["dropped"]} == {"kind": 2, "excluded": 1, "country": 1}
+    assert all(d["label"] and d["label"] != d["key"] for d in a["dropped"]) and a["ok_at"] and not a["error"]
+    assert a["now"] == {"total": 2, "unscored": 0, "excluded": 1, "below": 1, "above": 0} and a["line"] == 8.0
+    assert b["now"] == {"total": 1, "unscored": 0, "excluded": 0, "below": 0, "above": 1} and b["line"] == 6.0 and b["priority"] is True
+    assert got["total"]["read"] == 8 and got["total"]["kept"] == 3 and {d["key"]: d["n"] for d in got["total"]["dropped"]} == {"kind": 3, "excluded": 1, "country": 1}
+    # the postings that were dropped are counted, not kept
+    with db.session() as s:
+        assert s.query(Job).count() == 3
+    assert "Sales Intern" not in str(db.get_setting("sources.history"))
+    # the next scan cannot read Beta: what it gave when it last could be read is still there, with when that was
+    ok_at = b["ok_at"]
+    down["Beta"] = True
+    discover.run(notify_user=False)
+    b2 = next(r for r in TestClient(app).get("/api/sources/report").json()["sources"] if r["name"] == "Beta")
+    assert b2["error"] and b2["fails"] == 1 and b2["ok_at"] == ok_at and (b2["read"], b2["kept"]) == (2, 1) and b2["error_at"] > ok_at
+    down["Beta"] = False
+    discover.run(notify_user=False)
+    b3 = next(r for r in TestClient(app).get("/api/sources/report").json()["sources"] if r["name"] == "Beta")
+    assert not b3["error"] and b3["fails"] == 0 and b3["ok_at"] > ok_at
+    # it is the program's own record, not a setting: a settings page that sends everything back does not write it
+    c = TestClient(app)
+    assert c.put("/api/settings", json={"settings": {"sources.history": {}}}).status_code == 200 and db.get_setting("sources.history")
+
+
 def test_work_that_is_asked_for_again_does_what_was_asked_last(app_env):
     """A revision that ran into the usage limit waits in the queue for half an hour with its comment. The applicant
     writes another comment meanwhile: the waiting task was taken forward - with the old comment - and the new one was
@@ -587,3 +653,48 @@ def test_the_room_for_drafts_goes_to_the_best_postings(app_env, monkeypatch):
     # room for more: the next places go by score as well - the one that waited at 9.5 before the 8
     db.set_setting("drafts.max_pending", 0)
     assert scoring.queue_qualifying(limit=1) == 1 and refs() == sorted([f"job:{best}", f"job:{waiting}"])
+
+
+def test_the_sources_page_counts_with_the_line_the_queue_uses(app_env, monkeypatch):
+    """How many postings of a source are above the line was counted with the source's line; the queue asks the posting's
+    employer. A job board marked as priority does not make the employers on it priority - and a priority line above
+    the general one does not raise the bar for anybody."""
+    from autoapply import discover, employers, scoring
+    from autoapply.models import Job
+
+    db.set_setting("sources.pdportal", False)
+    db.set_setting("queue.min_score_for_draft", 8.0)
+    db.set_setting("employers.priority_min_score", 6.0)
+    listed = [{"id": "board", "name": "Campus Board", "kind": "feed", "ref": {"url": "https://board.example/rss"}, "priority": True, "enabled": True},
+              {"id": "acme", "name": "Acme", "kind": "greenhouse", "ref": {"board": "acme"}, "priority": True, "enabled": True}]
+    monkeypatch.setattr(employers, "listing", lambda: listed)
+    with db.session() as s:
+        for n, (company, source, tenant, score) in enumerate([("Gamma", "feed", "board", 7.0), ("Acme", "feed", "board", 7.0), ("Delta", "feed", "board", 8.5),
+                                                               ("Acme", "greenhouse", "acme", 6.5), ("Acme", "greenhouse", "acme", 8.5)]):
+            s.add(Job(source=source, source_id=f"s{n}", title=f"Intern {n}", company=company, tenant=tenant, status="scored", score=score,
+                      apply_url=f"https://x.example/{n}", jd_text="d" * 300))
+
+    def rows():
+        got = discover.report()["sources"]
+        return [next(r for r in got if r["name"] == n) for n in ("Campus Board", "Acme")]
+
+    board, acme = rows()
+    # on the board: Acme's posting is held to the priority line, the other two employers' to the general one
+    assert (board["now"]["above"], board["now"]["below"], board["lines"], board["line"]) == (2, 1, [6.0, 8.0], 6.0)
+    assert (acme["now"]["above"], acme["now"]["below"], acme["lines"]) == (2, 0, [6.0])
+    # a priority line above the general one: the general one still gets a draft (the lower of the two counts)
+    db.set_setting("employers.priority_min_score", 9.0)
+    board, acme = rows()
+    assert (board["now"]["above"], board["now"]["below"], board["lines"]) == (1, 2, [8.0])
+    assert (acme["now"]["above"], acme["now"]["below"], acme["lines"]) == (1, 1, [8.0])
+    # and what the page counts as above the line is what the queue starts
+    db.set_setting("employers.priority_min_score", 6.0)
+    above = sum(r["now"]["above"] for r in rows())
+    assert scoring._start_best(10) == above == 4
+    with db.session() as s:
+        assert sorted((j.company, j.score) for j in s.query(Job).filter_by(status="queued")) == [("Acme", 6.5), ("Acme", 7.0), ("Acme", 8.5), ("Delta", 8.5)]
+    # an employer with nothing listed now still says which line its postings would be held to
+    with db.session() as s:
+        for j in s.query(Job).filter_by(source="greenhouse"):
+            j.online = 0
+    assert rows()[1]["lines"] == [6.0] and rows()[1]["now"]["total"] == 0

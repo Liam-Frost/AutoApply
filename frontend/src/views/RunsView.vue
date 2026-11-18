@@ -86,7 +86,7 @@ onMounted(load)
             <div v-else-if="plan.draining"><b>正在收尾。</b> 做完手上的 {{ plan.running.length }} 个任务就停，不再开始新的；停下后会通知你。</div>
             <div v-else-if="plan.paused"><b>自动运行已暂停。</b> 定时扫描、自动评分、自动生成草案和自动重试都停着；你亲手点的操作（批准、生成草案、查邮件）照常执行。</div>
             <div v-else><b>运行中。</b> 表单的读取和填写一次做一个；扫描、评分、查邮件在另一条线上同时进行。</div>
-            <div class="small muted" style="margin-top: 4px">等你处理的草案（正在生成或等你审批）：{{ plan.drafts.waiting }}<template v-if="plan.drafts.cap"> / 上限 {{ plan.drafts.cap }}<template v-if="plan.drafts.room === 0">，已到上限，程序暂时不再自己开始新的草案</template></template>。上限在<router-link to="/settings">设置 → 投递方式</router-link>里改。</div>
+            <div class="small muted" style="margin-top: 4px">等你处理的草案（正在生成或等你审批）：{{ plan.drafts.waiting }}<template v-if="plan.drafts.cap"> / 上限 {{ plan.drafts.cap }}<template v-if="plan.drafts.room === 0">，已到上限，程序暂时不再自己开始新的草案</template></template>。上限在<router-link to="/settings/automation/prepare">设置 → 自动准备草案</router-link>里改。</div>
           </div>
           <button v-if="!plan.draining" @click="drain(true)"><Icon name="pause" />做完手上的就停</button>
           <button v-else class="primary" @click="drain(false)"><Icon name="play" />继续做队列里的任务</button>

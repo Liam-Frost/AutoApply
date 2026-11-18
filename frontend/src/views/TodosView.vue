@@ -94,6 +94,11 @@ const openDue = (t) => { dueEdit.value = { id: t.id, value: t.due_at ? t.due_at.
 const saveDue = (t) => act(async () => { await api.post(`/todos/${t.id}/due`, { due: dueEdit.value.value || null }); dueEdit.value = { id: 0, value: '' } }, '日期已更新，到时会提醒你')
 const scoreCls = (x) => (x == null ? '' : x >= 9 ? 'hi' : x >= 7.5 ? 'mid' : '')
 
+// a card that says something is not set up (or no longer works): where that is put right
+const FIX = {
+  'config:gmail': ['/settings/accounts/mailbox', '打开邮箱设置'], 'config:resume': ['/files', '打开材料库'], 'config:pdportal-blocked': ['/settings/system/browser', '打开浏览器兼容设置'],
+  'config:llm-limit': ['/settings/accounts/ai', '查看 AI 服务和额度'], 'config:llm': ['/settings/accounts/ai', '打开 AI 服务设置'],
+}
 const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.title, what: (x) => x.explained.message }
 
 async function load() { todos.value = await api.get('/todos'); reloadOverview() }
@@ -264,6 +269,10 @@ onUnmounted(() => clearInterval(timer))
         </template>
         <template v-else-if="['driver_patch', 'driver'].includes(t.kind)">
           <button @click="dismiss(t)">知道了</button>
+        </template>
+        <template v-else-if="t.kind === 'config' && FIX[t.ref]">
+          <router-link :to="FIX[t.ref][0]" class="btn primary"><Icon name="settings" />{{ FIX[t.ref][1] }}</router-link>
+          <button @click="done(t)">已经处理了</button>
         </template>
         <template v-else>
           <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn"><Icon name="external" />打开页面</a>

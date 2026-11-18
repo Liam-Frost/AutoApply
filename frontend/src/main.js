@@ -5,6 +5,7 @@ import AaSelect from './components/Select.vue'
 import './style.css'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
+import { installGuards } from './dirty'
 import AnalyticsView from './views/AnalyticsView.vue'
 import FilesView from './views/FilesView.vue'
 import ContactsView from './views/ContactsView.vue'
@@ -20,6 +21,7 @@ import AccountsView from './views/AccountsView.vue'
 import ProfileView from './views/ProfileView.vue'
 import RunsView from './views/RunsView.vue'
 import SettingsView from './views/SettingsView.vue'
+import SourcesView from './views/SourcesView.vue'
 import RemoteView from './views/RemoteView.vue'
 
 const router = createRouter({
@@ -40,10 +42,13 @@ const router = createRouter({
     { path: '/accounts', component: AccountsView },
     { path: '/profile', component: ProfileView },
     { path: '/runs', component: RunsView },
-    { path: '/settings', component: SettingsView },
+    { path: '/settings/:group?/:section?', component: SettingsView },
+    { path: '/jobs/sources', component: SourcesView },
     { path: '/remote/:id', component: RemoteView, props: true },
   ],
 })
+
+installGuards(router)       // what was typed and not saved is asked about before the page is left
 
 // a fresh install goes to the first-run guide before anything else
 router.beforeEach(async (to) => {

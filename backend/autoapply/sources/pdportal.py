@@ -132,7 +132,7 @@ def firewall(page: Any) -> None:
                         body="门户的防护没有放行这次访问，即使是在普通浏览器的窗口里。重新登录一次 PD Portal 就会重新通过它的验证。")
         raise NeedsHuman("PD Portal's firewall did not let the browser in: signing in again renews its pass", kind="login", url=f"{BASE}/home.htm")
     notify.add_todo("config", "PD Portal 拒绝了自动扫描", ref="config:pdportal-blocked",
-                    body="门户的防护挡住了这次用的浏览器，这不是登录问题。到“设置 → 浏览器后端”打开 nodriver（PD Portal 的规则已经预置），再扫描一次。")
+                    body="门户的防护挡住了这次用的浏览器，这不是登录问题。到“设置 → 系统与数据 → 浏览器兼容”打开 nodriver（PD Portal 的规则已经预置），再扫描一次。")
     raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
 
 

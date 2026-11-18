@@ -1,23 +1,30 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api, fmt } from '../api'
 import { renderMarkdown } from '../md'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import { fmtTime, run as runAction, toast, ask } from '../ui'
+import { clone, mayLeave, same, useUnsaved } from '../dirty'
+import { useRoute } from 'vue-router'
 
-const tab = ref('sections')
+const route = useRoute()
+const tab = ref(['sections', 'pay', 'stories', 'init', 'scoring', 'markdown', 'history'].includes(route.query.tab) ? route.query.tab : 'sections')
 // salary, notice period, referees: a form that keeps two sections of the profile up to date
 const st = ref({ compensation: {}, referees: [], suggested: {} })
 const CONTACT = [['ask_first', '给出前先问我'], ['after_offer', '拿到录用通知后才能联系'], ['anytime', '随时可以联系']]
 const loadSt = async () => {
   const d = await api.get('/profile/structured')
-  st.value = { ...d, compensation: { period: 'year', policy: 'state', ...d.compensation }, referees: d.referees.length ? d.referees : [] }
+  take('st', st, { ...d, compensation: { period: 'year', policy: 'state', ...d.compensation }, referees: d.referees.length ? d.referees : [] })
 }
+// What each editor of this page held when it was last read or saved. Saving one of them reads the page afresh; that
+// used to put every other editor back to what is saved, with whatever had been typed in it.
+const base = reactive({ md: '', stories: '', scoring: '', st: { compensation: {}, referees: [], suggested: {} } })
+const take = (k, r, fresh) => { if (same(r.value, base[k])) r.value = clone(fresh); base[k] = clone(fresh) }
 const regions = ref({ packs: [] })
 const addRef = () => st.value.referees.push({ name: '', title: '', org: '', relation: '', email: '', phone: '', contact: 'ask_first' })
-const saveSt = () => run(() => api.put('/profile/structured', { compensation: st.value.compensation, referees: st.value.referees }), '已保存，并写进了个人资料')
+const saveSt = () => run(async () => { await api.put('/profile/structured', { compensation: st.value.compensation, referees: st.value.referees }); base.st = clone(st.value) }, '已保存，并写进了个人资料')
 const p = ref({ markdown: '', sections: [], versions: [], agent_added: [] })
 const scoring = ref('')
 const stories = ref('')
@@ -30,7 +37,9 @@ const draft = ref(null)
 const busy = ref(false)
 const upKind = ref('resume_site')
 const mdPreview = ref(true)
-const mdDirty = computed(() => md.value !== p.value.markdown)
+const mdDirty = computed(() => md.value !== base.md)
+const stDirty = computed(() => !same(st.value, base.st))
+const sectionDirty = computed(() => editIdx.value >= 0 && !!p.value.sections[editIdx.value] && editBody.value !== p.value.sections[editIdx.value].body)
 
 const KINDS = {
   resume_site: '简历（雇主官网用）', resume_portal: '简历（PD Portal 用）', transcript: '成绩单', cl_template: '求职信模板（Word）',
@@ -40,9 +49,9 @@ const UPLOADABLE = ['resume_site', 'resume_portal', 'transcript', 'cl_template',
 
 async function load() {
   p.value = await api.get('/profile')
-  md.value = p.value.markdown
-  scoring.value = (await api.get('/profile?doc=scoring')).markdown
-  stories.value = (await api.get('/profile?doc=stories')).markdown
+  take('md', md, p.value.markdown)
+  take('scoring', scoring, (await api.get('/profile?doc=scoring')).markdown)
+  take('stories', stories, (await api.get('/profile?doc=stories')).markdown)
   docs.value = await api.get('/documents')
   await loadSt()
   regions.value = await api.get('/regions')
@@ -51,15 +60,15 @@ const run = (fn, ok) => runAction(fn, ok, load)
 const active = computed(() => docs.value.filter((d) => d.active && d.kind !== 'cover_letter'))
 const todoCount = computed(() => (p.value.markdown.match(/TODO:/g) || []).length)
 
-function startEdit(i) { editIdx.value = i; editBody.value = p.value.sections[i].body }
+async function startEdit(i) { if (!(await mayLeave(['profile-section']))) return; editIdx.value = i; editBody.value = p.value.sections[i].body }
 const saveSection = () => run(async () => {
   const secs = p.value.sections.map((s, i) => (i === editIdx.value ? { ...s, body: editBody.value } : s))
   await api.put('/profile', { sections: secs, note: '编辑：' + p.value.sections[editIdx.value].title })
   editIdx.value = -1
 }, '已保存')
-const saveMd = () => run(() => api.put('/profile', { markdown: md.value, note: '直接编辑全文' }), '已保存')
-const saveStories = () => run(() => api.put('/profile', { doc: 'stories', markdown: stories.value }), '已保存')
-const saveScoring = () => run(() => api.put('/profile', { doc: 'scoring', markdown: scoring.value }), '评分规则已保存')
+const saveMd = () => run(async () => { await api.put('/profile', { markdown: md.value, note: '直接编辑全文' }); base.md = md.value }, '已保存')
+const saveStories = () => run(async () => { await api.put('/profile', { doc: 'stories', markdown: stories.value }); base.stories = stories.value }, '已保存')
+const saveScoring = () => run(async () => { await api.put('/profile', { doc: 'scoring', markdown: scoring.value }); base.scoring = scoring.value }, '评分规则已保存')
 const restore = async (v) => (await ask('回退到这一版？现在的内容会先存成一个历史版本。')) && run(() => api.post('/profile/restore/' + v.id), '已回退')
 const undo = (a) => run(() => api.post('/profile/remove-line', { fragment: a.note.slice(0, 40) }), '已撤销这条规则')
 
@@ -89,6 +98,19 @@ async function init() {
   busy.value = false
 }
 const adopt = () => run(async () => { await api.put('/profile', { markdown: draft.value.draft, note: '从上传资料初始化' }); draft.value = null }, '已采用起草的个人资料')
+
+// What is edited on each tab, and is asked about before it is left: another tab, another section, another page.
+const TAB_LABELS = { sections: '我的资料', pay: '薪资与推荐人', stories: '我的经历故事', init: '从简历生成', scoring: '岗位评分规则', markdown: '原文编辑', history: '历史版本' }
+const EDITED_ON = { sections: ['profile-section'], pay: ['profile-pay'], stories: ['profile-stories'], init: ['profile-draft'], scoring: ['profile-scoring'], markdown: ['profile-md'] }
+useUnsaved({ id: 'profile-section', get label() { const s = p.value.sections[editIdx.value]; return s ? `资料“${s.title === 'preamble' ? '说明' : s.title}”` : '我的资料' }, dirty: () => sectionDirty.value, save: () => saveSection(), discard: () => { editIdx.value = -1 } })
+useUnsaved({ id: 'profile-pay', label: '薪资与推荐人', dirty: () => stDirty.value, save: () => saveSt(), discard: () => { st.value = clone(base.st) } })
+useUnsaved({ id: 'profile-stories', label: '我的经历故事', dirty: () => stories.value !== base.stories, save: () => saveStories(), discard: () => { stories.value = base.stories } })
+useUnsaved({ id: 'profile-scoring', label: '岗位评分规则', dirty: () => scoring.value !== base.scoring, save: () => saveScoring(), discard: () => { scoring.value = base.scoring } })
+useUnsaved({ id: 'profile-md', label: '原文编辑', dirty: () => mdDirty.value, save: () => saveMd(), discard: () => { md.value = base.md } })
+useUnsaved({ id: 'profile-draft', label: '生成的资料草稿', dirty: () => !!draft.value, save: () => adopt(), discard: () => { draft.value = null } })
+const marked = (k) => (EDITED_ON[k] || []).some((id) => ({ 'profile-section': sectionDirty.value, 'profile-pay': stDirty.value, 'profile-stories': stories.value !== base.stories,
+  'profile-scoring': scoring.value !== base.scoring, 'profile-md': mdDirty.value, 'profile-draft': !!draft.value })[id])
+async function go(k) { if (k !== tab.value && (await mayLeave(EDITED_ON[tab.value] || []))) tab.value = k }
 onMounted(load)
 </script>
 
@@ -98,7 +120,7 @@ onMounted(load)
   </PageHead>
   <div class="seg" style="margin-bottom: 16px">
     <router-link to="/files" class="btn ghost sm" style="order: 9; margin-left: 6px">简历和材料在“材料库” →</router-link>
-    <button v-for="(l, k) in { sections: '我的资料', pay: '薪资与推荐人', stories: '我的经历故事', init: '从简历生成', scoring: '岗位评分规则', markdown: '原文编辑', history: '历史版本' }" :key="k" :class="{ on: tab === k }" @click="tab = k">{{ l }}</button>
+    <button v-for="(l, k) in TAB_LABELS" :key="k" :class="{ on: tab === k }" @click="go(k)">{{ l }}<span v-if="marked(k)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></button>
   </div>
 
   <template v-if="tab === 'sections'">
@@ -122,7 +144,7 @@ onMounted(load)
       <div class="row"><h3 class="grow" style="margin: 0">{{ s.title === 'preamble' ? '说明' : s.title }}</h3><button v-if="editIdx !== i" @click="startEdit(i)">编辑</button></div>
       <template v-if="editIdx === i">
         <textarea v-model="editBody" :rows="Math.min(30, Math.max(6, editBody.split('\n').length + 1))" style="margin-top: 8px"></textarea>
-        <div class="row" style="margin-top: 8px"><button class="primary" @click="saveSection">保存</button><button @click="editIdx = -1">取消</button></div>
+        <div class="row" style="margin-top: 8px"><button class="primary" @click="saveSection">保存</button><button @click="editIdx = -1">取消</button><span v-if="sectionDirty" class="badge warn">有改动还没保存</span></div>
       </template>
       <div v-else-if="s.body" class="md" style="margin-top: 8px" v-html="renderMarkdown(s.body)"></div>
       <p v-else class="muted">（空）</p>
@@ -176,7 +198,7 @@ onMounted(load)
         </div>
       </div>
     </div>
-    <div class="row"><button class="primary" @click="saveSt">保存</button><span class="muted small">保存后会写进个人资料的“Compensation and notice period”和“Referees”两节，这两节由这里管理，手动改动会在下次保存时被覆盖。</span></div>
+    <div class="row"><button class="primary" :disabled="!stDirty" @click="saveSt">保存</button><span v-if="stDirty" class="badge warn">有改动还没保存</span><span class="muted small">保存后会写进个人资料的“Compensation and notice period”和“Referees”两节，这两节由这里管理，手动改动会在下次保存时被覆盖。</span></div>
   </template>
 
   <template v-if="tab === 'init'">
@@ -207,7 +229,7 @@ onMounted(load)
         <div class="grow"><div class="card-title">直接编辑全文</div><div class="muted small">用 Markdown 写。一般在“我的资料”里按段落改就够了，这里适合大段调整。</div></div>
         <label class="small muted"><input v-model="mdPreview" type="checkbox" /> 同时预览</label>
         <span v-if="mdDirty" class="badge warn">有改动还没保存</span>
-        <button :disabled="!mdDirty" @click="md = p.markdown">放弃改动</button>
+        <button :disabled="!mdDirty" @click="md = base.md">放弃改动</button>
         <button class="primary" :disabled="!mdDirty" @click="saveMd"><Icon name="check" />保存</button>
       </div>
       <div :class="mdPreview ? 'cols' : ''" style="margin-top: 14px">
@@ -221,7 +243,8 @@ onMounted(load)
     <div class="card">
       <div class="row">
         <div class="grow"><div class="card-title">我的经历故事</div><div class="muted small">申请表上常有开放题：“讲一次你解决冲突的经历”“说一个你引以为傲的项目”。把你真实的经历写在这里，每个故事一个“## 标题”，写清楚当时的情况、你做了什么、结果如何。程序回答这类问题时只会从这里（和你的经历）取材、改写和压缩；这里没有合适的故事，它会把问题留给你，不会替你编。</div></div>
-        <button class="primary" @click="saveStories"><Icon name="check" />保存</button>
+        <span v-if="stories !== base.stories" class="badge warn">有改动还没保存</span>
+        <button class="primary" :disabled="stories === base.stories" @click="saveStories"><Icon name="check" />保存</button>
       </div>
       <textarea v-model="stories" style="height: 60vh; margin-top: 14px; resize: vertical; font-family: inherit; font-size: 14px"></textarea>
       <p class="hint" style="margin-top: 8px">用中文或英文写都可以，程序会按申请表的语言来回答。写 4–6 个覆盖不同主题的故事（团队合作、解决难题、领导、失败与学习、主动性）基本够用。</p>
@@ -232,7 +255,8 @@ onMounted(load)
     <div class="card">
       <div class="row">
         <div class="grow"><div class="card-title">岗位评分规则</div><div class="muted small">用平常的话写：什么样的岗位该高分、什么情况直接排除。程序读完岗位说明全文后按这些规则评分；没有岗位说明的不评分。</div></div>
-        <button class="primary" @click="saveScoring"><Icon name="check" />保存</button>
+        <span v-if="scoring !== base.scoring" class="badge warn">有改动还没保存</span>
+        <button class="primary" :disabled="scoring === base.scoring" @click="saveScoring"><Icon name="check" />保存</button>
       </div>
       <textarea v-model="scoring" style="height: 60vh; margin-top: 14px; resize: vertical"></textarea>
     </div>

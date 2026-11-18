@@ -34,7 +34,7 @@ for _p in (DATA, FILES, MATERIALS, RUNS, SESSIONS, KNOWLEDGE, PLAYBOOKS):
 # Kept in the settings table, but the program's own record of what it found out - not something the settings page
 # shows or saves. The page used to get these and send them back with everything else: a page left open wrote an older
 # copy over what the program had recorded since (which browser a sign-in lives in, which site signs in on which).
-STATE = frozenset({"mail.gmail_history", "schedule.draining", "schedule.drain_told"})
+STATE = frozenset({"mail.gmail_history", "schedule.draining", "schedule.drain_told", "sources.history"})
 # Settings of earlier versions that are no longer settings: what the program found out about sites lives in sites.py now.
 # A settings page loaded before sends them back; they are ignored.
 RETIRED = frozenset({"accounts.alias", "sso.offered", "browser.visible_sites", "browser.session_made_in", "learned.drivers_written",
@@ -135,6 +135,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # the large tech employers' own career sites (sources/bigtech.py); always watched unless switched off
     "sources.bigtech": {"amazon": False, "apple": False, "google": False, "microsoft": False, "meta": False, "nvidia": False, "amd": False, "intel": False},
     "sources.search_terms": [],  # what to type into a career site's search box
+    # What each source gave the last time it was read and when it last could be read (discover.remember): counts by
+    # reason, never the postings that were dropped. Not a setting.
+    "sources.history": {},
     # intake rules (intake.py): what gets stored at all. Empty lists = no restriction; the first-run guide fills these in from the persona.
     "intake.enabled": True,
     "intake.title_any": [],

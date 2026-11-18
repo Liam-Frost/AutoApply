@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { run, toast } from '../ui'
+import { mayLeave, same, useUnsaved } from '../dirty'
 import Icon from './Icon.vue'
 import ModelPick from './ModelPick.vue'
 import TechDetails from './TechDetails.vue'
@@ -35,7 +36,12 @@ async function load(keep) {
   autoModels()
   api.get('/settings/claude-status').then((c) => (claude.value = c)).catch(() => {})
 }
-function choose(k) { pick.value = k; fill(); autoModels() }
+// (switching the service that is being set up is leaving what was typed for the other one)
+async function choose(k) { if (k === pick.value || !(await mayLeave(['ai-provider']))) return; pick.value = k; fill(); autoModels() }
+const formDirty = computed(() => {
+  const p = cur.value
+  return !!p && (!!form.value.api_key || form.value.base_url !== (p.base_url || '') || form.value.model !== (p.model || '') || form.value.small_model !== (p.small_model || ''))
+})
 let keyTimer
 function keyTyped() { clearTimeout(keyTimer); keyTimer = setTimeout(autoModels, 700) }
 async function autoModels() {
@@ -59,9 +65,13 @@ async function save(use) {
     toast(use ? `已切换到 ${cur.value.name}` : '已保存')
     await load(pick.value)
     emit('changed')
+    busy.value = false
+    return true
   } catch (e) { toast(e.message, 'bad') }
   busy.value = false
+  return false
 }
+useUnsaved({ id: 'ai-provider', get label() { return cur.value ? `AI 服务“${cur.value.name.split('（')[0]}”` : 'AI 服务' }, dirty: () => formDirty.value, save: () => save(false), discard: fill })
 async function listModels() {
   busy.value = true
   try {
@@ -112,9 +122,13 @@ function addBackup() {
 const moveBackup = (i, by) => { const a = backups.value; const j = i + by; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; foTest.value = {} }
 async function saveFo() {
   foBusy.value = true
-  try { fo.value = await api.put('/llm/failover', { entries: backups.value }); backups.value = fo.value.saved.map((e) => ({ ...e })); toast('备用顺序已保存'); loadQuota(false) } catch (e) { toast(e.message, 'bad') }
+  let ok = true
+  try { fo.value = await api.put('/llm/failover', { entries: backups.value }); backups.value = fo.value.saved.map((e) => ({ ...e })); toast('备用顺序已保存'); loadQuota(false) } catch (e) { toast(e.message, 'bad'); ok = false }
   foBusy.value = false
+  return ok
 }
+const foDirty = computed(() => !same(backups.value, fo.value.saved))
+useUnsaved({ id: 'ai-backups', label: '备用服务', dirty: () => foDirty.value, save: saveFo, discard: () => { backups.value = fo.value.saved.map((e) => ({ ...e })); foTest.value = {} } })
 async function testBackup(i) {
   foTest.value = { ...foTest.value, [i]: { busy: true } }
   try { foTest.value = { ...foTest.value, [i]: await api.post('/llm/failover/test', backups.value[i]) } } catch (e) { foTest.value = { ...foTest.value, [i]: { error: e.message } } }
@@ -158,6 +172,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
     <div class="card">
       <div class="row">
         <span class="card-title grow">{{ cur.name }}</span>
+        <span v-if="formDirty" class="badge warn">有改动还没保存</span>
         <span v-if="inUse" class="badge ok">正在使用</span>
       </div>
 
@@ -299,7 +314,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
         </div>
       </div>
       <div class="row small" style="gap: 14px; flex-wrap: wrap; margin-top: 12px; align-items: center">
-        <span class="muted">额度提醒：</span>
+        <span class="muted">额度提醒（改了就生效）：</span>
         <label>用量到 <input v-model.number="quota.warn_percent" type="number" min="1" max="100" style="width: 70px" @change="saveQuota" /> % 时</label>
         <label>余额低于 <input v-model.number="quota.warn_balance" type="number" min="0" step="0.5" style="width: 80px" @change="saveQuota" /> 时</label>
         <label><input v-model="quota.notify" type="checkbox" @change="saveQuota" /> 发通知告诉我</label>
@@ -308,7 +323,8 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
       <p v-if="!backups.length" class="muted" style="margin-top: 10px">还没有备用服务。建议至少加一个不同厂商的：这样一家的额度用完，工作不会停。</p>
       <div class="row" style="margin-top: 12px">
         <button @click="addBackup"><Icon name="plus" />添加备用服务</button>
-        <button class="primary" :disabled="foBusy" @click="saveFo"><Icon name="check" />保存备用顺序</button>
+        <button class="primary" :disabled="foBusy || !foDirty" @click="saveFo"><Icon name="check" />保存备用顺序</button>
+        <span v-if="foDirty" class="badge warn">有改动还没保存</span>
       </div>
     </div>
   </div>

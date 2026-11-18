@@ -13,6 +13,7 @@ const revealed = ref({})
 const idps = ref([])
 const idpState = ref({})
 const browserRules = ref([])
+const advanced = ref(false)      // which browser an account uses, importing, moving sign-ins: there when needed, out of the way otherwise
 const backendFor = (tenant) => browserRules.value.find((r) => r.tenant === tenant)?.backend || ''
 async function setBackend(tenant, backend) {
   await runAction(async () => {
@@ -153,14 +154,14 @@ onUnmounted(() => clearInterval(timer))
               <code v-if="revealed[a.tenant_key]">{{ revealed[a.tenant_key] }}</code><span v-else class="muted">已保存</span>
               <button class="sm ghost" @click="reveal(a)">{{ revealed[a.tenant_key] ? '隐藏' : '显示' }}</button>
             </template>
-            <template v-else><span class="muted">没有保存</span> <button class="sm ghost" @click="form.tenant_key = a.tenant_key; form.login_email = a.login_email || ''">填写</button></template>
+            <template v-else><span class="muted">没有保存</span> <button class="sm ghost" @click="form.tenant_key = a.tenant_key; form.login_email = a.login_email || ''; advanced = true">填写</button></template>
           </td>
           <td>
             <span class="badge" :class="(STATUS[a.status] || [])[1]">{{ (STATUS[a.status] || [a.status])[0] }}</span>
             <div v-if="a.explained.message && a.status !== 'ok'" class="small muted" style="margin-top: 4px; max-width: 320px">{{ a.explained.message }}</div>
             <TechDetails v-if="a.status !== 'ok'" :text="a.explained.detail" />
           </td>
-          <td class="small" style="max-width: 240px">{{ sessionText(a.session) }}<AaSelect :value="backendFor(a.tenant_key)" small aria-label="账号浏览器" @change="setBackend(a.tenant_key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect></td>
+          <td class="small" style="max-width: 240px">{{ sessionText(a.session) }}<AaSelect v-if="advanced" :value="backendFor(a.tenant_key)" small aria-label="账号浏览器" @change="setBackend(a.tenant_key, $event.target.value)"><option value="">跟随站点规则</option><option value="playwright">Playwright</option><option value="nodriver">nodriver</option></AaSelect></td>
           <td class="small">{{ BY[a.created_by] || '—' }}</td>
           <td><div class="row" style="flex-wrap: nowrap"><button v-if="a.host" class="sm" @click="takeover(a)"><Icon name="login" />去登录</button><button class="sm ghost danger" @click="remove(a)">删除</button></div></td>
         </tr>
@@ -169,6 +170,9 @@ onUnmounted(() => clearInterval(timer))
     <EmptyState v-if="!accounts.length" icon="key" title="还没有保存任何网站账号" text="第一次遇到需要登录的网站时，会在“需要我处理”里请你登录，或由程序自己注册。" />
   </div>
 
+  <details class="card" style="margin-top: 16px" :open="advanced" @toggle="advanced = $event.target.open">
+    <summary><b>高级</b> <span class="muted small">每个账号用哪种浏览器、从 Chrome 导入密码、把登录状态带到另一台电脑、手动添加</span></summary>
+    <p class="hint" style="margin: 10px 0 0">展开后，上面每个账号的“登录状态”一栏会多出一个选择：这个账号用程序自带的浏览器还是普通浏览器。默认跟随<router-link to="/settings/system/browser">设置 → 浏览器兼容</router-link>里的站点规则，一般不用动；某个网站总是登录不上时再来这里单独改。</p>
   <div class="cols" style="margin-top: 16px">
     <div class="card">
       <div class="card-title">从 Chrome 导入已保存的密码</div>
@@ -205,4 +209,5 @@ onUnmounted(() => clearInterval(timer))
       <button class="primary" :disabled="!form.tenant_key" @click="save">保存</button>
     </div>
   </div>
+  </details>
 </template>

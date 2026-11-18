@@ -16,6 +16,7 @@ export function dismissToast(id) {
 }
 
 // Run an action, show the outcome as a toast, then refresh. `ok` may be a string or (result) => string.
+// Resolves to what the action returned, or to false when it did not succeed (what went wrong has been shown).
 export async function run(fn, ok, after) {
   try {
     const r = await fn()
@@ -26,15 +27,23 @@ export async function run(fn, ok, after) {
     toast(e.message || '操作没有成功', 'bad')
     // what the page shows may be what is out of date (a card for something that is settled meanwhile): show it afresh
     if (after) await Promise.resolve(after()).catch(() => {})
+    return false
   }
 }
 
 // Confirmation dialog in the product's own style (instead of the browser's confirm()). Resolves to true / false.
-export const dialog = reactive({ open: false, text: '', ok: '确定', danger: false, resolve: null })
+// (`choices`: a question with more than yes and no - see choose; `cancel`: what closing it without choosing answers.)
+export const dialog = reactive({ open: false, text: '', ok: '确定', danger: false, resolve: null, choices: null, cancel: false })
 export function ask(text, opts = {}) {
-  if (dialog.open && dialog.resolve) dialog.resolve(false)
+  if (dialog.open && dialog.resolve) dialog.resolve(dialog.cancel)
   const danger = opts.danger ?? /删除|清理/.test(text)
-  return new Promise((resolve) => Object.assign(dialog, { open: true, text, ok: opts.ok || (danger ? '删除' : '确定'), danger, resolve }))
+  return new Promise((resolve) => Object.assign(dialog, { open: true, text, ok: opts.ok || (danger ? '删除' : '确定'), danger, resolve, choices: null, cancel: false }))
+}
+// A question with its own answers: choices = [{ key, label, cls?, focus? }]. Resolves to the key that was chosen;
+// to `cancel` when the dialog is closed without choosing (Esc, a click beside it).
+export function choose(text, choices, cancel) {
+  if (dialog.open && dialog.resolve) dialog.resolve(dialog.cancel)
+  return new Promise((resolve) => Object.assign(dialog, { open: true, text, danger: false, resolve, choices, cancel }))
 }
 export function answer(v) {
   const r = dialog.resolve

@@ -74,23 +74,26 @@ STOPS_ANYWAY = ["有程序核对不了、由 AI 选定的填写项", "表单在�
 def submit_mode(ats: str, company: str, answers: list[dict[str, Any]]) -> dict[str, Any]:
     """How an approved draft gets submitted. An approved draft is submitted automatically unless the user
     asked to click Submit for this ATS or company, or something about the answers is not well established.
-    Returns {"mode": "auto" | "manual", "reasons": [...], "step": <the last step of the plan, in words>}
-    (reasons are shown to the user). The one place this is decided; the button, the plan and the settings page read it."""
-    reasons: list[str] = []
+    Returns {"mode": "auto" | "manual", "reasons": [...], "why": [{"text", "where"}, ...], "step": <the last step of
+    the plan, in words>} (reasons are shown to the user; ``why`` is the same reasons, each with the section of the
+    settings that decides it). The one place this is decided; the button, the plan and the settings page read it."""
+    why: list[dict[str, str]] = []
+    where = "/settings/automation/submit"
     if policy_for(ats) == "manual":
-        reasons.append(f"你把 {ats} 设为人工提交" if (db.get_setting("policy.per_ats") or {}).get(ats) == "manual" else "默认提交方式是人工提交")
+        why.append({"text": f"你把 {ats} 设为人工提交" if (db.get_setting("policy.per_ats") or {}).get(ats) == "manual" else "默认提交方式是人工提交", "where": where})
     hit = next((c for c in (db.get_setting("policy.manual_companies") or []) if c and c.strip().lower() in (company or "").lower()), None)
     if hit:
-        reasons.append(f"你把 {hit} 设为人工提交")
+        why.append({"text": f"你把 {hit} 设为人工提交", "where": where})
     level = str(db.get_setting("policy.manual_confidence") or "low")
     bar = {"none": set(), "low": {"low"}, "medium": {"low", "medium"}}.get(level, {"low"})
     shaky = [a["label"] for a in answers if a.get("value") not in ("", None, []) and a.get("confidence") in bar and a.get("type") != "file"]
     if shaky:
-        reasons.append(f"有 {len(shaky)} 项答案把握不高（{'；'.join(x[:30] for x in shaky[:3])}{'…' if len(shaky) > 3 else ''}）")
+        why.append({"text": f"有 {len(shaky)} 项答案把握不高（{'；'.join(x[:30] for x in shaky[:3])}{'…' if len(shaky) > 3 else ''}）", "where": where})
     # (Answers the agent added from the profile while reading the form are in the draft the applicant approves: approving
     # the draft is having seen them. What comes up after the approval is dealt with in the run - see needs_you there.)
+    reasons = [w["text"] for w in why]
     mode = "manual" if reasons else "auto"
-    return {"mode": mode, "reasons": reasons, "step": submit_step(mode, reasons), "stops_anyway": list(STOPS_ANYWAY)}
+    return {"mode": mode, "reasons": reasons, "why": why, "step": submit_step(mode, reasons), "stops_anyway": list(STOPS_ANYWAY)}
 
 
 def submit_step(mode: str, reasons: list[str] | None = None) -> str:
