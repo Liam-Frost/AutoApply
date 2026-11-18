@@ -48,6 +48,16 @@ class Posting:
 
 
 def site_key(url: str) -> str:
+    """The name the program keeps this site's session, account and notes under. A site it already has something for
+    under an older name ("workday:acme.wd1") keeps that name, so that its sign-in and stored password are found."""
+    try:
+        from ..ats import registry
+
+        ref = registry.detect(url)
+        if ref is not None and ref.tenant_key:
+            return str(ref.tenant_key)
+    except Exception:  # noqa: BLE001 - no older name for it
+        pass
     return f"generic:{urlparse(url).netloc.lower()}"
 
 
