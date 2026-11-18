@@ -7,8 +7,9 @@ import { fmtTime } from '../src/ui.js'
 
 describe('renderMarkdown', () => {
   it('lets no markup of the text through', () => {
-    const html = renderMarkdown('<img src=x onerror=alert(1)>\n\n**bold** and <script>alert(1)</script> and `<b>code</b>`')
-    expect(html).not.toMatch(/<img|<script|<b>/)
+    const html = renderMarkdown('<img src=x onerror=alert(1)>\n\n**bold** and <script>alert(1)</script> and <SCRIPT>alert(2)</SCRIPT> and <IMG SRC=x> and `<b>code</b>`')
+    expect(html).not.toMatch(/<img|<script|<b>/i)             // in whatever case it was written
+    expect(html).toContain('&lt;SCRIPT&gt;')
     expect(html).toContain('&lt;img')
     expect(html).toContain('<strong>bold</strong>')
     expect(html).toContain('<code>&lt;b&gt;code&lt;/b&gt;</code>')
