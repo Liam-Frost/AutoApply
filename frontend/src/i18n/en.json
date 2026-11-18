@@ -3380,5 +3380,8 @@
 "个人资料已生成，里面有 {0} 处简历上没有、需要你补充的信息（比如工作许可、称呼）。设置完成后到“个人资料”页看一遍、补全即可。": "Your profile has been generated. {0} item(s) that your résumé does not state need you to fill them in (work authorisation, how to address you, and the like). Once setup is finished, look through it on the Profile page and complete it.",
 "程序只照抄资料里写明的事实；资料里没有而申请表需要的信息会标成“待填” 让你填，不会猜。已经有个人资料时，生成的是一份草稿，你对比之后决定是否采用。": "The program only copies facts that your files state; what forms need and your files do not say is marked \"to fill in\" for you - it does not guess. When you already have a profile, what is generated is a draft: you compare the two and decide whether to adopt it.",
 "程序会读你的简历，整理成一份“个人资料”，之后给岗位评分、填申请表都从这里取内容。上传后马上开始整理，不用再点别的。PDF 或 Word 都可以；如果有 Word 版，以后还能按岗位调整简历的顺序。": "The program reads your résumé and writes a \"profile\" from it; scoring postings and filling in application forms both draw on it. This starts as soon as you upload - nothing else to press. PDF or Word both work; with a Word version, the résumé can later be reordered for each posting.",
-"资料线": "profile line"
+"资料线": "profile line",
+"{0} 的登录过期了。浏览器里保存的密码被学校的统一登录拒绝了（可能改过密码）。请登录一次。": "The sign-in at {0} has expired. The password saved in the browser was refused by the institution's login (it may have been changed since). Please sign in once.",
+"{0} 的登录过期了。浏览器里保存的密码被学校的统一登录拒绝了两次，程序不再用它。请登录一次。": "The sign-in at {0} has expired. The password saved in the browser was refused by the institution's login twice; the program no longer uses it. Please sign in once.",
+"{0} 的登录过期了，学校的统一登录要重新输入密码。请登录一次，并保持勾选“记住我输入的密码”：程序会把这次登录用的账号密码存进系统钥匙串，以后自己登录，只有手机上的二次确认需要你。": "The sign-in at {0} has expired and the institution's login asks for the password again. Please sign in once, and leave \"Remember the password I type\" ticked: the program keeps the login you use in the system keyring and signs in by itself from then on - only the confirmation on your phone needs you."
 }

@@ -148,3 +148,28 @@ def test_a_window_closed_before_anything_was_done_keeps_nothing(window, site):
     got = auth.takeover(KEY, site + "/login", save_credentials=False, timeout_s=30, done=lambda url: "/account" in url)
     assert got["ok"] is False and got["reason"]
     assert browser.load_state(KEY) is None and not _kept(site)
+
+
+def test_the_login_used_in_the_window_is_remembered_when_that_is_ticked(window, site):
+    """"Remember the password I type" is on every sign-in card. In the ordinary browser's window nothing was ever
+    remembered, whatever was ticked: the applicant signed in, and was asked to again when the session ran out."""
+    from autoapply import auth, secrets
+
+    which, played_by = window
+    played_by([_signs_in, None, None, lambda page: page.close()])
+    got = auth.takeover(KEY, site + "/login", save_credentials=True, timeout_s=30)
+    assert got["ok"] is True and got["credentials_saved"] is True
+    acct = auth.account(KEY)
+    assert acct["login_email"] == "liam@example.com" and acct["has_password"] and acct["status"] == "ok"
+    assert secrets.get_password(KEY) == "a password made up for this test"
+    assert _kept(site)
+
+
+def test_a_login_is_not_remembered_when_that_is_not_ticked(window, site):
+    from autoapply import auth, secrets
+
+    which, played_by = window
+    played_by([_signs_in, None, None, lambda page: page.close()])
+    got = auth.takeover(KEY, site + "/login", save_credentials=False, timeout_s=30)
+    assert got["ok"] is True and got["credentials_saved"] is False
+    assert not auth.account(KEY)["has_password"] and secrets.get_password(KEY) is None
