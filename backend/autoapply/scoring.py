@@ -180,11 +180,27 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     with db.session() as s:
         # only postings that can be scored (a description to read) and are not another listing of the same job
         rows = s.query(Job).filter(Job.status == "new", Job.online == 1, Job.duplicate_of.is_(None)).order_by(Job.id.desc()).all()
-        # (a posting whose source gave only a summary may be too short to score as it stands: its page is read first)
-        able = [j.id for j in rows if len((j.jd_text or "").strip()) >= 200 or j.jd_partial == "summary"]
+        short = [j.id for j in rows if len((j.jd_text or "").strip()) < 200 and j.jd_partial == "summary"]
+    # A summary too short to score has its own page read first - before the places of this run are given out, so that
+    # one whose page cannot be read takes none of them, now or at the next run (it is tried again after some hours,
+    # fulltext.AGAIN_AFTER; until then it is not among what is left to do).
+    from . import fulltext
+
+    tried = waiting = 0
+    for jid in short:
+        if not fulltext.due(jid):
+            continue
+        if tried >= limit:
+            waiting += 1        # not reached this time: still to be tried
+            continue
+        tried += 1
+        _whole_text(jid)
+    with db.session() as s:
+        rows = s.query(Job).filter(Job.status == "new", Job.online == 1, Job.duplicate_of.is_(None)).order_by(Job.id.desc()).all()
+        able = [j.id for j in rows if len((j.jd_text or "").strip()) >= 200]
     left = set_aside_by_rule(able)
     by_rule = len(able) - len(left)
-    ids, remaining = left[:limit], max(0, len(left) - limit)
+    ids, remaining = left[:limit], max(0, len(left) - limit) + waiting
     for jid in ids:      # the pages of the postings that came as summaries, one after the other: not several browsers at once
         _whole_text(jid)
     scored = skipped = queued = 0

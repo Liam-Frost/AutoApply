@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Any, Iterable
 
-from . import db, intake, messages, notify
+from . import db, fulltext, intake, messages, notify
 from .ats.base import NeedsHuman
 from .models import Job, now
 from .sources import bigtech, public
@@ -58,10 +58,12 @@ def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = N
                     j.status = "scored" if j.score is not None else "new"
                 j.note = (f"back online {now().date().isoformat()}; " + (j.note or ""))[:2000]
                 back += 1
-            # A source that gives only a summary lists the posting again at every scan - with the summary. Once the whole
-            # text was read from the posting's page (fulltext.complete), the summary does not replace it.
+            # A source that gives only a summary lists the posting again at every scan - with the summary. Once the text
+            # was read from the posting's own page (fulltext.complete says so on the posting: "whole", or "cut" when the
+            # page was longer than is kept), the summary does not replace it. Nothing else is taken for that: a posting
+            # from before texts were marked has no mark, and its text may be a teaser like any other.
             partial = str(r.get("jd_partial") or "")
-            keep_text = bool(partial and (j.jd_text or "").strip() and not j.jd_partial and j.id is not None)
+            keep_text = partial == "summary" and j.jd_partial in fulltext.FROM_PAGE and bool((j.jd_text or "").strip())
             for f in FIELDS:
                 v = r.get(f)
                 if v and not (f == "jd_text" and keep_text):
@@ -386,7 +388,7 @@ def report() -> dict[str, Any]:
         if not e.get("enabled", True):
             continue
         src, scope = employers.source_of(e)
-        mine = [j for j in jobs if j[0] == src and (e["kind"] == "builtin" or j[1] == scope)]
+        mine = [j for j in jobs if j[0] == src and (scope is None or j[1] == scope)]
         rows.append(row(e["name"], employers.KIND_LABEL.get(e["kind"], e["kind"]), mine, line(e["name"], src), priority=bool(e.get("priority"))))
     if st["sources.pdportal"]:
         rows.append(row("pdportal", "UBC PD Portal", [j for j in jobs if j[0] == "pdportal"], line("", "pdportal"), priority=False, exempt=True))

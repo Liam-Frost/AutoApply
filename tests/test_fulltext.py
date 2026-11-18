@@ -81,20 +81,20 @@ def test_a_summary_is_completed_from_the_postings_own_page_and_stays_completed(a
     jid = _job()
     assert fulltext.complete(jid) is True and asked == ["https://careers.northwind.example/jobs/101"]
     j = _get(jid)
-    assert j.jd_partial == "" and "without sponsorship" in j.jd_text and "All jobs" not in j.jd_text and "full text read from the posting's page" in j.note
+    assert j.jd_partial == "whole" and "without sponsorship" in j.jd_text and "All jobs" not in j.jd_text and "full text read from the posting's page" in j.note
     assert fulltext.complete(jid) is True and len(asked) == 1                 # it is the whole text now: nothing to read
     # the feed lists the posting again at the next scan - with its teaser. The teaser does not replace the posting.
     row = {"source_id": "board:1", "title": "Data Analyst, Store Operations", "company": "Northwind Analytics", "tenant": "board", "jd_text": SUMMARY, "jd_partial": "summary",
            "apply_url": "https://careers.northwind.example/jobs/101"}
     discover.upsert([row], source="feed", scope="board", complete=False)
     j = _get(jid)
-    assert j.jd_partial == "" and "without sponsorship" in j.jd_text
+    assert j.jd_partial == "whole" and "without sponsorship" in j.jd_text
     # a posting that is new comes in as what the source gave: a summary, marked as one; a source that gives the whole text is not marked
     discover.upsert([{**row, "source_id": "board:2"}, {**row, "source_id": "board:3", "jd_text": "the whole text " * 200, "jd_partial": ""}], source="feed", scope="board", complete=False)
     from autoapply.models import Job
 
     with db.session() as s:
-        assert {x.source_id: x.jd_partial for x in s.query(Job)} == {"board:1": "", "board:2": "summary", "board:3": ""}
+        assert {x.source_id: x.jd_partial for x in s.query(Job)} == {"board:1": "whole", "board:2": "summary", "board:3": ""}
     # ...and when a source that gave a summary gives the whole text one day, that is taken
     discover.upsert([{**row, "source_id": "board:2", "jd_text": "now the whole text " * 100, "jd_partial": ""}], source="feed", scope="board", complete=False)
     with db.session() as s:
@@ -194,9 +194,9 @@ def test_a_summary_too_short_to_score_is_completed_first_and_then_scored(app_env
                   apply_url="https://careers.orchard.example/jobs/7", jd_text=short, jd_partial="summary"))          # its page cannot
         s.add(Job(source="import", source_id="old:1", title="Imported", company="Old", status="new", jd_text="one line"))  # never had a description, and is no summary of one
     out = scoring.score_pending()
-    assert out["scored"] == 1 and out["no_description"] == 1
+    assert out["scored"] == 1 and out["no_description"] == 0 and out["remaining"] == 0      # the one whose page cannot be read is not among what is left to do
     j = _get(reads)
-    assert j.status == "scored" and j.jd_partial == "" and "without sponsorship" in j.jd_text
+    assert j.status == "scored" and j.jd_partial == "whole" and "without sponsorship" in j.jd_text
     assert len(seen) == 1 and "without sponsorship" in seen[0] and "only a SUMMARY" not in seen[0]      # scored on the posting, not on its teaser
     assert not j.score_reason.startswith("只有摘要")
     with db.session() as s:
@@ -215,3 +215,105 @@ def test_the_posting_says_on_its_page_that_its_text_is_a_summary(app_env):
     assert c.get(f"/api/jobs/{whole}").json()["jd_partial"] == ""
     # "score this one" is not refused for a summary that is short: its page is read first
     assert c.post("/api/jobs/bulk", json={"action": "score", "ids": [jid]}).json() == {"done": 1, "skipped": 0}
+
+
+def test_a_text_stored_before_texts_were_marked_is_not_taken_for_a_completed_one(app_env, monkeypatch):
+    """After the update every stored posting has no mark. A feed's teaser among them was taken for a text that had
+    been completed: its next scan's text was thrown away and it was never marked, so its page was never read."""
+    from autoapply import discover, fulltext
+    from autoapply.models import Job
+
+    listed = _job(SUMMARY, partial="")                                           # stored before the update, still on its feed
+    gone = _job("A short teaser of another job. Read more", partial="", sid="board:2")      # scrolled off its feed since
+    whole = _job("the whole text of a posting " * 60, partial="", sid="board:3")           # a feed that gave everything
+    row = {"source_id": "board:1", "title": "Data Analyst, Store Operations", "company": "Northwind Analytics", "tenant": "board",
+           "jd_text": SUMMARY + " (updated)", "jd_partial": "summary", "apply_url": "https://careers.northwind.example/jobs/101"}
+    discover.upsert([row], source="feed", scope="board", complete=False)
+    j = _get(listed)
+    assert j.jd_partial == "summary" and j.jd_text.endswith("(updated)")          # the scan's text is taken, and it is said to be a summary
+    assert fulltext.mark_stored_teasers() == 1                                   # the one that is no longer listed anywhere
+    with db.session() as s:
+        assert {x.source_id: x.jd_partial for x in s.query(Job)} == {"board:1": "summary", "board:2": "summary", "board:3": ""}
+    assert _get(gone).jd_partial == "summary" and _get(whole).jd_partial == ""
+    assert fulltext.mark_stored_teasers() == 0
+
+
+def test_a_page_longer_than_is_kept_is_said_to_be_cut(app_env, monkeypatch):
+    """Reading the posting's page is not reading the whole posting when the page is longer than what is kept."""
+    from autoapply import discover, fulltext, scoring
+
+    fulltext.forget_attempts()
+    long = "<main><h1>Data Analyst, Store Operations</h1>" + "<p>Northwind Analytics: one more paragraph of the description of this role.</p>" * 600 + "<p>LAST LINE: must hold a clearance.</p></main>"
+    monkeypatch.setattr(fulltext, "_get", lambda url: long)
+    monkeypatch.setattr(fulltext, "_in_browser", lambda url: "")
+    jid = _job(SUMMARY + " " + "The team works with store managers every week. " * 6)
+    assert fulltext.complete(jid) is False                                       # not the whole posting
+    j = _get(jid)
+    assert j.jd_partial == "cut" and len(j.jd_text) == fulltext.LIMIT and "LAST LINE" not in j.jd_text
+    seen = _scoring(monkeypatch)
+    assert scoring.score_job(jid)["reason"].startswith("岗位说明很长") and "its beginning only" in seen[0]
+    # it came from the page all the same: the feed's teaser does not replace it at the next scan
+    discover.upsert([{"source_id": "board:1", "title": "Data Analyst, Store Operations", "company": "Northwind Analytics", "tenant": "board", "jd_text": SUMMARY,
+                      "jd_partial": "summary"}], source="feed", scope="board", complete=False)
+    assert _get(jid).jd_partial == "cut" and len(_get(jid).jd_text) == fulltext.LIMIT
+
+
+def test_summaries_whose_pages_cannot_be_read_do_not_keep_the_others_from_being_scored(app_env, monkeypatch):
+    """The newest postings are scored first. Short teasers whose pages could not be read stayed "new", so they were
+    the newest at every run: they took every place, and the postings behind them were never scored."""
+    from autoapply import fulltext, scoring
+    from autoapply.models import Job
+
+    fulltext.forget_attempts()
+    read = []
+    monkeypatch.setattr(fulltext, "_get", lambda url: read.append(url) or "")
+    monkeypatch.setattr(fulltext, "_in_browser", lambda url: "")
+    seen = _scoring(monkeypatch)
+    db.set_setting("scoring.parallel", 1)
+    db.set_setting("scoring.max_per_run", 2)
+    with db.session() as s:
+        for n in range(2):                                                       # older, with a description
+            s.add(Job(source="greenhouse", source_id=f"g{n}", title=f"Analyst {n}", company="Acme", tenant="acme", status="new", jd_text="Build reports. " * 30))
+        for n in range(3):                                                       # newer: teasers, pages unreadable
+            s.add(Job(source="feed", source_id=f"board:{n}", title=f"Teaser {n}", company="Beta", tenant="board", status="new", jd_text="Wanted. Read more", jd_partial="summary",
+                      apply_url=f"https://jobs.beta.example/{n}"))
+    out = scoring.score_pending()
+    assert out["scored"] == 2 and len(seen) == 2 and len(read) == 2               # two pages were tried, and both places went to postings that can be scored
+    assert out["remaining"] == 1                                                  # the third teaser has not had its try yet
+    out = scoring.score_pending()
+    assert len(read) == 3 and out["scored"] == 0 and out["remaining"] == 0        # tried; nothing is left to do, and nothing asks for another run
+    out = scoring.score_pending()
+    assert len(read) == 3 and out["remaining"] == 0                               # not tried again right away
+    with db.session() as s:
+        assert sorted(j.status for j in s.query(Job)) == ["new", "new", "new", "scored", "scored"]
+
+
+def test_a_purpose_built_site_is_one_listing_whatever_tenant_its_postings_carry(app_env):
+    """Intel's postings are Workday's and carry Workday's tenant ("intel.wd1"), not the site's key: looked for by the
+    key, none of them was found, so none was ever aged out."""
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import discover, employers
+    from autoapply.api.main import app
+    from autoapply.models import Job
+
+    intel = {"id": "intel", "name": "Intel", "kind": "builtin", "ref": {"key": "intel"}, "enabled": True, "priority": False}
+    assert employers.source_of(intel) == ("intel", None)
+    assert employers.source_of({"kind": "greenhouse", "ref": {"board": "acme"}, "id": "x"}) == ("greenhouse", "acme")
+    source, scope = employers.source_of(intel)
+    rows = [{"source_id": str(i), "title": f"Engineer {i}", "company": "Intel", "tenant": "intel.wd1", "ats": "workday"} for i in (1, 2)]
+    filtered = {"source": source, "scope": scope, "complete": False, "stale_days": 5}
+    discover.upsert(rows, **filtered)
+    assert discover.upsert(rows[:1], **filtered)["offline"] == 0                  # missing for one reading
+    with db.session() as s:
+        gone = s.query(Job).filter_by(source_id="2").one()
+        assert gone.missed_since is not None and gone.tenant == "intel.wd1"      # found, and its tenant is left as applying needs it
+        gone.missed_since = gone.missed_since - timedelta(days=6)
+    assert discover.upsert(rows[:1], **filtered)["offline"] == 1
+    db.set_setting("employers", [intel])
+    db.set_setting("sources.pdportal", False)
+    listed = TestClient(app).get("/api/employers").json()["employers"]
+    assert listed[0]["open_jobs"] == 1
+    assert next(r for r in discover.report()["sources"] if r["name"] == "Intel")["now"]["total"] == 1

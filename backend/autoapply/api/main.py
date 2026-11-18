@@ -104,6 +104,11 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not put unconfirmed accounts back in line")
         db.set_setting("migrated.unconfirmed_accounts", True)
+    if not db.get_setting("migrated.jd_partial"):
+        from .. import fulltext as _fulltext
+
+        _fulltext.mark_stored_teasers()
+        db.set_setting("migrated.jd_partial", True)
     if not db.get_setting("migrated.document_versions"):
         from .. import materials as _materials
 
@@ -349,7 +354,7 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["archived"] = j.archived_at is not None
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
-        out.update(jd_text=j.jd_text, jd_partial=j.jd_partial or "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
+        out.update(jd_text=j.jd_text, jd_partial=j.jd_partial if j.jd_partial in ("summary", "cut") else "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
                    first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=humanize.explain(a.last_event if a else ""),
                    evidence=a.evidence if a else None,
                    drafts=[{"id": d.id, "version": d.version, "review_status": d.review_status} for d in (a.drafts if a else [])])
@@ -2514,7 +2519,7 @@ def list_employers() -> dict[str, Any]:
     rows = []
     for e in employers.listing():
         src, scope = employers.source_of(e)
-        n = counts.get((src, scope), 0) if e["kind"] != "builtin" else sum(v for (a, _), v in counts.items() if a == src)
+        n = counts.get((src, scope), 0) if scope is not None else sum(v for (a, _), v in counts.items() if a == src)
         rows.append({**e, "kind_label": employers.KIND_LABEL.get(e["kind"], e["kind"]), "open_jobs": n})
     return {"employers": rows, "priority_min_score": db.get_setting("employers.priority_min_score")}
 

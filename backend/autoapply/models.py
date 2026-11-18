@@ -57,7 +57,7 @@ class Job(Base):
     docs_required: Mapped[str] = mapped_column(String, default="")
     jd_text: Mapped[str] = mapped_column(Text, default="")
     # "" when jd_text is the posting as its source gave it; "summary" when the source gave only a summary; "cut" when
-    # the text was longer than is kept (fulltext.py)
+    # the text was longer than is kept; "whole" when it was read from the posting's own page (fulltext.py)
     jd_partial: Mapped[str] = mapped_column(String, default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     brief: Mapped[str] = mapped_column(Text, default="")  # detailed Markdown overview written when the job is scored
