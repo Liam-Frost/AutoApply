@@ -15,7 +15,7 @@ import PageHead from '../components/PageHead.vue'
 import SetSection from '../components/SetSection.vue'
 import FormError from '../components/FormError.vue'
 import { useRoute, useRouter } from 'vue-router'
-import { persona, run as runAction, toast } from '../ui'
+import { fmtTime, persona, run as runAction, toast } from '../ui'
 import { absorb, changed, clone, unsaved, useUnsaved } from '../dirty'
 
 const s = ref(null)
@@ -35,8 +35,19 @@ const docs = ref([])
 api.get('/system').then((d) => (sys.value = d)).catch(() => {})
 api.get('/documents').then((d) => (docs.value = d)).catch(() => {})
 const exportData = async (sessions) => {
-  try { exported.value = await api.post('/system/export', { sessions }) } catch (e) { toast(e.message, 'bad') }
+  try {
+    exported.value = await api.post('/system/export', { sessions })
+    sys.value = await api.get('/system')        // "last exported" is read from the exports themselves
+  } catch (e) { toast(e.message, 'bad') }
 }
+const lastExport = computed(() => sys.value.last_export || null)
+// (one sentence for each of the two cases: the parts are not put together from pieces)
+const lastExportLine = computed(() => {
+  const e = lastExport.value
+  if (!e) return ''
+  const when = fmtTime(e.created), mb = (e.size / 1e6).toFixed(1)
+  return e.sessions ? `上次导出：${when}，${e.files} 个文件，${mb} MB，含登录状态。这台电脑上保留最近 5 份。` : `上次导出：${when}，${e.files} 个文件，${mb} MB，不含登录状态。这台电脑上保留最近 5 份。`
+})
 const checkUpdate = async () => {
   try { upd.value = await api.get('/system/update') } catch (e) { toast(e.message, 'bad') }
 }
@@ -568,11 +579,48 @@ onMounted(load)
             <template v-else-if="upd.newer">有新版本 <b>{{ upd.latest }}</b>（{{ upd.published }}）：<a :href="upd.url" target="_blank" rel="noopener">查看发布说明并下载</a>。程序不会自动更新，下载后解压覆盖程序文件即可，数据不受影响。</template>
             <template v-else>{{ upd.note || '已经是最新版本。' }}</template>
           </p>
-          <ul class="hint" style="margin: 10px 0 0 18px; line-height: 1.8">
-            <li><b>导出</b>随时可以做，不用停任务。压缩包里有数据库、你上传和程序生成的文件、个人资料和规则；不含历次运行的截图，不含密码和 API key（它们在系统的密码库里）。登录状态是加密保存的，只能在这台电脑上用。</li>
-            <li><b>恢复</b>要先退出程序：在<router-link :to="{ path: '/runs', query: { tab: 'plan' } }">工作计划</router-link>里点“做完手上的就停”，等它停下后退出，然后在程序文件夹里运行 <code>uv run autoapply restore 导出文件.zip</code>，原来的数据会另存一份。</li>
-            <li><b>更新</b>同样先“做完手上的就停”再退出，覆盖程序文件后重新启动。</li>
-          </ul>
+          <p class="small" style="margin: 10px 0 0">
+            <template v-if="lastExport">{{ lastExportLine }} <a :href="'/api/system/export/' + lastExport.name">下载这一份</a></template>
+            <template v-else>还没有导出过。数据只在这台电脑上：硬盘坏了或者换电脑之前，先导出一份放到别处。</template>
+          </p>
+          <div class="backup-notes">
+            <div>
+              <h4>导出里有什么</h4>
+              <ul>
+                <li>全部记录：岗位、申请、草案和答过的问题、邮件的归类、设置、运行历史。</li>
+                <li>你上传的文件，和程序为各个岗位写的简历、求职信。</li>
+                <li>个人资料、评分规则、各网站的笔记、你改过的提示词，以及程序学到的做法。</li>
+                <li>选“连同登录状态一起导出”时，还有各网站保存的登录状态（加密的）。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>导出里没有什么</h4>
+              <ul>
+                <li v-if="sys.secrets === 'file'">密码和 API key：它们在数据文件夹里单独加密的密码文件里，不进压缩包。</li>
+                <li v-else>密码和 API key：它们在系统的密码库里（Windows 凭据管理器、macOS 钥匙串），不在数据文件夹里。</li>
+                <li>历次运行的截图和页面记录：很大，也不需要带走。</li>
+                <li>普通浏览器的用户资料文件夹：在普通浏览器里登录过的网站，登录是留在那里的。</li>
+                <li>远程访问的设置和登录密码。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>在这台电脑上恢复</h4>
+              <ul>
+                <li>先退出程序：到“工作计划”里点“做完手上的就停”，等它停下后退出。 <router-link :to="{ path: '/runs', query: { tab: 'plan' } }">打开工作计划</router-link></li>
+                <li>在程序文件夹里运行下面这条命令；原来的数据会另存一份，不会丢。<div><code>uv run autoapply restore 导出文件.zip</code></div></li>
+                <li>密码和 API key 还在原处，恢复后照常能用；导出时带了登录状态的，登录也一起回来。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>搬到另一台电脑</h4>
+              <ul>
+                <li>在新电脑上装好程序，用同样的命令恢复：记录、文件、资料和规则都跟过去。</li>
+                <li>密码和 API key 不会跟过去：在新电脑上重新填（设置里的“账号与连接”；各网站的密码在“网站账号”里）。</li>
+                <li>登录状态不会跟过去：它是用这台电脑上的密钥加密的，换了电脑打不开。要么在新电脑上重新登录，要么在“网站账号”的“高级”里把某个登录单独导出（设一个口令），到新电脑上导入。 <router-link to="/accounts">打开网站账号</router-link></li>
+              </ul>
+            </div>
+          </div>
+          <p class="hint" style="margin: 10px 0 0">更新程序也是先“做完手上的就停”再退出，覆盖程序文件后重新启动；数据文件夹不受影响。</p>
         </div>
       </SetSection>
       <SetSection id="diagnose" title="诊断" how="">

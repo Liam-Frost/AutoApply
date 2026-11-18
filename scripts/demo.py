@@ -152,6 +152,12 @@ def seed(lang: str) -> None:
         rows = [{"id": i, "label": lab, "type": typ, "options": [], "required": i not in ("linkedin", "heard"), "page": 0, "value": val, "basis": t["basis"][b],
                  "confidence": "medium" if i == "why" else "high", "source": "materials" if typ == "file" else "profile", "sensitive": "work_auth" if i == "auth" else "sponsorship" if i == "sponsor" else "",
                  "sensitive_confirmed": True} for i, lab, typ, val, b in questions]
+        # two answers that were given before: one the applicant confirmed on this employer's form, one that was last used on another employer's
+        for r in rows:
+            if r["id"] == "auth":
+                r.update(source="cache", reused={"own": True, "confirmed": True, "employer": "", "at": (now - timedelta(days=9)).isoformat(timespec="minutes")})
+            elif r["id"] == "start":
+                r.update(source="cache", confidence="medium", reused={"own": False, "confirmed": False, "employer": "lumen", "at": (now - timedelta(days=4)).isoformat(timespec="minutes")})
         if unresolved:
             rows.append({"id": "salary", "label": "What are your salary expectations?", "type": "text", "options": [], "required": True, "page": 0, "value": "", "basis": t["unresolved"],
                          "confidence": "low", "source": "unresolved", "sensitive": "salary", "sensitive_confirmed": False})

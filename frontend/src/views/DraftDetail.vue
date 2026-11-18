@@ -275,7 +275,7 @@ onUnmounted(() => clearInterval(timer))
                 <pre v-else style="font-family: inherit; font-size: 14px">{{ show(a) }}</pre>
               </template>
             </td>
-            <td class="small muted">{{ a.basis_display }}<div v-if="a.source === 'cache'" class="tag" style="margin-top: 2px">以前回答过</div><div v-if="a.source === 'agent_added'" class="tag" style="margin-top: 2px">填表时 AI 补填</div></td>
+            <td class="small muted">{{ a.basis_display }}<div v-if="a.reused_display" class="small" style="margin-top: 2px; color: var(--text-2)">{{ a.reused_display }}</div><div v-else-if="a.source === 'cache'" class="tag" style="margin-top: 2px">以前回答过</div><div v-if="a.source === 'agent_added'" class="tag" style="margin-top: 2px">填表时 AI 补填</div></td>
             <td><span class="tag" :class="{ ok: a.confidence === 'high', warn: a.confidence === 'medium', bad: a.confidence === 'low' }">{{ { high: '高', medium: '中', low: '低' }[a.confidence] }}</span></td>
             <td><button v-if="editable && a.type !== 'file' && editing !== a.id" class="sm" @click="startEdit(a)">修改</button></td>
           </tr>
