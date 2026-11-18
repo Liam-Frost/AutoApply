@@ -76,11 +76,29 @@ JOBS = [  # company, title, location, score, source, application status
 ]
 
 
+def page_pdf(path: Path, lines: list[str]) -> Path:
+    """A one-page PDF with a few lines of text on it - the files of the invented applicant (no Word needed)."""
+    esc = lambda t: t.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")  # noqa: E731
+    text = "BT /F1 11 Tf 72 720 Td 16 TL " + " ".join(f"({esc(ln)}) Tj T*" for ln in lines) + " ET"
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            f"<< /Length {len(text)} >>\nstream\n{text}\nendstream", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, at = "%PDF-1.4\n", []
+    for n, o in enumerate(objs, 1):
+        at.append(len(out))
+        out += f"{n} 0 obj\n{o}\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n" + "".join(f"{a:010d} 00000 n \n" for a in at) + f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(out.encode("latin-1"))
+    return path
+
+
 def seed(lang: str) -> None:
     """Fill the current (empty) data folder. Call with AUTOAPPLY_DATA / AUTOAPPLY_KNOWLEDGE pointing at it."""
     sys.path.insert(0, str(ROOT / "backend"))
-    from autoapply import db, knowledge, persona
-    from autoapply.models import Application, Draft, Job, MailEvent, Todo
+    from autoapply import config, db, knowledge, persona
+    from autoapply.models import Application, Document, Draft, Job, MailEvent, Todo
 
     t = L[lang]
     db.init_db()
@@ -141,6 +159,25 @@ def seed(lang: str) -> None:
 
     with db.session() as s:
         ids = {}
+        cv = Document(kind="resume_site", name="Alex_Chen_Resume.pdf", active=1, meta={"pages": 1},
+                      path=str(page_pdf(config.FILES / "Alex_Chen_Resume.pdf", ["Alex Chen", "alex.chen@example.com | +1 604-555-0142 | Vancouver, BC", "", "EDUCATION",
+                                                                                 "B.Com., Business Analytics - Pacific Coast University, 2027", "", "EXPERIENCE",
+                                                                                 "Operations Analyst Intern - Harbour Grocers (2026)", "Built a weekly store-performance report used by 14 store managers."])))
+        s.add(cv)
+        s.flush()
+
+        def letter(job_id: int, company: str, title: str, n: int, current: bool) -> Document:
+            """A cover letter for a posting: every writing in a folder of its own, the last one in use."""
+            name = f"{company.replace(' ', '_')}_Cover_Letter.pdf"
+            body = ["Alex Chen", "", f"Re: {title}", "", "Dear Hiring Team:", "", f"I am writing to apply for the {title} role at {company}.",
+                    "At Harbour Grocers I built the weekly store-performance report that 14 store managers use." if n == 1 else
+                    "At Harbour Grocers I built the weekly store-performance report that 14 store managers use, and cut its preparation from a day to an hour.",
+                    "", "Sincerely,", "Alex Chen"]
+            d = Document(kind="cover_letter", name=name, job_id=job_id, active=int(current), meta={"pages": 1, "problems": [], "letter": {"paragraphs": body[6:8]}},
+                         path=str(page_pdf(config.MATERIALS / f"job_{job_id}" / f"cover_letter_v{n}" / name.removesuffix(".pdf") / name, body)), created_at=now - timedelta(hours=30 - 6 * n))
+            s.add(d)
+            s.flush()
+            return d
         for n, (company, title, loc, score, source, st) in enumerate(JOBS):
             host = f"careers.{company.split()[0].lower()}.example"
             j = Job(source=source if source != "page" else "manual", source_id=f"demo{n}", company=company, title=title, location=loc, score=score, score_reason=t["reasons"][min(n // 2, 5)],
@@ -160,8 +197,12 @@ def seed(lang: str) -> None:
             s.flush()
             if st in ("draft_ready", "needs_input", "ready_to_submit"):
                 rows = answers(unresolved=st == "needs_input")
+                if not n:      # the first posting's letter was rewritten once: the earlier writing is kept beside the one in use
+                    letter(j.id, company, title, 1, False)
+                cl = letter(j.id, company, title, 2 if not n else 1, True)
                 d = Draft(application_id=a.id, version=1, schema=schema("greenhouse", host), answers=rows, unresolved=[r for r in rows if r["source"] == "unresolved"],
-                          materials=[{"kind": "resume", "name": "Alex_Chen_Resume.pdf", "path": ""}, {"kind": "cover_letter", "name": f"{company.replace(' ', '_')}_Cover_Letter.pdf", "path": ""}],
+                          materials=[{"slot": "resume", "slot_label": "Resume/CV", "document_id": cv.id, "kind": "resume_site", "name": cv.name, "path": cv.path},
+                                     {"slot": "cover", "slot_label": "Cover Letter", "document_id": cl.id, "kind": "cover_letter", "name": cl.name, "path": cl.path}],
                           review_status="approved" if st == "ready_to_submit" else "pending", notes=[], plan=[], auto_approve_check={"passed": False, "failed": ["cover_letter_ok"], "checks": {}})
                 s.add(d)
                 s.flush()

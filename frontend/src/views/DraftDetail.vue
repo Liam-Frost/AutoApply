@@ -295,6 +295,7 @@ onUnmounted(() => clearInterval(timer))
             <span class="tag info">{{ m.slot_label }}</span>
             <a :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener">{{ m.name }}</a>
             <span class="muted small">{{ KIND[m.kind] || '' }}</span>
+            <span v-if="m.overwritten" class="badge warn" title="早先的程序每次重写都写进同一个文件：这里打开的是后来写的那一版，不是这份草案生成时的内容">文件已被后来的版本覆盖</span>
           </div>
           <div v-if="!d.materials.length" class="muted">这张申请表不需要上传文件。</div>
           <template v-if="tailored && tailored.tailor">

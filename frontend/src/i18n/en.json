@@ -3238,5 +3238,19 @@
 "{0} 项需要你过目，其余的是资料里写明的事实": "{0} to look at; the rest are facts your profile states",
 "用{0}：这个网站的账号规则是这样定的（{1}）": "In {0}: this site's account rule says so ({1})",
 "网站把程序自带的浏览器挡在外面时用（nodriver）": "For when a site keeps the program's own browser out (nodriver)",
-"用{0}：这个网站通过第三方账号登录，那个账号的登录在它里面": "In {0}: this site is signed in to through another account, whose sign-in is in it"
+"用{0}：这个网站通过第三方账号登录，那个账号的登录在它里面": "In {0}: this site is signed in to through another account, whose sign-in is in it",
+"已被覆盖": "Overwritten",
+"· 第 {0} 版": "· version {0}",
+"文件已被后来的版本覆盖": "File overwritten by a later version",
+"这一版的文件已经被覆盖": "This version's file has been overwritten",
+"这一版的文件被后来写的那一版覆盖了": "The file of this version was overwritten by the one written after it",
+"已改用这一版：之后生成的草案会带上它，已有的草案不变": "This version is now in use: drafts made from here on carry it, existing drafts stay as they are",
+"早先的程序每次重写都写进同一个文件：这里打开的是后来写的那一版，不是这份草案生成时的内容": "Earlier versions of the program wrote every rewrite into the same file: what opens here is the version written later, not what this draft was made with",
+"早先的程序每次重写都写进同一个文件，所以这里打开的是后来写的那一版，不是当时的内容。现在每次重写都单独保存，不会再发生。": "Earlier versions of the program wrote every rewrite into the same file, so what opens here is the version written later, not the content of that time. Every rewrite is now saved separately, so this no longer happens.",
+"打开 {0}": "Open {0}",
+"选择 {0}": "Select {0}",
+"{0}（第 {1} 版）": "{0} (version {1})",
+"没在用的版本": "Version not in use",
+"这个岗位现有的草案带的还是这一版。之后新生成的草案会用“在用”的那一版。": "The draft that exists for this posting still carries this version. Drafts made from here on will use the version marked “In use”.",
+"清理 {0} 个文件（为岗位生成、已经没在用的版本，以及已归档岗位的文件）？会从磁盘上删除，不能恢复。": "Clean up {0} files (versions written for postings that are no longer in use, and files of archived postings)? They will be deleted from disk and cannot be restored."
 }
