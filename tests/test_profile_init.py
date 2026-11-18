@@ -252,6 +252,32 @@ def test_a_scanned_resume_is_said_in_words(app_env, monkeypatch):
     assert st["status"] == "failed" and st["error"] == "「scan.pdf」里读不出文字（可能是扫描件）。请上传文字版的 PDF 或 Word 文件。"
 
 
+def test_a_draft_written_while_there_was_no_profile_is_asked_again_when_there_is_one(app_env, monkeypatch):
+    """Before forms waited for a profile, a form read for nobody gave a draft of unanswered questions. Those drafts
+    are still there when the profile is written: their open questions are asked again, the others left alone."""
+    from autoapply import drafts, tasks
+    from autoapply.models import Application, Draft
+
+    _empty()
+    jobs = [_job(n, status="queued") for n in (1, 2, 3)]
+    with db.session() as s:
+        ids = []
+        for job_id, (status, answers) in zip(jobs, [("pending", [{"id": "q1", "label": "Phone", "value": "", "source": "unresolved", "required": True}]),
+                                                    ("pending", [{"id": "q1", "label": "Phone", "value": "604", "source": "profile", "required": True}]),
+                                                    ("superseded", [{"id": "q1", "label": "Phone", "value": "", "source": "unresolved", "required": True}])]):
+            a = Application(job_id=job_id, status="needs_input")
+            s.add(a)
+            s.flush()
+            d = Draft(application_id=a.id, review_status=status, notes=[], answers=answers)
+            s.add(d)
+            s.flush()
+            ids.append(d.id)
+    asked = []
+    monkeypatch.setattr(drafts, "reanswer", lambda draft_id: (asked.append(draft_id), {"asked": 1, "answered": 1, "left": 0})[1])
+    knowledge.write("profile", "# Applicant profile\n\n## Identity & contact\n\n- Phone: 604 555 0100\n")
+    assert _tasks(status="queued") == [("reanswer", "queued")] and tasks.drain() == 1 and asked == [ids[0]]
+
+
 @pytest.mark.parametrize("kind", ["transcript", "cl_template", "other"])
 def test_only_a_resume_starts_it(app_env, kind):
     _empty()

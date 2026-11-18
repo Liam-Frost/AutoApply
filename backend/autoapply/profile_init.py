@@ -140,13 +140,21 @@ def failed() -> None:
 
 def arrived() -> None:
     """There is something in the profile now (knowledge.write, whoever wrote it): the card is closed, the drafts that
-    waited for a profile go back in the queue, and what is unscored is scored."""
+    waited for a profile go back in the queue, and what is unscored is scored. A draft that was written while there
+    was no profile (before forms waited for one) has its unanswered questions asked again - they were asked of
+    nothing."""
     from . import handlers, notify, scoring, tasks
+    from .models import Draft
 
     notify.close_todos("config", CARD)
     handlers.resume_waiting(CARD)
     if scoring.unscored_count():
         tasks.enqueue("score", ref="unscored", priority=150)
+    with db.session() as s:
+        open_ = [d.id for d in s.query(Draft).filter(Draft.review_status == "pending").order_by(Draft.id)
+                 if any(a.get("source") == "unresolved" for a in (d.answers or []))]
+    for draft_id in open_:
+        tasks.enqueue("reanswer", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)
 
 
 def state() -> dict[str, Any]:
