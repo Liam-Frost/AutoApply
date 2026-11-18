@@ -104,6 +104,11 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not put unconfirmed accounts back in line")
         db.set_setting("migrated.unconfirmed_accounts", True)
+    if not db.get_setting("migrated.document_versions"):
+        from .. import materials as _materials
+
+        _materials.mark_overwritten()
+        db.set_setting("migrated.document_versions", True)
     if not db.get_setting("migrated.site_rules_whole"):
         from .. import browser_policy as _policy
 
@@ -1653,6 +1658,9 @@ SINGLETON = {"resume_docx", "resume_site", "resume_portal", "transcript", "summa
 
 @app.get("/api/documents")
 def list_documents() -> list[dict[str, Any]]:
+    from .. import materials
+
+    nth, held = materials.versions(), materials.held_by_drafts()
     with db.session() as s:
         rows = []
         for d in s.query(Document).order_by(Document.id.desc()).limit(300):
@@ -1662,13 +1670,18 @@ def list_documents() -> list[dict[str, Any]]:
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
                          "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
-                         "problems": (d.meta or {}).get("problems", []), "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
+                         # (what the checks objected to: a letter keeps it with itself, a tailored résumé with its changes)
+                         "problems": (d.meta or {}).get("problems") or ((d.meta or {}).get("tailor") or {}).get("problems") or [], "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
                          # (the parts of the posting's name, for a list that has room for one line of each: several
                          # postings of one employer differ in the title's end, the place or the term)
                          "job_company": job.company if job else "", "job_title": job.title if job else "",
                          "job_where": " · ".join(x for x in ((job.location or "").split(",")[0].strip(), job.term or "") if x) if job else "",
-                         "has_docx": bool((d.meta or {}).get("docx"))})
+                         "has_docx": bool((d.meta or {}).get("docx")),
+                         # which writing of this file for this posting it is; and, for the records from before each
+                         # writing kept its own file, whether a later one was written over it
+                         "version": nth.get(d.id), "overwritten": bool((d.meta or {}).get("overwritten_by")),
+                         "in_draft": d.id in held})      # the latest draft of an application names it: not one to tidy away
         return rows
 
 
@@ -1788,6 +1801,11 @@ def patch_document(doc_id: int, body: dict[str, Any] = Body(...)) -> dict[str, A
         if d.active and d.kind in SINGLETON:  # one file in use per kind
             for other in s.query(Document).filter(Document.kind == d.kind, Document.active == 1, Document.id != d.id):
                 other.active = 0
+        generated = bool(d.active and "active" in body and d.job_id)
+    if generated:      # ...and one per posting, of the files written for it: "use this version" takes the place of the other
+        from .. import materials
+
+        materials.use_version(doc_id)
     return {"ok": True}
 
 
@@ -1799,9 +1817,10 @@ def delete_document(doc_id: int, permanent: bool = False) -> dict[str, Any]:
         d.active = 0
         if permanent:
             path = Path(d.path)
+            shared = s.query(Document).filter(Document.path == d.path, Document.id != d.id).count()      # records from before each writing had its own file
             s.delete(d)
             try:
-                if path.exists() and config.DATA in path.parents:
+                if path.exists() and config.DATA in path.parents and not shared:
                     path.unlink()
             except OSError:
                 pass

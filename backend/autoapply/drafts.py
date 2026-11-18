@@ -444,6 +444,13 @@ def refresh_files(d: Draft) -> list[str]:
     return filled
 
 
+def _files_as_they_are(mats: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The draft's files, for showing: one whose record no longer has the file it was made with is marked (a letter
+    from before each writing kept its own file - materials.mark_overwritten)."""
+    gone = materials.overwritten([m.get("document_id") for m in mats or []])
+    return [{**m, "overwritten": True} if m.get("document_id") in gone else m for m in mats or []]
+
+
 def swap_resume(d: Draft, doc: dict[str, Any] | None) -> int:
     """Point the résumé slot(s) of a draft at ``doc`` (None = the résumé as uploaded). Returns how many slots changed."""
     if doc is None:
@@ -529,7 +536,7 @@ def get(draft_id: int) -> dict[str, Any]:
             # steps of the form that have not been read yet (they open only once the earlier ones are filled)
             "unseen": _unseen_of(d),
             "walk_open": bool((d.schema.get("extra") or {}).get("walk_open")),      # a walk stopped before the review page
-            "answers": d.answers, "unresolved": d.unresolved, "materials": d.materials, "plan": _plan_now(d.plan, mode), "notes": d.notes,
+            "answers": d.answers, "unresolved": d.unresolved, "materials": _files_as_they_are(d.materials), "plan": _plan_now(d.plan, mode), "notes": d.notes,
             "auto_approve_check": d.auto_approve_check,
             "submit_mode": mode,
             "comments": [{"comment": c.comment, "result": c.result, "created_at": c.created_at.isoformat()} for c in d.comments],

@@ -81,7 +81,7 @@ def _tailor(t: Task) -> dict[str, Any]:
     doc = tailor.make(job, instructions=t.payload.get("instructions", ""))
     info = doc["tailor"]
     swapped = 0
-    if not info["problems"]:
+    if doc["current"]:      # it passed: the open draft carries it; one that did not is kept as a record only
         with db.session() as s:
             for d in s.query(Draft).filter(Draft.review_status == "pending"):
                 if d.application.job_id == job_id:

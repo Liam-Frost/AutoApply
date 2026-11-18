@@ -447,7 +447,7 @@ def wanted(job: Job) -> str:
     return ""
 
 
-def make(job: Job, *, instructions: str = "") -> dict[str, Any]:
+def make(job: Job, *, instructions: str = "", automatic: bool = False) -> dict[str, Any]:
     """Plan -> apply -> render -> trim to the page limit. Stores a Document and returns its dict."""
     cfg = settings()
     base = base_doc()
@@ -461,40 +461,43 @@ def make(job: Job, *, instructions: str = "") -> dict[str, Any]:
     p = plan(job, st, cfg, instructions)
     changes = apply(st, p, cfg)
     name = re.sub(r"[^A-Za-z0-9]+", "_", f"Resume_{job.company}_{job.title}").strip("_")[:70]
-    docx = config.MATERIALS / f"job_{job.id}" / f"{name}.docx"
-    out = render(st["doc"], docx)
-    problems: list[str] = []
-    if out["pages"] > target:
-        min_b = max(1, int(cfg.get("min_bullets") or 2))
-        entries = [e for s in st["sections"] if not s["locked"] for e in s["entries"]]
-        where = {b["id"]: e for e in entries for b in e["bullets"]}
-        queue = [i for i in dict.fromkeys(p.get("least_relevant", [])) if i in where]
-        for _ in range(12):
-            if out["pages"] <= target or not queue:
-                break
-            i = queue.pop(0)
-            e = where[i]
-            if len(e["bullets"]) <= min_b:
-                continue
-            b = next(x for x in e["bullets"] if x["id"] == i)
-            if b is e["bullets"][-1]:  # the gap after the entry moves to the bullet that is now last
-                _set_spacing(e["bullets"][-2]["el"], _spacing(b["el"]))
-            b["el"].getparent().remove(b["el"])
-            e["bullets"].remove(b)
-            changes.append({"type": "drop", "where": e["title"], "before": b["text"], "why": "to fit the page"})
-            out = render(st["doc"], docx)
+    from . import materials
+
+    # A folder of its own for this writing (materials.version_dir): the résumé written before it, which a draft may
+    # have been approved with, is not written over - and stays the one in use unless this one passes.
+    with materials.version_dir(job.id, OUT_KIND) as out_dir:
+        docx = out_dir / f"{name}.docx"
+        out = render(st["doc"], docx)
+        problems: list[str] = []
         if out["pages"] > target:
-            problems.append(f"精调后是 {out['pages']} 页，超过了 {target} 页的限制")
-    real = [c for c in changes if c["type"] != "rewrite_rejected"]
-    info = {"focus": p.get("focus", ""), "keywords": p.get("keywords", [])[:12], "changes": changes, "mode": cfg.get("mode"), "base_id": base["id"], "base_name": base["name"],
-            "pages": out["pages"], "problems": problems, "unchanged": not real}
-    with db.session() as s:
-        for old in s.query(Document).filter_by(kind=OUT_KIND, job_id=job.id, active=1):
-            old.active = 0
-        d = Document(kind=OUT_KIND, name=Path(out["pdf"]).name, path=out["pdf"], job_id=job.id, meta={"tailor": info, "docx": out["docx"], "pages": out["pages"]})
-        s.add(d)
-        s.flush()
-        return {"id": d.id, "name": d.name, "path": d.path, "kind": d.kind, "tailor": info}
+            min_b = max(1, int(cfg.get("min_bullets") or 2))
+            entries = [e for s in st["sections"] if not s["locked"] for e in s["entries"]]
+            where = {b["id"]: e for e in entries for b in e["bullets"]}
+            queue = [i for i in dict.fromkeys(p.get("least_relevant", [])) if i in where]
+            for _ in range(12):
+                if out["pages"] <= target or not queue:
+                    break
+                i = queue.pop(0)
+                e = where[i]
+                if len(e["bullets"]) <= min_b:
+                    continue
+                b = next(x for x in e["bullets"] if x["id"] == i)
+                if b is e["bullets"][-1]:  # the gap after the entry moves to the bullet that is now last
+                    _set_spacing(e["bullets"][-2]["el"], _spacing(b["el"]))
+                b["el"].getparent().remove(b["el"])
+                e["bullets"].remove(b)
+                changes.append({"type": "drop", "where": e["title"], "before": b["text"], "why": "to fit the page"})
+                out = render(st["doc"], docx)
+            if out["pages"] > target:
+                problems.append(f"精调后是 {out['pages']} 页，超过了 {target} 页的限制")
+        real = [c for c in changes if c["type"] != "rewrite_rejected"]
+        info = {"focus": p.get("focus", ""), "keywords": p.get("keywords", [])[:12], "changes": changes, "mode": cfg.get("mode"), "base_id": base["id"], "base_name": base["name"],
+                "pages": out["pages"], "problems": problems, "unchanged": not real}
+        # The one in use from here on only if it is fit to be sent: within the page limit - and, when the program wrote
+        # it by itself, different from the résumé as uploaded (one the applicant asked for is theirs to look at).
+        current = not problems and not (automatic and info["unchanged"])
+        doc_id = materials.publish(OUT_KIND, job.id, out["pdf"], {"tailor": info, "docx": out["docx"], "pages": out["pages"]}, current=current)
+    return {"id": doc_id, "name": Path(out["pdf"]).name, "path": out["pdf"], "kind": OUT_KIND, "tailor": info, "current": current}
 
 
 def for_job(job: Job, *, instructions: str = "") -> tuple[dict[str, Any] | None, bool]:
@@ -503,9 +506,7 @@ def for_job(job: Job, *, instructions: str = "") -> tuple[dict[str, Any] | None,
         return cur, False
     if wanted(job):
         return None, False
-    doc = make(job, instructions=instructions)
-    if doc["tailor"]["problems"] or doc["tailor"]["unchanged"]:
-        with db.session() as s:  # nothing useful came out: keep the record for the user to see, but do not attach it
-            s.get(Document, doc["id"]).active = 0
+    doc = make(job, instructions=instructions, automatic=True)
+    if not doc["current"]:      # nothing useful came out: the record is kept for the applicant to see, and not attached
         return None, False
     return doc, True
