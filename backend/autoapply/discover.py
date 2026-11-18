@@ -21,9 +21,22 @@ FIELDS = ("company", "title", "location", "work_type", "salary", "apply_url", "a
 
 
 def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = None, complete: bool = True, stale_days: int = 0) -> dict[str, int]:
-    """Insert/update jobs for one source. ``scope`` narrows offline-marking to
-    a tenant (so scanning board A does not mark board B's jobs offline).
-    ``complete=False`` skips offline-marking (partial scan)."""
+    """Store what one listing showed, and take offline what it has stopped showing.
+
+    A posting goes offline on the word of its own listing and of nothing else. ``scope`` names that listing among the
+    ones a source has (a board, a tenant, a watched page); without it the source is one listing (PD Portal).
+
+    - a ``complete`` listing: what it does not show is gone, now;
+    - a capped or filtered one (``stale_days``): a posting it has not shown for that many days of looking is taken to
+      be gone. The days run from the first reading that did not show it (``missed_since``), not from when it was last
+      seen - a listing that could not be read for a week has said nothing in that week;
+    - neither: a partial reading, which says nothing about what it does not show.
+
+    Reading board A is not a reading of board B: both rules look only at the postings of this listing. (The second one
+    did not: every successful reading of one employer aged out the postings of all the others on the same service,
+    whether or not theirs had been read.)"""
+    from datetime import timedelta
+
     new = back = offline = seen_n = 0
     seen: set[str] = set()
     rows = list(rows)  # read the source completely first: fetching inside the transaction would lock the database for minutes
@@ -49,25 +62,27 @@ def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = N
                 v = r.get(f)
                 if v:
                     setattr(j, f, v)
+            if scope and not j.tenant:
+                j.tenant = scope        # which listing it belongs to is how it is found again below
             j.last_seen = now()
-        if complete:
+            j.missed_since = None
+        if complete or stale_days:
             q = s.query(Job).filter(Job.source == source, Job.online == 1)
             if scope:
                 q = q.filter(Job.tenant == scope)
+            cut = (now() - timedelta(days=stale_days)).replace(tzinfo=None)
             for j in q:
-                if j.source_id not in seen:
-                    j.online = 0
-                    offline += 1
-                    # keep applied jobs' status; only undecided ones become "offline"
-                    if j.application is None and j.status in ("new", "scored", "queued"):
-                        j.status = "offline"
-        if stale_days:  # capped / filtered listings: a job is offline once it has not been listed for a while
-            from datetime import timedelta
-
-            cut = now() - timedelta(days=stale_days)
-            for j in s.query(Job).filter(Job.source == source, Job.online == 1, Job.last_seen < cut):
+                if j.source_id in seen:
+                    continue
+                if not complete:
+                    if j.missed_since is None:
+                        j.missed_since = now()
+                        continue
+                    if j.missed_since.replace(tzinfo=None) > cut:
+                        continue
                 j.online = 0
                 offline += 1
+                # keep applied jobs' status; only undecided ones become "offline"
                 if j.application is None and j.status in ("new", "scored", "queued"):
                     j.status = "offline"
     return {"seen": seen_n, "new": new, "back": back, "offline": offline}

@@ -69,6 +69,8 @@ class Job(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     first_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # when a reading of its own listing first did not show it (cleared when one shows it again) - see discover.upsert
+    missed_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     application: Mapped["Application | None"] = relationship(back_populates="job", uselist=False)
 

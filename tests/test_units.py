@@ -146,6 +146,112 @@ def test_discover_offline_and_back(app_env):
     assert partial["offline"] == 0
 
 
+def _aged(days, **where):
+    """Move a posting's dates back, as if that many days had passed."""
+    from datetime import timedelta
+
+    from autoapply import db
+    from autoapply.models import Job
+
+    with db.session() as s:
+        for j in s.query(Job).filter_by(**where):
+            j.last_seen = j.last_seen - timedelta(days=days)
+            if j.missed_since is not None:
+                j.missed_since = j.missed_since - timedelta(days=days)
+
+
+def _online(**where):
+    from autoapply import db
+    from autoapply.models import Job
+
+    with db.session() as s:
+        return {j.source_id: (j.online, j.status) for j in s.query(Job).filter_by(**where)}
+
+
+def test_a_filtered_listing_ages_out_its_own_postings_and_no_one_elses(app_env):
+    """Reading Acme's board took Beta's postings offline: the rule for capped listings looked at the whole service.
+
+    (F-07: "complete" was limited to the listing that was read, "stale_days" was not.)"""
+    from autoapply import discover
+
+    acme = [{"source_id": f"a{i}", "title": f"T{i}", "company": "Acme", "tenant": "acme"} for i in (1, 2, 3)]
+    beta = [{"source_id": f"b{i}", "title": f"T{i}", "company": "Beta", "tenant": "beta"} for i in (1, 2)]
+    filtered = {"source": "greenhouse", "complete": False, "stale_days": 5}
+    discover.upsert(acme, scope="acme", **filtered)
+    discover.upsert(beta, scope="beta", **filtered)
+    # Beta's board has not been read for ten days (it was down, or switched off); Acme's is read every day
+    _aged(10, tenant="beta")
+    assert discover.upsert(acme, scope="acme", **filtered)["offline"] == 0
+    assert _online(tenant="beta") == {"b1": (1, "new"), "b2": (1, "new")}
+    # ...and when Beta's is read again it shows one of the two: the other has been missing for one reading, not for ten days
+    assert discover.upsert(beta[:1], scope="beta", **filtered)["offline"] == 0
+    assert _online(tenant="beta") == {"b1": (1, "new"), "b2": (1, "new")}
+    # six days of readings that do not show it: gone - on Beta's word, while Acme's are as they were
+    _aged(6, tenant="beta")
+    assert discover.upsert(beta[:1], scope="beta", **filtered)["offline"] == 1
+    assert _online(tenant="beta") == {"b1": (1, "new"), "b2": (0, "offline")}
+    assert set(_online(tenant="acme").values()) == {(1, "new")}
+
+
+def test_a_posting_a_filtered_listing_shows_again_starts_over(app_env):
+    """A capped listing drops a posting for a day and shows it the next: the days it was missing are not kept against it."""
+    from autoapply import db, discover
+    from autoapply.models import Job
+
+    rows = [{"source_id": str(i), "title": f"T{i}", "company": "Acme", "tenant": "acme"} for i in (1, 2, 3)]
+    filtered = {"source": "greenhouse", "scope": "acme", "complete": False, "stale_days": 5}
+    discover.upsert(rows, **filtered)
+    assert discover.upsert(rows[:1], **filtered)["offline"] == 0                 # the first reading without 2 and 3
+    with db.session() as s:
+        assert [bool(j.missed_since) for j in s.query(Job).order_by(Job.source_id)] == [False, True, True]
+    _aged(4, source="greenhouse")
+    assert discover.upsert(rows[:2], **filtered)["offline"] == 0                 # 2 is back after four days; 3 is still missing
+    with db.session() as s:
+        assert [bool(j.missed_since) for j in s.query(Job).order_by(Job.source_id)] == [False, False, True]
+    _aged(2, source="greenhouse")
+    assert discover.upsert(rows[:1], **filtered)["offline"] == 1                 # 3: six days; 2: missing since today
+    assert _online(source="greenhouse") == {"1": (1, "new"), "2": (1, "new"), "3": (0, "offline")}
+    # a partial reading (neither rule) says nothing about what it does not show, however long ago that was
+    _aged(30, source="greenhouse")
+    assert discover.upsert(rows[:1], source="greenhouse", scope="acme", complete=False)["offline"] == 0
+    assert _online(source="greenhouse")["2"] == (1, "new")
+    # a posting stored without the name of its listing gets it from the reading, so that the rules above find it
+    discover.upsert([{"source_id": "9", "title": "T9", "company": "Acme"}], **filtered)
+    with db.session() as s:
+        assert s.query(Job).filter_by(source_id="9").one().tenant == "acme"
+
+
+def test_a_board_that_could_not_be_read_loses_nothing_to_one_that_could(app_env, monkeypatch):
+    """A whole scan: Acme answers and Beta does not, for longer than the rule's days - Beta's postings stay."""
+    from autoapply import db, discover, employers
+
+    db.set_setting("sources.pdportal", False)
+    db.set_setting("intake.enabled", False)
+    listed = [{"id": n, "name": n.title(), "kind": "greenhouse", "ref": {"board": n}, "enabled": True} for n in ("acme", "beta")]
+    monkeypatch.setattr(employers, "listing", lambda: listed)
+    monkeypatch.setattr(employers, "migrate_legacy", lambda: None)
+    down = set()
+
+    def rows_for(e, terms, keep):
+        board = e["ref"]["board"]
+        if board in down:
+            raise RuntimeError("the board is not answering")
+        return iter([{"source": "greenhouse", "source_id": f"{board}-{i}", "title": f"Intern {i}", "company": e["name"], "tenant": board,
+                      "apply_url": f"https://x.example/{board}/{i}", "jd_text": "d" * 300} for i in range(2)])
+
+    monkeypatch.setattr(employers, "rows_for", rows_for)
+    assert discover.run(notify_user=False)["total"]["new"] == 4
+    down.add("beta")
+    for _ in range(3):                                     # three scans, three days apart, with Beta down
+        _aged(3, source="greenhouse")
+        out = discover.run(notify_user=False)
+        assert "not answering" in out["errors"]["Beta"] and out["total"]["offline"] == 0
+    assert _online(tenant="beta") == {"beta-0": (1, "new"), "beta-1": (1, "new")}
+    assert _online(tenant="acme") == {"acme-0": (1, "new"), "acme-1": (1, "new")}
+    down.clear()
+    assert discover.run(notify_user=False)["total"]["offline"] == 0   # Beta is back and still shows both
+
+
 def test_mail_match_application(app_env):
     from autoapply import db, mail
     from autoapply.models import Application, Job
