@@ -58,17 +58,18 @@ export const signature = (ov) => (ov ? [ov.open_todos || 0, ov.pending_drafts ||
 // than every second and a half.
 export const mayRefresh = (now, last, asking, hidden, typing = false) => !asking && !hidden && !typing && now - last >= 1500
 
-// Is something being typed? The keyboard is in a field, and the field does not hold what it held when the keyboard
-// came to it. (A field that was only clicked into is not being typed in; one that was changed and left is done.)
+// Is something being typed? Something was typed into a field, and the keyboard is still in that field: what it holds
+// has not been handed over yet (a field hands it over when it is left, or with Enter - its "change"). Told by the
+// typing itself, not by where the focus went: a window that is not in front is not told about focus.
 const EDITABLE = (el) => !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'file'].includes(el.type)))
-export const typingIn = (active, held) => !!held && !!active && held.el === active && EDITABLE(active) && String(active.value) !== String(held.value)
-let held = null
+export const typingIn = (active, typed) => !!typed && typed === active && EDITABLE(active)
+let typed = null
 let listening = false
 function listen() {
   if (listening || typeof document === 'undefined') return
   listening = true
-  document.addEventListener('focusin', (e) => { held = EDITABLE(e.target) ? { el: e.target, value: e.target.value } : null })
-  document.addEventListener('focusout', () => { held = null })
+  document.addEventListener('input', (e) => { if (EDITABLE(e.target)) typed = e.target }, true)
+  document.addEventListener('change', (e) => { if (e.target === typed) typed = null }, true)
 }
 
 // `opts.every` (ms) with `opts.when`: read again on that beat while `when()` holds.
@@ -79,7 +80,7 @@ export function useRefresh(load, opts = {}) {
   const hidden = () => typeof document !== 'undefined' && document.hidden
   const again = () => {
     const now = Date.now()
-    if (!mayRefresh(now, last, dialog.open, hidden(), typingIn(typeof document !== 'undefined' ? document.activeElement : null, held))) return
+    if (!mayRefresh(now, last, dialog.open, hidden(), typingIn(typeof document !== 'undefined' ? document.activeElement : null, typed))) return
     last = now
     load()
   }

@@ -92,19 +92,16 @@ describe('reading a list again', () => {
 })
 
 describe('something is being typed', () => {
-  const field = (value, more = {}) => ({ tagName: 'INPUT', type: 'number', value, ...more })
-  it('when the field the keyboard is in no longer holds what it held', () => {
-    const f = field('30')
-    const held = { el: f, value: '30' }
-    expect(typingIn(f, held)).toBe(false)              // clicked into, nothing typed
-    f.value = '4'
-    expect(typingIn(f, held)).toBe(true)               // "45" half typed: reading again now would put "30" back
-    expect(typingIn(field('4'), held)).toBe(false)     // the keyboard is somewhere else
-    expect(typingIn(null, held)).toBe(false)
-    expect(typingIn(f, null)).toBe(false)
+  const field = (more = {}) => ({ tagName: 'INPUT', type: 'number', ...more })
+  it('when the keyboard is still in the field that was typed into', () => {
+    const f = field()
+    expect(typingIn(f, null)).toBe(false)              // clicked into, nothing typed
+    expect(typingIn(f, f)).toBe(true)                  // "45" half typed: reading again now would put "30" back
+    expect(typingIn(field(), f)).toBe(false)           // the keyboard is somewhere else: the field was left
+    expect(typingIn(null, f)).toBe(false)
   })
   it('in a text box, a list or a number - not in a tick box or a button', () => {
-    for (const el of [{ tagName: 'TEXTAREA', value: 'b' }, { tagName: 'SELECT', value: 'b' }, field('b', { type: 'text' }), field('b', { type: 'search' })]) expect(typingIn(el, { el, value: 'a' })).toBe(true)
-    for (const el of [field('b', { type: 'checkbox' }), field('b', { type: 'radio' }), { tagName: 'BUTTON', value: 'b' }, { tagName: 'DIV', value: 'b' }]) expect(typingIn(el, { el, value: 'a' })).toBe(false)
+    for (const el of [{ tagName: 'TEXTAREA' }, { tagName: 'SELECT' }, field({ type: 'text' }), field({ type: 'search' })]) expect(typingIn(el, el)).toBe(true)
+    for (const el of [field({ type: 'checkbox' }), field({ type: 'radio' }), { tagName: 'BUTTON' }, { tagName: 'DIV' }]) expect(typingIn(el, el)).toBe(false)
   })
 })
