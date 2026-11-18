@@ -26,6 +26,18 @@ const layers = []       // what is open over the page, the topmost last
 // Is `el` the layer the keyboard belongs to now? (Escape closes that one, not everything that is open.)
 export const onTop = (el) => layers.length > 0 && layers[layers.length - 1].el === el
 const behind = () => (typeof document !== 'undefined' ? document.getElementById('app') : null)
+const within = (page, el) => !!el.closest && !!el.closest('#app') && !!page
+
+// What can and cannot be reached, from what is open now: the topmost layer can, every other layer cannot, and the
+// page behind cannot unless the topmost layer is part of it (the menu of a narrow screen is; a question that is put
+// over everything is not). Worked out afresh whenever a layer opens or closes - it used to be set when one opened and
+// undone when one closed, and a question that closed over a layer inside the page left the whole page shut.
+function settle() {
+  const top = layers[layers.length - 1]
+  const page = behind()
+  for (const l of layers) l.el.inert = l !== top
+  if (page) page.inert = !!top && !within(page, top.el)
+}
 
 // `opts.first`: () => the element that gets the focus (default: the layer itself, so that its name is read out and
 // nothing in it is one keypress away from being pressed by accident).
@@ -40,10 +52,7 @@ export function hold(el, opts = {}) {
   }
   const layer = { el }
   layers.push(layer)
-  const page = behind()
-  if (page && !el.closest('#app')) page.inert = true       // what is behind cannot be reached, pressed or read out as if it were in front
-  for (const other of layers) if (other !== layer) other.el.inert = true
-  el.inert = false
+  settle()       // what is behind cannot be reached, pressed or read out as if it were in front
   el.addEventListener('keydown', onKey)
   if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1')
   const first = opts.first ? opts.first() : null
@@ -52,9 +61,7 @@ export function hold(el, opts = {}) {
     el.removeEventListener('keydown', onKey)
     const i = layers.indexOf(layer)
     if (i >= 0) layers.splice(i, 1)
-    const top = layers[layers.length - 1]
-    if (top) top.el.inert = false
-    else if (page) page.inert = false
+    settle()
     if (was && was.isConnected && typeof was.focus === 'function') was.focus({ preventScroll: true })
   }
 }
