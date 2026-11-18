@@ -46,7 +46,7 @@ const checkUpdate = async () => {
 const GROUPS = [
   ['overview', '总览', '这些设置合起来是什么意思：你会投什么，程序现在自己能做到哪一步。只读；每一条都能点到改它的地方。', []],
   ['goals', '求职目标与匹配', '想找什么样的岗位：哪些根本不看，哪些优先。', [['profile', '求职档案'], ['filters', '入库前的硬条件'], ['search', '在大型官网上搜什么'], ['sources', '来源与关注公司']]],
-  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动准备草案'], ['submit', '审批与提交'], ['permissions', '操作权限'], ['adaptive', '出问题时自己调整'], ['schedule', '工作计划']]],
+  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动准备草案'], ['submit', '审批与提交'], ['permissions', '操作权限'], ['adaptive', '出问题时自己调整'], ['limits', 'AI 每次能做多少'], ['schedule', '工作计划']]],
   ['materials', '材料与回答', '简历怎么调、求职信怎么写、答过的问题怎么再用。', [['resume', '简历'], ['cover', '求职信'], ['answers', '回答的复用']]],
   ['accounts', '账号与连接', '招聘网站的登录、收信的邮箱、用哪家 AI。', [['logins', '招聘网站的登录'], ['mailbox', '收件邮箱'], ['ai', 'AI 服务']]],
   ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['events', '通知什么、什么时候']]],
@@ -69,6 +69,17 @@ function settle() {
 watch(() => [route.params.group, route.params.section, !!s.value], settle)
 
 const COUNTRIES = [['CA', '加拿大'], ['US', '美国']]
+// What the AI may spend on one piece of work, by kind (the setting agent.budgets; the kinds are the server's).
+const BUDGETS = [
+  ['explore_form', '读一张新的申请表', '第一次遇到的表单：翻完每一页，记下每个问题。'],
+  ['take_over', '接手填表', '程序自己填的和读回来的对不上时，由 AI 把批准过的内容填进去。'],
+  ['sign_in', '登录或注册网站', '登录过期后重新登录，回到申请表。'],
+  ['account', '投递之后建账号', '网站在投递之后才让建账号的时候。'],
+  ['navigate', '表单翻页', '到下一页的按钮程序自己没找到的时候。'],
+  ['confirm', '核对填好的值', '读回来的值和批准的不一样时，再看一眼页面上到底是什么。'],
+  ['site_status', '到雇主网站查申请状态', '邮件对不上是哪一个申请时。'],
+]
+const budgetLabel = (name, what) => `${name}：${what}`
 const examples = ref('Software Engineering Intern, Summer 2027 | Seattle, WA, US\nSenior Software Engineer | Toronto, ON, CA\nSoftware Developer Co-op | Vancouver, BC, Canada\nMBA Intern | New York, NY, US\nSoftware Engineering Intern | Singapore')
 const tried = ref([])
 const csv = (key) => (s.value[key] || []).join(', ')
@@ -350,6 +361,22 @@ onMounted(load)
             <label>为新网站写的驱动稳定之后</label><AaSelect v-model="s['learned.share']"><option value="ask">问我要不要分享给项目</option><option value="always">直接准备好 issue</option><option value="never">不分享</option></AaSelect>
           </div>
           <p class="hint" style="margin-top: 12px">学到了什么、效果怎样，在<router-link :to="{ path: '/analytics', query: { view: 'time' } }">数据分析 → 耗时与优化</router-link>里看；每一项都可以在那里撤回。</p>
+        </div>
+      </SetSection>
+
+      <SetSection id="limits" title="AI 每次能做多少">
+        <div class="card">
+          <p class="muted" style="margin-top: 0">AI 接手一件事的时候，最多做多少步（每调用一次工具算一步）、最多用多久。到了上限它就停下，这件事按没做成处理，不会一直占着填表的位置。不管用的是哪一家 AI 服务，数法都一样。表单很长的时候可以调大。</p>
+          <table aria-label="AI 每次能做多少">
+            <thead><tr><th scope="col">做什么</th><th scope="col">最多多少步</th><th scope="col">最多多少分钟</th></tr></thead>
+            <tbody>
+              <tr v-for="[k, name, hint] in BUDGETS" :key="k">
+                <th scope="row" style="font-weight: 400">{{ name }}<div class="hint">{{ hint }}</div></th>
+                <td><input v-model.number="s['agent.budgets'][k].steps" type="number" min="1" max="2000" style="width: 90px" :aria-label="budgetLabel(name, '步数')" /></td>
+                <td><input v-model.number="s['agent.budgets'][k].minutes" type="number" min="1" max="240" style="width: 90px" :aria-label="budgetLabel(name, '分钟数')" /></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </SetSection>
 
