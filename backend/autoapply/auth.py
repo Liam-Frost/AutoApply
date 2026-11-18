@@ -16,10 +16,11 @@ from datetime import datetime, timedelta, timezone
 
 import csv
 import io
+import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from playwright.sync_api import Page
 
@@ -529,6 +530,48 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
         _need_takeover(ref, driver, "Login did not succeed; please sign in yourself.")
 
     if sso:
+        # 2b. No login is saved with the program - but the browser this sign-in is made in may have one saved itself,
+        # and have put it in the institution's form already. Then the only thing left before the second factor is
+        # pressing "sign in", and that needs nobody. (The window used to be closed on a form that stood filled in,
+        # and the applicant asked to press the button.) Nothing is typed and nothing is read.
+        by_browser = getattr(driver, "login_as_the_browser_remembers", None)
+        if by_browser is not None and not pw:
+            if acct and acct["fail_count"] >= MAX_LOGIN_FAILS:
+                _need_takeover(ref, driver, f"{ref.host} 的登录过期了。浏览器里保存的密码被学校的统一登录拒绝了两次，程序不再用它。请登录一次。", can_register=False)
+            if _would_ring_in_quiet_hours(key):
+                _need_takeover(ref, driver, f"{ref.host} 的登录过期了。重新登录要在手机上确认，现在是你设的静默时段，程序没有发起。把这一条标为已处理，程序就会登录并发出手机确认请求。",
+                               can_register=False, second_factor=True)
+            if acct is None:
+                upsert_account(key, ats=ref.ats, host=ref.host)
+            try:
+                went = bool(by_browser(page, ref))
+            except NeedsHuman as e:
+                if not e.waits_for:      # the second factor went unanswered: the applicant's turn, and it is said in a card
+                    _need_takeover(ref, driver, e.reason, can_register=False, second_factor=True)
+                raise
+            except SiteDown:
+                raise
+            except Exception as e:  # noqa: BLE001
+                if unreachable(e):
+                    raise
+                if isinstance(e, DriverError) and re.search(r"rejected", str(e), re.I):
+                    # the institution refused what the browser had saved (the password was changed since): it counts,
+                    # so that the same wrong password is not sent again at every scan until the account is locked
+                    n = _bump_fail(key, "the password saved in the browser was refused")
+                    log.warning("the password the browser had saved for %s was refused (%d)", key, n)
+                    _need_takeover(ref, driver, f"{ref.host} 的登录过期了。浏览器里保存的密码被学校的统一登录拒绝了（可能改过密码）。请登录一次。", can_register=False)
+                log.info("could not send the sign-in form the browser had filled in for %s: %s", key, type(e).__name__)
+                went = False
+            if went and driver.is_logged_in(page, ref, navigate=False):
+                upsert_account(key, ats=ref.ats, host=ref.host, status="ok")
+                browser.save_state(key, page.context)
+                if hasattr(driver, "second_factor_seen"):
+                    from . import sites
+
+                    sites.set_fact(key, "second_factor", bool(driver.second_factor_seen))
+                return "logged_in"
+        if remembers_login(key, driver.login_url(ref) or ref.url):
+            _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次，并保持勾选“记住我输入的密码”：程序会把这次登录用的账号密码存进系统钥匙串，以后自己登录，只有手机上的二次确认需要你。")
         _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次。想让程序以后自己登录：到“账号”页给这个网站（{key}）保存登录名和密码，之后只有手机上的二次确认需要你。")
 
     # 3. registration: the agent registers on sites the user has not applied on before;
@@ -663,6 +706,34 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
             except Exception as e:  # noqa: BLE001
                 log.info("sign-in window for %s: the first page did not report loading (%s)", tenant_key, type(e).__name__)
 
+            # "Remember the password I type": in this browser it is heard from what the sign-in form sends (the
+            # browser tells; nothing is put into the page). That also hears a form the browser's own password manager
+            # filled in, where nothing was typed at all. (This window used to remember nothing, whatever was ticked.)
+            sent: dict[str, str] = {}
+            hears: set[int] = set()
+            site_ = _site(urlparse(url).netloc)
+
+            def heard(address: str, method: str, body: str) -> None:
+                where = urlparse(address).netloc.lower()
+                found = credentials_sent(body) if _this_sites_password(where, site_) else None
+                # (a login without its name does not take the place of one that had it: what follows a sign-in -
+                # a code, a confirmation - is not the sign-in sent again)
+                if found and (found[0] or not sent.get("user")):
+                    sent.update(user=found[0], pw=found[1], host=where)
+
+            def listen() -> None:
+                if not save_credentials or done is not None:
+                    return
+                for p in page.context.pages:
+                    if id(p) not in hears and hasattr(p, "on_request"):
+                        hears.add(id(p))
+                        p.on_request(heard)
+
+            try:
+                listen()
+            except Exception as e:  # noqa: BLE001 - the window is still for signing in
+                log.info("sign-in window for %s: cannot hear what is sent (%s)", tenant_key, type(e).__name__)
+
             def keep() -> dict[str, Any]:
                 """The window is signed in: keep its session. If a page cannot be read for its storage just now (it is
                 still loading, or it is a provider's page that never settles), the cookies are what a session is."""
@@ -671,10 +742,11 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
                 except Exception as e:  # noqa: BLE001
                     log.info("session of %s kept from its cookies (%s)", tenant_key, type(e).__name__)
                     browser.write_state(tenant_key, {"cookies": page.context.cookies(), "origins": []})
+                saved = False
                 if done is None:      # a site's account; a sign-in told by the caller's own check (a provider's) is a session and no account
-                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                    saved = _signed_in_by_hand(tenant_key, urlparse(url).netloc, sent if save_credentials else {})
                 notify.close_todos("takeover", f"account:{tenant_key}")
-                return {"ok": True, "credentials_saved": False}
+                return {"ok": True, "credentials_saved": saved}
 
             # Nothing to tell a finished sign-in by (no check for this site, no driver to ask): then the applicant
             # closing the window is their "done", as it is in the other browser - and what the window held has to be
@@ -685,14 +757,15 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
             def closed() -> dict[str, Any]:
                 if blind and held:
                     browser.write_state(tenant_key, {"cookies": held, "origins": []})
-                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                    saved = _signed_in_by_hand(tenant_key, urlparse(url).netloc, sent if save_credentials else {})
                     notify.close_todos("takeover", f"account:{tenant_key}")
-                    return {"ok": True, "credentials_saved": False, "unverified": True}
+                    return {"ok": True, "credentials_saved": saved, "unverified": True}
                 return {"ok": False, "reason": "window closed before sign-in was verified"}
 
             deadline, misses = time.monotonic() + timeout_s, 0
             while time.monotonic() < deadline:
                 try:
+                    listen()        # (a sign-in that opened a tab of its own is heard there too)
                     urls = [p.url for p in page.context.pages]
                     if blind and urls:
                         held = page.context.cookies() or held
@@ -734,11 +807,10 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
         # only a password typed on the site itself is this site's password; one typed at Microsoft / Google / LinkedIn
         # during "Sign in with ..." belongs to that provider and is never stored
         try:
-            where = _site(urlparse(source["frame"].url).netloc)
+            where = urlparse(source["frame"].url).netloc
         except Exception:  # noqa: BLE001
             where = ""
-        idp = any(where == d or where.endswith("." + d) for v in browser.identities().values() for d in v["domains"])
-        if pw and (where == site or not idp):
+        if pw and _this_sites_password(where, site):
             captured["user"], captured["pw"] = user, pw
             try:
                 captured["host"] = urlparse(source["frame"].url).netloc.lower()
@@ -808,22 +880,102 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     if done is not None:
         notify.close_todos("takeover", f"account:{tenant_key}")      # the card that asked for this sign-in has its answer, as in the other browser
         return {"ok": True, "credentials_saved": False}
-    host = urlparse(url).netloc
-    saved = False
-    if save_credentials and captured.get("pw"):
-        upsert_account(tenant_key, host=host, email=captured.get("user") or login_email(), password=captured["pw"], status="ok", created_by="takeover")
-        saved = True
-        typed_on = captured.get("host") or ""
-        if typed_on and _site(typed_on) != _site(host):
-            # the site took its password on another address (its sign-in lives there): known from now on, so that the
-            # program types it there too instead of taking that page for another site's
-            from . import sites
-
-            sites.set_fact(tenant_key, "sign_in_hosts", sorted({*(sites.fact(tenant_key, "sign_in_hosts") or []), typed_on}))
-    else:
-        upsert_account(tenant_key, host=host, status="ok", created_by="takeover")
+    saved = _signed_in_by_hand(tenant_key, urlparse(url).netloc, captured if save_credentials else {})
     notify.close_todos("takeover", f"account:{tenant_key}")
     return {"ok": True, "credentials_saved": saved, "unverified": unverified}
+
+
+def _signed_in_by_hand(tenant_key: str, host: str, captured: dict[str, str]) -> bool:
+    """The applicant has signed in to a site in the program's window: the account is good, and the login they used -
+    when it was to be remembered and was seen - is kept in the keyring. True when it was kept. The same for both
+    browsers' windows."""
+    if not captured.get("pw"):
+        upsert_account(tenant_key, host=host, status="ok", created_by="takeover")
+        return False
+    sso = bool(getattr(_driver_of(tenant_key), "sso", False))
+    # (an institution's login name is its own - a CWL name: where none was seen, the applicant's e-mail is not put in its place)
+    upsert_account(tenant_key, host=host, email=captured.get("user") or ("" if sso else login_email()), password=captured["pw"], status="ok", created_by="takeover")
+    typed_on = captured.get("host") or ""
+    if typed_on and _site(typed_on) != _site(host):
+        # the site took its password on another address (its sign-in lives there): known from now on, so that the
+        # program types it there too instead of taking that page for another site's
+        from . import sites
+
+        sites.set_fact(tenant_key, "sign_in_hosts", sorted({*(sites.fact(tenant_key, "sign_in_hosts") or []), typed_on}))
+    return True
+
+
+def remembers_login(tenant_key: str, url: str = "") -> bool:
+    """Can the sign-in window for this site keep the login the applicant uses in it ("remember the password I type")?
+    The card offers it only where this is so - what it offers is done. Not for a sign-in provider: its password is
+    never stored, only its session. Not where the window is one the program does not look into until the sign-in is
+    done (browser.plain_login - a site that refuses the automated browser, with the ordinary one switched off): there
+    is nothing to hear. This follows takeover()'s own choice of window."""
+    if tenant_key.startswith("idp:"):
+        return False
+    from . import browser_policy
+
+    try:
+        if browser_policy.select(tenant_key, url, "login").backend == "nodriver":
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return getattr(_driver_of(tenant_key), "signed_in_url", None) is None or browser.no_screen()
+
+
+def _driver_of(tenant_key: str) -> Any:
+    from .ats import registry
+
+    try:
+        return registry.get(tenant_key.split(":")[0])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _this_sites_password(where: str, site: str) -> bool:
+    """Is a password given at the address ``where`` this site's (``site``: its registrable name)? One given on the site
+    itself is, and so is one given at the site's own sign-in elsewhere (an institution's login). One given at
+    Microsoft / Google / LinkedIn during "Sign in with ..." belongs to that provider and is never stored."""
+    where = _site(where)
+    idp = any(where == d or where.endswith("." + d) for v in browser.identities().values() for d in v["domains"])
+    return bool(where) and (where == site or not idp)
+
+
+_PASSWORD_FIELD = re.compile(r"pass|pwd|(?<![a-z])pw(?![a-z])", re.I)
+_OTHER_PASSWORD = re.compile(r"new|confirm|repeat|again|retype|verify", re.I)
+# what a second factor is sent as: used once, and never the account's password ("passcode" has "pass" in it)
+_ONE_TIME = re.compile(r"code|otp|token|(?<![a-z])pin(?![a-z])|mfa|2fa|totp|challenge|answer", re.I)
+_LOGIN_FIELD = re.compile(r"user|e-?mail|login|identifier|account", re.I)
+
+
+def credentials_sent(body: str) -> tuple[str, str] | None:
+    """(login name, password) from the body of a request a sign-in form sent - form fields or JSON - or None when it
+    carries no password. Never logged, never kept anywhere but the keyring."""
+    text = (body or "").strip()
+    fields: list[tuple[str, str]] = []
+    if text[:1] in "{[":
+        def walk(node: Any, name: str = "") -> None:
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    walk(v, str(k))
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v, name)
+            elif isinstance(node, str):
+                fields.append((name, node))
+
+        try:
+            walk(json.loads(text))
+        except ValueError:
+            return None
+    else:
+        fields = parse_qsl(text, keep_blank_values=False)
+    pw = next((v for k, v in fields if v and _PASSWORD_FIELD.search(k) and not _OTHER_PASSWORD.search(k) and not _ONE_TIME.search(k)), "")
+    if not pw:
+        return None
+    user = (next((v for k, v in fields if v and _LOGIN_FIELD.search(k) and not _PASSWORD_FIELD.search(k)), "")
+            or next((v for k, v in fields if "@" in v and v != pw and not _PASSWORD_FIELD.search(k)), ""))
+    return user, pw
 
 
 def _site(host: str) -> str:

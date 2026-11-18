@@ -105,7 +105,7 @@ const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.ti
 
 async function read() { todos.value = await api.get('/todos'); reloadOverview() }
 const act = (fn, ok) => runAction(fn, ok, load)
-const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: saveCred.value }),
+const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: !!t.remembers && saveCred.value }),
   '已打开一个浏览器窗口，请在里面登录。登录好之后直接关掉窗口，程序会保存登录状态并继续。')
 const useSso = (t, p) => act(() => api.post('/accounts/sign-in-choice', { tenant_key: t.payload.tenant_key, provider: p.key }), `好的，这个网站以后用 ${p.name} 账号登录，任务已重新排队`)
 const letRegister = (t) => act(() => api.post('/accounts/allow-register', { tenant_key: t.payload.tenant_key }), '好的，程序会自己注册账号，任务已重新排队')
@@ -223,7 +223,9 @@ onMounted(load)
           <button :class="{ primary: !(t.sso && t.sso.length) }" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? `去登录 ${t.payload.provider}` : t.sso && t.sso.length ? '我自己登录' : '我有账号，去登录' }}</button>
           <button v-if="t.payload.can_register" @click="letRegister(t)">我没注册过，帮我注册</button>
           <button class="ghost" @click="dismiss(t)">先不处理</button>
-          <label class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> 记住我输入的密码，下次自动登录</label>
+          <label v-if="t.remembers" class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> 记住我输入的密码，下次自动登录</label>
+          <span v-else-if="t.payload.tenant_key.startsWith('idp:')" class="small muted" style="margin-left: 8px">只保存登录状态，不保存这个账号的密码</span>
+          <span v-else class="small muted" style="margin-left: 8px">这个登录窗口里程序看不到你输入的内容。想让程序以后自己登录，到“账号”页给这个网站保存登录名和密码。</span>
         </template>
         <template v-else-if="t.kind === 'blocked'">
           <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开岗位页面，自己投</a>

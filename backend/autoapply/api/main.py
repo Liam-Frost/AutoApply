@@ -918,6 +918,8 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             offered = _sites.fact(key, "sso_offered")
             r["sso"] = [{"key": p, "name": ready[p]} for p in offered if p in ready]
             r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered if p in _browser.identities() and p not in ready]
+        if r["kind"] in ("takeover", "login") and key:      # is "remember the password I type" something this card's window can do?
+            r["remembers"] = auth.remembers_login(key, str((r["payload"] or {}).get("url") or ""))
         r["site"] = humanize.site(key) if key else None
         r["explained"] = humanize.explain(r["body"])
         r["subject"] = humanize.subject(r["ref"])

@@ -190,6 +190,40 @@ class Page:
             raise RuntimeError(error.exception.description if error.exception else error.text)
         return result.value
 
+    def on_request(self, callback):
+        """Call ``callback(url, method, body)`` for every request of this page that carries a body - a form being
+        sent. Heard from the browser, not from inside the page: nothing is put into the page for it, and it hears a
+        form the browser's own password manager filled in as well as one that was typed. Once per page."""
+        import base64
+
+        from nodriver import cdp
+
+        if getattr(self, "_hears_requests", False):
+            return
+        self._hears_requests = True
+        tab = self.tab
+
+        async def sent(event, _tab=None):
+            req = event.request
+            if str(req.method or "").upper() not in ("POST", "PUT"):
+                return
+            body = req.post_data
+            try:
+                if body is None and req.post_data_entries:
+                    body = b"".join(base64.b64decode(e.bytes_ or "") for e in req.post_data_entries).decode("utf-8", "replace")
+                if body is None and req.has_post_data:
+                    body = await tab.send(cdp.network.get_request_post_data(event.request_id))
+            except Exception:  # noqa: BLE001 - a body that cannot be had is a request that was not heard
+                body = None
+            if body:
+                try:
+                    callback(str(req.url), str(req.method), str(body))
+                except Exception:  # noqa: BLE001
+                    pass
+
+        tab.add_handler(cdp.network.RequestWillBeSent, sent)
+        self.send(cdp.network.enable())
+
     @property
     def url(self):
         # Asked of the page; while it is between two addresses (a sign-in's redirects) it cannot answer, and the

@@ -93,14 +93,29 @@ class PDPortalDriver:
             return False
         return "Not Logged In" not in page.inner_text("body")[:600]
 
-    def _sign_in(self, page: Page, ref: JobRef, user: str = "", password: str = "") -> bool:
+    # Has the browser put a login name and a password in the university's form by itself (its own password manager)?
+    # Told by the mark the browser puts on a box it filled - what it filled is not handed to the page, and so not
+    # to this question either, until something is pressed - or by both boxes holding something nobody here typed.
+    # Only "is there something" is asked: the password is not read.
+    _FILLED_BY_BROWSER = """() => {
+      const filled = (id) => {
+        const box = document.getElementById(id);
+        if (!box) return false;
+        for (const mark of [':autofill', ':-webkit-autofill']) { try { if (box.matches(mark)) return true; } catch (e) {} }
+        return box.value.length > 0;
+      };
+      return filled('username') && filled('password');
+    }"""
+
+    def _sign_in(self, page: Page, ref: JobRef, user: str = "", password: str = "", *, browser_password: bool = False) -> bool:
         """Go through the portal's sign-in, from its own entry, as far as it goes without a person. True: signed in.
 
         What each page gets:
         - the portal's entry: followed. When the university's login still holds, it comes straight back signed in.
         - the university's login (CWL): the stored login name and password, once, and only on its own address. Without
-          them: False - nothing is typed, the applicant signs in. Asked for the password a second time: the login
-          refused it (DriverError "sign-in rejected") - it is not typed again.
+          them: False - nothing is typed, the applicant signs in - unless ``browser_password``: then a form the
+          browser itself has filled in (its own saved password) is sent as it stands. Asked for the password a second
+          time: the login refused it (DriverError "sign-in rejected") - it is not sent again.
         - Duo: the applicant is told to approve on their phone, and the program waits for it (second_factor_wait).
           Nothing is pressed there except "this is my device", which Duo asks after an approval.
         The pages of Duo could not be looked at while writing this (they come after the password); what is done there
@@ -120,11 +135,20 @@ class PDPortalDriver:
                         raise DriverError("the university's login did not answer after the password was sent", seen=host)
                     said = page.locator(".form-error, .form-element-wrapper .error, p.error").first
                     raise DriverError("sign-in rejected", seen=(said.inner_text().strip()[:200] if said.count() else "") or "the university's login asked for the password again")
-                if not (user and password):
-                    return False
                 before = page.url
-                page.locator("#username").first.fill(user)
-                page.locator("#password").first.fill(password)     # never logged
+                if user and password:
+                    page.locator("#username").first.fill(user)
+                    page.locator("#password").first.fill(password)     # never logged
+                else:
+                    if not browser_password:
+                        return False
+                    for _ in range(4):       # (the browser fills a form a moment after the page is there)
+                        if page.evaluate(self._FILLED_BY_BROWSER):
+                            break
+                        page.wait_for_timeout(1000)
+                        waited += 1
+                    else:
+                        return False
                 page.locator("button[name='_eventId_proceed']").first.click(timeout=w.T)
                 typed = True
                 for _ in range(15):
@@ -161,6 +185,12 @@ class PDPortalDriver:
         straight back signed in (after a Duo approval, if it wants one). Nothing is typed. False when the university's
         login asks for the password."""
         return self._sign_in(page, ref)
+
+    def login_as_the_browser_remembers(self, page: Page, ref: JobRef) -> bool:
+        """No login is saved with the program, but the browser may have one saved itself: when the university's form
+        stands filled in by it, the form is sent, and the rest is as with a saved login (Duo, the way back). Nothing is
+        typed and the password is not read. False when the form is not filled in: the applicant signs in."""
+        return self._sign_in(page, ref, browser_password=True)
 
     def login(self, page: Page, ref: JobRef, email: str, password: str) -> None:
         """Sign in with the stored CWL login name (``email``) and password."""
