@@ -211,10 +211,12 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
             return "Gmail 还没有授权，已跳过"
         return f"新邮件 {r.get('new_mail', 0)} 封，更新了 {r.get('status_updates', 0)} 个申请的状态" + (f"，{r['unmatched']} 封没对上岗位" if r.get("unmatched") else "")
     if kind == "profile_init":
-        todos = f"，有 {r['todos']} 处需要你补充" if r.get("todos") else ""
+        n = int(r.get("todos") or 0)
         if r.get("applied"):
-            return "已生成并保存为个人资料" + todos
-        return {"adopted": "生成的草稿已采用", "discarded": "生成的草稿没有采用"}.get(str(r.get("settled")), "草稿已生成，等你在“个人资料”页查看" + todos)
+            return f"已生成并保存为个人资料，有 {n} 处需要你补充" if n else "已生成并保存为个人资料"
+        if r.get("settled"):
+            return "生成的草稿已采用" if r["settled"] == "adopted" else "生成的草稿没有采用"
+        return f"草稿已生成，有 {n} 处需要你补充，等你在“个人资料”页查看" if n else "草稿已生成，等你在“个人资料”页查看"
     if kind == "score" and r.get("waits_for_profile"):
         return "个人资料还是空的，等资料有了再评分"
     if kind == "score":

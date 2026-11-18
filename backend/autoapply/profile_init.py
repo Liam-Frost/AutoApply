@@ -119,9 +119,8 @@ def run(notes: str = "") -> dict[str, Any]:
 def _card() -> None:
     from . import notify
 
-    notify.add_todo("config", "个人资料还是空的", ref=CARD,
-                    body="给岗位评分、回答申请表都要用到个人资料，现在里面还没有内容，所以这两件事先等着。上传一份简历，程序会自动整理出个人资料；"
-                         "也可以在“个人资料”页自己填写。资料有了之后，等着的事会自动继续，不需要再操作。")
+    body = "给岗位评分、回答申请表都要用到个人资料，现在里面还没有内容，所以这两件事先等着。上传一份简历，程序会自动整理出个人资料；也可以在“个人资料”页自己填写。资料有了之后，等着的事会自动继续，不需要再操作。"
+    notify.add_todo("config", "个人资料还是空的", ref=CARD, body=body)
 
 
 def wanted() -> str:
