@@ -55,7 +55,7 @@ def test_the_applicant_says_which_application_an_email_is_about(app_env):
 def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
     """Before the applicant is asked, the applicant page of the employer's site is read with the saved sign-in: the e-mail
     goes to the application the site shows as waiting for the assessment, and what the site says is kept with each."""
-    from autoapply import browser, db, llm, sitestatus
+    from autoapply import browser, db, sitestatus
     from autoapply.models import Application, Todo
 
     with db.session() as s:
@@ -65,14 +65,14 @@ def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
     monkeypatch.setattr(browser, "load_state", lambda key: {"cookies": [{"name": "s"}]})
     opened = []
 
-    def site(key, start, run_dir):
+    def site(key, start, folder, question):
         opened.append((key, start))
-        return {"signed_in": True, "notes": "", "applications": [
+        assert "Action Required for your Amazon Application" in question and f"id={second} | Applied Scientist Intern" in question
+        return {"signed_in": True, "about": [second, 999], "reason": "the second one waits for an assessment", "applications": [
             {"title": "Software Dev Engineer Intern", "job_id": "A0", "status": "Application submitted", "date": ""},
             {"title": "Applied Scientist Intern", "job_id": "A1", "status": "Assessment pending", "date": "Nov 15"}]}
 
     monkeypatch.setattr(sitestatus, "read", site)
-    monkeypatch.setattr(llm, "json", lambda prompt, schema, **k: {"application_ids": [second, 999], "reason": "the second one waits for an assessment"})
     out = sitestatus.resolve("m1")
     assert out["linked"] == [second] and opened == [("generic:www.amazon.jobs", "https://www.amazon.jobs/")]      # one visit for the site, not one per application
     with db.session() as s:
@@ -84,44 +84,50 @@ def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
 
 
 def test_a_site_that_does_not_settle_it_leaves_the_card_with_what_it_shows(app_env, monkeypatch):
-    from autoapply import browser, db, llm, sitestatus
+    from autoapply import browser, db, sitestatus
     from autoapply.models import Todo
 
     with db.session() as s:
         _two_sent_applications(s)
     _card()
     monkeypatch.setattr(browser, "load_state", lambda key: {"cookies": [{"name": "s"}]})
-    monkeypatch.setattr(sitestatus, "read", lambda *a: {"signed_in": True, "notes": "", "applications": [{"title": "Software Dev Engineer Intern", "job_id": "", "status": "Under review", "date": ""}]})
-    monkeypatch.setattr(llm, "json", lambda prompt, schema, **k: {"application_ids": [], "reason": "both look the same"})
+    monkeypatch.setattr(sitestatus, "read", lambda *a: {"signed_in": True, "about": [], "reason": "both look the same",
+                                                        "applications": [{"title": "Software Dev Engineer Intern", "job_id": "", "status": "Under review", "date": ""}]})
     assert sitestatus.resolve("m1")["linked"] == []
     with db.session() as s:
         t = s.query(Todo).filter_by(kind="mail_unmatched").one()
         assert t.status == "open" and t.payload["site"] == ["Software Dev Engineer Intern：Under review"]
 
 
-def test_the_visit_to_the_site_only_reads(app_env, tmp_path):
-    """On the applicant page the agent may look and move about the site; it is refused anything that changes an application."""
-    import pytest
-    from playwright.sync_api import sync_playwright
+def test_the_visit_to_the_site_only_reads(app_env, tmp_path, monkeypatch):
+    """The agent that reads the applicant page is given the tools that look and move about the site, and none that
+    type, choose, upload or run a script; what it reports is what resolve gets."""
+    from contextlib import contextmanager
 
-    from autoapply import sitestatus
+    from autoapply import browser, llm, sitestatus
 
-    with sync_playwright() as pw:
-        b = pw.chromium.launch()
-        page = b.new_page()
-        page.route("**/*", lambda r: r.fulfill(content_type="text/html", body='<main><h1>My applications</h1><p>SDE Intern - Assessment pending</p>'
-                                               '<button id="w" onclick="document.title = \'gone\'">Withdraw application</button><button>Start assessment</button><a href="/more">Details</a></main>'))
-        page.goto("https://www.amazon.jobs/applicant")
-        tools = {t.name: t for t in sitestatus._tools(page, tmp_path, {}, "amazon.jobs")}
-        assert set(tools) == {"read_page", "screenshot", "click", "goto", "report"}      # no filling, no uploading, no account tools
-        for kw in ({"selector": "#w"}, {"text": "Start assessment"}):
-            with pytest.raises(PermissionError):
-                tools["click"].fn(**kw)
-        assert page.title() != "gone"
-        with pytest.raises(PermissionError):
-            tools["goto"].fn(url="https://evil.example/")
-        assert "amazon.jobs/account" in tools["goto"].fn(url="https://account.amazon.jobs/account")
-        b.close()
+    page = tmp_path / "applications.html"
+    page.write_text("<main><h1>My applications</h1><p>SDE Intern - Assessment pending</p><button>Withdraw application</button></main>", encoding="utf-8")
+    real = browser.open_page
+
+    @contextmanager
+    def open_page(site, **kw):
+        with real(None) as p:
+            yield p
+
+    monkeypatch.setattr(browser, "open_page", open_page)
+    given = {}
+
+    def agent(goal, tools, *, system, kind="", on_step=None, budget=None):
+        given.update(tools={t.name for t in tools}, goal=goal, kind=kind, read={t.name: t for t in tools}["read"].fn())
+        {t.name: t for t in tools}["report"].fn(signed_in=True, about=[7], reason="it waits for an assessment",
+                                                applications=[{"title": "SDE Intern", "status": "Assessment pending"}, {"status": "no title: not an application"}])
+
+    monkeypatch.setattr(llm, "agent", agent)
+    out = sitestatus.read("generic:www.amazon.jobs", page.as_uri(), tmp_path / "visit", "The e-mail: ...")
+    assert given["tools"] == {*sitestatus.LOOKING, "report"} and not given["tools"] & {"type", "choose", "upload", "script"} and given["kind"] == "site_status"
+    assert "Assessment pending" in given["read"] and "The e-mail: ..." in given["goal"]
+    assert out == {"signed_in": True, "about": [7], "reason": "it waits for an assessment", "applications": [{"title": "SDE Intern", "job_id": "", "status": "Assessment pending", "date": ""}]}
 
 
 def test_an_account_offered_only_after_the_submission_is_taken_up_there(app_env, tmp_path, monkeypatch):
