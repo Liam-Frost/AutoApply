@@ -27,6 +27,7 @@ from typing import Any, Callable, Iterator
 
 import httpx
 
+from .. import fulltext
 from .public import UA, _text, workday
 
 NAMES = {"amazon": "Amazon", "apple": "Apple", "google": "Google", "microsoft": "Microsoft", "meta": "Meta", "nvidia": "NVIDIA", "amd": "AMD", "intel": "Intel"}
@@ -237,7 +238,7 @@ def meta(terms: list[str], keep: Keep = _all) -> Iterator[dict[str, Any]]:
                 try:
                     page.goto(cdt["href"], wait_until="domcontentloaded", timeout=45000)
                     page.wait_for_timeout(1500)
-                    jd = _text(page.inner_text("body"))[:12000]
+                    jd = _text(page.inner_text("body"))[:fulltext.LIMIT]
                 except Exception:  # noqa: BLE001
                     jd = ""
             yield _row("meta", cdt["id"], cdt["title"], cdt["href"].split("?")[0], location=loc, jd=jd)

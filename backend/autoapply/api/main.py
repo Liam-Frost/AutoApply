@@ -349,7 +349,7 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["archived"] = j.archived_at is not None
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
-        out.update(jd_text=j.jd_text, brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
+        out.update(jd_text=j.jd_text, jd_partial=j.jd_partial or "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
                    first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=humanize.explain(a.last_event if a else ""),
                    evidence=a.evidence if a else None,
                    drafts=[{"id": d.id, "version": d.version, "review_status": d.review_status} for d in (a.drafts if a else [])])
@@ -398,7 +398,7 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 else:
                     todo.append((jid, j.deadline or ""))
             elif action == "score":
-                if len((j.jd_text or "").strip()) < 200:
+                if len((j.jd_text or "").strip()) < 200 and j.jd_partial != "summary":      # (a summary's page is read before it is scored)
                     skipped += 1
                 else:
                     todo.append((jid, ""))

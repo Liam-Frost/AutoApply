@@ -16,6 +16,7 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 |---|---|
 | Reading postings: Greenhouse, Lever, Ashby, SmartRecruiters, Workday boards, the eight built-in career sites | Used for real |
 | Reading postings: job-board feeds (16 in the catalogue) | Run end to end: every feed read with the real reader; a full scheduled scan with feeds has not been watched |
+| A posting whose source gives only a summary: marked, its own page read for the whole text before it is scored, "only a summary" in the reason when that fails | Unit-tested: which feed items are teasers, the text of a page as a reader sees it, what is taken for the posting and what is not (a sign-in wall, a page that says less), the score and its reason. No real job board's feed and no real posting page has been read by it; pages that need a sign-in will stay summaries |
 | Reading postings: any careers page, read by the AI | Used for real on a few sites |
 | Scoring, drafting, review, revising a draft in plain words | Used for real |
 | Greenhouse driver | Used for real: applications submitted and confirmed by mail |

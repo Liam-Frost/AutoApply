@@ -58,10 +58,16 @@ def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = N
                     j.status = "scored" if j.score is not None else "new"
                 j.note = (f"back online {now().date().isoformat()}; " + (j.note or ""))[:2000]
                 back += 1
+            # A source that gives only a summary lists the posting again at every scan - with the summary. Once the whole
+            # text was read from the posting's page (fulltext.complete), the summary does not replace it.
+            partial = str(r.get("jd_partial") or "")
+            keep_text = bool(partial and (j.jd_text or "").strip() and not j.jd_partial and j.id is not None)
             for f in FIELDS:
                 v = r.get(f)
-                if v:
+                if v and not (f == "jd_text" and keep_text):
                     setattr(j, f, v)
+            if r.get("jd_text") and not keep_text:
+                j.jd_partial = partial
             if scope and not j.tenant:
                 j.tenant = scope        # which listing it belongs to is how it is found again below
             j.last_seen = now()

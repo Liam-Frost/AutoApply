@@ -14,7 +14,7 @@ import re
 from typing import Any, Callable, Iterator
 from urllib.parse import urljoin, urlparse
 
-from .. import browser, db, llm
+from .. import browser, db, fulltext, llm
 from ..models import Job
 
 log = logging.getLogger("autoapply.watch")
@@ -103,8 +103,8 @@ def scan(employer: dict[str, Any], keep: Callable[..., bool] = lambda *a: True) 
             try:
                 page.goto(href, wait_until="domcontentloaded")
                 page.wait_for_timeout(1800)
-                jd = re.sub(r"[ \t]+", " ", page.evaluate("() => (document.querySelector('main, [role=main], article') || document.body).innerText") or "")[:15000]
+                jd = re.sub(r"[ \t]+", " ", page.evaluate("() => (document.querySelector('main, [role=main], article') || document.body).innerText") or "")
             except Exception as e:  # noqa: BLE001 - one posting that will not open does not stop the rest
                 log.info("a posting did not open: %s", type(e).__name__)
                 jd = ""
-            yield {**row, "jd_text": jd}
+            yield {**row, "jd_text": jd[:fulltext.LIMIT], "jd_partial": "cut" if len(jd) > fulltext.LIMIT else ""}

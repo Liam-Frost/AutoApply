@@ -188,6 +188,20 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
+FEED_TEXT = 30000        # characters kept of a feed item's text
+_TRAILS_OFF = re.compile(r"(\.\.\.|…|\[\s*(\.\.\.|…)\s*\]|read more|continue reading|(view|see|read) (the )?full [a-z ]{3,30})\W*$", re.I)
+
+
+def teaser(text: str, *, from_content: bool) -> str:
+    """Is a feed item's text the posting, or what a board shows of it? "summary": it trails off ("...", "Read more"), or
+    it is the item's description and too short to be a posting; "cut": it is longer than is kept; "": the whole text."""
+    if len(text) > FEED_TEXT:
+        return "cut"
+    if _TRAILS_OFF.search(text.strip()) or (not from_content and len(text) < 1200):
+        return "summary"
+    return ""
+
+
 def parse_feed(xml_text: str) -> list[dict[str, str]]:
     """Items of an RSS or Atom document: title, link, summary (plain text), date (YYYY-MM-DD or ''), author, id."""
     import hashlib
@@ -216,8 +230,10 @@ def parse_feed(xml_text: str) -> list[dict[str, str]]:
         link = d.get("link", "")
         if not d.get("title") or not link.startswith("http"):
             continue
+        whole = d.get("encoded") or d.get("content") or ""           # the item's own content, when the feed carries it
+        text = _text(whole or d.get("description") or d.get("summary") or "")
         out.append({"title": re.sub(r"\s+", " ", html.unescape(d["title"])).strip(), "link": link, "date": day, "author": d.get("creator") or d.get("author") or "",
-                    "summary": _text(d.get("encoded") or d.get("content") or d.get("description") or d.get("summary") or "")[:8000], "location": d.get("location", ""),
+                    "summary": text[:FEED_TEXT], "partial": teaser(text, from_content=bool(whole)), "location": d.get("location", ""),
                     "id": hashlib.sha1((d.get("guid") or d.get("id") or link).encode()).hexdigest()[:16]})
     return out
 
@@ -253,4 +269,4 @@ def feed(url: str, board: str, scope: str, style: str = "employer: title") -> It
     for it in parse_feed(body):
         emp, job = split_title(it["title"], style)
         yield {"source": "feed", "source_id": f"{scope}:{it['id']}", "company": emp or it["author"] or board, "title": job, "location": it["location"], "apply_url": it["link"],
-               "tenant": scope, "channel": f"job board ({board or host})", "posted": it["date"], "jd_text": it["summary"]}
+               "tenant": scope, "channel": f"job board ({board or host})", "posted": it["date"], "jd_text": it["summary"], "jd_partial": it["partial"]}
