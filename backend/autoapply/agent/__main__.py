@@ -50,7 +50,7 @@ def main() -> None:
     site = brief.site_key(posting.url)
     print(f"{posting.company} · {posting.title}\n{posting.url}\nsite {site} · mode {a.mode} · folder {folder}\n", flush=True)
     with browser.open_page(site, headless=a.hidden, url=posting.url) as page:
-        result = run.apply(page, posting, applicant, folder, mode=a.mode, answers=answers or None)
+        result = run.apply(page, posting, applicant, folder, mode=a.mode, answers=answers or None, job_id=a.job)
     print(f"ended: {result.outcome or 'no report'} · {result.steps} tool calls · {result.seconds:.0f} s · {result.stopped}")
     rec = result.record or {}
     if rec.get("summary"):

@@ -39,8 +39,8 @@ class Result:
 class Desk:
     """What the agent has besides the browser: the applicant's side (accounts, questions) and its own notes."""
 
-    def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None) -> None:
-        self.folder, self.hands, self.site, self.mode, self.login = folder, hands, site, mode, login
+    def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None, job_id: int | None = None) -> None:
+        self.folder, self.hands, self.site, self.mode, self.login, self.job_id = folder, hands, site, mode, login, job_id
         self.answers = dict(answers or {})
         self.asked: list[dict[str, Any]] = []
         self.reported: dict[str, Any] | None = None
@@ -96,17 +96,20 @@ class Desk:
         return (f"Account on record: login name {acct['login_email'] or self.login or '(not recorded)'}; password {'stored' if acct['has_password'] else 'NOT stored'}; "
                 f"status {acct['status']}.")
 
-    def type_password(self, ref: str, then_click: str = "", new: bool = False) -> str:
+    def type_password(self, ref: str, then_click: str = "", new: bool = False, length: int = 20, symbols: str = "!@#$%^&*") -> str:
         """The applicant's password for this site, typed by the program into the box ``ref``; then ``then_click`` is
         pressed. The agent never has the password: the box is emptied again before control goes back, unless the
-        page has moved on. ``new``: a password is made up and stored first (registering an account)."""
+        page has moved on. ``new``: a password is made up and stored first (registering an account) - to the rules
+        the agent read on the page: ``length``, and which punctuation it may hold (``symbols``, empty for none).
+        (It was always twenty characters; a site that takes eighteen at most refused it, and the agent, who could read
+        the rule and not the password, had no way to say so.)"""
         from .. import auth, secrets
 
         at = self.hands._at(ref)
         if at["type"] != "password":
             raise PermissionError(f"[{ref}] is not a password box")
         if new:
-            pw = secrets.generate_password(20)
+            pw = secrets.generate_password(max(8, min(int(length or 20), 64)), symbols="".join(c for c in str(symbols) if not c.isalnum() and not c.isspace())[:16])
             auth.upsert_account(self.site, host=self.site.split(":", 1)[-1], email=self.login, password=pw, status="pending", created_by="agent")      # kept before it is sent
         else:
             pw = secrets.get_password(self.site) or ""
@@ -129,6 +132,25 @@ class Desk:
             pass
         self.write("password", new=bool(new))
         return "typed (hidden) and " + said
+
+    def cover_letter(self, instructions: str = "") -> str:
+        """Write a cover letter for this posting from the applicant's profile and résumé (the program's own letter
+        writer, with its checks) and add it to the files that may be uploaded."""
+        from .. import db, materials
+        from ..models import Job
+
+        if not self.job_id:
+            return "No cover letter can be written here (this application is not one of the program's postings)."
+        got = materials.existing_cover_letter(self.job_id) if not instructions.strip() else None
+        if got is None:
+            with db.session() as s:
+                job = s.get(Job, self.job_id)
+                s.expunge(job)
+            got = materials.make_cover_letter(job, instructions=str(instructions)[:1000])
+        self.hands.files[got["name"]] = got["path"]
+        self.write("cover_letter", name=got["name"], problems=got.get("problems") or [])
+        return (f"The cover letter is the file {got['name']!r}: upload it by that name."
+                + (f" The program's checks still object to: {'; '.join(got['problems'])[:400]}. Say so in your report." if got.get("problems") else ""))
 
     def sign_in_by_hand(self, why: str) -> str:
         self.waiting = str(why)[:600]
@@ -170,7 +192,11 @@ class Desk:
             llm.Tool("account", "What the program has on record for this site: the login name, whether a password is stored.", spec(), self.account),
             llm.Tool("type_password", "Have the applicant's password for this site typed into the password box `ref` (you do not see it), then press `then_click` (the sign-in or "
                                       "create-account button). `new`: make up and store a password first - for registering an account; a second box that wants the same "
-                                      "password again is filled by a second call without `new`.", spec(["ref"], ref=s, then_click=s, new=b), self.type_password),
+                                      "password again is filled by a second call without `new`. Read the site's password rules first and pass them on: `length` "
+                                      "(default 20) and `symbols`, the punctuation the site allows (default !@#$%^&*; empty for none).",
+                     spec(["ref"], ref=s, then_click=s, new=b, length={"type": "number"}, symbols=s), self.type_password),
+            llm.Tool("cover_letter", "Have a cover letter written for this posting, when the posting or the form asks for one and none is among the files. It becomes a file you can "
+                                     "upload. `instructions`: anything the letter must take into account.", spec(instructions=s), self.cover_letter),
             llm.Tool("sign_in_by_hand", "Hand the window to the applicant for something only they can do: a sign-in without a stored password, a code on their phone, a CAPTCHA. "
                                         "Ends this run; the next one goes on from here.", spec(["why"], why=s), self.sign_in_by_hand),
             llm.Tool("report", "End the run. outcome: ready (everything is in, one press from sending, not sent) | submitted (it went out: give the confirmation) | "
@@ -221,13 +247,14 @@ def journal_text(folder: Path) -> str:
     return "\n".join(out)
 
 
-def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None) -> Result:
+def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
+          job_id: int | None = None) -> Result:
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
     site = brief.site_key(posting.url)
     hands = Hands(page, files=applicant.files, shots=folder / "shots")
-    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers)
+    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id)
     record = None
     if (folder / "record.json").exists():
         try:

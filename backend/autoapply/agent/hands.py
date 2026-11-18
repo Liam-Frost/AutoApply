@@ -239,13 +239,13 @@ class Hands:
         before = self._pages()
         if ref or selector:
             at = self._at(ref, selector)
-            if at["type"] == "password":
+            if at["type"] == "password" and text != "":       # (emptying a password box is not typing a password)
                 raise PermissionError("a password is not typed by you: use type_password for the applicant's password on this site")
             self.page.mouse.click(at["x"], at["y"])
             time.sleep(0.15)
             self.page.evaluate("""() => { const e = window.__aaAt; if (!e) return; e.focus();
                 if (e.select) { try { e.select(); } catch (err) {} } else if (e.isContentEditable) { const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } }""")
-        elif self.page.evaluate("() => { const e = document.activeElement; return !!(e && e.tagName === 'INPUT' && (e.getAttribute('type') || '').toLowerCase() === 'password'); }"):
+        elif text != "" and self.page.evaluate("() => { const e = document.activeElement; return !!(e && e.tagName === 'INPUT' && (e.getAttribute('type') || '').toLowerCase() === 'password'); }"):
             raise PermissionError("a password is not typed by you: use type_password for the applicant's password on this site")
         if text == "":
             self.page.keyboard.press("Delete")
