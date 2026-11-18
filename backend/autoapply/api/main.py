@@ -1021,6 +1021,8 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
                  "browser_detail": [x["stage"] for x in (t.stages or []) if x.get("stage", "").startswith("browser:")]}
                 for t in s.query(Task).order_by(Task.id.desc()).limit(limit)]
     for r in rows:
+        if r["kind"] == "profile_init" and (r["result"] or {}).get("draft"):     # a whole profile: the page that shows it asks for it (/api/profile/init)
+            r["result"] = {k: v for k, v in r["result"].items() if k != "draft"}
         r["label"] = humanize.TASK.get(r["kind"], r["kind"])
         r["subject"] = humanize.subject(r["ref"])
         r["status_label"], r["tone"] = humanize.TASK_STATUS.get(r["status"], (r["status"], ""))
@@ -1201,7 +1203,7 @@ def _stage_counts(s: Any) -> dict[str, int]:
 def get_persona() -> dict[str, Any]:
     p = persona.get()
     with db.session() as s:
-        has_profile = "TODO" not in knowledge.read("profile") and len(knowledge.read("profile")) > 400
+        has_profile = not knowledge.blank()
         docs = s.query(Document).filter(Document.active == 1, Document.kind.in_(("resume_site", "resume_docx", "source"))).count()
     return {"persona": p, "features": persona.features(p), "onboarding_done": bool(db.get_setting("onboarding.done")),
             "stages": [{"key": k, "name": v["name"]} for k, v in persona.STAGES.items()], "fields": [{"key": k, "name": v["name"]} for k, v in persona.FIELDS.items()],
@@ -1654,16 +1656,39 @@ def remove_line(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"removed": knowledge.remove_line(body["fragment"])}
 
 
+@app.get("/api/profile/init")
+def profile_init_state() -> dict[str, Any]:
+    """Where the writing of the profile from the uploaded material stands: queued, being written, written (saved, or a
+    proposal to look at), or not done and why. Whichever page asks, whenever it is opened."""
+    from .. import profile_init
+
+    return {**profile_init.state(), "current": knowledge.read("profile")}
+
+
 @app.post("/api/profile/init")
 def init_profile(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Queue the writing of the profile. It is a task: the page that asked need not stay open, and may ask again later
+    what came of it (GET)."""
     from .. import profile_init
 
     try:
-        return {"draft": profile_init.draft_profile(body.get("notes", "")), "current": knowledge.read("profile")}
+        task_id = profile_init.start(str(body.get("notes") or ""))
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
-    except llm.LLMError as e:
-        raise HTTPException(502, str(e)) from None
+    return {"task_id": task_id, **profile_init.state(), "current": knowledge.read("profile")}
+
+
+@app.post("/api/profile/init/{task_id}/{how}")
+def settle_profile_proposal(task_id: int, how: str, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Adopt a proposed profile (as edited, when ``markdown`` is given) or discard it."""
+    from .. import profile_init
+
+    try:
+        return profile_init.settle(task_id, how, body.get("markdown"))
+    except KeyError:
+        raise HTTPException(404, "not found") from None
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
 
 
 DOC_KINDS = {"resume_docx", "resume_site", "resume_portal", "transcript", "summary_sheet", "cl_template", "cl_example", "portfolio", "certificate", "reference", "source", "other",
@@ -1717,7 +1742,12 @@ async def upload_document(kind: str = Form(...), file: UploadFile = File(...)) -
         d = Document(kind=kind, name=name, path=str(dest))
         s.add(d)
         s.flush()
-        return {"id": d.id, "name": name}
+        out = {"id": d.id, "name": name}
+    from .. import profile_init
+
+    # a résumé, and nothing is known about the applicant yet: their profile is written from it now (a task)
+    out["profile_task"] = profile_init.on_upload(kind)
+    return out
 
 
 @app.get("/api/documents/{doc_id}/file")

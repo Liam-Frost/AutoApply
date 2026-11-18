@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import config, db, discover, drafts, executor, lifecycle, mail, messages, notify, scoring, tasks
+from . import config, db, discover, drafts, executor, knowledge, lifecycle, mail, messages, notify, profile_init, scoring, tasks
 from .ats.base import AlreadyApplied, NeedsHuman
 from .models import UNKNOWN, Application, Job, Task
 from .tasks import asked_again, enqueue, handler
@@ -16,8 +16,19 @@ def _discover(t: Task) -> dict[str, Any]:
     return discover.run()
 
 
+@handler("profile_init")
+def _profile_init(t: Task) -> dict[str, Any]:
+    try:
+        return profile_init.run(str(t.payload.get("notes") or ""))
+    except Exception:
+        profile_init.failed()
+        raise
+
+
 @handler("score")
 def _score(t: Task) -> dict[str, Any]:
+    if scoring.nobody_to_score_for():       # (said on a card; scoring is queued again when the profile is there)
+        return {"waits_for_profile": True}
     if t.payload.get("job_id"):
         out = scoring.score_job(int(t.payload["job_id"]))
         return out or {"skipped": "no description"}
@@ -30,6 +41,11 @@ def _score(t: Task) -> dict[str, Any]:
 @handler("recon")
 def _recon(t: Task) -> dict[str, Any]:
     job_id = int(t.payload["job_id"])
+    if knowledge.blank():
+        # Nothing is known about the applicant: every question of the form would come back unanswered, after minutes
+        # at the employer's site. The task waits for the profile - which may be on its way (written from the résumé
+        # just uploaded) - and goes on by itself when it is there (profile_init.arrived).
+        raise NeedsHuman("个人资料还是空的，申请表没法回答。个人资料有了之后会自动继续。", kind="profile", waits_for=profile_init.wanted())
     if not t.payload.get("instructions"):
         from .models import Draft
 

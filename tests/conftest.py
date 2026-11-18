@@ -46,6 +46,10 @@ def app_env(tmp_path, monkeypatch):
 
     knowledge.DOCS = {"profile": config.PROFILE_MD, "scoring": config.SCORING_MD, "stories": config.STORIES_MD}
     db.init_db()
+    # The tests are about the program with an applicant in it: what reads the profile - scoring a posting, answering a
+    # form - waits while there is none. A test that is about the empty profile empties it itself (test_profile_init.py).
+    config.PROFILE_MD.parent.mkdir(parents=True, exist_ok=True)
+    config.PROFILE_MD.write_text(knowledge.EMPTY_PROFILE.replace("## Identity & contact\n\n", "## Identity & contact\n\n- Name: Test Applicant\n\n", 1), encoding="utf-8", newline="\n")
     # The coded drivers are tested as what they are - tools. In the program every site is read by the agent ("*");
     # a test that is about that says so itself.
     db.set_setting("agent.reads", [])

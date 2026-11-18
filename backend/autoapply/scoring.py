@@ -84,9 +84,24 @@ def _said_partial(reason: str, partial: str) -> str:
     return f"{i18n.tr(note)} {reason or ''}".strip()
 
 
+def nobody_to_score_for(*, quiet: bool = False) -> bool:
+    """Is the applicant's profile empty? Then nothing is scored: a posting cannot be judged for nobody, a score given
+    without the applicant would stand as if it were about them (nothing scores a posting twice), and the best of those
+    scores would start drafts. Said on one card unless ``quiet`` (the clock asking whether there is anything to do)."""
+    if not knowledge.blank():
+        return False
+    if not quiet:
+        from . import profile_init
+
+        profile_init.wanted()
+    return True
+
+
 def score_job(job_id: int) -> dict[str, Any] | None:
     from . import fulltext
 
+    if knowledge.blank():
+        return None
     _whole_text(job_id)
     with db.session() as s:
         j = s.get(Job, job_id)
@@ -176,6 +191,8 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
 
     from . import context
 
+    if nobody_to_score_for():
+        return {"waits_for_profile": True}
     limit = limit or int(db.get_setting("scoring.max_per_run") or 60)
     with db.session() as s:
         # only postings that can be scored (a description to read) and are not another listing of the same job
@@ -289,7 +306,7 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
     from . import tasks
     from .models import Task
 
-    if limit <= 0:
+    if limit <= 0 or knowledge.blank():     # (no drafts are started for an applicant nothing is known about)
         return 0
     line = draft_line()
     todo: list[tuple[int, str]] = []
