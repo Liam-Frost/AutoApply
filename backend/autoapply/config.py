@@ -59,6 +59,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # Who works an application: "agent" - one agent, from the posting to the confirmation (agent/); "legacy" - the
     # pipeline it replaces (read the form, draft, fill by driver), kept to compare with until it is removed.
     "agent.pipeline": "agent",
+    # How an application is sent (the application agent): "auto" - when nothing is open, without asking; "approve" -
+    # once the applicant has approved its record; "hand_over" - the agent stops at the last step and gives the window
+    # to the applicant (an instruction to the agent, not a lock: see agent/apply.md).
+    "submit.policy": "auto",
     "agent.reads": ["*"],      # every site ("*"); a list of names limits it - kept for taking a site out, not for turning the agent off
     # While reading, a required question only the applicant can answer gets a stand-in answer so that the steps after it
     # can be read too; it is never submitted - the draft cannot be approved until the applicant has answered.

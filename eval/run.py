@@ -185,7 +185,7 @@ def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa
 
     knowledge.write("profile", applicant.profile)
     db.set_setting("account.email", applicant.login)
-    db.set_setting("policy.default", "auto_approve")
+    db.set_setting("submit.policy", "auto")
     db.set_setting("browser.default_headless", True)
     with db.session() as s:
         for name, path in applicant.files.items():

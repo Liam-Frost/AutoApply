@@ -501,7 +501,7 @@
 "接下来：": "Next: ",
 "接口地址": "Endpoint URL",
 "接手填表": "AI take-over of a form",
-"提交方式": "How to submit",
+"提交方式": "Sending",
 "提这一次": "Report this one",
 "撤销修改": "Undo changes",
 "收起明细": "Hide detail",
@@ -3414,5 +3414,13 @@
 "批准后，Agent 回到这份申请，把网站上现在的内容和这份记录逐项核对（网站自己改过的会改回来），然后提交，并把确认页的原话和网址存下来作为证据。有它改不回来的差异时不会提交，会带着差异回到你这里。": "Once you approve, the agent goes back to this application, compares what the site holds now with this record item by item (putting right what the site changed by itself), then sends it and keeps the confirmation page's own words and address as evidence. If something differs in a way it cannot put right, it does not send and comes back to you with the difference.",
 "（没有）": "(nothing)",
 "还没定：\\1": "Still open: \\1",
-"已经用了 {0} 步、约 {1} 分钟，分 {2} 次运行，还没有做完。Agent 最后记下的是：{3} 要继续的话，再给它一份预算。": "{0} steps and about {1} minutes have been used, over {2} run(s), and it is not finished. The last thing the agent wrote down: {3} To go on, give it another budget."
+"已经用了 {0} 步、约 {1} 分钟，分 {2} 次运行，还没有做完。Agent 最后记下的是：{3} 要继续的话，再给它一份预算。": "{0} steps and about {1} minutes have been used, over {2} run(s), and it is not finished. The last thing the agent wrote down: {3} To go on, give it another budget.",
+"申请怎么提交": "How applications are sent",
+"没有未决问题就直接提交": "Send when nothing is open",
+"每份都先给我看，我批准后再提交": "Show me each one first; send after I approve",
+"做到最后一步，把窗口交给我自己点": "Go to the last step and give me the window to press it",
+"每份申请由 Agent 在雇主的网站上一直做到最后一步。这里决定最后那一下“提交”怎么办。": "The agent works each application on the employer's site up to the last step. This decides what happens with the final \"submit\".",
+"资料里都有答案、Agent 也没有拿不准的地方时，它直接提交，然后把记录和确认页交给你。有问题要你回答，或者它拿不准时，它停在提交之前。": "When your profile answers everything and the agent is not in doubt about anything, it sends the application and then gives you the record and the confirmation. When a question needs you, or it is unsure, it stops before sending.",
+"Agent 做到提交之前停下，把它填的每一项和依据给你看。你批准之后，它回去核对一遍再提交。": "The agent stops before sending and shows you every item it entered and where it comes from. After you approve, it goes back, checks once more and sends.",
+"Agent 被要求停在最后一步，把窗口交给你。这是给它的一条指令，不是一把锁：程序不靠识别按钮来拦它。": "The agent is told to stop at the last step and give you the window. That is an instruction to it, not a lock: the program does not stop it by recognising buttons."
 }

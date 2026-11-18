@@ -776,6 +776,12 @@ def drop_question(draft_id: int, qid: str) -> None:
         tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=20)
 
 
+def _sends_when_nothing_is_open(company: str) -> bool:
+    from .agent import work
+
+    return work.policy(company) == "auto"
+
+
 def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", remember: bool = False) -> None:
     """User edits one answer inline. The edit is authoritative: high confidence, user-confirmed."""
     with db.session() as s:
@@ -810,8 +816,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
             lifecycle.move(d.application, "recon", source="draft")
         # A record of the application agent: with the last question answered nothing is open, and under "send when
         # nothing is open" the agent goes on without another word from the applicant.
-        agent_on = (resolved_all and d.review_status == "pending" and bool((d.schema.get("extra") or {}).get("agent"))
-                    and str(db.get_setting("policy.default") or "") == "auto_approve")
+        agent_on = resolved_all and d.review_status == "pending" and bool((d.schema.get("extra") or {}).get("agent")) and _sends_when_nothing_is_open(d.application.job.company)
         job_id, deadline = d.application.job_id, d.application.job.deadline
         edited = next((dict(a) for a in new if a["id"] == qid), None)
     if corrected and edited is not None and edited.get("type") != "file":

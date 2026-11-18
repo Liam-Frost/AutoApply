@@ -65,8 +65,8 @@ SENT = {"outcome": "submitted", "record": {"summary": "Sent.", "confirmation": {
 def test_the_applicants_policy_decides_what_a_run_may_do(agent):
     from autoapply import drafts, tasks
 
-    for policy, mode in (("approve_then_submit", "prepare"), ("auto_approve", "auto"), ("manual", "hand_over")):
-        db.set_setting("policy.default", policy)
+    for policy, mode in (("approve", "prepare"), ("auto", "auto"), ("hand_over", "hand_over")):
+        db.set_setting("submit.policy", policy)
         agent.ends.append(READY)
         tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
         assert tasks.drain() == 1 and agent.seen[-1]["mode"] == mode
@@ -81,7 +81,7 @@ def test_the_applicants_policy_decides_what_a_run_may_do(agent):
         assert [(a["label"], a["value"], a["basis"], a["confidence"]) for a in d.answers] == [("First name", "Alex", "profile: Name", "high"), ("Degree", "Bachelor of Engineering", "BASc mapped to the nearest entry", "medium")]
         assert d.materials[0]["name"] == "resume.pdf" and d.schema["extra"]["agent"] is True
     # approved: the next run is given the approved record and told to send - whatever the policy
-    db.set_setting("policy.default", "approve_then_submit")
+    db.set_setting("submit.policy", "approve")
     drafts.edit_answer(did, "a2", "Bachelor's Degree - Other")
     drafts.approve(did)
     agent.ends.append(SENT)
@@ -97,7 +97,7 @@ def test_a_question_only_the_applicant_can_answer_is_a_card_and_their_answer_goe
     from autoapply import drafts, tasks
     from autoapply.models import Job
 
-    db.set_setting("policy.default", "auto_approve")
+    db.set_setting("submit.policy", "auto")
     asked = {"question": "What is the earliest date you can start?", "about": "job", "options": [], "why": "Step 2, required"}
     agent.ends.append({"outcome": "needs_you", "record": {"summary": "One question is open; not sent.", "url": "https://careers.acme.example/apply/2", "answers": READY["record"]["answers"], "files": [], "open": ["start date"], "asked": [asked]}})
     tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
@@ -142,7 +142,7 @@ def test_a_run_cut_off_after_it_said_it_was_sending_is_an_outcome_that_is_not_kn
     from autoapply import tasks
     from autoapply.models import UNKNOWN, Task
 
-    db.set_setting("policy.default", "auto_approve")
+    db.set_setting("submit.policy", "auto")
     agent.ends.append({"outcome": "", "stopped": "timeout", "journal": [{"kind": "sending", "button": "Submit application", "url": "https://careers.acme.example/apply/review"}]})
     tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
@@ -163,7 +163,7 @@ def test_a_look_that_finds_the_application_was_not_sent_lets_it_be_worked_again(
     from autoapply import tasks
     from autoapply.models import UNKNOWN, Task
 
-    db.set_setting("policy.default", "auto_approve")
+    db.set_setting("submit.policy", "auto")
     agent.ends += [{"outcome": "", "stopped": "timeout", "journal": [{"kind": "sending", "button": "Submit"}]},
                    {"outcome": "ready", "record": {"summary": "The site lists it under Drafts; nothing was sent."}}, SENT]
     tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
@@ -180,7 +180,7 @@ def test_three_kinds_of_stop(agent, monkeypatch):
     from autoapply import llm, tasks
     from autoapply.models import Task, Todo
 
-    db.set_setting("policy.default", "approve_then_submit")
+    db.set_setting("submit.policy", "approve")
     place = {"kind": "tool", "tool": "click", "output": "clicked [3]. Now on 'Apply' at https://careers.acme.example/apply/2."}
 
     def due_now():
@@ -246,3 +246,21 @@ def _app(job_id):
 
     with db.session() as s:
         return s.get(Job, job_id).application.id
+
+
+def test_an_employer_the_applicant_sends_to_themselves_and_an_installation_from_before(agent):
+    from autoapply.models import Application, Job
+
+    assert db.get_setting("submit.policy") == "auto" and agent.work.policy("Acme") == "auto"            # a new installation: send when nothing is open
+    db.set_setting("policy.manual_companies", ["acme"])
+    assert agent.work.policy("Acme Robotics") == "hand_over" and agent.work.policy("Northwind") == "auto"
+    # what an installation's old settings come to - an update does not switch on sending without being asked
+    assert agent.work.policy_from_before() is None                                                           # nothing was ever set, nothing was ever done
+    db.set_setting("onboarding.done", True)
+    assert agent.work.policy_from_before() == "approve"
+    db.set_setting("auto_approve.enabled", True)
+    assert agent.work.policy_from_before() == "auto"
+    db.set_setting("policy.default", "manual")
+    assert agent.work.policy_from_before() == "hand_over"
+    db.set_setting("submit.policy", "approve")
+    assert agent.work.policy_from_before() is None                                                           # it has the one setting: nothing to work out

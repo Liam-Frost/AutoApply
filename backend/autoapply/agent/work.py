@@ -32,7 +32,7 @@ from . import brief, run
 log = logging.getLogger("autoapply.agent")
 
 SURE = {"yes": "high", "fairly": "medium", "no": "low"}
-MODE_OF_POLICY = {"manual": "hand_over", "approve_then_submit": "prepare", "auto_approve": "auto"}
+MODE_OF_POLICY = {"hand_over": "hand_over", "approve": "prepare", "auto": "auto"}
 SAME_PLACE = 3          # runs in a row that ended at the same place without a report, before the applicant is asked
 
 
@@ -92,12 +92,39 @@ def spent(application_id: int) -> dict[str, Any]:
 
 
 # --- what a run is given ---------------------------------------------------------------------------------------------
-def mode_for(app_status: str, draft: Draft | None) -> str:
+def policy(company: str = "") -> str:
+    """How applications are sent, as the applicant has set it: auto | approve | hand_over. An employer they named as
+    one whose applications they send themselves is theirs whatever the general setting says."""
+    p = str(db.get_setting("submit.policy") or "auto")
+    if any(c and c.strip().lower() in (company or "").lower() for c in (db.get_setting("policy.manual_companies") or [])):
+        return "hand_over"
+    return p if p in MODE_OF_POLICY else "approve"
+
+
+def policy_from_before() -> str | None:
+    """For an installation from before there was one setting: what its settings came to. None for a new one.
+    (Sending without being asked is not something an update switches on: an installation that asked for an approval
+    of every draft still does.)"""
+    from ..models import Setting
+
+    with db.session() as s:
+        if s.get(Setting, "submit.policy") is not None:
+            return None
+        old = {k: (json.loads(r.value) if (r := s.get(Setting, k)) is not None else None) for k in ("policy.default", "auto_approve.enabled", "onboarding.done")}
+        used = old["onboarding.done"] or s.query(Application).count() > 0
+    if old["policy.default"] == "manual":
+        return "hand_over"
+    if old["auto_approve.enabled"]:
+        return "auto"
+    return "approve" if (used or old["policy.default"]) else None
+
+
+def mode_for(app_status: str, draft: Draft | None, company: str = "") -> str:
     if app_status == UNKNOWN:
         return "verify"
     if draft is not None and draft.review_status == "approved":
         return "send"
-    return MODE_OF_POLICY.get(str(db.get_setting("policy.default") or ""), "prepare")
+    return MODE_OF_POLICY[policy(company)]
 
 
 def record_of(draft: Draft | None) -> dict[str, Any] | None:
@@ -142,7 +169,7 @@ def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
         if app.status in SENT and app.status != UNKNOWN:
             return {"already_applied": True}
         draft = app.drafts[-1] if app.drafts else None
-        mode = mode_for(app.status, draft)
+        mode = mode_for(app.status, draft, job.company)
         record, answers = record_of(draft), answers_of(draft)
         if mode != "verify":
             lifecycle.move(app, "executing" if mode == "send" else "recon", source="run")

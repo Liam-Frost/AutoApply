@@ -313,6 +313,21 @@ onMounted(load)
 
       <SetSection id="submit" title="审批与提交">
         <div class="card">
+          <div class="card-title">申请怎么提交</div>
+          <p class="muted">每份申请由 Agent 在雇主的网站上一直做到最后一步。这里决定最后那一下“提交”怎么办。</p>
+          <div class="kv">
+            <label for="f-submit-policy">提交方式</label>
+            <AaSelect id="f-submit-policy" v-model="s['submit.policy']">
+              <option value="auto">没有未决问题就直接提交</option>
+              <option value="approve">每份都先给我看，我批准后再提交</option>
+              <option value="hand_over">做到最后一步，把窗口交给我自己点</option>
+            </AaSelect>
+          </div>
+          <p v-if="s['submit.policy'] === 'auto'" class="hint">资料里都有答案、Agent 也没有拿不准的地方时，它直接提交，然后把记录和确认页交给你。有问题要你回答，或者它拿不准时，它停在提交之前。</p>
+          <p v-else-if="s['submit.policy'] === 'approve'" class="hint">Agent 做到提交之前停下，把它填的每一项和依据给你看。你批准之后，它回去核对一遍再提交。</p>
+          <p v-else class="hint">Agent 被要求停在最后一步，把窗口交给你。这是给它的一条指令，不是一把锁：程序不靠识别按钮来拦它。</p>
+        </div>
+        <div class="card">
           <div class="card-title">草案批准之后</div>
           <p class="muted">每个申请都会先生成草案给你看。这里决定你批准之后，最后那一下“提交”由谁来点。</p>
           <div class="kv">

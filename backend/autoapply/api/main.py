@@ -74,6 +74,13 @@ async def lifespan(app: FastAPI):
         if db.get_setting("agent.reads") == ["workday"]:
             db.set_setting("agent.reads", ["*"])
         db.set_setting("migrated.agent_reads_all", True)
+    if not db.get_setting("migrated.submit_policy"):
+        from ..agent import work as _agent_work
+
+        before = _agent_work.policy_from_before()
+        if before:
+            db.set_setting("submit.policy", before)
+        db.set_setting("migrated.submit_policy", True)
     if not db.get_setting("migrated.sites"):
         from .. import sites as _sites_
 
