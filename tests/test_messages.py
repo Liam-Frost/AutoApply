@@ -16,20 +16,20 @@ def test_every_template_renders():
 
     t = "Acme · Engineer"
     cards = [
-        m.discover_started(3), m.execute_started(t, ats="greenhouse", policy="manual", pages=2),
+        m.discover_started(3),
         m.discover_done({"seen": 5, "new": 0, "back": 0, "offline": 0}, {}, {}),
         m.discover_done({"seen": 5, "new": 2, "back": 1, "offline": 1}, {"a": 2}, {"b": "boom"}),
         m.submitted(t, evidence="Thanks", auto=True), m.submitted(t, evidence="", note="already applied"),
-        m.failed(t, error="x" * 900), m.registered("workday:acme"), m.session_saved("k", credentials=True), m.gmail_authorized(),
-        m.high_scores([{"score": 8.5, "company": "A", "title": "T", "deadline": ""}] * 14), m.auto_approved(t, 1), m.drifted(t, ["a"]),
+        m.failed(t, error="x" * 900), m.session_saved("k", credentials=True), m.gmail_authorized(),
+        m.high_scores([{"score": 8.5, "company": "A", "title": "T", "deadline": ""}] * 14),
         *[m.mail_update(k, t, "s") for k in [*m.MAIL, "other"]],
         *[m.todo(k, t, "body", payload={"draft_id": 3}) for k in [*m.TODO, "unknown"]],
-        m.draft_ready(t, 3, answers=4, files=["R.pdf"], why_not_auto=["enabled", "driver_proven", "custom"]), m.test(),
+        m.draft_ready(t, 3, answers=4, files=["R.pdf"]), m.test(),
     ]
     for c in cards:
         assert c.html("http://x") and c.plain("http://x") and len(c.html("http://x")) < 4000
-    d = m.draft_ready(t, 3, answers=4, files=[], why_not_auto=["enabled", "driver_proven"]).plain("http://x")
-    assert "/drafts/3" in d and "连续成功提交" in d and "enabled" not in d
+    d = m.draft_ready(t, 3, answers=4, files=["R.pdf"]).plain("http://x")
+    assert "/drafts/3" in d and "4 项" in d and "R.pdf" in d
 
 
 def test_send_records_plain_text_and_todo_push(app_env, monkeypatch):

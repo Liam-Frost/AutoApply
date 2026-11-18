@@ -101,13 +101,6 @@ def discover_started(sources: int) -> Card:
     return Card("🔎", "开始扫描岗位", fields=[("来源", f"{sources} 个")])
 
 
-def execute_started(title: str, *, ats: str, policy: str, pages: int = 0, reasons: list[str] | None = None) -> Card:
-    how = "填好后由你点击提交" if policy == "manual" else "核对无误后自动提交"
-    if policy == "manual" and reasons:
-        how += "（" + "；".join(reasons[:2]) + "）"
-    return Card("▶️", "开始填写申请", title, fields=[("系统", ats), ("页数", str(pages) if pages else ""), ("提交方式", how)])
-
-
 # --- task result -------------------------------------------------------------------------
 
 def discover_done(total: dict[str, int], new_by_source: dict[str, int], errors: dict[str, str]) -> Card:
@@ -166,10 +159,6 @@ def drained() -> Card:
     return Card("⏹️", "手上的任务都做完了，程序已停下", hint="不会再开始新的任务。现在可以放心关闭或重启程序；重新启动后队列会接着做。", path="/runs", link="查看工作计划")
 
 
-def registered(key: str) -> Card:
-    return Card("🆕", "已注册账号", key, hint="密码保存在本机凭据管理器里。", path="/accounts", link="查看账号")
-
-
 def session_saved(key: str, *, credentials: bool) -> Card:
     return Card("🔑", "登录状态已保存", key, fields=[("密码", "已一并保存" if credentials else "")], path="/accounts", link="查看账号")
 
@@ -188,22 +177,13 @@ def gmail_authorized() -> Card:
 
 def high_scores(rows: list[dict[str, Any]]) -> Card:
     """rows: {score, company, title, deadline}"""
-    c = Card("⭐", f"{len(rows)} 个新的高分岗位", path="/jobs", link="查看岗位列表", hint="已排队生成申请草案。")
+    c = Card("⭐", f"{len(rows)} 个新的高分岗位", path="/jobs", link="查看岗位列表", hint="已排队，Agent 会去做这些申请。")
     for r in rows[:12]:
         dl = f"　截止 {r['deadline']}" if r.get("deadline") else ""
         c.items.append(f"{r['score']:g}　{r['company']} · {_cut(r['title'], 60)}{dl}")
     if len(rows) > 12:
         c.items.append(f"……另有 {len(rows) - 12} 个")
     return c
-
-
-def auto_approved(title: str, draft_id: int) -> Card:
-    return Card("⚡", "草案自动通过", title, hint="符合全部自动通过条件，已进入执行。", path=f"/drafts/{draft_id}", link="查看草案")
-
-
-def drifted(title: str, changes: list[str]) -> Card:
-    return Card("🔁", "申请表有变化", title, items=[_cut(x, 90) for x in changes[:8]],
-                hint="正在重新读取表单。已审批的答案会沿用，稍后只需补审变化的部分。", path="/drafts", link="查看草案")
 
 
 MAIL = {
@@ -251,52 +231,35 @@ def llm_switched(frm: str, to: str, why: str, until: str) -> Card:
                 hint=(f"{until} 之后会再试原来的服务，" if until else "") + "恢复后自动切回；不需要你操作。", path="/settings/accounts/ai", link="打开设置")
 
 
+
 # --- to-do -------------------------------------------------------------------------------
 
 # kind -> (icon, heading, hint)
 TODO = {
-    "answer": ("✍️", "有问题需要你回答", "回答后草案才能进入审批。"),
-    "review": ("📝", "草案等你审批", "逐项看一遍要填的内容，通过后才会开始填写。"),
+    "answer": ("✍️", "有问题需要你回答", "这是表单需要、而你的资料里没有的信息。回答后 Agent 接着做。"),
+    "review": ("📝", "申请记录等你批准", "看一遍 Agent 填的内容，批准后它去提交。"),
     "takeover": ("🔐", "需要你登录", "在待办里点“去登录”，在弹出的窗口里完成登录，登录状态会自动保存。"),
     "blocked": ("🚧", "这个网站程序操作不了", "申请页在程序的浏览器里打不开或点不动。可以自己打开岗位页面投递，然后在待办里点“我已经提交了”。"),
     "login": ("🔐", "需要你登录", "在待办里点“去登录”，在弹出的窗口里完成登录。"),
     "captcha": ("🤖", "需要人工验证", "网站要求人机验证，这一步只能由你完成。"),
-    "submit": ("👆", "已填好，等你提交", "请在弹出的浏览器窗口里检查一遍，然后点击提交。窗口会保留约 20 分钟。"),
-    "submit_incomplete": ("⚠️", "还没填完，需要你接手", "有几处驱动和 AI 都没能填好，已经在待办里逐项列出。请在弹出的浏览器窗口里处理后再提交。窗口会保留约 20 分钟。"),
+    "submit": ("👆", "已填到最后一步，等你提交", "请在弹出的浏览器窗口里检查一遍，然后点击提交。窗口会保留约 20 分钟。"),
     "failed": ("❌", "申请没有提交", "没有提交任何内容。"),
-    "driver_patch": ("🛠", "驱动补丁建议", "agent 已替驱动填完这一页；这是给之后修改驱动用的建议，不影响本次申请。"),
-    "driver": ("🧪", "驱动巡检发现问题", "在修好之前，这个系统的申请可能会失败。"),
     "config": ("⚙️", "配置需要处理", ""),
     "mail_unmatched": ("📨", "邮件没能关联到岗位", "程序会先到雇主网站上查是哪个申请；查不到的话，请在待办里指定。"),
 }
 
 
 def todo(kind: str, title: str, body: str = "", *, payload: dict[str, Any] | None = None) -> Card:
-    icon, heading, hint = TODO.get("submit_incomplete" if kind == "submit" and (payload or {}).get("incomplete") else kind, ("🔔", "需要你处理", ""))
+    icon, heading, hint = TODO.get(kind, ("🔔", "需要你处理", ""))
     did = (payload or {}).get("draft_id")
     path, link = (f"/drafts/{did}", "打开草案") if kind in ("answer", "review") and did else ("/todos", "打开待办")
     return Card(icon, heading, title, detail=_cut(body, 500) if body else "", hint=hint, path=path, link=link)
 
 
-def draft_ready(title: str, draft_id: int, *, answers: int, files: list[str], why_not_auto: list[str]) -> Card:
+def draft_ready(title: str, draft_id: int, *, answers: int, files: list[str]) -> Card:
     c = todo("review", title, payload={"draft_id": draft_id})
-    c.fields = [("要填写", f"{answers} 项"), ("要上传", "、".join(files))]
-    c.items = [WHY_NOT_AUTO.get(x, x) for x in why_not_auto if x != "enabled"][:4]
-    c.items_title = "没有自动通过的原因："
+    c.fields = [("填了", f"{answers} 项"), ("上传了", "、".join(files))]
     return c
-
-
-WHY_NOT_AUTO = {
-    "no_unresolved": "有问题还没有答案",
-    "all_high_from_rules": "有答案是模型推断的，不是来自已确认的规则或资料",
-    "no_new_sensitive": "有敏感问题的答案还没被你确认过",
-    "cover_letter_ok": "这次新写了求职信",
-    "score_ok": "岗位评分低于自动通过的门槛",
-    "driver_proven": "这个系统连续成功提交的次数还不够",
-    "session_ready": "这个网站还没有可用的登录状态",
-    "no_unusual_notes": "草案里有需要你留意的备注",
-    "revised_by_user": "草案被你修改过",
-}
 
 
 def test() -> Card:

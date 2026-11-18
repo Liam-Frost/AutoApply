@@ -182,7 +182,7 @@ onMounted(load)
       <div v-if="rules" class="cols">
         <div class="card">
           <div class="card-title">我会投什么</div>
-          <p class="muted">从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的才准备草案。</p>
+          <p class="muted">从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的 Agent 才去做申请。</p>
           <ul class="rule-list">
             <li v-for="(r, i) in rules.apply" :key="i">
               <span class="tag" :class="KIND_TONE[r.kind]">{{ r.label }}</span>
@@ -200,7 +200,7 @@ onMounted(load)
                 <ul v-if="st.more.length" class="small muted" style="margin: 4px 0 0 18px"><li v-for="(m, i) in st.more" :key="i">{{ m }}</li></ul></div>
             </li>
           </ul>
-          <p class="hint" style="margin-top: 10px">具体到每一份草案，草案页上写着它由谁提交、为什么，每条原因都能点到决定它的设置。</p>
+          <p class="hint" style="margin-top: 10px">具体到每一份申请，它的记录页上写着 Agent 做了什么、填了什么、批准之后由谁提交。</p>
         </div>
       </div>
     </template>

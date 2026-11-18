@@ -1984,7 +1984,8 @@ def sites_list() -> list[dict[str, Any]]:
 
     rows = sites.listing()
     for r in rows:
-        r["employer"] = humanize.site(r["key"])["name"] if ":" in r["key"] and not r["key"].startswith("idp:") else ""
+        system = r["key"].startswith("system:")      # notes about a recruiting system: its name, as the applicant knows it
+        r["employer"] = humanize.ats_name(r["key"][7:]) if system else humanize.site(r["key"])["name"] if ":" in r["key"] and not r["key"].startswith("idp:") else ""
     return rows
 
 

@@ -72,9 +72,9 @@ def what_i_apply_to() -> list[dict[str, str]]:
         out.append(_line("preference", "还没有写评分规则：程序只按岗位说明和你的资料有多匹配来评分", "/profile?tab=scoring"))
 
     prio = [e for e in employers.listing() if e.get("priority") and e.get("enabled", True)]
-    out.append(_line("threshold", f"评分达到 {float(st['queue.min_score_for_draft']):g} 分的岗位准备草案", PREPARE))
+    out.append(_line("threshold", f"评分达到 {float(st['queue.min_score_for_draft']):g} 分的岗位，Agent 去做申请", PREPARE))
     if prio:
-        out.append(_line("threshold", f"重点雇主（{len(prio)} 家）的岗位达到 {float(st['employers.priority_min_score'] or 7.0):g} 分就准备草案", PREPARE))
+        out.append(_line("threshold", f"重点雇主（{len(prio)} 家）的岗位达到 {float(st['employers.priority_min_score'] or 7.0):g} 分就去做申请", PREPARE))
     watched = [e for e in employers.listing() if e.get("enabled", True)]
     # (whole sentences, not pieces put together: each of them is a text of the interface, and is translated as one)
     out.append(_line("source", f"关注 {len(watched)} 家雇主，其中重点 {len(prio)} 家" if prio else f"关注 {len(watched)} 家雇主", "/jobs/sources"))

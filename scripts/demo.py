@@ -372,15 +372,15 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
             jid = rnd.choice(job_ids)
             at = base + timedelta(hours=rnd.uniform(2.5, 7))
             roll = rnd.random()
-            if roll < 0.12:
+            if roll < 0.07:
                 err = rnd.choice(["网站暂时打不开：ERR_CONNECTION_TIMED_OUT；30 分钟后自动重试", "Claude subscription usage limit reached: resets 3pm"])
                 t_ = task("apply", f"job:{jid}", at, "failed", rnd.uniform(0.5, 2), error=err)
                 if "usage" in err:
                     request(t_, at, "apply", OPUS, "agent", (0, 0, 0, 0), ok=False)
                 continue
-            status = "submitted" if roll < 0.58 else "ready" if roll < 0.72 else "needs_input" if roll < 0.84 else "goes_on" if roll < 0.93 else "cannot"
+            status = "submitted" if roll < 0.62 else "ready" if roll < 0.76 else "needs_input" if roll < 0.88 else "goes_on" if roll < 0.95 else "cannot"
             turns = rnd.randint(45, 140) if status != "goes_on" else 400
-            minutes = turns * rnd.uniform(0.09, 0.14)
+            minutes = min(44.0, turns * rnd.uniform(0.09, 0.14))
             t_ = task("apply", f"job:{jid}", at, "done", minutes, result={"status": status, "steps": turns, "seconds": minutes * 60})
             if rnd.random() < 0.35:
                 request(t_, at, "cover_letter", OPUS, "json", (rnd.randint(2500, 4000), rnd.randint(3000, 5000), 0, rnd.randint(900, 1400)))

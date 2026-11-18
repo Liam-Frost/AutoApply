@@ -12,7 +12,7 @@ const emit = defineEmits(['reload'])
 
 // a recruiting system's notes hold for every employer on it; a sign-in provider has no notes of its own
 const rows = computed(() => props.d.filter((r) => r.notes && !r.key.startsWith('idp:')))
-const shown = (r) => (r.key.startsWith('system:') ? r.name : r.employer || r.name)
+const shown = (r) => r.employer || r.name
 const site = ref(null)
 async function show(row) {
   if (site.value && site.value.key === row.key) { site.value = null; return }

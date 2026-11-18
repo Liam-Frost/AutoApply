@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import db, knowledge, lifecycle, materials, messages, notify
+from . import db, knowledge, lifecycle, materials, notify
 from .models import SENT, Application, ApplicationEvent, Draft, DraftComment, MailEvent, now
 
 NOT_TO_ANSWER = "(the applicant says this is not to be answered: leave it as the form has it)"
@@ -184,7 +184,7 @@ def use_resume(draft_id: int, which: str) -> None:
         d.schema = sch
 
 
-def approve(draft_id: int, *, auto: bool = False) -> None:
+def approve(draft_id: int) -> None:
     """The applicant's word that this record is what is to be sent - this version of it. The agent then sends it."""
     with db.session() as s:
         d = s.get(Draft, draft_id)
@@ -194,14 +194,11 @@ def approve(draft_id: int, *, auto: bool = False) -> None:
             raise ValueError(f"draft is {d.review_status}")
         d.review_status, d.approved_at = "approved", now()
         app, job = d.application, d.application.job
-        lifecycle.move(app, "approved", source="auto" if auto else "user")
-        app.auto_approved = int(auto)
-        title, job_id, deadline = f"{job.company} · {job.title}", job.id, job.deadline
+        lifecycle.move(app, "approved", source="user")
+        job_id, deadline = job.id, job.deadline
     from . import tasks
 
     _again(job_id, tasks.deadline_priority(deadline))
-    if auto:
-        notify.send("status_update", messages.auto_approved(title, draft_id), ref=f"draft:{draft_id}")
 
 
 def reject(draft_id: int, *, withdraw: bool = False) -> None:

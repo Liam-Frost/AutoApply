@@ -407,7 +407,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
             notify.add_todo("answer", title, body=f"{open_n} 个问题需要你回答：\n{qs}", ref=f"draft:{draft_id}", payload={"draft_id": draft_id})
         else:
             n_ans = sum(1 for a in rec.get("answers") or [] if a.get("entered") not in ("", None, []))
-            notify.send("todo", messages.draft_ready(title, draft_id, answers=n_ans, files=[str(f.get("file", "")) for f in rec.get("files") or []], why_not_auto=[]), ref=f"draft:{draft_id}")
+            notify.send("todo", messages.draft_ready(title, draft_id, answers=n_ans, files=[str(f.get("file", "")) for f in rec.get("files") or []]), ref=f"draft:{draft_id}")
         return {"draft_id": draft_id, "status": "needs_input" if open_n else "ready", "steps": result.steps, "seconds": result.seconds}
     if result.outcome == "needs_you":
         why = str(rec.get("summary") or "这个网站需要你登录或验证一次")[:600]

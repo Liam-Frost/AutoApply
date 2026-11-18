@@ -23,13 +23,13 @@ from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, Job, Ma
 # where the applicant may put an application by hand: a step that happened outside the program's sight
 BY_HAND = (*SENT, "withdrawn")
 # who said a change, in the applicant's words
-SOURCE = {"run": "程序填表", "mail": "邮件", "site": "雇主网站", "user": "你", "draft": "准备草案", "auto": "自动批准", "resume": "继续任务", "recover": "程序重启后", "": ""}
+SOURCE = {"run": "Agent", "mail": "邮件", "site": "雇主网站", "user": "你", "draft": "申请记录", "auto": "自动批准", "resume": "继续任务", "recover": "程序重启后", "": ""}
 # what comes next, by where it stands: (what is open, the things that can be done about it - the page turns them into buttons)
 NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
     "recon": ("Agent 正在做这份申请", ()),
     "revising": ("Agent 正在按你的意见处理这份申请", ()),
-    "needs_input": ("草案里有问题等你回答", ("open_draft",)),
-    "draft_ready": ("草案等你审批", ("open_draft",)),
+    "needs_input": ("有问题等你回答", ("open_draft",)),
+    "draft_ready": ("申请记录等你批准", ("open_draft",)),
     "approved": ("已批准，等 Agent 去提交", ()),
     "executing": ("Agent 正在核对并提交", ()),
     "drifted": ("申请表有变化", ("rerun",)),
