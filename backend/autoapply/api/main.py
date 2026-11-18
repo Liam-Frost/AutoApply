@@ -569,6 +569,7 @@ def get_draft(draft_id: int) -> dict[str, Any]:
     d["job"]["ats_label"] = humanize.ats_name(d["job"]["ats"])
     for a in d["answers"]:
         a["basis_display"] = humanize.basis(a.get("basis", ""))
+        a["reused_display"] = humanize.reused(a.get("reused"), d["job"].get("ats", ""))
     for u in d["unresolved"]:
         u["basis_display"] = humanize.basis(u.get("basis", ""))
     return d
@@ -1270,7 +1271,10 @@ def system_state() -> dict[str, Any]:
 
     from .. import backup
 
-    return {"platform": platform.system(), "pdf": convert.available(), "version": backup.version(), "data_dir": str(config.DATA), "knowledge_dir": str(config.KNOWLEDGE)}
+    return {"platform": platform.system(), "pdf": convert.available(), "version": backup.version(), "data_dir": str(config.DATA), "knowledge_dir": str(config.KNOWLEDGE),
+            # for the backup section: when the data was last exported, and where passwords and keys are kept (they are in
+            # no export, and whether they are found again after a restore depends on that)
+            "last_export": backup.last(), "secrets": secrets.describe()["backend"]}
 
 
 @app.post("/api/system/export")

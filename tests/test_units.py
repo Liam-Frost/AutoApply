@@ -516,3 +516,66 @@ def test_the_analysis_page_compares_the_recruiting_systems(app_env):
     assert timing.takeovers([{"op": "repair"}, {"op": "repair_skipped"}, {"op": "repair"}]) == 2
     # the view narrowed to one kind of task still compares whole systems
     assert {y["ats"] for y in analytics.automation(analytics.window(7), kind="mail")["systems"]} == set(got)
+
+
+def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):
+    """The exports say it themselves (their manifest): when, how much, whether the saved sign-ins are in it."""
+    import zipfile
+    from datetime import datetime
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import backup, db
+    from autoapply.api.main import app
+
+    db.init_db()
+    c = TestClient(app)
+    assert backup.exports() == [] and c.get("/api/system").json()["last_export"] is None
+    first = backup.export()
+    got = c.get("/api/system").json()
+    last = got["last_export"]
+    assert last["name"] == first["name"] and last["files"] == first["files"] and last["size"] == first["size"] and last["sessions"] is False
+    assert abs((datetime.fromisoformat(last["created"]) - datetime.now().astimezone()).total_seconds()) < 120 and last["created"][-6] in "+-"      # a moment, with its offset
+    assert got["secrets"] in ("keyring", "file")
+    # a file that is no export is not offered as one; the newest export is the last
+    (backup.EXPORTS / "autoapply-backup-20990101-000000.zip").write_bytes(b"not a zip")
+    with zipfile.ZipFile(backup.EXPORTS / "autoapply-backup-20980101-000000.zip", "w") as z:
+        z.writestr("manifest.json", '{"app": "autoapply", "version": "9.9", "created": "2098-01-01T08:00:00", "sessions": true, "files": 3}')
+    names = [e["name"] for e in backup.exports()]
+    assert names[0] == "autoapply-backup-20980101-000000.zip" and "autoapply-backup-20990101-000000.zip" not in names and first["name"] in names
+    assert backup.last()["sessions"] is True and backup.last()["version"] == "9.9"
+
+
+def test_an_answer_that_is_used_again_says_where_it_was_given_and_when(app_env):
+    """A6 kept whose form an answer was last given on; the draft showed "answered before" and no more."""
+    from autoapply import answers as ans
+    from autoapply import db, humanize
+    from autoapply.ats.base import FormSchema, Question
+    from autoapply.models import AnswerCache, Job
+
+    db.init_db()
+    q1 = Question(id="auth", label="Are you legally authorized to work in Canada?", type="select", options=["Yes", "No"], required=True)
+    q2 = Question(id="start", label="Earliest start date", type="text")
+    q3 = Question(id="worked", label="Have you worked for us before?", type="select", options=["Yes", "No"])
+    ans.cache_put("greenhouse", q1, "Yes", "work authorization in the profile", confirmed=True, tenant="acme")      # confirmed on Acme's form
+    ans.cache_put("greenhouse", q2, "June 2027", "start date in the profile", confirmed=False, tenant="acme")        # filled on Acme's form, not confirmed
+    ans.cache_put("greenhouse", q3, "No", "never worked there", confirmed=True, tenant="beta")                       # confirmed - on Beta's form
+    with db.session() as s:
+        for row in s.query(AnswerCache):
+            row.updated_at = row.updated_at.replace(year=2026, month=11, day=2)
+        job = Job(source="greenhouse", source_id="1", title="Intern", company="Acme", ats="greenhouse", tenant="acme", status="scored", jd_text="d" * 300)
+        s.add(job)
+        s.flush()
+        s.expunge(job)
+    schema = FormSchema(ats="greenhouse", tenant="acme", questions=[q1, q2, q3])
+    rows = {r["id"]: r for r in ans.resolve(schema, job)["answers"]}
+    assert rows["auth"]["reused"] == {"own": True, "confirmed": True, "employer": "", "at": rows["auth"]["reused"]["at"]} and rows["auth"]["reused"]["at"].startswith("2026-11-02")
+    assert (rows["start"]["reused"]["own"], rows["start"]["reused"]["confirmed"]) == (True, False)
+    assert (rows["worked"]["reused"]["own"], rows["worked"]["reused"]["confirmed"], rows["worked"]["reused"]["employer"]) == (False, False, "beta")
+    said = {k: humanize.reused(v["reused"], "greenhouse") for k, v in rows.items()}
+    assert said["auth"] == "你在这家雇主的表单上确认过这个答案（2026-11-02）"
+    assert said["start"] == "这家雇主的表单上次填的就是这个答案（2026-11-02），你还没有确认过"
+    assert said["worked"].startswith("这个答案上次用在 ") and "beta" in said["worked"].lower() and said["worked"].endswith("在这家雇主这里你还没有确认过")
+    # a draft from before this was kept, and an answer that is not a reused one, say nothing; an answer of unknown origin says what is known
+    assert humanize.reused(None) == "" and humanize.reused("x") == ""
+    assert humanize.reused({"own": False, "employer": "", "at": ""}, "greenhouse") == "这个答案来自同一个招聘系统上另一家雇主的表单；在这家雇主这里你还没有确认过"

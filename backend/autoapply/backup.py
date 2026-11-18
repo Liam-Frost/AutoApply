@@ -70,6 +70,38 @@ def export(*, sessions: bool = False) -> dict[str, Any]:
     return {"name": target.name, "path": str(target), "size": target.stat().st_size, "files": count, "sessions": sessions}
 
 
+def exports() -> list[dict[str, Any]]:
+    """The exports that are kept on this computer, newest first: when each was made, how large it is, whether the saved
+    sign-ins are in it - read from the export itself (its manifest), not remembered beside it."""
+    out = []
+    for f in sorted(EXPORTS.glob("autoapply-backup-*.zip"), reverse=True) if EXPORTS.exists() else []:
+        if not NAME.match(f.name):
+            continue
+        try:
+            with zipfile.ZipFile(f) as z:
+                m = json.loads(z.read("manifest.json"))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            continue      # not an export that can be read: not one to offer
+        out.append({"name": f.name, "created": _moment(str(m.get("created") or ""), f), "size": f.stat().st_size, "files": int(m.get("files") or 0),
+                    "sessions": bool(m.get("sessions")), "version": str(m.get("version") or "")})
+    return out
+
+
+def _moment(written: str, f: Path) -> str:
+    """When an export was made, as a moment (with its offset): the manifest has this computer's clock time without
+    one, which a page would read as another time zone's. The file's own time when the manifest has none."""
+    try:
+        made = datetime.fromisoformat(written) if written else datetime.fromtimestamp(f.stat().st_mtime)
+    except ValueError:
+        made = datetime.fromtimestamp(f.stat().st_mtime)
+    return made.astimezone().isoformat(timespec="seconds")
+
+
+def last() -> dict[str, Any] | None:
+    got = exports()
+    return got[0] if got else None
+
+
 def path_of(name: str) -> Path:
     if not NAME.match(name) or not (EXPORTS / name).is_file():
         raise FileNotFoundError(name)

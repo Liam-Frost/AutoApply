@@ -190,13 +190,20 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
 
     fixed_answer = getattr(registry.get(schema.ats), "fixed_answer", None)
 
-    def row(q: Question, value: Any, basis: str, confidence: str, source: str, *, confirmed: bool = False) -> dict[str, Any]:
+    def row(q: Question, value: Any, basis: str, confidence: str, source: str, *, confirmed: bool = False, reused: dict[str, Any] | None = None) -> dict[str, Any]:
         tag = sensitivity(q.label)
         return {
             "id": q.id, "label": q.label, "type": q.type, "options": q.options, "required": q.required, "page": q.page, "searchable": bool(getattr(q, "searchable", False)),
             "value": value, "basis": basis, "confidence": confidence, "source": source,
             "sensitive": tag, "sensitive_confirmed": bool(tag) and confirmed,
+            **({"reused": reused} if reused else {}),
         }
+
+    def given(hit: Any, own: bool) -> dict[str, Any]:
+        """Where an answer that is used again was given, and when: on this employer's form (and whether the applicant
+        confirmed it there), or on another employer's - which one, when that is known."""
+        at = hit.updated_at.isoformat(timespec="minutes") if getattr(hit, "updated_at", None) else ""
+        return {"own": own, "confirmed": bool(own and hit.confirmed_by_user), "employer": "" if own else str(getattr(hit, "origin", "") or ""), "at": at}
 
     for q in schema.questions:
         if only is not None and q.id not in only:
@@ -215,12 +222,13 @@ def resolve(schema: FormSchema, job: Job, *, cover_letter: dict[str, Any] | None
         hit = _cache_get(schema.ats, q, schema.tenant)
         if hit is not None and _valid(q, hit.answer):
             if hit.ats == _scope(schema.ats, schema.tenant):
-                rows.append(row(q, hit.answer, hit.basis or "answer cache", "high", "cache", confirmed=bool(hit.confirmed_by_user)))
+                rows.append(row(q, hit.answer, hit.basis or "answer cache", "high", "cache", confirmed=bool(hit.confirmed_by_user), reused=given(hit, True)))
             else:
                 # given on another employer's form: a good first answer, but not one the applicant confirmed for THIS
                 # employer ("have you worked for us before?" reads the same everywhere and means something else each time)
                 where = f" ({hit.origin})" if getattr(hit, "origin", "") else ""
-                rows.append(row(q, hit.answer, f"answered on another employer's form{where}: {hit.basis or 'answer cache'}"[:300], "medium", "cache", confirmed=False))
+                rows.append(row(q, hit.answer, f"answered on another employer's form{where}: {hit.basis or 'answer cache'}"[:300], "medium", "cache", confirmed=False,
+                                reused=given(hit, False)))
         else:
             pending.append(q)
 
