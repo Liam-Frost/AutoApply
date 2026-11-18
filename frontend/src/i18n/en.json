@@ -3275,5 +3275,22 @@
 "程序自己填的和读回来的对不上时，由 AI 把批准过的内容填进去。": "When what the program filled in and what it reads back do not agree, the AI fills in the approved content.",
 "AI 接手一件事的时候，最多做多少步（每调用一次工具算一步）、最多用多久。到了上限它就停下，这件事按没做成处理，不会一直占着填表的位置。不管用的是哪一家 AI 服务，数法都一样。表单很长的时候可以调大。": "When the AI takes on a piece of work: how many steps it may take at most (each use of a tool is one step) and for how long. At the limit it stops, the work counts as not done, and it does not keep the place where forms are filled occupied. The count is the same whichever AI service is used. Raise it for very long forms.",
 "AI 每次能做多少：步数要在 {0} 到 {1} 之间（{2}）": "How much the AI may do at a time: the number of steps must be between {0} and {1} ({2})",
-"AI 每次能做多少：分钟数要在 {0} 到 {1} 之间（{2}）": "How much the AI may do at a time: the number of minutes must be between {0} and {1} ({2})"
+"AI 每次能做多少：分钟数要在 {0} 到 {1} 之间（{2}）": "How much the AI may do at a time: the number of minutes must be between {0} and {1} ({2})",
+"填表": "Filling",
+"交给你": "Handed to you",
+"读表单": "Reading",
+"填表耗时": "Time to fill",
+"AI 用量": "AI use",
+"填表的结果": "How filling ended",
+"按招聘系统": "By recruiting system",
+"读表单耗时": "Time to read",
+"其他网站（没有专门的驱动）": "Other sites (no driver of their own)",
+"{0} 次请求；平均每个岗位 {1} token": "{0} requests; {1} tokens per posting on average",
+"{0} 次填表里有 {1} 次把表单交到了你手上，一共 {2} 回": "Of {0} filling runs, {1} handed the form to you, {2} times in all",
+"读表单 {0} 次：完成 {1}，失败 {2}，等你处理 {3}，还在跑 {4}": "Read {0} times: {1} done, {2} failed, {3} waiting for you, {4} still running",
+"提交 {0} · 交给你 {1} · 待确认 {2} · 等你 {3} · 失败 {4}": "Sent {0} · handed to you {1} · unconfirmed {2} · waiting for you {3} · failed {4}",
+"每个网站的表单现在都由 AI 先读，各系统的驱动是它用的工具。这样做在哪个系统上好、在哪个系统上不好，看这张表。": "Every site's form is read by the AI first now, and a system's driver is a tool it uses. This table shows on which systems that works well and on which it does not.",
+"次数少的时候百分比说明不了什么，所以每个成功率下面都写着“几次里成了几次”。“交给你”和“AI 接手”是平均每次填表的次数。": "A percentage of a handful says little, so under every success rate it says how many of how many. “Handed to you” and “AI took over” are averages per filling run.",
+"填表 {0} 次：提交成功 {1}，失败 {2}，填好交给你 {3}，点了提交、结果待确认 {4}，等你处理 {5}，还在跑 {6}": "Filled {0} times: {1} sent, {2} failed, {3} filled and handed to you, {4} sent with no confirmation yet, {5} waiting for you, {6} still running",
+"一个任务算在它处理的那个岗位所属的招聘系统上。读表单和填表各算各的成功率：完成的次数 ÷ 自己跑到头的次数（完成 + 失败 + 被中断）。填好交给你、点了提交但结果待确认的，不算成功也不算失败，单独列出。填表耗时是程序自己干活的时间，不含等你的时间。“交给你”是一次填表里把表单交到你手上的次数。AI 用量是这段时间里为这个系统的岗位问过模型的全部（读表单、回答、修改、填表，失败的也算）。": "A task counts for the recruiting system of the posting it is about. Reading and filling each have their own success rate: done ÷ ran to an end of its own (done + failed + interrupted). A form filled and handed to you, or sent with no confirmation yet, is neither a success nor a failure and is listed separately. The time to fill is the program's own working time, without the time it waited for you. “Handed to you” is how often a filling run put the form in your hands. AI use is everything the model was asked for this system's postings in the period (reading, answering, revising, filling - failed tasks included)."
 }

@@ -263,7 +263,7 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     import random
 
     from autoapply import metering
-    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Task
+    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
 
     rnd = random.Random(7)
     firms = ["Alder", "Birchwood", "Cedar Point", "Dunmore", "Eastgate", "Fairhaven", "Glenrock", "Highfield", "Ironbridge", "Juniper", "Kingsley", "Larkspur"]
@@ -311,6 +311,7 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     OPUS, HAIKU, SONNET = "claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"
     job_ids = [j.id for j in s.query(Job).order_by(Job.id)]
     app_ids = [a.id for a in s.query(Application).order_by(Application.id)]
+    ats_of = {a.id: a.job.ats for a in s.query(Application)}
 
     def request(task: Task, at: datetime, feature: str, model: str, kind: str, tokens: tuple[int, int, int, int], *, turns: int = 1, ok: bool = True, backup: bool = False, call: str = "") -> None:
         provider = "anthropic" if backup else "claude_subscription"
@@ -377,6 +378,13 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
             stages = ["ensure_session", "open", "fill_page"] + (["form_reports", "repair"] if helped else []) + ["read_back"] + (["submit"] if outcome_ == "submitted" else ["handed_over"] if outcome_ == "ready_to_submit" else [])
             res = {"status": outcome_, **({"error": rnd.choice(["could not advance to the next page", "values on the form differ from the approved draft"])} if outcome_ == "failed" else {})}
             t_ = task("execute", f"application:{aid}", at, "done", rnd.uniform(1.2, 4) if outcome_ != "ready_to_submit" else rnd.uniform(6, 18), result=res, stages=stages)
+            # ...and its run: the steps it took (the page that compares the recruiting systems counts the hand-overs and
+            # the AI's take-overs from them) and where its working time went
+            worked = int(rnd.uniform(70, 230) * 1000)
+            s.add(Run(task_id=t_.id, kind="execute", ref=t_.ref, ats=ats_of.get(aid, "generic"), ok=int(outcome_ == "submitted"), created_at=at,
+                      steps=[{"op": x} for x in stages], human_interventions=stages.count("handed_over"),
+                      spans=[{"k": "site", "n": "load", "t": 0, "ms": int(worked * 0.3)}, {"k": "driver", "n": "field", "t": int(worked * 0.3), "ms": int(worked * 0.45)},
+                             {"k": "ai", "n": "take_over", "t": int(worked * 0.75), "ms": int(worked * 0.25) if helped else 0}]))
             if helped:
                 turns = rnd.randint(5, 16)
                 request(t_, at + timedelta(seconds=50), "take_over", OPUS, "agent", (turns * 700, turns * 15000, turns * 1800, turns * 260), turns=turns)

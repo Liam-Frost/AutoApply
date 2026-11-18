@@ -26,6 +26,13 @@ const trend = computed(() => props.d.trend.map((b) => ({ key: b.key, label: b.la
 const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color: 'var(--ok)' }, { key: 'unfinished', label: '没做完', value: k.unfinished, color: 'var(--warn)' },
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
+// by recruiting system: what the short figures stand for, in whole sentences
+const readTip = (y) => `读表单 ${y.read.total} 次：完成 ${y.read.success}，失败 ${y.read.failed}，等你处理 ${y.read.waiting}，还在跑 ${y.read.running}`
+const fillTip = (y) => `填表 ${y.fill.total} 次：提交成功 ${y.fill.success}，失败 ${y.fill.failed}，填好交给你 ${y.fill.handed}，点了提交、结果待确认 ${y.fill.unknown}，等你处理 ${y.fill.waiting}，还在跑 ${y.fill.running}`
+const fillLine = (y) => (y.fill.total ? `提交 ${y.fill.success} · 交给你 ${y.fill.handed} · 待确认 ${y.fill.unknown} · 等你 ${y.fill.waiting} · 失败 ${y.fill.failed}` : '—')
+const stopsTip = (y) => `${y.human.runs} 次填表里有 ${y.human.runs_stopped} 次把表单交到了你手上，一共 ${y.human.stops} 回`
+const tokensTip = (y) => (y.ai.tokens_per_posting ? `${y.ai.requests} 次请求；平均每个岗位 ${compact(y.ai.tokens_per_posting)} token` : '')
+const unknownTip = (y) => `有 ${y.ai.cost_unknown_requests} 次请求算不出费用（没有价格，或是改造前的记录），没有计入`
 const count = (v) => String(Math.round(v))
 const TONE = { success: 'ok', handed: 'warn', unknown: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '', skipped: '' }
 const unfinishedTip = computed(() => `填好等你提交 ${t.value.handed}，点了提交、结果待确认 ${t.value.unknown}，等你处理（登录、验证码）${t.value.waiting}，改为可见窗口重跑 ${t.value.rerun}，进行中 ${t.value.running}`)
@@ -140,6 +147,33 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
         同一个对象被重复执行：{{ d.repeats.objects }} 个对象多跑了 {{ d.repeats.extra_runs }} 次；其中程序自己安排的重试 {{ d.repeats.auto_retries }} 次，被中断后重新开始 {{ d.repeats.restarted }} 次。
         这里没有“节省了多少小时”：程序没有记录人工做同样的事要多久，不拿估计数冒充。
       </p>
+    </div>
+
+    <div v-if="d.systems && d.systems.length" class="card">
+      <div class="card-title">按招聘系统
+        <Explain>一个任务算在它处理的那个岗位所属的招聘系统上。读表单和填表各算各的成功率：完成的次数 ÷ 自己跑到头的次数（完成 + 失败 + 被中断）。填好交给你、点了提交但结果待确认的，不算成功也不算失败，单独列出。填表耗时是程序自己干活的时间，不含等你的时间。“交给你”是一次填表里把表单交到你手上的次数。AI 用量是这段时间里为这个系统的岗位问过模型的全部（读表单、回答、修改、填表，失败的也算）。</Explain></div>
+      <p class="card-sub">每个网站的表单现在都由 AI 先读，各系统的驱动是它用的工具。这样做在哪个系统上好、在哪个系统上不好，看这张表。</p>
+      <div class="an-scroll">
+        <table class="an-table">
+          <thead><tr><th class="grow">招聘系统</th><th class="num">岗位</th><th class="num">读表单</th><th class="num">读表单耗时</th><th class="num">填表</th><th>填表的结果</th><th class="num">填表耗时</th><th class="num">交给你</th><th class="num">AI 接手</th><th class="num">AI 用量</th><th class="num">AI 成本</th></tr></thead>
+          <tbody>
+            <tr v-for="y in d.systems" :key="y.ats">
+              <td class="grow"><span class="name" :title="y.label">{{ y.label }}</span></td>
+              <td class="num">{{ y.postings }}</td>
+              <td class="num" :title="readTip(y)">{{ y.read.settled ? rate(y.read.success_rate) : '—' }}<div v-if="y.read.settled" class="small muted nowrap">{{ y.read.success }} / {{ y.read.settled }}</div></td>
+              <td class="num">{{ dur(y.read.median_s) }}</td>
+              <td class="num" :title="fillTip(y)">{{ y.fill.settled ? rate(y.fill.success_rate) : '—' }}<div v-if="y.fill.settled" class="small muted nowrap">{{ y.fill.success }} / {{ y.fill.settled }}</div></td>
+              <td class="small nowrap">{{ fillLine(y) }}</td>
+              <td class="num">{{ y.fill.working_ms == null ? '—' : dur(y.fill.working_ms / 1000) }}</td>
+              <td class="num" :title="stopsTip(y)">{{ y.human.stops_per_run == null ? '—' : y.human.stops_per_run }}</td>
+              <td class="num">{{ y.human.takeovers_per_run == null ? '—' : y.human.takeovers_per_run }}</td>
+              <td class="num" :title="tokensTip(y)">{{ y.ai.tokens ? compact(y.ai.tokens) : '—' }}</td>
+              <td class="num" :title="y.ai.cost_unknown_requests ? unknownTip(y) : ''">{{ money(y.ai.cost, y.ai.cost != null && y.ai.cost_unknown_requests > 0) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin-top: 10px">次数少的时候百分比说明不了什么，所以每个成功率下面都写着“几次里成了几次”。“交给你”和“AI 接手”是平均每次填表的次数。</p>
     </div>
 
     <div class="card">
