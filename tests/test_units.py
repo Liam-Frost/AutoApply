@@ -538,8 +538,8 @@ def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):
     assert abs((datetime.fromisoformat(last["created"]) - datetime.now().astimezone()).total_seconds()) < 120 and last["created"][-6] in "+-"      # a moment, with its offset
     assert got["secrets"] in ("keyring", "file")
     # a file that is no export is not offered as one; the newest export is the last
-    (backup.EXPORTS / "autoapply-backup-20990101-000000.zip").write_bytes(b"not a zip")
-    with zipfile.ZipFile(backup.EXPORTS / "autoapply-backup-20980101-000000.zip", "w") as z:
+    (backup.exports_dir() / "autoapply-backup-20990101-000000.zip").write_bytes(b"not a zip")
+    with zipfile.ZipFile(backup.exports_dir() / "autoapply-backup-20980101-000000.zip", "w") as z:
         z.writestr("manifest.json", '{"app": "autoapply", "version": "9.9", "created": "2098-01-01T08:00:00", "sessions": true, "files": 3}')
     names = [e["name"] for e in backup.exports()]
     assert names[0] == "autoapply-backup-20980101-000000.zip" and "autoapply-backup-20990101-000000.zip" not in names and first["name"] in names
