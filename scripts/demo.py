@@ -183,7 +183,8 @@ def seed(lang: str) -> None:
             j = Job(source=source if source != "page" else "manual", source_id=f"demo{n}", company=company, title=title, location=loc, score=score, score_reason=t["reasons"][min(n // 2, 5)],
                     apply_url=f"https://{host}/jobs/{100 + n}", channel="employer site", ats="greenhouse" if source in ("greenhouse", "feed", "page", "lever") else source, tenant=host.split(".")[1],
                     deadline=(now + timedelta(days=4 + n * 2)).strftime("%Y-%m-%d 23:59"), posted=(now - timedelta(days=n + 1)).strftime("%Y-%m-%d"), status="scored", jd_text="x" * 400,
-                    salary="CAD 62,000–70,000" if n % 3 == 0 else "", first_seen=now - timedelta(days=n + 1))
+                    salary="CAD 62,000–70,000" if n % 3 == 0 else "", first_seen=now - timedelta(days=n + 1),
+                    jd_partial="summary" if company == "Summit Logistics" else "")      # (a job board's feed gave a teaser, and its page could not be read)
             s.add(j)
             s.flush()
             ids[company] = j.id

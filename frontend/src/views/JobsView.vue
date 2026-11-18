@@ -373,6 +373,8 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
 
     <h3>岗位说明原文</h3>
     <div class="card">
+      <p v-if="sel.jd_partial === 'summary'" class="callout warn small" style="display: block; margin: 0 0 10px">这个岗位的来源只给了摘要，岗位页面的全文还没读到。下面不是完整的岗位说明：摘要里没提到的要求不等于没有，投之前请点“看原岗位”核对。</p>
+      <p v-else-if="sel.jd_partial === 'cut'" class="callout small" style="display: block; margin: 0 0 10px">岗位说明很长，这里只保存了前面一部分。</p>
       <template v-if="sel.jd_text && sel.jd_text.length >= 200">
         <pre style="font-family: inherit; font-size: 13.5px; line-height: 1.6" :style="showJd || sel.jd_text.length < 900 ? '' : 'max-height: 200px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent)'">{{ sel.jd_text }}</pre>
         <button v-if="sel.jd_text.length >= 900" class="ghost sm" style="margin-top: 6px" @click="showJd = !showJd">{{ showJd ? '收起' : '展开全文' }}</button>
