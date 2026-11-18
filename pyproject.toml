@@ -1,6 +1,6 @@
 [project]
 name = "autoapply"
-version = "1.0.4"
+version = "2.0.0"
 description = "A job-search assistant that runs on your own computer: it finds postings, scores them, drafts each application and fills in the form after you approve it."
 readme = "README.md"
 license = { file = "LICENSE" }
