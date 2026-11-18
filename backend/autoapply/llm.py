@@ -21,6 +21,7 @@ import re
 import sys
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import db, llm_codex, llm_openai, llm_sdk, metering, secrets, timing
+from . import agentbudget, db, llm_codex, llm_openai, llm_sdk, metering, secrets, timing
 
 log = logging.getLogger("autoapply.llm")
 
@@ -52,28 +53,37 @@ class Usage:
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    _lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def count(self, calls: int, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        with self._lock:        # a task's helper threads count on the same meter
+            self.calls += int(calls or 0)
+            self.input_tokens += int(input_tokens or 0)
+            self.output_tokens += int(output_tokens or 0)
 
     def add(self, resp: Any) -> None:
-        self.calls += 1
         u = getattr(resp, "usage", None)
-        if u is not None:
-            self.input_tokens += int(getattr(u, "input_tokens", 0) or 0)
-            self.output_tokens += int(getattr(u, "output_tokens", 0) or 0)
+        self.count(1, getattr(u, "input_tokens", 0) if u is not None else 0, getattr(u, "output_tokens", 0) if u is not None else 0)
 
 
-_tls = threading.local()
+_tls = threading.local()        # .entry: the service this thread's call is trying right now - a thread's, not a task's
+_usage: ContextVar[Usage | None] = ContextVar("llm_usage", default=None)
 
 
 def usage() -> Usage:
-    """Per-thread usage meter; a task resets it at start and stores it on its Run."""
-    if not hasattr(_tls, "usage"):
-        _tls.usage = Usage()
-    return _tls.usage
+    """The usage meter of the work that is running; a task resets it at start and stores it on its Run. It is the
+    task's on every thread that does a part of it (context.py)."""
+    u = _usage.get()
+    if u is None:
+        u = Usage()
+        _usage.set(u)
+    return u
 
 
 def reset_usage() -> Usage:
-    _tls.usage = Usage()
-    return _tls.usage
+    u = Usage()
+    _usage.set(u)
+    return u
 
 
 feature = metering.feature      # ``with llm.feature("name"):`` names the feature for the calls inside
@@ -343,10 +353,7 @@ def _oa(fn: Callable[[llm_openai.Client, str], Any], *, small: bool = False) -> 
         try:
             return fn(c, model)
         finally:
-            u = usage()
-            u.calls += c.calls
-            u.input_tokens += c.input_tokens
-            u.output_tokens += c.output_tokens
+            usage().count(c.calls, c.input_tokens, c.output_tokens)
             for r in c.log:      # every HTTP request of this call, the failed ones too
                 cost = (r["usage"] or {}).get("cost") if isinstance(r.get("usage"), dict) else None      # some services (OpenRouter) say what the request cost
                 metering.record(provider=p, model=r.get("model") or model, started=r["t0"], latency_ms=r.get("ms"), tokens=metering.openai_usage(r.get("usage")), raw=r.get("usage"),
@@ -359,7 +366,7 @@ def _oa(fn: Callable[[llm_openai.Client, str], Any], *, small: bool = False) -> 
 
 
 def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, Any] | None = None, tools: list[Any] | None = None,
-           on_step: Callable[[dict[str, Any]], None] | None = None) -> tuple[str, list[dict[str, Any]]]:
+           on_step: Callable[[dict[str, Any]], None] | None = None, budget: agentbudget.Budget | None = None) -> tuple[str, list[dict[str, Any]], str]:
     _, model = _other(small)
     if not isinstance(prompt, str):
         prompt = llm_openai._content(prompt)
@@ -367,18 +374,15 @@ def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, An
             raise LLMError("用 ChatGPT 登录时不能发送图片。")
     t0 = time.time()
     try:
-        out, steps, used = llm_codex.run(prompt, system=system, model=model, schema=schema, tools=tools, on_step=on_step,
-                                         base_url=str(db.get_setting("app.base_url") or "http://127.0.0.1:8000"))
+        out, steps, used, stopped = llm_codex.run(prompt, system=system, model=model, schema=schema, tools=tools, on_step=on_step, budget=budget,
+                                                  base_url=str(db.get_setting("app.base_url") or "http://127.0.0.1:8000"))
     except (llm_codex.Unavailable, llm_codex.Failed) as e:
         err = (LLMUnavailable if isinstance(e, llm_codex.Unavailable) else LLMError)(str(e))
         _failed(model, t0, err)       # the command line reports usage only with an answer: what a failed turn used is not known
         raise err from e
-    u = usage()
-    u.calls += 1 + len(steps)
-    u.input_tokens += used.get("input", 0)
-    u.output_tokens += used.get("output", 0)
+    usage().count(1 + len(steps), used.get("input", 0), used.get("output", 0))
     metering.record(provider=provider(), model=model, started=t0, tokens=metering.codex_usage(used), raw=used, turns=1 + len(steps))
-    return out, steps
+    return out, steps, stopped
 
 
 def _sdk(content: Any, *, small: bool, system: str | None, effort: str | None, **kw: Any) -> llm_sdk.SDKResult:
@@ -404,10 +408,7 @@ def _sdk(content: Any, *, small: bool, system: str | None, effort: str | None, *
             err = LLMError(f"Claude (subscription) error: {e}")
         _failed(model, t0, err, **used(getattr(e, "partial", None)))     # a query that failed part-way has still used what it reports
         raise err from e
-    u = usage()
-    u.calls += max(1, res.turns)
-    u.input_tokens += res.input_tokens
-    u.output_tokens += res.output_tokens
+    usage().count(max(1, res.turns), res.input_tokens, res.output_tokens)
     metering.record(provider=provider(), model=model, started=t0, **(used(res) or {"turns": max(1, res.turns)}))
     return res
 
@@ -429,12 +430,14 @@ def _create(*, small: bool, max_tokens: int, system: str | None, messages: list,
         betas.append(FALLBACK_BETA)
         kwargs["fallbacks"] = "default"
     t0 = time.time()
+    within = kwargs.pop("timeout", None)        # seconds this one request may take (an agent's budget); tried once, not again
     try:
         try:
+            api = client().with_options(timeout=max(1.0, float(within)), max_retries=0) if within is not None else client()
             if betas:
-                resp = client().beta.messages.create(betas=betas, **kwargs)
+                resp = api.beta.messages.create(betas=betas, **kwargs)
             else:
-                resp = client().messages.create(**kwargs)
+                resp = api.messages.create(**kwargs)
         except anthropic.AuthenticationError as e:
             raise LLMUnavailable("Claude API key is missing or invalid. Set it in Settings.") from e
         except anthropic.RateLimitError as e:
@@ -571,7 +574,19 @@ class Tool:
 class AgentResult:
     final_text: str
     steps: list[dict[str, Any]] = field(default_factory=list)
-    stopped: str = "end_turn"
+    stopped: str = "end_turn"      # how it ended: end_turn (by itself) | max_steps | timeout (agentbudget.py) | what the service said
+    budget: dict[str, Any] = field(default_factory=dict)      # what it spent of what it had (Budget.summary)
+
+    def said(self) -> str:
+        """What the agent said last - or, when it was stopped before it could, why it was stopped, in words."""
+        if self.final_text:
+            return self.final_text
+        b = self.budget or {}
+        if self.stopped == "max_steps":
+            return f"stopped: it used all {b.get('of', '')} tool calls this kind of work is given".replace("  ", " ")
+        if self.stopped == "timeout":
+            return f"stopped: it ran out of the {round((b.get('limit_seconds') or 0) / 60) or ''} minutes this kind of work is given".replace("  ", " ")
+        return self.stopped
 
 
 def agent(
@@ -579,18 +594,26 @@ def agent(
     tools: list[Tool],
     *,
     system: str,
-    max_steps: int = 60,
+    kind: str = "",
     on_step: Callable[[dict[str, Any]], None] | None = None,
+    budget: agentbudget.Budget | None = None,
 ) -> AgentResult:
     """Manual tool-use loop (kept manual so tool results can carry screenshots
     and every call is recorded on the run).
 
+    ``kind`` names the work ("explore_form", "take_over", ...): it decides how many tool calls and how long the agent
+    is given (the setting agent.budgets). There is one budget for the whole of it, counted here - every tool the model
+    is handed goes through ``spend`` - so it is the same for every service, and a backup that takes over goes on with
+    what is left. How the run ended is in ``stopped``.
+
     If the service gives out part-way and a backup takes over, the backup starts the task again and is told that an
     earlier attempt already acted, so it looks at the current state first instead of repeating steps."""
+    budget = budget or agentbudget.for_kind(kind)
     acted = {"n": 0}
 
     def counted(fn: Callable[..., Any]) -> Callable[..., Any]:
         def run(**kw: Any) -> Any:
+            budget.spend()      # the one place a tool call is counted; raises agentbudget.Spent when it is not covered
             acted["n"] += 1
             return fn(**kw)
         return run
@@ -600,27 +623,45 @@ def agent(
     def attempt() -> AgentResult:
         g = goal if not acted["n"] else goal + ("\n\n[An earlier attempt at this task was cut off after it had already acted. Look at the current state first "
                                                 "(read the page, list the controls) and carry on from there; do not repeat what is already done.]")
-        return _agent(g, watched, system=system, max_steps=max_steps, on_step=on_step)
+        return _agent(g, watched, system=system, budget=budget, on_step=on_step)
 
     with metering.call("agent", metering.caller_feature(sys._getframe(1))):
-        return _failover(attempt)
+        res = _failover(attempt)
+    res.stopped = budget.ended or res.stopped
+    res.budget = {**budget.summary(), "ended": res.stopped}
+    if budget.ended:
+        log.info("agent (%s) stopped: %s after %s tool calls, %ss", budget.kind or "?", budget.ended, budget.used, res.budget["seconds"])
+    return res
 
 
-def _agent(goal: str, tools: list[Tool], *, system: str, max_steps: int, on_step: Callable[[dict[str, Any]], None] | None) -> AgentResult:
+def _agent(goal: str, tools: list[Tool], *, system: str, budget: agentbudget.Budget, on_step: Callable[[dict[str, Any]], None] | None) -> AgentResult:
     if backend() == "openai":
-        final, steps, stopped = _oa(lambda c, m: c.agent(goal, tools, model=m, system=system, max_steps=max_steps, on_step=on_step))
+        final, steps, stopped = _oa(lambda c, m: c.agent(goal, tools, model=m, system=system, budget=budget, on_step=on_step))
         return AgentResult(final_text=final, steps=steps, stopped=stopped)
     if backend() == "codex":
-        final, steps = _codex(goal, small=False, system=system, tools=tools, on_step=on_step)
-        return AgentResult(final_text=final, steps=steps, stopped="end_turn")
+        final, steps, stopped = _codex(goal, small=False, system=system, tools=tools, on_step=on_step, budget=budget)
+        return AgentResult(final_text=final, steps=steps, stopped=stopped)
     if backend() == "subscription":
-        res = _sdk(goal, small=False, system=system, effort=None, tools=tools, max_turns=max_steps, on_step=on_step, timeout=3600)
+        res = _sdk(goal, small=False, system=system, effort=None, tools=tools, max_turns=None, on_step=on_step, budget=budget)
         return AgentResult(final_text=res.text, steps=res.steps, stopped=res.stopped)
     by_name = {t.name: t for t in tools}
     messages: list[dict[str, Any]] = [{"role": "user", "content": goal}]
     result = AgentResult(final_text="")
-    for _ in range(max_steps):
-        resp = _create(small=False, max_tokens=16000, system=system, messages=messages, tools=[t.spec() for t in tools])
+    while True:
+        if budget.expired():
+            result.stopped = budget.ended
+            return result
+        # (the request is given what is left of the budget and no more; an answer that comes after it is not in time)
+        try:
+            resp = _create(small=False, max_tokens=16000, system=system, messages=messages, tools=[t.spec() for t in tools], timeout=budget.left())
+        except LLMError:
+            if budget.expired():
+                result.stopped = budget.ended
+                return result
+            raise
+        if budget.expired():
+            result.stopped = budget.ended
+            return result
         messages.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason == "pause_turn":
             continue
@@ -636,12 +677,16 @@ def _agent(goal: str, tools: list[Tool], *, system: str, max_steps: int, on_step
             began = time.monotonic()
             try:
                 if tool is None:
+                    budget.spend()      # a call to a tool that is not there is a step too: it must not go on for ever
                     raise KeyError(f"unknown tool {call.name}")
                 out = tool.fn(**(call.input or {}))
                 content = out if isinstance(out, list) else str(out)
                 step["ok"] = True
                 step["output"] = content if isinstance(content, str) else "[blocks]"
                 tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": content})
+            except agentbudget.Spent as e:      # not an error for the model to work around: the run ends here
+                result.stopped = e.why
+                return result
             except Exception as e:  # noqa: BLE001 - errors go back to the model
                 step["ok"] = False
                 step["output"] = f"{type(e).__name__}: {e}"
@@ -654,5 +699,3 @@ def _agent(goal: str, tools: list[Tool], *, system: str, max_steps: int, on_step
             if on_step:
                 on_step(step)
         messages.append({"role": "user", "content": tool_results})
-    result.stopped = "max_steps"
-    return result

@@ -275,7 +275,7 @@ onUnmounted(() => clearInterval(timer))
                 <pre v-else style="font-family: inherit; font-size: 14px">{{ show(a) }}</pre>
               </template>
             </td>
-            <td class="small muted">{{ a.basis_display }}<div v-if="a.source === 'cache'" class="tag" style="margin-top: 2px">以前回答过</div><div v-if="a.source === 'agent_added'" class="tag" style="margin-top: 2px">填表时 AI 补填</div></td>
+            <td class="small muted">{{ a.basis_display }}<div v-if="a.reused_display" class="small" style="margin-top: 2px; color: var(--text-2)">{{ a.reused_display }}</div><div v-else-if="a.source === 'cache'" class="tag" style="margin-top: 2px">以前回答过</div><div v-if="a.source === 'agent_added'" class="tag" style="margin-top: 2px">填表时 AI 补填</div></td>
             <td><span class="tag" :class="{ ok: a.confidence === 'high', warn: a.confidence === 'medium', bad: a.confidence === 'low' }">{{ { high: '高', medium: '中', low: '低' }[a.confidence] }}</span></td>
             <td><button v-if="editable && a.type !== 'file' && editing !== a.id" class="sm" @click="startEdit(a)">修改</button></td>
           </tr>
@@ -295,6 +295,7 @@ onUnmounted(() => clearInterval(timer))
             <span class="tag info">{{ m.slot_label }}</span>
             <a :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener">{{ m.name }}</a>
             <span class="muted small">{{ KIND[m.kind] || '' }}</span>
+            <span v-if="m.overwritten" class="badge warn" title="早先的程序每次重写都写进同一个文件：这里打开的是后来写的那一版，不是这份草案生成时的内容">文件已被后来的版本覆盖</span>
           </div>
           <div v-if="!d.materials.length" class="muted">这张申请表不需要上传文件。</div>
           <template v-if="tailored && tailored.tailor">

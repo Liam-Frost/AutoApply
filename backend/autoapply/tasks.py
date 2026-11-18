@@ -138,21 +138,22 @@ def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
         return t
 
 
-_running = threading.local()      # what the task this thread is running was started by
+# What the running task was started by. The task's, on every thread that does a part of it (context.py).
+_started_by_hand: ContextVar[bool] = ContextVar("task_by_hand", default=False)
 
 
 def running_by_hand() -> bool:
-    """Is the task this thread is running one the applicant asked for (so that they are at the program now)? False for
+    """Is the task that is running here one the applicant asked for (so that they are at the program now)? False for
     what the program does by itself - and outside any task."""
-    return bool(getattr(_running, "by_hand", False))
+    return _started_by_hand.get()
 
 
 def run_one(t: Task) -> None:
-    _running.by_hand = bool((t.payload or {}).get("_by_hand"))
+    token = _started_by_hand.set(bool((t.payload or {}).get("_by_hand")))
     try:
         _run_one(t)
     finally:
-        _running.by_hand = False
+        _started_by_hand.reset(token)
 
 
 def _run_one(t: Task) -> None:

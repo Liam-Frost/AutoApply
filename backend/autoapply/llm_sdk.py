@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import timing
+from .agentbudget import Spent
 
 SERVER = "autoapply"
 _loop: asyncio.AbstractEventLoop | None = None
@@ -164,7 +165,7 @@ def _mcp_content(out: Any) -> list[dict[str, Any]]:
 
 
 async def _run(content: Any, *, system: str | None, model: str, effort: str | None, schema: dict[str, Any] | None,
-               tools: list[Any], max_turns: int, token: str | None, calls: "queue.Queue[Any]", timeout: float, res: SDKResult) -> SDKResult:
+               tools: list[Any], max_turns: int | None, token: str | None, calls: "queue.Queue[Any]", timeout: float, res: SDKResult) -> SDKResult:
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, create_sdk_mcp_server, query, tool
     sdk_tools = []
     for t in tools:
@@ -248,21 +249,43 @@ async def _run(content: Any, *, system: str | None, model: str, effort: str | No
 
 
 def call(content: Any, *, system: str | None, model: str, effort: str | None = None, schema: dict[str, Any] | None = None,
-         tools: list[Any] | None = None, max_turns: int = 1, token: str | None = None,
-         on_step: Callable[[dict[str, Any]], None] | None = None, timeout: float = 900) -> SDKResult:
-    """Run one query. Tool functions execute on the calling thread."""
+         tools: list[Any] | None = None, max_turns: int | None = 1, token: str | None = None,
+         on_step: Callable[[dict[str, Any]], None] | None = None, timeout: float = 900, budget: Any = None) -> SDKResult:
+    """Run one query. Tool functions execute on the calling thread.
+
+    ``budget`` (agentbudget.Budget, for an agent): the tools spend from it and its deadline bounds the whole query.
+    When it ends, the query is cancelled - which ends the command line's process with it - and what was done so far
+    is returned with ``stopped`` saying why ("max_steps" or "timeout"). The command line's own count of turns is not
+    used for an agent (``max_turns=None``): there is one count, and it is the budget's."""
     from claude_agent_sdk import ClaudeSDKError, CLINotFoundError
 
     calls: queue.Queue[Any] = queue.Queue()
     res = SDKResult()       # filled as the answer arrives, so that an error can still say what was used
+    if budget is not None:
+        timeout = budget.left() + 60      # (the loop's own limit, behind the budget's: it only ends a query that is stuck)
     fut = asyncio.run_coroutine_threadsafe(
         _run(content, system=system, model=model, effort=effort, schema=schema, tools=tools or [], max_turns=max_turns,
              token=token, calls=calls, timeout=timeout, res=res),
         _ensure_loop(),
     )
     fut.add_done_callback(lambda _f: calls.put(None))
+    stopped = ""
+
+    def stop(why: str) -> None:
+        nonlocal stopped
+        if not stopped:
+            stopped = why
+            fut.cancel()
+
     while True:
-        item = calls.get()
+        try:
+            item = calls.get(timeout=30 if stopped else budget.left() if budget is not None else None)
+        except queue.Empty:
+            if stopped:
+                break      # the cancelled query did not say it was over; nothing more is coming from it
+            if budget.expired():
+                stop(budget.ended)      # the model was still thinking when the time was up
+            continue
         if item is None:
             break
         if item[0] == "step":
@@ -270,6 +293,9 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
                 on_step(item[1])
             continue
         t, args, reply = item
+        if stopped:      # asked for while the query was being cancelled: not carried out
+            reply.cancel()
+            continue
         try:
             began = time.monotonic()
             good = True
@@ -280,8 +306,14 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
                 raise
             finally:
                 timing.mark("tool", t.name, (time.monotonic() - began) * 1000.0, started=began, ok=good)
+        except Spent as e:      # the budget does not cover this call: it was not carried out, and the query ends here
+            reply.set_exception(e)
+            stop(e.why)
         except Exception as e:  # noqa: BLE001
             reply.set_exception(e)
+    if stopped:
+        res.stopped = stopped
+        return res
     def failed(err: SDKError) -> SDKError:
         err.partial = res      # type: ignore[attr-defined]
         return err

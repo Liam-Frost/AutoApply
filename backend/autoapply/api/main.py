@@ -27,7 +27,7 @@ mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".js")
 
 from .. import net, persona, prompts
-from .. import auth, config, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
+from .. import auth, config, context, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..ats import registry
 from ..models import Contact
 from ..models import SENT, UNKNOWN, Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
@@ -104,6 +104,16 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not put unconfirmed accounts back in line")
         db.set_setting("migrated.unconfirmed_accounts", True)
+    if not db.get_setting("migrated.jd_partial"):
+        from .. import fulltext as _fulltext
+
+        _fulltext.mark_stored_teasers()
+        db.set_setting("migrated.jd_partial", True)
+    if not db.get_setting("migrated.document_versions"):
+        from .. import materials as _materials
+
+        _materials.mark_overwritten()
+        db.set_setting("migrated.document_versions", True)
     if not db.get_setting("migrated.site_rules_whole"):
         from .. import browser_policy as _policy
 
@@ -344,7 +354,7 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["archived"] = j.archived_at is not None
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
-        out.update(jd_text=j.jd_text, brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
+        out.update(jd_text=j.jd_text, jd_partial=j.jd_partial if j.jd_partial in ("summary", "cut") else "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
                    first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=humanize.explain(a.last_event if a else ""),
                    evidence=a.evidence if a else None,
                    drafts=[{"id": d.id, "version": d.version, "review_status": d.review_status} for d in (a.drafts if a else [])])
@@ -394,7 +404,7 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 else:
                     todo.append((jid, j.deadline or ""))
             elif action == "score":
-                if len((j.jd_text or "").strip()) < 200:
+                if len((j.jd_text or "").strip()) < 200 and j.jd_partial != "summary":      # (a summary's page is read before it is scored)
                     skipped += 1
                 else:
                     todo.append((jid, ""))
@@ -570,6 +580,7 @@ def get_draft(draft_id: int) -> dict[str, Any]:
     d["job"]["ats_label"] = humanize.ats_name(d["job"]["ats"])
     for a in d["answers"]:
         a["basis_display"] = humanize.basis(a.get("basis", ""))
+        a["reused_display"] = humanize.reused(a.get("reused"), d["job"].get("ats", ""))
     for u in d["unresolved"]:
         u["basis_display"] = humanize.basis(u.get("basis", ""))
     return d
@@ -1271,7 +1282,10 @@ def system_state() -> dict[str, Any]:
 
     from .. import backup
 
-    return {"platform": platform.system(), "pdf": convert.available(), "version": backup.version(), "data_dir": str(config.DATA), "knowledge_dir": str(config.KNOWLEDGE)}
+    return {"platform": platform.system(), "pdf": convert.available(), "version": backup.version(), "data_dir": str(config.DATA), "knowledge_dir": str(config.KNOWLEDGE),
+            # for the backup section: when the data was last exported, and where passwords and keys are kept (they are in
+            # no export, and whether they are found again after a restore depends on that)
+            "last_export": backup.last(), "secrets": secrets.describe()["backend"]}
 
 
 @app.post("/api/system/export")
@@ -1433,7 +1447,7 @@ def identity_login(provider: str) -> dict[str, Any]:
             notify.send("task_result", messages.session_saved(f"{name} 账号", credentials=False), ref=f"account:idp:{provider}")
 
     _IDP_STATE[provider] = "trying"
-    threading.Thread(target=run, daemon=True, name="identity").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="identity").start()
     return {"started": True}
 
 
@@ -1572,7 +1586,7 @@ def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         for td in s.query(Todo).filter_by(ref=f"account:{key}", status="open"):
             td.payload = {**(td.payload or {}), "trying": True, "last_try": ""}
-    threading.Thread(target=run, daemon=True, name="takeover").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="takeover").start()
     return {"started": True}
 
 
@@ -1659,6 +1673,9 @@ SINGLETON = {"resume_docx", "resume_site", "resume_portal", "transcript", "summa
 
 @app.get("/api/documents")
 def list_documents() -> list[dict[str, Any]]:
+    from .. import materials
+
+    nth, held = materials.versions(), materials.held_by_drafts()
     with db.session() as s:
         rows = []
         for d in s.query(Document).order_by(Document.id.desc()).limit(300):
@@ -1668,13 +1685,18 @@ def list_documents() -> list[dict[str, Any]]:
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
                          "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
-                         "problems": (d.meta or {}).get("problems", []), "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
+                         # (what the checks objected to: a letter keeps it with itself, a tailored résumé with its changes)
+                         "problems": (d.meta or {}).get("problems") or ((d.meta or {}).get("tailor") or {}).get("problems") or [], "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
                          # (the parts of the posting's name, for a list that has room for one line of each: several
                          # postings of one employer differ in the title's end, the place or the term)
                          "job_company": job.company if job else "", "job_title": job.title if job else "",
                          "job_where": " · ".join(x for x in ((job.location or "").split(",")[0].strip(), job.term or "") if x) if job else "",
-                         "has_docx": bool((d.meta or {}).get("docx"))})
+                         "has_docx": bool((d.meta or {}).get("docx")),
+                         # which writing of this file for this posting it is; and, for the records from before each
+                         # writing kept its own file, whether a later one was written over it
+                         "version": nth.get(d.id), "overwritten": bool((d.meta or {}).get("overwritten_by")),
+                         "in_draft": d.id in held})      # the latest draft of an application names it: not one to tidy away
         return rows
 
 
@@ -1794,6 +1816,11 @@ def patch_document(doc_id: int, body: dict[str, Any] = Body(...)) -> dict[str, A
         if d.active and d.kind in SINGLETON:  # one file in use per kind
             for other in s.query(Document).filter(Document.kind == d.kind, Document.active == 1, Document.id != d.id):
                 other.active = 0
+        generated = bool(d.active and "active" in body and d.job_id)
+    if generated:      # ...and one per posting, of the files written for it: "use this version" takes the place of the other
+        from .. import materials
+
+        materials.use_version(doc_id)
     return {"ok": True}
 
 
@@ -1805,9 +1832,10 @@ def delete_document(doc_id: int, permanent: bool = False) -> dict[str, Any]:
         d.active = 0
         if permanent:
             path = Path(d.path)
+            shared = s.query(Document).filter(Document.path == d.path, Document.id != d.id).count()      # records from before each writing had its own file
             s.delete(d)
             try:
-                if path.exists() and config.DATA in path.parents:
+                if path.exists() and config.DATA in path.parents and not shared:
                     path.unlink()
             except OSError:
                 pass
@@ -2091,7 +2119,11 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
     # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
-    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+    from .. import agentbudget
+
+    shown = {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}
+    shown["agent.budgets"] = agentbudget.table(shown.get("agent.budgets"))      # every kind of work, also the ones added since it was last saved
+    return {"settings": shown, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
@@ -2124,10 +2156,11 @@ def browser_test() -> dict[str, Any]:
 
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from .. import browser_policy
+    from .. import agentbudget, browser_policy
 
     try:
         browser_policy.validate(body.get("settings") or {})
+        agentbudget.validate(body.get("settings") or {})
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
@@ -2486,7 +2519,7 @@ def list_employers() -> dict[str, Any]:
     rows = []
     for e in employers.listing():
         src, scope = employers.source_of(e)
-        n = counts.get((src, scope), 0) if e["kind"] != "builtin" else sum(v for (a, _), v in counts.items() if a == src)
+        n = counts.get((src, scope), 0) if scope is not None else sum(v for (a, _), v in counts.items() if a == src)
         rows.append({**e, "kind_label": employers.KIND_LABEL.get(e["kind"], e["kind"]), "open_jobs": n})
     return {"employers": rows, "priority_min_score": db.get_setting("employers.priority_min_score")}
 
@@ -2553,7 +2586,7 @@ def gmail_authorize() -> dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             notify.add_todo("config", "Gmail 授权失败", body=str(e)[:300], ref="config:gmail")
 
-    threading.Thread(target=run, daemon=True, name="gmail-oauth").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="gmail-oauth").start()
     return {"started": True}
 
 

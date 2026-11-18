@@ -8,12 +8,14 @@ to the résumé, correct names) and failures are fed back for a rewrite.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+import shutil
 import subprocess
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from pypdf import PdfReader
 
@@ -23,6 +25,114 @@ from .models import Document, Job
 
 SCRIPTS = config.ROOT / "scripts"
 MAX_REWRITES = 2
+GENERATED = ("cover_letter", "tailored_resume")      # written by the program, for one posting
+
+
+# --- a file written for a posting is written once ---------------------------------------------
+#
+# A draft is approved with the letter it shows, and an application is sent with it. The record of that letter - the
+# Document row the draft names - has to stay that letter. Every writing went to the same path (job_12/Acme_123/
+# Acme_123.pdf): the rows of the earlier letters, and the drafts that named them, opened whatever had been written
+# last, and a writing that failed half-way left them with half a file. So: each writing gets a folder of its own, a
+# row is added only when the file is there, and nothing writes to a folder that has a row.
+
+
+@contextlib.contextmanager
+def version_dir(job_id: int, kind: str) -> Iterator[Path]:
+    """A new folder for one writing of a ``kind`` of file for a posting: ``job_12/cover_letter_v3``.
+
+    The file keeps the name it is sent to the employer under (Acme_123.pdf); what differs is the folder. A writing
+    that fails takes its folder with it - nothing names it."""
+    root = config.MATERIALS / f"job_{job_id}"
+    with db.session() as s:
+        n = s.query(Document).filter_by(kind=kind, job_id=job_id).count() + 1      # what was there before is the versions before
+    while (root / f"{kind}_v{n}").exists():
+        n += 1
+    out = root / f"{kind}_v{n}"
+    out.mkdir(parents=True)
+    try:
+        yield out
+    except BaseException:
+        shutil.rmtree(out, ignore_errors=True)
+        raise
+
+
+def publish(kind: str, job_id: int, pdf: str, meta: dict[str, Any], *, current: bool = True) -> int:
+    """Record a file that was written for a posting. ``current``: it is the one the next draft uses, in place of the
+    one before - decided here, in the same step as the record, and only for a file that is there to be read."""
+    path = Path(pdf)
+    if not path.is_file() or not path.stat().st_size:
+        raise RuntimeError(f"the file was not written: {path.name}")
+    with db.session() as s:
+        if current:
+            for old in s.query(Document).filter_by(kind=kind, job_id=job_id, active=1):
+                old.active = 0
+        d = Document(kind=kind, name=path.name, path=str(path), job_id=job_id, active=int(current), meta=meta)
+        s.add(d)
+        s.flush()
+        return d.id
+
+
+def use_version(doc_id: int) -> None:
+    """The applicant picks an earlier writing: it is the one in use, and the others of its kind for that posting are not."""
+    with db.session() as s:
+        d = s.get(Document, doc_id)
+        if d is None or d.kind not in GENERATED or not d.job_id:
+            return
+        for other in s.query(Document).filter(Document.kind == d.kind, Document.job_id == d.job_id, Document.active == 1, Document.id != d.id):
+            other.active = 0
+        d.active = 1
+
+
+def versions() -> dict[int, int]:
+    """Which writing each of these files is, counted per posting and kind: {document id: 1, 2, 3...} - for the files
+    that have been written more than once (a single letter is not "version 1" of anything)."""
+    nth: dict[int, int] = {}
+    of: dict[int, tuple[str, int]] = {}
+    seen: dict[tuple[str, int], int] = {}
+    with db.session() as s:
+        for i, kind, job_id in s.query(Document.id, Document.kind, Document.job_id).filter(Document.kind.in_(GENERATED), Document.job_id.isnot(None)).order_by(Document.id):
+            of[i] = (kind, job_id)
+            seen[of[i]] = nth[i] = seen.get(of[i], 0) + 1
+    return {i: n for i, n in nth.items() if seen[of[i]] > 1}
+
+
+def held_by_drafts() -> set[int]:
+    """The files the latest draft of each application names: what would be sent, or was. A version that is no longer
+    the one in use can still be one of these (the applicant went back to an earlier letter after a draft was made)."""
+    from .models import Draft
+
+    latest: dict[int, list[dict[str, Any]]] = {}
+    with db.session() as s:
+        for app_id, _, mats in s.query(Draft.application_id, Draft.version, Draft.materials).order_by(Draft.application_id, Draft.version):
+            latest[app_id] = mats or []
+    return {int(m["document_id"]) for mats in latest.values() for m in mats if m.get("document_id")}
+
+
+def mark_overwritten() -> int:
+    """The records from before each writing had a folder of its own: those of one posting share one file, and it holds
+    what was written last. The earlier ones are marked - "overwritten_by": the record whose content the file has -
+    so that the library and the drafts that name them can say that what opens is not what was approved then."""
+    n = 0
+    with db.session() as s:
+        by_path: dict[str, list[Document]] = {}
+        for d in s.query(Document).filter(Document.kind.in_(GENERATED)).order_by(Document.id):
+            by_path.setdefault(d.path, []).append(d)
+        for rows in by_path.values():
+            for d in rows[:-1]:
+                if (d.meta or {}).get("overwritten_by") != rows[-1].id:
+                    d.meta = {**(d.meta or {}), "overwritten_by": rows[-1].id}
+                    n += 1
+    return n
+
+
+def overwritten(ids: list[int]) -> set[int]:
+    """Which of these records no longer have the file they were made with (see mark_overwritten)."""
+    ids = [int(i) for i in ids if i]
+    if not ids:
+        return set()
+    with db.session() as s:
+        return {d.id for d in s.query(Document).filter(Document.id.in_(ids)) if (d.meta or {}).get("overwritten_by")}
 
 LETTER_SCHEMA = llm.obj(
     {
@@ -277,29 +387,28 @@ def existing_cover_letter(job_id: int) -> dict[str, Any] | None:
 
 
 def make_cover_letter(job: Job, *, instructions: str = "") -> dict[str, Any]:
-    """Write -> check -> render -> (rewrite on failure). Stores a Document and returns its dict."""
-    out_dir = config.MATERIALS / f"job_{job.id}"
+    """Write -> check -> render -> (rewrite on failure). Stores a Document and returns its dict.
+
+    The letter is rendered in a folder of its own (version_dir) and becomes the one in use once it is there as a PDF;
+    until then, and if anything fails on the way, the letter before it is untouched and still the one in use. What
+    the checks still object to after the rewrites is kept with it and shown: a letter the applicant asked for is the
+    one the next draft carries, objections and all - whether to send it is theirs to decide."""
     base = re.sub(r"[^A-Za-z0-9]+", "_", f"{job.company}_{_public_id(job) or job.title}").strip("_")[:60]
     letter = write_letter(job, feedback=instructions)
     problems: list[str] = []
     rendered: dict[str, Any] = {}
-    for attempt in range(MAX_REWRITES + 1):
-        problems = check_letter(job, letter)
-        rendered = render_letter(letter, out_dir, base)
-        if rendered["pages"] != 1:
-            words = sum(len(p.split()) for p in letter["paragraphs"])
-            problems.append(f"renders to {rendered['pages']} pages at {words} words; must be exactly one page - shorten")
-        if not problems or attempt == MAX_REWRITES:
-            break
-        letter = write_letter(job, feedback="\n".join(problems), previous=letter)
-    with db.session() as s:
-        for old in s.query(Document).filter_by(kind="cover_letter", job_id=job.id, active=1):
-            old.active = 0
-        d = Document(kind="cover_letter", name=Path(rendered["pdf"]).name, path=rendered["pdf"], job_id=job.id,
-                     meta={"letter": letter, "docx": rendered["docx"], "pages": rendered["pages"], "problems": problems})
-        s.add(d)
-        s.flush()
-        return {"id": d.id, "name": d.name, "path": d.path, "kind": d.kind, "problems": problems, "letter": letter}
+    with version_dir(job.id, "cover_letter") as out_dir:
+        for attempt in range(MAX_REWRITES + 1):
+            problems = check_letter(job, letter)
+            rendered = render_letter(letter, out_dir, base)
+            if rendered["pages"] != 1:
+                words = sum(len(p.split()) for p in letter["paragraphs"])
+                problems.append(f"renders to {rendered['pages']} pages at {words} words; must be exactly one page - shorten")
+            if not problems or attempt == MAX_REWRITES:
+                break
+            letter = write_letter(job, feedback="\n".join(problems), previous=letter)
+        doc_id = publish("cover_letter", job.id, rendered["pdf"], {"letter": letter, "docx": rendered["docx"], "pages": rendered["pages"], "problems": problems})
+    return {"id": doc_id, "name": Path(rendered["pdf"]).name, "path": rendered["pdf"], "kind": "cover_letter", "problems": problems, "letter": letter}
 
 
 # --- PDF utilities -----------------------------------------------------------------------

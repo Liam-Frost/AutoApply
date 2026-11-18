@@ -130,11 +130,14 @@ def remove(emp_id: str) -> None:
     save([r for r in listing() if r["id"] != emp_id])
 
 
-def source_of(e: dict[str, Any]) -> tuple[str, str]:
-    """(source, scope) under which this employer's postings are stored."""
+def source_of(e: dict[str, Any]) -> tuple[str, str | None]:
+    """(source, scope) under which this employer's postings are stored. The scope is the listing among the ones its
+    source has - a board, a tenant, a watched page - as it is written on the postings (``Job.tenant``). None: the
+    source is one listing and its postings are found by the source alone. That is so for the purpose-built sites:
+    their postings carry whatever tenant applying needs (Intel's are Workday's, "intel.wd1"), not the site's key."""
     k, ref = e["kind"], e["ref"]
     if k == "builtin":
-        return ref["key"], ref["key"]
+        return ref["key"], None
     if k == "workday":
         return "workday", ref["host"].split(".myworkday")[0]
     if k in ("page", "feed"):

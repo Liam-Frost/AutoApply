@@ -485,7 +485,7 @@ def test_what_the_agent_learns_on_a_site_is_used_on_its_next_posting_and_an_appr
     monkeypatch.setattr(executor, "_wait_for_manual_submit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("nothing here is the applicant's to do")))
     calls = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("read" if "THIS STEP HAS NOT BEEN READ BEFORE" in goal else "other")
         t["fill"].fn(selector="#visa", value="Study permit with co-op work permit")
@@ -548,7 +548,7 @@ def test_a_run_that_leaves_something_for_the_applicant_is_not_submitted_by_the_p
     with db.session() as s:
         app_id, did = _explored(s, form, "left.example.test", status="draft_ready")
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         t["done"].fn(fixed=[], unfixed=[], cause="", suggestion="", needs_user=[{"label": "Visa status", "why": "The profile does not say.", "type": "text"}])
         return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
@@ -590,7 +590,7 @@ def test_a_correct_form_is_not_sent_to_the_applicant_over_how_a_control_reads(ap
     db.set_setting("repair.enabled", True)
     asked = []
 
-    def agent(goal, tools, *, system, max_steps=20, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         assert sorted(t) == ["list_controls", "options", "read_page", "screenshot", "verdict"]      # it looks; it cannot change anything
         asked.append(goal)
@@ -779,7 +779,7 @@ def test_a_site_that_says_already_applied_while_the_form_is_being_read_is_a_sent
         job_id = job.id
         s.expunge(t)
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         assert 'blocked="already_applied"' in system
         {x.name: x for x in tools}["finish"].fn(blocked="already_applied", notes="The page says: You applied on Nov 3, 2026.")
         return llm.AgentResult(final_text="done", steps=[])
@@ -896,7 +896,7 @@ def test_why_a_reading_stopped_is_one_of_a_fixed_few_and_each_has_one_consequenc
     page.write_text("<title>Careers</title><main><h1>Analyst</h1></main>", encoding="utf-8")
     said = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         finish = {x.name: x for x in tools}["finish"]
         assert finish.input_schema["properties"]["blocked"]["enum"] == ["", *generic.BLOCKERS]
         said.append(finish.fn(blocked="already_registered", notes="This e-mail already has an account."))       # a word of its own: sent back

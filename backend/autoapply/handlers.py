@@ -85,7 +85,7 @@ def _tailor(t: Task) -> dict[str, Any]:
     doc = tailor.make(job, instructions=t.payload.get("instructions", ""))
     info = doc["tailor"]
     swapped = 0
-    if not info["problems"]:
+    if doc["current"]:      # it passed: the open draft carries it; one that did not is kept as a record only
         with db.session() as s:
             for d in s.query(Draft).filter(Draft.review_status == "pending"):
                 if d.application.job_id == job_id:
@@ -150,12 +150,15 @@ def _site_status(t: Task) -> dict[str, Any]:
 @handler("canary")
 def _canary(t: Task) -> dict[str, Any]:
     """The self-check: the coded reading of each system against an open posting, and the saved form pages against the
-    current code. What it finds it deals with itself. Every form is read by the agent now, so a system whose coded
-    reading fails holds nothing up and needs nobody; a saved page that no longer matches is out of date and is removed
-    (the next run that fills and verifies that form saves it afresh). Cards that told the applicant "the self-check
-    failed" asked them for something they cannot do; there are none any more, and old ones are closed."""
+    current code.
+
+    Nobody is asked to do anything about what it finds - the applicant cannot repair a driver - and nothing it finds
+    is made to go away either. A saved page that no longer matches may be out of date or may show that the code lost
+    something; it cannot be told which, so the page is kept and marked (fixtures.record) and leaves only when a later
+    sample of the same form passes (fixtures.archive_superseded). It used to be deleted on the spot and counted as
+    "repaired", which left the next check with nothing to fail on. The cards of the earlier self-check ("driver") are
+    closed one by one, each on what this run shows about it (_settle_driver_cards), not all at once."""
     from .ats import registry
-    from .models import Todo, now
 
     out: dict[str, Any] = {}
     targets: list[tuple[str, Any, list[str]]] = []
@@ -180,15 +183,44 @@ def _canary(t: Task) -> dict[str, Any]:
     from . import fixtures
 
     fx = fixtures.run_all()
-    repaired = 0
-    for r in fx["results"]:
-        if not r["ok"]:
-            repaired += fixtures.drop(r["ats"], r["fixture"])
-    out["fixtures"] = {"total": fx["fixtures"], "failed": fx["failed"], "repaired": repaired}
+    seen = fixtures.record(fx["results"])
+    archived = fixtures.archive_superseded()
+    left = fixtures.failing()
+    out["fixtures"] = {"total": fx["fixtures"] - len(archived), "failed": len(left), "failing": [f["name"] for f in left][:20],
+                       "new": seen["new"][:20], "recovered": seen["recovered"][:20], "archived": archived[:20]}
+    out["cards_closed"] = _settle_driver_cards(out, {r["ats"] + "/" + r["fixture"]: r["ok"] for r in fx["results"]}, set(archived))
+    return out
+
+
+def _settle_driver_cards(out: dict[str, Any], replayed: dict[str, bool], archived: set[str]) -> int:
+    """Close the cards of the earlier self-check that this run has an answer to; leave the others.
+
+    - "driver:<system>": the coded reading of that system failed. It works again, or - it still fails - the forms of
+      that system are read by the agent and nothing waits on it: either way the card has its answer.
+    - "fixture:<system>/<page>": a saved page did not match. It matches again; or it was replaced by a later sample of
+      the same form that passes; or the page is not there any more, so there is nothing left to check. A page that is
+      still there and still does not match keeps its card."""
+    from . import fixtures
+    from .models import Todo, now
+
+    n = 0
     with db.session() as s:
         for td in s.query(Todo).filter_by(kind="driver", status="open"):
-            td.status, td.done_at = "done", now()
-    return out
+            what, _, name = (td.ref or "").partition(":")
+            why = ""
+            if what == "driver":
+                why = "the coded reading works again" if (out.get(name) or {}).get("ok") else "forms of this system are read by the agent; nothing waits on this"
+            elif what == "fixture":
+                if replayed.get(name):
+                    why = "the saved page matches again"
+                elif name in archived:
+                    why = "replaced by a later sample of the same form that passes"
+                elif name not in replayed and not (fixtures.root() / f"{name}.json").exists():
+                    why = "the saved page is not there any more"
+            if why:
+                td.status, td.done_at, td.payload = "done", now(), {**(td.payload or {}), "closed_because": why}
+                n += 1
+    return n
 
 
 def resume_waiting(*handled: str) -> int:

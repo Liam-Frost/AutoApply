@@ -188,6 +188,7 @@ def main() -> None:
         from . import fixtures
 
         res = fixtures.run_all(a.ats)
+        fixtures.record(res["results"])      # kept and marked, as the scheduled self-check does
         for r in res["results"]:
             print(("ok   " if r["ok"] else "FAIL ") + f"{r['ats']}/{r['fixture']}" + ("" if r["ok"] else f"  {r.get('error') or r.get('missing') or r.get('changed')}"))
         print(f"{res['fixtures']} fixture(s), {res['failed']} failed")

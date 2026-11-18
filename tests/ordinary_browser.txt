@@ -1,0 +1,29 @@
+# The tests that are run once more with every page opened in the ordinary browser (AUTOAPPLY_TEST_BROWSER=nodriver):
+# everything that drives a form or a sign-in. One list, read by the CI step and by anybody who runs the round by hand:
+#
+#   AUTOAPPLY_TEST_BROWSER=nodriver uv run --extra nodriver pytest -q $(grep -vE '^(#|[[:space:]]*$)' tests/ordinary_browser.txt | tr -d '\r')
+#
+# (in a POSIX shell - Git Bash on Windows; the lines that are not comments are the files)
+#
+# A new test file that opens a page for a form or a sign-in belongs here.
+
+# forms: read, filled, read back, handed over, sent
+tests/test_repair_generic.py
+tests/test_sent.py
+tests/test_mail_link.py
+tests/test_held.py
+tests/test_pipeline.py
+tests/test_status.py
+tests/test_submit_unknown.py
+tests/test_gate.py
+tests/test_learned.py
+
+# sign-in: the university portal's login, the sign-in window, confirmations and sign-in cards
+tests/test_portal_sign_in.py
+tests/test_takeover.py
+tests/test_confirm.py
+tests/test_review.py
+
+# the browsers themselves: the adapter, and the contract both browsers keep to
+tests/test_browser_backends.py
+tests/test_browser_contract.py

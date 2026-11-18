@@ -229,7 +229,8 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
         return {"already linked": "邮件已经关联过了", "no saved sign-in for this employer's site": "这个雇主的网站没有保存的登录，没法查"}.get(
             r.get("skipped", ""), f"读到网站上的 {r.get('read', 0)} 个申请，但没能确定邮件属于哪一个，留给你指定")
     if kind == "canary":
-        return "自检完成"
+        n = int(((result or {}).get("fixtures") or {}).get("failed") or 0)
+        return f"自检完成；有 {n} 个保存的表单页面和现在读到的不一致，已保留并记下，不需要你处理" if n else "自检完成"
     return ""
 
 
@@ -261,3 +262,22 @@ def browser_stage(stage: str) -> str:
     if why.startswith("signs in through "):
         return f"用{name}：这个网站通过第三方账号登录，那个账号的登录在它里面"
     return f"用{name}"
+
+
+def reused(r: dict[str, Any] | None, ats: str = "") -> str:
+    """Where an answer that is used again came from, as a sentence for the draft: whose form it was given on, when, and
+    whether the applicant confirmed it for this employer. '' for an answer that is not a reused one (or a draft from
+    before this was kept)."""
+    if not isinstance(r, dict):
+        return ""
+    day = str(r.get("at") or "")[:10]
+    if r.get("own"):
+        if r.get("confirmed"):
+            return f"你在这家雇主的表单上确认过这个答案（{day}）" if day else "你在这家雇主的表单上确认过这个答案"
+        return f"这家雇主的表单上次填的就是这个答案（{day}），你还没有确认过" if day else "这家雇主的表单上次填的就是这个答案，你还没有确认过"
+    who = site(f"{ats}:{r['employer']}")["name"] if r.get("employer") and ats else str(r.get("employer") or "")
+    if who:
+        return (f"这个答案上次用在 {who} 的表单上（{day}）；在这家雇主这里你还没有确认过" if day
+                else f"这个答案上次用在 {who} 的表单上；在这家雇主这里你还没有确认过")
+    return (f"这个答案来自同一个招聘系统上另一家雇主的表单（{day}）；在这家雇主这里你还没有确认过" if day
+            else "这个答案来自同一个招聘系统上另一家雇主的表单；在这家雇主这里你还没有确认过")

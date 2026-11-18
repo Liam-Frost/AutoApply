@@ -15,7 +15,7 @@ import PageHead from '../components/PageHead.vue'
 import SetSection from '../components/SetSection.vue'
 import FormError from '../components/FormError.vue'
 import { useRoute, useRouter } from 'vue-router'
-import { persona, run as runAction, toast } from '../ui'
+import { fmtTime, persona, run as runAction, toast } from '../ui'
 import { absorb, changed, clone, unsaved, useUnsaved } from '../dirty'
 
 const s = ref(null)
@@ -35,8 +35,19 @@ const docs = ref([])
 api.get('/system').then((d) => (sys.value = d)).catch(() => {})
 api.get('/documents').then((d) => (docs.value = d)).catch(() => {})
 const exportData = async (sessions) => {
-  try { exported.value = await api.post('/system/export', { sessions }) } catch (e) { toast(e.message, 'bad') }
+  try {
+    exported.value = await api.post('/system/export', { sessions })
+    sys.value = await api.get('/system')        // "last exported" is read from the exports themselves
+  } catch (e) { toast(e.message, 'bad') }
 }
+const lastExport = computed(() => sys.value.last_export || null)
+// (one sentence for each of the two cases: the parts are not put together from pieces)
+const lastExportLine = computed(() => {
+  const e = lastExport.value
+  if (!e) return ''
+  const when = fmtTime(e.created), mb = (e.size / 1e6).toFixed(1)
+  return e.sessions ? `上次导出：${when}，${e.files} 个文件，${mb} MB，含登录状态。这台电脑上保留最近 5 份。` : `上次导出：${when}，${e.files} 个文件，${mb} MB，不含登录状态。这台电脑上保留最近 5 份。`
+})
 const checkUpdate = async () => {
   try { upd.value = await api.get('/system/update') } catch (e) { toast(e.message, 'bad') }
 }
@@ -46,7 +57,7 @@ const checkUpdate = async () => {
 const GROUPS = [
   ['overview', '总览', '这些设置合起来是什么意思：你会投什么，程序现在自己能做到哪一步。只读；每一条都能点到改它的地方。', []],
   ['goals', '求职目标与匹配', '想找什么样的岗位：哪些根本不看，哪些优先。', [['profile', '求职档案'], ['filters', '入库前的硬条件'], ['search', '在大型官网上搜什么'], ['sources', '来源与关注公司']]],
-  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动准备草案'], ['submit', '审批与提交'], ['permissions', '操作权限'], ['adaptive', '出问题时自己调整'], ['schedule', '工作计划']]],
+  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动准备草案'], ['submit', '审批与提交'], ['permissions', '操作权限'], ['adaptive', '出问题时自己调整'], ['limits', 'AI 每次能做多少'], ['schedule', '工作计划']]],
   ['materials', '材料与回答', '简历怎么调、求职信怎么写、答过的问题怎么再用。', [['resume', '简历'], ['cover', '求职信'], ['answers', '回答的复用']]],
   ['accounts', '账号与连接', '招聘网站的登录、收信的邮箱、用哪家 AI。', [['logins', '招聘网站的登录'], ['mailbox', '收件邮箱'], ['ai', 'AI 服务']]],
   ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['events', '通知什么、什么时候']]],
@@ -69,6 +80,17 @@ function settle() {
 watch(() => [route.params.group, route.params.section, !!s.value], settle)
 
 const COUNTRIES = [['CA', '加拿大'], ['US', '美国']]
+// What the AI may spend on one piece of work, by kind (the setting agent.budgets; the kinds are the server's).
+const BUDGETS = [
+  ['explore_form', '读一张新的申请表', '第一次遇到的表单：翻完每一页，记下每个问题。'],
+  ['take_over', '接手填表', '程序自己填的和读回来的对不上时，由 AI 把批准过的内容填进去。'],
+  ['sign_in', '登录或注册网站', '登录过期后重新登录，回到申请表。'],
+  ['account', '投递之后建账号', '网站在投递之后才让建账号的时候。'],
+  ['navigate', '表单翻页', '到下一页的按钮程序自己没找到的时候。'],
+  ['confirm', '核对填好的值', '读回来的值和批准的不一样时，再看一眼页面上到底是什么。'],
+  ['site_status', '到雇主网站查申请状态', '邮件对不上是哪一个申请时。'],
+]
+const budgetLabel = (name, what) => `${name}：${what}`
 const examples = ref('Software Engineering Intern, Summer 2027 | Seattle, WA, US\nSenior Software Engineer | Toronto, ON, CA\nSoftware Developer Co-op | Vancouver, BC, Canada\nMBA Intern | New York, NY, US\nSoftware Engineering Intern | Singapore')
 const tried = ref([])
 const csv = (key) => (s.value[key] || []).join(', ')
@@ -355,6 +377,22 @@ onMounted(load)
         </div>
       </SetSection>
 
+      <SetSection id="limits" title="AI 每次能做多少">
+        <div class="card">
+          <p class="muted" style="margin-top: 0">AI 接手一件事的时候，最多做多少步（每调用一次工具算一步）、最多用多久。到了上限它就停下，这件事按没做成处理，不会一直占着填表的位置。不管用的是哪一家 AI 服务，数法都一样。表单很长的时候可以调大。</p>
+          <table aria-label="AI 每次能做多少">
+            <thead><tr><th scope="col">做什么</th><th scope="col">最多多少步</th><th scope="col">最多多少分钟</th></tr></thead>
+            <tbody>
+              <tr v-for="[k, name, hint] in BUDGETS" :key="k">
+                <th scope="row" style="font-weight: 400">{{ name }}<div class="hint">{{ hint }}</div></th>
+                <td><input v-model.number="s['agent.budgets'][k].steps" type="number" min="1" max="2000" style="width: 90px" :aria-label="budgetLabel(name, '步数')" /></td>
+                <td><input v-model.number="s['agent.budgets'][k].minutes" type="number" min="1" max="240" style="width: 90px" :aria-label="budgetLabel(name, '分钟数')" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </SetSection>
+
       <SetSection id="schedule" title="工作计划">
         <div class="card">
           <div class="kv">
@@ -543,11 +581,48 @@ onMounted(load)
             <template v-else-if="upd.newer">有新版本 <b>{{ upd.latest }}</b>（{{ upd.published }}）：<a :href="upd.url" target="_blank" rel="noopener">查看发布说明并下载</a>。程序不会自动更新，下载后解压覆盖程序文件即可，数据不受影响。</template>
             <template v-else>{{ upd.note || '已经是最新版本。' }}</template>
           </p>
-          <ul class="hint" style="margin: 10px 0 0 18px; line-height: 1.8">
-            <li><b>导出</b>随时可以做，不用停任务。压缩包里有数据库、你上传和程序生成的文件、个人资料和规则；不含历次运行的截图，不含密码和 API key（它们在系统的密码库里）。登录状态是加密保存的，只能在这台电脑上用。</li>
-            <li><b>恢复</b>要先退出程序：在<router-link :to="{ path: '/runs', query: { tab: 'plan' } }">工作计划</router-link>里点“做完手上的就停”，等它停下后退出，然后在程序文件夹里运行 <code>uv run autoapply restore 导出文件.zip</code>，原来的数据会另存一份。</li>
-            <li><b>更新</b>同样先“做完手上的就停”再退出，覆盖程序文件后重新启动。</li>
-          </ul>
+          <p class="small" style="margin: 10px 0 0">
+            <template v-if="lastExport">{{ lastExportLine }} <a :href="'/api/system/export/' + lastExport.name">下载这一份</a></template>
+            <template v-else>还没有导出过。数据只在这台电脑上：硬盘坏了或者换电脑之前，先导出一份放到别处。</template>
+          </p>
+          <div class="backup-notes">
+            <div>
+              <h4>导出里有什么</h4>
+              <ul>
+                <li>全部记录：岗位、申请、草案和答过的问题、邮件的归类、设置、运行历史。</li>
+                <li>你上传的文件，和程序为各个岗位写的简历、求职信。</li>
+                <li>个人资料、评分规则、各网站的笔记、你改过的提示词，以及程序学到的做法。</li>
+                <li>选“连同登录状态一起导出”时，还有各网站保存的登录状态（加密的）。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>导出里没有什么</h4>
+              <ul>
+                <li v-if="sys.secrets === 'file'">密码和 API key：它们在数据文件夹里单独加密的密码文件里，不进压缩包。</li>
+                <li v-else>密码和 API key：它们在系统的密码库里（Windows 凭据管理器、macOS 钥匙串），不在数据文件夹里。</li>
+                <li>历次运行的截图和页面记录：很大，也不需要带走。</li>
+                <li>普通浏览器的用户资料文件夹：在普通浏览器里登录过的网站，登录是留在那里的。</li>
+                <li>远程访问的设置和登录密码。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>在这台电脑上恢复</h4>
+              <ul>
+                <li>先退出程序：到“工作计划”里点“做完手上的就停”，等它停下后退出。 <router-link :to="{ path: '/runs', query: { tab: 'plan' } }">打开工作计划</router-link></li>
+                <li>在程序文件夹里运行下面这条命令；原来的数据会另存一份，不会丢。<div><code>uv run autoapply restore 导出文件.zip</code></div></li>
+                <li>密码和 API key 还在原处，恢复后照常能用；导出时带了登录状态的，登录也一起回来。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>搬到另一台电脑</h4>
+              <ul>
+                <li>在新电脑上装好程序，用同样的命令恢复：记录、文件、资料和规则都跟过去。</li>
+                <li>密码和 API key 不会跟过去：在新电脑上重新填（设置里的“账号与连接”；各网站的密码在“网站账号”里）。</li>
+                <li>登录状态不会跟过去：它是用这台电脑上的密钥加密的，换了电脑打不开。要么在新电脑上重新登录，要么在“网站账号”的“高级”里把某个登录单独导出（设一个口令），到新电脑上导入。 <router-link to="/accounts">打开网站账号</router-link></li>
+              </ul>
+            </div>
+          </div>
+          <p class="hint" style="margin: 10px 0 0">更新程序也是先“做完手上的就停”再退出，覆盖程序文件后重新启动；数据文件夹不受影响。</p>
         </div>
       </SetSection>
       <SetSection id="diagnose" title="诊断" how="">

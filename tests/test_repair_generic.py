@@ -23,7 +23,7 @@ def _the_applicant_submits(request):
 def _agent_that_fixes(log):
     """A stand-in model: tries to submit (must be refused), then sets the approved values with the tools."""
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         from autoapply import llm
 
         t = {x.name: x for x in tools}
@@ -95,7 +95,7 @@ def test_repair_cannot_rescue_a_wrong_value(pipeline, monkeypatch):  # noqa: F81
     nothing is submitted, and the difference goes to the user in the visible window."""
     from autoapply import drafts, executor, llm, tasks
 
-    def lazy_agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def lazy_agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         t["done"].fn(fixed=["email"], unfixed=[], cause="c", suggestion="s")
         return llm.AgentResult(final_text="done")
@@ -182,6 +182,117 @@ def test_fixture_regression_detects_a_lost_field(app_env):
     open(meta, "w", encoding="utf-8").write(json.dumps(data))
     res = fixtures.run_all("someats")
     assert res["failed"] == 1 and res["results"][0]["missing"] == ["Phone"]
+
+
+def test_a_saved_page_that_stops_matching_is_kept_until_the_form_gives_a_newer_one(app_env, monkeypatch):
+    """The self-check deleted every saved page that did not match and counted it as repaired: whether the page was
+    out of date or the code had lost something, the next check had nothing left to fail on. And it closed every
+    "driver" card, whatever it was about.
+
+    (F-10.)"""
+    from pathlib import Path
+
+    from autoapply import browser, db, doctor, fixtures, handlers, humanize, tasks  # noqa: F401 - handlers registers the self-check
+    from autoapply.models import Task, Todo
+
+    schema = _agent_schema()
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri())
+        first = Path(fixtures.save(schema, page, 0, reason="test")).with_suffix(".json")
+    data = json.loads(first.read_text(encoding="utf-8"))
+    data["questions"].append({**data["questions"][0], "id": "#phone", "label": "Phone", "locator": {"selector": "#phone"}})      # what the page no longer has
+    first.write_text(json.dumps(data), encoding="utf-8")
+    name = f"someats/{first.stem}"
+    with db.session() as s:      # the cards of the self-check as it was
+        s.add(Todo(kind="driver", ref=f"fixture:{name}", title="someats 驱动回归失败", body="missing: ['Phone']"))
+        s.add(Todo(kind="driver", ref="fixture:someats/20250101_000000_gone_p1_exec", title="someats 驱动回归失败", body="a page that was deleted since"))
+        s.add(Todo(kind="driver", ref="driver:greenhouse", title="greenhouse 驱动巡检失败", body="timeout"))
+
+    def check():
+        tasks.enqueue("canary", ref="test", dedupe=False)
+        tasks.drain(1)
+        with db.session() as s:
+            t = s.query(Task).filter_by(kind="canary").order_by(Task.id.desc()).first()
+            return t.status, t.result, {td.ref: (td.status, (td.payload or {}).get("closed_because", "")) for td in s.query(Todo).filter_by(kind="driver")}
+
+    status, out, cards = check()
+    # the page is still there, marked; nothing is called repaired; nobody is asked for anything new
+    assert status == "done" and out["fixtures"] == {"total": 1, "failed": 1, "failing": [name], "new": [name], "recovered": [], "archived": []}
+    assert first.exists() and first.with_suffix(".html").exists()
+    mark = json.loads(first.read_text(encoding="utf-8"))["check"]
+    assert mark["ok"] is False and mark["missing"] == ["Phone"] and mark["failing_since"]
+    # the cards: the one about this page stays - it still does not match; the other two have their answer
+    assert cards[f"fixture:{name}"] == ("open", "")
+    assert cards["fixture:someats/20250101_000000_gone_p1_exec"] == ("done", "the saved page is not there any more")
+    assert cards["driver:greenhouse"] == ("done", "forms of this system are read by the agent; nothing waits on this") and out["cards_closed"] == 2
+    with db.session() as s:
+        assert s.query(Todo).filter(Todo.kind != "driver").count() == 0
+    assert "1 个保存的表单页面" in humanize.result_summary("canary", "done", out) and "不需要你处理" in humanize.result_summary("canary", "done", out)
+    found = doctor._saved_pages()
+    assert found["level"] == "info" and name in found["detail"] and "不需要你处理" in found["fix"]
+    # the next check: the same finding, since the same moment - not a new one
+    _, out, _ = check()
+    assert out["fixtures"]["new"] == [] and out["fixtures"]["failed"] == 1
+    assert json.loads(first.read_text(encoding="utf-8"))["check"]["failing_since"] == mark["failing_since"]
+    # samples are pruned by count among the ones that pass; the failing one is not one of them
+    monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 1)
+    other = _agent_schema()
+    other.tenant = "beta"
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri() + "?posting=2")
+        for why in ("a", "b"):
+            fixtures.save(other, page, 0, reason=why)
+    assert first.exists() and len(list(first.parent.glob("*.json"))) == 2
+    # another employer's form passing says nothing about this one
+    _, out, cards = check()
+    assert out["fixtures"]["archived"] == [] and out["fixtures"]["failed"] == 1 and cards[f"fixture:{name}"][0] == "open"
+    # ...nor does another posting's form at the same employer: some systems name the posting after the "?"
+    monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 12)
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri() + "?for=acme&token=4002")
+        fixtures.save(schema, page, 0, reason="exec")
+    _, out, cards = check()
+    assert out["fixtures"]["archived"] == [] and out["fixtures"]["failed"] == 1 and cards[f"fixture:{name}"][0] == "open"
+    key = fixtures.form_key
+    hosted = {"ats": "greenhouse", "tenant": "acme", "page": 0}
+    assert key({**hosted, "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=4001"}) != key({**hosted, "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=4002"})
+    assert key({**hosted, "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=4001#app"}) == key({**hosted, "url": "https://Boards.Greenhouse.io/embed/job_app/?token=4001&for=acme"})
+    # the form is filled and verified again: a later sample of the same page, which passes - the old one is moved aside
+    monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 12)
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri())
+        later = Path(fixtures.save(schema, page, 0, reason="exec"))
+    _, out, cards = check()
+    assert out["fixtures"]["archived"] == [name] and out["fixtures"]["failed"] == 0 and out["fixtures"]["total"] == 3
+    assert not first.exists() and (first.parent / "archive" / first.name).exists() and (first.parent / "archive" / first.with_suffix(".html").name).exists()
+    assert json.loads((first.parent / "archive" / first.name).read_text(encoding="utf-8"))["check"]["superseded_by"] == later.stem
+    assert cards[f"fixture:{name}"] == ("done", "replaced by a later sample of the same form that passes")
+    assert doctor._saved_pages()["level"] == "ok" and humanize.result_summary("canary", "done", out) == "自检完成"
+    assert fixtures.run_all()["fixtures"] == 3      # what was moved aside is not replayed
+
+
+def test_a_saved_page_that_matches_again_is_marked_so(app_env):
+    from pathlib import Path
+
+    from autoapply import browser, fixtures
+
+    schema = _agent_schema()
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri())
+        meta = Path(fixtures.save(schema, page, 0, reason="test")).with_suffix(".json")
+    good = meta.read_text(encoding="utf-8")
+    data = json.loads(good)
+    data["questions"].append({**data["questions"][0], "id": "#phone", "label": "Phone", "locator": {"selector": "#phone"}})
+    meta.write_text(json.dumps(data), encoding="utf-8")
+    assert fixtures.record(fixtures.run_all()["results"])["new"] == [f"someats/{meta.stem}"]
+    assert [f["name"] for f in fixtures.failing()] == [f"someats/{meta.stem}"] and fixtures.failing("otherats") == []
+    meta.write_text(good, encoding="utf-8")      # the code reads the page as it was saved again
+    assert fixtures.record(fixtures.run_all()["results"]) == {"new": [], "still": [], "recovered": []}      # (the mark went with the edit)
+    data["check"] = {"ok": False, "at": "2026-01-01T00:00:00", "failing_since": "2026-01-01T00:00:00", "missing": ["Phone"]}
+    data["questions"].pop()
+    meta.write_text(json.dumps(data), encoding="utf-8")
+    assert fixtures.record(fixtures.run_all()["results"])["recovered"] == [f"someats/{meta.stem}"]
+    assert json.loads(meta.read_text(encoding="utf-8"))["check"]["ok"] is True and fixtures.failing() == []
 
 
 def test_data_privacy_notice_is_acknowledged_and_nothing_else(app_env):
@@ -360,7 +471,7 @@ def test_the_form_has_the_last_word_and_the_agent_finishes_what_the_draft_did_no
     db.set_setting("repair.enabled", True)
     log = {"refused": 0}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         log["goal"] = goal
         log["first_check"] = t["check_form"].fn()
@@ -498,7 +609,7 @@ def test_a_form_with_several_steps_is_walked_by_what_is_on_screen(app_env, tmp_p
     db.set_setting("repair.enabled", True)
     calls = {"fix": 0, "nav": 0}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         if "check_form" in t:                      # finishing a step: the field the draft did not know, from the profile
             calls["fix"] += 1
@@ -570,7 +681,7 @@ def test_a_step_that_will_not_go_on_is_handed_to_the_user_with_the_reason(app_en
     db.set_setting("repair.enabled", True)
     calls = {"fix": 0, "nav": 0}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         if "check_form" in t:      # asked once to finish the step, with what the navigator saw: there is nothing it can fill
             calls["fix"] += 1
@@ -639,7 +750,7 @@ def test_a_form_that_names_a_missing_answer_only_after_continue_is_finished_and_
     db.set_setting("repair.enabled", True)
     goals = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         assert "check_form" in t, "the navigator is not needed: the form has a Continue button"
         goals.append(goal)
@@ -823,7 +934,7 @@ def test_the_user_submits_in_the_window_while_the_program_is_still_on_the_form(a
     db.set_setting("repair.enabled", True)
     calls = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
         t["click"].fn(selector="#user")           # meanwhile, in the same window, the user sends the application
@@ -894,7 +1005,7 @@ def test_an_answer_the_form_refuses_for_its_length_is_adapted_by_the_take_over_a
     short = "C/C++ at an internship (a Windows key storage provider); Linux services; algorithms and complexity from coursework."
     log = {}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         log["goal"], log["system"] = goal, system
         log["too_long"] = t["done"].fn(fixed=[], unfixed=[], cause="c", suggestion="s", adapted=[{"id": "#skills", "value": long[:300], "max_chars": 200}])   # still over the limit
@@ -994,7 +1105,7 @@ def test_a_question_nobody_can_answer_but_the_applicant_is_asked_once_and_then_k
     calls = []
     label = "Have you been a government employee in the past three years?"
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
         if "check_form" in t:
@@ -1055,7 +1166,7 @@ def test_what_the_applicant_answers_in_the_window_is_kept_and_remembered(app_env
     db.set_setting("repair.enabled", True)
     label = "Have you been a government employee in the past three years?"
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         {x.name: x for x in tools}["done"].fn(fixed=[], unfixed=[], cause="Not in the profile.", suggestion="",
                                               needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
         return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
@@ -1147,7 +1258,7 @@ def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answer
     label = "Have you been a government employee in the past three years?"
     calls = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
         assert "THIS STEP HAS NOT BEEN READ BEFORE" in goal
@@ -1301,7 +1412,7 @@ def test_a_step_the_site_does_not_show_again_is_read_from_the_review_page(app_en
     db.set_setting("repair.enabled", True)
     seen = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         seen.append("review" if "THIS IS THE REVIEW PAGE" in goal else "other")
         assert "Diversity (not yet visible)" in goal

@@ -671,23 +671,40 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
                 except Exception as e:  # noqa: BLE001
                     log.info("session of %s kept from its cookies (%s)", tenant_key, type(e).__name__)
                     browser.write_state(tenant_key, {"cookies": page.context.cookies(), "origins": []})
-                upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                if done is None:      # a site's account; a sign-in told by the caller's own check (a provider's) is a session and no account
+                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
                 notify.close_todos("takeover", f"account:{tenant_key}")
                 return {"ok": True, "credentials_saved": False}
+
+            # Nothing to tell a finished sign-in by (no check for this site, no driver to ask): then the applicant
+            # closing the window is their "done", as it is in the other browser - and what the window held has to be
+            # read while it is open, for once it is closed there is nothing left to read.
+            blind = not check and not (driver and ref)
+            held: list[dict[str, Any]] = []
+
+            def closed() -> dict[str, Any]:
+                if blind and held:
+                    browser.write_state(tenant_key, {"cookies": held, "origins": []})
+                    upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                    notify.close_todos("takeover", f"account:{tenant_key}")
+                    return {"ok": True, "credentials_saved": False, "unverified": True}
+                return {"ok": False, "reason": "window closed before sign-in was verified"}
 
             deadline, misses = time.monotonic() + timeout_s, 0
             while time.monotonic() < deadline:
                 try:
                     urls = [p.url for p in page.context.pages]
+                    if blind and urls:
+                        held = page.context.cookies() or held
                     misses = 0
                 except Exception:  # noqa: BLE001 - between two pages, or the window is going away
                     misses += 1
                     if misses >= 5:
-                        return {"ok": False, "reason": "window closed before sign-in was verified"}
+                        return closed()
                     browser.idle(page, 1)
                     continue
                 if not urls:
-                    return {"ok": False, "reason": "window closed before sign-in was verified"}
+                    return closed()
                 if check and any(check(u) for u in urls):
                     return keep()
                 if not check and driver and ref:
@@ -789,6 +806,7 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     if not ok:
         return {"ok": False, "reason": "窗口关闭前没有检测到登录成功" if closed else "等了 10 分钟没有检测到登录成功"}
     if done is not None:
+        notify.close_todos("takeover", f"account:{tenant_key}")      # the card that asked for this sign-in has its answer, as in the other browser
         return {"ok": True, "credentials_saved": False}
     host = urlparse(url).netloc
     saved = False

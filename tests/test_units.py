@@ -146,6 +146,112 @@ def test_discover_offline_and_back(app_env):
     assert partial["offline"] == 0
 
 
+def _aged(days, **where):
+    """Move a posting's dates back, as if that many days had passed."""
+    from datetime import timedelta
+
+    from autoapply import db
+    from autoapply.models import Job
+
+    with db.session() as s:
+        for j in s.query(Job).filter_by(**where):
+            j.last_seen = j.last_seen - timedelta(days=days)
+            if j.missed_since is not None:
+                j.missed_since = j.missed_since - timedelta(days=days)
+
+
+def _online(**where):
+    from autoapply import db
+    from autoapply.models import Job
+
+    with db.session() as s:
+        return {j.source_id: (j.online, j.status) for j in s.query(Job).filter_by(**where)}
+
+
+def test_a_filtered_listing_ages_out_its_own_postings_and_no_one_elses(app_env):
+    """Reading Acme's board took Beta's postings offline: the rule for capped listings looked at the whole service.
+
+    (F-07: "complete" was limited to the listing that was read, "stale_days" was not.)"""
+    from autoapply import discover
+
+    acme = [{"source_id": f"a{i}", "title": f"T{i}", "company": "Acme", "tenant": "acme"} for i in (1, 2, 3)]
+    beta = [{"source_id": f"b{i}", "title": f"T{i}", "company": "Beta", "tenant": "beta"} for i in (1, 2)]
+    filtered = {"source": "greenhouse", "complete": False, "stale_days": 5}
+    discover.upsert(acme, scope="acme", **filtered)
+    discover.upsert(beta, scope="beta", **filtered)
+    # Beta's board has not been read for ten days (it was down, or switched off); Acme's is read every day
+    _aged(10, tenant="beta")
+    assert discover.upsert(acme, scope="acme", **filtered)["offline"] == 0
+    assert _online(tenant="beta") == {"b1": (1, "new"), "b2": (1, "new")}
+    # ...and when Beta's is read again it shows one of the two: the other has been missing for one reading, not for ten days
+    assert discover.upsert(beta[:1], scope="beta", **filtered)["offline"] == 0
+    assert _online(tenant="beta") == {"b1": (1, "new"), "b2": (1, "new")}
+    # six days of readings that do not show it: gone - on Beta's word, while Acme's are as they were
+    _aged(6, tenant="beta")
+    assert discover.upsert(beta[:1], scope="beta", **filtered)["offline"] == 1
+    assert _online(tenant="beta") == {"b1": (1, "new"), "b2": (0, "offline")}
+    assert set(_online(tenant="acme").values()) == {(1, "new")}
+
+
+def test_a_posting_a_filtered_listing_shows_again_starts_over(app_env):
+    """A capped listing drops a posting for a day and shows it the next: the days it was missing are not kept against it."""
+    from autoapply import db, discover
+    from autoapply.models import Job
+
+    rows = [{"source_id": str(i), "title": f"T{i}", "company": "Acme", "tenant": "acme"} for i in (1, 2, 3)]
+    filtered = {"source": "greenhouse", "scope": "acme", "complete": False, "stale_days": 5}
+    discover.upsert(rows, **filtered)
+    assert discover.upsert(rows[:1], **filtered)["offline"] == 0                 # the first reading without 2 and 3
+    with db.session() as s:
+        assert [bool(j.missed_since) for j in s.query(Job).order_by(Job.source_id)] == [False, True, True]
+    _aged(4, source="greenhouse")
+    assert discover.upsert(rows[:2], **filtered)["offline"] == 0                 # 2 is back after four days; 3 is still missing
+    with db.session() as s:
+        assert [bool(j.missed_since) for j in s.query(Job).order_by(Job.source_id)] == [False, False, True]
+    _aged(2, source="greenhouse")
+    assert discover.upsert(rows[:1], **filtered)["offline"] == 1                 # 3: six days; 2: missing since today
+    assert _online(source="greenhouse") == {"1": (1, "new"), "2": (1, "new"), "3": (0, "offline")}
+    # a partial reading (neither rule) says nothing about what it does not show, however long ago that was
+    _aged(30, source="greenhouse")
+    assert discover.upsert(rows[:1], source="greenhouse", scope="acme", complete=False)["offline"] == 0
+    assert _online(source="greenhouse")["2"] == (1, "new")
+    # a posting stored without the name of its listing gets it from the reading, so that the rules above find it
+    discover.upsert([{"source_id": "9", "title": "T9", "company": "Acme"}], **filtered)
+    with db.session() as s:
+        assert s.query(Job).filter_by(source_id="9").one().tenant == "acme"
+
+
+def test_a_board_that_could_not_be_read_loses_nothing_to_one_that_could(app_env, monkeypatch):
+    """A whole scan: Acme answers and Beta does not, for longer than the rule's days - Beta's postings stay."""
+    from autoapply import db, discover, employers
+
+    db.set_setting("sources.pdportal", False)
+    db.set_setting("intake.enabled", False)
+    listed = [{"id": n, "name": n.title(), "kind": "greenhouse", "ref": {"board": n}, "enabled": True} for n in ("acme", "beta")]
+    monkeypatch.setattr(employers, "listing", lambda: listed)
+    monkeypatch.setattr(employers, "migrate_legacy", lambda: None)
+    down = set()
+
+    def rows_for(e, terms, keep):
+        board = e["ref"]["board"]
+        if board in down:
+            raise RuntimeError("the board is not answering")
+        return iter([{"source": "greenhouse", "source_id": f"{board}-{i}", "title": f"Intern {i}", "company": e["name"], "tenant": board,
+                      "apply_url": f"https://x.example/{board}/{i}", "jd_text": "d" * 300} for i in range(2)])
+
+    monkeypatch.setattr(employers, "rows_for", rows_for)
+    assert discover.run(notify_user=False)["total"]["new"] == 4
+    down.add("beta")
+    for _ in range(3):                                     # three scans, three days apart, with Beta down
+        _aged(3, source="greenhouse")
+        out = discover.run(notify_user=False)
+        assert "not answering" in out["errors"]["Beta"] and out["total"]["offline"] == 0
+    assert _online(tenant="beta") == {"beta-0": (1, "new"), "beta-1": (1, "new")}
+    assert _online(tenant="acme") == {"acme-0": (1, "new"), "acme-1": (1, "new")}
+    down.clear()
+    assert discover.run(notify_user=False)["total"]["offline"] == 0   # Beta is back and still shows both
+
+
 def test_mail_match_application(app_env):
     from autoapply import db, mail
     from autoapply.models import Application, Job
@@ -328,3 +434,148 @@ def test_which_browser_a_task_worked_in_is_said_in_words():
     assert "程序自带的浏览器" in said("browser:playwright (tenant: greenhouse:acme)")
     for s in ("browser:nodriver (tenant: x)", "browser:nodriver (something new)"):
         assert "browser:" not in said(s) and "nodriver" not in said(s)
+
+
+def test_the_analysis_page_compares_the_recruiting_systems(app_env):
+    """Every site's form is read by the agent now. Whether that serves a system well is asked system by system: how
+    reading and filling went, how long the program worked, how often it handed the form over, what the model was
+    asked - by the definitions the rest of the page uses (not Run.ok, not "the task is done")."""
+    from datetime import timedelta
+
+    from autoapply import analytics, db, timing
+    from autoapply.models import Application, Draft, Job, LLMRequest, Run, Task, now
+
+    at = now() - timedelta(hours=3)
+
+    def task(kind, ref, status="done", result=None, error="", minutes=2.0):
+        t = Task(kind=kind, ref=ref, status=status, result=result or {}, error=error, attempts=1, created_at=at, started_at=at, finished_at=at + timedelta(minutes=minutes))
+        s.add(t)
+        s.flush()
+        return t
+
+    def asked(t, tokens, cost=None):
+        s.add(LLMRequest(request_id=f"r{t.id}-{tokens}", call_id=f"c{t.id}", started_at=at, provider="anthropic", model="m", kind="agent", feature="explore_form", task_id=t.id,
+                         workflow=t.kind, ref=t.ref, status="ok", turns=1, input_tokens=tokens, output_tokens=0, cost_micros=cost, source="live"))
+
+    def run(t, ats, steps, ms):
+        s.add(Run(task_id=t.id, kind="execute", ref=t.ref, ats=ats, ok=1, steps=[{"op": x} for x in steps], spans=[{"k": "driver", "n": "field", "t": 0, "ms": ms}, {"k": "human", "n": "window", "t": ms, "ms": 600000}],
+                  human_interventions=0, created_at=at))
+
+    with db.session() as s:
+        jobs = {}
+        for ats in ("workday", "greenhouse", ""):
+            j = Job(source="x", source_id=f"s{ats}", title="Intern", company=f"Co {ats}", ats=ats, status="scored")
+            s.add(j)
+            s.flush()
+            a = Application(job_id=j.id, status="draft_ready")
+            s.add(a)
+            s.flush()
+            d = Draft(application_id=a.id, version=1, schema={}, answers=[], unresolved=[], materials=[], review_status="pending")
+            s.add(d)
+            s.flush()
+            jobs[ats] = (j.id, a.id, d.id)
+        wj, wa, wd = jobs["workday"]
+        # Workday: read three times (one failed, one still waiting for a sign-in), revised once, filled four times
+        asked(task("recon", f"job:{wj}", minutes=4), 9000, 300)
+        task("recon", f"job:{wj}", "failed", error="could not open the posting", minutes=1)
+        task("recon", f"job:{wj}", "waiting_human", error="login required")
+        asked(task("revise", f"draft:{wd}"), 1000)                                             # no price for this one
+        sent = task("execute", f"application:{wa}", result={"status": "submitted"}, minutes=3)
+        run(sent, "workday", ["open", "fill_page", "repair", "repair", "read_back", "submit"], 90000)
+        asked(sent, 5000, 200)
+        handed = task("execute", f"application:{wa}", result={"status": "ready_to_submit"}, minutes=15)
+        run(handed, "workday", ["open", "fill_page", "read_back", "handed_over"], 60000)
+        failed = task("execute", f"application:{wa}", result={"status": "failed", "error": "could not advance to the next page"})
+        run(failed, "workday", ["open", "fill_page", "cannot_advance"], 30000)
+        task("execute", f"application:{wa}", result={"status": "submit_unknown"})
+        task("execute", f"application:{wa}", result={"status": "skipped", "note": "already submitted"})   # found nothing to do: not counted
+        # Greenhouse: read once, nothing filled; a site with no driver: filled once, by the applicant's hand in the end
+        task("recon", f"job:{jobs['greenhouse'][0]}", minutes=2)
+        other = task("execute", f"application:{jobs[''][1]}", result={"status": "submitted"})
+        run(other, "generic", ["open", "fill_page", "handed_over", "submit"], 45000)
+        # not about a posting at all
+        task("discover", "schedule")
+        task("mail", "schedule")
+    got = {y["ats"]: y for y in analytics.automation(analytics.window(7))["systems"]}
+    assert list(got) == ["workday", "greenhouse", "generic"] or list(got) == ["workday", "generic", "greenhouse"]
+    w = got["workday"]
+    assert w["label"] == "Workday" and w["postings"] == 1
+    assert (w["read"]["total"], w["read"]["success"], w["read"]["failed"], w["read"]["waiting"], w["read"]["settled"], w["read"]["success_rate"]) == (3, 1, 1, 1, 2, 0.5)
+    assert w["read"]["median_s"] == 150.0                                                      # of the ones that ran to an end: four minutes and one
+    f = w["fill"]
+    assert (f["total"], f["success"], f["handed"], f["unknown"], f["failed"], f["settled"], f["success_rate"]) == (4, 1, 1, 1, 1, 2, 0.5)
+    assert f["working_ms"] == 60000                                                            # the program's own time, the middle one of three runs; not the ten minutes the window was open
+    assert w["human"] == {"runs": 3, "stops": 1, "runs_stopped": 1, "stops_per_run": 0.33, "takeovers_per_run": 0.67}
+    assert w["ai"] == {"requests": 3, "tokens": 15000, "tokens_per_posting": 15000, "cost": 500, "cost_unknown_requests": 1}
+    g = got["greenhouse"]
+    assert (g["read"]["success_rate"], g["fill"]["total"], g["fill"]["success_rate"], g["fill"]["working_ms"], g["human"]["stops_per_run"], g["ai"]["cost"]) == (1.0, 0, None, None, None, None)
+    o = got["generic"]
+    assert o["label"].startswith("其他网站") and o["fill"]["success"] == 1 and o["human"]["stops_per_run"] == 1.0
+    # what a run records of itself, from the steps real runs have
+    assert timing.stops_for_applicant([{"op": "open"}, {"op": "handed_over"}, {"op": "submit"}, "junk"]) == 1 and timing.stops_for_applicant(None) == 0
+    assert timing.takeovers([{"op": "repair"}, {"op": "repair_skipped"}, {"op": "repair"}]) == 2
+    # the view narrowed to one kind of task still compares whole systems
+    assert {y["ats"] for y in analytics.automation(analytics.window(7), kind="mail")["systems"]} == set(got)
+
+
+def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):
+    """The exports say it themselves (their manifest): when, how much, whether the saved sign-ins are in it."""
+    import zipfile
+    from datetime import datetime
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import backup, db
+    from autoapply.api.main import app
+
+    db.init_db()
+    c = TestClient(app)
+    assert backup.exports() == [] and c.get("/api/system").json()["last_export"] is None
+    first = backup.export()
+    got = c.get("/api/system").json()
+    last = got["last_export"]
+    assert last["name"] == first["name"] and last["files"] == first["files"] and last["size"] == first["size"] and last["sessions"] is False
+    assert abs((datetime.fromisoformat(last["created"]) - datetime.now().astimezone()).total_seconds()) < 120 and last["created"][-6] in "+-"      # a moment, with its offset
+    assert got["secrets"] in ("keyring", "file")
+    # a file that is no export is not offered as one; the newest export is the last
+    (backup.exports_dir() / "autoapply-backup-20990101-000000.zip").write_bytes(b"not a zip")
+    with zipfile.ZipFile(backup.exports_dir() / "autoapply-backup-20980101-000000.zip", "w") as z:
+        z.writestr("manifest.json", '{"app": "autoapply", "version": "9.9", "created": "2098-01-01T08:00:00", "sessions": true, "files": 3}')
+    names = [e["name"] for e in backup.exports()]
+    assert names[0] == "autoapply-backup-20980101-000000.zip" and "autoapply-backup-20990101-000000.zip" not in names and first["name"] in names
+    assert backup.last()["sessions"] is True and backup.last()["version"] == "9.9"
+
+
+def test_an_answer_that_is_used_again_says_where_it_was_given_and_when(app_env):
+    """A6 kept whose form an answer was last given on; the draft showed "answered before" and no more."""
+    from autoapply import answers as ans
+    from autoapply import db, humanize
+    from autoapply.ats.base import FormSchema, Question
+    from autoapply.models import AnswerCache, Job
+
+    db.init_db()
+    q1 = Question(id="auth", label="Are you legally authorized to work in Canada?", type="select", options=["Yes", "No"], required=True)
+    q2 = Question(id="start", label="Earliest start date", type="text")
+    q3 = Question(id="worked", label="Have you worked for us before?", type="select", options=["Yes", "No"])
+    ans.cache_put("greenhouse", q1, "Yes", "work authorization in the profile", confirmed=True, tenant="acme")      # confirmed on Acme's form
+    ans.cache_put("greenhouse", q2, "June 2027", "start date in the profile", confirmed=False, tenant="acme")        # filled on Acme's form, not confirmed
+    ans.cache_put("greenhouse", q3, "No", "never worked there", confirmed=True, tenant="beta")                       # confirmed - on Beta's form
+    with db.session() as s:
+        for row in s.query(AnswerCache):
+            row.updated_at = row.updated_at.replace(year=2026, month=11, day=2)
+        job = Job(source="greenhouse", source_id="1", title="Intern", company="Acme", ats="greenhouse", tenant="acme", status="scored", jd_text="d" * 300)
+        s.add(job)
+        s.flush()
+        s.expunge(job)
+    schema = FormSchema(ats="greenhouse", tenant="acme", questions=[q1, q2, q3])
+    rows = {r["id"]: r for r in ans.resolve(schema, job)["answers"]}
+    assert rows["auth"]["reused"] == {"own": True, "confirmed": True, "employer": "", "at": rows["auth"]["reused"]["at"]} and rows["auth"]["reused"]["at"].startswith("2026-11-02")
+    assert (rows["start"]["reused"]["own"], rows["start"]["reused"]["confirmed"]) == (True, False)
+    assert (rows["worked"]["reused"]["own"], rows["worked"]["reused"]["confirmed"], rows["worked"]["reused"]["employer"]) == (False, False, "beta")
+    said = {k: humanize.reused(v["reused"], "greenhouse") for k, v in rows.items()}
+    assert said["auth"] == "你在这家雇主的表单上确认过这个答案（2026-11-02）"
+    assert said["start"] == "这家雇主的表单上次填的就是这个答案（2026-11-02），你还没有确认过"
+    assert said["worked"].startswith("这个答案上次用在 ") and "beta" in said["worked"].lower() and said["worked"].endswith("在这家雇主这里你还没有确认过")
+    # a draft from before this was kept, and an answer that is not a reused one, say nothing; an answer of unknown origin says what is known
+    assert humanize.reused(None) == "" and humanize.reused("x") == ""
+    assert humanize.reused({"own": False, "employer": "", "at": ""}, "greenhouse") == "这个答案来自同一个招聘系统上另一家雇主的表单；在这家雇主这里你还没有确认过"

@@ -4,8 +4,13 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-18
+
 ### Added
 
+- Analysis → Automation has a table by recruiting system: how reading its forms and filling them went (success rate with the counts under it, forms handed over and submissions awaiting confirmation listed apart), how long the program itself worked, how often a filling run handed the form to you, how often the AI took a page over, and what the model was asked for that system's postings. Every site's form is read by the AI first now; this is where to see on which systems that pays.
+- A contract both browsers keep to (`tests/test_browser_contract.py`): the selector shapes the program writes, the frames it looks for, boxes the page itself is in charge of, files, windows and the mouse - each written once and run in the automated and in the ordinary browser against the same expected answer. The sign-in window has the same (`tests/test_takeover.py`). The tests that are run once more in the ordinary browser are one list now (`tests/ordinary_browser.txt`), with the sign-in flows in it.
+- A learned plugin has to keep to a contract before it is tried on an application: on a form it was not written for it either declines a field and leaves it alone or fills it and the field holds the value; it reads what is there; it changes nothing else, leaves the page where it is and sends nothing - and so do the tools it offers. A rule of a learned recipe has to name the field it is for.
 - **What each source gave, and why the rest was not taken in.** "Sources and watched employers" lists every source
   with when it was last read (and, for one that cannot be read now, when it last could and what it gave then), how
   many postings it gave, how many passed the hard conditions, and the reasons the others were dropped, counted; and
@@ -122,6 +127,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
+- Settings → System → Backup says when the data was last exported (read from the export itself), what an export holds and what it does not, and keeps restoring on this computer apart from moving to another one: passwords and API keys are in no export and have to be entered again elsewhere, and saved sign-ins are encrypted for this computer - they are signed in to again, or carried one by one with a passphrase.
+- A draft's answer that was given before says where: confirmed by you on this employer's form and when, filled there last time without your confirmation, or last used on another employer's form - which one - and not yet confirmed here.
+- An agent has one budget, the same whichever AI service does the thinking: so many tool calls, and a moment on the clock by which it ends. Until now each service counted in its own way (model turns, its own turns, requests) and the ChatGPT sign-in did not count at all, with a time limit that started again with every message - an agent that kept calling tools could occupy the place where forms are filled for as long as it liked. When the budget ends the model's run is ended too (the ChatGPT turn is interrupted, the Claude query cancelled), and the result says which it was: finished by itself, out of steps, or out of time. A backup service that takes over goes on with what is left.
+- How much each kind of work gets - reading a new form, taking over a fill, signing in, turning a page, checking values, looking up an application's status - is a setting: Settings → Automation → "How much the AI may do at a time".
 - `docs/DESIGN_SYSTEM.md` describes how pages are built now: the four states of a page that reads data, the one way
   an action is carried out, what a layer over the page does with the keyboard, labels and names of controls,
   foreground colours and the contrast test, where a page keeps what it shows. Two rules are no longer unconditional:
@@ -191,6 +200,16 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- A posting whose source gives only a summary is no longer scored as if the summary were the posting. A job board's feed often carries a teaser of a few lines; such a posting is now marked, and before it is scored or its overview written its own page is read for the whole text (by a plain request, and in a browser when the page is drawn by script). When the page cannot be read the score is given on the summary, the model is told that it reads one - what a summary does not mention has not been shown to be absent - and the score's reason says "only a summary". The posting's page in the program says so as well. A teaser that is too short to score gets its chance to be completed instead of staying unscored for good, and once the whole text was read a later scan does not put the teaser back.
+- A filling run now records how often it handed the form to the applicant. The column for it was there and was never written; the figure is counted from the run's steps, so earlier runs have it too.
+- In the ordinary browser, several things were not done the way the automated browser does them: filling a box pressed Ctrl+A and Backspace first (in the search box of a list of chosen entries, Backspace on an empty box removes the entry chosen before) - it now selects and replaces the text without keys; typing "key by key" put the whole text in at once, so a list that searches as one types heard nothing - each character is now a key going down and coming up; text was matched with regard to case; and two selector shapes the program's own code writes (`visible=true`, `text=…`) were not understood there - Greenhouse's check for a challenge frame failed on the first.
+- The sign-in window in the ordinary browser now keeps a sign-in on a site nothing can check (no driver, no known address) when the applicant closes the window, as the automated browser's window does; it used to say "window closed before sign-in was verified" every time. The two windows also agree now on what a finished sign-in leaves behind: its card is closed, and a sign-in provider's session is not listed as a site account.
+- The self-check no longer deletes the saved form pages that stop matching, and no longer counts deleting them as a repair. A page that does not match may be out of date or may show that the code lost something, and the page alone cannot say which: it is now kept and marked with since when and what was missing, and is moved aside (not deleted) only when a later sample of the same form page passes. Samples are pruned by count among the passing ones only. The result of a self-check names what fails, what is new and what recovered; the diagnostics list has a line for it. Nobody is asked to do anything about it.
+- The cards of the earlier self-check are closed one by one on what the run shows about each - the page matches again, a later sample replaced it, the page is gone, or the system's forms are read by the agent - instead of all at once.
+- A cover letter or tailored résumé that is written again no longer replaces the one before it. Every writing went to the same file, so the records of the earlier versions - and the drafts approved with them - opened whatever had been written last, and a writing that failed half-way left them with half a file. Each writing now has a folder of its own (the file keeps the name the employer sees), and it becomes the one in use only once it is there as a PDF; the library shows which version each file is, and "use this version" on an earlier one now really switches to it. Records from before the change that share a file with a later one say so, in the library and on the draft.
+- A tailored résumé that fails its checks (over the page limit) is kept as a record and no longer becomes the résumé in use; the one before it stays.
+- A task told to use the ordinary browser ("retry in the ordinary browser" on a scan) now reads every listing in it. Listings are fetched side by side on helper threads, and those were handed the task's metering record only - not the browser it was told to use, not whether the applicant had asked for it, and not its own count of model calls, which missed everything its helpers asked the model. What a task is now goes with every part of its work as one copy of the context (`context.py`), and each helper's model call is its own: several helpers wrote the call they were making into one shared record.
+- Reading one employer's board no longer takes other employers' postings offline. The rule for capped or filtered listings ("not shown for N days") looked at every posting of the same service, so a board that was down or switched off lost its postings to the next board that answered. Both rules now look only at the listing that was read, and the days are counted from the first reading that did not show the posting rather than from when it was last seen - a listing that could not be read for a week has said nothing in that week.
 - **The PDF preview keeps to its box, and draws each page once.** "Fit to width" was the width at the moment the
   file was opened: after the window or the layout changed, the pages stayed as wide as before. They are drawn again
   for the new width. Zooming twice in a row, or while the pages were still appearing, left two drawings filling the
@@ -861,7 +880,8 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
-[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...v1.0.1

@@ -8,7 +8,7 @@ A feature is only as good as the last time it was actually used. This page separ
 
 Keep this distinction when you change something: say what you ran it against.
 
-Last updated for 1.0.3 (November 2026). The author uses the program on Windows with a Claude subscription.
+Last updated for 1.0.4 (November 2026). The author uses the program on Windows with a Claude subscription.
 
 ## The application chain
 
@@ -16,6 +16,7 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 |---|---|
 | Reading postings: Greenhouse, Lever, Ashby, SmartRecruiters, Workday boards, the eight built-in career sites | Used for real |
 | Reading postings: job-board feeds (16 in the catalogue) | Run end to end: every feed read with the real reader; a full scheduled scan with feeds has not been watched |
+| A posting whose source gives only a summary: marked, its own page read for the whole text before it is scored, "only a summary" in the reason when that fails | Unit-tested: which feed items are teasers, the text of a page as a reader sees it, what is taken for the posting and what is not (a sign-in wall, a page that says less), the score and its reason. No real job board's feed and no real posting page has been read by it; pages that need a sign-in will stay summaries |
 | Reading postings: any careers page, read by the AI | Used for real on a few sites |
 | Scoring, drafting, review, revising a draft in plain words | Used for real |
 | Greenhouse driver | Used for real: applications submitted and confirmed by mail |
@@ -23,6 +24,9 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 | The fallback chain (driver → the form's own verdict → AI take-over → verdict → you) | Used for real on Microsoft Careers: the AI filled fields that appeared after an answer and corrected a phone entry the form rejected. Second run of the same draft without AI help: unit-tested only |
 | Recording where a run's time goes | Unit-tested, and run through the test pipeline's form; shown on made-up data (the demo copy). No real application has been recorded with it yet |
 | Learning from runs: finding what stands out, the agent writing a recipe or a plugin, the gate, the trial, taking it out | Unit-tested, with a real browser for the generic driver following a recipe and a plugin and falling back when one fails. The agent's part was tested with a stand-in for the model: no revision has been written by a real model or tried on a real site yet. The gate replays how saved pages are *read*; whether a revision *fills* correctly is only found out in its trial |
+| The two browsers doing the same thing: the contract (selectors, frames, boxes the page controls, files, windows, the mouse) and the sign-in window | Unit-tested on local pages, each test run in the automated and in the ordinary browser against one expected answer. It covers the ways of asking the program's own code uses, not all a site can do; a real site that behaves differently in the ordinary browser is still found on that site |
+| The contract a learned plugin keeps to before its trial | Unit-tested with plugins written for the purpose (honest ones, and six that are not). No plugin written by a real model has been put through it; it cannot tell whether a plugin works the control it was written for - the trial does that |
+| The self-check: saved form pages replayed against the current code | Unit-tested with a real browser on the test form: a page that stops matching is kept and marked, and moved aside only when a later sample of the same form page passes. Every site's form is read by the agent now, so what these pages guard is the driver's side of filling and reading back - finding each control and reading it - not the reading of a form, and not whether typing into a control works |
 | Writing a site's driver after the first application that goes through there | Unit-tested with a stand-in for the model. What is written is recipes and plugins for the generic driver, not a driver class of its own; no real site has had one written yet |
 | Offering a driver that held up to the project as an issue | Unit-tested: the card, the four answers, the preference, the address of the issue page. The page itself was not opened on GitHub, and no issue has been submitted |
 | Tools a plugin adds for the take-over agent | Unit-tested: the check, the tool being offered and called, a failing tool taking its revision out. No take-over by a real model has used one |
@@ -69,6 +73,7 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 | ChatGPT subscription | Text, structured output and tool calls used for real; a whole site exploration has not been run with it |
 | Claude API, OpenAI-compatible services (OpenAI, Gemini, DeepSeek, Qwen, OpenRouter, custom) | Unit-tested only (no real keys were used) |
 | Failover to a backup service | Used for real once: a ChatGPT subscription had actually run out and the calls moved to Claude. A switch in the middle of an AI-driven browser session: unit-tested only |
+| An agent's budget: so many tool calls and a deadline, the same for every service, and the model's run ended with it | Unit-tested with a stand-in for each of the four services (a model that never stops by itself): the count, the clock, a backup going on with what is left. Interrupting a real ChatGPT turn and cancelling a real Claude query when a budget runs out have not been done against the real command lines, and the built-in figures have not been tried on a long real form |
 | Reading the allowance | Claude and ChatGPT subscriptions: read for real. DeepSeek and OpenRouter: written from their documentation, unit-tested only |
 
 ## Packages

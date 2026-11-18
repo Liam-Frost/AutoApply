@@ -76,11 +76,29 @@ JOBS = [  # company, title, location, score, source, application status
 ]
 
 
+def page_pdf(path: Path, lines: list[str]) -> Path:
+    """A one-page PDF with a few lines of text on it - the files of the invented applicant (no Word needed)."""
+    esc = lambda t: t.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")  # noqa: E731
+    text = "BT /F1 11 Tf 72 720 Td 16 TL " + " ".join(f"({esc(ln)}) Tj T*" for ln in lines) + " ET"
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            f"<< /Length {len(text)} >>\nstream\n{text}\nendstream", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, at = "%PDF-1.4\n", []
+    for n, o in enumerate(objs, 1):
+        at.append(len(out))
+        out += f"{n} 0 obj\n{o}\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n" + "".join(f"{a:010d} 00000 n \n" for a in at) + f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(out.encode("latin-1"))
+    return path
+
+
 def seed(lang: str) -> None:
     """Fill the current (empty) data folder. Call with AUTOAPPLY_DATA / AUTOAPPLY_KNOWLEDGE pointing at it."""
     sys.path.insert(0, str(ROOT / "backend"))
-    from autoapply import db, knowledge, persona
-    from autoapply.models import Application, Draft, Job, MailEvent, Todo
+    from autoapply import config, db, knowledge, persona
+    from autoapply.models import Application, Document, Draft, Job, MailEvent, Todo
 
     t = L[lang]
     db.init_db()
@@ -134,6 +152,12 @@ def seed(lang: str) -> None:
         rows = [{"id": i, "label": lab, "type": typ, "options": [], "required": i not in ("linkedin", "heard"), "page": 0, "value": val, "basis": t["basis"][b],
                  "confidence": "medium" if i == "why" else "high", "source": "materials" if typ == "file" else "profile", "sensitive": "work_auth" if i == "auth" else "sponsorship" if i == "sponsor" else "",
                  "sensitive_confirmed": True} for i, lab, typ, val, b in questions]
+        # two answers that were given before: one the applicant confirmed on this employer's form, one that was last used on another employer's
+        for r in rows:
+            if r["id"] == "auth":
+                r.update(source="cache", reused={"own": True, "confirmed": True, "employer": "", "at": (now - timedelta(days=9)).isoformat(timespec="minutes")})
+            elif r["id"] == "start":
+                r.update(source="cache", confidence="medium", reused={"own": False, "confirmed": False, "employer": "lumen", "at": (now - timedelta(days=4)).isoformat(timespec="minutes")})
         if unresolved:
             rows.append({"id": "salary", "label": "What are your salary expectations?", "type": "text", "options": [], "required": True, "page": 0, "value": "", "basis": t["unresolved"],
                          "confidence": "low", "source": "unresolved", "sensitive": "salary", "sensitive_confirmed": False})
@@ -141,12 +165,32 @@ def seed(lang: str) -> None:
 
     with db.session() as s:
         ids = {}
+        cv = Document(kind="resume_site", name="Alex_Chen_Resume.pdf", active=1, meta={"pages": 1},
+                      path=str(page_pdf(config.FILES / "Alex_Chen_Resume.pdf", ["Alex Chen", "alex.chen@example.com | +1 604-555-0142 | Vancouver, BC", "", "EDUCATION",
+                                                                                 "B.Com., Business Analytics - Pacific Coast University, 2027", "", "EXPERIENCE",
+                                                                                 "Operations Analyst Intern - Harbour Grocers (2026)", "Built a weekly store-performance report used by 14 store managers."])))
+        s.add(cv)
+        s.flush()
+
+        def letter(job_id: int, company: str, title: str, n: int, current: bool) -> Document:
+            """A cover letter for a posting: every writing in a folder of its own, the last one in use."""
+            name = f"{company.replace(' ', '_')}_Cover_Letter.pdf"
+            body = ["Alex Chen", "", f"Re: {title}", "", "Dear Hiring Team:", "", f"I am writing to apply for the {title} role at {company}.",
+                    "At Harbour Grocers I built the weekly store-performance report that 14 store managers use." if n == 1 else
+                    "At Harbour Grocers I built the weekly store-performance report that 14 store managers use, and cut its preparation from a day to an hour.",
+                    "", "Sincerely,", "Alex Chen"]
+            d = Document(kind="cover_letter", name=name, job_id=job_id, active=int(current), meta={"pages": 1, "problems": [], "letter": {"paragraphs": body[6:8]}},
+                         path=str(page_pdf(config.MATERIALS / f"job_{job_id}" / f"cover_letter_v{n}" / name.removesuffix(".pdf") / name, body)), created_at=now - timedelta(hours=30 - 6 * n))
+            s.add(d)
+            s.flush()
+            return d
         for n, (company, title, loc, score, source, st) in enumerate(JOBS):
             host = f"careers.{company.split()[0].lower()}.example"
             j = Job(source=source if source != "page" else "manual", source_id=f"demo{n}", company=company, title=title, location=loc, score=score, score_reason=t["reasons"][min(n // 2, 5)],
                     apply_url=f"https://{host}/jobs/{100 + n}", channel="employer site", ats="greenhouse" if source in ("greenhouse", "feed", "page", "lever") else source, tenant=host.split(".")[1],
                     deadline=(now + timedelta(days=4 + n * 2)).strftime("%Y-%m-%d 23:59"), posted=(now - timedelta(days=n + 1)).strftime("%Y-%m-%d"), status="scored", jd_text="x" * 400,
-                    salary="CAD 62,000–70,000" if n % 3 == 0 else "", first_seen=now - timedelta(days=n + 1))
+                    salary="CAD 62,000–70,000" if n % 3 == 0 else "", first_seen=now - timedelta(days=n + 1),
+                    jd_partial="summary" if company == "Summit Logistics" else "")      # (a job board's feed gave a teaser, and its page could not be read)
             s.add(j)
             s.flush()
             ids[company] = j.id
@@ -160,8 +204,12 @@ def seed(lang: str) -> None:
             s.flush()
             if st in ("draft_ready", "needs_input", "ready_to_submit"):
                 rows = answers(unresolved=st == "needs_input")
+                if not n:      # the first posting's letter was rewritten once: the earlier writing is kept beside the one in use
+                    letter(j.id, company, title, 1, False)
+                cl = letter(j.id, company, title, 2 if not n else 1, True)
                 d = Draft(application_id=a.id, version=1, schema=schema("greenhouse", host), answers=rows, unresolved=[r for r in rows if r["source"] == "unresolved"],
-                          materials=[{"kind": "resume", "name": "Alex_Chen_Resume.pdf", "path": ""}, {"kind": "cover_letter", "name": f"{company.replace(' ', '_')}_Cover_Letter.pdf", "path": ""}],
+                          materials=[{"slot": "resume", "slot_label": "Resume/CV", "document_id": cv.id, "kind": "resume_site", "name": cv.name, "path": cv.path},
+                                     {"slot": "cover", "slot_label": "Cover Letter", "document_id": cl.id, "kind": "cover_letter", "name": cl.name, "path": cl.path}],
                           review_status="approved" if st == "ready_to_submit" else "pending", notes=[], plan=[], auto_approve_check={"passed": False, "failed": ["cover_letter_ok"], "checks": {}})
                 s.add(d)
                 s.flush()
@@ -222,7 +270,7 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     import random
 
     from autoapply import metering
-    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Task
+    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
 
     rnd = random.Random(7)
     firms = ["Alder", "Birchwood", "Cedar Point", "Dunmore", "Eastgate", "Fairhaven", "Glenrock", "Highfield", "Ironbridge", "Juniper", "Kingsley", "Larkspur"]
@@ -270,6 +318,7 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     OPUS, HAIKU, SONNET = "claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"
     job_ids = [j.id for j in s.query(Job).order_by(Job.id)]
     app_ids = [a.id for a in s.query(Application).order_by(Application.id)]
+    ats_of = {a.id: a.job.ats for a in s.query(Application)}
 
     def request(task: Task, at: datetime, feature: str, model: str, kind: str, tokens: tuple[int, int, int, int], *, turns: int = 1, ok: bool = True, backup: bool = False, call: str = "") -> None:
         provider = "anthropic" if backup else "claude_subscription"
@@ -336,6 +385,13 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
             stages = ["ensure_session", "open", "fill_page"] + (["form_reports", "repair"] if helped else []) + ["read_back"] + (["submit"] if outcome_ == "submitted" else ["handed_over"] if outcome_ == "ready_to_submit" else [])
             res = {"status": outcome_, **({"error": rnd.choice(["could not advance to the next page", "values on the form differ from the approved draft"])} if outcome_ == "failed" else {})}
             t_ = task("execute", f"application:{aid}", at, "done", rnd.uniform(1.2, 4) if outcome_ != "ready_to_submit" else rnd.uniform(6, 18), result=res, stages=stages)
+            # ...and its run: the steps it took (the page that compares the recruiting systems counts the hand-overs and
+            # the AI's take-overs from them) and where its working time went
+            worked = int(rnd.uniform(70, 230) * 1000)
+            s.add(Run(task_id=t_.id, kind="execute", ref=t_.ref, ats=ats_of.get(aid, "generic"), ok=int(outcome_ == "submitted"), created_at=at,
+                      steps=[{"op": x} for x in stages], human_interventions=stages.count("handed_over"),
+                      spans=[{"k": "site", "n": "load", "t": 0, "ms": int(worked * 0.3)}, {"k": "driver", "n": "field", "t": int(worked * 0.3), "ms": int(worked * 0.45)},
+                             {"k": "ai", "n": "take_over", "t": int(worked * 0.75), "ms": int(worked * 0.25) if helped else 0}]))
             if helped:
                 turns = rnd.randint(5, 16)
                 request(t_, at + timedelta(seconds=50), "take_over", OPUS, "agent", (turns * 700, turns * 15000, turns * 1800, turns * 260), turns=turns)

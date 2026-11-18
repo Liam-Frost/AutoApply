@@ -33,6 +33,10 @@ const GROUPS = [
   ['求职信模板和范例', ['cl_template', 'cl_example']], ['作品集和陈述', ['portfolio', 'writing_sample', 'research_statement', 'teaching_statement', 'publications', 'diversity_statement']], ['其他', ['source', 'other']],
 ]
 const isGen = (d) => GENERATED.includes(d.kind)
+// What a row's controls are called: two writings of one letter have the same file name, so the version is part of it.
+const rowName = (d) => (d.version ? `${d.name}（第 ${d.version} 版）` : d.name)
+const openLabel = (d) => `打开 ${rowName(d)}`
+const pickLabel = (d) => `选择 ${rowName(d)}`
 const base = computed(() => docs.value.filter((d) => !isGen(d)))
 const generated = computed(() => docs.value.filter(isGen))
 const count = (kinds) => base.value.filter((d) => kinds.includes(d.kind) && d.active).length
@@ -96,7 +100,7 @@ function upload(ev) {
 }
 const rename = () => act(async () => { await api.patch('/documents/' + cur.value.id, { name: newName.value }); renaming.value = false }, '已改名')
 const setKind = (k) => act(() => api.patch('/documents/' + cur.value.id, { kind: k }), '已更改用途')
-const setActive = (on) => act(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? '已启用；同类的其他文件已停用' : '已停用，之后的草案不会再用它')
+const setActive = (on) => act(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? (isGen(cur.value) ? '已改用这一版：之后生成的草案会带上它，已有的草案不变' : '已启用；同类的其他文件已停用') : '已停用，之后的草案不会再用它')
 const destroy = async () => (await ask(`彻底删除「${cur.value.name}」？文件会从磁盘上删掉，不能恢复。`)) && act(async () => { await api.del('/documents/' + cur.value.id + '?permanent=true'); cur.value = null }, '已删除')
 async function bulk(action) {
   const ids = [...picked.value]
@@ -104,11 +108,12 @@ async function bulk(action) {
   await act(() => api.post('/documents/bulk', { action, ids }), action === 'delete' ? `已删除 ${ids.length} 个文件` : `已停用 ${ids.length} 个文件`)
   picked.value = new Set()
 }
-// old versions of generated files, and files written for jobs that are over
-const stale = computed(() => generated.value.filter((d) => !d.active || d.job_archived))
+// Versions of generated files that are not in use, and files written for jobs that are over. Not a version the
+// latest draft of an application still names (after "use this version" on another one): that is what would be sent.
+const stale = computed(() => generated.value.filter((d) => d.job_archived || (!d.active && !d.in_draft)))
 async function cleanUp() {
   if (!stale.value.length) return toast('没有可以清理的文件')
-  if (!(await ask(`清理 ${stale.value.length} 个文件（生成文件的旧版本，以及已归档岗位的文件）？会从磁盘上删除，不能恢复。`))) return
+  if (!(await ask(`清理 ${stale.value.length} 个文件（为岗位生成、已经没在用的版本，以及已归档岗位的文件）？会从磁盘上删除，不能恢复。`))) return
   await act(() => api.post('/documents/bulk', { action: 'delete', ids: stale.value.map((d) => d.id) }), `已清理 ${stale.value.length} 个文件`)
 }
 const previewable = (d) => ['pdf', 'docx', 'doc'].includes(d.ext)
@@ -162,15 +167,16 @@ onMounted(load)
       <label v-if="inactiveCount && !folder.startsWith('job:')" class="small muted" style="padding: 0 8px 8px; display: block"><input v-model="showInactive" type="checkbox" /> 也显示没在用的（{{ inactiveCount }}）</label>
       <div class="fm-rows">
         <div v-for="d in shown" :key="d.id" class="mat-item" :class="{ on: cur && cur.id === d.id }" @click="pick(d)">
-          <input type="checkbox" :checked="picked.has(d.id)" :aria-label="'选择 ' + d.name" @click.stop @change="togglePick(d.id)" />
+          <input type="checkbox" :checked="picked.has(d.id)" :aria-label="pickLabel(d)" @click.stop @change="togglePick(d.id)" />
           <span class="ext" :class="d.ext">{{ (d.ext || '?').toUpperCase().slice(0, 4) }}</span>
           <span class="grow" style="min-width: 0">
-            <button type="button" class="name mat-open" :aria-current="cur && cur.id === d.id ? 'true' : undefined" :aria-label="'打开 ' + d.name" @click.stop="pick(d)">{{ d.name }}</button>
-            <span class="sub">{{ KINDS[d.kind] || d.kind }}<template v-if="d.for_job && !folder.startsWith('job:')"> · {{ d.for_job }}</template> · {{ fmtTime(d.created_at) }}</span>
+            <button type="button" class="name mat-open" :aria-current="cur && cur.id === d.id ? 'true' : undefined" :aria-label="openLabel(d)" @click.stop="pick(d)">{{ d.name }}</button>
+            <span class="sub">{{ KINDS[d.kind] || d.kind }}<template v-if="d.version"> · 第 {{ d.version }} 版</template><template v-if="d.for_job && !folder.startsWith('job:')"> · {{ d.for_job }}</template> · {{ fmtTime(d.created_at) }}</span>
           </span>
           <span v-if="d.missing" class="badge bad">文件丢失</span>
           <span v-else-if="d.problems.length" class="badge warn" title="自检发现了问题">有问题</span>
-          <span v-else-if="!d.active" class="badge">{{ isGen(d) ? '旧版本' : '没在用' }}</span>
+          <span v-else-if="d.overwritten" class="badge warn" title="这一版的文件被后来写的那一版覆盖了">已被覆盖</span>
+          <span v-else-if="!d.active" class="badge">{{ isGen(d) ? '没在用的版本' : '没在用' }}</span>
         </div>
         <EmptyState v-if="!shown.length" icon="draft" :title="q ? '没有找到' : '这里还没有文件'" :text="folder === 'base' && !q ? '先上传一份简历，草案里才有文件可交。' : ''" />
       </div>
@@ -189,18 +195,20 @@ onMounted(load)
           <div class="grow" style="min-width: 0">
             <div v-if="renaming" class="row"><input v-model="newName" class="grow" @keyup.enter="rename" /><button class="primary sm" @click="rename">保存</button><button class="sm ghost" @click="renaming = false">取消</button></div>
             <div v-else class="card-title" style="overflow-wrap: anywhere">{{ cur.name }}</div>
-            <div class="muted small">{{ KINDS[cur.kind] || cur.kind }} · {{ fmtTime(cur.created_at) }} · {{ sizeText(cur.size) }}<template v-if="cur.pages"> · {{ cur.pages }} 页</template></div>
+            <div class="muted small">{{ KINDS[cur.kind] || cur.kind }} · {{ fmtTime(cur.created_at) }} · {{ sizeText(cur.size) }}<template v-if="cur.pages"> · {{ cur.pages }} 页</template><template v-if="cur.version"> · 第 {{ cur.version }} 版</template></div>
             <div v-if="cur.for_job" class="small" style="margin-top: 2px">为 <router-link :to="{ path: '/jobs', query: { open: cur.job_id } }">{{ cur.for_job }}</router-link> 写的 <span v-if="cur.job_stage" class="badge" :class="cur.job_tone">{{ cur.job_stage }}</span></div>
           </div>
-          <span class="badge" :class="cur.active ? 'ok' : ''">{{ cur.active ? '在用' : isGen(cur) ? '旧版本' : '没在用' }}</span>
+          <span class="badge" :class="cur.active ? 'ok' : ''">{{ cur.active ? '在用' : isGen(cur) ? '没在用的版本' : '没在用' }}</span>
         </div>
+        <div v-if="cur.in_draft && !cur.active" class="callout" style="margin-top: 10px; display: block"><span class="small">这个岗位现有的草案带的还是这一版。之后新生成的草案会用“在用”的那一版。</span></div>
+        <div v-if="cur.overwritten" class="callout warn" style="margin-top: 10px; display: block"><b>这一版的文件已经被覆盖</b><div class="small">早先的程序每次重写都写进同一个文件，所以这里打开的是后来写的那一版，不是当时的内容。现在每次重写都单独保存，不会再发生。</div></div>
         <div v-if="cur.problems.length" class="callout warn" style="margin-top: 10px; display: block"><b>自检发现的问题</b><div v-for="(x, k) in cur.problems" :key="k" class="small">{{ x }}</div></div>
         <div class="row" style="margin: 12px 0 8px">
           <a :href="`api/documents/${cur.id}/file`" :download="cur.name" class="btn sm"><Icon name="external" />下载</a>
           <button v-if="!renaming" class="sm" @click="renaming = true; newName = cur.name"><Icon name="edit" />改名</button>
           <AaSelect v-if="!isGen(cur)" small :value="cur.kind" title="这个文件用作什么" @change="setKind($event.target.value)"><option v-for="k in UPLOADABLE" :key="k" :value="k">用作：{{ KINDS[k] }}</option></AaSelect>
           <button v-if="cur.active" class="sm" @click="setActive(false)">停用</button>
-          <button v-else class="sm" :disabled="cur.missing" @click="setActive(true)">{{ isGen(cur) ? '改用这一版' : '重新启用' }}</button>
+          <button v-else class="sm" :disabled="cur.missing || cur.overwritten" @click="setActive(true)">{{ isGen(cur) ? '改用这一版' : '重新启用' }}</button>
           <button class="sm ghost danger" @click="destroy">彻底删除</button>
         </div>
         <div v-if="cur.missing" class="empty"><div class="t">文件已经不在磁盘上了</div><div>只剩一条记录，可以直接删除。</div></div>

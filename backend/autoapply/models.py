@@ -56,6 +56,9 @@ class Job(Base):
     tenant: Mapped[str] = mapped_column(String, default="")
     docs_required: Mapped[str] = mapped_column(String, default="")
     jd_text: Mapped[str] = mapped_column(Text, default="")
+    # "" when jd_text is the posting as its source gave it; "summary" when the source gave only a summary; "cut" when
+    # the text was longer than is kept; "whole" when it was read from the posting's own page (fulltext.py)
+    jd_partial: Mapped[str] = mapped_column(String, default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     brief: Mapped[str] = mapped_column(Text, default="")  # detailed Markdown overview written when the job is scored
     duplicate_of: Mapped[int | None] = mapped_column(Integer, nullable=True)  # id of the job this is another listing of (see discover.link_duplicates)
@@ -69,6 +72,8 @@ class Job(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     first_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # when a reading of its own listing first did not show it (cleared when one shows it again) - see discover.upsert
+    missed_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     application: Mapped["Application | None"] = relationship(back_populates="job", uselist=False)
 

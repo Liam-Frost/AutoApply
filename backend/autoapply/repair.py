@@ -192,7 +192,7 @@ def confirm(page: Page, mismatches: list[dict[str, Any]], run_dir: Path) -> dict
                           "required": ["fields"], "additionalProperties": False}, verdict)
     look = [t for t in generic.l0_tools(page, run_dir, {}, finish_tool=done_tool) if t.name in ("read_page", "list_controls", "screenshot", "options", "verdict")]
     goal = "Fields to check:\n" + "\n".join(f"- id={m['id']} | label={m['label']!r} | approved answer={m['expected']!r} | read back by program={m['actual']!r}" for m in mismatches[:25])
-    llm.agent(goal, look, system=CONFIRM_SYSTEM, max_steps=20)
+    llm.agent(goal, look, system=CONFIRM_SYSTEM, kind="confirm")
     return out
 
 
@@ -468,13 +468,13 @@ def fix_page(page: Page, schema: FormSchema, page_index: int, fill: dict[str, An
         + (f"Notes from earlier work on this site:\n{notes[:3000]}\n\n" if notes else "")
         + f"<profile>\n{knowledge.read('profile')[:12000]}\n</profile>"
     )
-    out = llm.agent(goal, tools, system=prompts.get("repair_agent"), max_steps=60)
+    out = llm.agent(goal, tools, system=prompts.get("repair_agent"), kind="take_over")
     run_dir.mkdir(parents=True, exist_ok=True)
     n = len(list(run_dir.glob(f"repair_page_{page_index + 1}*.json")))
     (run_dir / f"repair_page_{page_index + 1}{'_' + str(n + 1) if n else ''}.json").write_text(
         json.dumps({"problem": problem, "issues": issues, "report": report, "steps": out.steps}, ensure_ascii=False, default=str)[:400000], encoding="utf-8")
     if not report:
-        report = {"fixed": [], "unfixed": [q.id for q in qs], "cause": "", "suggestion": "", "notes": (out.final_text or out.stopped)[:300]}
+        report = {"fixed": [], "unfixed": [q.id for q in qs], "cause": "", "suggestion": "", "notes": out.said()[:300]}
     for k in ("mapped", "absent", "added", "needs_user", "adapted", "held", "located"):
         report.setdefault(k, [])
     labels = {q.id: q.label for q in [*on_page, *elsewhere]}
@@ -520,11 +520,11 @@ def advance(page: Page, schema: FormSchema, run_dir: Path, *, step: int) -> dict
     tools = [t for t in generic.l0_tools(page, run_dir, {}, finish_tool=done_tool) if t.name in ("read_page", "list_controls", "screenshot", "click", "press", "done")]
     notes = _notes_of(schema)
     goal = f"Step {step + 1} of the application form is open, URL {page.url}." + (f"\n\nNotes from earlier work on this site:\n{notes[:2000]}" if notes else "")
-    res = llm.agent(goal, tools, system=NAV_SYSTEM, max_steps=20)
+    res = llm.agent(goal, tools, system=NAV_SYSTEM, kind="navigate")
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / f"advance_step_{step + 1}.json").write_text(json.dumps({"report": out, "steps": res.steps}, ensure_ascii=False, default=str)[:200000], encoding="utf-8")
     if not out:
-        out = {"state": "blocked", "why": (res.final_text or res.stopped)[:300], "note": ""}
+        out = {"state": "blocked", "why": res.said()[:300], "note": ""}
     if out["state"] == "moved" and out.get("note"):
         try:
             _note(schema, f"To leave a step whose forward button is not Next / Continue: {out['note']}")

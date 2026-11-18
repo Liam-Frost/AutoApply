@@ -110,6 +110,21 @@ def _disk() -> dict[str, str]:
     return _finding("disk", "ok", f"磁盘空间还有 {gb:.0f} GB")
 
 
+def _saved_pages() -> dict[str, str] | None:
+    """The saved form pages the self-check replays (fixtures.py): how many there are, and which do not match."""
+    from . import fixtures
+
+    total = len(list(fixtures.root().glob("*/*.json"))) if fixtures.root().exists() else 0
+    bad = fixtures.failing()
+    if not total:
+        return None
+    if not bad:
+        return _finding("saved_pages", "ok", f"保存的 {total} 个表单页面，自检时都能照原样读出来")
+    names = "；".join(f"{b['name']}（从 {str(b['since'])[:10]} 起）" for b in bad[:6])
+    return _finding("saved_pages", "info", f"保存的 {total} 个表单页面里，有 {len(bad)} 个和现在读到的不一致", names,
+                    "不需要你处理。这些页面会保留着：同一张表单下一次填写并核对成功后，新的样本会替换它们。如果是程序更新之后才出现的，反馈时请附上这一条。")
+
+
 def _service() -> dict[str, str] | None:
     if not sys.platform.startswith("linux"):
         return None
@@ -141,7 +156,7 @@ def _access() -> dict[str, str] | None:
 
 def run(deep: bool = False) -> list[dict[str, str]]:
     """Every finding. `deep` also starts the browser once (a few seconds)."""
-    checks: list[Any] = [_secrets, _screen, lambda: _browser(deep), _converter, _fonts, _disk, _service, _access]
+    checks: list[Any] = [_secrets, _screen, lambda: _browser(deep), _converter, _fonts, _disk, _saved_pages, _service, _access]
     out = []
     for check in checks:
         try:
