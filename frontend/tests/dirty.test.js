@@ -9,14 +9,25 @@ const { absorb, changed, clone, installGuards, mayLeave, same, unsaved, useUnsav
 
 describe('same: is this what was saved?', () => {
   it('takes "nothing there" in all its forms for the same thing', () => {
-    for (const a of [undefined, null, '', false, []]) for (const b of [undefined, null, '', false, []]) expect(same(a, b)).toBe(true)
+    for (const a of [undefined, null, '', []]) for (const b of [undefined, null, '', []]) expect(same(a, b)).toBe(true)
     expect(same(0, '')).toBe(false)           // a number that was typed is something
     expect(same({}, undefined)).toBe(false)
+  })
+  it('does not take a "no" that was set for the absence of an answer', () => {
+    // a table of exceptions: "not on this system" is a setting; leaving the system out is the default
+    expect(same({}, { workday: false })).toBe(false)
+    expect(changed({ 'register.per_ats': {} }, { 'register.per_ats': { workday: false } })).toEqual(['register.per_ats'])
+    expect(changed({ 'register.per_ats': { workday: false } }, { 'register.per_ats': {} })).toEqual(['register.per_ats'])
+    for (const nothing of [undefined, null, '', []]) expect(same(false, nothing)).toBe(false)
+    expect(same(false, false)).toBe(true)
+    expect(same(false, true)).toBe(false)
   })
   it('does not mind the order of keys, minds the order of a list', () => {
     expect(same({ a: 1, b: [1, 2] }, { b: [1, 2], a: 1 })).toBe(true)
     expect(same([1, 2], [2, 1])).toBe(false)
-    expect(same({ on: false, from: '22:00' }, { from: '22:00' })).toBe(true)      // a box that was never ticked and one that was unticked
+    expect(same({ on: false, from: '22:00' }, { on: false, from: '22:00' })).toBe(true)
+    expect(same({ on: false, from: '22:00' }, { from: '22:00' })).toBe(false)     // "off" that was said is not the same as nothing said
+    expect(same({ note: '', from: '22:00' }, { from: '22:00' })).toBe(true)       // a field that was emptied and one that was never filled are
     expect(same({ a: { b: 1 } }, { a: { b: 2 } })).toBe(false)
     expect(same(7, 7.5)).toBe(false)
     expect(same('7', 7)).toBe(false)
@@ -26,7 +37,8 @@ describe('same: is this what was saved?', () => {
 describe('changed and absorb', () => {
   it('names the keys that differ', () => {
     expect(changed({ a: 1, b: [], c: 'x' }, { a: 1, b: undefined, c: 'y', d: true }).sort()).toEqual(['c', 'd'])
-    expect(changed(null, { a: false })).toEqual([])
+    expect(changed(null, { a: false })).toEqual(['a'])
+    expect(changed(null, { a: '' })).toEqual([])
   })
   it('reading afresh takes what is new and leaves what is being edited', () => {
     const base = { score: 7, name: 'a', list: [1] }
