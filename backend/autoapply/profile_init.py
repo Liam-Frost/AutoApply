@@ -49,7 +49,10 @@ Output only the Markdown."""
 
 def documents_for_init() -> list[Document]:
     """What the profile is written from. A file that is there twice - the Word résumé the first-run guide files both
-    as the résumé to tailor and as source material - is read once."""
+    as the résumé to tailor and as source material - is read once. Twice means the same bytes: two files of one name
+    and one length in two categories can be two documents."""
+    import hashlib
+
     with db.session() as s:
         rows = s.query(Document).filter(Document.active == 1, Document.kind.in_(
             ("resume_site", "resume_docx", "resume_portal", "transcript", "cl_example", "source"))).order_by(Document.id).all()
@@ -59,7 +62,7 @@ def documents_for_init() -> list[Document]:
         p = Path(d.path)
         if not p.exists():
             continue
-        same = (d.name.lower(), p.stat().st_size)
+        same = hashlib.sha256(p.read_bytes()).hexdigest()
         if same not in seen:
             seen.add(same)
             out.append(d)
@@ -139,22 +142,38 @@ def failed() -> None:
 
 
 def arrived() -> None:
-    """There is something in the profile now (knowledge.write, whoever wrote it): the card is closed, the drafts that
-    waited for a profile go back in the queue, and what is unscored is scored. A draft that was written while there
-    was no profile (before forms waited for one) has its unanswered questions asked again - they were asked of
-    nothing."""
-    from . import handlers, notify, scoring, tasks
+    """There is something in the profile now (knowledge.write, whoever wrote it): what waited for it goes on
+    (``go_on``). A draft that was written while there was no profile (before forms waited for one) has its unanswered
+    questions asked again - they were asked of nothing."""
+    from . import tasks
     from .models import Draft
 
-    notify.close_todos("config", CARD)
-    handlers.resume_waiting(CARD)
-    if scoring.unscored_count():
-        tasks.enqueue("score", ref="unscored", priority=150)
+    go_on()
     with db.session() as s:
         open_ = [d.id for d in s.query(Draft).filter(Draft.review_status == "pending").order_by(Draft.id)
                  if any(a.get("source") == "unresolved" for a in (d.answers or []))]
     for draft_id in open_:
         tasks.enqueue("reanswer", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)
+
+
+def go_on() -> None:
+    """The card is closed, the drafts that waited for a profile go back in the queue, and scoring is queued - whether
+    or not anything counts as unscored: a posting that came as a short summary is not counted until its page has been
+    read, and reading it is the scoring task's first step."""
+    from . import handlers, notify, tasks
+
+    notify.close_todos("config", CARD)
+    handlers.resume_waiting(CARD)
+    tasks.enqueue("score", ref="unscored", priority=150)
+
+
+def began_to_wait(status: str, waits_for: str, result: dict[str, Any]) -> None:
+    """A task has just been recorded as waiting for the profile (tasks._run_one, after the record is saved). If the
+    profile arrived while the task was finding it empty, the arrival looked for waiting tasks before this one was
+    among them - and it comes once. So it is looked at again here: with a profile there, what waits goes on."""
+    waits = (status == "waiting_human" and waits_for == CARD) or bool((result or {}).get("waits_for_profile"))
+    if waits and not knowledge.blank():
+        go_on()
 
 
 def state() -> dict[str, Any]:

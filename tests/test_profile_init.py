@@ -98,7 +98,7 @@ def test_a_resume_uploaded_with_no_profile_has_the_profile_written_from_it_at_on
     assert _resume(c, kind="source")["profile_task"] == up["profile_task"] and len(_tasks(kind="profile_init")) == 1
     st = c.get("/api/profile/init").json()
     assert st["blank"] and st["task"]["status"] == "queued" and [d["kind"] for d in st["documents"]] == ["resume_docx"]
-    assert tasks.drain() == 1
+    assert tasks.drain() == 2                # (the profile, and the scoring that its arrival queues)
     assert len(read) == 1 and read[0].count("Backend intern, Example Co") == 1
     st = c.get("/api/profile/init").json()
     assert not st["blank"] and st["task"]["status"] == "done" and st["task"]["applied"] and st["task"]["todos"] == 1 and st["task"]["draft"] == ""
@@ -275,7 +275,63 @@ def test_a_draft_written_while_there_was_no_profile_is_asked_again_when_there_is
     asked = []
     monkeypatch.setattr(drafts, "reanswer", lambda draft_id: (asked.append(draft_id), {"asked": 1, "answered": 1, "left": 0})[1])
     knowledge.write("profile", "# Applicant profile\n\n## Identity & contact\n\n- Phone: 604 555 0100\n")
-    assert _tasks(status="queued") == [("reanswer", "queued")] and tasks.drain() == 1 and asked == [ids[0]]
+    assert _tasks(status="queued") == [("score", "queued"), ("reanswer", "queued")] and tasks.drain() == 2 and asked == [ids[0]]
+
+
+def test_a_profile_that_arrives_while_a_task_is_finding_it_empty_does_not_leave_the_task_waiting(app_env, monkeypatch):
+    """The arrival looks for what waits, once. A draft that had just seen the empty profile was not yet recorded as
+    waiting, and was recorded so a moment later - for good; scoring that was just ending as "no profile" took the
+    arrival's request to score for its own."""
+    from autoapply import drafts, profile_init, scoring, tasks
+    from autoapply.models import Task, Todo
+
+    _empty()
+    job = _job(1)
+    real = profile_init.wanted
+
+    def arrives_now():       # between the look at the empty profile and the record of waiting
+        knowledge.write("profile", "# Applicant profile\n\n## Identity & contact\n\n- Name: Ada Example\n")
+        return real()
+
+    monkeypatch.setattr(profile_init, "wanted", arrives_now)
+    monkeypatch.setattr(drafts, "build", lambda job_id, **kw: 77)
+    recon = tasks.enqueue("recon", ref=f"job:{job}", payload={"job_id": job})
+    tasks.run_one(tasks._claim("forms"))
+    with db.session() as s:
+        assert s.get(Task, recon).status == "queued" and s.query(Todo).filter_by(status="open").count() == 0
+        for t in s.query(Task).filter_by(kind="score"):
+            s.delete(t)
+    # the same for scoring
+    _empty()
+    monkeypatch.setattr(scoring, "score_pending", lambda *a, **k: 1 / 0)
+    first = tasks.enqueue("score", ref="unscored", priority=150)
+    tasks.run_one(tasks._claim("background"))
+    with db.session() as s:
+        assert s.get(Task, first).result == {"waits_for_profile": True}
+        assert [(t.kind, t.status) for t in s.query(Task).filter(Task.kind == "score", Task.id != first)] == [("score", "queued")]
+        assert s.query(Todo).filter_by(status="open").count() == 0
+
+
+def test_postings_that_came_as_short_summaries_are_scored_when_the_profile_arrives(app_env):
+    """They do not count as unscored until their page has been read - which is the scoring task's first step."""
+    from autoapply import scoring
+    from autoapply.models import Job
+
+    _empty()
+    with db.session() as s:
+        s.add(Job(source="rss", source_id="r1", company="Co", title="Intern", apply_url="https://x.example/1", jd_text="A two-line teaser.", jd_partial="summary", status="new", online=1))
+    assert scoring.unscored_count() == 0
+    knowledge.write("profile", "# Applicant profile\n\n## Identity & contact\n\n- Name: Ada Example\n")
+    assert _tasks(status="queued") == [("score", "queued")]
+
+
+def test_two_documents_of_one_name_and_one_length_are_two_documents(app_env):
+    from autoapply import profile_init
+
+    c = _client()
+    for kind, body in (("resume_site", b"Ada Example, backend."), ("source", b"Ada Example, frontend"), ("cl_example", b"Ada Example, backend.")):
+        assert c.post("/api/documents", data={"kind": kind}, files={"file": ("me.txt", body)}).status_code == 200
+    assert [d.kind for d in profile_init.documents_for_init()] == ["resume_site", "source"]      # the third is a copy of the first
 
 
 @pytest.mark.parametrize("kind", ["transcript", "cl_template", "other"])

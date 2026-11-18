@@ -218,6 +218,10 @@ def _run_one(t: Task) -> None:
         if usage.calls:
             s.add(Run(task_id=t.id, kind="llm", ref=t.ref, ok=int(status == "done"), llm_calls=usage.calls,
                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))
+    if waits_for or result.get("waits_for_profile"):       # (what it waits for may have come while it was finding it missing)
+        from . import profile_init
+
+        profile_init.began_to_wait(status, waits_for, result)
 
 
 def _loop(lane: str = "") -> None:
