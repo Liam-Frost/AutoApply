@@ -184,6 +184,8 @@ def main() -> None:
     ap.add_argument("--backend", default="playwright", choices=["playwright", "nodriver"])
     ap.add_argument("--out", default="")
     ap.add_argument("--stages", default="")
+    ap.add_argument("--site", default="", help="a site that is already running (python eval/server.py PORT): it outlives this run")
+    ap.add_argument("--kill-after", type=int, default=0, help="end this process abruptly after that many tool calls - as a crash would")
     a = ap.parse_args()
 
     home = Path(a.out) if a.out else Path(tempfile.mkdtemp(prefix="autoapply-eval-"))
@@ -211,9 +213,30 @@ def main() -> None:
         d.add_paragraph(ln)
     d.save(str(resume))
     applicant = brief.Applicant(profile=PROFILE, resume=RESUME, files={resume.name: str(resume)}, file_notes={resume.name: "résumé (Word)"}, login="alex.chen@example.com")
-    site = Site()
+    site = None if a.site else Site()
+    base = a.site.rstrip("/") or site.base
+
+    def state() -> tuple[dict, list]:
+        if site is not None:
+            return site.saved.get(a.form) or {}, site.sent.get(a.form) or []
+        import urllib.request
+
+        got = json.loads(urllib.request.build_opener(urllib.request.ProxyHandler({})).open(f"{base}/__/state?form={a.form}", timeout=10).read())
+        return got["saved"], got["sent"]
+
+    if a.kill_after:
+        seen, real = [0], run.Desk.step
+
+        def counted(self, step):  # noqa: ANN001, ANN202
+            real(self, step)
+            seen[0] += 1
+            if seen[0] >= a.kill_after:
+                print(f"(killed after {seen[0]} tool calls, as asked)", flush=True)
+                os._exit(3)
+
+        run.Desk.step = counted
     p = POSTINGS[a.form]
-    posting = brief.Posting(company=p["company"], title=p["title"], url=f"{site.base}/jobs/{a.form}", text=p["text"])
+    posting = brief.Posting(company=p["company"], title=p["title"], url=f"{base}/jobs/{a.form}", text=p["text"])
     folder = home / "applications" / a.form
     print(f"form {a.form} at {posting.url}\nmodel {db.get_setting('llm.model')} ({db.get_setting('llm.effort')}), browser {a.backend}\neverything this leaves behind: {home}\n", flush=True)
     total = passed = 0
@@ -222,7 +245,7 @@ def main() -> None:
         began = time.time()
         with browser.open_page(None, headless=not a.headed, backend=a.backend) as page:      # a new window every time: nothing of the last run is in it
             result = run.apply(page, posting, applicant, folder, mode="auto", answers=answers)
-        checks = GRADERS[a.form](site.saved.get(a.form) or {}, site.sent.get(a.form) or [], result, stage, **({"folder": folder} if a.form == "account" else {}))
+        checks = GRADERS[a.form](*state(), result, stage, **({"folder": folder} if a.form == "account" else {}))
         ok = sum(1 for _, good, _ in checks if good)
         total, passed = total + len(checks), passed + ok
         print(f"--- run {stage}: {result.outcome or 'no report'} · {result.steps} tool calls · {result.seconds:.0f} s (wall {time.time() - began:.0f} s) · stopped: {result.stopped}")
@@ -232,7 +255,8 @@ def main() -> None:
             print("  the agent's own summary:", str(result.record["summary"])[:700].replace("\n", " "))
         print(f"  {ok} / {len(checks)}\n", flush=True)
     print(f"score: {passed} / {total}")
-    site.close()
+    if site is not None:
+        site.close()
 
 
 if __name__ == "__main__":

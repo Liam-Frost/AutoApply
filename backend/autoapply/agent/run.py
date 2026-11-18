@@ -185,22 +185,39 @@ def journal_text(folder: Path) -> str:
     p = folder / "journal.jsonl"
     if not p.exists():
         return ""
-    out = []
+    out: list[str] = []
+    tools: list[str] = []        # the tool calls of the run being read, for a run that was cut off without a word
+    ended = True
+
+    def cut_off() -> None:
+        if not ended:
+            out.append("THE RUN WAS CUT OFF HERE WITHOUT A REPORT (the program or the browser stopped). Its last actions were:\n  " + "\n  ".join(tools[-14:]))
+
     for ln in p.read_text(encoding="utf-8").splitlines():
         try:
             e = json.loads(ln)
         except ValueError:
             continue
-        if e.get("kind") == "log":
+        kind = e.get("kind")
+        if kind == "run":
+            cut_off()
+            ended, tools = False, []
+            out.append(f"{e['at']} A RUN BEGAN (mode: {e.get('mode')})")
+        elif kind == "tool":
+            tools.append(f"{e.get('tool')} {json.dumps(e.get('input') or {}, ensure_ascii=False)[:160]} -> {str(e.get('output') or '')[:140]}")
+        elif kind == "log":
             out.append(f"{e['at']} {e['text']}")
-        elif e.get("kind") == "report":
+        elif kind == "report":
+            ended = True
             out.append(f"{e['at']} RUN ENDED: {e.get('outcome')} - {e.get('summary')}")
-        elif e.get("kind") == "ended":
+        elif kind == "ended":
+            ended = True
             out.append(f"{e['at']} RUN ENDED WITHOUT A REPORT ({e.get('why')}), after {e.get('steps')} tool calls")
-        elif e.get("kind") == "needs_applicant":
+        elif kind == "needs_applicant":
             out.append(f"{e['at']} WAITED FOR THE APPLICANT: {e.get('why')}")
-        elif e.get("kind") == "ask":
+        elif kind == "ask":
             out.append(f"{e['at']} asked the applicant: {e.get('question')}")
+    cut_off()
     return "\n".join(out)
 
 

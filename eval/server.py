@@ -40,7 +40,7 @@ POSTINGS = {
 
 
 class Site:
-    def __init__(self) -> None:
+    def __init__(self, port: int = 0) -> None:
         self.saved: dict[str, Any] = {}        # form -> the state it last saved
         self.sent: dict[str, list[Any]] = {}   # form -> every state that was sent as an application
         self.lock = threading.Lock()
@@ -72,6 +72,10 @@ class Site:
                                             f"font:15px/1.6 system-ui'><h1>{p['title']}</h1><p>{p['text']}</p><p><a href='/forms/{name}' aria-label='Apply'><button>Apply</button></a></p></main>").encode())
                 if u.path.startswith("/forms/") and (FORMS / f"{name}.html").exists():
                     return self._send(200, (FORMS / f"{name}.html").read_bytes())
+                if u.path == "/__/state":      # for whoever judges a run from another process
+                    form = parse_qs(u.query).get("form", [""])[0]
+                    with site.lock:
+                        return self._send(200, json.dumps({"saved": site.saved.get(form) or {}, "sent": site.sent.get(form) or []}).encode(), "application/json")
                 if u.path == "/__/load":
                     form = parse_qs(u.query).get("form", [""])[0]
                     with site.lock:
@@ -92,9 +96,19 @@ class Site:
                         site.sent.setdefault(form, []).append(state)
                 self._send(200, b"{}", "application/json")
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def close(self) -> None:
         self.server.shutdown()
+
+
+if __name__ == "__main__":      # the site by itself, so that it outlives the runs that work on it:  python eval/server.py 8765
+    import sys
+    import time
+
+    s = Site(int(sys.argv[1]) if len(sys.argv) > 1 else 8765)
+    print(s.base, flush=True)
+    while True:
+        time.sleep(3600)
