@@ -53,21 +53,20 @@ class Posting:
 
 
 def site_key(url: str) -> str:
-    """The name the program keeps this site's session, account and notes under. A site it already has something for
-    under an older name ("workday:acme.wd1") keeps that name, so that its sign-in and stored password are found."""
-    try:
-        from ..ats import registry
+    """The name the program keeps this site's session, account and notes under."""
+    from .. import sites
 
-        ref = registry.detect(url)
-        if ref is not None and ref.tenant_key:
-            return str(ref.tenant_key)
-    except Exception:  # noqa: BLE001 - no older name for it
-        pass
-    return f"generic:{urlparse(url).netloc.lower()}"
+    return sites.key_of(url)
+
+
+MANUAL_TEXT = MANUAL.read_text(encoding="utf-8")       # as it ships: what the applicant's own version (prompts.py) starts from
 
 
 def manual() -> str:
-    return MANUAL.read_text(encoding="utf-8")
+    """The manual as the agent gets it: the applicant's version if they changed it, with what is fixed after it."""
+    from .. import prompts
+
+    return prompts.get("apply")
 
 
 # --- what is known about recruiting systems -------------------------------------------------------------------------
@@ -101,10 +100,13 @@ def about(name: str) -> str:
     """Everything written down about a recruiting system: what ships with the program, then what agents noted."""
     from .. import sites
 
+    from .. import knowledge
+
     name = name.strip().lower()
     shipped = playbooks().get(name, ([], ""))[1]
     noted = sites.notes(f"system:{name}")
-    return "\n\n".join(x for x in (shipped, ("Noted while working:\n" + noted) if noted else "") if x)
+    own = knowledge.playbook(name).strip() if name in knowledge.list_playbooks() else ""      # what the applicant keeps about this system themselves
+    return "\n\n".join(x for x in (shipped, ("The applicant's own notes:\n" + own) if own else "", ("Noted while working:\n" + noted) if noted else "") if x)
 
 
 def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str = "", systems: list[str] | None = None, journal: str = "",
@@ -147,7 +149,17 @@ def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str =
                   f"<journal>\n{journal.strip()[-12000:]}\n</journal>"]
     if budget:
         parts += ["# Budget", budget]
+    parts += ["# Language", reads()]
     return "\n\n".join(parts)
+
+
+def reads() -> str:
+    """Which language the applicant reads the program in: what the agent writes for them is in it."""
+    from .. import db
+
+    lang = "English" if (db.get_setting("ui.lang") or "zh") == "en" else "Simplified Chinese"
+    return (f"The applicant reads this program in {lang}. Write for them in it: `log` lines, the `why` of a question you `ask`, where an answer comes from (`from`), "
+            "and your report's summary and open points. Keep names, quoted text of the form and what you enter on the form as they are; write notes about sites (`note`) in English.")
 
 
 def applicant_on_file(channel: str = "") -> Applicant:

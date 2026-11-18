@@ -232,7 +232,7 @@ def applications(w: Window) -> dict[str, Any]:
 
 # --- tasks: what a workflow execution came to ----------------------------------------------------
 
-OUTCOMES = {"success": "完成", "handed": "填好，等你提交", "unknown": "点了提交，结果待确认", "waiting": "等你处理", "rerun": "改为可见窗口重跑", "failed": "失败", "interrupted": "被中断",
+OUTCOMES = {"success": "完成", "handed": "准备好，等你", "unknown": "点了提交，结果待确认", "waiting": "等你处理", "rerun": "接着做", "failed": "失败", "interrupted": "被中断",
             "cancelled": "已取消", "skipped": "没有要做的", "running": "进行中"}
 UNFINISHED = ("handed", "unknown", "waiting", "rerun", "running")       # not a failure: the next move is yours, or it is still going
 # (not counted either way: the task was called off, or found that there was nothing for it to do)
@@ -257,7 +257,18 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
         return "cancelled"
     if status == "failed":
         return "interrupted" if "interrupted" in (error or "") else "failed"
-    if kind == "execute":
+    if kind == "apply":
+        # One run of the agent on an application. A success is an application that went out in this run; a record that
+        # waits for the applicant (their approval, their answers, their press of the last button) is theirs to move;
+        # a run that used its share of the budget and is taken up again is neither.
+        st = str((result or {}).get("status") or "")
+        if (result or {}).get("already_applied") or (result or {}).get("skipped"):
+            return "skipped"
+        if st == "stopped":
+            return "cancelled"
+        return {"submitted": "success", "not_sent": "success", "ready": "handed", "needs_input": "handed", "submit_unknown": "unknown", "goes_on": "rerun",
+                "cannot": "failed", "stuck": "failed", "budget_used": "failed"}.get(st, "success")
+    if kind == "execute":      # (the kinds of earlier versions, for the history)
         # A filling task counts as a success when THIS run got the application submitted - not when the task ended
         # without an error. A task that found the application already sent (a retry, a task that was still queued)
         # answers with where the application stands and submitted nothing: it was counted among the successes. And
@@ -391,27 +402,21 @@ def runs(w: Window, *, kind: str = "", outcome: str = "", offset: int = 0, limit
 
 
 def system_label(ats: str) -> str:
-    return "UBC PD Portal" if ats == "pdportal" else humanize.ats_name(ats) if ats and ats != "generic" else "其他网站（没有专门的驱动）"
+    return "UBC PD Portal" if ats == "pdportal" else humanize.ats_name(ats) if ats and ats not in ("generic", "agent") else "雇主自己的网站"
 
 
 def _systems(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per recruiting system, from the tasks of the window: how reading its forms went, how filling them went, how
-    often a run stopped for the applicant, and what the model was asked for it.
-
-    Every site's form is read by the agent and the system's driver is a tool for it (the decision is written down in
-    REFACTOR_PLAN). Whether that serves a system well is a question of these figures, system by system - not of one
-    figure for all of them. The definitions are the ones the rest of this view uses:
+    """Per recruiting system, from the tasks of the window that worked an application: how the runs ended, how long
+    they took, and what the model was asked for them.
 
     - a task belongs to the system of the posting it is about (its "job:", "application:" or "draft:");
-    - success rate = succeeded / ran to an end of its own (succeeded + failed + interrupted). A fill that ends with the
-      form handed over, or with Submit pressed and no confirmation, is not in it either way - it is shown beside it;
-    - the time of a fill is the run's working time (timing.working_ms): the applicant's own time is not in it;
-    - a stop for the applicant is a step of the run that waited for them (timing.stops_for_applicant), counted from
-      the steps of every run - the column on the run was never written before, so it is not read;
-    - the model's use is everything asked on behalf of the system's postings in the window - reading, answering,
-      revising, filling, the failed tasks too - and a cost only where one is known.
+    - success rate = succeeded / ran to an end of its own (succeeded + failed + interrupted). A run that ends with a
+      record waiting for the applicant, or with Submit pressed and no confirmation, is not in it either way - it is
+      shown beside it;
+    - the model's use is everything asked on behalf of the system's postings in the window, the failed runs too - and
+      a cost only where one is known.
     """
-    from . import timing
+    from . import lifecycle
 
     jobs = {i: ats or "generic" for i, ats in s.query(Job.id, Job.ats)}
     apps = dict(s.query(Application.id, Application.job_id).all())
@@ -427,43 +432,26 @@ def _systems(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) 
 
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
-        job = posting(r["ref"])
+        job = posting(r["ref"]) if r["kind"] in lifecycle.WORK else None
         if job in jobs:
             groups[jobs[job]].append({**r, "job": job})
-    fills = {r["id"] for rs in groups.values() for r in rs if r["kind"] == "execute"}
-    runs: dict[int, list[dict[str, int]]] = defaultdict(list)
-    if fills:
-        for task_id, spans, steps in s.query(Run.task_id, Run.spans, Run.steps).filter(Run.kind == "execute", Run.task_id.isnot(None)):
-            if task_id in fills:
-                runs[task_id].append({"working_ms": timing.working_ms(spans or []) if spans else None, "stops": timing.stops_for_applicant(steps), "takeovers": timing.takeovers(steps)})
-
-    def part(xs: list[dict[str, Any]]) -> dict[str, Any]:
-        c = {k: sum(1 for r in xs if r["outcome"] == k) for k in OUTCOMES}
-        settled = c["success"] + c["failed"] + c["interrupted"]
-        ran = sorted(r["duration"] for r in xs if r["duration"] is not None and r["outcome"] in ("success", "failed"))
-        return {"total": len(xs) - sum(c[k] for k in NOT_COUNTED), "success": c["success"], "failed": c["failed"] + c["interrupted"], "settled": settled,
-                "success_rate": round(c["success"] / settled, 4) if settled else None, "median_s": _median(ran),
-                "handed": c["handed"], "unknown": c["unknown"], "waiting": c["waiting"] + c["rerun"], "running": c["running"]}
-
     out = []
     for key, rs in groups.items():
-        fill = [r for r in rs if r["kind"] == "execute"]
-        mine = [x for r in fill for x in runs.get(r["id"], [])]
-        worked = [x["working_ms"] for x in mine if x["working_ms"] is not None]
+        c = {k: sum(1 for r in rs if r["outcome"] == k) for k in OUTCOMES}
+        settled = c["success"] + c["failed"] + c["interrupted"]
+        ran = sorted(r["duration"] for r in rs if r["duration"] is not None and r["outcome"] in ("success", "handed", "failed"))
         got = [ai[r["id"]] for r in rs if r["id"] in ai]
         postings = len({r["job"] for r in rs})
         tokens = sum(g["tokens"] for g in got)
         out.append({
             "ats": key, "label": system_label(key), "postings": postings,
-            "read": part([r for r in rs if r["kind"] == "recon"]),
-            "fill": {**part(fill), "working_ms": int(_median(worked)) if worked else None},
-            "human": {"runs": len(mine), "stops": sum(x["stops"] for x in mine), "runs_stopped": sum(1 for x in mine if x["stops"]),
-                      "stops_per_run": round(sum(x["stops"] for x in mine) / len(mine), 2) if mine else None,
-                      "takeovers_per_run": round(sum(x["takeovers"] for x in mine) / len(mine), 2) if mine else None},
+            "runs": {"total": len(rs) - sum(c[k] for k in NOT_COUNTED), "success": c["success"], "failed": c["failed"] + c["interrupted"], "settled": settled,
+                     "success_rate": round(c["success"] / settled, 4) if settled else None, "median_s": _median(ran),
+                     "handed": c["handed"], "unknown": c["unknown"], "waiting": c["waiting"], "goes_on": c["rerun"], "running": c["running"]},
             "ai": {"requests": sum(g["requests"] for g in got), "tokens": tokens, "tokens_per_posting": round(tokens / postings) if postings and tokens else None,
                    "cost": sum(g["cost"] for g in got) if any(g["priced"] for g in got) else None, "cost_unknown_requests": sum(g["unknown"] for g in got)},
         })
-    return sorted(out, key=lambda r: -(r["read"]["total"] + r["fill"]["total"]))
+    return sorted(out, key=lambda r: -r["runs"]["total"])
 
 
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
@@ -499,7 +487,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
                         # everything spent on this kind of task, the failed runs included, over the ones that succeeded
                         # (a lower bound when some of its requests have no cost: the page shows it as "at least")
                         "cost_per_success": round(a["cost"] / c["success"]) if a["cost"] is not None and c["success"] else None,
-                        "waits_for_you": k == "execute"})
+                        "waits_for_you": k in ("apply", "execute")})
     bad = [r for r in shown if r["outcome"] in ("failed", "interrupted")]
     # Every failure is in exactly one category; inside it, the sentences the program shows are counted one by one and an
     # example of the raw text is kept, so nothing of the old list is lost - it is one level down.
@@ -544,61 +532,6 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
 
 BILLING = {"metered": "按量计费", "subscription": "订阅内（不另收费）", "local": "本机模型（免费）", "unknown": "没有记录"}
 TOKEN_KINDS = (("input", "输入"), ("cache_read", "缓存读取"), ("cache_write", "缓存写入"), ("output", "输出"))
-
-
-# --- where the time of the runs went (timing.py), and what was learned from it (learned.py) ---
-
-
-def _sites() -> list[dict[str, Any]]:
-    """The sites something was learned about (how they are worked): for the analysis page."""
-    from . import sites
-
-    return [r for r in sites.listing() if r["notes"] or r["steps"] or r["revisions"]]
-
-
-def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str, Any]:
-    """Runs that filled a form, in the window: how long they took without the applicant's own time, by what the
-    time was spent on, per system over time, and the runs themselves."""
-    from . import humanize, learned, timing
-    from .models import Run
-
-    with db.session() as s:
-        rows = [r for r in s.query(Run).filter(Run.kind == "execute", Run.spans.isnot(None)).order_by(Run.id.desc()).limit(2000) if w.has(_naive(r.created_at)) and (not ats or r.ats == ats)]
-        runs = [{"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "learned": list(r.learned or []),
-                 "working_ms": timing.working_ms(r.spans or []), "totals": timing.totals(r.spans or []), "takeovers": timing.takeovers(r.steps), "stops": timing.stops_for_applicant(r.steps)} for r in rows]
-    systems: dict[str, list[dict[str, Any]]] = {}
-    for r in runs:
-        systems.setdefault(r["ats"], []).append(r)
-    by_system = []
-    for name, rs in sorted(systems.items(), key=lambda kv: -len(kv[1])):
-        weeks: dict[str, list[dict[str, Any]]] = {}
-        for r in rs:
-            local = _local(datetime.fromisoformat(r["at"]))
-            start = (local - timedelta(days=local.weekday())).date().isoformat()
-            weeks.setdefault(start, []).append(r)
-        trend = [{"week": k, "runs": len(v), "median_ms": int(_median([x["working_ms"] for x in v]) or 0), "ok": sum(1 for x in v if x["ok"]),
-                  **{kind: int(_median([x["totals"][kind] for x in v]) or 0) for kind in ("site", "driver", "ai", "tool")}} for k, v in sorted(weeks.items())]
-        by_system.append({"ats": name, "runs": len(rs), "ok": sum(1 for x in rs if x["ok"]), "median_ms": int(_median([x["working_ms"] for x in rs]) or 0),
-                          "takeovers": round(sum(x["takeovers"] for x in rs) / len(rs), 1), "trend": trend})
-    revs = [{**{k: v.get(k) for k in ("id", "kind", "target", "title", "why", "expected", "status", "why_status", "created", "from_run", "version", "strikes", "baseline")},
-             "trials": len(v.get("trials") or []), "good": sum(1 for t in v.get("trials") or [] if t.get("ok") and t.get("used")),
-             "median_ms": int(_median([t["ms"] for t in v.get("trials") or [] if t.get("ok") and t.get("used")]) or 0)} for v in reversed(learned.revisions())]
-    return {"window": w.describe(), "runs": runs[:limit], "count": len(runs), "systems": by_system, "learned": revs,
-            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled")), "share": db.get_setting("learned.share") or "ask", "sites": _sites()}
-
-
-def timing_run(run_id: int) -> dict[str, Any]:
-    """One run: its spans in order, what stands out in it, and what was learned that was in force."""
-    from . import humanize, improve, learned
-    from .models import Run
-
-    with db.session() as s:
-        r = s.get(Run, run_id)
-        if r is None or r.spans is None:
-            raise KeyError(run_id)
-        out = {"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "spans": list(r.spans or []),
-               "learned": [{"id": i, "title": (learned.get(i) or {}).get("title", ""), "status": (learned.get(i) or {}).get("status", "")} for i in (r.learned or [])]}
-    return {**out, "review": improve.review(run_id)}
 
 
 def _provider_label(p: str) -> str:
@@ -754,9 +687,10 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
     ok = lambda t: 1 if t["outcome"] == "success" else 0  # noqa: E731
     units = [u for u in (
         unit("score", "给岗位评分", "评完分的岗位", "每个评完分的岗位", lambda t: int(t["result"].get("scored") or (1 if t["outcome"] == "success" and "score" in t["result"] else 0))),
-        unit("recon", "读取申请表、生成草案", "生成的草案", "每份生成的草案", ok),
-        unit("execute", "填写申请表", "填好的申请表（已提交或交给你提交）", "每份填好的申请表", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
-        unit("revise", "按意见修改草案", "完成的修改", "每次完成的修改", ok), unit("tailor", "按岗位调整简历", "调整好的简历", "每份调整好的简历", ok),
+        unit("apply", "做一份申请", "做完的申请（已提交，或准备好等你）", "每份做完的申请", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("recon", "读取申请表、生成草案（旧流程）", "生成的草案", "每份生成的草案", ok),
+        unit("execute", "填写申请表（旧流程）", "填好的申请表（已提交或交给你提交）", "每份填好的申请表", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("tailor", "按岗位调整简历", "调整好的简历", "每份调整好的简历", ok),
         unit("mail", "查收邮件", "处理的新邮件", "每封处理的新邮件", lambda t: int(t["result"].get("new_mail") or 0)),
     ) if u]
 

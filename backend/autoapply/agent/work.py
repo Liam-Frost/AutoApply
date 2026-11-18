@@ -36,12 +36,6 @@ MODE_OF_POLICY = {"hand_over": "hand_over", "approve": "prepare", "auto": "auto"
 SAME_PLACE = 3          # runs in a row that ended at the same place without a report, before the applicant is asked
 
 
-def enabled() -> bool:
-    """Is the application agent what works applications? (``legacy``: the pipeline it replaces, kept to compare with
-    until it is removed.)"""
-    return str(db.get_setting("agent.pipeline") or "agent") != "legacy"
-
-
 def folder_of(application_id: int) -> Path:
     return config.DATA / "agent" / f"app_{application_id}"
 
@@ -146,10 +140,14 @@ def record_of(draft: Draft | None) -> dict[str, Any] | None:
 
 
 def answers_of(draft: Draft | None) -> dict[str, str]:
-    """What the applicant themselves said in the record: the questions they answered, the values they changed."""
+    """What the applicant themselves said in the record: the questions they answered, the values they changed, the
+    questions they said are not to be answered."""
+    from ..drafts import NOT_TO_ANSWER
+
     if draft is None:
         return {}
     said = {str(a.get("label", "")): _shown(a.get("value")) for a in draft.answers or [] if a.get("basis") == "edited by user" and a.get("value") not in ("", None, [])}
+    said.update({str(a.get("label", "")): NOT_TO_ANSWER for a in draft.answers or [] if a.get("dropped")})
     for n, c in enumerate(draft.comments or [], 1):      # what they wrote about the record as a whole
         if str(c.comment or "").strip():
             said[f"(the applicant's note {n} on this application)"] = str(c.comment)[:1500]
@@ -161,8 +159,9 @@ def _shown(v: Any) -> str:
 
 
 # --- one application, once ---------------------------------------------------------------------------------------------
-def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
-    """Run the agent on the application for this posting, and settle what came of it. Returns the task's result."""
+def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> dict[str, Any]:
+    """Run the agent on the application for this posting, and settle what came of it. Returns the task's result.
+    ``instructions``: what the applicant said when they asked for this application; kept for every run of it."""
     from .. import browser
 
     with db.session() as s:
@@ -176,9 +175,18 @@ def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
             s.flush()
         if app.status in SENT and app.status != UNKNOWN:
             return {"already_applied": True}
+        from .. import tasks as _tasks
+
+        if app.status == "withdrawn" and not _tasks.running_by_hand():
+            # They decided not to apply. An application they ask for themselves takes it up again; the program does
+            # not - not a task that was still in the queue when they decided.
+            return {"skipped": "the applicant is not applying for this one"}
         draft = app.drafts[-1] if app.drafts else None
         mode = mode_for(app.status, draft, job.company)
-        record, answers = record_of(draft), answers_of(draft)
+        record, answers = record_of(draft), {}
+        for earlier in app.drafts:      # what the applicant said on any version of the record stands, the latest word last
+            answers.update(answers_of(earlier))
+        base = ((draft.schema or {}).get("extra") or {}).get("resume") == "base" if draft is not None else False
         if mode != "verify":
             lifecycle.move(app, "executing" if mode == "send" else "recon", source="run")
         app_id, title, channel = app.id, f"{job.company} · {job.title}", job.channel or ""
@@ -190,6 +198,9 @@ def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
     folder, site = folder_of(app_id), brief.site_key(posting.url)
     from .. import tasks
 
+    for n, said in enumerate(_instructions(folder, instructions), 1):
+        answers[f"(what the applicant said when they asked for this application, {n})"] = said
+
     if tasks.running_by_hand():      # the applicant asked for it: what counted "the same place again" starts anew
         (folder / "places.json").unlink(missing_ok=True)
     left = _left(folder)
@@ -197,11 +208,61 @@ def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
         return _budget_used(app_id, title, folder)
     applicant = brief.applicant_on_file(channel)
     _own_letter(applicant, job_id)
+    if mode != "verify":
+        told, new = _own_resume(applicant, job_id, base)
+        if told:
+            answers["(the résumé for this application)"] = told
+        if new and mode == "auto" and db.get_setting("tailor.review"):
+            mode = "prepare"        # a résumé written just now is looked at by the applicant before it goes out
     began = now()
+    def handed() -> None:       # the window is the applicant's: they are told, on a card and on their phone
+        notify.add_todo("submit", f"{title}：请检查并点提交", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
+                        body="Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口。")
+
     with browser.open_page(site, headless=mode != "hand_over", url=posting.url) as page:
-        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left)
+        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed)
+    notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
     _spent(folder, result)
     return settle(app_id, job_id, title, site, mode, result, folder, began=began)
+
+
+def _instructions(folder: Path, new: str = "") -> list[str]:
+    p = folder / "instructions.json"
+    try:
+        said = list(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        said = []
+    new = " ".join(str(new or "").split())[:2000]
+    if new and new not in said:
+        said.append(new)
+        folder.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(said, ensure_ascii=False), encoding="utf-8")
+    return said
+
+
+def _own_resume(applicant: brief.Applicant, job_id: int, base: bool) -> tuple[str, bool]:
+    """The résumé written for this posting (tailor.py: one that exists, or one written now when the applicant's
+    settings ask for it) is among the files, and the run is told to use it. Returns (what the run is told, it was
+    written just now). ``base``: the applicant chose the résumé as uploaded for this application."""
+    from .. import llm, tailor
+
+    if base:
+        return "The applicant chose the résumé as uploaded for this application, not one rewritten for the posting.", False
+    with db.session() as s:
+        job = s.get(Job, job_id)
+        s.expunge(job)
+    try:
+        doc, new = tailor.for_job(job)
+    except llm.LLMUnavailable:
+        raise
+    except Exception as e:  # noqa: BLE001 - the application goes ahead with the résumé as uploaded
+        log.warning("no résumé was written for job %s: %s", job_id, e)
+        return "", False
+    if doc is None:
+        return "", False
+    applicant.files[doc["name"]], applicant.file_notes[doc["name"]] = doc["path"], "résumé rewritten for this posting"
+    return (f"A résumé was rewritten for this posting: the file {doc['name']!r}. Upload it wherever the form takes a résumé, in place of the general one "
+            "(also where an earlier run uploaded the general one)."), new
 
 
 def _own_letter(applicant: brief.Applicant, job_id: int) -> None:
@@ -282,23 +343,31 @@ def rows_of(record: dict[str, Any], files: dict[str, str]) -> tuple[list[dict[st
 def keep_record(app_id: int, record: dict[str, Any], files: dict[str, str], url: str) -> int:
     """The agent's record as a new pending draft of this application (the one before it is superseded)."""
     answers, open_, mats = rows_of(record, files)
-    notes = [str(record.get("summary", ""))[:3000]] + [f"Still open: {x}"[:600] for x in record.get("open") or []]
+    notes = [str(record.get("summary", ""))[:3000]] + [str(x)[:600] for x in record.get("open") or []]      # the agent's own words: how it ended, and what it left open
     with db.session() as s:
+        from ..models import Document
+
+        for m in mats:      # the file as a document of the library, where it is one: the record's page links to it
+            doc = s.query(Document).filter_by(path=m["path"]).order_by(Document.id.desc()).first() if m.get("path") else None
+            if doc is not None:
+                m["document_id"] = doc.id
         app = s.get(Application, app_id)
-        version = 1
+        version, kept = 1, {}
         for old in app.drafts:
             version = max(version, old.version + 1)
+            if ((old.schema or {}).get("extra") or {}).get("resume"):      # which résumé the applicant chose stays chosen
+                kept = {"resume": old.schema["extra"]["resume"]}
             if old.review_status == "pending":
                 old.review_status = "superseded"
         d = Draft(application_id=app_id, version=version, review_status="pending", answers=answers, unresolved=open_, materials=mats, notes=[n for n in notes if n.strip()], plan=[],
-                  schema={"ats": "agent", "tenant": urlparse(url).netloc.lower(), "url": url, "source": "agent", "pages": [], "questions": [], "extra": {"agent": True}})
+                  schema={"ats": "agent", "tenant": urlparse(url).netloc.lower(), "url": url, "source": "agent", "pages": [], "questions": [], "extra": {"agent": True, **kept}})
         s.add(d)
         s.flush()
         return d.id
 
 
 def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: run.Result, folder: Path, *, began: Any = None) -> dict[str, Any]:
-    from ..ats.base import NeedsHuman
+    from ..errors import NeedsHuman
 
     rec, files = result.record or {}, {}
     try:
@@ -321,7 +390,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         lifecycle.outcome_unknown(app_id, title, "Agent 已经要点提交了，运行在给出结果之前中断；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。")
         from .. import tasks
 
-        tasks.enqueue_later("recon", ref=f"job:{job_id}", payload={"job_id": job_id, "verify": True}, minutes=3, priority=30)
+        tasks.enqueue_later("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=3, priority=30)
         return {"status": UNKNOWN, "steps": result.steps}
     if mode == "verify":
         return _verified(app_id, job_id, title, result)
@@ -345,8 +414,11 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         url = _last_url(folder)
         with db.session() as s:
             lifecycle.move(s.get(Application, app_id), "needs_human", source="run")
-        notify.add_todo("takeover", title, body=why, ref=f"account:{site}", payload={"tenant_key": site, "url": url, "job_url": url, "can_register": False})
-        raise NeedsHuman(why, kind="login", url=url, waits_for=f"account:{site}")
+        from .. import auth
+
+        # (the card names whose sign-in is missing: the site's, or - when the run stopped on a sign-in provider's own page - the provider's)
+        waits = auth.ask_to_sign_in(site, title, why, url=url, job_url=url)
+        raise NeedsHuman(why, kind="login", url=url, waits_for=waits)
     if result.outcome == "cannot":
         why = str(rec.get("summary") or "")[:800]
         with db.session() as s:
@@ -409,7 +481,7 @@ def _verified(app_id: int, job_id: int, title: str, result: run.Result) -> dict[
         notify.close_todos("failed", f"application:{app_id}")
         from .. import tasks
 
-        tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=30)
+        tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "after": "it was found not to be sent"}, priority=30)      # (a task of its own: this one only looked)
         return {"status": "not_sent", "steps": result.steps}
     return {"status": UNKNOWN, "note": str((result.record or {}).get("summary") or result.stopped)[:400]}
 
@@ -442,7 +514,7 @@ def _without_report(app_id: int, job_id: int, title: str, result: run.Result, fo
         notify.add_todo("failed", f"{title}：连续 {same} 次停在同一个地方", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
                         body=f"停在：{place[:200]}\n{run.journal_text(folder)[-900:]}")
         return {"status": "stuck", "at": place[:200], "steps": result.steps}
-    tasks.enqueue_later("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=1, priority=60)
+    tasks.enqueue_later("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=1, priority=60)
     return {"status": "goes_on", "stopped": result.stopped, "steps": result.steps}
 
 
@@ -473,4 +545,35 @@ def _same_place(folder: Path, place: str) -> int:
         if x != place or not place:
             break
         n += 1
+    return n
+
+
+# --- an installation from before there was one task for an application ------------------------------------------------------
+def tasks_from_before() -> int:
+    """Tasks that wait in the queue under the kinds the older pipeline had (read the form, fill it, revise the draft,
+    ask again, read the later steps) become the one task there is now, for the same posting. A note the applicant
+    wrote on a draft and that was still waiting to be applied is kept with the draft. Returns how many were changed."""
+    from ..models import DraftComment, Task
+
+    n = 0
+    with db.session() as s:
+        seen: set[int] = set()
+        for t in s.query(Task).filter(Task.kind.in_(("recon", "execute", "revise", "reanswer", "scout")), Task.status.in_(("queued", "waiting_human", "held"))).order_by(Task.id):
+            payload = dict(t.payload or {})
+            job_id = payload.get("job_id")
+            draft = s.get(Draft, int(payload["draft_id"])) if payload.get("draft_id") else None
+            if job_id is None and draft is not None:
+                job_id = draft.application.job_id
+            if job_id is None and t.ref.startswith("application:") and t.ref.split(":")[1].isdigit():
+                app = s.get(Application, int(t.ref.split(":")[1]))
+                job_id = app.job_id if app is not None else None
+            if t.kind == "revise" and draft is not None and str(payload.get("comment") or "").strip():
+                s.add(DraftComment(draft_id=draft.id, comment=str(payload["comment"])[:4000], result=""))
+            if job_id is None or (int(job_id) in seen and t.status == "queued"):
+                t.status, t.error = "cancelled", "这个任务属于旧的流程，已经由新的申请任务代替"
+            else:
+                seen.add(int(job_id))
+                keep = {k: v for k, v in payload.items() if k in ("instructions", "waits_for", "by_hand", "browser_backend") or k.startswith("_")}
+                t.kind, t.ref, t.payload = "apply", f"job:{int(job_id)}", {**keep, "job_id": int(job_id)}
+            n += 1
     return n

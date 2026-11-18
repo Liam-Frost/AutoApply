@@ -129,12 +129,6 @@ def of_session(tenant: str, rules: list | None = None, _seen: tuple = ()) -> Sel
     for rule in rules:
         if rule.get("tenant") and rule["tenant"] in (tenant, key):
             return Selection(rule["backend"], f"tenant: {rule['tenant']}")
-    sites = db.get_setting("sso.sites") or {}
-    provider = sites.get(tenant) or sites.get(key)
-    if provider and f"idp:{provider}" not in _seen and not key.startswith("idp:"):
-        via = of_session(f"idp:{provider}", rules, (*_seen, f"idp:{provider}"))
-        if via is not None:
-            return Selection(via.backend, f"signs in through {provider}: {via.reason}")
     return None
 
 

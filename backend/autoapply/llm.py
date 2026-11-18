@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import agentbudget, db, llm_codex, llm_openai, llm_sdk, metering, secrets, timing
+from . import agentbudget, db, llm_codex, llm_openai, llm_sdk, metering, secrets
 
 log = logging.getLogger("autoapply.llm")
 
@@ -694,7 +694,6 @@ def _agent(goal: str, tools: list[Tool], *, system: str, budget: agentbudget.Bud
             if isinstance(step.get("output"), str):
                 step["output"] = step["output"][:2000]
             step["ms"] = int((time.monotonic() - began) * 1000)
-            timing.mark("tool", call.name, step["ms"], started=began, ok=step["ok"])
             result.steps.append(step)
             if on_step:
                 on_step(step)

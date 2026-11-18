@@ -26,15 +26,15 @@ BY_HAND = (*SENT, "withdrawn")
 SOURCE = {"run": "程序填表", "mail": "邮件", "site": "雇主网站", "user": "你", "draft": "准备草案", "auto": "自动批准", "resume": "继续任务", "recover": "程序重启后", "": ""}
 # what comes next, by where it stands: (what is open, the things that can be done about it - the page turns them into buttons)
 NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
-    "recon": ("正在读取申请表，草案生成后会等你审批", ()),
-    "revising": ("正在按你的意见修改草案", ()),
+    "recon": ("Agent 正在做这份申请", ()),
+    "revising": ("Agent 正在按你的意见处理这份申请", ()),
     "needs_input": ("草案里有问题等你回答", ("open_draft",)),
     "draft_ready": ("草案等你审批", ("open_draft",)),
-    "approved": ("已批准，排队填写", ()),
-    "executing": ("正在填写", ()),
-    "drifted": ("申请表有变化，正在重新读取", ()),
+    "approved": ("已批准，等 Agent 去提交", ()),
+    "executing": ("Agent 正在核对并提交", ()),
+    "drifted": ("申请表有变化", ("rerun",)),
     "needs_human": ("需要你处理后才能继续（见“需要我处理”）", ("open_todos",)),
-    "failed": ("上次填写没有成功，可以重新填写", ("rerun", "open_draft")),
+    "failed": ("上一次没有做成，可以让 Agent 再做一次", ("rerun", "open_draft")),
     "ready_to_submit": ("表单已经填好，还没有提交", ("rerun", "mark_submitted")),
     UNKNOWN: ("点过提交，还不知道有没有提交成功：等确认邮件，或告诉程序结果", ("check_mail", "mark_submitted", "rerun_not_submitted")),
     "submitted": ("已提交，等雇主的确认邮件", ("check_mail",)),
@@ -85,6 +85,7 @@ def detail(application_id: int) -> dict[str, Any] | None:
         out["actions"] = list(NEXT.get(a.status, ("", ()))[1])
         out["explained"] = humanize.explain(a.last_event)
         out["detail"], out["auto_approved"], out["channel"] = a.detail, bool(a.auto_approved), a.channel
+        out["job_id"] = j.id
         out["job"] = {"id": j.id, "company": j.company, "title": j.title, "location": j.location, "deadline": j.deadline, "apply_url": j.apply_url, "score": j.score,
                       "online": bool(j.online), "posted": j.posted, "summary": j.summary, "brief": j.brief, "source": j.source, "source_id": j.source_id,
                       "ats_label": humanize.ats_name(j.ats), "term": j.term, "months": j.months, "salary": j.salary}
@@ -110,8 +111,13 @@ def detail(application_id: int) -> dict[str, Any] | None:
         for e in s.query(ApplicationEvent).filter_by(application_id=a.id):
             line.append({"at": _iso(e.at), "kind": "status", "old": humanize.APP_STATUS.get(e.old, e.old), "new": humanize.APP_STATUS.get(e.new, e.new),
                          "by": SOURCE.get(e.source or "", e.source or ""), "note": getattr(e, "note", "") or ""})
-        for r in s.query(Run).filter(Run.ref == f"application:{a.id}", Run.kind.in_(("execute", "scout"))):
+        for r in s.query(Run).filter(Run.ref == f"application:{a.id}", Run.kind.in_(("execute", "scout"))):      # (runs of earlier versions)
             line.append({"at": _iso(r.created_at), "kind": "run", "what": "填写申请表" if r.kind == "execute" else "预读表单后面的步骤", "ok": bool(r.ok), "run_id": r.id})
+        from .agent import work
+
+        for e in work.journal(a.id):      # each run of the agent on it: how it ended, in the agent's own words
+            if e["kind"] in ("report", "ended"):
+                line.append({"at": e["at"], "kind": "run", "what": "Agent 的一次运行", "ok": e["kind"] == "report", "said": str(e.get("text") or "")[:300]})
         for m in mails:
             line.append({"at": _iso(m.received_at), "kind": "mail", "label": messages.mail_label(m.category, m.event or "new")[1], "subject": m.subject, "message_id": m.message_id})
         out["timeline"] = sorted(line, key=lambda x: x["at"] or "", reverse=True)

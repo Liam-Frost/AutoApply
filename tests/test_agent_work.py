@@ -21,15 +21,17 @@ def agent(app_env, monkeypatch):
     from autoapply.agent import run, work
     from autoapply.models import Job
 
-    db.set_setting("agent.pipeline", "agent")
     monkeypatch.setattr(browser, "open_page", lambda *a, **k: contextlib.nullcontext(object()))
     seen: list[dict] = []
     ends: list = []
 
-    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None):
-        seen.append({"mode": mode, "answers": answers, "record": record, "budget": budget})
+    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None):
+        seen.append({"mode": mode, "answers": answers, "record": record, "budget": budget, "files": dict(applicant.files)})
         folder.mkdir(parents=True, exist_ok=True)
         end = ends.pop(0)
+        if end.get("hands") and on_hand is not None:      # the run gives the window to the applicant
+            on_hand()
+            end["cards_then"] = [(t.kind, t.ref) for t in db.session().__enter__().query(__import__("autoapply.models", fromlist=["Todo"]).Todo).filter_by(status="open")]
         with open(folder / "journal.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"at": "2026-11-19T10:00:00", "kind": "run", "mode": mode}) + "\n")
             for line in end.get("journal", []):
@@ -68,7 +70,7 @@ def test_the_applicants_policy_decides_what_a_run_may_do(agent):
     for policy, mode in (("approve", "prepare"), ("auto", "auto"), ("hand_over", "hand_over")):
         db.set_setting("submit.policy", policy)
         agent.ends.append(READY)
-        tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+        tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
         assert tasks.drain() == 1 and agent.seen[-1]["mode"] == mode
     status, records, cards, _ = _state(agent.job)
     assert status == "draft_ready" and records == [("superseded", 2, 0), ("superseded", 2, 0), ("pending", 2, 0)] and cards == []
@@ -100,7 +102,7 @@ def test_a_question_only_the_applicant_can_answer_is_a_card_and_their_answer_goe
     db.set_setting("submit.policy", "auto")
     asked = {"question": "What is the earliest date you can start?", "about": "job", "options": [], "why": "Step 2, required"}
     agent.ends.append({"outcome": "needs_you", "record": {"summary": "One question is open; not sent.", "url": "https://careers.acme.example/apply/2", "answers": READY["record"]["answers"], "files": [], "open": ["start date"], "asked": [asked]}})
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
     status, records, cards, _ = _state(agent.job)
     assert status == "needs_input" and records == [("pending", 3, 1)] and [k for k, _ in cards] == ["answer"]
@@ -124,7 +126,7 @@ def test_a_sign_in_only_the_applicant_can_make_is_a_card_the_task_waits_for(agen
 
     agent.ends.append({"outcome": "needs_you", "record": {"summary": "The site asks for a code on the applicant's phone.", "asked": []},
                        "journal": [{"kind": "needs_applicant", "why": "a code on the phone", "url": "https://login.acme.example/mfa"}]})
-    tid = tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tid = tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
     status, _, cards, _ = _state(agent.job)
     assert status == "needs_human" and cards == [("takeover", "account:generic:careers.acme.example")]
@@ -144,13 +146,13 @@ def test_a_run_cut_off_after_it_said_it_was_sending_is_an_outcome_that_is_not_kn
 
     db.set_setting("submit.policy", "auto")
     agent.ends.append({"outcome": "", "stopped": "timeout", "journal": [{"kind": "sending", "button": "Submit application", "url": "https://careers.acme.example/apply/review"}]})
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
     status, _, cards, _ = _state(agent.job)
     assert status == UNKNOWN and [k for k, _ in cards] == ["submit"]          # one card: "the outcome is not known"
     with db.session() as s:      # what is queued next is a look, in its own time - not another go at the form
-        later = [t for t in s.query(Task).filter_by(status="queued", kind="recon")]
-        assert len(later) == 1 and later[0].due_at is not None and later[0].payload.get("verify")
+        later = [t for t in s.query(Task).filter_by(status="queued", kind="apply")]
+        assert len(later) == 1 and later[0].due_at is not None
         later[0].due_at = None
     # the look finds it in the site's list of applications: it is sent, with that as its evidence
     agent.ends.append({"outcome": "submitted", "record": {"summary": "Listed as Submitted.", "confirmation": {"words": "Backend Intern - Submitted", "url": "https://careers.acme.example/applications", "ties_to_posting": "the entry Backend Intern in the applicant's list"}}})
@@ -166,10 +168,10 @@ def test_a_look_that_finds_the_application_was_not_sent_lets_it_be_worked_again(
     db.set_setting("submit.policy", "auto")
     agent.ends += [{"outcome": "", "stopped": "timeout", "journal": [{"kind": "sending", "button": "Submit"}]},
                    {"outcome": "ready", "record": {"summary": "The site lists it under Drafts; nothing was sent."}}, SENT]
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1 and _state(agent.job)[0] == UNKNOWN
     with db.session() as s:
-        for t in s.query(Task).filter_by(status="queued", kind="recon"):
+        for t in s.query(Task).filter_by(status="queued", kind="apply"):
             t.due_at = None
     assert tasks.drain() == 2 and [x["mode"] for x in agent.seen] == ["auto", "verify", "auto"]
     assert _state(agent.job)[0] == "submitted"
@@ -185,12 +187,12 @@ def test_three_kinds_of_stop(agent, monkeypatch):
 
     def due_now():
         with db.session() as s:
-            for t in s.query(Task).filter_by(status="queued", kind="recon"):
+            for t in s.query(Task).filter_by(status="queued", kind="apply"):
                 t.due_at = None
 
     # 1. the allowance of the model ran out: the queue's own retry, no card about the application
     agent.ends.append({"outcome": "", "stopped": "LLMUnavailable: Claude subscription usage limit reached: resets 9pm"})
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
     with db.session() as s:
         assert [(t.kind, t.ref) for t in s.query(Todo).filter_by(status="open")] == [("config", "config:llm-limit")]
@@ -209,7 +211,7 @@ def test_three_kinds_of_stop(agent, monkeypatch):
     # they give it another budget: it goes on
     agent.ends.append(READY)
     agent.work.grant(_app(agent.job))
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1 and _state(agent.job)[0] == "draft_ready" and [c for c in _state(agent.job)[2] if c[0] != "config"] == []
 
 
@@ -219,7 +221,7 @@ def test_the_same_place_three_times_is_brought_to_the_applicant(agent):
 
     place = {"kind": "tool", "tool": "click", "output": "clicked [3]. Now on 'Apply' at https://careers.acme.example/apply/2."}
     agent.ends += [{"outcome": "", "stopped": "end_turn", "steps": 20, "seconds": 60.0, "journal": [place]}] * 3
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     for n in range(3):
         assert tasks.drain() == 1
         with db.session() as s:
@@ -229,16 +231,6 @@ def test_the_same_place_three_times_is_brought_to_the_applicant(agent):
     assert status == "failed" and len(agent.seen) == 3 and [k for k, _ in cards] == ["failed"]
     with db.session() as s:
         assert s.query(Task).filter_by(status="queued").count() == 0            # not a fourth time by itself
-
-
-def test_the_pipeline_it_replaces_is_still_there_to_compare_with(agent, monkeypatch):
-    from autoapply import drafts, tasks
-
-    db.set_setting("agent.pipeline", "legacy")
-    called = []
-    monkeypatch.setattr(drafts, "build", lambda job_id, **kw: (called.append(job_id), 5)[1])
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
-    assert tasks.drain() == 1 and called == [agent.job] and agent.seen == []
 
 
 def _app(job_id):
@@ -282,7 +274,7 @@ def test_the_applicant_stops_the_agent_and_it_is_not_started_again_by_itself(age
     assert e.value.why == "stopped" and b.used == 1
     # a run that ended so: one card, nothing queued
     agent.ends.append({"outcome": "", "stopped": "stopped", "journal": [{"kind": "log", "text": "On step 2."}]})
-    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
     status, _, cards, _ = _state(agent.job)
     assert status == "failed" and [k for k, _ in cards] == ["failed"]

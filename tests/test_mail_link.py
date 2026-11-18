@@ -130,59 +130,6 @@ def test_the_visit_to_the_site_only_reads(app_env, tmp_path, monkeypatch):
     assert out == {"signed_in": True, "about": [7], "reason": "it waits for an assessment", "applications": [{"title": "SDE Intern", "job_id": "", "status": "Assessment pending", "date": ""}]}
 
 
-def test_an_account_offered_only_after_the_submission_is_taken_up_there(app_env, tmp_path, monkeypatch):
-    """A site that says "you can log in after submitting": the page that confirms the application offers the account.
-    It is signed in to (or created) there - unless the account is already known to work, or the page offers none."""
-    from playwright.sync_api import sync_playwright
-
-    from autoapply import auth, db, executor, generic
-    from autoapply.ats.base import JobRef
-
-    db.set_setting("repair.enabled", True)
-    ref = JobRef("generic", "www.careers.test", "", "https://www.careers.test/jobs/1", "www.careers.test")
-    calls, steps = [], []
-    monkeypatch.setattr(generic, "account_after_submit", lambda page, r, run_dir: calls.append(r.tenant_key) or {"ok": True, "notes": "signed in"})
-    step = lambda op, **kw: steps.append(op)  # noqa: E731
-    with sync_playwright() as pw:
-        b = pw.chromium.launch()
-        page = b.new_page()
-        page.set_content("<main><h1>Thanks for applying</h1><p>Your application has been received.</p><h2>Sign up for a Career Profile</h2><a href='#'>Log in</a></main>")
-        executor._finish_account(page, ref, step, tmp_path)
-        assert calls == [ref.tenant_key] and steps == ["account_after_submit"]
-        auth.upsert_account(ref.tenant_key, ats="generic", host=ref.host, status="ok")
-        executor._finish_account(page, ref, step, tmp_path)      # an account that works needs nothing
-        assert len(calls) == 1
-        b.close()
-    assert generic.ACCOUNT_OFFER.search("Already have a Career Profile? Log in") and not generic.ACCOUNT_OFFER.search("Thanks for applying. We will be in touch.")
-
-
-def test_a_control_that_shows_less_than_it_holds_is_taken_from_the_agent_that_chose_it():
-    """A phone-code list shows "+1" for "+1 / Canada". After the agent chose the approved entry there, "+1" is not a difference;
-    without the agent's word, or with something that is not part of the approved entry, it still is."""
-    from autoapply.executor import _not_vouched
-    from autoapply.ats.base import FormSchema, Question
-
-    schema = FormSchema(ats="generic", url="https://x", pages=["p"], questions=[
-        Question(id="code", label="Code", type="select", options=["+1 / United States", "+1 / Canada"]), Question(id="city", label="City", type="text"),
-        Question(id="name", label="Full name", type="text")])
-
-    code = {"id": "code", "label": "Code", "expected": "+1\nCanada", "actual": "+1"}
-    assert _not_vouched([code], ["code"], schema) == []
-    taken = []                                           # ... and what is let through on the agent's word is named, for the applicant to look at
-    assert _not_vouched([code, {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}], ["code", "city"], schema, taken)[0]["id"] == "city"
-    assert [b["id"] for b in taken] == ["code"]
-    assert _not_vouched([code], [], schema) == [code]
-    wrong = {**code, "actual": "+44"}
-    assert _not_vouched([wrong], ["code"], schema) == [wrong]
-    empty = {**code, "actual": ""}
-    assert _not_vouched([empty], ["code"], schema) == [empty]
-    plain = {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}
-    assert _not_vouched([plain], ["city"], schema) == [plain]
-    # a text box that holds a part of the approved text holds something else, whoever says it was fixed
-    name = {"id": "name", "label": "Full name", "expected": "John Smith", "actual": "John"}
-    assert _not_vouched([name], ["name"], schema) == [name]
-
-
 def test_nothing_the_server_starts_opens_a_console_window(monkeypatch):
     """On Windows every child process gets CREATE_NO_WINDOW, unless the caller asked for a console of its own."""
     import subprocess

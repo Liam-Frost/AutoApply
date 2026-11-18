@@ -38,7 +38,14 @@ STATE = frozenset({"mail.gmail_history", "schedule.draining", "schedule.drain_to
 # Settings of earlier versions that are no longer settings: what the program found out about sites lives in sites.py now.
 # A settings page loaded before sends them back; they are ignored.
 RETIRED = frozenset({"accounts.alias", "sso.offered", "browser.visible_sites", "browser.session_made_in", "learned.drivers_written",
-                     "schedule.execute_minutes", "executor.concurrency"})
+                     "schedule.execute_minutes", "executor.concurrency",
+                     # 2.0: one agent works an application (agent/). What steered the pipeline before it - who reads a form,
+                     # when a draft passes without the applicant, what a driver may do, what is learned from a run - is gone;
+                     # how forms are filled is in the agent's manual and the applicant's profile.
+                     "agent.pipeline", "agent.reads", "recon.provisional", "recon.walk", "fill.optional", "repair.enabled", "policy.default", "policy.per_ats",
+                     "policy.manual_confidence", "auto_approve.enabled", "auto_approve.per_ats", "auto_approve.min_score", "auto_approve.min_driver_successes",
+                     "auto_approve.allow_new_cover_letter", "learned.enabled", "learned.mode", "learned.share", "register.auto", "register.per_ats", "register.allow_keys",
+                     "schedule.canary_minutes", "consent.acknowledge_notices", "sso.mode", "sso.sites"})
 
 DEFAULT_SETTINGS: dict[str, object] = {
     # models
@@ -47,36 +54,21 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "llm.provider": "",
     # per service, for the OpenAI-compatible ones and chatgpt: {"openai": {"base_url": "", "model": "", "small_model": ""}}; keys are kept with the secrets
     "llm.providers": {},
-    # Sites whose form is a walk through several steps are read and filled by the agent (it looks at the page and decides);
-    # the coded driver signs in and is otherwise out of the way. Coded reading of such forms broke on every new site.
     # What an agent may spend on one piece of work, by kind: tool calls, and minutes on the clock (agentbudget.py).
-    # Generous on purpose - a long form is not to be cut short - and the same whichever service does the thinking.
-    "agent.budgets": {"explore_form": {"steps": 140, "minutes": 35}, "sign_in": {"steps": 80, "minutes": 20}, "account": {"steps": 60, "minutes": 15},
-                      "take_over": {"steps": 120, "minutes": 30}, "confirm": {"steps": 40, "minutes": 10}, "navigate": {"steps": 40, "minutes": 10},
-                      "site_status": {"steps": 60, "minutes": 15},
+    # "apply" is one run on an application; an application has one such budget over all its runs, and the applicant
+    # can give it another (agent/work.py).
+    "agent.budgets": {"apply": {"steps": 400, "minutes": 45},
                       # a source read in a browser, when the program's own reading of it fails (agent/scan.py)
                       "scan": {"steps": 80, "minutes": 20},
-                      # one application, worked by one agent from the posting to the confirmation (agent/): per run
-                      "apply": {"steps": 400, "minutes": 45}},
-    # Who works an application: "agent" - one agent, from the posting to the confirmation (agent/); "legacy" - the
-    # pipeline it replaces (read the form, draft, fill by driver), kept to compare with until it is removed.
-    "agent.pipeline": "agent",
+                      # reading the applicant's list of applications on an employer's site (sitestatus.py)
+                      "site_status": {"steps": 60, "minutes": 15}},
     # How an application is sent (the application agent): "auto" - when nothing is open, without asking; "approve" -
     # once the applicant has approved its record; "hand_over" - the agent stops at the last step and gives the window
     # to the applicant (an instruction to the agent, not a lock: see agent/apply.md).
     "submit.policy": "auto",
-    "agent.reads": ["*"],      # every site ("*"); a list of names limits it - kept for taking a site out, not for turning the agent off
-    # While reading, a required question only the applicant can answer gets a stand-in answer so that the steps after it
-    # can be read too; it is never submitted - the draft cannot be approved until the applicant has answered.
-    "recon.provisional": True,
-    # {"generic:jobs.nvidia.com": "eightfold:nvidia"}: a posting found under one address whose sign-in is another site's, for
-    # which a sign-in is already saved. Learned when the sign-in page is reached; the saved session and password are used.
     # An e-mail that does not say which application it is about: read the applicant page of the employer's site (with
     # the sign-in already saved for it) to find out, before asking the applicant.
     "mail.site_lookup": True,
-    "fill.optional": True,      # fill optional questions and sections (work experience, education ...) where the profile has the content
-    "recon.walk": True,  # read the later steps of a form by walking it with the draft's answers before approval (never submits)
-    "repair.enabled": True,  # let the agent take over a page the driver could not fill (it can never submit)
     "llm.model": "claude-opus-5-5",
     "llm.small_model": "claude-haiku-5-5",
     "llm.effort": "high",
@@ -96,32 +88,12 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "llm.quota_notify": True,
     "llm.quota": {},                   # the last figures read, per service
     "llm.quota_alerts": {},            # which warnings were already sent
-    # submit policy: manual | approve_then_submit | auto_approve
-    "policy.default": "approve_then_submit",
-    "policy.per_ats": {},  # {"workday": "manual", ...}
     "mail.confirm_check_minutes": [5, 30],  # after a submission, look for the confirmation e-mail at these delays
-    "policy.manual_companies": [],  # company names (substring match) the user always submits by hand
-    "policy.manual_confidence": "low",  # "none" | "low" | "medium": answers at or below this level make the run manual
-    "auto_approve.enabled": False,
-    # Learning from runs (improve.py, learned.py): after a run the agent may write down what the program should do
-    # differently on that site, as a recipe or as code. "auto": in force once it passed the gate, watched in the runs
-    # that follow, taken out again when it fails. "ask": it waits for the applicant first.
-    "learned.enabled": True,
-    "learned.mode": "auto",
-    "learned.share": "ask",   # a site's driver that held up: "ask" whether to report it to the project | "always" have it ready | "never" (share.py)
-    "auto_approve.per_ats": {},  # {"greenhouse": true}
-    "auto_approve.min_score": 8.0,
-    "auto_approve.min_driver_successes": 3,
-    "auto_approve.allow_new_cover_letter": False,
-    # registration switches per ATS (default off; user turns on per ATS)
-    "register.auto": True,  # sites the user has never applied on: the agent creates the account
-    "register.per_ats": {},  # {"workday": False} turns automatic registration off for one ATS
-    "register.allow_keys": [],  # tenant keys where the user said "I have no account here, register for me"
+    "policy.manual_companies": [],  # company names (substring match) whose applications the applicant always sends themselves
     # scheduler (minutes; 0 disables)
     "schedule.discover_minutes": 720,
     "schedule.mail_minutes": 60,
     "schedule.mail_new_minutes": 2,     # Gmail only: ask what arrived since the last look (0: off)
-    "schedule.canary_minutes": 1440,
     "schedule.paused": False,
     # "finish what is being done, start nothing new, and tell me": for closing or restarting the program. Not a setting -
     # it is over when the program is started again.
@@ -188,9 +160,6 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # who is using the program (persona.py); filled in by the first-run guide
     "persona": {},
     "onboarding.done": False,
-    # A notice about how the employer handles applicant data, shown in a dialog that blocks the form ("I understand" / "Accept"):
-    # acknowledge it and go on. Such notices are a condition of applying at all; the answers on the form itself are not touched.
-    "consent.acknowledge_notices": True,
     "browser.nodriver_enabled": False,
     "browser.executable": "",
     "browser.rules": [
@@ -207,20 +176,14 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "identity.emails": {},    # provider -> the e-mail of the user's account there, when it is not the application e-mail
     "identity.custom": [],    # sign-in providers the user added: [{"name": "…", "url": "sign-in page", "domains": ["example.com"]}]
     "sso.order": ["microsoft", "linkedin", "google", "apple", "github", "facebook", "indeed", "seek", "xing"],
-    # a site offers "Sign in with Microsoft / Google / LinkedIn" and you are signed in to that provider here:
-    #   ask  - the first time on each site, ask which way to sign in (the provider shares your name and e-mail with the site)
-    #   auto - use the provider without asking, in the order below
-    #   never - never use a provider; register with e-mail or ask you to sign in
-    "sso.mode": "ask",
-    "sso.sites": {},     # tenant key -> provider you approved for that site ("" = you said not to use one there)
     # per-job résumé tailoring (tailor.py)
     "tailor.mode": "select",            # off | select (reorder / choose only, no wording changes) | rephrase (may reword bullets; checked against the original)
-    "tailor.auto": True,                # write one while the draft is prepared; False = only when asked
+    "tailor.auto": True,                # write one when the application is begun; False = only when asked
     "tailor.min_score": 8.0,            # jobs below this use the résumé as uploaded
     "tailor.reorder_entries": "projects",  # none | projects | all
     "tailor.reorder_skills": True,
     "tailor.allow_drop": False,         # leave out bullets that do not matter for the posting
     "tailor.min_bullets": 2,            # never fewer than this per entry
     "tailor.target_pages": 0,           # 0 = as many pages as the original
-    "tailor.review": True,              # a draft with a newly tailored résumé always waits for the user
+    "tailor.review": True,              # an application with a résumé rewritten just now waits for the applicant's approval
 }

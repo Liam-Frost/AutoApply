@@ -114,7 +114,7 @@ def test_postings_for_other_programmes_are_set_aside_without_the_model_and_the_r
         rows = {j.id: j for j in s.query(Job)}
         assert all(rows[i].status == "skipped" and rows[i].exclusion.startswith("面向其他专业：Civil") and rows[i].score == 0 for i in ids[6:])
         assert rows[ids[0]].status == "queued" and rows[ids[0]].brief and rows[ids[1]].status == "scored" and not rows[ids[1]].brief
-        assert [t.kind for t in s.query(Task).filter_by(status="queued")] == ["recon"]
+        assert [t.kind for t in s.query(Task).filter_by(status="queued")] == ["apply"]
     # the overview of a posting that got none is written when it is asked for
     monkeypatch.setattr(llm, "json", lambda prompt, schema, **kw: {"brief": "#### 这个岗位做什么\n- written on request"})
     assert "written on request" in scoring.brief_job(ids[1])
@@ -479,7 +479,7 @@ def test_the_program_does_not_start_more_drafts_than_the_applicant_wants_waiting
     assert scoring.draft_room() == {"waiting": 2, "cap": 3, "room": 1}
     assert scoring.queue_qualifying(limit=6) == 1                    # one more, the best of them
     with db.session() as s:
-        assert [t.ref for t in s.query(Task).filter_by(kind="recon")] == [f"job:{good[0]}"] and s.get(Job, good[0]).status == "queued"
+        assert [t.ref for t in s.query(Task).filter_by(kind="apply")] == [f"job:{good[0]}"] and s.get(Job, good[0]).status == "queued"
         assert [s.get(Job, i).status for i in good[1:]] == ["scored"] * 3     # they keep their place: next when there is room
     assert scoring.draft_room()["room"] == 0 and scoring.queue_qualifying(limit=6) == 0
     db.set_setting("drafts.max_pending", 0)                           # no limit
@@ -646,7 +646,7 @@ def test_the_room_for_drafts_goes_to_the_best_postings(app_env, monkeypatch):
     monkeypatch.setattr(scoring, "score_job", score_job)
     monkeypatch.setattr(scoring, "set_aside_by_rule", lambda ids: ids)
     out = scoring.score_pending()
-    refs = lambda: sorted(t.ref for t in db.session().__enter__().query(Task).filter_by(kind="recon"))  # noqa: E731
+    refs = lambda: sorted(t.ref for t in db.session().__enter__().query(Task).filter_by(kind="apply"))  # noqa: E731
     assert refs() == [f"job:{best}"] and out.get("queued_for_draft", out.get("queued")) == 1
     with db.session() as s:
         assert [s.get(Job, i).status for i in (best, waiting, fine)] == ["queued", "scored", "scored"]

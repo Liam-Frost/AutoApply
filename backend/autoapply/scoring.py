@@ -280,7 +280,7 @@ def draft_room() -> dict[str, int]:
     with db.session() as s:
         waiting = s.query(Application).filter(Application.status.in_(("recon", "revising", "needs_input", "draft_ready"))).count()
         # drafts that are about to be started and have no application yet
-        for t in s.query(Task).filter(Task.kind == "recon", Task.status == "queued"):
+        for t in s.query(Task).filter(Task.kind == "apply", Task.status == "queued"):
             num = t.ref.partition(":")[2]
             if t.ref.startswith("job:") and num.isdigit():
                 j = s.get(Job, int(num))
@@ -311,7 +311,7 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
     line = draft_line()
     todo: list[tuple[int, str]] = []
     with db.session() as s:
-        busy = {t.ref for t in s.query(Task).filter(Task.kind == "recon", Task.status.in_(("queued", "running", "waiting_human", "held")))}
+        busy = {t.ref for t in s.query(Task).filter(Task.kind == "apply", Task.status.in_(("queued", "running", "waiting_human", "held")))}
         rows = (s.query(Job).filter(Job.status == "scored", Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None), Job.score.isnot(None))
                 .order_by(Job.score.desc(), Job.id.desc()).all())
         for j in rows:
@@ -323,7 +323,7 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
                 if len(todo) >= limit:
                     break
     for jid, deadline in todo:
-        tasks.enqueue("recon", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
+        tasks.enqueue("apply", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
     return len(todo)
 
 

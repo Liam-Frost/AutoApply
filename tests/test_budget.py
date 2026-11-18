@@ -45,11 +45,11 @@ def test_a_budget_is_so_many_tool_calls_and_a_moment_on_the_clock(app_env):
         b.spend()
     assert e.value.why == "timeout" and b.used == 1
     # how much each kind of work gets is a setting, by kind; what it does not say is as built in
-    got = agentbudget.for_kind("explore_form")
-    assert (got.steps, got.seconds, got.kind) == (140, 35 * 60, "explore_form")
-    db.set_setting("agent.budgets", {"explore_form": {"steps": 300}, "navigate": {"steps": 0, "minutes": "x"}})
-    assert (agentbudget.for_kind("explore_form").steps, agentbudget.for_kind("explore_form").seconds) == (300, 35 * 60)
-    assert (agentbudget.for_kind("navigate").steps, agentbudget.for_kind("navigate").seconds) == (40, 10 * 60)      # nonsense is not a budget
+    got = agentbudget.for_kind("apply")
+    assert (got.steps, got.seconds, got.kind) == (400, 45 * 60, "apply")
+    db.set_setting("agent.budgets", {"apply": {"steps": 300}, "scan": {"steps": 0, "minutes": "x"}})
+    assert (agentbudget.for_kind("apply").steps, agentbudget.for_kind("apply").seconds) == (300, 45 * 60)
+    assert (agentbudget.for_kind("scan").steps, agentbudget.for_kind("scan").seconds) == (80, 20 * 60)      # nonsense is not a budget
     assert (agentbudget.for_kind("something new").steps, agentbudget.for_kind("something new").seconds) == (60, 20 * 60)
 
 
@@ -291,16 +291,16 @@ def test_the_budgets_are_a_setting_shown_whole_and_checked_when_saved(app_env):
     from autoapply.api.main import app
 
     c = TestClient(app)
-    db.set_setting("agent.budgets", {"explore_form": {"steps": 300}})      # saved before the other kinds were there
+    db.set_setting("agent.budgets", {"apply": {"steps": 300}})      # saved before the other kinds were there
     shown = c.get("/api/settings").json()["settings"]["agent.budgets"]
-    assert shown["explore_form"] == {"steps": 300, "minutes": 35} and shown["take_over"] == {"steps": 120, "minutes": 30} and set(shown) == set(config.DEFAULT_SETTINGS["agent.budgets"])
-    shown["navigate"] = {"steps": 55, "minutes": 12}
+    assert shown["apply"] == {"steps": 300, "minutes": 45} and shown["site_status"] == {"steps": 60, "minutes": 15} and set(shown) == set(config.DEFAULT_SETTINGS["agent.budgets"])
+    shown["scan"] = {"steps": 55, "minutes": 12}
     assert c.put("/api/settings", json={"settings": {"agent.budgets": shown}}).status_code == 200
-    assert (agentbudget.for_kind("navigate").steps, agentbudget.for_kind("navigate").seconds) == (55, 12 * 60)
-    for bad in ({"navigate": {"steps": 0, "minutes": 10}}, {"navigate": {"steps": 10, "minutes": 999}}, {"navigate": {"steps": "many"}}, {"navigate": 5}, []):
+    assert (agentbudget.for_kind("scan").steps, agentbudget.for_kind("scan").seconds) == (55, 12 * 60)
+    for bad in ({"scan": {"steps": 0, "minutes": 10}}, {"scan": {"steps": 10, "minutes": 999}}, {"scan": {"steps": "many"}}, {"scan": 5}, []):
         r = c.put("/api/settings", json={"settings": {"agent.budgets": bad}})
         assert r.status_code == 400, bad
-    assert agentbudget.for_kind("navigate").steps == 55      # a refused table changed nothing
+    assert agentbudget.for_kind("scan").steps == 55      # a refused table changed nothing
 
 
 def test_a_request_to_the_model_is_given_what_is_left_of_the_budget_and_no_more(app_env, monkeypatch):

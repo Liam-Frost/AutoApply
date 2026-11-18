@@ -164,25 +164,6 @@ def test_session_roundtrip_and_profile_lock(native_page, tmp_path):
         thread.join()
 
 
-def test_native_generic_schema(native_page):
-    from autoapply.ats.generic_driver import GenericDriver
-    from autoapply.ats.base import FormSchema, Question
-
-    native_page.goto(Path("tests/fixtures/form.html").resolve().as_uri())
-    schema = FormSchema(ats="generic", url=native_page.url, questions=[
-        Question("first_name", "First Name", "text", locator={"selector": "#first_name"}),
-        Question("auth", "Are you legally authorized to work in Canada?", "select", options=["Yes", "No"], locator={"selector": "#auth"}),
-        Question("consent", "I agree to the privacy policy", "checkbox", locator={"selector": "#consent"}),
-    ])
-    driver = GenericDriver(schema)
-    answers = {"first_name": "Test", "auth": "Yes", "consent": True}
-    driver.fill_page(native_page, schema, 0, answers)
-    result = driver.read_back(native_page, schema, 0)
-    assert result["first_name"] == "Test"
-    assert result["auth"] == "Yes"
-    assert result["consent"] is True
-
-
 def test_a_sites_work_is_done_in_the_browser_its_sign_in_lives_in_whatever_the_work_is(as_configured):
     """Google's careers site signs in on Google. The applicant signed in to Google in the ordinary browser; the rule
     saved for Google said "login" only, so filling the form went to the automated browser with Google's cookies - where
@@ -198,14 +179,9 @@ def test_a_sites_work_is_done_in_the_browser_its_sign_in_lives_in_whatever_the_w
     for tenant in ("idp:google", "generic:www.google.com", "pdportal:ubc"):
         assert {bp.select(tenant, operation=op).backend for op in ops} == {"nodriver"}, tenant
     assert {bp.select("workday:acme.wd1", operation=op).backend for op in ops} == {"playwright"}       # nothing says otherwise
-    # a site that signs in through a provider follows the provider - any provider, not Google by name
-    db.set_setting("sso.sites", {"generic:jobs.example.com": "google", "generic:careers.example.org": "microsoft"})
-    assert bp.select("generic:jobs.example.com", operation="apply").backend == "nodriver"
-    assert bp.select("generic:careers.example.org", operation="apply").backend == "playwright"
     # where a sign-in was made is remembered with it, and decides from then on - with no rule at all
     db.set_setting("browser.rules", [])
     [__import__("autoapply.sites", fromlist=["sites"]).set_fact(k, "session_browser", "nodriver") for k in ("idp:microsoft", "idp:google")]
-    assert bp.select("generic:careers.example.org", operation="read").backend == "nodriver"
     assert bp.select("generic:www.google.com", operation="apply").reason == "where the sign-in for idp:google was made"
     assert bp.select("generic:www.google.com", operation="apply", override="playwright").backend == "playwright"      # the applicant's choice for one task
     db.set_setting("browser.nodriver_enabled", False)
@@ -246,41 +222,25 @@ def test_the_card_names_whose_sign_in_is_missing(app_env):
 
     from autoapply import auth, db
     from autoapply.api.main import app
-    from autoapply.ats.base import JobRef
     from autoapply.models import Todo
 
     __import__("autoapply.sites", fromlist=["sites"]).link("generic:www.google.com", "idp:google")
     [__import__("autoapply.sites", fromlist=["sites"]).set_fact(k, "sso_offered", ["google"]) for k in ("generic:www.google.com", "generic:jobs.example.com")]
-    careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
-    other = JobRef(ats="generic", tenant="jobs.example.com", job_id="", url="https://jobs.example.com/p/1", host="jobs.example.com")
+    careers, other = "generic:www.google.com", "generic:jobs.example.com"
     auth.ask_to_sign_in(careers, "Google · Intern", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser?continue=x", draft_id=45)
     auth.ask_to_sign_in(careers, "Google · Another posting", "blocked=login", url="https://accounts.google.com/v3/signin/accountchooser", draft_id=46)       # the same missing thing: one card
-    auth.ask_to_sign_in(other, "Example", "the site asks for an account", url="https://jobs.example.com/login", can_register=True)
-    auth.ask_to_sign_in(other.__class__(**{**other.__dict__, "tenant": "apply.example.net", "host": "apply.example.net"}), "Example Net",
+    auth.ask_to_sign_in(other, "Example", "the site asks for an account", url="https://jobs.example.com/login")
+    auth.ask_to_sign_in("generic:apply.example.net", "Example Net",
                         "The Sign in with Google button led to accounts.google.com, which shows the account as signed out.", url="https://apply.example.net/sso")
     with db.session() as s:
         cards = {t.ref: t.payload for t in s.query(Todo).filter_by(kind="takeover", status="open")}
     assert set(cards) == {"account:idp:google", "account:generic:jobs.example.com"}
     g = cards["account:idp:google"]
-    assert (g["tenant_key"], g["provider"], g["can_register"], g["url"]) == ("idp:google", "Google", False, "https://accounts.google.com/")
-    assert cards["account:generic:jobs.example.com"]["can_register"] is True
+    assert (g["tenant_key"], g["provider"], g["url"]) == ("idp:google", "Google", "https://accounts.google.com/")
+    assert cards["account:generic:jobs.example.com"]["url"] == "https://jobs.example.com/login"
     c = TestClient(app)
     shown = {t["ref"]: t for t in c.get("/api/todos").json() if t["kind"] == "takeover"}
     assert "sso" not in shown["account:idp:google"]                # Google is not offered as a way to sign in to Google
-
-
-def test_a_site_whose_sign_in_is_a_providers_own_has_nothing_to_choose_or_register(app_env):
-    from autoapply import auth, db
-    from autoapply.ats.base import JobRef
-
-    __import__("autoapply.sites", fromlist=["sites"]).link("generic:www.google.com", "idp:google")
-    db.set_setting("sso.mode", "auto")
-    careers = JobRef(ats="generic", tenant="www.google.com", job_id="", url="https://www.google.com/about/careers/applications/jobs/results/1", host="www.google.com")
-    plan = auth.sign_in_plan(careers, ["google", "linkedin"])
-    assert (plan["do"], plan["may_register"], plan["offered"]) == ("ask_user", False, []) and "Google's own" in plan["why"]
-    # ... and the same when the agent stands on the provider's page working for that site
-    at_google = JobRef(ats="generic", tenant="accounts.google.com", job_id="", url="https://accounts.google.com/signin", host="accounts.google.com")
-    assert auth.sign_in_plan(at_google, [], also="generic:www.google.com")["do"] == "ask_user"
 
 
 def test_the_ordinary_browser_knows_when_its_window_is_gone_and_presses_every_key(native_page):
@@ -362,7 +322,7 @@ def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_as
     from contextlib import contextmanager
 
     from autoapply import browser, db
-    from autoapply.ats.base import NeedsHuman
+    from autoapply.errors import NeedsHuman
     from autoapply.models import Todo
     from autoapply.sources import pdportal
 
@@ -394,10 +354,10 @@ def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_as
 
     monkeypatch.setattr(browser, "open_page", open_page)
 
-    def no_sign_in(page):                    # how the portal is signed in to is test_portal_sign_in.py's subject
+    def nobody_signs_in(page, known, problem, got):      # (what the agent does with a signed-out portal is test_agent_scan.py's subject)
         raise NeedsHuman("PD Portal session expired", kind="login")
 
-    monkeypatch.setattr(pdportal, "sign_in", no_sign_in)
+    monkeypatch.setattr(pdportal, "_by_the_agent", nobody_signs_in)
     order = [True, False]                    # hidden: turned away; in a window: let in
     with pytest.raises(NeedsHuman, match="session expired"):
         list(pdportal.scan(set()))

@@ -1,77 +1,8 @@
 import pytest
 
-from autoapply.ats.base import DriverError, FormSchema, Question, blocking_drift, diff_schemas, sensitivity, values_equal
-from autoapply.ats.widgets import pick_option
-
-
-def test_values_equal():
-    assert values_equal("6045550142", "(604) 555-0142")
-    assert values_equal("+1 604-555-0142", "6045550142")
-    assert values_equal(" Yes ", "yes")
-    assert values_equal(True, True) and not values_equal(True, False)
-    assert values_equal(["b", "a"], ["a", "b"])
-    assert not values_equal("Yes", "No")
-    assert values_equal("https://x.com/", "https://x.com")
-
-
-def test_pick_option():
-    opts = ["Yes, I am legally authorized", "No, I am not legally authorized", "Yes"]
-    assert pick_option(opts, "Yes") == 2  # exact beats prefix
-    assert pick_option(["Canada (+1)", "Chad (+235)"], "Canada") == 0
-    with pytest.raises(DriverError):
-        pick_option(["Yes - Newcomer", "Yes - Refugee", "No"], "Yes")  # ambiguous: must not guess
-
-
-def test_sensitivity():
-    assert sensitivity("Will you now or in the future require sponsorship?") == "sponsorship"
-    assert sensitivity("Do you own any intellectual property rights (patents)?") == "ip"
-    assert sensitivity("What is your gender?") == "demographic"
-    assert sensitivity("LinkedIn Profile") == ""
-
 
 def _s(*qs):
     return FormSchema(ats="x", questions=list(qs))
-
-
-def test_drift():
-    a = _s(Question("n", "First Name", "text", True), Question("a", "Authorized?", "select", True, ["Yes", "No"]))
-    blind = _s(Question("n", "First Name *", "textarea", True), Question("a", "Authorized?", "select", True, []))
-    assert not blocking_drift(diff_schemas(a, blind))  # unknown options / text family are not drift
-    new_required = _s(*a.questions, Question("s", "Salary expectation", "text", True))
-    d = diff_schemas(a, new_required)
-    assert blocking_drift(d) and d["added"][0]["label"] == "Salary expectation"
-    new_optional = _s(*a.questions, Question("s", "Referral", "text", False))
-    assert not blocking_drift(diff_schemas(a, new_optional))
-    changed = _s(a.questions[0], Question("a", "Authorized?", "select", True, ["Yes", "No", "Unsure"]))
-    assert blocking_drift(diff_schemas(a, changed))
-
-
-def test_mail_extract():
-    from autoapply.mail import extract_verification
-
-    assert extract_verification("Your verification code", "Your verification code is 483920. It expires soon.") == "483920"
-    link = extract_verification("Verify", "Click https://x.wd1.myworkdayjobs.com/activate?token=abc to verify your account")
-    assert link.startswith("https://x.wd1")
-    assert extract_verification("Newsletter", "Our office moved to 123456 Main St") is None
-
-
-def test_workday_detect():
-    from autoapply.ats.workday import WorkdayDriver
-
-    r = WorkdayDriver().detect(
-        "https://altera.wd1.myworkdayjobs.com/en-US/Altera/job/Toronto-Ontario-Canada/Software-Engineer----Intern_R03414/apply/applyManually"
-    )
-    assert (r.tenant, r.job_id, r.extra["site"], r.tenant_key) == ("altera.wd1", "R03414", "Altera", "workday:altera.wd1")
-    assert r.extra["job_path"].endswith("_R03414")
-
-
-def test_registry_detect():
-    from autoapply.ats import registry
-
-    assert registry.detect("https://job-boards.greenhouse.io/globalrelay/jobs/6241593004").ats == "greenhouse"
-    assert registry.detect("https://www.globalrelay.com/careers/jobs/?gh_jid=6241593004").job_id == "6241593004"
-    assert registry.detect("https://jobs.ashbyhq.com/solink/c973029a-83fa-449e-b4a9-0a1514165430/application").tenant == "solink"
-    assert registry.detect("https://apply.workable.com/botpress/j/9B3CB646E8/apply/").ats == "workable"
 
 
 def test_secrets_and_csv(app_env):
@@ -272,23 +203,6 @@ def test_mail_match_application(app_env):
     assert mail.match_application("Nobody Corp", "Engineer", None) is None
 
 
-def test_pdportal_driver_wiring(app_env):
-    from autoapply.ats.pdportal import PDPortalDriver
-
-    from autoapply import answers
-    from autoapply.ats import registry
-    from autoapply.models import Job
-
-    ref = registry.detect("https://pdportal.apsc.ubc.ca/myAccount/co-op/postings.htm#posting=149123")
-    assert (ref.ats, ref.job_id, ref.tenant_key) == ("pdportal", "149123", "pdportal:ubc")
-    assert getattr(registry.get("pdportal"), "sso", False)
-    job = Job(source="pdportal", source_id="149123", company="Acme & Co.")
-    assert PDPortalDriver.fixed_answer(Question("package", "Package Name", "text", True), job)[0] == "Acme___Co_149123"
-    assert PDPortalDriver.fixed_answer(Question("13", "Transcript", "select", False, ["Student Transcript"]), job)[0] == ""
-    assert PDPortalDriver.fixed_answer(Question("13", "Transcript", "select", True, ["Student Transcript"]), job)[0] == "Student Transcript"
-    assert PDPortalDriver.fixed_answer(Question("12", "Resume", "select", True, ["A", "B"]), job) is None  # the model picks
-
-
 def test_llm_backend_switch(app_env, monkeypatch):
     from autoapply import db, llm, llm_sdk
 
@@ -326,9 +240,9 @@ def test_sdk_tool_content():
 
 
 def test_sites_are_told_apart_by_host_not_by_a_name_somewhere_in_the_address():
-    from autoapply.ats import registry
-    from autoapply.ats.base import host_is, url_host
+    from autoapply import sites
     from autoapply.browser import IDENTITIES
+    from autoapply.errors import host_is, url_host
 
     assert host_is("jobs.ashbyhq.com", "ashbyhq.com") and host_is("ashbyhq.com", "ashbyhq.com") and host_is("JOBS.ashbyhq.com:443", "ashbyhq.com")
     assert not host_is("notashbyhq.com", "ashbyhq.com") and not host_is("ashbyhq.com.evil.example", "ashbyhq.com") and not host_is("", "ashbyhq.com")
@@ -336,9 +250,8 @@ def test_sites_are_told_apart_by_host_not_by_a_name_somewhere_in_the_address():
     # look-alike addresses are ordinary sites, not the systems they imitate
     for url in ("https://evilgreenhouse.io/acme/jobs/123", "https://evil.example/?u=boards.greenhouse.io/acme/jobs/123", "https://myworkdayjobs.com.evil.example/x/job/1",
                 "https://fakeashbyhq.com/acme/1"):
-        ref = registry.detect(url)
-        assert ref is None or ref.ats == "generic", url
-    assert registry.detect("https://boards.greenhouse.io/acme/jobs/123").ats == "greenhouse"
+        assert sites.where(url)[0] == "", url
+    assert sites.where("https://boards.greenhouse.io/acme/jobs/123") == ("greenhouse", "acme")
     # "sign-in finished" is where the window is, not a name inside the address
     done = {k: v["done"] for k, v in IDENTITIES.items()}
     assert done["google"]("https://myaccount.google.com/") and not done["google"]("https://evil.example/?next=myaccount.google.com")
@@ -385,14 +298,14 @@ def test_an_application_cut_off_while_being_filled_can_be_started_again(app_env)
             s.flush()
             s.add(Application(job_id=j.id, status="executing"))
         s.flush()
-        a1, a2 = [a.id for a in s.query(Application).order_by(Application.id)]
-        s.add(Task(kind="execute", ref=f"application:{a1}", status="running", attempts=2, payload={}))   # interrupted for the second time
-        s.add(Task(kind="execute", ref=f"application:{a2}", status="running", attempts=1, payload={}))   # first time: it is run again
+        (a1, j1), (a2, j2) = [(a.id, a.job_id) for a in s.query(Application).order_by(Application.id)]
+        s.add(Task(kind="apply", ref=f"job:{j1}", status="running", attempts=2, payload={"job_id": j1}))   # interrupted for the second time
+        s.add(Task(kind="apply", ref=f"job:{j2}", status="running", attempts=1, payload={"job_id": j2}))   # first time: it is run again
     tasks.recover()
     with db.session() as s:
         assert s.get(Application, a1).status == "failed" and "中断" in s.get(Application, a1).last_event
         assert s.get(Application, a2).status == "executing"
-        assert {t.ref: t.status for t in s.query(Task)} == {f"application:{a1}": "failed", f"application:{a2}": "queued"}
+        assert {t.ref: t.status for t in s.query(Task)} == {f"job:{j1}": "failed", f"job:{j2}": "queued"}
 
 
 def test_every_server_file_with_text_for_the_applicant_is_on_the_list_to_translate():
@@ -437,85 +350,44 @@ def test_which_browser_a_task_worked_in_is_said_in_words():
 
 
 def test_the_analysis_page_compares_the_recruiting_systems(app_env):
-    """Every site's form is read by the agent now. Whether that serves a system well is asked system by system: how
-    reading and filling went, how long the program worked, how often it handed the form over, what the model was
-    asked - by the definitions the rest of the page uses (not Run.ok, not "the task is done")."""
+    """How the agent's runs went is asked system by system, by the definitions the rest of the page uses: a run that
+    sent the application is a success; one that left a record waiting for the applicant, pressed submit without a
+    confirmation, or used its share of the budget and goes on is neither a success nor a failure."""
     from datetime import timedelta
 
-    from autoapply import analytics, db, timing
-    from autoapply.models import Application, Draft, Job, LLMRequest, Run, Task, now
+    from autoapply import analytics, db
+    from autoapply.models import Job, LLMRequest, Task, now
 
     at = now() - timedelta(hours=3)
-
-    def task(kind, ref, status="done", result=None, error="", minutes=2.0):
-        t = Task(kind=kind, ref=ref, status=status, result=result or {}, error=error, attempts=1, created_at=at, started_at=at, finished_at=at + timedelta(minutes=minutes))
-        s.add(t)
-        s.flush()
-        return t
-
-    def asked(t, tokens, cost=None):
-        s.add(LLMRequest(request_id=f"r{t.id}-{tokens}", call_id=f"c{t.id}", started_at=at, provider="anthropic", model="m", kind="agent", feature="explore_form", task_id=t.id,
-                         workflow=t.kind, ref=t.ref, status="ok", turns=1, input_tokens=tokens, output_tokens=0, cost_micros=cost, source="live"))
-
-    def run(t, ats, steps, ms):
-        s.add(Run(task_id=t.id, kind="execute", ref=t.ref, ats=ats, ok=1, steps=[{"op": x} for x in steps], spans=[{"k": "driver", "n": "field", "t": 0, "ms": ms}, {"k": "human", "n": "window", "t": ms, "ms": 600000}],
-                  human_interventions=0, created_at=at))
-
+    assert [analytics.outcome("apply", "done", {"status": x}, "") for x in ("submitted", "ready", "needs_input", "submit_unknown", "goes_on", "cannot", "stuck", "budget_used", "stopped")] == [
+        "success", "handed", "handed", "unknown", "rerun", "failed", "failed", "failed", "cancelled"]
+    assert analytics.outcome("apply", "done", {"already_applied": True}, "") == "skipped" and analytics.outcome("apply", "waiting_human", {}, "") == "waiting"
+    assert analytics.outcome("execute", "done", {"status": "submitted"}, "") == "success"        # what earlier versions ran is still read as it was
     with db.session() as s:
         jobs = {}
-        for ats in ("workday", "greenhouse", ""):
+        for ats in ("workday", "greenhouse"):
             j = Job(source="x", source_id=f"s{ats}", title="Intern", company=f"Co {ats}", ats=ats, status="scored")
             s.add(j)
             s.flush()
-            a = Application(job_id=j.id, status="draft_ready")
-            s.add(a)
+            jobs[ats] = j.id
+        n = 0
+        for ats, status, result, tokens, cost in (("workday", "done", {"status": "submitted"}, 1000, 400), ("workday", "done", {"status": "ready"}, 500, None),
+                                                  ("workday", "failed", {}, 100, 50), ("greenhouse", "done", {"status": "goes_on"}, 0, None)):
+            n += 1
+            t = Task(kind="apply", ref=f"job:{jobs[ats]}", status=status, result=result, error="boom" if status == "failed" else "", attempts=1, created_at=at, started_at=at,
+                     finished_at=at + timedelta(minutes=10), payload={"job_id": jobs[ats]})
+            s.add(t)
             s.flush()
-            d = Draft(application_id=a.id, version=1, schema={}, answers=[], unresolved=[], materials=[], review_status="pending")
-            s.add(d)
-            s.flush()
-            jobs[ats] = (j.id, a.id, d.id)
-        wj, wa, wd = jobs["workday"]
-        # Workday: read three times (one failed, one still waiting for a sign-in), revised once, filled four times
-        asked(task("recon", f"job:{wj}", minutes=4), 9000, 300)
-        task("recon", f"job:{wj}", "failed", error="could not open the posting", minutes=1)
-        task("recon", f"job:{wj}", "waiting_human", error="login required")
-        asked(task("revise", f"draft:{wd}"), 1000)                                             # no price for this one
-        sent = task("execute", f"application:{wa}", result={"status": "submitted"}, minutes=3)
-        run(sent, "workday", ["open", "fill_page", "repair", "repair", "read_back", "submit"], 90000)
-        asked(sent, 5000, 200)
-        handed = task("execute", f"application:{wa}", result={"status": "ready_to_submit"}, minutes=15)
-        run(handed, "workday", ["open", "fill_page", "read_back", "handed_over"], 60000)
-        failed = task("execute", f"application:{wa}", result={"status": "failed", "error": "could not advance to the next page"})
-        run(failed, "workday", ["open", "fill_page", "cannot_advance"], 30000)
-        task("execute", f"application:{wa}", result={"status": "submit_unknown"})
-        task("execute", f"application:{wa}", result={"status": "skipped", "note": "already submitted"})   # found nothing to do: not counted
-        # Greenhouse: read once, nothing filled; a site with no driver: filled once, by the applicant's hand in the end
-        task("recon", f"job:{jobs['greenhouse'][0]}", minutes=2)
-        other = task("execute", f"application:{jobs[''][1]}", result={"status": "submitted"})
-        run(other, "generic", ["open", "fill_page", "handed_over", "submit"], 45000)
-        # not about a posting at all
-        task("discover", "schedule")
-        task("mail", "schedule")
+            if tokens:
+                s.add(LLMRequest(request_id=f"r{n}", call_id=f"c{n}", started_at=at, provider="anthropic", model="m", kind="agent", feature="apply", task_id=t.id, workflow="apply",
+                                 ref=t.ref, status="ok", turns=1, input_tokens=tokens, output_tokens=0, cost_micros=cost, source="live"))
+        s.add(Task(kind="score", ref=f"job:{jobs['workday']}", status="done", result={}, attempts=1, created_at=at, started_at=at, finished_at=at))      # not a run on an application
     got = {y["ats"]: y for y in analytics.automation(analytics.window(7))["systems"]}
-    assert list(got) == ["workday", "greenhouse", "generic"] or list(got) == ["workday", "generic", "greenhouse"]
-    w = got["workday"]
-    assert w["label"] == "Workday" and w["postings"] == 1
-    assert (w["read"]["total"], w["read"]["success"], w["read"]["failed"], w["read"]["waiting"], w["read"]["settled"], w["read"]["success_rate"]) == (3, 1, 1, 1, 2, 0.5)
-    assert w["read"]["median_s"] == 150.0                                                      # of the ones that ran to an end: four minutes and one
-    f = w["fill"]
-    assert (f["total"], f["success"], f["handed"], f["unknown"], f["failed"], f["settled"], f["success_rate"]) == (4, 1, 1, 1, 1, 2, 0.5)
-    assert f["working_ms"] == 60000                                                            # the program's own time, the middle one of three runs; not the ten minutes the window was open
-    assert w["human"] == {"runs": 3, "stops": 1, "runs_stopped": 1, "stops_per_run": 0.33, "takeovers_per_run": 0.67}
-    assert w["ai"] == {"requests": 3, "tokens": 15000, "tokens_per_posting": 15000, "cost": 500, "cost_unknown_requests": 1}
-    g = got["greenhouse"]
-    assert (g["read"]["success_rate"], g["fill"]["total"], g["fill"]["success_rate"], g["fill"]["working_ms"], g["human"]["stops_per_run"], g["ai"]["cost"]) == (1.0, 0, None, None, None, None)
-    o = got["generic"]
-    assert o["label"].startswith("其他网站") and o["fill"]["success"] == 1 and o["human"]["stops_per_run"] == 1.0
-    # what a run records of itself, from the steps real runs have
-    assert timing.stops_for_applicant([{"op": "open"}, {"op": "handed_over"}, {"op": "submit"}, "junk"]) == 1 and timing.stops_for_applicant(None) == 0
-    assert timing.takeovers([{"op": "repair"}, {"op": "repair_skipped"}, {"op": "repair"}]) == 2
-    # the view narrowed to one kind of task still compares whole systems
-    assert {y["ats"] for y in analytics.automation(analytics.window(7), kind="mail")["systems"]} == set(got)
+    wd, gh = got["workday"], got["greenhouse"]
+    assert wd["postings"] == 1 and wd["runs"] == {"total": 3, "success": 1, "failed": 1, "settled": 2, "success_rate": 0.5, "median_s": 600.0, "handed": 1, "unknown": 0, "waiting": 0,
+                                                 "goes_on": 0, "running": 0}
+    assert wd["ai"]["tokens"] == 1600 and wd["ai"]["cost"] == 450 and wd["ai"]["cost_unknown_requests"] == 1 and wd["ai"]["tokens_per_posting"] == 1600
+    assert gh["runs"]["goes_on"] == 1 and gh["runs"]["success_rate"] is None and gh["ai"]["cost"] is None
 
 
 def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):
@@ -545,37 +417,3 @@ def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):
     assert names[0] == "autoapply-backup-20980101-000000.zip" and "autoapply-backup-20990101-000000.zip" not in names and first["name"] in names
     assert backup.last()["sessions"] is True and backup.last()["version"] == "9.9"
 
-
-def test_an_answer_that_is_used_again_says_where_it_was_given_and_when(app_env):
-    """A6 kept whose form an answer was last given on; the draft showed "answered before" and no more."""
-    from autoapply import answers as ans
-    from autoapply import db, humanize
-    from autoapply.ats.base import FormSchema, Question
-    from autoapply.models import AnswerCache, Job
-
-    db.init_db()
-    q1 = Question(id="auth", label="Are you legally authorized to work in Canada?", type="select", options=["Yes", "No"], required=True)
-    q2 = Question(id="start", label="Earliest start date", type="text")
-    q3 = Question(id="worked", label="Have you worked for us before?", type="select", options=["Yes", "No"])
-    ans.cache_put("greenhouse", q1, "Yes", "work authorization in the profile", confirmed=True, tenant="acme")      # confirmed on Acme's form
-    ans.cache_put("greenhouse", q2, "June 2027", "start date in the profile", confirmed=False, tenant="acme")        # filled on Acme's form, not confirmed
-    ans.cache_put("greenhouse", q3, "No", "never worked there", confirmed=True, tenant="beta")                       # confirmed - on Beta's form
-    with db.session() as s:
-        for row in s.query(AnswerCache):
-            row.updated_at = row.updated_at.replace(year=2026, month=11, day=2)
-        job = Job(source="greenhouse", source_id="1", title="Intern", company="Acme", ats="greenhouse", tenant="acme", status="scored", jd_text="d" * 300)
-        s.add(job)
-        s.flush()
-        s.expunge(job)
-    schema = FormSchema(ats="greenhouse", tenant="acme", questions=[q1, q2, q3])
-    rows = {r["id"]: r for r in ans.resolve(schema, job)["answers"]}
-    assert rows["auth"]["reused"] == {"own": True, "confirmed": True, "employer": "", "at": rows["auth"]["reused"]["at"]} and rows["auth"]["reused"]["at"].startswith("2026-11-02")
-    assert (rows["start"]["reused"]["own"], rows["start"]["reused"]["confirmed"]) == (True, False)
-    assert (rows["worked"]["reused"]["own"], rows["worked"]["reused"]["confirmed"], rows["worked"]["reused"]["employer"]) == (False, False, "beta")
-    said = {k: humanize.reused(v["reused"], "greenhouse") for k, v in rows.items()}
-    assert said["auth"] == "你在这家雇主的表单上确认过这个答案（2026-11-02）"
-    assert said["start"] == "这家雇主的表单上次填的就是这个答案（2026-11-02），你还没有确认过"
-    assert said["worked"].startswith("这个答案上次用在 ") and "beta" in said["worked"].lower() and said["worked"].endswith("在这家雇主这里你还没有确认过")
-    # a draft from before this was kept, and an answer that is not a reused one, say nothing; an answer of unknown origin says what is known
-    assert humanize.reused(None) == "" and humanize.reused("x") == ""
-    assert humanize.reused({"own": False, "employer": "", "at": ""}, "greenhouse") == "这个答案来自同一个招聘系统上另一家雇主的表单；在这家雇主这里你还没有确认过"

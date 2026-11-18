@@ -31,8 +31,6 @@ def main() -> None:
     tr = sub.add_parser("tray", help="start the launcher: a tray icon that runs the server and shows its status")
     tr.add_argument("--port", type=int, default=None)
     tr.add_argument("--no-open", action="store_true")
-    fx = sub.add_parser("fixtures", help="replay saved form pages through the current drivers")
-    fx.add_argument("ats", nargs="?")
     sub.add_parser("claude-login", help="sign in with your Claude subscription (opens the browser)")
     ex = sub.add_parser("export", help="write everything you have put into the program into one zip")
     ex.add_argument("--sessions", action="store_true", help="include the saved sign-ins (only usable on this computer)")
@@ -184,15 +182,6 @@ def main() -> None:
 
         tasks.enqueue(a.kind, ref="cli", dedupe=False)
         tasks.drain(1)
-    elif a.cmd == "fixtures":
-        from . import fixtures
-
-        res = fixtures.run_all(a.ats)
-        fixtures.record(res["results"])      # kept and marked, as the scheduled self-check does
-        for r in res["results"]:
-            print(("ok   " if r["ok"] else "FAIL ") + f"{r['ats']}/{r['fixture']}" + ("" if r["ok"] else f"  {r.get('error') or r.get('missing') or r.get('changed')}"))
-        print(f"{res['fixtures']} fixture(s), {res['failed']} failed")
-        raise SystemExit(1 if res["failed"] else 0)
     elif a.cmd == "drain":
         from . import handlers, tasks  # noqa: F401
 

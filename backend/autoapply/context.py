@@ -13,8 +13,7 @@ later, without anybody remembering to. (They were a thread-local here and a cont
 threads were handed the first kind only: a task told to use the ordinary browser fetched its listings in the other one,
 and a task's own count of model calls missed the ones its helpers made.)
 
-Not carried, on purpose: what belongs to a thread and not to a task - the page a thread has open (``browser._now``,
-``learned._tls``) and the model service one call is trying at the moment (``llm._tls.entry``).
+Not carried, on purpose: what belongs to a thread and not to a task - the page a thread has open (``browser._now``) and the model service one call is trying at the moment (``llm._tls.entry``).
 """
 
 from __future__ import annotations

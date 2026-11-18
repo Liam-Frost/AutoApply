@@ -58,8 +58,9 @@ class Desk:
     """What the agent has besides the browser: the applicant's side (accounts, questions) and its own notes."""
 
     def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None, job_id: int | None = None,
-                 home: str = "") -> None:
+                 home: str = "", on_hand: Any = None) -> None:
         self.folder, self.hands, self.site, self.mode, self.login, self.job_id = folder, hands, site, mode, login, job_id
+        self.on_hand = on_hand           # called when the window is given to the applicant: the program tells them
         self.home = home.lower()         # the host of the posting: where this site is
         self.answers = dict(answers or {})
         self.asked: list[dict[str, Any]] = []
@@ -94,6 +95,11 @@ class Desk:
         """The window is the applicant's: they look the application over and press the last button themselves. Waits
         until they close the window or the time is up, then gives it back."""
         self.write("handed", url=self.hands.page.url)
+        if self.on_hand is not None:
+            try:
+                self.on_hand()
+            except Exception:  # noqa: BLE001 - the window is theirs whether or not they could be told
+                pass
         until = time.monotonic() + max(1.0, min(float(minutes or 20), 60.0)) * 60
         while time.monotonic() < until:
             try:
@@ -353,7 +359,7 @@ def journal_text(folder: Path) -> str:
 
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
-          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None) -> Result:
+          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None) -> Result:
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
@@ -361,7 +367,7 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     hands = Hands(page, files=applicant.files, shots=folder / "shots")
     from urllib.parse import urlparse as _urlparse
 
-    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "")
+    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand)
     if record is None and (folder / "record.json").exists():
         try:
             record = json.loads((folder / "record.json").read_text(encoding="utf-8"))

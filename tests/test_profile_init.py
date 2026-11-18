@@ -165,7 +165,8 @@ def test_nothing_is_scored_or_drafted_for_an_applicant_nothing_is_known_about(ap
     """With the profile empty, postings were scored against an applicant block with nothing in it - scores that stood,
     since nothing scores a posting twice - and the best of them had their forms read: minutes at the employer's site
     for a draft in which every question was "no answer", and a card for each."""
-    from autoapply import drafts, handlers, llm, scoring, tasks
+    from autoapply import handlers, llm, scoring, tasks
+    from autoapply.agent import work
     from autoapply.models import Job, Task, Todo
 
     _empty()
@@ -173,11 +174,11 @@ def test_nothing_is_scored_or_drafted_for_an_applicant_nothing_is_known_about(ap
     asked = []
     monkeypatch.setattr(llm, "json", lambda prompt, schema, **kw: (asked.append(prompt), {"excluded": False, "exclusion_rule": "", "score": 9.0, "direction": "backend", "reason": "r",
                                                                                       "term": "", "months": "", "summary": "s", "brief": ""})[1])
-    monkeypatch.setattr(drafts, "build", lambda job_id, **kw: 1 / 0)       # no form is opened
+    monkeypatch.setattr(work, "work", lambda job_id, **kw: 1 / 0)       # no form is opened
     db.set_setting("queue.min_score_for_draft", 8.0)
     tasks.enqueue("score", ref="unscored", priority=150)
     tasks.enqueue("score", ref=f"job:{ids[0]}", payload={"job_id": ids[0]})
-    recon = tasks.enqueue("recon", ref=f"job:{ids[1]}", payload={"job_id": ids[1]})
+    recon = tasks.enqueue("apply", ref=f"job:{ids[1]}", payload={"job_id": ids[1]})
     assert tasks.drain() == 3 and asked == []
     assert scoring.score_job(ids[0]) is None and scoring.score_pending() == {"waits_for_profile": True} and scoring.queue_qualifying() == 0
     with db.session() as s:
@@ -190,11 +191,11 @@ def test_nothing_is_scored_or_drafted_for_an_applicant_nothing_is_known_about(ap
     # the card ticked off with the profile still empty: the draft finds it empty again, and says so again
     assert handlers.resume_waiting("config:profile") == 1 and tasks.drain() == 1 and asked == []
     # the applicant writes one line about themselves: the card closes, the draft goes back in the queue, scoring is queued
-    monkeypatch.setattr(drafts, "build", lambda job_id, **kw: 77)
+    monkeypatch.setattr(work, "work", lambda job_id, **kw: {"draft_id": 77})
     knowledge.write("profile", "# Applicant profile\n\n## Identity & contact\n\n- Name: Ada Example\n")
     with db.session() as s:
         assert s.query(Todo).filter_by(status="open").count() == 0
-        assert sorted((t.kind, t.ref) for t in s.query(Task).filter_by(status="queued")) == [("recon", f"job:{ids[1]}"), ("score", "unscored")]
+        assert sorted((t.kind, t.ref) for t in s.query(Task).filter_by(status="queued")) == [("apply", f"job:{ids[1]}"), ("score", "unscored")]
     assert tasks.drain() >= 2 and len(asked) == 2
     with db.session() as s:
         assert s.get(Task, recon).result == {"draft_id": 77} and all(j.score == 9.0 for j in s.query(Job))
@@ -255,7 +256,8 @@ def test_a_scanned_resume_is_said_in_words(app_env, monkeypatch):
 def test_a_draft_written_while_there_was_no_profile_is_asked_again_when_there_is_one(app_env, monkeypatch):
     """Before forms waited for a profile, a form read for nobody gave a draft of unanswered questions. Those drafts
     are still there when the profile is written: their open questions are asked again, the others left alone."""
-    from autoapply import drafts, tasks
+    from autoapply import tasks
+    from autoapply.agent import work
     from autoapply.models import Application, Draft
 
     _empty()
@@ -273,16 +275,17 @@ def test_a_draft_written_while_there_was_no_profile_is_asked_again_when_there_is
             s.flush()
             ids.append(d.id)
     asked = []
-    monkeypatch.setattr(drafts, "reanswer", lambda draft_id: (asked.append(draft_id), {"asked": 1, "answered": 1, "left": 0})[1])
+    monkeypatch.setattr(work, "work", lambda job_id, **kw: (asked.append(job_id), {"status": "ready"})[1])
     knowledge.write("profile", "# Applicant profile\n\n## Identity & contact\n\n- Phone: 604 555 0100\n")
-    assert _tasks(status="queued") == [("score", "queued"), ("reanswer", "queued")] and tasks.drain() == 2 and asked == [ids[0]]
+    assert _tasks(status="queued") == [("score", "queued"), ("apply", "queued")] and tasks.drain() == 2 and asked == [jobs[0]]      # the one whose question was asked of nothing
 
 
 def test_a_profile_that_arrives_while_a_task_is_finding_it_empty_does_not_leave_the_task_waiting(app_env, monkeypatch):
     """The arrival looks for what waits, once. A draft that had just seen the empty profile was not yet recorded as
     waiting, and was recorded so a moment later - for good; scoring that was just ending as "no profile" took the
     arrival's request to score for its own."""
-    from autoapply import drafts, profile_init, scoring, tasks
+    from autoapply import profile_init, scoring, tasks
+    from autoapply.agent import work
     from autoapply.models import Task, Todo
 
     _empty()
@@ -294,8 +297,8 @@ def test_a_profile_that_arrives_while_a_task_is_finding_it_empty_does_not_leave_
         return real()
 
     monkeypatch.setattr(profile_init, "wanted", arrives_now)
-    monkeypatch.setattr(drafts, "build", lambda job_id, **kw: 77)
-    recon = tasks.enqueue("recon", ref=f"job:{job}", payload={"job_id": job})
+    monkeypatch.setattr(work, "work", lambda job_id, **kw: {"draft_id": 77})
+    recon = tasks.enqueue("apply", ref=f"job:{job}", payload={"job_id": job})
     tasks.run_one(tasks._claim("forms"))
     with db.session() as s:
         assert s.get(Task, recon).status == "queued" and s.query(Todo).filter_by(status="open").count() == 0

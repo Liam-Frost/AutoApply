@@ -1,25 +1,15 @@
 """What the program knows about a site - in one place, under one key.
 
-It used to be kept in five: notes in a playbook file, the steps of the form in a JSON file, recipes and plugins in a
-folder of their own, and half a dozen facts about signing in spread over settings - each under its own spelling of
-the site's name and with its own idea of when it is out of date. Taking a revision out left its note behind; a site
-that turned out to sign in elsewhere moved one of the five.
+A site is a row (models.Site), and this module is the only way to it:
 
-Now a site is a row (models.Site), and this module is the only way to it:
-
-    key             "generic:careers.acme.com" for a site without a driver of its own, "workday:acme.wd1" for one on a
-                    system that has one, "idp:google" for a sign-in provider. (How a whole system is worked - "workday",
-                    "greenhouse" - is kept under the system's name; its notes are the applicant's playbook for it.)
+    key             "generic:careers.acme.com" for an employer's own site, "workday:acme.wd1" for one on a recruiting
+                    system that keeps an account per employer, "idp:google" for a sign-in provider, "system:workday"
+                    for what agents noted about a system on every employer's site. ``key_of`` gives it for an address.
     account(key)    where the site signs in: itself, or the site it turned out to share its sign-in with (same_as)
-    fact / set_fact what was found out: sso_offered, needs_window, session_browser, driver_written, sign_in_hosts
-    notes / note    what the AI wrote down about working the site, newest first
-    plan / save_plan  the steps of its form (siteplan.py reads and writes through here)
-    revisions       what was learned for it as recipes and plugins (learned.py keeps their text as files - code has to
-                    be a file - and their record beside it; here they are found by site)
-    about           all of it, for one site: what the AI is given, and what the analysis page shows
+    fact / set_fact what was found out: sso_offered, needs_window, session_browser, sign_in_hosts, second_factor
+    notes / note    what an agent wrote down about working the site, newest first
+    about           all of it, for one site
     forget / move   the whole of it, at once
-
-What is NOT here: answers (answers.py) - an answer is the applicant's, not the site's, and outlives it.
 """
 
 from __future__ import annotations
@@ -38,7 +28,7 @@ log = logging.getLogger("autoapply.sites")
 # ("atozpublic.idprism-auth.amazon.com" for www.amazon.jobs): the site's own sign-in, though on another address.
 # second_factor: did the last sign-in with the stored password ask for an approval on the applicant's phone (True / False;
 # None while that is not known)? A sign-in that will ring their phone is not begun by the program in their quiet hours.
-FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "driver_written": False, "sign_in_hosts": [], "second_factor": None}
+FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "sign_in_hosts": [], "second_factor": None}
 KEEP_NOTES = 12
 
 
@@ -49,19 +39,46 @@ def norm(key: str | None) -> str:
     return "generic:" + key[5:] if key.startswith("site-") else key
 
 
-def of_form(schema: Any) -> str:
-    """Where what is learned about working this form is kept: the site (the key its account has, "workday:acme.wd1"),
-    for a form the agent explored - also on a system that has a driver; the system, for a form a coded driver reads
-    (every site of that system has the same one)."""
-    if getattr(schema, "source", "") == "agent" and getattr(schema, "tenant", ""):
-        return f"{schema.ats}:{schema.tenant}"
-    return str(schema.ats)
+# Recruiting systems that are told by the address, and how a site on one is named (the names accounts, sessions and
+# notes have been kept under since before there was an agent: they are found again under the same name).
+SYSTEMS = {"myworkdayjobs.com": "workday", "myworkdaysite.com": "workday", "greenhouse.io": "greenhouse", "ashbyhq.com": "ashby", "apply.workable.com": "workable",
+           "oraclecloud.com": "oracle", "eightfold.ai": "eightfold", "smartrecruiters.com": "smartrecruiters", "lever.co": "lever", "icims.com": "icims",
+           "pdportal.apsc.ubc.ca": "pdportal"}
+
+
+def where(url: str) -> tuple[str, str]:
+    """(system, the employer's name on it) for an address on a recruiting system that is told by its address;
+    ("", host) for any other."""
+    from urllib.parse import parse_qs, urlparse
+
+    from .errors import host_is
+
+    u = urlparse(url if "//" in (url or "") else f"https://{url}")
+    host = u.netloc.lower()
+    system = next((name for suffix, name in SYSTEMS.items() if host_is(u.hostname or "", suffix)), "")
+    if system == "workday":
+        return system, host.split(".myworkday")[0]                      # "acme.wd1"
+    if system == "pdportal":
+        return system, "ubc"
+    if system in ("greenhouse", "ashby", "lever", "smartrecruiters", "workable"):      # one address for every employer: the employer is the first part of the path
+        first = next((x for x in u.path.split("/") if x and x not in ("embed", "job_app", "jobs")), "")
+        board = (parse_qs(u.query).get("for") or [first])[0]
+        return (system, board.lower()) if board else ("", host)
+    if system:
+        return system, host.split(".")[0]
+    return "", host
+
+
+def key_of(url: str) -> str:
+    """The name the program keeps this site's session, account and notes under."""
+    system, name = where(url)
+    return f"{system}:{name}" if system else f"generic:{name}"
 
 
 def explored(key: str) -> bool:
-    """Is this one site (whose form the agent explored), and not a whole system or a sign-in provider?"""
+    """Is this one site, and not a whole system or a sign-in provider?"""
     key = norm(key)
-    return ":" in key and not key.startswith("idp:")
+    return ":" in key and not key.startswith(("idp:", "system:"))
 
 
 def name(key: str) -> str:
@@ -166,94 +183,44 @@ def note(key: str, text: str, *, keep: int = KEEP_NOTES) -> None:
         row.notes = [{"at": date.today().isoformat(), "text": text[:1200]}, *rest][:keep]
 
 
-# --- the steps of its form -----------------------------------------------------------------------------------------
-
-def plan(key: str) -> dict[str, Any]:
-    with db.session() as s:
-        row = s.get(Site, norm(key))
-        got = dict(row.steps or {}) if row is not None else {}
-    got.setdefault("steps", {})
-    return got
-
-
-def save_plan(key: str, plan: dict[str, Any]) -> None:
-    key = norm(key)
-    if not key:
-        return
-    with db.session() as s:
-        _row(s, key, make=True).steps = plan
-
-
 # --- all of it -----------------------------------------------------------------------------------------------------
-
-def revisions(key: str) -> list[dict[str, Any]]:
-    from . import learned
-
-    key = norm(key)
-    return [r for r in learned.revisions() if norm(r.get("target")) == key]
-
 
 def about(key: str) -> dict[str, Any]:
     """Everything the program knows about one site."""
     key = norm(key)
-    got = plan(key)
     with db.session() as s:
         row = s.get(Site, key)
-        facts = {**FACTS, **((row.facts or {}) if row is not None else {})}
+        facts = {**FACTS, **{k: v for k, v in ((row.facts or {}) if row is not None else {}).items() if k in FACTS}}
         same_as = str(row.same_as or "") if row is not None else ""
         updated = row.updated_at.isoformat() if row is not None and row.updated_at else ""
         kept = list(row.notes or []) if row is not None and ":" in key else []
     return {"key": key, "name": name(key), "explored": explored(key), "signs_in_on": same_as, "facts": facts, "updated": updated,
-            "notes": kept if ":" in key else [{"at": "", "text": ln[2:]} for ln in notes(key).splitlines() if ln.startswith("- ")][:KEEP_NOTES],
-            "steps": [{"title": t, "questions": [str(q.get("label") or "")[:120] for q in (st.get("questions") or [])]} for t, st in (got.get("steps") or {}).items()],
-            "revisions": [{k: r.get(k) for k in ("id", "kind", "title", "why", "status", "why_status", "created", "origin")} for r in revisions(key)]}
+            "notes": kept if ":" in key else [{"at": "", "text": ln[2:]} for ln in notes(key).splitlines() if ln.startswith("- ")][:KEEP_NOTES]}
 
 
 def listing() -> list[dict[str, Any]]:
     """Every site something is known about, with how much."""
-    from . import learned
-
-    revs: dict[str, int] = {}
-    for r in learned.revisions():
-        if r.get("status") in ("trial", "active", "proposed"):
-            revs[norm(r.get("target"))] = revs.get(norm(r.get("target")), 0) + 1
-    out = []
     with db.session() as s:
-        keys = {r.key: r for r in s.query(Site)}
-        for key in sorted({*keys, *revs}):
-            r = keys.get(key)
-            steps = (r.steps or {}).get("steps") or {} if r is not None else {}
-            out.append({"key": key, "name": name(key), "explored": explored(key), "signs_in_on": str(r.same_as or "") if r is not None else "",
-                        "notes": len(r.notes or []) if r is not None else 0, "steps": len(steps), "questions": sum(len(v.get("questions") or []) for v in steps.values()),
-                        "revisions": revs.get(key, 0), "facts": {k: v for k, v in ((r.facts or {}) if r is not None else {}).items() if v},
-                        "updated": r.updated_at.isoformat() if r is not None and r.updated_at else ""})
-    return out
+        return [{"key": r.key, "name": name(r.key), "explored": explored(r.key), "signs_in_on": str(r.same_as or ""), "notes": len(r.notes or []),
+                 "facts": {k: v for k, v in (r.facts or {}).items() if v and k in FACTS}, "updated": r.updated_at.isoformat() if r.updated_at else ""}
+                for r in s.query(Site).order_by(Site.key)]
 
 
 def forget(key: str) -> dict[str, int]:
-    """Drop what was learned about working this site - notes, steps, and its revisions taken out of force. Where it
-    signs in and which browser its sign-in lives in are kept: those are about the account, and still true."""
-    from . import learned
-
+    """Drop what was written down about working this site. Where it signs in and which browser its sign-in lives in
+    are kept: those are about the account, and still true."""
     key = norm(key)
-    out = {"notes": 0, "steps": 0, "revisions": 0}
+    out = {"notes": 0}
     with db.session() as s:
         row = s.get(Site, key)
         if row is not None:
-            out["notes"], out["steps"] = len(row.notes or []), len((row.steps or {}).get("steps") or {})
+            out["notes"] = len(row.notes or [])
             row.notes, row.steps = [], {}
-            row.facts = {k: v for k, v in (row.facts or {}).items() if k != "driver_written"}
-    for r in revisions(key):
-        if r.get("status") in ("trial", "active", "proposed"):
-            learned._update(r["id"], status="reverted", why_status="这个网站学到的内容被整体清除了")
-            out["revisions"] += 1
     return out
 
 
 def move(old: str, new: str) -> bool:
     """The site is now reached under another address: everything known about it goes with it."""
-    from . import learned
-
     old, new = norm(old), norm(new)
     if not old or not new or old == new:
         return False
@@ -266,14 +233,9 @@ def move(old: str, new: str) -> bool:
         b.facts = {**(a.facts or {}), **(b.facts or {})}
         seen = {n.get("text") for n in (b.notes or [])}
         b.notes = [*(b.notes or []), *[n for n in (a.notes or []) if n.get("text") not in seen]][:KEEP_NOTES]
-        if not (b.steps or {}).get("steps"):
-            b.steps = a.steps
         s.delete(a)
         for other in s.query(Site).filter(Site.same_as == old):
             other.same_as = new
-    for r in learned.revisions():
-        if norm(r.get("target")) == old:
-            learned._update(r["id"], target=new)
     return True
 
 
@@ -282,14 +244,13 @@ def move(old: str, new: str) -> bool:
 def migrate() -> dict[str, int]:
     """Bring what earlier versions kept elsewhere into the one place. Run once at start; what is read is left where it
     was (files are moved into a folder named "migrated" beside them), so that going back a version loses nothing."""
-    import json
     import shutil
 
     from sqlalchemy import text
 
-    from . import config, knowledge, learned
+    from . import config, knowledge
 
-    done = {"links": 0, "facts": 0, "notes": 0, "plans": 0, "revisions": 0, "runs": 0}
+    done = {"links": 0, "facts": 0, "notes": 0, "runs": 0}
     from .models import Account, Job
 
     with db.session() as s:      # "site-acme.wd1" named a site by its last part only: which system it is on is in the accounts and the postings
@@ -312,9 +273,6 @@ def migrate() -> dict[str, int]:
     for key, made in (db.get_setting("browser.session_made_in") or {}).items():
         set_fact(key, "session_browser", str(made))
         done["facts"] += 1
-    for key in db.get_setting("learned.drivers_written") or []:
-        set_fact(was(key), "driver_written", True)
-        done["facts"] += 1
     books = config.PLAYBOOKS
     for p in sorted(books.glob("site-*.md")) if books.exists() else []:
         body = p.read_text(encoding="utf-8")
@@ -331,22 +289,6 @@ def migrate() -> dict[str, int]:
         done["notes"] += len(new)
         (books / "migrated").mkdir(exist_ok=True)
         shutil.move(str(p), str(books / "migrated" / p.name))
-    plans = config.DATA / "sites"
-    for p in sorted(plans.glob("*.json")) if plans.exists() else []:
-        try:
-            got = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        key = was(p.stem)
-        if not plan(key)["steps"]:
-            save_plan(key, got)
-            done["plans"] += 1
-        (plans / "migrated").mkdir(exist_ok=True)
-        shutil.move(str(p), str(plans / "migrated" / p.name))
-    for r in learned.revisions():
-        if str(r.get("target") or "").startswith("site-"):
-            learned._update(r["id"], target=was(r["target"]))
-            done["revisions"] += 1
     with db.session() as s:
         got = s.execute(text("UPDATE runs SET site = (CASE WHEN ats IS NULL OR ats = '' THEN 'generic' ELSE ats END) || ':' || substr(site, 6) WHERE site LIKE 'site-%'"))
         done["runs"] = int(got.rowcount or 0)
@@ -355,5 +297,5 @@ def migrate() -> dict[str, int]:
     return done
 
 
-__all__ = ["about", "account", "explored", "fact", "forget", "having", "link", "links", "listing", "migrate", "move", "name", "norm", "note", "notes",
-           "of_form", "plan", "revisions", "save_plan", "set_fact", "now"]
+__all__ = ["about", "account", "explored", "fact", "forget", "having", "key_of", "link", "links", "listing", "migrate", "move", "name", "norm", "note", "notes",
+           "set_fact", "where", "now"]

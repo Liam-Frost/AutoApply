@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from . import timing
 from .agentbudget import Spent
 
 SERVER = "autoapply"
@@ -297,16 +296,8 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
             reply.cancel()
             continue
         try:
-            began = time.monotonic()
-            good = True
-            try:
-                reply.set_result(t.fn(**args))
-            except BaseException:
-                good = False
-                raise
-            finally:
-                timing.mark("tool", t.name, (time.monotonic() - began) * 1000.0, started=began, ok=good)
-        except Spent as e:      # the budget does not cover this call: it was not carried out, and the query ends here
+            reply.set_result(t.fn(**args))
+        except Spent as e:     # the budget does not cover this call: it was not carried out, and the query ends here
             reply.set_exception(e)
             stop(e.why)
         except Exception as e:  # noqa: BLE001

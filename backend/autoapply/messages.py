@@ -147,8 +147,8 @@ def failed(title: str, *, error: str) -> Card:
 
 
 def task_failed(kind: str, error: str) -> Card:
-    what = {"revise": "按批注修改草案", "recon": "读取表单并生成草案"}.get(kind, kind)
-    return Card("⚠️", f"{what}没有完成", detail=_cut(error, 400), hint="草案没有被改动。", path="/runs", link="查看任务记录")
+    what = {"apply": "这份申请"}.get(kind, kind)
+    return Card("⚠️", f"{what}没有完成", detail=_cut(error, 400), hint="没有提交任何内容。", path="/runs", link="查看任务记录")
 
 
 def second_factor(site: str, method: str) -> Card:

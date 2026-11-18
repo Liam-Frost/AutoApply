@@ -10,7 +10,7 @@ import re
 from typing import Any, Iterable
 
 from . import db, fulltext, intake, messages, notify
-from .ats.base import NeedsHuman
+from .errors import NeedsHuman
 from .models import Job, now
 from .sources import bigtech, public
 
@@ -405,16 +405,15 @@ def report() -> dict[str, Any]:
 
 def add_manual(url: str, *, company: str = "", title: str = "", jd_text: str = "") -> int:
     """Paste-a-link intake."""
-    from .ats import registry
+    from . import sites
 
-    ref = registry.detect(url)
+    system, tenant = sites.where(url)
     with db.session() as s:
         j = s.query(Job).filter_by(source="manual", source_id=url).first()
         if j is None:
             j = Job(source="manual", source_id=url, status="new")
             s.add(j)
         j.apply_url, j.company, j.title, j.jd_text, j.channel = url, company or j.company, title or j.title, jd_text or j.jd_text, "employer site"
-        if ref:
-            j.ats, j.tenant = ref.ats, ref.tenant
+        j.ats, j.tenant = system or "generic", tenant
         s.flush()
         return j.id

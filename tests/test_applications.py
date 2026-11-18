@@ -163,7 +163,8 @@ def test_what_the_applicant_withdrew_is_not_filled_in_by_work_that_was_on_its_wa
     posting, which did not touch the application at all."""
     from fastapi.testclient import TestClient
 
-    from autoapply import drafts, executor, lifecycle
+    from autoapply import browser, lifecycle
+    from autoapply.agent import work
     from autoapply.api.main import app
     from autoapply.models import Application, Draft, Job, Task, Todo
 
@@ -194,11 +195,15 @@ def test_what_the_applicant_withdrew_is_not_filled_in_by_work_that_was_on_its_wa
     # a task that runs all the same (started again from the list of what has run, with a draft that says "approved"): nothing is filled in
     with db.session() as s:
         s.get(Draft, did).review_status = "approved"
-    assert executor.execute(app_id, did)["status"] == "skipped"
+    def no_browser(*a, **k):
+        raise AssertionError("the form was about to be opened")
+
+    real_open, browser.open_page = browser.open_page, no_browser
+    try:      # (the program does not work it again by itself; an application the applicant asks for does)
+        assert work.work(job_id) == {"skipped": "the applicant is not applying for this one"}
+    finally:
+        browser.open_page = real_open
     assert "不投" in lifecycle.closed_to_work(lifecycle_app(app_id))
-    # and the program does not read the form again for it by itself (a draft the applicant asks for does)
-    with pytest.raises(ValueError, match="not applying"):
-        drafts.build(job_id)
     # "not applying" on the posting: the application is withdrawn with it
     with db.session() as s:
         lifecycle.move(s.get(Application, app_id), "draft_ready", source="user", back=True)

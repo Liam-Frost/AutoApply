@@ -1,12 +1,11 @@
 """UBC Engineering Co-op PD Portal (Orbis) as a job source.
 
-Login is CWL + Duo, which only the user can do. Policy (plan 5.5): no keep-alive;
-when a scan finds the session expired it raises NeedsHuman, a to-do and a
-Telegram message are created, and the scan resumes after the user signs in via
-takeover (session saved under tenant key ``pdportal:ubc``).
+The sign-in is the university's (CWL, with a second factor on the applicant's phone). The program reads the list of
+postings by itself while it is signed in and the page is as expected; when it is not, the window goes to the agent
+(agent/scan.py), which signs in with the stored login - the applicant approves on their phone - or asks them to.
+The session is kept under ``pdportal:ubc``.
 
-Mechanics (from the hand-driven sessions, 2026-09..11; not yet exercised by this code
-because it needs a live CWL session):
+How the page is read:
   * postings.htm -> submit the keyword widget with an empty keyword to list everything
   * rows carry onclick="...buildForm({...postingId...})"; the object is the token set
     needed to POST for a posting's detail page
@@ -21,7 +20,7 @@ from datetime import datetime
 from typing import Any, Iterator
 
 from .. import browser, notify
-from ..ats.base import NeedsHuman
+from ..errors import NeedsHuman
 
 TENANT = "pdportal:ubc"
 BASE = "https://pdportal.apsc.ubc.ca"
@@ -136,25 +135,6 @@ def firewall(page: Any) -> None:
     raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
 
 
-def sign_in(page: Any) -> None:
-    """The scan found the portal signed out. It is signed in to the way an application is (auth.ensure_session: the
-    university's login that still holds, else the saved login name and password, the phone for the second factor) -
-    and the applicant is asked only when that does not get there. Leaves the window on the postings page."""
-    from .. import auth
-    from ..ats.pdportal import PDPortalDriver
-
-    driver = PDPortalDriver()
-    ref = driver.detect(POSTINGS)
-    try:
-        auth.ensure_session(page, driver, ref)
-    except NeedsHuman as e:
-        if not e.waits_for:
-            e.waits_for = auth.ask_to_sign_in(ref, "PD Portal", e.reason, url=e.url or f"{BASE}/home.htm")
-        raise
-    page.goto(POSTINGS, wait_until="domcontentloaded")
-    page.wait_for_selector("#widgetSearch", state="attached", timeout=20000)
-
-
 def _signed_out(page: Any) -> bool:
     try:  # the postings page has the search widget only when signed in; otherwise it is a login / SSO page
         page.wait_for_selector("#widgetSearch", state="attached", timeout=10000)
@@ -227,8 +207,6 @@ def _by_the_agent(page: Any, known: set[str], problem: str, got: dict[str, Any])
 
 
 def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
-    from ..agent import work
-
     if known_ids is None:
         from .. import db
         from ..models import Job
@@ -246,17 +224,12 @@ def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
             firewall(page)
         problem = ""
         if _signed_out(page):
-            if work.enabled():
-                problem = "The portal is signed out: the postings page shows a sign-in instead of its search form."
-            else:
-                sign_in(page)
+            problem = "The portal is signed out: the postings page shows a sign-in instead of its search form."
         if not problem:
             try:
                 ids, details = _own(page, known_ids)
                 got.update(ids=ids, details=details)
             except Exception as e:  # noqa: BLE001 - the page is not what the script was written for: the agent looks at it
-                if not work.enabled():
-                    raise
                 problem = f"The program's collecting script failed on the postings page: {type(e).__name__}: {str(e)[:500]}"
         if problem:
             _by_the_agent(page, known_ids, problem, got)

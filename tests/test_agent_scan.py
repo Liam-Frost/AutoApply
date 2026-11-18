@@ -37,7 +37,6 @@ def portal(app_env, tmp_path, monkeypatch):
     posts = {"150001": "Backend Developer Co-op", "150002": "Data Engineer Co-op", "150003": "Firmware Co-op"}
     page = tmp_path / "postings.html"
     page.write_text(PORTAL.replace("__ROWS__", "".join(ROW % (i, t) for i, t in posts.items())).replace("__TEXTS__", json.dumps({i: TEXT.format(t=t) for i, t in posts.items()})), encoding="utf-8")
-    db.set_setting("agent.pipeline", "agent")
     monkeypatch.setattr(pdportal, "POSTINGS", page.as_uri())
     monkeypatch.setattr(browser, "save_state", lambda *a, **k: None)
     seen = SimpleNamespace(runs=0, said=[], goal="", play=lambda tools: None)
@@ -76,7 +75,7 @@ def test_what_the_agent_has_collected_goes_to_the_program_and_not_through_the_mo
 
 def test_an_applicant_who_was_asked_to_sign_in_is_not_asked_again_by_every_scan(portal, monkeypatch):
     from autoapply import notify
-    from autoapply.ats.base import NeedsHuman
+    from autoapply.errors import NeedsHuman
     from autoapply.models import Todo
     from autoapply.sources import pdportal
 
