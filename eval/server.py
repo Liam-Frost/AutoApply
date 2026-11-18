@@ -22,6 +22,13 @@ POSTINGS = {
                 "the team's on-call engineers. Requirements: enrolled in a bachelor's programme in computer engineering, computer science or similar; one earlier internship "
                 "or substantial project work; fluent in one backend language. To apply, upload a résumé; no cover letter is needed.",
     },
+    "embedded": {
+        "company": "Fabrikam", "title": "Backend Developer Co-op", "frame": True,
+        "text": "Fabrikam makes scheduling software for hospitals. The platform team is hiring a Backend Developer Co-op for January to April 2027 in Toronto (hybrid). "
+                "You will work on the appointment service: a Go service on PostgreSQL that 300 clinics depend on every morning. You will fix real bugs in your first week, "
+                "own one feature end to end, and be on the release rotation with a mentor. We look for: solid Go or Python, SQL you are not afraid of, and evidence that "
+                "you have shipped something other people used. A cover letter is optional.",
+    },
 }
 
 
@@ -46,6 +53,12 @@ class Site:
             def do_GET(self) -> None:  # noqa: N802
                 u = urlparse(self.path)
                 name = u.path.rsplit("/", 1)[-1]
+                if u.path.startswith("/jobs/") and name in POSTINGS and POSTINGS[name].get("frame"):
+                    # the employer's own page, with the recruiting system's form in a frame from another origin
+                    p, port = POSTINGS[name], self.server.server_address[1]
+                    return self._send(200, (f"<!doctype html><meta charset='utf-8'><title>{p['title']} | {p['company']}</title><main style='max-width:760px;margin:30px auto;"
+                                            f"font:15px/1.6 system-ui'><h1>{p['title']}</h1><p>{p['text']}</p><h2>Apply</h2>"
+                                            f"<iframe title='Application form' src='http://localhost:{port}/forms/{name}' style='width:100%;height:1500px;border:0'></iframe></main>").encode())
                 if u.path.startswith("/jobs/") and name in POSTINGS:
                     p = POSTINGS[name]
                     return self._send(200, (f"<!doctype html><meta charset='utf-8'><title>{p['title']} - {p['company']} Careers</title><main style='max-width:720px;margin:40px auto;"

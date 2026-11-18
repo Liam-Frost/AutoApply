@@ -31,7 +31,7 @@ PROFILE = """# Applicant profile
 - Name: Alex Chen (legal name: Alexander Chen; goes by Alex)
 - E-mail: alex.chen@example.com
 - Phone: +1 604-555-0143 (Canada)
-- Lives in: Vancouver, British Columbia, Canada
+- Lives in: Vancouver, British Columbia, Canada. Address: 2100 Example Street, Vancouver, BC V6T 1Z4
 - Links: portfolio https://alexchen.example ; GitHub https://github.com/alexchen-example
 
 ## Education
@@ -50,7 +50,7 @@ PROFILE = """# Applicant profile
 ## Standard answers
 
 - Has never worked for any employer other than those under Experience.
-- Gender: man. Race / ethnicity: Asian (East Asian). Answers these when asked.
+- Gender: man. Race / ethnicity: Asian (East Asian). No disability. Not a veteran. Answers these when asked.
 
 ## Experience
 
@@ -129,7 +129,28 @@ def grade_profile_first(saved: dict, sent: list, result, stage: int) -> list[tup
     return checks
 
 
-GRADERS = {"profile_first": grade_profile_first}
+def grade_embedded(saved: dict, sent: list, result, stage: int) -> list[tuple[str, bool, str]]:
+    s = sent[-1] if sent else {}
+    conf = (result.record or {}).get("confirmation") or {}
+    why = str(s.get("why") or "")
+    return [
+        ("sent, once (nothing was open: a run told to send when nothing is open sends)", len(sent) == 1, f"sent {len(sent)} time(s); outcome {result.outcome or result.stopped}"),
+        ("name, e-mail, phone", (s.get("first"), s.get("last"), s.get("email")) == ("Alex", "Chen", "alex.chen@example.com") and _digits(s.get("phone"))[-10:] == "6045550143",
+         f"{s.get('first')} {s.get('last')} {s.get('email')} {s.get('phone')}"),
+        ("résumé attached; no cover letter (optional, none on file)", bool(s.get("resume")) and not s.get("cover"), f"{s.get('resume')} / {s.get('cover')}"),
+        ("each link in its own field; none invented", s.get("website") == "https://alexchen.example" and s.get("github") == "https://github.com/alexchen-example" and not s.get("linkedin"),
+         f"website {s.get('website')} | github {s.get('github')} | linkedin {s.get('linkedin')}"),
+        ("the free-text answer is written, within the limit", 200 <= len(why) <= 1500, f"{len(why)} characters"),
+        ("the free-text answer uses the applicant's own experience", any(w in why for w in ("Contoso", "billing", "PaperTrail", "export API")), why[:160]),
+        ("work authorization and sponsorship", (s.get("authorized"), s.get("sponsorship")) == ("Yes", "No"), f"{s.get('authorized')} / {s.get('sponsorship')}"),
+        ("voluntary questions as the profile says", s.get("gender") == "Male" and str(s.get("disability") or "").startswith("No"), f"{s.get('gender')} / {s.get('disability')}"),
+        ("consent ticked", bool(s.get("consent")), str(s.get("consent"))),
+        ("reported as submitted, with the reference number", result.outcome == "submitted" and "FBK-48213" in json.dumps(conf), json.dumps(conf, ensure_ascii=False)[:200] or (result.outcome or result.stopped)),
+    ]
+
+
+GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded}
+STAGES = {"profile_first": "1,2", "embedded": "1"}
 
 
 def main() -> None:
@@ -140,7 +161,7 @@ def main() -> None:
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--backend", default="playwright", choices=["playwright", "nodriver"])
     ap.add_argument("--out", default="")
-    ap.add_argument("--stages", default="1,2")
+    ap.add_argument("--stages", default="")
     a = ap.parse_args()
 
     home = Path(a.out) if a.out else Path(tempfile.mkdtemp(prefix="autoapply-eval-"))
@@ -174,7 +195,7 @@ def main() -> None:
     folder = home / "applications" / a.form
     print(f"form {a.form} at {posting.url}\nmodel {db.get_setting('llm.model')} ({db.get_setting('llm.effort')}), browser {a.backend}\neverything this leaves behind: {home}\n", flush=True)
     total = passed = 0
-    for stage in [int(x) for x in a.stages.split(",")]:
+    for stage in [int(x) for x in (a.stages or STAGES[a.form]).split(",")]:
         answers = None if stage == 1 else {q["question"]: ANSWERS[a.form] for q in json.loads((folder / "questions.json").read_text(encoding="utf-8"))} if (folder / "questions.json").exists() else {"earliest start date": ANSWERS[a.form]}
         began = time.time()
         with browser.open_page(None, headless=not a.headed, backend=a.backend) as page:      # a new window every time: nothing of the last run is in it

@@ -82,6 +82,22 @@ _CONTROLS = r"""(opts) => {
     }
     let every = [];
     try { every = [...root.querySelectorAll('*')]; } catch (e) {}
+    // What the page makes clickable without saying so: a link without an address, a div with a handler ("Remove this
+    // job"). Told by the pointer the page shows over it; listed once, at the outermost element that has it.
+    for (const e of every) {
+      if (out.length >= limit) return;
+      if (e.matches(SEL) || e.closest(SEL) || e.querySelector(SEL)) continue;
+      const st = getComputedStyle(e);
+      if (st.cursor !== 'pointer' || (e.parentElement && getComputedStyle(e.parentElement).cursor === 'pointer')) continue;
+      const r = e.getBoundingClientRect(), name = text(e).slice(0, 140);
+      if (r.width < 2 || r.height < 2 || st.visibility === 'hidden' || st.display === 'none' || !name) continue;
+      let ref = e.getAttribute('data-aa');
+      if (!ref) { ref = String(++window.__aaN); e.setAttribute('data-aa', ref); }
+      const inView = r.bottom > 0 && r.top < innerHeight;
+      const line = '[' + ref + '] clickable ' + JSON.stringify(name) + (inView ? '' : ' (off screen)') + (depth ? ' (in frame)' : '');
+      if (want && !line.toLowerCase().includes(want)) continue;
+      out.push(line);
+    }
     for (const e of every) {
       if (out.length >= limit) return;
       if (e.shadowRoot) walk(e.shadowRoot, dx, dy, depth);
