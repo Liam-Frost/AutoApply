@@ -653,3 +653,48 @@ def test_the_room_for_drafts_goes_to_the_best_postings(app_env, monkeypatch):
     # room for more: the next places go by score as well - the one that waited at 9.5 before the 8
     db.set_setting("drafts.max_pending", 0)
     assert scoring.queue_qualifying(limit=1) == 1 and refs() == sorted([f"job:{best}", f"job:{waiting}"])
+
+
+def test_the_sources_page_counts_with_the_line_the_queue_uses(app_env, monkeypatch):
+    """How many postings of a source are above the line was counted with the source's line; the queue asks the posting's
+    employer. A job board marked as priority does not make the employers on it priority - and a priority line above
+    the general one does not raise the bar for anybody."""
+    from autoapply import discover, employers, scoring
+    from autoapply.models import Job
+
+    db.set_setting("sources.pdportal", False)
+    db.set_setting("queue.min_score_for_draft", 8.0)
+    db.set_setting("employers.priority_min_score", 6.0)
+    listed = [{"id": "board", "name": "Campus Board", "kind": "feed", "ref": {"url": "https://board.example/rss"}, "priority": True, "enabled": True},
+              {"id": "acme", "name": "Acme", "kind": "greenhouse", "ref": {"board": "acme"}, "priority": True, "enabled": True}]
+    monkeypatch.setattr(employers, "listing", lambda: listed)
+    with db.session() as s:
+        for n, (company, source, tenant, score) in enumerate([("Gamma", "feed", "board", 7.0), ("Acme", "feed", "board", 7.0), ("Delta", "feed", "board", 8.5),
+                                                               ("Acme", "greenhouse", "acme", 6.5), ("Acme", "greenhouse", "acme", 8.5)]):
+            s.add(Job(source=source, source_id=f"s{n}", title=f"Intern {n}", company=company, tenant=tenant, status="scored", score=score,
+                      apply_url=f"https://x.example/{n}", jd_text="d" * 300))
+
+    def rows():
+        got = discover.report()["sources"]
+        return [next(r for r in got if r["name"] == n) for n in ("Campus Board", "Acme")]
+
+    board, acme = rows()
+    # on the board: Acme's posting is held to the priority line, the other two employers' to the general one
+    assert (board["now"]["above"], board["now"]["below"], board["lines"], board["line"]) == (2, 1, [6.0, 8.0], 6.0)
+    assert (acme["now"]["above"], acme["now"]["below"], acme["lines"]) == (2, 0, [6.0])
+    # a priority line above the general one: the general one still gets a draft (the lower of the two counts)
+    db.set_setting("employers.priority_min_score", 9.0)
+    board, acme = rows()
+    assert (board["now"]["above"], board["now"]["below"], board["lines"]) == (1, 2, [8.0])
+    assert (acme["now"]["above"], acme["now"]["below"], acme["lines"]) == (1, 1, [8.0])
+    # and what the page counts as above the line is what the queue starts
+    db.set_setting("employers.priority_min_score", 6.0)
+    above = sum(r["now"]["above"] for r in rows())
+    assert scoring._start_best(10) == above == 4
+    with db.session() as s:
+        assert sorted((j.company, j.score) for j in s.query(Job).filter_by(status="queued")) == [("Acme", 6.5), ("Acme", 7.0), ("Acme", 8.5), ("Delta", 8.5)]
+    # an employer with nothing listed now still says which line its postings would be held to
+    with db.session() as s:
+        for j in s.query(Job).filter_by(source="greenhouse"):
+            j.online = 0
+    assert rows()[1]["lines"] == [6.0] and rows()[1]["now"]["total"] == 0

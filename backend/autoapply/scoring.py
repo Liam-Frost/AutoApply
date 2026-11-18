@@ -111,6 +111,21 @@ def set_aside_by_rule(ids: list[int]) -> list[int]:
     return left
 
 
+def draft_line():  # noqa: ANN201
+    """The score at which a posting gets a draft, as a function of the posting: ``line(company, source)``.
+
+    The general line - or, for a posting of an employer the applicant marked as priority, the lower of that and the
+    priority line. It is the posting's employer that counts, not the list it came in on: a job board marked as
+    priority does not make every employer on it one. Asked here by everything that needs it - the queue when it
+    starts drafts, and the page that explains how many postings of a source are above the line - so that the
+    explanation is of what the queue does."""
+    from . import employers
+
+    general = float(db.get_setting("queue.min_score_for_draft"))
+    names, priority = employers.priority_names(), float(db.get_setting("employers.priority_min_score") or 7.0)
+    return lambda company, source="": min(general, priority) if employers.is_priority(company, source, names) else general
+
+
 def score_pending(limit: int | None = None) -> dict[str, int]:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -145,10 +160,7 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
             outs = list(pool.map(metering.carried(read), ids))
     else:
         outs = [read(jid) for jid in ids]
-    min_score = float(db.get_setting("queue.min_score_for_draft"))
-    from . import employers
-
-    prio, prio_score = employers.priority_names(), float(db.get_setting("employers.priority_min_score") or 7.0)
+    line = draft_line()
     high: list[str] = []
     from . import tasks
 
@@ -160,8 +172,7 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
         scored += 1
         with db.session() as s:
             j = s.get(Job, jid)
-            floor = min(min_score, prio_score) if employers.is_priority(j.company, j.source, prio) else min_score
-            if not out["excluded"] and j.score is not None and j.score >= floor and j.apply_url:
+            if not out["excluded"] and j.score is not None and j.score >= line(j.company, j.source) and j.apply_url:
                 high.append({"score": j.score, "company": j.company, "title": j.title, "deadline": j.deadline or ""})
                 fresh.add(jid)
     # The room there is for drafts (drafts.max_pending) goes to the best of what qualifies - the postings scored just
@@ -211,13 +222,12 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
     """Start drafts for the best postings that qualify, at most ``limit`` of them: scored, open, with no application, at
     the score at which a draft is prepared - highest score first. ``fresh``: postings scored just now; they qualify
     whatever their source (a posting of the school portal gets its draft when it is scored, not later by the clock)."""
-    from . import employers, tasks
+    from . import tasks
     from .models import Task
 
     if limit <= 0:
         return 0
-    min_score = float(db.get_setting("queue.min_score_for_draft"))
-    prio, prio_score = employers.priority_names(), float(db.get_setting("employers.priority_min_score") or 7.0)
+    line = draft_line()
     todo: list[tuple[int, str]] = []
     with db.session() as s:
         busy = {t.ref for t in s.query(Task).filter(Task.kind == "recon", Task.status.in_(("queued", "running", "waiting_human", "held")))}
@@ -226,8 +236,7 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
         for j in rows:
             if j.application is not None or j.exclusion or not j.apply_url or (j.source == "pdportal" and j.id not in fresh) or f"job:{j.id}" in busy:
                 continue
-            floor = min(min_score, prio_score) if employers.is_priority(j.company, j.source, prio) else min_score
-            if j.score >= floor:
+            if j.score >= line(j.company, j.source):
                 j.status = "queued"
                 todo.append((j.id, j.deadline or ""))
                 if len(todo) >= limit:
