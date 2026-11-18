@@ -133,6 +133,7 @@ onMounted(load)
       <div class="card">
         <div class="card-title">哪些岗位自动生成草案</div>
         <div class="kv" style="margin-top: 12px">
+          <label>最多同时有多少份草案等你</label><div><input v-model.number="s['drafts.max_pending']" type="number" min="0" step="1" style="width: 100px" /> <span class="hint">正在生成或等你审批的草案到了这个数，程序就不再自己开始新的，等你处理掉一些再继续（先做评分最高的）；填 0 不限制。你亲手点“生成草案”的不受限制。</span></div>
           <label>评分达到多少分</label><div><input v-model.number="s['queue.min_score_for_draft']" type="number" step="0.5" style="width: 100px" /> <span class="hint">满分 10。新岗位评分达到这个分数就自动准备草案。</span></div>
         </div>
       </div>
@@ -205,6 +206,15 @@ onMounted(load)
             <label><input v-model="s['notify.task_result']" type="checkbox" /> 结果（投出、没成功）</label>
             <label><input v-model="s['notify.status_update']" type="checkbox" /> 申请进展</label>
             <label><input v-model="s['notify.task_started']" type="checkbox" /> 开始做某件事</label>
+          </div>
+          <label for="quiet-on">静默时段</label>
+          <div v-if="s['notify.quiet']">
+            <div class="row" style="flex-wrap: wrap">
+              <label><input id="quiet-on" v-model="s['notify.quiet'].on" type="checkbox" /> 这段时间不往手机上发通知</label>
+              <span>从 <input v-model="s['notify.quiet'].from" type="time" :disabled="!s['notify.quiet'].on" aria-label="静默开始时间" style="width: 110px" />
+                到 <input v-model="s['notify.quiet'].to" type="time" :disabled="!s['notify.quiet'].on" aria-label="静默结束时间" style="width: 110px" /></span>
+            </div>
+            <p class="hint" style="margin: 6px 0 0">这段时间里的通知不会丢：先记下来，时段结束时合成一条发给你，页面上随时能看到。程序自己发起的、需要你在手机上确认的登录（比如学校的 Duo）在这段时间不会开始，会留一条待办等你。只有一种通知不受影响：你亲手点开始的登录需要的手机确认。</p>
           </div>
         </div>
         <div class="row" style="margin-top: 12px"><button @click="tgTest"><Icon name="send" />发一条测试消息</button><span class="hint">先保存再测试。面试和测评邀请不受开关影响，一定会发。</span></div>

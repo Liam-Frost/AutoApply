@@ -486,6 +486,12 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
     if pw:
         if acct and acct["fail_count"] >= MAX_LOGIN_FAILS:
             _need_takeover(ref, driver, "Login failed twice with the stored password; please sign in yourself.")
+        if sso and _would_ring_in_quiet_hours(key):
+            # The stored password would be typed, and the institution would then ask for an approval on the applicant's
+            # phone - in the hours they asked not to be disturbed, for something the program began by itself. It waits
+            # for them instead: one card, and the sign-in when they say so.
+            _need_takeover(ref, driver, f"{ref.host} 的登录过期了。重新登录要在手机上确认，现在是你设的静默时段，程序没有发起。把这一条标为已处理，程序就会登录并发出手机确认请求。",
+                           can_register=False, second_factor=True)
         try:
             driver.login(page, ref, email, pw)
         except Unconfirmed:
@@ -514,6 +520,10 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
         if driver.is_logged_in(page, ref):
             upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")
             browser.save_state(key, page.context)
+            if sso and hasattr(driver, "second_factor_seen"):
+                from . import sites
+
+                sites.set_fact(key, "second_factor", bool(driver.second_factor_seen))       # known for the next time: will it ring the phone?
             return "logged_in"
         _bump_fail(key, "login did not result in a signed-in session")
         _need_takeover(ref, driver, "Login did not succeed; please sign in yourself.")
@@ -570,6 +580,16 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
     upsert_account(key, status="needs_human", error="registered but could not sign in")
     _need_takeover(ref, driver, "Registered, but signing in failed.")
     raise AssertionError("unreachable")
+
+
+def _would_ring_in_quiet_hours(key: str) -> bool:
+    """Is this a sign-in the program began by itself, in the applicant's quiet hours, that will ask for their phone?
+    (Not known yet whether it asks: it is taken to ask. Known not to - the device is remembered: it goes ahead.)"""
+    from . import sites, tasks
+
+    if not notify.quiet_now() or tasks.running_by_hand():
+        return False
+    return sites.fact(key, "second_factor") is not False
 
 
 def _open_card(key: str, flag: str) -> bool:

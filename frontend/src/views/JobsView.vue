@@ -308,6 +308,9 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
       <div class="card">
         <div>{{ sel.app_explained.message || sel.stage_label }}</div>
         <div v-if="sel.submitted_at" class="muted small" style="margin-top: 4px">提交于 {{ fmt(sel.submitted_at) }}</div>
+        <div v-if="sel.app_id && (sent || ['submit_unknown', 'ready_to_submit'].includes(sel.app_status))" style="margin-top: 6px">
+          <router-link :to="'/applications/' + sel.app_id" class="btn sm">查看这份申请的全部记录</router-link>
+        </div>
         <TechDetails :text="sel.app_explained.detail" />
         <template v-if="sel.evidence && (sel.evidence.text || sel.evidence.url)">
           <details class="tech"><summary>提交成功时网站显示的内容</summary><pre>{{ sel.evidence.url }}

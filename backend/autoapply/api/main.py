@@ -253,6 +253,9 @@ async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
         # called with the prefix it is served under (a proxy that does not strip it, or the page opened directly)
         request.scope["path"] = request.scope["path"][len(root):] or "/"
         request.scope["raw_path"] = request.scope["path"].encode()
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        # the applicant is doing something on the page: a task queued while this request is answered is one they asked for
+        tasks.by_hand.set(True)
     why = _foreign(request)
     if not why:
         who = access.caller(request.client.host if request.client else "", request.headers)
@@ -298,7 +301,7 @@ def _job_row(j: Job, a: Application | None) -> dict[str, Any]:
         "posted": j.posted, "first_seen": j.first_seen.date().isoformat() if j.first_seen else "",
         "summary": j.summary, "note": j.note, "apply_url": j.apply_url, "ats": j.ats, "ats_label": humanize.ats_name(j.ats),
         "channel_label": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
-        "app_status": a.status if a else None, "app_detail": (humanize.explain(a.last_event)["message"] if a.last_event else "") if a else "", "auto_approved": bool(a.auto_approved) if a else False,
+        "app_id": a.id if a else None, "app_status": a.status if a else None, "app_detail": (humanize.explain(a.last_event)["message"] if a.last_event else "") if a else "", "auto_approved": bool(a.auto_approved) if a else False,
         "submitted_at": a.submitted_at.isoformat() if a and a.submitted_at else None,
         **stages.describe(stages.stage(j.status, bool(j.online), j.deadline or "", a.status if a else None)),
     }
@@ -373,10 +376,11 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             a = j.application
             sent = a is not None and a.status in ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
             if action == "skip":
-                if sent:
+                # (lifecycle.not_applying: what was under way for the posting - an approved draft, its filling in the
+                # queue - is withdrawn with it; a posting whose application went out is left as it is)
+                if sent or not lifecycle.not_applying(j):
                     skipped += 1
                 else:
-                    j.status = "skipped"
                     done += 1
             elif action == "restore":
                 if j.status == "skipped":
@@ -409,8 +413,13 @@ def patch_job(job_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         j = _404(s.get(Job, job_id))
         for k, v in body.items():
-            if k in allowed:
-                setattr(j, k, v)
+            if k not in allowed:
+                continue
+            if k == "status" and v == "skipped":
+                if not lifecycle.not_applying(j):
+                    raise HTTPException(409, "这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。")
+                continue
+            setattr(j, k, v)
     return {"ok": True}
 
 
@@ -652,8 +661,84 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
         if app.status == UNKNOWN and not body.get("not_submitted"):
             raise HTTPException(409, "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。")
         app_id, deadline = app.id, app.job.deadline
-        lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN)
+        lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN, note="你确认上一次没有提交成功" if app.status == UNKNOWN else "")
     return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
+
+
+@app.get("/api/applications")
+def list_applications() -> dict[str, Any]:
+    """"My applications": what has gone out, and what waits for its outcome."""
+    from .. import applications
+
+    rows = applications.listing()
+    return {"applications": rows, "groups": [{"key": k, "label": lab} for k, lab in stages.GROUPS if any(r["group"] == k for r in rows)]}
+
+
+@app.get("/api/applications.csv")
+def applications_csv() -> Response:
+    from .. import applications
+
+    return Response(content=applications.as_csv(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="applications-{now().date().isoformat()}.csv"', "Cache-Control": "no-store"})
+
+
+@app.get("/api/applications/{application_id}")
+def get_application(application_id: int) -> dict[str, Any]:
+    from .. import applications
+
+    out = _404(applications.detail(application_id))
+    out["contacts"] = _contacts_for(out["company"])
+    return out
+
+
+@app.post("/api/applications/{application_id}/correct")
+def correct_application(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant puts the record right: a step that happened elsewhere, the date it was sent."""
+    from datetime import datetime as _dt
+
+    from .. import applications
+
+    when = None
+    if body.get("submitted_at"):
+        try:
+            when = _dt.fromisoformat(str(body["submitted_at"])[:19])
+        except ValueError as e:
+            raise HTTPException(400, "日期的格式不对") from e
+    try:
+        out = applications.correct(application_id, status=str(body.get("status") or ""), submitted_at=when, note=str(body.get("note") or ""))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except applications.NotAllowed as e:
+        raise HTTPException(400, str(e)) from e
+    out["contacts"] = _contacts_for(out.get("company", ""))
+    return out
+
+
+@app.post("/api/applications/{application_id}/mails/link")
+def link_application_mail(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """This mail is about this application (the applicant says)."""
+    with db.session() as s:
+        _404(s.get(Application, application_id))
+    return {"updated": mail.link(str(body["message_id"]), [application_id], by="user")}
+
+
+@app.post("/api/applications/{application_id}/mails/unlink")
+def unlink_application_mail(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .. import applications
+
+    if not applications.unlink_mail(application_id, str(body["message_id"])):
+        raise HTTPException(404, "这封邮件没有关联到这份申请")
+    return {"ok": True}
+
+
+@app.get("/api/applications/{application_id}/mail-candidates")
+def application_mail_candidates(application_id: int) -> list[dict[str, Any]]:
+    """Mails the program could not put on any application: one of them may be about this one."""
+    with db.session() as s:
+        _404(s.get(Application, application_id))
+        return [{"message_id": m.message_id, "received_at": m.received_at.isoformat() if m.received_at else None, "sender": m.sender, "subject": m.subject,
+                 "label": messages.mail_label(m.category, m.event or "new")[1], "summary": m.summary}
+                for m in s.query(MailEvent).filter(MailEvent.application_id.is_(None), MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(40)]
 
 
 @app.post("/api/applications/{application_id}/check-mail")
@@ -751,13 +836,17 @@ def reject_draft(draft_id: int, body: dict[str, Any] = Body(default={})) -> dict
 @app.get("/api/todos")
 def list_todos(status: str = "open") -> list[dict[str, Any]]:
     with db.session() as s:
+        from .. import reminders as _reminders
+
         rows = [{"id": t.id, "kind": t.kind, "ref": t.ref, "title": t.title, "body": t.body, "payload": t.payload, "status": t.status,
-                 "created_at": t.created_at.isoformat()} for t in s.query(Todo).filter_by(status=status).order_by(Todo.id.desc()).limit(200)]
+                 "created_at": t.created_at.isoformat(), "due_at": t.due_at.isoformat() if t.due_at else None,
+                 "date_only": bool((t.payload or {}).get("date_only")), "snoozed_until": t.snoozed_until.isoformat() if _reminders.snoozed(t) else None}
+                for t in s.query(Todo).filter_by(status=status).order_by(Todo.id.desc()).limit(200)]
     from datetime import datetime
     from ..models import Draft
 
     CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
-           "mail_unmatched": "answer"}
+           "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
         for r in rows:
@@ -800,6 +889,11 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                     days = (datetime.fromisoformat(j.deadline.replace(" ", "T")) - datetime.now()).days if j.deadline else None
                 except ValueError:
                     days = None
+            if r["due_at"]:      # a card with a date of its own (an interview, an assessment's deadline) counts by that date, not by the posting's
+                try:
+                    days = (datetime.fromisoformat(r["due_at"]).date() - datetime.now().date()).days
+                except ValueError:
+                    pass
             r["days_left"] = days
             # 0 = now (a window is open and waiting), 1 = soon (deadline close), 2 = when you can, 3 = just so you know
             r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
@@ -858,6 +952,42 @@ def todo_link(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"updated": mail.link(mid, ids, by="user")}
 
 
+def _when(text: Any) -> Any:
+    from datetime import datetime as _dt
+
+    if not text:
+        return None
+    try:
+        d = _dt.fromisoformat(str(text)[:19])
+    except ValueError as e:
+        raise HTTPException(400, "日期的格式不对") from e
+    return d.replace(tzinfo=None)
+
+
+@app.post("/api/todos/{todo_id}/snooze")
+def todo_snooze(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Show this card again later ({"until": "2026-11-24T09:00"}), or now ({"until": null})."""
+    from .. import reminders
+
+    try:
+        reminders.snooze(todo_id, _when(body.get("until")))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    return {"ok": True}
+
+
+@app.post("/api/todos/{todo_id}/due")
+def todo_due(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """The applicant sets, corrects or removes the date a card is for."""
+    from .. import reminders
+
+    try:
+        reminders.set_due(todo_id, _when(body.get("due")))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    return {"ok": True}
+
+
 @app.post("/api/todos/{todo_id}/done")
 def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     with db.session() as s:
@@ -901,6 +1031,20 @@ def run_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"task_id": tasks.enqueue(kind, ref="manual", payload=body.get("payload", {}), priority=20, dedupe=False)}
 
 
+@app.get("/api/queue")
+def queue_plan() -> dict[str, Any]:
+    """What is being done, what comes next, what waits for the applicant, what was set aside, what is for later."""
+    from .. import scoring
+
+    return {**tasks.plan(), "drafts": scoring.draft_room()}
+
+
+@app.post("/api/queue/drain")
+def queue_drain(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Finish what is being done and start nothing new (to close or restart the program) - or go on again."""
+    return tasks.set_draining(bool(body.get("on", True)))
+
+
 @app.post("/api/tasks/{task_id}/retry")
 def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     backend = body.get("browser_backend")
@@ -930,6 +1074,20 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
     return {"ok": True}
 
 
+@app.post("/api/tasks/{task_id}/{what}")
+def task_control(task_id: int, what: str) -> dict[str, Any]:
+    do = {"cancel": tasks.cancel, "hold": tasks.hold, "take-up": tasks.take_up, "first": tasks.first}.get(what)
+    if do is None:
+        raise HTTPException(404, "not found")
+    try:
+        do(task_id)
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except tasks.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    return {"ok": True}
+
+
 @app.get("/api/runs")
 def list_runs(limit: int = 100) -> list[dict[str, Any]]:
     with db.session() as s:
@@ -951,12 +1109,16 @@ def list_notifications(limit: int = 100) -> list[dict[str, Any]]:
 
 @app.get("/api/overview")
 def overview() -> dict[str, Any]:
+    from datetime import datetime
+
     with db.session() as s:
         return {
             "pending_drafts": s.query(func.count(Draft.id)).filter(Draft.review_status == "pending").scalar(),
-            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open").scalar(),
+            # (what the applicant put off until later is not counted until then)
+            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open", (Todo.snoozed_until.is_(None)) | (Todo.snoozed_until <= datetime.now())).scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),
+            "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),
             "remote": _open_remote_windows(),
             "drivers": [{"ats": d.ats, "recon_ok": d.recon_ok, "recon_fail": d.recon_fail, "exec_ok": d.exec_ok, "exec_fail": d.exec_fail,
                          "streak": d.consecutive_submits} for d in s.query(DriverStat).all()],

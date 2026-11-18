@@ -106,6 +106,7 @@ class PDPortalDriver:
         The pages of Duo could not be looked at while writing this (they come after the password); what is done there
         is kept to what does not depend on their make-up: wait until the window is back on the portal."""
         page.goto(SSO_ENTRY, wait_until="domcontentloaded")
+        self.second_factor_seen = False      # for whoever signs in: did this sign-in ask for the phone? (auth keeps it as a fact of the site)
         typed = moved = asked = False
         waited, limit = 0, 45
         while waited < limit:
@@ -136,6 +137,7 @@ class PDPortalDriver:
             if SECOND_FACTOR_HOST.search(host):
                 if not asked:
                     asked, limit = True, waited + self.second_factor_wait
+                    self.second_factor_seen = True
                     self._ask_for_the_phone()
                 mine = page.locator("#trust-browser-button").or_(page.get_by_role("button", name=re.compile(r"yes, this is my device|trust (this )?browser", re.I))).first
                 if mine.count() and mine.is_visible():
@@ -149,9 +151,10 @@ class PDPortalDriver:
 
     @staticmethod
     def _ask_for_the_phone() -> None:
-        from .. import messages, notify
+        from .. import messages, notify, tasks
 
-        notify.send("todo", messages.second_factor("UBC PD Portal", "Duo"), ref="account:pdportal:ubc")
+        # (a sign-in the applicant asked for is one they are waiting on: its request reaches them in their quiet hours too)
+        notify.send("todo", messages.second_factor("UBC PD Portal", "Duo"), ref="account:pdportal:ubc", through_quiet=tasks.running_by_hand())
 
     def resume(self, page: Page, ref: JobRef) -> bool:
         """The portal's session has run out. The university's login may still hold: then the portal's sign-in comes

@@ -88,7 +88,9 @@ def test_the_programs_own_code_writes_a_status_only_through_move(app_env, monkey
     found = []
     for f in root.rglob("*.py"):
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            if re.search(r"\b(app|application|a)\.status\b[^=\n]*(?<![=!<>])=(?!=)", line) and not (f.name == "auth.py" or (f.name == "lifecycle.py" and "app.status = to" in line)):
+            # an assignment whose target (or one of its targets) is an application's status: "app.status = ...", "a.status, a.x = ..."
+            if re.match(r"\s*(?:[\w.]+\s*,\s*)*(?:\w+\.)*(app|application|a)\.status\s*(?:,[^=\n]*)?=(?!=)", line) and not (
+                    f.name == "auth.py" or (f.name == "lifecycle.py" and "app.status = to" in line)):
                 found.append(f"{f.relative_to(root)}:{n}: {line.strip()}")
     assert found == []          # (auth.py's "a" is an account)
 

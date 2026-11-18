@@ -46,26 +46,34 @@ def get_engine():
                     h = sa_inspect(obj).attrs.status.history
                     if h.has_changes() and h.added and (not h.deleted or h.deleted[0] != h.added[0]):
                         session.add(ApplicationEvent(application_id=obj.id, old=str(h.deleted[0]) if h.deleted else "", new=str(h.added[0]),
-                                                     source=str(obj.__dict__.pop("_moved_by", "") or "")))
+                                                     source=str(obj.__dict__.pop("_moved_by", "") or ""), note=str(obj.__dict__.pop("_moved_note", "") or "")))
                         if str(h.added[0]) in SENT:      # whichever way it was sent: what waited on it is closed (lifecycle.settle)
                             session.info.setdefault("sent", set()).add(obj.id)
+                        elif str(h.added[0]) == "withdrawn":      # whichever way it was withdrawn: what was on its way stops (lifecycle.withdraw)
+                            session.info.setdefault("withdrawn", set()).add(obj.id)
 
         @event.listens_for(_Session, "after_commit")
         def _settle_sent(session):  # noqa: ANN001
-            ids = session.info.pop("sent", None)
-            if not ids:
+            ids, gone = session.info.pop("sent", None), session.info.pop("withdrawn", None)
+            if not ids and not gone:
                 return
             from . import lifecycle
 
-            for i in ids:
+            for i in ids or ():
                 try:
                     lifecycle.settle(i)
                 except Exception:  # noqa: BLE001 - the status change itself is committed; closing the cards must not undo it
                     logging.getLogger("autoapply.db").exception("could not settle application %s", i)
+            for i in gone or ():
+                try:
+                    lifecycle.withdraw(i)
+                except Exception:  # noqa: BLE001
+                    logging.getLogger("autoapply.db").exception("could not close what waited on withdrawn application %s", i)
 
         @event.listens_for(_Session, "after_rollback")
         def _forget_sent(session):  # noqa: ANN001
             session.info.pop("sent", None)
+            session.info.pop("withdrawn", None)
     return _engine
 
 
@@ -87,7 +95,8 @@ def init_db() -> None:
 
 # Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS", so check first.
 _NEW_COLUMNS = {"jobs": {"brief": "TEXT DEFAULT ''", "duplicate_of": "INTEGER", "posted": "VARCHAR DEFAULT ''", "archived_at": "DATETIME"},
-                "mail_events": {"event": "VARCHAR DEFAULT 'new'", "linked_by": "VARCHAR DEFAULT ''"}, "application_events": {"source": "VARCHAR DEFAULT ''"},
+                "mail_events": {"event": "VARCHAR DEFAULT 'new'", "linked_by": "VARCHAR DEFAULT ''", "asks": "JSON"},
+                "todos": {"due_at": "DATETIME", "snoozed_until": "DATETIME"}, "notifications": {"held": "INTEGER DEFAULT 0"}, "application_events": {"source": "VARCHAR DEFAULT ''", "note": "VARCHAR DEFAULT ''"},
                 "tasks": {"stages": "JSON", "due_at": "DATETIME"}, "answer_cache": {"origin": "VARCHAR DEFAULT ''"}, "runs": {"spans": "JSON", "site": "VARCHAR", "learned": "JSON"}}
 
 

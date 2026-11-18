@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextvars import ContextVar
 from datetime import timezone
 import traceback
 from datetime import datetime
@@ -45,10 +46,25 @@ def deadline_priority(deadline: str) -> int:
         return 500
 
 
+# Is this being done because the applicant asked for it just now (a request to the program's own page), or by the
+# program itself (the clock, one task leading to the next, a retry)? Set by the API for every request that changes
+# something; read here when a task is queued. It decides what "pause" stops: what the program does by itself.
+by_hand: ContextVar[bool] = ContextVar("by_hand", default=False)
+
+
 def _asked(payload: dict[str, Any] | None) -> dict[str, Any]:
-    """What a request asks for: its payload without the queue's own notes (``_delay``, the retry counts) and without
-    what is empty ("no instructions" is the same request as none given)."""
+    """What a request asks for: its payload without the queue's own notes (``_delay``, the retry counts, who asked) and
+    without what is empty ("no instructions" is the same request as none given)."""
     return {k: v for k, v in (payload or {}).items() if not k.startswith("_") and v not in (None, "", [], {})}
+
+
+def asked_again(t: Task) -> None:
+    """An existing task goes back into the queue because the applicant said so - a card marked done, "retry", "take it
+    up", "do it first": it is theirs from here, as if they had just asked for it. (``enqueue`` marks the tasks it makes;
+    a row that is already there was left as the program's, so a sign-in that was held back for the quiet hours was
+    held back again the moment the applicant said "go ahead", and was not taken at all while paused.)"""
+    if by_hand.get() and not (t.payload or {}).get("_by_hand"):
+        t.payload = {**(t.payload or {}), "_by_hand": True}
 
 
 def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, priority: int = 100, dedupe: bool = True) -> int:
@@ -60,12 +76,26 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     - it is being done this moment, and this request says something else: a task of its own, after that one. The one
       that is running cannot be told anything any more, and answering "queued" for a request that nothing will carry
       out is not an answer."""
+    if by_hand.get():
+        payload = {**(payload or {}), "_by_hand": True}
     with db.session() as s:
         if dedupe and ref:
             ex = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status.in_(("queued", "running"))).order_by(Task.due_at.isnot(None), Task.id).first()
+            if ex is None:
+                # The same work was put aside by the applicant ("not now"). Asked for by the program - the timer that
+                # reads on, the scan - it stays put aside: a second task would do what was set aside while the first
+                # still says "held". Asked for by the applicant, it is taken up.
+                held = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status == "held").order_by(Task.id).first()
+                if held is not None:
+                    if by_hand.get():
+                        held.status, held.payload = "queued", {**(held.payload or {}), **(payload or {})}
+                        _wake.set()
+                    return held.id
             if ex and ex.status == "queued":
                 if _asked(payload) != _asked(ex.payload):
                     ex.payload = {**(ex.payload or {}), **(payload or {})}
+                if by_hand.get() and not (ex.payload or {}).get("_by_hand"):
+                    ex.payload = {**(ex.payload or {}), "_by_hand": True}       # the applicant asks for it now: it is theirs from here
                 if ex.due_at is not None:
                     # the same work is waiting for a later time and is wanted now: it is taken forward, not queued a
                     # second time - and not left to wait while the caller thinks it runs
@@ -89,7 +119,7 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
 BACKGROUND = ("discover", "score", "mail", "canary", "improve")
 
 
-def _claim(lane: str = "") -> Task | None:
+def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
     with db.session() as s:
         q = s.query(Task).filter_by(status="queued")
         if lane == "background":
@@ -97,7 +127,9 @@ def _claim(lane: str = "") -> Task | None:
         elif lane == "forms":
             q = q.filter(Task.kind.notin_(BACKGROUND))
         # a task that is for later (a retry, a look for the confirmation mail in half an hour) is not taken before its time
-        t = q.filter((Task.due_at.is_(None)) | (Task.due_at <= now())).order_by(Task.priority, Task.id).first()
+        due = q.filter((Task.due_at.is_(None)) | (Task.due_at <= now())).order_by(Task.priority, Task.id)
+        # paused: only what the applicant asked for by hand (they pressed the button; the pause is for what runs by itself)
+        t = next((x for x in due.limit(200) if (x.payload or {}).get("_by_hand")), None) if only_by_hand else due.first()
         if t is None:
             return None
         t.status, t.started_at, t.attempts = "running", now(), t.attempts + 1
@@ -106,7 +138,24 @@ def _claim(lane: str = "") -> Task | None:
         return t
 
 
+_running = threading.local()      # what the task this thread is running was started by
+
+
+def running_by_hand() -> bool:
+    """Is the task this thread is running one the applicant asked for (so that they are at the program now)? False for
+    what the program does by itself - and outside any task."""
+    return bool(getattr(_running, "by_hand", False))
+
+
 def run_one(t: Task) -> None:
+    _running.by_hand = bool((t.payload or {}).get("_by_hand"))
+    try:
+        _run_one(t)
+    finally:
+        _running.by_hand = False
+
+
+def _run_one(t: Task) -> None:
     fn = _handlers.get(t.kind)
     usage = llm.reset_usage()
     metering.begin_task(t.id, t.kind, t.ref)     # every model request until the task ends belongs to it
@@ -162,15 +211,158 @@ def run_one(t: Task) -> None:
 
 def _loop(lane: str = "") -> None:
     while not _stop.is_set():
-        if db.get_setting("schedule.paused"):
+        if db.get_setting("schedule.draining"):
+            # "finish what is being done and start nothing new": nothing is claimed; when the last task has ended, say so once
+            _tell_when_drained()
             _stop.wait(2)
             continue
-        t = _claim(lane)
+        t = _claim(lane, only_by_hand=bool(db.get_setting("schedule.paused")))
         if t is None:
             _wake.wait(2)       # (two workers share the signal: neither clears it for the other, both look again shortly)
             _wake.clear()
             continue
         run_one(t)
+
+
+def _tell_when_drained() -> None:
+    if db.get_setting("schedule.drain_told"):
+        return
+    with db.session() as s:
+        if s.query(Task).filter_by(status="running").count():
+            return
+    db.set_setting("schedule.drain_told", True)
+    from . import messages
+
+    try:
+        notify.send("task_result", messages.drained(), ref="queue")
+    except Exception:  # noqa: BLE001 - it is said on the page as well
+        log.exception("could not say that the queue has stopped")
+
+
+def set_draining(on: bool) -> dict[str, Any]:
+    """Finish what is being done, start nothing new, and say when it has stopped - for closing or restarting the
+    program without cutting a form off halfway. Off: the queue goes on."""
+    db.set_setting("schedule.drain_told", False)
+    db.set_setting("schedule.draining", bool(on))
+    if on:
+        _tell_when_drained()        # nothing may be running at all: then it is said at once
+    _wake.set()
+    return {"draining": bool(on), "stopped": bool(on) and bool(db.get_setting("schedule.drain_told"))}
+
+
+class NotNow(ValueError):
+    """What was asked of a task cannot be done in the state it is in (and why, in the applicant's words)."""
+
+
+def cancel(task_id: int) -> None:
+    """Take a task out of the queue: one that has not started, or that waits for the applicant. A task that is running
+    is not cut off - a form half filled, a Submit half pressed; it ends at a point where it can, and "finish and stop"
+    (set_draining) is the way to have nothing follow it.
+
+    An application whose work is cancelled is not left saying "queued" or "being read" for ever."""
+    from . import lifecycle
+    from .models import SENT
+
+    undo = None
+    with db.session() as s:
+        t = s.get(Task, task_id)
+        if t is None:
+            raise KeyError(task_id)
+        if t.status == "running":
+            raise NotNow("这个任务正在执行，不能中途取消。想让它做完就停、后面的不再开始，用“做完手上的就停”。")
+        if t.status not in ("queued", "waiting_human", "held"):
+            raise NotNow("这个任务已经结束了。")
+        t.status, t.error, t.finished_at = "cancelled", "你取消了这个任务", now()
+        s.flush()
+        a = application_of(s, t.ref) if t.kind in lifecycle.WORK else None
+        if a is not None and a.status not in SENT:
+            refs = {f"application:{a.id}", f"job:{a.job_id}", *(f"draft:{d.id}" for d in a.drafts)}
+            more = s.query(Task).filter(Task.kind.in_(lifecycle.WORK), Task.status.in_(("queued", "running", "waiting_human", "held"))).all()
+            if not any(x.ref.split(":manual")[0] in refs for x in more):
+                if a.status in ("approved", "executing"):
+                    if lifecycle.move(a, "failed", source="user"):
+                        a.last_event = "你取消了这次填写；草案还在，可以重新开始"
+                elif a.status in ("recon", "revising"):
+                    pending = [d for d in a.drafts if d.review_status == "pending"]
+                    if pending:
+                        lifecycle.move(a, "needs_input" if pending[-1].unresolved else "draft_ready", source="user")
+                    elif not a.drafts:
+                        undo = a.id          # nothing was drafted: the posting goes back to "not applied"
+    if undo is not None:
+        from . import drafts
+
+        drafts._undo(undo)
+
+
+def hold(task_id: int) -> None:
+    """Set a queued task aside: it keeps its place in the list and is not started until it is taken up again."""
+    with db.session() as s:
+        t = s.get(Task, task_id)
+        if t is None:
+            raise KeyError(task_id)
+        if t.status != "queued":
+            raise NotNow("只有还在排队的任务可以暂缓。")
+        t.status = "held"
+
+
+def take_up(task_id: int) -> None:
+    with db.session() as s:
+        t = s.get(Task, task_id)
+        if t is None:
+            raise KeyError(task_id)
+        if t.status != "held":
+            raise NotNow("这个任务没有被暂缓。")
+        t.status = "queued"
+        asked_again(t)
+    _wake.set()
+
+
+def first(task_id: int) -> None:
+    """Do this one next: ahead of everything else that is queued, and now rather than at the time it was set for."""
+    with db.session() as s:
+        t = s.get(Task, task_id)
+        if t is None:
+            raise KeyError(task_id)
+        if t.status not in ("queued", "held"):
+            raise NotNow("只有还在排队的任务可以提前。")
+        lowest = min([x.priority for x in s.query(Task).filter(Task.status == "queued")] or [0])
+        t.status, t.priority, t.due_at = "queued", min(lowest, t.priority) - 1, None
+        t.payload = {**(t.payload or {}), "_by_hand": True}
+    _wake.set()
+
+
+def plan() -> dict[str, Any]:
+    """What the program is doing, what comes next and in which order, what waits for the applicant, what was set aside,
+    and what is set for a later time. The order of "next" is the order it will be taken in. No times of completion:
+    how long a form takes is not something the program knows."""
+    from . import humanize
+    from .models import Todo
+
+    def row(t: Task) -> dict[str, Any]:
+        return {"id": t.id, "kind": t.kind, "label": humanize.TASK.get(t.kind, t.kind), "subject": humanize.subject(t.ref), "ref": t.ref,
+                "status": t.status, "by_hand": bool((t.payload or {}).get("_by_hand")), "lane": "background" if t.kind in BACKGROUND else "forms",
+                "created_at": t.created_at.isoformat() if t.created_at else None, "started_at": t.started_at.isoformat() if t.started_at else None,
+                "due_at": t.due_at.isoformat() if t.due_at else None, "why": humanize.explain(t.error)["message"] if t.error else ""}
+
+    paused, draining = bool(db.get_setting("schedule.paused")), bool(db.get_setting("schedule.draining"))
+    with db.session() as s:
+        at = now()
+        queued = s.query(Task).filter_by(status="queued").order_by(Task.priority, Task.id).all()
+        is_due = lambda t: t.due_at is None or (t.due_at if t.due_at.tzinfo else t.due_at.replace(tzinfo=timezone.utc)) <= at  # noqa: E731
+        nxt = [row(t) for t in queued if is_due(t)]
+        for r in nxt:       # what a pause holds back, said per task
+            r["held_by_pause"] = paused and not r["by_hand"]
+        waiting = []
+        cards = {t.ref: t.title for t in s.query(Todo).filter_by(status="open")}
+        for t in s.query(Task).filter_by(status="waiting_human").order_by(Task.id.desc()).limit(50):
+            r = row(t)
+            r["waits_for"] = cards.get(str((t.payload or {}).get("waits_for") or ""), "")
+            waiting.append(r)
+        return {"running": [row(t) for t in s.query(Task).filter_by(status="running").order_by(Task.started_at)],
+                "next": nxt[:60], "next_total": len(nxt),
+                "later": sorted((row(t) for t in queued if not is_due(t)), key=lambda r: r["due_at"])[:60],
+                "waiting": waiting, "held": [row(t) for t in s.query(Task).filter_by(status="held").order_by(Task.id)],
+                "paused": paused, "draining": draining, "stopped": draining and bool(db.get_setting("schedule.drain_told"))}
 
 
 def drain(max_tasks: int = 100) -> int:
@@ -246,6 +438,7 @@ def retry(task_id: int) -> None:
         t = s.get(Task, task_id)
         may_retry(s, t)
         t.status, t.error = "queued", ""
+        asked_again(t)
     _wake.set()
 
 
@@ -254,6 +447,9 @@ def start() -> None:
     from . import handlers  # noqa: F401  (registers task handlers)
 
     recover()
+    # "finish and stop" was for closing the program: it has been started again
+    db.set_setting("schedule.draining", False)
+    db.set_setting("schedule.drain_told", False)
     try:  # what was learned on another version of the program is checked again before it is used
         from . import learned
 
@@ -327,6 +523,12 @@ def _schedule_jobs() -> None:
             scoring.queue_qualifying()
         except Exception:  # noqa: BLE001
             log.exception("upkeep failed")
+        try:      # what is due tomorrow and today, cards put off until now, contacts to get back to, notices held for the night
+            from . import reminders
+
+            reminders.check()
+        except Exception:  # noqa: BLE001
+            log.exception("reminders failed")
 
     _sched.add_job(upkeep, "interval", minutes=10, id="upkeep", replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=90))
 

@@ -34,7 +34,7 @@ for _p in (DATA, FILES, MATERIALS, RUNS, SESSIONS, KNOWLEDGE, PLAYBOOKS):
 # Kept in the settings table, but the program's own record of what it found out - not something the settings page
 # shows or saves. The page used to get these and send them back with everything else: a page left open wrote an older
 # copy over what the program had recorded since (which browser a sign-in lives in, which site signs in on which).
-STATE = frozenset({"mail.gmail_history"})
+STATE = frozenset({"mail.gmail_history", "schedule.draining", "schedule.drain_told"})
 # Settings of earlier versions that are no longer settings: what the program found out about sites lives in sites.py now.
 # A settings page loaded before sends them back; they are ignored.
 RETIRED = frozenset({"accounts.alias", "sso.offered", "browser.visible_sites", "browser.session_made_in", "learned.drivers_written",
@@ -107,6 +107,13 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "schedule.mail_new_minutes": 2,     # Gmail only: ask what arrived since the last look (0: off)
     "schedule.canary_minutes": 1440,
     "schedule.paused": False,
+    # "finish what is being done, start nothing new, and tell me": for closing or restarting the program. Not a setting -
+    # it is over when the program is started again.
+    "schedule.draining": False,
+    "schedule.drain_told": False,
+    # how many applications may wait for the applicant at once (being drafted, or drafted and not yet approved) before the
+    # program stops starting new drafts by itself. 0: no limit. Drafts asked for by hand are not counted against it.
+    "drafts.max_pending": 20,
     # queueing
     "queue.min_score_for_draft": 8.0,
     # notifications: per-category switches
@@ -115,6 +122,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "notify.status_update": True,
     "notify.task_result": True,
     "notify.telegram_chat_id": "",
+    # Hours in which nothing is pushed to the phone ({"on", "from", "to"}, local time; "to" may be on the next day).
+    # What comes in then is kept and goes out as one message when the hours end. Off by default.
+    "notify.quiet": {"on": False, "from": "22:00", "to": "08:00"},
     "app.base_url": "http://127.0.0.1:8000",
     # discovery
     "sources.greenhouse": [],  # board tokens

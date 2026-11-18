@@ -24,7 +24,8 @@ TASK = {
     "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
     "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检", "site_status": "到雇主网站查申请状态",
 }
-TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn")}
+TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn"),
+               "held": ("暂缓", ""), "cancelled": ("已取消", "")}
 
 
 def ats_name(ats: str) -> str:

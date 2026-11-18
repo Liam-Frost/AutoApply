@@ -42,6 +42,7 @@ const daysLeft = (dl) => {
 }
 async function load() {
   ;[todos.value, drafts.value] = await Promise.all([api.get('/todos'), api.get('/drafts')])
+  todos.value = todos.value.filter((t) => !t.snoozed_until)       // what was put off until later is not "waiting for you" until then
 }
 const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), '开始扫描新岗位，完成后会通知你', reload)
 const mail = () => run(() => api.post('/tasks', { kind: 'mail' }), '开始检查邮箱', reload)
@@ -63,7 +64,7 @@ onMounted(load)
 
   <div class="cols">
     <div class="card">
-      <div class="row"><span class="card-title grow">需要你处理</span><router-link v-if="todos.length" to="/todos" class="small">全部</router-link></div>
+      <div class="row"><span class="card-title grow">需要你处理</span><router-link :to="{ path: '/runs', query: { tab: 'notes' } }" class="small">最近的通知</router-link><router-link v-if="todos.length" to="/todos" class="small">全部</router-link></div>
       <div class="list">
         <router-link v-for="t in todos.slice(0, 4)" :key="'t' + t.id" to="/todos" class="item" style="color: inherit; text-decoration: none">
           <Icon name="bell" style="width: 18px; height: 18px; color: var(--warn); margin-top: 2px" />

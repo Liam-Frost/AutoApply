@@ -304,6 +304,188 @@ def test_the_same_work_asked_for_now_is_taken_forward_not_queued_twice(app_env, 
     assert tasks.drain() == 0
 
 
+# --- what the applicant can do about the queue ---
+
+
+def _job(s, n, status="scored", score=8.0, app=None):
+    from autoapply.models import Application, Job
+
+    j = Job(source="manual", source_id=f"q{n}", company=f"Co{n}", title="Intern", apply_url=f"https://x.test/{n}", channel="employer site", jd_text="x" * 300,
+            status=status, score=score, online=1)
+    s.add(j)
+    s.flush()
+    if app:
+        s.add(Application(job_id=j.id, status=app))
+        s.flush()
+    return j.id
+
+
+def test_the_plan_says_what_is_being_done_what_comes_next_and_what_waits(app_env, monkeypatch):
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    from autoapply.api.main import app
+    from autoapply.models import Task, Todo, now
+
+    with db.session() as s:
+        s.add(Task(kind="execute", ref="application:1", status="running", started_at=now(), priority=10))
+        s.add(Task(kind="recon", ref="job:5", status="queued", priority=50))
+        s.add(Task(kind="recon", ref="job:6", status="queued", priority=20, payload={"_by_hand": True}))
+        s.add(Task(kind="score", ref="unscored", status="queued", priority=150))
+        s.add(Task(kind="mail", ref="confirm:1", status="queued", priority=40, due_at=now() + timedelta(minutes=30)))
+        s.add(Task(kind="recon", ref="job:7", status="waiting_human", payload={"waits_for": "account:workday:acme"}, error="The site wants a sign-in."))
+        s.add(Task(kind="recon", ref="job:8", status="held"))
+        s.add(Todo(kind="takeover", ref="account:workday:acme", title="Acme（acme.wd1.myworkdayjobs.com）", body="please sign in"))
+    c = TestClient(app)
+    p = c.get("/api/queue").json()
+    assert [t["ref"] for t in p["running"]] == ["application:1"]
+    assert [(t["ref"], t["by_hand"], t["lane"]) for t in p["next"]] == [("job:6", True, "forms"), ("job:5", False, "forms"), ("unscored", False, "background")]      # the order it will be taken in
+    assert [t["ref"] for t in p["later"]] == ["confirm:1"] and p["later"][0]["due_at"]
+    assert [(t["ref"], t["waits_for"]) for t in p["waiting"]] == [("job:7", "Acme（acme.wd1.myworkdayjobs.com）")] and [t["ref"] for t in p["held"]] == ["job:8"]
+    assert p["paused"] is False and p["draining"] is False and p["drafts"]["cap"] == 20
+    assert all("eta" not in t and "finish" not in t for t in p["next"])            # no time of completion is promised
+
+
+def test_a_task_can_be_put_first_set_aside_taken_up_and_cancelled_but_not_cut_off(app_env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from autoapply import tasks
+    from autoapply.api.main import app
+    from autoapply.models import Application, Draft, Job, Task, now
+
+    ran = []
+    monkeypatch.setitem(tasks._handlers, "recon", lambda t: ran.append(t.ref) or {})
+    monkeypatch.setitem(tasks._handlers, "execute", lambda t: ran.append(t.ref) or {})
+    with db.session() as s:
+        j1, j2, j3 = _job(s, 1), _job(s, 2, status="queued", app="recon"), _job(s, 3, status="queued", app="approved")
+        a2, a3 = s.get(Job, j2).application.id, s.get(Job, j3).application.id
+        s.add(Draft(application_id=a3, version=1, review_status="approved", schema={}, answers=[]))
+        ids = {}
+        for name, kind, ref, st, prio in (("a", "recon", f"job:{j1}", "queued", 50), ("b", "recon", f"job:{j2}", "queued", 60), ("c", "execute", f"application:{a3}", "queued", 70),
+                                          ("run", "execute", "application:999", "running", 5), ("done", "score", "unscored", "done", 150)):
+            t = Task(kind=kind, ref=ref, status=st, priority=prio, started_at=now() if st == "running" else None)
+            s.add(t)
+            s.flush()
+            ids[name] = t.id
+    c = TestClient(app)
+    # first: ahead of everything queued
+    assert c.post(f"/api/tasks/{ids['c']}/first").status_code == 200
+    assert [t["ref"] for t in c.get("/api/queue").json()["next"]][0] == f"application:{a3}"
+    # set aside: not started until taken up again
+    assert c.post(f"/api/tasks/{ids['a']}/hold").status_code == 200
+    assert tasks._claim("forms").id == ids["c"]
+    with db.session() as s:
+        s.get(Task, ids["c"]).status = "queued"
+    assert c.post(f"/api/tasks/{ids['a']}/take-up").status_code == 200 and c.post(f"/api/tasks/{ids['a']}/take-up").status_code == 409
+    # cancelled: out of the queue - and the application it was for does not go on saying "queued" or "being read"
+    assert c.post(f"/api/tasks/{ids['c']}/cancel").status_code == 200
+    assert c.post(f"/api/tasks/{ids['b']}/cancel").status_code == 200
+    with db.session() as s:
+        assert s.get(Application, a3).status == "failed" and "取消" in s.get(Application, a3).last_event      # the approved draft is still there to run again
+        assert s.get(Application, a2) is None and s.get(Job, j2).application is None                          # nothing had been drafted: back to "not applied"
+        assert [s.get(Task, ids[k]).status for k in "abc"] == ["queued", "cancelled", "cancelled"]
+    # a running task is not cut off, and one that has ended cannot be cancelled
+    r = c.post(f"/api/tasks/{ids['run']}/cancel")
+    assert r.status_code == 409 and "做完手上的就停" in r.json()["detail"]
+    assert c.post(f"/api/tasks/{ids['done']}/cancel").status_code == 409 and c.post("/api/tasks/99999/cancel").status_code == 404
+    assert c.post(f"/api/tasks/{ids['a']}/explode").status_code == 404
+
+
+def test_finish_what_is_being_done_and_stop_then_say_so(app_env, monkeypatch):
+    """Before closing or restarting the program the applicant had to watch the queue until nothing was running."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import notify, tasks
+    from autoapply.api.main import app
+    from autoapply.models import Task, now
+
+    told = []
+    monkeypatch.setattr(notify, "send", lambda category, card, **kw: told.append(getattr(card, "heading", card)) or True)
+    monkeypatch.setitem(tasks._handlers, "recon", lambda t: {})
+    with db.session() as s:
+        s.add(Task(kind="execute", ref="application:1", status="running", started_at=now()))
+        s.add(Task(kind="recon", ref="job:1", status="queued"))
+    c = TestClient(app)
+    assert c.post("/api/queue/drain", json={"on": True}).json() == {"draining": True, "stopped": False}
+    assert c.get("/api/overview").json()["draining"] is True and told == []          # something is still running: not yet
+    tasks._tell_when_drained()
+    assert told == []
+    with db.session() as s:
+        s.query(Task).filter_by(status="running").one().status = "done"
+    tasks._tell_when_drained()
+    tasks._tell_when_drained()
+    assert told == ["手上的任务都做完了，程序已停下"]                                    # once
+    p = c.get("/api/queue").json()
+    assert p["draining"] and p["stopped"] and [t["ref"] for t in p["next"]] == ["job:1"]      # what is queued stays queued
+    assert c.post("/api/queue/drain", json={"on": False}).json() == {"draining": False, "stopped": False}
+    # with nothing running it is said at once; and starting the program again ends it
+    assert c.post("/api/queue/drain", json={"on": True}).json()["stopped"] is True
+    monkeypatch.setattr(tasks, "_sched", None)
+    monkeypatch.setattr(tasks.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    monkeypatch.setattr(tasks, "_schedule_jobs", lambda: None)
+    try:
+        tasks.start()
+    except Exception:  # noqa: BLE001 - (the scheduler is not what this is about)
+        pass
+    assert db.get_setting("schedule.draining") is False
+
+
+def test_a_pause_stops_what_the_program_does_by_itself_not_what_the_applicant_asks_for(app_env, monkeypatch):
+    """Paused, nothing ran at all - also not "look in the mailbox now", pressed by the applicant."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import tasks
+    from autoapply.api.main import app
+    from autoapply.models import Task
+
+    ran = []
+    monkeypatch.setitem(tasks._handlers, "mail", lambda t: ran.append(("mail", t.ref)) or {})
+    monkeypatch.setitem(tasks._handlers, "discover", lambda t: ran.append(("discover", t.ref)) or {})
+    db.set_setting("schedule.paused", True)
+    tasks.enqueue("discover", ref="schedule", priority=10)                       # the clock
+    c = TestClient(app)
+    assert c.post("/api/tasks", json={"kind": "mail"}).status_code == 200         # the applicant, on the page
+    with db.session() as s:
+        by = {t.kind: bool((t.payload or {}).get("_by_hand")) for t in s.query(Task)}
+    assert by == {"discover": False, "mail": True}
+    t = tasks._claim("background", only_by_hand=True)
+    assert t is not None and t.kind == "mail" and tasks._claim("background", only_by_hand=True) is None
+    p = c.get("/api/queue").json()
+    assert p["paused"] and [(x["kind"], x["held_by_pause"]) for x in p["next"]] == [("discover", True)]
+    # the same work asked for by hand while the program had queued it itself: it is the applicant's from then on
+    tasks.enqueue("recon", ref="job:9", priority=50)
+    token = tasks.by_hand.set(True)
+    try:
+        again = tasks.enqueue("recon", ref="job:9", priority=10)
+    finally:
+        tasks.by_hand.reset(token)
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="recon").count() == 1 and s.get(Task, again).payload["_by_hand"] is True
+
+
+def test_the_program_does_not_start_more_drafts_than_the_applicant_wants_waiting(app_env, monkeypatch):
+    """A scan brings thousands of postings; the hundred best each got a draft, and nobody has the time to read a hundred."""
+    from autoapply import scoring
+    from autoapply.models import Job, Task
+
+    db.set_setting("drafts.max_pending", 3)
+    db.set_setting("queue.min_score_for_draft", 7.0)
+    with db.session() as s:
+        _job(s, 1, status="queued", app="draft_ready")
+        _job(s, 2, status="queued", app="needs_input")
+        _job(s, 3, status="applied", app="submitted")               # sent: it waits for nobody
+        good = [_job(s, n, score=9.5 - n / 10) for n in (4, 5, 6, 7)]
+    assert scoring.draft_room() == {"waiting": 2, "cap": 3, "room": 1}
+    assert scoring.queue_qualifying(limit=6) == 1                    # one more, the best of them
+    with db.session() as s:
+        assert [t.ref for t in s.query(Task).filter_by(kind="recon")] == [f"job:{good[0]}"] and s.get(Job, good[0]).status == "queued"
+        assert [s.get(Job, i).status for i in good[1:]] == ["scored"] * 3     # they keep their place: next when there is room
+    assert scoring.draft_room()["room"] == 0 and scoring.queue_qualifying(limit=6) == 0
+    db.set_setting("drafts.max_pending", 0)                           # no limit
+    assert scoring.queue_qualifying(limit=6) == 3
+
+
 def test_work_that_is_asked_for_again_does_what_was_asked_last(app_env):
     """A revision that ran into the usage limit waits in the queue for half an hour with its comment. The applicant
     writes another comment meanwhile: the waiting task was taken forward - with the old comment - and the new one was
@@ -329,3 +511,79 @@ def test_work_that_is_asked_for_again_does_what_was_asked_last(app_env):
     later = tasks.enqueue("revise", ref="draft:7", payload={"draft_id": 7, "comment": "no, 40"})
     with db.session() as s:
         assert later != old and s.get(Task, later).status == "queued" and s.get(Task, old).payload["comment"] == "and mention the start date"
+
+
+def test_what_was_put_aside_stays_put_aside_and_what_the_applicant_puts_back_is_theirs(app_env):
+    """A task the applicant put aside ("not now") was not counted when the program asked whether the work was already
+    queued: the next pass of the timer queued it a second time and did it. And a task the applicant put back - a card
+    marked done, retry, take it up - went back as the program's own: held back again for the quiet hours, not taken
+    while paused."""
+    from autoapply import handlers, tasks
+    from autoapply.models import Task
+
+    tid = tasks.enqueue("scout", ref="draft:5", payload={"draft_id": 5})
+    tasks.hold(tid)
+    assert tasks.enqueue("scout", ref="draft:5", payload={"draft_id": 5}) == tid          # the program asks again: it stays where the applicant put it
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="scout").count() == 1 and s.get(Task, tid).status == "held"
+    token = tasks.by_hand.set(True)
+    try:
+        assert tasks.enqueue("scout", ref="draft:5", payload={"draft_id": 5}) == tid      # the applicant asks: it is taken up
+        with db.session() as s:
+            t = s.get(Task, tid)
+            assert t.status == "queued" and t.payload["_by_hand"] is True
+            # what waits for the applicant, what failed, what was put aside: put back by them, they are theirs
+            waits = Task(kind="recon", ref="job:9", payload={"job_id": 9, "waits_for": "account:idp:school"}, status="waiting_human")
+            failed = Task(kind="recon", ref="job:10", payload={"job_id": 10}, status="failed", error="x")
+            aside = Task(kind="recon", ref="job:11", payload={"job_id": 11}, status="held")
+            s.add_all([waits, failed, aside])
+            s.flush()
+            ids = (waits.id, failed.id, aside.id)
+        assert handlers.resume_waiting("account:idp:school") == 1
+        tasks.retry(ids[1])
+        tasks.take_up(ids[2])
+    finally:
+        tasks.by_hand.reset(token)
+    with db.session() as s:
+        assert [(s.get(Task, i).status, s.get(Task, i).payload.get("_by_hand")) for i in ids] == [("queued", True)] * 3
+        # the program putting a task back by itself (the clock, a restart) does not make it the applicant's
+        own = Task(kind="recon", ref="job:12", payload={"job_id": 12}, status="failed", error="x")
+        s.add(own)
+        s.flush()
+        own_id = own.id
+    tasks.retry(own_id)
+    with db.session() as s:
+        assert s.get(Task, own_id).status == "queued" and "_by_hand" not in s.get(Task, own_id).payload
+
+
+def test_the_room_for_drafts_goes_to_the_best_postings(app_env, monkeypatch):
+    """With one place left, the batch that was just scored got it in the order it was read - newest first: a posting
+    scored 8 took the place, and one scored 10 in the same batch, and one scored 9.5 that had been waiting, did not."""
+    from autoapply import notify, scoring
+    from autoapply.models import Job, Task
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: True)
+    db.set_setting("queue.min_score_for_draft", 7.0)
+    db.set_setting("drafts.max_pending", 1)
+    with db.session() as s:
+        waiting = _job(s, 1, score=9.5)                               # scored before, still waiting for room
+        best = _job(s, 2, status="new", score=None)                   # read second (older), scores 10
+        fine = _job(s, 3, status="new", score=None)                   # read first (newest), scores 8
+    scores = {best: 10.0, fine: 8.0}
+
+    def score_job(jid):
+        with db.session() as s:
+            j = s.get(Job, jid)
+            j.score, j.status = scores[jid], "scored"
+        return {"excluded": False}
+
+    monkeypatch.setattr(scoring, "score_job", score_job)
+    monkeypatch.setattr(scoring, "set_aside_by_rule", lambda ids: ids)
+    out = scoring.score_pending()
+    refs = lambda: sorted(t.ref for t in db.session().__enter__().query(Task).filter_by(kind="recon"))  # noqa: E731
+    assert refs() == [f"job:{best}"] and out.get("queued_for_draft", out.get("queued")) == 1
+    with db.session() as s:
+        assert [s.get(Job, i).status for i in (best, waiting, fine)] == ["queued", "scored", "scored"]
+    # room for more: the next places go by score as well - the one that waited at 9.5 before the 8
+    db.set_setting("drafts.max_pending", 0)
+    assert scoring.queue_qualifying(limit=1) == 1 and refs() == sorted([f"job:{best}", f"job:{waiting}"])

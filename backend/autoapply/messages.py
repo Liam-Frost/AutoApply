@@ -155,6 +155,17 @@ def second_factor(site: str, method: str) -> Card:
     return Card("📱", f"请在手机上批准 {method}", site, hint=f"程序正在登录 {site}，账号密码已经输入；现在等你在手机上批准，最多等 3 分钟。不是你发起的登录也会出现在这里：那就不要批准。")
 
 
+def reminder(title: str, which: str, due: Any = None, date_only: bool = False) -> Card:
+    """A card with a date coming up ("day_before", "day"), or one the applicant put off until now ("again")."""
+    when = "" if due is None else (due.strftime("%Y-%m-%d") if date_only else due.strftime("%Y-%m-%d %H:%M"))
+    heading = {"day_before": "明天到期", "day": "今天到期", "again": "到了你定的提醒时间"}[which]
+    return Card("⏰", heading, title, fields=[("时间", when)], path="/todos", link="打开待办")
+
+
+def drained() -> Card:
+    return Card("⏹️", "手上的任务都做完了，程序已停下", hint="不会再开始新的任务。现在可以放心关闭或重启程序；重新启动后队列会接着做。", path="/runs", link="查看工作计划")
+
+
 def registered(key: str) -> Card:
     return Card("🆕", "已注册账号", key, hint="密码保存在本机凭据管理器里。", path="/accounts", link="查看账号")
 

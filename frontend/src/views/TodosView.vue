@@ -43,21 +43,27 @@ const VIEW = {
   driver: { icon: 'wrench', tone: 'none', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
   mail_unmatched: { icon: 'mail', tone: 'info', title: () => '有一封邮件没对上岗位', what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
+  // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
+  followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
 }
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
   what: () => '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
 
 // Sorting and filtering. Urgency comes from the server: 0 a window is waiting for you now, 1 the deadline is within 3 days, 2 when you can, 3 just so you know.
-const CATS = [['all', '全部'], ['login', '要登录'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
+const CATS = [['all', '全部'], ['dated', '有日期的'], ['login', '要登录'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
 const URGENCY = ['现在处理', '快截止了', '有空时处理', '仅通知，不需要操作']
 const SORTS = { urgency: '按轻重缓急', newest: '最新的在前', deadline: '按截止时间', score: '按岗位评分' }
 const cat = ref('all')
 const sort = ref(localStorage.getItem('todos.sort') || 'urgency')
 const q = ref('')
-const count = (c) => todos.value.filter((t) => c === 'all' || t.category === c).length
+// What the applicant put off until later is out of the way until then - and can be looked at, and brought back, below.
+const active = computed(() => todos.value.filter((t) => !t.snoozed_until))
+const later = computed(() => todos.value.filter((t) => t.snoozed_until).sort((a, b) => (a.snoozed_until < b.snoozed_until ? -1 : 1)))
+const showLater = ref(false)
+const count = (c) => active.value.filter((t) => c === 'all' || t.category === c).length
 const shown = computed(() => {
   const needle = q.value.trim().toLowerCase()
-  const rows = todos.value.filter((t) => (cat.value === 'all' || t.category === cat.value)
+  const rows = active.value.filter((t) => (cat.value === 'all' || t.category === cat.value)
     && (!needle || `${t.title} ${t.body} ${t.job ? t.job.company + ' ' + t.job.title : ''} ${t.site ? t.site.name : ''}`.toLowerCase().includes(needle)))
   const big = 1e9
   const key = { urgency: (t) => [t.urgency, t.days_left ?? big, -(t.job?.score ?? 0), -t.id], newest: (t) => [-t.id], deadline: (t) => [t.days_left ?? big, t.urgency, -t.id],
@@ -72,6 +78,20 @@ const sections = computed(() => {
 const setSort = (v) => { sort.value = v; try { localStorage.setItem('todos.sort', v) } catch { /* ignore */ } }
 const infoIds = computed(() => shown.value.filter((t) => t.category === 'info').map((t) => t.id))
 const left = (t) => (t.days_left == null ? '' : t.days_left < 0 ? '已过截止时间' : t.days_left === 0 ? '今天截止' : `还剩 ${t.days_left} 天`)
+// a card's own date, in words: the day (and the time, when the mail gave one)
+const dueText = (t) => (t.due_at ? (t.date_only ? t.due_at.slice(0, 10) : t.due_at.slice(0, 16).replace('T', ' ')) : '')
+const dueTone = (t) => (t.days_left == null ? '' : t.days_left < 0 ? 'bad' : t.days_left <= 1 ? 'warn' : '')
+// "show me this again": tomorrow morning, in three days, next Monday - or a day of the applicant's choosing
+const menu = ref(0)          // the card whose "later" choices are open
+const day = ref('')
+function at9(d) { d.setHours(9, 0, 0, 0); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:00` }
+function inDays(n) { const d = new Date(); d.setDate(d.getDate() + n); return at9(d) }
+function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return at9(d) }
+const snooze = (t, until) => { menu.value = 0; return act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? `好的，${until.slice(0, 10)} 再提醒你` : '已放回待办') }
+const snoozeDay = (t) => (day.value ? snooze(t, day.value + 'T09:00') : null)
+const dueEdit = ref({ id: 0, value: '' })
+const openDue = (t) => { dueEdit.value = { id: t.id, value: t.due_at ? t.due_at.slice(0, 16) : '' } }
+const saveDue = (t) => act(async () => { await api.post(`/todos/${t.id}/due`, { due: dueEdit.value.value || null }); dueEdit.value = { id: 0, value: '' } }, '日期已更新，到时会提醒你')
 const scoreCls = (x) => (x == null ? '' : x >= 9 ? 'hi' : x >= 7.5 ? 'mid' : '')
 
 const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.title, what: (x) => x.explained.message }
@@ -139,6 +159,7 @@ onUnmounted(() => clearInterval(timer))
     <div>
       <div class="head">
         <span class="title grow">{{ view(t).title(t) }}</span>
+        <span v-if="t.due_at" class="tag" :class="dueTone(t)" :title="t.payload && t.payload.due_text ? '邮件里写的：' + t.payload.due_text : ''">{{ dueText(t) }}<template v-if="left(t)"> · {{ left(t).replace('截止', '') }}</template></span>
         <span v-if="t.site && t.site.system" class="badge">{{ t.site.system }}</span>
         <span class="small muted">{{ fmtTime(t.created_at) }}</span>
       </div>
@@ -203,6 +224,12 @@ onUnmounted(() => clearInterval(timer))
           <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" />去回答</router-link>
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
+        <template v-else-if="t.kind === 'followup'">
+          <button class="primary" @click="done(t)"><Icon name="check" />已完成</button>
+          <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? '改日期' : '加上日期' }}</button>
+          <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请和原邮件</router-link>
+          <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">打开人脉</router-link>
+        </template>
         <template v-else-if="['failed', 'submit'].includes(t.kind) && t.payload && t.payload.draft_id">
           <template v-if="unknown(t)">
             <button class="primary" @click="checkMail(t)"><Icon name="mail" />现在检查确认邮件</button>
@@ -213,6 +240,7 @@ onUnmounted(() => clearInterval(timer))
             <button class="primary" @click="runAgain(t)"><Icon name="refresh" />{{ t.application && t.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
             <button v-if="t.application && t.application.status === 'ready_to_submit'" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
           </template>
+          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
           <router-link :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
           <button class="ghost" @click="dismiss(t)">不投了，关闭</button>
         </template>
@@ -244,11 +272,42 @@ onUnmounted(() => clearInterval(timer))
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
       </div>
+      <div v-if="dueEdit.id === t.id" class="row" style="margin-top: 8px; flex-wrap: wrap">
+        <label :for="'due-' + t.id" class="small muted">这件事的时间</label>
+        <input :id="'due-' + t.id" v-model="dueEdit.value" type="datetime-local" style="width: 220px" />
+        <button class="sm primary" @click="saveDue(t)">保存</button>
+        <button v-if="t.due_at" class="sm ghost" @click="dueEdit.value = ''; saveDue(t)">去掉日期</button>
+        <button class="sm ghost" @click="dueEdit = { id: 0, value: '' }">取消</button>
+      </div>
+      <!-- "not now": out of the way until a day of the applicant's choosing, then shown and said again -->
+      <div class="row" style="margin-top: 8px; flex-wrap: wrap">
+        <button v-if="menu !== t.id" class="sm ghost" @click="menu = t.id; day = ''"><Icon name="clock" />稍后提醒</button>
+        <template v-else>
+          <span class="small muted">什么时候再提醒：</span>
+          <button class="sm" @click="snooze(t, inDays(1))">明天</button>
+          <button class="sm" @click="snooze(t, inDays(3))">3 天后</button>
+          <button class="sm" @click="snooze(t, nextMonday())">下周一</button>
+          <input v-model="day" type="date" aria-label="选一天" style="width: 150px" />
+          <button class="sm" :disabled="!day" @click="snoozeDay(t)">这一天</button>
+          <button class="sm ghost" @click="menu = 0">取消</button>
+        </template>
+      </div>
       <TechDetails :text="t.explained.detail || (t.kind === 'driver_patch' ? t.body : '')" />
     </div>
   </div>
   </template>
-  <div v-if="todos.length && !shown.length" class="card"><EmptyState icon="search" title="没有符合条件的待办" text="换一个分类，或清空搜索。" /></div>
 
-  <div v-if="!todos.length" class="card"><EmptyState icon="check" title="没有需要你处理的事" text="需要登录、回答问题或确认提交时，会出现在这里，同时发到 Telegram。" /></div>
+  <div v-if="later.length" class="card">
+    <button class="ghost" @click="showLater = !showLater">稍后提醒的（{{ later.length }}）{{ showLater ? '收起' : '展开' }}</button>
+    <div v-if="showLater" class="list" style="margin-top: 8px">
+      <div v-for="t in later" :key="t.id" class="item">
+        <span class="badge" style="min-width: 96px; justify-content: center">{{ t.snoozed_until.slice(0, 10) }}</span>
+        <div><div class="main">{{ view(t).title(t) }}</div><div v-if="t.due_at" class="sub">时间：{{ dueText(t) }}</div></div>
+        <div class="right"><button class="sm" @click="snooze(t, null)">现在就看</button></div>
+      </div>
+    </div>
+  </div>
+  <div v-if="active.length && !shown.length" class="card"><EmptyState icon="search" title="没有符合条件的待办" text="换一个分类，或清空搜索。" /></div>
+
+  <div v-if="!active.length" class="card"><EmptyState icon="check" title="没有需要你处理的事" text="需要登录、回答问题或确认提交时，会出现在这里，同时发到 Telegram。" /></div>
 </template>

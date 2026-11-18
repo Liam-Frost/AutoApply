@@ -49,6 +49,7 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/todos" class="nav"><Icon name="bell" />需要我处理 <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
       <router-link to="/drafts" class="nav"><Icon name="draft" />草案审批 <span v-if="ov.pending_drafts" class="count">{{ ov.pending_drafts }}</span></router-link>
       <router-link to="/jobs" class="nav"><Icon name="briefcase" />岗位</router-link>
+      <router-link to="/applications" class="nav"><Icon name="check" />我的申请</router-link>
 
       <div class="nav-label">我的资料</div>
       <router-link to="/profile" class="nav"><Icon name="user" />个人资料</router-link>
@@ -62,7 +63,8 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/settings" class="nav"><Icon name="settings" />设置</router-link>
 
       <div class="side-foot">
-        <div v-if="ov.paused"><span class="status-dot paused"></span>已暂停，不会自动运行</div>
+        <div v-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" style="color: inherit">{{ ov.stopped ? '已停下，可以关闭或重启' : '正在收尾，不再开始新任务' }}</router-link></div>
+        <div v-else-if="ov.paused"><span class="status-dot paused"></span>已暂停，不会自动运行</div>
         <div v-else-if="ov.running && ov.running.length"><span class="status-dot busy"></span>正在{{ ov.running[0].label }}</div>
         <div v-else><span class="status-dot"></span>运行中，目前空闲</div>
         <div class="theme-seg" role="group" aria-label="外观">
