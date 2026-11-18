@@ -1,18 +1,39 @@
 <script setup>
-import { onMounted, onUnmounted, provide, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { hold } from './focus'
+import { clock } from './data'
 import { api, auth } from './api'
 import Icon from './components/Icon.vue'
 import RemoteBanner from './components/RemoteBanner.vue'
 import { LANGS, lang, setLang } from './i18n'
-import { answer, dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
+import { dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
 import LoginView from './views/LoginView.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 
 const ov = ref({ pending_drafts: 0, open_todos: 0, queued_tasks: 0, paused: false, running: [] })
 let timer
 async function load() {
   if (!session.in) return
-  try { ov.value = await api.get('/overview') } catch (e) { /* server restarting */ }
+  // (the server may be restarting, or gone: what is shown stays, and the footer says since when it is not being updated)
+  try { ov.value = await api.get('/overview'); Object.assign(link, { at: Date.now(), down: false }) } catch (e) { link.down = true }
 }
+const link = reactive({ at: null, down: false })
+
+// --- the navigation on a narrow screen -------------------------------------------------------------------------------
+const route = useRoute()
+const NAMES = [['/home', '概览'], ['/todos', '需要我处理'], ['/drafts', '草案审批'], ['/jobs/sources', '来源与关注公司'], ['/jobs', '岗位'], ['/applications', '我的申请'], ['/profile', '个人资料'],
+  ['/files', '材料库'], ['/contacts', '人脉与内推'], ['/accounts', '网站账号'], ['/analytics', '数据分析'], ['/runs', '活动记录'], ['/settings', '设置'], ['/welcome', '设置向导'], ['/remote', '远程窗口']]
+const pageName = computed(() => (NAMES.find(([p]) => route.path === p || route.path.startsWith(p + '/')) || ['', ''])[1])
+const menu = ref(false)
+const side = ref(null)
+let letGo = null
+// open: the menu has the keyboard (focus.js); going somewhere closes it
+watch(menu, async (open) => {
+  if (letGo) { letGo(); letGo = null }
+  if (open) { await nextTick(); if (side.value) letGo = hold(side.value) }
+})
+watch(() => route.path, () => { menu.value = false })
 // Who is here: nobody yet (the login shows), or the administrator (the program shows).
 async function whoAmI() {
   try {
@@ -42,7 +63,20 @@ onUnmounted(() => clearInterval(timer))
   <div v-if="!session.ready" class="door"></div>
   <LoginView v-else-if="!session.in" @done="entered" />
   <div v-else class="shell">
-    <nav class="side" :class="{ guide: !persona.done }">
+    <!-- On a narrow screen the navigation is this bar - the program, the page that is open, what waits for you,
+         whether it is running - and the full list opens from "menu". (It used to be the whole sidebar laid out across
+         the top: a third of a phone's screen before the page began.) -->
+    <header class="topbar">
+      <router-link to="/" class="brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></router-link>
+      <span class="topbar-page">{{ pageName }}</span>
+      <span class="grow"></span>
+      <router-link v-if="ov.open_todos" to="/todos" class="count" :aria-label="`${ov.open_todos} 件事需要你处理`">{{ ov.open_todos }}</router-link>
+      <span class="status-dot" :class="link.down ? 'down' : ov.draining || ov.paused ? 'paused' : ov.running && ov.running.length ? 'busy' : ''" role="img"
+        :aria-label="link.down ? '连接不上服务' : ov.paused ? '已暂停，不会自动运行' : ov.running && ov.running.length ? '正在运行' : '运行中，目前空闲'"></span>
+      <button class="ghost sm" :aria-expanded="menu" aria-controls="side-nav" @click="menu = !menu"><Icon :name="menu ? 'x' : 'menu'" />{{ menu ? '关闭' : '菜单' }}</button>
+    </header>
+    <div v-if="menu" class="overlay menu-overlay" @click="menu = false"></div>
+    <nav id="side-nav" ref="side" class="side" :class="{ guide: !persona.done, open: menu }" aria-label="导航" @keydown.esc="menu = false">
       <router-link to="/" class="brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></router-link>
 
       <router-link to="/home" class="nav"><Icon name="home" />概览</router-link>
@@ -63,7 +97,8 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/settings" class="nav"><Icon name="settings" />设置</router-link>
 
       <div class="side-foot">
-        <div v-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" style="color: inherit">{{ ov.stopped ? '已停下，可以关闭或重启' : '正在收尾，不再开始新任务' }}</router-link></div>
+        <div v-if="link.down" role="status"><span class="status-dot down"></span>连接不上服务<template v-if="link.at">（上次更新 {{ clock(link.at) }}）</template></div>
+        <div v-else-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" style="color: inherit">{{ ov.stopped ? '已停下，可以关闭或重启' : '正在收尾，不再开始新任务' }}</router-link></div>
         <div v-else-if="ov.paused"><span class="status-dot paused"></span>已暂停，不会自动运行</div>
         <div v-else-if="ov.running && ov.running.length"><span class="status-dot busy"></span>正在{{ ov.running[0].label }}</div>
         <div v-else><span class="status-dot"></span>运行中，目前空闲</div>
@@ -79,25 +114,10 @@ onUnmounted(() => clearInterval(timer))
     </nav>
     <main class="content"><RemoteBanner /><router-view :key="$route.path.startsWith('/remote/') ? $route.path : undefined" /></main>
   </div>
-  <template v-if="dialog.open">
-    <div class="overlay" style="z-index: 80" @click="answer(dialog.cancel)"></div>
-    <div class="dialog" role="alertdialog" aria-modal="true" @keydown.esc="answer(dialog.cancel)">
-      <p>{{ dialog.text }}</p>
-      <div v-if="dialog.choices" class="row" style="justify-content: flex-end; flex-wrap: wrap">
-        <template v-for="c in dialog.choices" :key="c.key">
-          <button v-if="c.focus" v-focus :class="c.cls" @click="answer(c.key)">{{ c.label }}</button>
-          <button v-else :class="c.cls" @click="answer(c.key)">{{ c.label }}</button>
-        </template>
-      </div>
-      <div v-else class="row" style="justify-content: flex-end">
-        <button @click="answer(false)">取消</button>
-        <button v-focus :class="dialog.danger ? 'danger solid' : 'primary'" @click="answer(true)">{{ dialog.ok }}</button>
-      </div>
-    </div>
-  </template>
+  <ConfirmDialog v-if="dialog.open" />
   <div class="toasts" role="status" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
-      <span class="grow">{{ t.text }}</span>
+      <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link></span>
       <button aria-label="关闭" @click="dismissToast(t.id)">✕</button>
     </div>
   </div>

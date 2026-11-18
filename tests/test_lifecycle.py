@@ -101,6 +101,47 @@ def test_analytics_numbers(app_env):
     assert d["median_wait_days"] == 4 and d["median_lead_days"] == 10  # the row first seen after it was sent has no lead time
     assert d["missed_total"] == 1 and d["missed"][0]["company"] == "Missed"
     assert c.get("/api/analytics?days=7").json()["total"]["n"] == 0
+    # how much of what went out these figures speak about: an application known to be sent without a date is not among them
+    assert {k: d["coverage"][k] for k in ("sent", "dated", "undated", "archived")} == {"sent": 4, "dated": 4, "undated": 0, "archived": 0}
+    with db.session() as s:
+        j = Job(source="manual", source_id="u", company="Undated", title="Intern", status="applied", online=1, score=8.0, ats="greenhouse")
+        s.add(j)
+        s.flush()
+        s.add(Application(job_id=j.id, status="confirmed"))          # found through a mail: no day of sending
+        j2 = Job(source="manual", source_id="d", company="Drafted", title="Intern", status="queued", online=1, score=8.0, ats="greenhouse")
+        s.add(j2)
+        s.flush()
+        s.add(Application(job_id=j2.id, status="draft_ready"))       # not sent at all
+    d = c.get("/api/analytics").json()
+    assert {k: d["coverage"][k] for k in ("sent", "dated", "undated")} == {"sent": 5, "dated": 4, "undated": 1} and d["total"]["n"] == 4
+    # the overview's "sent" is the same number, with the same three words from the same code
+    with db.session() as s:
+        s.query(Job).filter_by(company="C1").one().archived_at = now()      # its posting is over: out of the day-to-day lists, still an application that was sent
+    whole = c.get("/api/analytics/sent").json()
+    assert whole == c.get("/api/analytics").json()["coverage"]
+    assert whole == {"sent": 5, "dated": 4, "undated": 1, "archived": 1, "heard": 4, "decided": 2, "progressed": 1}
+    # the three words mean what they mean on the analytics page: the four dated ones gave replied 3, decided 2, progressed 1 there
+    assert (whole["heard"] - 1, whole["decided"], whole["progressed"]) == (d["total"]["replied"], d["total"]["decided"], d["total"]["progressed"])
+    assert [f["label"] for f in d["funnel"]][1:4] == ["收到回执（确认信或任何回复）", "有实质结果（进展或被拒）", "进入笔试 / 面试"]
+
+
+def test_a_task_that_ended_is_not_an_application_that_was_sent():
+    """"Done" was a success for every task. A filling task that found the application already sent answers with where
+    the application stands and has submitted nothing; one that pressed Submit and saw no confirmation has not
+    succeeded either - both were counted among the successes or as "handed over to you"."""
+    from autoapply import analytics
+
+    o = analytics.outcome
+    assert o("execute", "done", {"status": "submitted"}, "") == "success"
+    assert o("execute", "done", {"status": "ready_to_submit"}, "") == "handed"
+    assert o("execute", "done", {"status": "submit_unknown", "submit_clicked": True}, "") == "unknown"
+    assert o("execute", "done", {"status": "confirmed", "note": "already submitted"}, "") == "skipped"
+    assert o("execute", "done", {"status": "submitted", "note": "already submitted"}, "") == "skipped"
+    assert o("execute", "done", {"status": "submit_unknown", "note": "waiting for the outcome of a submission"}, "") == "skipped"
+    assert o("execute", "done", {"status": "failed"}, "") == "failed" and o("execute", "done", {"status": "needs_human"}, "") == "waiting"
+    assert o("recon", "done", {"draft_id": 3}, "") == "success" and o("execute", "cancelled", None, "") == "cancelled"
+    assert "unknown" in analytics.UNFINISHED and set(analytics.NOT_COUNTED) == {"cancelled", "skipped"}
+    assert set(analytics.OUTCOMES) >= {"unknown", "skipped"} and all(analytics.OUTCOMES.values())
 
 
 def _resume_docx(path):

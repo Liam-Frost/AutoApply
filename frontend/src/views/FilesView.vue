@@ -2,8 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
+import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState, useRefresh } from '../data'
 import PdfView from '../components/PdfView.vue'
 import { fmtTime, run, toast, ask, persona } from '../ui'
 
@@ -39,7 +42,7 @@ const jobs = computed(() => {
   const m = new Map()
   for (const d of generated.value) {
     const k = d.job_id || 0
-    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
+    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || '没有关联岗位', company: d.job_company || '', title: d.job_title || '', where: d.job_where || '', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
     m.get(k).files.push(d)
   }
   return [...m.values()].sort((a, b) => b.files[0].id - a.files[0].id)
@@ -75,7 +78,7 @@ const title = computed(() => {
   return j ? j.name : ''
 })
 
-async function load() { docs.value = await api.get('/documents'); if (cur.value) cur.value = docs.value.find((d) => d.id === cur.value.id) || null }
+async function read() { docs.value = await api.get('/documents'); if (cur.value) cur.value = docs.value.find((d) => d.id === cur.value.id) || null }
 const act = (fn, ok) => run(fn, ok, load)
 function go(f) { folder.value = f; picked.value = new Set(); cur.value = null }
 function pick(d) { cur.value = d; renaming.value = false }
@@ -109,14 +112,19 @@ async function cleanUp() {
   await act(() => api.post('/documents/bulk', { action: 'delete', ids: stale.value.map((d) => d.id) }), `已清理 ${stale.value.length} 个文件`)
 }
 const previewable = (d) => ['pdf', 'docx', 'doc'].includes(d.ext)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 
 <template>
   <PageHead title="材料库" sub="申请时会用到的所有文件：你上传的简历、成绩单这类材料，以及程序为每个岗位写的求职信。">
     <AaSelect v-model="upKind" title="上传的文件用作什么"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
-    <label class="btn primary" style="cursor: pointer"><Icon name="draft" />上传<input type="file" multiple style="display: none" @change="upload" /></label>
+    <FileButton class="primary" multiple @change="upload"><Icon name="draft" />上传</FileButton>
   </PageHead>
+  <DataState :s="st" what="材料库" @retry="load" />
+  <template v-if="st.at">
 
   <div class="fm">
     <!-- folders -->
@@ -130,7 +138,8 @@ onMounted(load)
           <button class="sub fold" :aria-expanded="isOpen(k)" @click="fold(k)"><Icon :name="isOpen(k) ? 'chevron_up' : 'chevron'" />{{ label }}<span class="n">{{ bySection[k].length }}</span></button>
           <template v-if="isOpen(k)">
             <button v-for="j in bySection[k]" :key="j.id" class="sub deep" :class="{ on: folder === 'job:' + j.id }" :title="j.name" @click="go('job:' + j.id)">
-              <span class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
+              <span v-if="j.company" class="fm-job"><b class="ell">{{ j.company }}</b><span class="ell">{{ j.title }}<template v-if="j.where"> · {{ j.where }}</template></span></span>
+              <span v-else class="ell">{{ j.name }}</span><span class="n">{{ j.files.length }}</span>
             </button>
           </template>
         </template>
@@ -152,11 +161,11 @@ onMounted(load)
       </div>
       <label v-if="inactiveCount && !folder.startsWith('job:')" class="small muted" style="padding: 0 8px 8px; display: block"><input v-model="showInactive" type="checkbox" /> 也显示没在用的（{{ inactiveCount }}）</label>
       <div class="fm-rows">
-        <div v-for="d in shown" :key="d.id" class="mat-item" :class="{ on: cur && cur.id === d.id }" role="button" tabindex="0" @click="pick(d)" @keyup.enter="pick(d)">
+        <div v-for="d in shown" :key="d.id" class="mat-item" :class="{ on: cur && cur.id === d.id }" @click="pick(d)">
           <input type="checkbox" :checked="picked.has(d.id)" :aria-label="'选择 ' + d.name" @click.stop @change="togglePick(d.id)" />
           <span class="ext" :class="d.ext">{{ (d.ext || '?').toUpperCase().slice(0, 4) }}</span>
           <span class="grow" style="min-width: 0">
-            <span class="name">{{ d.name }}</span>
+            <button type="button" class="name mat-open" :aria-current="cur && cur.id === d.id ? 'true' : undefined" :aria-label="'打开 ' + d.name" @click.stop="pick(d)">{{ d.name }}</button>
             <span class="sub">{{ KINDS[d.kind] || d.kind }}<template v-if="d.for_job && !folder.startsWith('job:')"> · {{ d.for_job }}</template> · {{ fmtTime(d.created_at) }}</span>
           </span>
           <span v-if="d.missing" class="badge bad">文件丢失</span>
@@ -201,4 +210,5 @@ onMounted(load)
       <EmptyState v-else icon="search" title="点一个文件来预览" text="PDF 和 Word 文件可以直接在这里看。" />
     </div>
   </div>
+  </template>
 </template>

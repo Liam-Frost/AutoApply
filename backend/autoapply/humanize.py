@@ -166,7 +166,7 @@ APP_STATUS = {
     "recon": "正在读取申请表", "revising": "正在按你的意见修改", "needs_input": "有问题等你回答", "draft_ready": "等你审批",
     "approved": "已批准，排队填写", "executing": "正在填写", "drifted": "申请表有变化，重新读取中", "ready_to_submit": "填好了，还没有提交",
     "submit_unknown": "提交结果待确认", "needs_human": "需要你处理", "failed": "没有提交成功", "submitted": "已提交", "confirmed": "已收到确认信", "assessment": "笔试 / OA / VA",
-    "interview": "面试", "offer": "收到 Offer", "rejected": "已被拒", "withdrawn": "不投了",
+    "interview": "面试", "offer": "收到 Offer", "rejected": "已被拒", "withdrawn": "不投了", "returned": "草案已退回",
 }
 REVIEW = {"pending": "等你审批", "approved": "已批准", "superseded": "已被新版本替代", "rejected": "已退回", "closed": "已关闭（申请已经提交）"}
 
@@ -231,3 +231,33 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
     if kind == "canary":
         return "自检完成"
     return ""
+
+
+_BROWSER = re.compile(r"^browser:(\w+) \((.*)\)$")
+
+
+def browser_stage(stage: str) -> str:
+    """Which browser a task worked in, as a sentence - '' for the usual one, which is not worth a line.
+
+    The stage is written for the record ("browser:nodriver (tenant: pdportal:ubc)"); the activity page showed it as it
+    stood."""
+    m = _BROWSER.match(stage or "")
+    if not m:
+        return ""
+    backend, why = m.group(1), m.group(2)
+    if backend == "playwright" and why == "default":
+        return ""
+    name = "普通浏览器" if backend == "nodriver" else "程序自带的浏览器"
+    if why == "task override":
+        return f"这一次改用{name}（你点的“换浏览器重试”）"
+    if why == "default":
+        return f"用{name}"
+    if why.startswith("tenant: "):
+        return f"用{name}：这个网站的账号规则是这样定的（{why[8:]}）"
+    if why.startswith("domain: "):
+        return f"用{name}：站点规则是这样定的（{why[8:]}）"
+    if why.startswith("where the sign-in for "):
+        return f"用{name}：这个网站的登录是在它里面做的"
+    if why.startswith("signs in through "):
+        return f"用{name}：这个网站通过第三方账号登录，那个账号的登录在它里面"
+    return f"用{name}"

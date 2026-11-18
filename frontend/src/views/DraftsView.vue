@@ -4,6 +4,8 @@ import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState, useRefresh } from '../data'
 import { ask, toast } from '../ui'
 
 const drafts = ref([])
@@ -11,7 +13,7 @@ const picked = ref(new Set())
 const showAll = ref(false)
 const busy = ref(false)
 
-async function load() {
+async function read() {
   drafts.value = await api.get('/drafts' + (showAll.value ? '?all=true' : ''))
   picked.value = new Set([...picked.value].filter((id) => drafts.value.some((d) => d.id === id)))
 }
@@ -45,7 +47,7 @@ async function approvePicked() {
     const r = await api.post('/drafts/approve', { ids: approvable.value.map((d) => d.id) })
     if (r.approved.length) toast(`已批准 ${r.approved.length} 份，开始填写`)
     if (Object.keys(r.errors).length) toast(`有 ${Object.keys(r.errors).length} 份没能批准：` + Object.values(r.errors).join('；'), 'bad')
-    picked.value = new Set()
+    picked.value = new Set(Object.keys(r.errors || {}).map((k) => +k))      // what did not go through stays ticked, to be tried again
     await load()
   } catch (e) { toast(e.message, 'bad') } finally { busy.value = false }
 }
@@ -54,7 +56,7 @@ async function batch(action, done) {
   try {
     const r = await api.post('/drafts/batch', { action, ids: chosen.value.map((d) => d.id) })
     toast(done(r.done.length) + (Object.keys(r.errors).length ? `；${Object.keys(r.errors).length} 份没成功` : ''), Object.keys(r.errors).length ? 'bad' : undefined)
-    picked.value = new Set()
+    picked.value = new Set(Object.keys(r.errors || {}).map((k) => +k))      // what did not go through stays ticked, to be tried again
     await load()
   } catch (e) { toast(e.message, 'bad') } finally { busy.value = false }
 }
@@ -63,6 +65,9 @@ async function dropPicked() {
   await batch('withdraw', (n) => `已关掉 ${n} 份`)
 }
 const redoPicked = () => batch('rebuild', (n) => `已开始重新生成 ${n} 份草案`)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 
@@ -70,6 +75,8 @@ onMounted(load)
   <PageHead title="草案审批" sub="每份草案列出了要填的全部内容和要上传的材料。你批准之后，程序才会去填表；填完会逐项核对，没问题才提交。">
     <label class="small muted"><input v-model="showAll" type="checkbox" @change="load" /> 也显示以前的草案</label>
   </PageHead>
+  <DataState :s="st" what="草案列表" @retry="load" />
+  <template v-if="st.at">
 
   <div class="row" style="margin-bottom: 10px; gap: 8px; flex-wrap: wrap">
     <button @click="pickApprovable">选中所有能批准的</button>
@@ -83,17 +90,17 @@ onMounted(load)
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th style="width: 34px"><input type="checkbox" :checked="allPicked" :disabled="!selectable.length" title="全选 / 全不选" @change="toggleAll" /></th>
-        <th>评分</th><th>公司 · 岗位</th><th>版本</th><th>截止时间</th><th>招聘系统</th><th>需要注意</th><th>状态</th>
+        <th style="width: 34px"><input type="checkbox" :checked="allPicked" :disabled="!selectable.length" title="全选 / 全不选" aria-label="全选" @change="toggleAll" /></th>
+        <th>评分</th><th>公司 · 岗位</th><th class="col-more">版本</th><th class="col-more">截止时间</th><th class="col-more">招聘系统</th><th>需要注意</th><th>状态</th>
       </tr></thead>
       <tbody>
         <tr v-for="d in drafts" :key="d.id">
-          <td><input type="checkbox" :disabled="!open(d)" :checked="picked.has(d.id)" @change="toggle(d.id)" /></td>
+          <td><input type="checkbox" :disabled="!open(d)" :checked="picked.has(d.id)" :aria-label="'选择 ' + d.company + ' ' + d.title" @change="toggle(d.id)" /></td>
           <td class="score">{{ d.score ?? '—' }}</td>
           <td><router-link :to="'/drafts/' + d.id">{{ d.company }} · {{ d.title }}</router-link></td>
-          <td class="small nowrap">第 {{ d.version }} 版</td>
-          <td class="small">{{ d.deadline }}</td>
-          <td class="small">{{ d.ats_label }}</td>
+          <td class="small nowrap col-more">第 {{ d.version }} 版</td>
+          <td class="small col-more">{{ d.deadline }}</td>
+          <td class="small col-more">{{ d.ats_label }}</td>
           <td>
             <span v-if="d.unresolved" class="tag bad">{{ d.unresolved }} 个问题要你回答</span>
             <span v-if="d.sensitive_new" class="tag warn" style="margin-left: 4px">{{ d.sensitive_new }} 个敏感问题第一次遇到</span>
@@ -105,4 +112,5 @@ onMounted(load)
     </table>
     <EmptyState v-if="!drafts.length" icon="draft" title="没有等你审批的草案" text="在“岗位”里打开一个岗位，点“生成申请草案”；评分高的新岗位也会自动准备草案。" />
   </div>
+  </template>
 </template>

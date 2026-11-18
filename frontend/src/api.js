@@ -10,7 +10,10 @@ async function req(method, path, body, isForm) {
     if (isForm) opt.body = body
     else { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body) }
   }
-  const r = await fetch(ROOT + '/api' + path, opt)
+  let r
+  // (no answer at all - the server is restarting, stopped, or the network is gone - is said in the applicant's words;
+  // what the browser calls it is "Failed to fetch", in whatever language the browser speaks)
+  try { r = await fetch(ROOT + '/api' + path, opt) } catch (e) { throw Object.assign(new Error('连接不上服务：它可能正在重启，或者已经停了'), { status: 0, offline: true }) }
   if (r.status === 401 && !path.startsWith('/auth/')) auth.onLogin()
   if (!r.ok) {
     let msg = r.statusText

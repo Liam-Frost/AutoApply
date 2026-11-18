@@ -5,6 +5,11 @@ import { api, fmt } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import SideDrawer from '../components/SideDrawer.vue'
+import DataState from '../components/DataState.vue'
+import { dataState, useRefresh } from '../data'
+import { daysUntil, deadlineLabel, isPast, keepVisible } from '../dates'
+import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import TechDetails from '../components/TechDetails.vue'
 import { renderMarkdown } from '../md'
 import { run, toast, ask, persona } from '../ui'
@@ -64,7 +69,6 @@ const elsewhere = computed(() => {
   return jobs.value.filter((j) => !inGroup(j, group.value) && (showArchived.value || !j.archived)
     && `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)).length
 })
-function daysTo(dl) { return dl ? Math.ceil((new Date(dl.replace(' ', 'T')).getTime() - Date.now()) / 86400000) : null }
 const rows = computed(() => {
   const needle = f.q.trim().toLowerCase()
   const out = inScope.value.filter((j) => {
@@ -76,7 +80,7 @@ const rows = computed(() => {
     if (f.link && !j.apply_url) return false
     if (f.prio && !j.priority) return false
     if (f.deadline === 'none' && j.deadline) return false
-    if (f.deadline && f.deadline !== 'none') { const d = daysTo(j.deadline); if (d == null || d < 0 || d > +f.deadline) return false }
+    if (f.deadline && f.deadline !== 'none') { const d = daysUntil(j.deadline); if (d == null || isPast(j.deadline) || d > +f.deadline) return false }      // (dates.js: calendar days; what is over is not "due soon")
     return !needle || `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)
   })
   const k = sortKey.value
@@ -87,9 +91,12 @@ const rows = computed(() => {
 })
 function sortBy(k) { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = k === 'score' ? -1 : 1 } }
 const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? ' ↑' : ' ↓') : '')
+const sorted = (k) => (sortKey.value === k ? (sortDir.value > 0 ? 'ascending' : 'descending') : 'none')       // (what a screen reader is told; the arrow is for the eye)
 const scoreCls = (s) => (s == null ? '' : s >= 9 ? 'hi' : s >= 7.5 ? 'mid' : s < 6 ? 'lo' : '')
 
-// selection
+// selection: of the rows that are shown. A filter, a search or a reload that takes a row off the page unticks it -
+// a batch never acts on what cannot be seen.
+watch(() => rows.value, (now) => { picked.value = keepVisible(picked.value, now) })
 const allPicked = computed(() => rows.value.length > 0 && rows.value.every((j) => picked.value.has(j.id)))
 function togglePick(id) { const s = new Set(picked.value); s.has(id) ? s.delete(id) : s.add(id); picked.value = s }
 function toggleAll() { picked.value = allPicked.value ? new Set() : new Set(rows.value.map((j) => j.id)) }
@@ -104,15 +111,28 @@ const BULK = {
 async function bulk(action) {
   const ids = [...picked.value]
   if (action === 'draft' && ids.length > 5 && !(await ask(`要为 ${ids.length} 个岗位生成草案吗？每个需要一两分钟，会占用 AI 额度。`))) return
-  await run(() => api.post('/jobs/bulk', { action, ids }), BULK[action][1], load)
-  picked.value = new Set()
+  // (when the batch did not go through, what was ticked stays ticked: it can be tried again without ticking it all once more)
+  if ((await run(() => api.post('/jobs/bulk', { action, ids }), BULK[action][1], load)) !== false) picked.value = new Set()
 }
 
-async function load() {
+async function read() {
   const d = await api.get('/jobs')
   jobs.value = d.jobs; counts.value = d.counts; groups.value = d.groups; stages.value = d.stages
 }
-async function open(j) { sel.value = await api.get('/jobs/' + j.id); showJd.value = false; if (route.query.open) router.replace({ path: '/jobs' }) }
+// Which posting is open is in the address (?open=ID): the drawer opens for it, the browser's Back closes it, and the
+// address can be kept or sent. Opening by a click adds a step to the history; closing takes that step back.
+let stepped = false
+function open(j) { router.push({ query: { ...route.query, open: String(j.id) } }) }
+function closeSel() {
+  if (stepped && window.history.state && window.history.state.back) { stepped = false; router.back(); return }
+  const q = { ...route.query }
+  delete q.open
+  router.replace({ query: q })
+}
+async function show(id) {
+  if (!id) { sel.value = null; return }
+  try { sel.value = await api.get('/jobs/' + id); showJd.value = false } catch (e) { toast(e.message, 'bad'); closeSel() }
+}
 const refreshSel = async () => { if (sel.value) sel.value = await api.get('/jobs/' + sel.value.id) }
 const briefing = ref(false)
 async function writeBrief() {
@@ -135,9 +155,32 @@ const facts = computed(() => {
   return [['学期', j.term], ['时长', j.months ? j.months + ' 个月' : ''], ['薪资', j.salary], ['地点 / 形式', j.location || j.work_type], ['截止时间', j.deadline], ['在哪里投', j.channel_label],
     ['要交的材料', j.docs_required], ['方向', j.direction], ['来源', j.source_label], ['发布日期', j.posted], ['岗位编号', j.source_id && j.source_id.length <= 12 ? j.source_id : '']].filter((x) => x[1])
 })
-watch(() => route.query.open, (id) => { if (id) open({ id }) })
-if (route.query.q) f.q = String(route.query.q)
-onMounted(async () => { await load(); if (route.query.open) open({ id: route.query.open }) })
+watch(() => route.query.open, (id, was) => { if (id && !was) stepped = true; show(id) })      // (opened from within the page: a step that Back, or closing, takes back)
+
+// What the list shows - the group, the filters, the sort - is in the address too (urlstate.js). It is written in
+// place (no step in the history for every letter typed in the search box) and read when the address changes.
+const F0 = { q: '', stage: '', minScore: 0, direction: '', term: '', channel: '', deadline: '', link: false, prio: false }
+const LIST0 = { group: 'todo', sort: 'score', dir: -1, archived: false, ...F0 }
+const SORTS = ['score', 'company', 'posted', 'first_seen', 'deadline']
+const shownNow = () => ({ group: group.value, sort: sortKey.value, dir: sortDir.value, archived: showArchived.value, ...f })
+function readAddress() {
+  const st = fromQuery(route.query, LIST0, { sort: SORTS, dir: [1, -1] })
+  group.value = st.group
+  sortKey.value = st.sort
+  sortDir.value = st.dir
+  showArchived.value = st.archived
+  for (const k of Object.keys(F0)) f[k] = st[k]
+}
+readAddress()
+watch(() => shownNow(), (now) => {
+  const q = { ...toQuery(now, LIST0), ...(route.query.open ? { open: route.query.open } : {}) }
+  if (!sameQuery(q, route.query)) router.replace({ query: q })
+}, { deep: true })
+watch(() => route.query, (q, was) => { const a = { ...q }, b = { ...was }; delete a.open; delete b.open; if (!sameQuery(a, b) && !sameQuery(a, toQuery(shownNow(), LIST0))) readAddress() })
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+useRefresh(load)
+onMounted(async () => { await load(); if (route.query.open) show(route.query.open) })
 </script>
 
 <template>
@@ -146,6 +189,8 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
     <button @click="mail"><Icon name="mail" />检查邮箱</button>
     <button @click="scan"><Icon name="search" />扫描新岗位</button>
   </PageHead>
+  <DataState :s="st" what="岗位列表" @retry="load" />
+  <template v-if="st.at">
 
   <div class="seg" style="margin-bottom: 12px">
     <button v-for="g in groups" :key="g.key" :class="{ on: group === g.key }" @click="pickGroup(g.key)">{{ g.label }}<span class="n">{{ groupCount(g.key) }}</span></button>
@@ -153,11 +198,11 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
 
   <div class="filters">
     <input v-model="f.q" placeholder="搜索公司、岗位、地点或编号" style="width: 240px" />
-    <AaSelect v-if="groupStages.length > 1" v-model="f.stage"><option value="">全部状态</option><option v-for="x in groupStages" :key="x.key" :value="x.key">{{ x.label }}（{{ counts[x.key] || 0 }}）</option></AaSelect>
-    <AaSelect v-model="f.direction"><option value="">全部方向</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
-    <AaSelect v-if="persona.features.term" v-model="f.term"><option value="">全部学期</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
-    <AaSelect v-model="f.channel"><option value="">在哪里投都行</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
-    <AaSelect v-model="f.deadline"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ l }}</option></AaSelect>
+    <AaSelect v-if="groupStages.length > 1" v-model="f.stage" aria-label="按状态筛选"><option value="">全部状态</option><option v-for="x in groupStages" :key="x.key" :value="x.key">{{ x.label }}（{{ counts[x.key] || 0 }}）</option></AaSelect>
+    <AaSelect v-model="f.direction" aria-label="按方向筛选"><option value="">全部方向</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-if="persona.features.term" v-model="f.term" aria-label="按学期筛选"><option value="">全部学期</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-model="f.channel" aria-label="按在哪里投筛选"><option value="">在哪里投都行</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }}（{{ n }}）</option></AaSelect>
+    <AaSelect v-model="f.deadline" aria-label="按截止时间筛选"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ l }}</option></AaSelect>
     <label class="muted nowrap">评分至少 <input v-model.number="f.minScore" type="number" min="0" max="10" step="0.5" style="width: 68px" /></label>
     <label class="muted nowrap"><input v-model="f.link" type="checkbox" /> 只看有申请链接的</label>
     <label v-if="jobs.some((j) => j.priority)" class="muted nowrap"><input v-model="f.prio" type="checkbox" /> 只看重点雇主</label>
@@ -176,17 +221,17 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
       <thead>
         <tr>
           <th style="width: 36px"><input type="checkbox" :checked="allPicked" aria-label="全选" @change="toggleAll" /></th>
-          <th class="sortable" @click="sortBy('score')">评分{{ arrow('score') }}</th>
-          <th class="sortable" @click="sortBy('company')">岗位{{ arrow('company') }}</th>
-          <th v-if="cols.has('source')">来源</th>
-          <th v-if="cols.has('direction')">方向</th>
-          <th v-if="cols.has('salary')">薪资</th>
-          <th v-if="cols.has('channel')">在哪里投</th>
-          <th v-if="cols.has('posted')" class="sortable" @click="sortBy('posted')">发布{{ arrow('posted') }}</th>
-          <th v-if="cols.has('first_seen')" class="sortable" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</th>
-          <th class="sortable" @click="sortBy('deadline')">截止{{ arrow('deadline') }}</th>
+          <th :aria-sort="sorted('score')"><button type="button" class="th-sort" @click="sortBy('score')">评分{{ arrow('score') }}</button></th>
+          <th :aria-sort="sorted('company')"><button type="button" class="th-sort" @click="sortBy('company')">岗位{{ arrow('company') }}</button></th>
+          <th v-if="cols.has('source')" class="col-more">来源</th>
+          <th v-if="cols.has('direction')" class="col-more">方向</th>
+          <th v-if="cols.has('salary')" class="col-more">薪资</th>
+          <th v-if="cols.has('channel')" class="col-more">在哪里投</th>
+          <th v-if="cols.has('posted')" class="col-more" :aria-sort="sorted('posted')"><button type="button" class="th-sort" @click="sortBy('posted')">发布{{ arrow('posted') }}</button></th>
+          <th v-if="cols.has('first_seen')" class="col-more" :aria-sort="sorted('first_seen')"><button type="button" class="th-sort" @click="sortBy('first_seen')">发现{{ arrow('first_seen') }}</button></th>
+          <th :aria-sort="sorted('deadline')"><button type="button" class="th-sort" @click="sortBy('deadline')">截止{{ arrow('deadline') }}</button></th>
           <th>状态</th>
-          <th>最新情况</th>
+          <th class="col-more">最新情况</th>
         </tr>
       </thead>
       <tbody>
@@ -194,19 +239,19 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
           <td @click.stop><input type="checkbox" :checked="picked.has(j.id)" :aria-label="'选择 ' + j.company" @change="togglePick(j.id)" /></td>
           <td><span class="score" :class="scoreCls(j.score)">{{ j.score == null ? '—' : j.score.toFixed(1) }}</span></td>
           <td class="jobcell">
-            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><b>{{ j.company }}</b> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
+            <div><span v-if="j.priority" class="star on" title="你标为重点的雇主" style="cursor: default">★</span><router-link class="rowlink" :to="{ path: '/jobs', query: { ...$route.query, open: j.id } }" :aria-label="`${j.company}：${j.title}，打开详情`" @click.stop><b>{{ j.company }}</b></router-link> <span v-if="j.also_listed" class="tag" title="同一个岗位在别的来源也出现了，已合并">+{{ j.also_listed }} 处</span></div>
             <div>{{ j.title }} <a v-if="j.apply_url" :href="j.apply_url" target="_blank" rel="noopener" title="打开岗位链接" @click.stop>↗</a></div>
             <div class="small muted">{{ [j.location, persona.features.term ? j.term : '', persona.features.term && j.months ? j.months + ' 个月' : ''].filter(Boolean).join(' · ') }}</div>
           </td>
-          <td v-if="cols.has('source')" class="small nowrap">{{ j.source_label }}</td>
-          <td v-if="cols.has('direction')" class="small">{{ j.direction }}</td>
-          <td v-if="cols.has('salary')" class="small">{{ j.salary }}</td>
-          <td v-if="cols.has('channel')" class="small nowrap">{{ j.channel_label }}</td>
-          <td v-if="cols.has('posted')" class="small nowrap">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
-          <td v-if="cols.has('first_seen')" class="small nowrap">{{ j.first_seen || '—' }}</td>
-          <td class="small nowrap">{{ (j.deadline || '').slice(5, 10) || '—' }}</td>
+          <td v-if="cols.has('source')" class="small nowrap col-more">{{ j.source_label }}</td>
+          <td v-if="cols.has('direction')" class="small col-more">{{ j.direction }}</td>
+          <td v-if="cols.has('salary')" class="small col-more">{{ j.salary }}</td>
+          <td v-if="cols.has('channel')" class="small nowrap col-more">{{ j.channel_label }}</td>
+          <td v-if="cols.has('posted')" class="small nowrap col-more">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
+          <td v-if="cols.has('first_seen')" class="small nowrap col-more">{{ j.first_seen || '—' }}</td>
+          <td class="small nowrap" :title="deadlineLabel(j.deadline).text">{{ (j.deadline || '').slice(5, 10) || '—' }}<span v-if="deadlineLabel(j.deadline).tone === 'soon'" class="tag warn" style="margin-left: 6px">{{ daysUntil(j.deadline) === 0 ? '今天' : '明天' }}</span><span v-else-if="deadlineLabel(j.deadline).tone === 'past' && j.stage_group === 'todo'" class="tag" style="margin-left: 6px">已截止</span></td>
           <td class="nowrap"><span class="tag" :class="j.stage_tone">{{ j.stage_label }}</span><span v-if="j.archived" class="tag" style="margin-left: 4px">已归档</span><span v-if="!j.online && j.stage !== 'offline'" class="tag" style="margin-left: 4px">已下线</span></td>
-          <td class="small muted" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
+          <td class="small muted col-more" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
         </tr>
       </tbody>
     </table>
@@ -235,15 +280,7 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
   </div>
 
   <!-- detail drawer -->
-  <div v-if="sel" class="overlay" @click="sel = null"></div>
-  <div v-if="sel" class="drawer">
-    <div class="row" style="align-items: flex-start">
-      <div class="grow">
-        <h2 style="margin: 0">{{ sel.company }}</h2>
-        <div style="font-size: 16px; color: var(--text-2)">{{ sel.title }}</div>
-      </div>
-      <button class="ghost" aria-label="关闭" @click="sel = null"><Icon name="x" /></button>
-    </div>
+  <SideDrawer v-if="sel" :title="sel.company" :sub="sel.title" :wide="false" @close="closeSel">
     <div class="row" style="margin: 12px 0">
       <span class="tag" :class="sel.stage_tone">{{ sel.stage_label }}</span>
       <span v-if="!sel.online && sel.stage !== 'offline'" class="tag">岗位已下线</span>
@@ -345,5 +382,6 @@ onMounted(async () => { await load(); if (route.query.open) open({ id: route.que
         <p class="muted small" style="margin: 0">这个岗位是从旧表格导入的，只有一句简介，没有岗位说明全文，所以没有详细概况，也没法重新评分。可以点“看原岗位”到官网查看。</p>
       </template>
     </div>
-  </div>
+  </SideDrawer>
+  </template>
 </template>

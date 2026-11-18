@@ -122,6 +122,19 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
+- `docs/DESIGN_SYSTEM.md` describes how pages are built now: the four states of a page that reads data, the one way
+  an action is carried out, what a layer over the page does with the keyboard, labels and names of controls,
+  foreground colours and the contrast test, where a page keeps what it shows. Two rules are no longer unconditional:
+  "the outcome of an action goes into a toast" and "what a figure counts goes into a tooltip".
+- **A draft says what to look at before the table of everything.** Above the answers: the questions that have no
+  answer, the answers the program is not sure of, a sensitive question met for the first time, what changed with
+  the form, the files written for this posting, and who presses Submit and why - each line leading to its row. The
+  full table stays as it was.
+- In the library, the folder of a posting shows the employer on one line and the title with the place and term on
+  the next: several postings of one employer were cut off to the same few letters.
+- The activity record says in words which browser a task worked in when it was not the usual one, and why ("the
+  ordinary browser: this site's account rule says so"); it showed the internal note as it stood. The note itself is
+  under "technical details". "Retry with nodriver" is "try again in the ordinary browser".
 - **The settings are grouped by what they are about, and every section has an address.** Ten tabs named after parts
   of the program became six groups - search goals and matching, automation and work plan, materials and answers,
   accounts and connections, notices and reminders, system and data - each a page of named sections
@@ -178,6 +191,81 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Fixed
 
+- **The PDF preview keeps to its box, and draws each page once.** "Fit to width" was the width at the moment the
+  file was opened: after the window or the layout changed, the pages stayed as wide as before. They are drawn again
+  for the new width. Zooming twice in a row, or while the pages were still appearing, left two drawings filling the
+  same box - every page twice, in two sizes; a newer drawing now stops the older one, and the pages that are shown
+  stay until the new ones are there. Each page says which page it is.
+- **A page comes back as it was left.** On the postings page the group, the filters, the sort order and the posting
+  that is open are in the address: a reload shows the same list, the browser's Back closes the open posting (and
+  keeps the filters), and the address can be kept or sent. The analytics page keeps its view and its stretch of time
+  the same way. Going back to a page returns to where it was scrolled to, once its list has been read.
+- **On a narrow screen the page comes first.** The sidebar was laid out across the top - on a phone, a third of the
+  screen of navigation, theme and language before the page began. It is a bar now: the page that is open, how many
+  things wait for you, whether the program is running, and "menu", which opens the full navigation as a panel (and
+  holds the keyboard while it is open). The postings and drafts tables show what a row is, where it stands and what
+  needs attention; the other columns are on the row's own page.
+- **Text that can be read in both themes.** The weakest text of the light theme (dates, counts, hints, group names)
+  stood at 2.9:1 against its background and is at 4.5:1 or more on every surface now, with the secondary text
+  darkened to keep the two apart; the dark theme's weak text likewise. In the dark theme, a count in the sidebar,
+  an error message and a button that deletes put white on a pale red (2.1:1): they use a colour made for standing
+  on it. A test holds every pair of text and background to the number, in both themes.
+- **Keyboard and screen reader: what a control is, and what it is called.** A column header that sorts is a button
+  and says how the table is sorted. A posting's name is a link (Enter opens its details, and closing them puts the
+  focus back on it). A label is tied to the control it names across the forms - a click on it reaches the control, a
+  screen reader reads the label with the field - and a row of tick boxes or a choice made with buttons is named as
+  a group; stand-alone boxes (search, "paste an address") are named by their hint; the tick boxes of the drafts list
+  say which draft they tick. "Choose a file" is a button the keyboard can reach (it was a label around a hidden
+  input) on every page that uploads. In the library, opening a file and ticking it are two controls. The program's
+  own drop-down passes on `id`, `aria-labelledby` and `aria-describedby`, and marks options that cannot be chosen.
+- **A drawer or a question that opens over the page takes the keyboard with it.** The focus goes into it, Tab
+  stays in it, what is behind cannot be reached or pressed, Escape closes the one on top (a question over a drawer:
+  the question), and when it closes the focus goes back to where it was. A question that cannot be undone starts
+  on "cancel", not on the button that does it. The posting's detail uses the same drawer as the rest of the program
+  (it had a copy of its own). After going to another page, the keyboard is at that page's title.
+- **"Not now" on a draft is not "send it back".** The button closed the draft, so that it could not be approved
+  any more. It is a way back to the list now, and the draft stays where it was. Sending a draft back is its own
+  button, asks first, and says what comes next. A posting whose only draft was sent back reads "not applied" again;
+  it stayed at "a draft is waiting for you" with no draft to open.
+- **A batch acts on what is shown.** Ticking a posting and then filtering it off the page left "0 postings" above
+  and "1 selected" below, and the batch buttons acted on it. What a filter, a search or a reload takes off the page
+  is unticked. And what a batch could not do stays ticked, to be tried again.
+- **"Due today" and "due tomorrow" go by the calendar.** At noon, a deadline of 23:59 the same day was "due
+  tomorrow" (half a day, rounded up to one), and a deadline that had passed that morning was "due today". Today is
+  today, with the time; what is over says so. The overview and the postings page use one function for it.
+- **"Sent" is one number, and the three words about what came of it mean the same everywhere.** The overview
+  counted the applications whose posting is not archived, the analytics those with a day of sending: two numbers
+  for "applications sent" with nothing to say why they differed (and "my applications" showed a third). Sent is now
+  every application that stands at "submitted" or later, on all three; a page that shows a part of it says which
+  part and how many it leaves out - the overview's chart of stages the archived ones, the analytics those without a
+  date. "Acknowledged" (anything came back, an automatic confirmation included), "came to something" (an
+  assessment, an interview, or a rejection) and "reached an assessment / interview" replace "heard back", "clear
+  outcome" and their variants, and are computed in one place for both pages.
+- What a figure counts can be opened with a click, a tap or the keyboard; it was a tooltip, there for a mouse only.
+- **A task that ended is not an application that was sent.** In the automation figures, a filling task that found
+  the application already sent - and did nothing - counted as a success, and one that pressed Submit and saw no
+  confirmation as "filled in, waiting for you". The first counts neither way now; the second is "Submit pressed,
+  outcome not known".
+- **A list follows what happens while it is open.** Postings, drafts, applications, the overview, to-dos, accounts,
+  the library and the activity record read themselves again when the counts in the sidebar change (a draft got
+  ready, a card was settled from the phone) and when the window is looked at again; the activity record every few
+  seconds while a task is running. The filter, the search, what is ticked and the scroll position stay. (Most pages
+  showed what they read when they were opened, until they were opened again; the to-dos had a timer of their own
+  that ran whether anyone was looking or not.)
+- **A button that is doing something says so, and does it once.** Approving a draft, filling a form in again,
+  saving the settings, preparing a draft and every other action that goes through the shared runner: the button that
+  was pressed is shown as busy until the action is over, and pressing it again meanwhile does nothing (three clicks
+  on "approve" used to be three requests). When an action succeeded and the page could not be read afresh, it says
+  that - not "failed". Work that was queued says so with a link to where it stands in the work plan. What the server
+  refuses when the settings are saved stays under the button until they are saved again, instead of in a message
+  that is gone after nine seconds.
+- **A page says whether what it shows is there, still being read, or out of date.** Postings, drafts, to-dos,
+  activity, the overview, accounts, the library and the applications started from an empty list: until the answer
+  came they said "0" and showed the picture for "nothing here", and when the service could not be reached they went
+  on showing what they had as if it were current. They now say "reading…" until something has been read; when it
+  cannot be read, that - with a button to try again; and when a later read fails, that what is shown was read at
+  such a time and may be out of date. The footer of the sidebar says when the service cannot be reached and since
+  when the counts have not been updated. A request that got no answer is worded as that, not as "Failed to fetch".
 - A source that could not be reached (a timeout, a name that does not resolve) is said to be unreachable; it was
   shown as "this step was not completed".
 - **Saving one part of a page took back what was being edited in another.** Saving an AI service, sending a test

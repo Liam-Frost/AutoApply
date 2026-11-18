@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import Icon from '../components/Icon.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { ask, toast } from '../ui'
+import { decisions, toDecide } from '../draftsum'
+import { ask, toast, busy as acting, run } from '../ui'
 
 const props = defineProps({ id: String })
 const router = useRouter()
@@ -42,13 +43,29 @@ const onlyDelta = ref(false)
 const deltaCount = computed(() => (d.value ? d.value.answers.filter((a) => a.delta).length : 0))
 const isUnresolved = (a) => d.value.unresolved.some((u) => u.id === a.id)
 
+// What needs a decision, before the table of everything (draftsum.js); each line leads to its row.
+const toLook = computed(() => (pending.value ? decisions(d.value) : []))
+const lit = ref('')
+const lineOf = (g) => (g.items.length ? g.items.map((i) => i.label).join('；') : '看整个流程')
+async function goTo(id, where) {
+  if (onlyDelta.value && id && !d.value.answers.some((a) => a.id === id && a.delta)) onlyDelta.value = false      // the row may be filtered out of the table
+  await nextTick()
+  const el = document.getElementById(id ? 'ans-' + id : 'draft-' + where)
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.setAttribute('tabindex', '-1')
+  el.focus({ preventScroll: true })
+  lit.value = id || where
+  setTimeout(() => { if (lit.value === (id || where)) lit.value = '' }, 2200)
+}
+
 // tailored résumé
 const CHANGE = { reorder_bullets: '调整了要点顺序', reorder_entries: '调整了先后顺序', skills: '调整了技能顺序', drop: '去掉了一条要点', rewrite: '改写了措辞', rewrite_rejected: '改写没有通过核对，保留了原文' }
 const tailorNote = ref('')
 const hasResume = computed(() => d.value && d.value.materials.some((m) => ['resume_site', 'resume_portal', 'tailored_resume'].includes(m.kind)))
 const tailored = computed(() => d.value && d.value.materials.find((m) => m.kind === 'tailored_resume'))
 async function useResume(which) {
-  try { await api.post(`/drafts/${props.id}/resume`, { which }); await load(); toast(which === 'base' ? '已换回你上传的原版简历' : '已换成调整过的简历') } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/resume`, { which }), which === 'base' ? '已换回你上传的原版简历' : '已换成调整过的简历', load)
 }
 async function tailorNow() {
   try {
@@ -127,26 +144,32 @@ async function reanswer() {
 }
 async function runAgain() {
   
-  try { await api.post(`/drafts/${props.id}/execute`); toast('已重新开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/execute`), '已重新开始填写', load, { name: 'execute' })
 }
 // Submit was pressed and the outcome is not known: what settles it comes first, filling it in again last and on the applicant's word
 async function checkMail() {
-  try { await api.post(`/applications/${d.value.application.id}/check-mail`); toast('正在查邮箱；有确认邮件的话，这份申请会记为已投出') } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/applications/${d.value.application.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出')
 }
 async function runAgainNotSubmitted() {
   if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，重新填写会向雇主再投一次。', { ok: '确定没提交，重新填写' }))) return
-  try { await api.post(`/drafts/${props.id}/execute`, { not_submitted: true }); toast('已重新开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/execute`, { not_submitted: true }), '已重新开始填写', load, { name: 'execute' })
 }
 async function markSubmitted() {
   
-  try { await api.post(`/applications/${d.value.application.id}/mark-submitted`); toast('已记为“投递成功”，稍后会查确认邮件'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/applications/${d.value.application.id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件', load)
 }
 async function approve() {
   
-  try { await api.post(`/drafts/${props.id}/approve`); toast('已批准，开始填写'); await load() } catch (e) { toast(e.message, 'bad') }
+  await run(() => api.post(`/drafts/${props.id}/approve`), '已批准，开始填写', load, { name: 'approve' })
+}
+// "Not now" is a link back to the list: the draft stays as it is, waiting. Sending it back is a decision of its own -
+// the draft is closed - and says what there is to do afterwards.
+async function sendBack() {
+  if (!(await ask('退回这份草案？它会作废，岗位回到“未投递”。之后想投这个岗位，在岗位页重新生成草案（可以写上你的要求）；只是想改几处答案的话，不用退回，直接在这里改或者在下面写修改意见。', { ok: '退回草案' }))) return
+  await reject(false)
 }
 async function reject(withdraw) {
-  try { await api.post(`/drafts/${props.id}/reject`, { withdraw }); router.push('/drafts') } catch (e) { toast(e.message, 'bad') }
+  if (await run(() => api.post(`/drafts/${props.id}/reject`, { withdraw }), '', null, { name: 'reject' })) router.push('/drafts')
 }
 watch(() => props.id, load)
 onMounted(load)
@@ -191,6 +214,20 @@ onUnmounted(() => clearInterval(timer))
       </div>
     </div>
 
+    <div v-if="toLook.length" class="panel look" aria-labelledby="look-h">
+      <h3 id="look-h" style="margin-top: 0">先看这几项<span v-if="toDecide(toLook)" class="muted small" style="font-weight: 400">　{{ toDecide(toLook) }} 项需要你过目，其余的是资料里写明的事实</span>
+        <span v-else class="muted small" style="font-weight: 400">　没有需要你特别过目的答案</span></h3>
+      <div v-for="g in toLook" :key="g.key" class="look-group">
+        <span class="tag" :class="g.tone">{{ g.label }}</span>
+        <template v-if="g.to">
+          <button class="look-item" @click="goTo('', g.to)">{{ lineOf(g) }}</button>
+        </template>
+        <template v-else>
+          <button v-for="i in g.items" :key="i.id" class="look-item" @click="goTo(i.id)">{{ i.label }}<span v-if="i.note" class="muted">（{{ i.note }}）</span></button>
+        </template>
+      </div>
+    </div>
+
     <div v-if="d.notes_display.length" class="callout warn" style="display: block">
       <b>请留意</b>
       <ul style="margin: 6px 0 0; padding-left: 20px"><li v-for="(n, i) in d.notes_display" :key="i">{{ n }}</li></ul>
@@ -204,7 +241,7 @@ onUnmounted(() => clearInterval(timer))
       <table>
         <thead><tr><th style="width: 34%">表单上的问题</th><th>准备填的答案</th><th style="width: 22%">为什么这么填</th><th>把握</th><th></th></tr></thead>
         <tbody>
-          <tr v-for="a in d.answers.filter((x) => (filled.includes(x) || isUnresolved(x) || editing === x.id) && (!onlyDelta || x.delta))" :key="a.id">
+          <tr v-for="a in d.answers.filter((x) => (filled.includes(x) || isUnresolved(x) || editing === x.id) && (!onlyDelta || x.delta))" :id="'ans-' + a.id" :key="a.id" :class="{ lit: lit === a.id }">
             <td>
               {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
               <div v-if="a.entry" class="small muted" data-notr>{{ a.entry }}</div>
@@ -252,7 +289,7 @@ onUnmounted(() => clearInterval(timer))
 
     <div class="cols">
       <div>
-        <h3>要上传的文件</h3>
+        <h3 id="draft-materials" :class="{ lit: lit === 'materials' }">要上传的文件</h3>
         <div class="panel">
           <div v-for="m in d.materials" :key="m.slot" class="row" style="margin-bottom: 6px">
             <span class="tag info">{{ m.slot_label }}</span>
@@ -288,7 +325,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
       </div>
       <div>
-        <h3>批准之后会发生什么</h3>
+        <h3 id="draft-after" :class="{ lit: lit === 'after' }">批准之后会发生什么</h3>
         <div class="panel">
           <p v-if="d.submit_mode" style="margin-top: 0">
             <b>批准后：</b>
@@ -316,7 +353,7 @@ onUnmounted(() => clearInterval(timer))
       <div class="row" style="margin-top: 10px">
         <button class="primary" @click="checkMail"><Icon name="mail" />现在检查确认邮件</button>
         <button @click="markSubmitted">我已经提交了</button>
-        <button class="ghost" @click="runAgainNotSubmitted">没提交成功，重新填写</button>
+        <button class="ghost" :disabled="acting('execute')" @click="runAgainNotSubmitted">没提交成功，重新填写</button>
       </div>
     </div>
 
@@ -326,7 +363,7 @@ onUnmounted(() => clearInterval(timer))
       <div v-if="editable" class="muted" style="margin-top: 6px">哪一项答案不对，可以直接在上面点“修改”改掉，不用重新批准；改完点下面的按钮，程序按现在的答案再填一次。</div>
       <TechDetails :text="d.application.explained.detail" />
       <div class="row" style="margin-top: 10px">
-        <button class="primary" @click="runAgain"><Icon name="refresh" />{{ d.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
+        <button class="primary" :disabled="acting('execute')" @click="runAgain"><Icon name="refresh" />{{ d.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
         <button v-if="d.application.status === 'ready_to_submit'" @click="markSubmitted">我已经提交了</button>
       </div>
     </div>
@@ -344,9 +381,10 @@ onUnmounted(() => clearInterval(timer))
         <div v-for="(c, i) in d.comments" :key="i" class="small muted" style="margin-top: 6px">你：{{ c.comment }} → {{ c.result }}</div>
       </div>
       <div class="row" style="position: sticky; bottom: 0; background: var(--bg); padding: 12px 0">
-        <button class="primary" :disabled="!!d.unresolved.length" @click="approve">{{ d.submit_mode && d.submit_mode.mode === 'manual' ? '批准，填好后我来点提交' : '批准，自动填写并提交' }}</button>
-        <button @click="reject(false)">先不批准</button>
-        <button class="ghost danger" @click="reject(true)">不投这个岗位了</button>
+        <button class="primary" :disabled="!!d.unresolved.length || acting('approve')" @click="approve">{{ acting('approve') ? '正在批准…' : d.submit_mode && d.submit_mode.mode === 'manual' ? '批准，填好后我来点提交' : '批准，自动填写并提交' }}</button>
+        <router-link to="/drafts" class="btn">稍后再说</router-link>
+        <button class="ghost" :disabled="acting('reject') || acting('approve')" @click="sendBack">退回这份草案</button>
+        <button class="ghost danger" :disabled="acting('reject') || acting('approve')" @click="reject(true)">不投这个岗位了</button>
         <span v-if="d.unresolved.length" class="muted">回答完上面的问题才能批准</span>
       </div>
     </template>

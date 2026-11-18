@@ -959,4 +959,13 @@ def reject(draft_id: int, *, withdraw: bool = False) -> None:
     with db.session() as s:
         d = s.get(Draft, draft_id)
         d.review_status = "rejected"
-        lifecycle.move(d.application, "withdrawn" if withdraw else "draft_ready", source="user")
+        app = d.application
+        left = [x for x in app.drafts if x.id != d.id and x.review_status in ("pending", "approved")]
+        if withdraw:
+            lifecycle.move(app, "withdrawn", source="user")
+        elif left:
+            lifecycle.move(app, "needs_input" if left[-1].unresolved else "draft_ready", source="user")
+        elif lifecycle.move(app, "returned", source="user"):
+            # No draft is waiting any more: the posting reads "not applied" again (it used to stay at "a draft is
+            # waiting for you" with no draft to open), and says what was done and what there is to do.
+            app.last_event = "你退回了草案。想投这个岗位时，在岗位页重新生成草案。"

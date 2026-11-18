@@ -8,7 +8,7 @@ import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import AaSelect from '../components/Select.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { ask, fmtTime, toast } from '../ui'
+import { ask, fmtTime, run, toast } from '../ui'
 
 const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
@@ -25,10 +25,11 @@ async function load() {
   try { a.value = await api.get('/applications/' + props.id); failed.value = '' } catch (e) { failed.value = e.message }
 }
 // one thing at a time, and the button says so while it runs
+// (one action of this page at a time - they all change where the application stands; `busy` names the one under way)
 async function act(name, fn, ok) {
-  if (busy.value) return
+  if (busy.value) return false
   busy.value = name
-  try { const r = await fn(); if (ok) toast(ok); await load(); return r } catch (e) { toast(e.message, 'bad') } finally { busy.value = '' }
+  try { return await run(fn, ok, load) } finally { busy.value = '' }
 }
 const draftId = computed(() => (a.value && a.value.materials_from_draft) || (a.value && a.value.drafts.length ? a.value.drafts[a.value.drafts.length - 1].id : null))
 const can = (k) => !!a.value && a.value.actions.includes(k)

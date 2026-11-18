@@ -5,6 +5,10 @@ import ColumnChart from '../components/ColumnChart.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import Explain from '../components/Explain.vue'
+import DataState from '../components/DataState.vue'
+import { dataState, useRefresh } from '../data'
+import { deadlineLabel } from '../dates'
 import { fmtTime, run } from '../ui'
 
 const ov = inject('overview')
@@ -25,7 +29,11 @@ const pipeline = computed(() => [
 ].map((r) => ({ ...r, value: c.value[r.key] || 0 })))
 const pipeMax = computed(() => Math.max(1, ...pipeline.value.map((r) => r.value)))
 const sentTotal = computed(() => pipeline.value.reduce((a, r) => a + r.value, 0))
-const replyRate = computed(() => (sentTotal.value ? Math.round(((sentTotal.value - (c.value.submitted || 0)) / sentTotal.value) * 100) : 0))
+// Everything that has gone out, with the same three words as the analytics page and from the same code
+// (analytics.sent_summary): acknowledged, come to something, gone on. The chart of stages below shows a part of it -
+// the applications whose posting is not archived - and says so.
+const sent = ref({ sent: 0, dated: 0, undated: 0, archived: 0, heard: 0, decided: 0, progressed: 0 })
+const share = (k) => (sent.value.sent ? Math.round((k / sent.value.sent) * 100) : 0)
 
 const weekly = computed(() => (ov.value.weekly || []).map((w) => {
   const d = new Date(w.week + 'T00:00:00')
@@ -35,17 +43,15 @@ const weekly = computed(() => (ov.value.weekly || []).map((w) => {
 const weekTotal = computed(() => weekly.value.reduce((a, w) => a + w.value, 0))
 const thisWeek = computed(() => (weekly.value.length ? weekly.value[weekly.value.length - 1].value : 0))
 
-const daysLeft = (dl) => {
-  const d = new Date(dl.replace(' ', 'T'))
-  const diff = Math.ceil((d.getTime() - Date.now()) / 86400000)
-  return diff <= 0 ? '今天截止' : diff === 1 ? '明天截止' : `还有 ${diff} 天`
-}
-async function load() {
-  ;[todos.value, drafts.value] = await Promise.all([api.get('/todos'), api.get('/drafts')])
+async function read() {
+  ;[todos.value, drafts.value, sent.value] = await Promise.all([api.get('/todos'), api.get('/drafts'), api.get('/analytics/sent')])
   todos.value = todos.value.filter((t) => !t.snoozed_until)       // what was put off until later is not "waiting for you" until then
 }
 const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), '开始扫描新岗位，完成后会通知你', reload)
 const mail = () => run(() => api.post('/tasks', { kind: 'mail' }), '开始检查邮箱', reload)
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(load)
 </script>
 
@@ -54,13 +60,20 @@ onMounted(load)
     <button @click="mail"><Icon name="mail" />检查邮箱</button>
     <button @click="scan"><Icon name="search" />扫描新岗位</button>
   </PageHead>
+  <DataState :s="st" what="概览" @retry="load" />
+  <template v-if="st.at">
 
   <div class="grid-4" style="margin-bottom: 16px">
     <router-link to="/todos" class="stat" :class="{ attn: ov.open_todos }"><div class="n">{{ ov.open_todos || 0 }}</div><div class="l">件事需要你处理</div></router-link>
     <router-link to="/drafts" class="stat" :class="{ attn: ov.pending_drafts }"><div class="n">{{ ov.pending_drafts || 0 }}</div><div class="l">份草案等你审批</div></router-link>
     <router-link to="/jobs" class="stat"><div class="n">{{ n('not_applied') }}</div><div class="l">个岗位还没投</div></router-link>
-    <router-link to="/jobs" class="stat"><div class="n">{{ sentTotal }}</div><div class="l">个申请已投出 · {{ replyRate }}% 有回音</div></router-link>
+    <router-link to="/applications" class="stat"><div class="n">{{ sent.sent }}</div><div class="l">个申请已投出 · 收到回执 {{ share(sent.heard) }}% · 有实质结果 {{ share(sent.decided) }}%</div></router-link>
   </div>
+  <Explain label="“已投出”“收到回执”“有实质结果”怎么算的" style="margin: -8px 0 14px">
+    已投出：现在处于“已提交”或之后任何一步的全部申请，一共 {{ sent.sent }} 份。收到回执：对方有过任何回应，包括自动发的确认信（{{ sent.heard }} 份）。有实质结果：进入过笔试或面试、拿到 Offer，或者被拒；自动确认信不算（{{ sent.decided }} 份）。
+    <template v-if="sent.archived">其中 {{ sent.archived }} 份的岗位已经归档，不在下面“申请进行到哪一步”的图里，那张图画的是其余 {{ sent.sent - sent.archived }} 份。</template>
+    <router-link :to="{ path: '/analytics', query: { view: 'apps' } }">数据分析 → 求职成效</router-link>用同样的三个词，但按投递日期统计：有投递日期的是 {{ sent.dated }} 份<template v-if="sent.undated">，另外 {{ sent.undated }} 份知道投出了、没有记下是哪一天，不在那一页的数字里</template>。
+  </Explain>
 
   <div class="cols">
     <div class="card">
@@ -86,7 +99,7 @@ onMounted(load)
         <router-link v-for="j in ov.closing_soon || []" :key="j.id" :to="{ path: '/jobs', query: { open: j.id } }" class="item" style="color: inherit; text-decoration: none">
           <span class="score" :class="j.score >= 7.5 ? 'hi' : j.score >= 6 ? 'mid' : 'lo'" style="min-width: 28px">{{ j.score == null ? '—' : j.score.toFixed(1) }}</span>
           <div><div class="main">{{ j.company }}</div><div class="sub">{{ j.title }}<span v-if="!j.has_link"> · 还没有申请链接</span></div></div>
-          <span class="small nowrap" :class="daysLeft(j.deadline).startsWith('还有') ? 'muted' : ''" :style="daysLeft(j.deadline).startsWith('还有') ? '' : 'color: var(--warn); font-weight: 600'">{{ daysLeft(j.deadline) }}</span>
+          <span class="small nowrap" :class="deadlineLabel(j.deadline).tone ? '' : 'muted'" :style="deadlineLabel(j.deadline).tone === 'soon' ? 'color: var(--warn); font-weight: 600' : deadlineLabel(j.deadline).tone === 'past' ? 'color: var(--bad)' : ''">{{ deadlineLabel(j.deadline).text }}</span>
         </router-link>
       </div>
       <EmptyState v-if="!(ov.closing_soon || []).length" icon="clock" title="没有快截止的未投岗位" />
@@ -139,4 +152,5 @@ onMounted(load)
       <EmptyState v-if="!(ov.recent_applications || []).length" icon="send" title="还没有投出申请" />
     </div>
   </div>
+  </template>
 </template>

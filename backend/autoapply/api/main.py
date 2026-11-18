@@ -1004,7 +1004,10 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
                  "created_at": t.created_at.isoformat(), "started_at": t.started_at.isoformat() if t.started_at else None,
                  "finished_at": t.finished_at.isoformat() if t.finished_at else None,
                  "due_at": t.due_at.isoformat() if t.due_at and t.status == "queued" else None,      # waiting for its time, not for its turn
-                 "browser_stages": [x["stage"] for x in (t.stages or []) if x.get("stage", "").startswith("browser:")]}
+                 # which browser the task worked in, when that is not the usual one: said in words here, as it was
+                 # written down in "browser_detail" (shown with the technical details)
+                 "browser_stages": [w for w in (humanize.browser_stage(x.get("stage", "")) for x in (t.stages or [])) if w],
+                 "browser_detail": [x["stage"] for x in (t.stages or []) if x.get("stage", "").startswith("browser:")]}
                 for t in s.query(Task).order_by(Task.id.desc()).limit(limit)]
     for r in rows:
         r["label"] = humanize.TASK.get(r["kind"], r["kind"])
@@ -1667,6 +1670,10 @@ def list_documents() -> list[dict[str, Any]]:
                          "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
                          "problems": (d.meta or {}).get("problems", []), "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
+                         # (the parts of the posting's name, for a list that has room for one line of each: several
+                         # postings of one employer differ in the title's end, the place or the term)
+                         "job_company": job.company if job else "", "job_title": job.title if job else "",
+                         "job_where": " · ".join(x for x in ((job.location or "").split(",")[0].strip(), job.term or "") if x) if job else "",
                          "has_docx": bool((d.meta or {}).get("docx"))})
         return rows
 
@@ -2039,6 +2046,14 @@ def analytics_ai_prices(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         out.append(row)
     db.set_setting("llm.prices", out)
     return {"ok": True, "repriced": metering.reprice()}
+
+
+@app.get("/api/analytics/sent")
+def analytics_sent() -> dict[str, Any]:
+    """Everything that has gone out, and how much of it came to something (analytics.sent_summary)."""
+    from .. import analytics
+
+    return analytics.sent_summary()
 
 
 @app.get("/api/rules")

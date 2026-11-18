@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
 from . import db, humanize, llm, metering, stages
-from .models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
+from .models import SENT, Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
 
 MIN_SAMPLE = 5          # a share over fewer applications than this is not shown as a percentage
 POSITIVE = ("assessment", "interview", "offer")
@@ -104,16 +104,55 @@ def _fence(xs: list[float]) -> float | None:
 # --- applications -------------------------------------------------------------------------------
 
 
+def _heard_from(s: Any) -> tuple[dict[int, list[tuple[str, datetime | None]]], dict[int, set[str]]]:
+    """The mails about each application (category, when) and the stages each application has been at."""
+    mails: dict[int, list[tuple[str, datetime | None]]] = defaultdict(list)
+    for m in s.query(MailEvent.application_id, MailEvent.category, MailEvent.received_at).filter(MailEvent.application_id.isnot(None)):
+        mails[m[0]].append((m[1], _naive(m[2])))
+    been: dict[int, set[str]] = defaultdict(set)
+    for e in s.query(ApplicationEvent.application_id, ApplicationEvent.new):
+        been[e[0]].add(e[1])
+    return mails, been
+
+
+def came_of(status: str, mine: list[tuple[str, datetime | None]], been: set[str]) -> dict[str, bool]:
+    """The three things said about an application that was sent, wherever they are said (the overview, the analytics):
+
+    - ``heard`` - 收到回执: anything came back, an automatic acknowledgement included;
+    - ``decided`` - 有实质结果: it went on to an assessment or an interview, or was declined (an acknowledgement is not that);
+    - ``progressed`` - 进入笔试/面试: it has been at an assessment, an interview or an offer - also when it was declined afterwards.
+
+    "Has been": the status now, a status it had before, or a mail that says so."""
+    progressed = status in POSITIVE or bool(been & set(POSITIVE)) or any(c in POSITIVE for c, _ in mine)
+    decided = progressed or status == "rejected"
+    return {"progressed": progressed, "decided": decided, "heard": decided or status in REPLIED or any(c != "other" for c, _ in mine)}
+
+
+def sent_summary() -> dict[str, int]:
+    """Everything that has gone out, and how much of it each page speaks about. "Sent" is the same number everywhere;
+    a page that shows a part of it says which part: the overview's chart of stages leaves out the applications whose
+    posting is archived, the analytics count by the day of sending and so leave out those without one (found through
+    a mail, seen on the employer's site, marked by hand)."""
+    with db.session() as s:
+        mails, been = _heard_from(s)
+        out = {"sent": 0, "dated": 0, "archived": 0, "heard": 0, "decided": 0, "progressed": 0}
+        for a in s.query(Application).filter(Application.status.in_(SENT)):
+            got = came_of(a.status, mails.get(a.id, []), been[a.id])
+            out["sent"] += 1
+            out["dated"] += 1 if a.submitted_at is not None else 0
+            out["archived"] += 1 if a.job is not None and a.job.archived_at is not None else 0
+            for k in ("heard", "decided", "progressed"):
+                out[k] += 1 if got[k] else 0
+    out["undated"] = out["sent"] - out["dated"]
+    return out
+
+
 def applications(w: Window) -> dict[str, Any]:
     """What came of the applications sent in the window (a cohort by the day of sending). Archived jobs are included:
     this is about what happened, not about what is still open."""
+    coverage = sent_summary()
     with db.session() as s:
-        mails: dict[int, list[tuple[str, datetime | None]]] = defaultdict(list)
-        for m in s.query(MailEvent.application_id, MailEvent.category, MailEvent.received_at).filter(MailEvent.application_id.isnot(None)):
-            mails[m[0]].append((m[1], _naive(m[2])))
-        been: dict[int, set[str]] = defaultdict(set)
-        for e in s.query(ApplicationEvent.application_id, ApplicationEvent.new):
-            been[e[0]].add(e[1])
+        mails, been = _heard_from(s)
         apps, prev_n = [], 0
         for a in s.query(Application).filter(Application.submitted_at.isnot(None)):
             sub_at = _naive(a.submitted_at)
@@ -124,10 +163,8 @@ def applications(w: Window) -> dict[str, Any]:
             j = a.job
             mine = mails.get(a.id, [])
             decisions = sorted(t for c, t in mine if c in DECISION_MAIL + ("info_request",) and t is not None and t >= sub_at)   # an automatic receipt is not an answer
-            # "has been": the status now, a status it had before, or a mail that says so - a rejection after an interview still had the interview
-            progressed = a.status in POSITIVE or bool(been[a.id] & set(POSITIVE)) or any(c in POSITIVE for c, _ in mine)
-            decided = progressed or a.status == "rejected"
-            heard = decided or a.status in REPLIED or any(c != "other" for c, _ in mine)
+            got = came_of(a.status, mine, been[a.id])
+            progressed, decided, heard = got["progressed"], got["decided"], got["heard"]
             apps.append({
                 "status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or "未标注",
                 "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
@@ -176,10 +213,11 @@ def applications(w: Window) -> dict[str, Any]:
     per_month = {m["label"]: m for m in by(lambda r: r["month"])}
     return {
         "window": w.describe(), "total": total, "previous": {"n": prev_n} if w.prev_lo is not None else None, "min_sample": MIN_SAMPLE,
+        "coverage": coverage,
         # Each step is a part of the one before (sent > heard anything > a decision > got further > offer), so it can be drawn as a funnel.
-        "funnel": [{"key": "sent", "label": "投出", "value": total["n"]}, {"key": "heard", "label": "收到确认信或任何回复", "value": total["replied"]},
-                   {"key": "decided", "label": "有明确结果（进展或被拒）", "value": total["decided"]},
-                   {"key": "progressed", "label": "进入过笔试 / 面试", "value": total["progressed"]}, {"key": "offer", "label": "拿到 Offer", "value": total["offer"]}],
+        "funnel": [{"key": "sent", "label": "投出", "value": total["n"]}, {"key": "heard", "label": "收到回执（确认信或任何回复）", "value": total["replied"]},
+                   {"key": "decided", "label": "有实质结果（进展或被拒）", "value": total["decided"]},
+                   {"key": "progressed", "label": "进入笔试 / 面试", "value": total["progressed"]}, {"key": "offer", "label": "拿到 Offer", "value": total["offer"]}],
         "states": [{"key": k, "label": lab, "value": states.get(k, 0)} for k, lab in
                    (("silent", "没有任何回音"), ("receipt", "只收到自动确认"), ("assessment", "笔试 / 测评中"), ("interview", "面试中"), ("offer", "Offer"), ("rejected", "被拒"), ("other", "其他（撤回等）"))],
         "rejected_after_progress": sum(1 for r in apps if r["status"] == "rejected" and r["progressed"]),
@@ -193,8 +231,11 @@ def applications(w: Window) -> dict[str, Any]:
 
 # --- tasks: what a workflow execution came to ----------------------------------------------------
 
-OUTCOMES = {"success": "完成", "handed": "填好，等你提交", "waiting": "等你处理", "rerun": "改为可见窗口重跑", "failed": "失败", "interrupted": "被中断", "cancelled": "已取消", "running": "进行中"}
-UNFINISHED = ("handed", "waiting", "rerun", "running")       # not a failure: the next move is yours, or it is still going
+OUTCOMES = {"success": "完成", "handed": "填好，等你提交", "unknown": "点了提交，结果待确认", "waiting": "等你处理", "rerun": "改为可见窗口重跑", "failed": "失败", "interrupted": "被中断",
+            "cancelled": "已取消", "skipped": "没有要做的", "running": "进行中"}
+UNFINISHED = ("handed", "unknown", "waiting", "rerun", "running")       # not a failure: the next move is yours, or it is still going
+# (not counted either way: the task was called off, or found that there was nothing for it to do)
+NOT_COUNTED = ("cancelled", "skipped")
 STAGES = {"read_form": "读取申请表", "ensure_session": "登录网站", "open": "打开申请表", "sign_in": "登录网站", "reopen": "打开申请表", "walk": "逐步填写", "fill_step": "填写",
           "fill_page": "填写", "form_reports": "表单校验", "repair": "AI 接手", "repair_skipped": "AI 接手", "read_back": "和草案核对", "unverified": "和草案核对",
           "next": "翻页", "advance": "翻页", "cannot_advance": "翻页", "stuck": "翻页", "not_asked": "和确认页核对", "review_step": "确认页", "handed_over": "交给你提交",
@@ -216,8 +257,14 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
     if status == "failed":
         return "interrupted" if "interrupted" in (error or "") else "failed"
     if kind == "execute":
-        st = str((result or {}).get("status") or "")
-        return {"submitted": "success", "ready_to_submit": "handed", "submit_unknown": "handed", "needs_human": "waiting", "approved": "rerun"}.get(st, "failed" if st in ("failed", "drifted") else "success")
+        # A filling task counts as a success when THIS run got the application submitted - not when the task ended
+        # without an error. A task that found the application already sent (a retry, a task that was still queued)
+        # answers with where the application stands and submitted nothing: it was counted among the successes. And
+        # "Submit was pressed, nothing says it was received" is neither that nor "handed over to you".
+        st, note = str((result or {}).get("status") or ""), str((result or {}).get("note") or "")
+        if st == "skipped" or note in ("already submitted", "waiting for the outcome of a submission"):
+            return "skipped"
+        return {"submitted": "success", "ready_to_submit": "handed", "submit_unknown": "unknown", "needs_human": "waiting", "approved": "rerun"}.get(st, "failed" if st in ("failed", "drifted") else "success")
     if kind == "scout" and str((result or {}).get("status") or "") in ("failed", "needs_human"):      # the walk itself did not work
         return "failed"
     return "success"
@@ -400,7 +447,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     for r in sorted(shown, key=lambda r: r["at"]):
         k, lab = key(r["at"])
         b = trend.setdefault(k, {"key": k, "label": lab, "success": 0, "unfinished": 0, "failed": 0})
-        b["success" if r["outcome"] == "success" else "failed" if r["outcome"] in ("failed", "interrupted") else "unfinished"] += 1 if r["outcome"] != "cancelled" else 0
+        b["success" if r["outcome"] == "success" else "failed" if r["outcome"] in ("failed", "interrupted") else "unfinished"] += 1 if r["outcome"] not in NOT_COUNTED else 0
     total, a_all = counts(shown), cost_of(shown)
     return {
         "window": w.describe(), "total": total, "previous": {"total": prev_n} if prev_n is not None and not kind else None, "ai": a_all,

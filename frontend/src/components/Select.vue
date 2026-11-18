@@ -115,8 +115,9 @@ const uid = 'sel' + ++counter
 </script>
 
 <template>
-  <button ref="btn" type="button" class="sel" :class="[attrs.class, { open, sm: small, empty: !selected }]" :style="attrs.style" :title="attrs.title" :disabled="disabled"
+  <button :id="attrs.id" ref="btn" type="button" class="sel" :class="[attrs.class, { open, sm: small, empty: !selected }]" :style="attrs.style" :title="attrs.title" :disabled="disabled"
     role="combobox" aria-haspopup="listbox" :aria-expanded="open" :aria-controls="uid" :aria-label="attrs['aria-label'] || attrs.title"
+    :aria-labelledby="attrs['aria-labelledby']" :aria-describedby="attrs['aria-describedby']"
     :aria-activedescendant="open && active >= 0 ? uid + '-' + active : undefined" @click="open ? close() : show()" @keydown="onKey">
     <span class="sel-val">{{ selected ? selected.label : placeholder }}</span>
     <svg class="sel-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
@@ -124,7 +125,7 @@ const uid = 'sel' + ++counter
   <Teleport to="body">
     <div v-if="open" :id="uid" ref="pop" class="sel-pop" role="listbox" :style="place">
       <div v-for="(o, i) in options" :id="uid + '-' + i" :key="i" class="sel-opt" :class="{ active: i === active, on: same(o.value, current), disabled: o.disabled }"
-        role="option" :aria-selected="same(o.value, current)" @mouseenter="active = i" @mousedown.prevent @click="pick(o)">
+        role="option" :aria-selected="same(o.value, current)" :aria-disabled="o.disabled ? 'true' : undefined" @mouseenter="active = i" @mousedown.prevent @click="pick(o)">
         <span>{{ o.label }}</span>
         <svg v-if="same(o.value, current)" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5 5L20 6" /></svg>
       </div>

@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { change, pct } from '../../analytics'
 import ColumnChart from '../../components/ColumnChart.vue'
 import EmptyState from '../../components/EmptyState.vue'
+import Explain from '../../components/Explain.vue'
 import Icon from '../../components/Icon.vue'
 import Pager from '../../components/Pager.vue'
 import SplitBar from '../../components/SplitBar.vue'
@@ -29,18 +30,25 @@ watch(() => props.d.by_month, () => { page.value = 0 })
   <template v-if="t.n">
     <div class="kpis">
       <div class="kpi"><div class="n">{{ t.n }}</div><div class="l">个申请已投出</div><div v-if="d.previous" class="d">{{ change(t.n, d.previous.n) || '上一段没有投出，无从比较' }}</div></div>
-      <div class="kpi" title="有明确结果 = 进入过笔试或面试，或者被拒。自动确认信不算。分母是这段时间投出的全部申请。">
-        <div class="n">{{ pct(t.decided, t.n) }}%</div><div class="l">有明确结果</div><div class="d">{{ t.decided }} / {{ t.n }} 个</div></div>
-      <div class="kpi" title="进入过笔试、测评或面试的申请占多少。后来被拒的也算进入过。">
-        <div class="n" :class="{ ok: t.progressed }">{{ pct(t.progressed, t.n) }}%</div><div class="l">进入过笔试 / 面试</div><div class="d">{{ t.progressed }} / {{ t.n }} 个</div></div>
-      <div class="kpi" title="从投出到第一封有实质内容的回复（不算自动确认信）隔了多少天，取中位数。">
-        <div class="n" :class="{ na: d.median_wait_days == null }">{{ wait }}</div><div class="l">通常多久等到结果</div><div class="d">{{ d.waited ? d.waited + ' 个申请有记录' : '还没有可以计算的记录' }}</div></div>
+      <div class="kpi">
+        <div class="n">{{ pct(t.replied, t.n) }}%</div><div class="l">收到回执</div><div class="d">{{ t.replied }} / {{ t.n }} 个</div>
+        <Explain>收到回执 = 对方有过任何回应，包括自动发的确认信。分母是这段时间投出的申请。</Explain></div>
+      <div class="kpi">
+        <div class="n">{{ pct(t.decided, t.n) }}%</div><div class="l">有实质结果</div><div class="d">{{ t.decided }} / {{ t.n }} 个</div>
+        <Explain>有实质结果 = 进入过笔试或面试，或者被拒。自动确认信不算。分母是这段时间投出的申请。</Explain></div>
+      <div class="kpi">
+        <div class="n" :class="{ ok: t.progressed }">{{ pct(t.progressed, t.n) }}%</div><div class="l">进入笔试 / 面试</div><div class="d">{{ t.progressed }} / {{ t.n }} 个</div>
+        <Explain>进入过笔试、测评或面试的申请占多少。后来被拒的也算进入过。</Explain></div>
+      <div class="kpi">
+        <div class="n" :class="{ na: d.median_wait_days == null }">{{ wait }}</div><div class="l">通常多久等到结果</div><div class="d">{{ d.waited ? d.waited + ' 个申请有记录' : '还没有可以计算的记录' }}</div>
+        <Explain>从投出到第一封有实质内容的回复（不算自动确认信）隔了多少天，取中位数。</Explain></div>
     </div>
+    <p v-if="d.coverage" class="small muted" style="margin: -4px 0 14px">全部已投出 {{ d.coverage.sent }} 份（概览页上的数字），其中 {{ d.coverage.dated }} 份有投递日期，计入这一页按时间的统计<template v-if="d.coverage.undated">；另外 {{ d.coverage.undated }} 份知道投出了、但没有记下是哪一天（从邮件或雇主网站上认出来的，或你手动记的），不在这一页的数字里，<router-link to="/applications">在“我的申请”里</router-link>可以补上日期</template>。</p>
 
     <div class="an-row c32">
       <div class="card">
         <div class="card-title">申请漏斗</div>
-        <p class="card-sub">每一步都是上一步的一部分：投出的里有多少有了回音，有回音的里有多少有了明确结果，依此类推。</p>
+        <p class="card-sub">每一步都是上一步的一部分：投出的里有多少收到了回执，收到回执的里有多少有了实质结果，依此类推。</p>
         <div class="hbars tight even" style="--lab: 13em">
           <template v-for="r in d.funnel" :key="r.key">
             <span class="lab" :title="r.label">{{ r.label }}</span>
@@ -70,7 +78,7 @@ watch(() => props.d.by_month, () => { page.value = 0 })
         <ColumnChart v-if="!asTable" :data="monthly" unit=" 个" :table="false" />
         <template v-else>
           <table class="an-table">
-            <thead><tr><th>月份</th><th class="num">投出</th><th class="num">其中已有明确结果</th><th class="num">当月收到的回复</th></tr></thead>
+            <thead><tr><th>月份</th><th class="num">投出</th><th class="num">其中已有实质结果</th><th class="num">当月收到的回复</th></tr></thead>
             <tbody><tr v-for="m in months.slice(page * SIZE, (page + 1) * SIZE)" :key="m.label"><td>{{ m.label }}</td><td class="num">{{ m.n }}</td><td class="num">{{ m.decided }}</td><td class="num">{{ m.replies }}</td></tr></tbody>
           </table>
           <Pager v-model:page="page" :size="SIZE" :total="months.length" />
@@ -78,12 +86,12 @@ watch(() => props.d.by_month, () => { page.value = 0 })
         </template>
       </div>
       <div class="card">
-        <div class="card-title">评分高的岗位更容易有回音吗</div>
-        <p class="card-sub">各评分段里，有明确结果的申请占多少。用来检验评分规则准不准，不能说明因果。</p>
+        <div class="card-title">评分高的岗位更容易有实质结果吗</div>
+        <p class="card-sub">各评分段里，有实质结果的申请占多少。用来检验评分规则准不准，不能说明因果。</p>
         <div class="hbars tight even" style="--lab: 5.5em">
           <template v-for="r in d.by_score" :key="r.label">
             <span class="lab">{{ r.label === '没评分' ? r.label : r.label + ' 分' }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有明确结果，其中 ${r.progressed} 个进入过笔试或面试`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有实质结果，其中 ${r.progressed} 个进入过笔试或面试`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="muted small" style="font-weight: 400">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>
@@ -93,23 +101,23 @@ watch(() => props.d.by_month, () => { page.value = 0 })
 
     <div class="an-row c11">
       <div class="card">
-        <div class="card-title">在哪里投的更容易有回音</div>
-        <p class="card-sub">按投递渠道，有明确结果的占比</p>
+        <div class="card-title">在哪里投的更容易有实质结果</div>
+        <p class="card-sub">按投递渠道，有实质结果的占比</p>
         <div class="hbars tight even">
           <template v-for="r in d.by_channel" :key="r.label">
             <span class="lab" :title="r.label">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有明确结果`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有实质结果`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="muted small" style="font-weight: 400">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">哪个方向更容易有回音</div>
-        <p class="card-sub">按岗位方向，有明确结果的占比</p>
+        <div class="card-title">哪个方向更容易有实质结果</div>
+        <p class="card-sub">按岗位方向，有实质结果的占比</p>
         <div class="hbars tight even">
           <template v-for="r in d.by_direction" :key="r.label">
             <span class="lab" :title="r.label">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有明确结果`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有实质结果`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="muted small" style="font-weight: 400">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>

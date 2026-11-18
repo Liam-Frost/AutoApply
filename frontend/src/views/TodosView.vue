@@ -1,9 +1,11 @@
 <script setup>
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run as runAction, toast } from '../ui'
 
@@ -11,7 +13,6 @@ const todos = ref([])
 const saveCred = ref(true)
 const picked = ref({})      // to-do id -> the application chosen for an e-mail that names no posting
 const reloadOverview = inject('reloadOverview', () => {})
-let timer
 
 // How each kind of to-do is presented: icon, tone, the title and the one-line explanation.
 const VIEW = {
@@ -101,7 +102,7 @@ const FIX = {
 }
 const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.title, what: (x) => x.explained.message }
 
-async function load() { todos.value = await api.get('/todos'); reloadOverview() }
+async function read() { todos.value = await api.get('/todos'); reloadOverview() }
 const act = (fn, ok) => runAction(fn, ok, load)
 const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: saveCred.value }),
   '已打开一个浏览器窗口，请在里面登录。登录好之后直接关掉窗口，程序会保存登录状态并继续。')
@@ -137,12 +138,16 @@ async function share(t, choice) {
   } catch (e) { if (tab) tab.close(); toast(e.message, 'bad') }
 }
 const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
-onMounted(() => { load(); timer = setInterval(load, 6000) })
-onUnmounted(() => clearInterval(timer))
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+useRefresh(load, { every: 15000 })
+onMounted(load)
 </script>
 
 <template>
   <PageHead title="需要我处理" sub="程序自己做不了、需要你出面的事。处理完，相关任务会自动继续。" />
+  <DataState :s="st" what="待办" @retry="load" />
+  <template v-if="st.at">
 
   <template v-if="todos.length">
     <div class="seg" style="margin-bottom: 12px">
@@ -319,4 +324,5 @@ onUnmounted(() => clearInterval(timer))
   <div v-if="active.length && !shown.length" class="card"><EmptyState icon="search" title="没有符合条件的待办" text="换一个分类，或清空搜索。" /></div>
 
   <div v-if="!active.length" class="card"><EmptyState icon="check" title="没有需要你处理的事" text="需要登录、回答问题或确认提交时，会出现在这里，同时发到 Telegram。" /></div>
+  </template>
 </template>

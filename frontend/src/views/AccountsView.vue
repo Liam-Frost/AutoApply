@@ -2,8 +2,11 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, fmt, ROOT } from '../api'
 import EmptyState from '../components/EmptyState.vue'
+import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { fmtTime, run as runAction, ask, toast } from '../ui'
 
@@ -58,7 +61,7 @@ const idpForget = async (p) => (await ask(`删除保存的 ${p.name} 登录状�
 const STATUS = { ok: ['可以自动登录', 'ok'], pending: ['等待确认邮箱', 'warn'], locked: ['被锁定', 'bad'], needs_human: ['需要你登录一次', 'warn'], unknown: ['还没登录过', ''], not_needed: ['不登录也能申请', ''] }
 const BY = { agent: '程序注册', takeover: '你登录时保存', manual: '手动添加', chrome_csv: '从 Chrome 导入' }
 
-async function load() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
+async function read() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
 const run = (fn, ok) => runAction(fn, ok, load)
 const save = () => run(async () => { await api.put('/accounts/' + encodeURIComponent(form.value.tenant_key), form.value); form.value = { tenant_key: '', login_email: '', password: '' } }, '已保存')
 const remove = async (a) => (await ask(`删除 ${a.site.name} 的账号记录、密码和登录状态？`)) && run(() => api.del('/accounts/' + encodeURIComponent(a.tenant_key)), '已删除')
@@ -99,12 +102,17 @@ function importSession(ev) {
   run(() => api.upload('/accounts/session/import', fd), (r) => `已导入 ${r.name} 的登录状态。请删除那个文件。`).then(() => { carry.value.inPass = ''; loadCarry() })
   ev.target.value = ''
 }
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+useRefresh(load)
 onMounted(() => { load(); loadCarry(); timer = setInterval(loadIdps, 5000) })
 onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
   <PageHead title="网站账号" sub="需要登录的招聘网站，每个一条。密码保存在本机的系统凭据管理器里，登录状态加密保存在本机；都不会进数据库、日志，也不会发给 AI。" />
+  <DataState :s="st" what="网站账号" @retry="load" />
+  <template v-if="st.at">
 
   <div class="card">
     <div class="card-title">用来登录其他网站的账号</div>
@@ -177,7 +185,7 @@ onUnmounted(() => clearInterval(timer))
     <div class="card">
       <div class="card-title">从 Chrome 导入已保存的密码</div>
       <p class="muted">在 Chrome 里打开：设置 → 密码管理器 → 设置 → 导出密码，会得到一个 CSV 文件。这里只导入属于招聘网站的记录，其余忽略；文件内容不会被保存。</p>
-      <label class="btn"><Icon name="inbox" />选择 CSV 文件<input type="file" accept=".csv" hidden @change="importCsv" /></label>
+      <FileButton accept=".csv" @change="importCsv"><Icon name="inbox" />选择 CSV 文件</FileButton>
       <p class="hint" style="margin-top: 8px">导入后请马上删除那个 CSV 文件。</p>
     </div>
     <div class="card">
@@ -193,7 +201,7 @@ onUnmounted(() => clearInterval(timer))
         <label>导入</label>
         <div class="row">
           <input v-model="carry.inPass" type="password" autocomplete="off" placeholder="导出时定的口令" style="width: 200px" />
-          <label class="btn" :class="{ disabled: carry.inPass.length < 8 }"><Icon name="inbox" />选择登录状态文件<input type="file" accept=".aasession" hidden :disabled="carry.inPass.length < 8" @change="importSession" /></label>
+          <FileButton accept=".aasession" :disabled="carry.inPass.length < 8" @change="importSession"><Icon name="inbox" />选择登录状态文件</FileButton>
         </div>
       </div>
     </div>
@@ -210,4 +218,5 @@ onUnmounted(() => clearInterval(timer))
     </div>
   </div>
   </details>
+  </template>
 </template>

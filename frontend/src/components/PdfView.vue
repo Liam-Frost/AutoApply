@@ -3,7 +3,8 @@
 // that looks like a PDF download ever reaches the browser (download managers grab those out of iframes).
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { clampZoom, pageWidth, resized } from '../pdfsize'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -14,17 +15,26 @@ const pages = ref(0)
 const zoom = ref(1)
 const message = ref('')
 let doc = null
-let token = 0
+let token = 0        // which file: a newer file makes what was being read for the older one stop
+let drawing = 0      // which drawing of it: a newer drawing (another zoom, another width) makes the older one stop
+let task = null      // the page that pdf.js is drawing this moment
+let drawnFor = 0     // the width of the box the pages were last drawn for
 
+// Draw every page for the box as wide as it is now. Each call is a drawing of its own: zooming twice in a row, or
+// zooming while the pages are still appearing, used to leave two drawings filling the same box - every page twice,
+// in two sizes. A newer drawing stops the older one where it stands (and the page pdf.js is in the middle of), and
+// only the newest one puts anything on the page.
 async function render() {
   if (!doc || !box.value) return
-  const mine = token
+  const mine = ++drawing
+  if (task) { try { task.cancel() } catch (e) { /* it had finished */ } task = null }
   const host = box.value
-  host.innerHTML = ''
-  const width = Math.max(320, host.clientWidth - 24)
+  const made = []
+  drawnFor = host.clientWidth
+  const width = pageWidth(host.clientWidth)
   for (let n = 1; n <= doc.numPages; n++) {
     const page = await doc.getPage(n)
-    if (mine !== token) return
+    if (mine !== drawing) return
     const base = page.getViewport({ scale: 1 })
     const scale = (width / base.width) * zoom.value
     const vp = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) })
@@ -32,10 +42,34 @@ async function render() {
     c.width = vp.width; c.height = vp.height
     c.style.width = base.width * scale + 'px'
     c.className = 'pdf-page'
-    host.appendChild(c)
-    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise
+    c.setAttribute('role', 'img')
+    c.setAttribute('aria-label', `第 ${n} 页，共 ${doc.numPages} 页`)
+    task = page.render({ canvasContext: c.getContext('2d'), viewport: vp })
+    try { await task.promise } catch (e) { if (mine !== drawing) return; throw e }
+    if (mine !== drawing) return
+    made.push(c)
+    // the first page takes the place of what was there; the others follow it - the old pages stay until then, so that
+    // a change of zoom does not blank the preview while it is drawn
+    if (n === 1) host.replaceChildren(c); else host.appendChild(c)
   }
+  task = null
 }
+
+// "Fit to width" means the width the box has now: when the window, the drawer or the layout changes it, the pages
+// are drawn again for it (once the size has stopped changing).
+let watcher = null
+let settle = null
+function refit() {
+  if (state.value !== 'ready' || !box.value || !resized(drawnFor, box.value.clientWidth)) return
+  clearTimeout(settle)
+  settle = setTimeout(render, 180)
+}
+onMounted(() => {
+  window.addEventListener('resize', refit)          // the window; and, where the browser can tell, the box itself (a drawer, a column that changes)
+  if (typeof ResizeObserver !== 'function' || !box.value) return
+  watcher = new ResizeObserver(refit)
+  watcher.observe(box.value)
+})
 async function load() {
   const mine = ++token
   state.value = 'loading'; message.value = ''
@@ -44,7 +78,9 @@ async function load() {
     if (!r.ok) throw new Error(r.status === 415 ? '这种文件不能在页面里预览，请下载后查看。' : '没能读取文件（' + r.status + '）')
     const data = await r.arrayBuffer()
     if (mine !== token) return
+    drawing++                                  // whatever was being drawn was of the file before
     if (doc) doc.destroy()
+    if (box.value) box.value.replaceChildren()
     doc = await pdfjs.getDocument({ data }).promise
     pages.value = doc.numPages
     state.value = 'ready'
@@ -54,9 +90,16 @@ async function load() {
     if (mine === token) { state.value = 'error'; message.value = e.message || '预览失败' }
   }
 }
-function setZoom(z) { zoom.value = Math.min(2.5, Math.max(0.5, z)); render() }
+function setZoom(z) { zoom.value = clampZoom(z); render() }
 watch(() => props.src, load, { immediate: true })
-onBeforeUnmount(() => { token++; if (doc) doc.destroy() })
+onBeforeUnmount(() => {
+  token++; drawing++
+  clearTimeout(settle)
+  window.removeEventListener('resize', refit)
+  if (watcher) watcher.disconnect()
+  if (task) { try { task.cancel() } catch (e) { /* it had finished */ } }
+  if (doc) doc.destroy()
+})
 </script>
 
 <template>

@@ -41,3 +41,42 @@ def test_confirmation_check_is_scheduled_after_submit(app_env, monkeypatch):
     with db.session() as s:
         s.get(Task, tid).due_at = now() - timedelta(seconds=1)
     assert tasks.drain() == 1 and ran == ["confirm:1"]
+
+
+def test_a_draft_that_is_sent_back_leaves_a_posting_that_is_not_applied_for(app_env):
+    """"Not now" on a draft sent it back: the draft was closed and could not be approved any more. And an application
+    whose only draft was sent back stayed at "a draft is waiting for you", with no draft to open."""
+    from autoapply import db, drafts, stages
+    from autoapply.models import Application, Draft, Job
+
+    with db.session() as s:
+        ids = []
+        for n in range(3):
+            j = Job(source="manual", source_id=f"s{n}", company=f"Co{n}", title="Analyst", status="queued", online=1, apply_url="https://x.example/j")
+            s.add(j)
+            s.flush()
+            a = Application(job_id=j.id, status="draft_ready")
+            s.add(a)
+            s.flush()
+            d = Draft(application_id=a.id, version=1, schema={}, answers=[], unresolved=[], materials=[], plan=[], review_status="pending")
+            s.add(d)
+            s.flush()
+            ids.append((j.id, a.id, d.id))
+        # the second application has an earlier draft that was approved and a newer one waiting
+        s.add(Draft(application_id=ids[1][1], version=2, schema={}, answers=[], unresolved=[{"id": "q"}], materials=[], plan=[], review_status="pending"))
+
+    def stand(k):
+        with db.session() as s:
+            a = s.get(Application, ids[k][1])
+            j = s.get(Job, ids[k][0])
+            return a.status, stages.stage(j.status, bool(j.online), j.deadline or "", a.status), a.last_event or ""
+
+    drafts.reject(ids[0][2])                       # sent back, and nothing else is waiting
+    status, stage, said = stand(0)
+    assert (status, stage) == ("returned", "not_applied") and "重新生成草案" in said
+    drafts.reject(ids[1][2])                       # sent back, and another version still waits (with a question open)
+    assert stand(1)[:2] == ("needs_input", "needs_input")
+    drafts.reject(ids[2][2], withdraw=True)        # "I am not applying for this one"
+    assert stand(2)[:2] == ("withdrawn", "skipped")
+    with db.session() as s:
+        assert [s.get(Draft, i[2]).review_status for i in ids] == ["rejected"] * 3

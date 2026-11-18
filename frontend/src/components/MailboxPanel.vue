@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { run, toast } from '../ui'
 import { clone, same, useUnsaved } from '../dirty'
+import FileButton from './FileButton.vue'
 import Icon from './Icon.vue'
 
 const d = ref(null)
@@ -97,7 +98,7 @@ onMounted(load)
     <template v-if="pick === 'gmail_api'">
       <p class="hint" style="margin: 12px 0">只申请“读取邮件”这一项权限。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；嫌麻烦可以在上面改选“Gmail（应用专用密码）”。</p>
       <div class="row">
-        <label class="btn"><Icon name="inbox" />选择 JSON 文件<input type="file" accept=".json" hidden @change="gmailClient" /></label>
+        <FileButton accept=".json" @change="gmailClient"><Icon name="inbox" />选择 JSON 文件</FileButton>
         <button :disabled="!d.client" @click="gmailAuth">授权</button>
         <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? '已授权' : d.client ? '文件已上传，还没授权' : '还没上传文件' }}</span>
       </div>

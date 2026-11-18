@@ -45,7 +45,10 @@ export function absorb(now, base, fresh) {
 // itself (a prompt, an AI service's form) lives under /settings/<group>, which is where it is given by default.
 const areas = reactive([])      // { id, label, dirty: () => boolean, save: async () => false | any, discard: () => void, scope? }
 const within = (path, scope) => !!scope && (path === scope || path.startsWith(scope + '/'))
+// (`unsaved` is for what a page shows - it follows what the areas' dirty() read reactively. A decision is not taken
+// from it: whether something would be lost is asked of the areas at that moment.)
 export const unsaved = computed(() => areas.filter((a) => a.dirty()))
+const open_now = () => areas.filter((a) => a.dirty())
 
 // Called by a component for each thing it edits. `save` resolves to false when it did not save (it has said why itself).
 export function useUnsaved(area) {
@@ -64,7 +67,7 @@ let asking = null
 // `to`: the address that is gone to - the areas that stay on the page there are not asked about.
 // Resolves to true - nothing to lose, saved, or given up - or false: stay.
 export function mayLeave(only, to) {
-  const open = unsaved.value.filter((a) => (!only || only.includes(a.id)) && !(to && within(to, a.scope)))
+  const open = open_now().filter((a) => (!only || only.includes(a.id)) && !(to && within(to, a.scope)))
   if (!open.length) return Promise.resolve(true)
   if (asking) return asking
   asking = (async () => {
@@ -89,7 +92,7 @@ export function mayLeave(only, to) {
 export function installGuards(router) {
   router.beforeEach((to, from) => (to.path === from.path ? true : mayLeave(null, to.path)))
   window.addEventListener('beforeunload', (ev) => {
-    if (!unsaved.value.length) return
+    if (!open_now().length) return
     ev.preventDefault()
     ev.returnValue = ''
   })
