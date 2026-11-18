@@ -570,7 +570,9 @@ def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
 
                     sites.set_fact(key, "second_factor", bool(driver.second_factor_seen))
                 return "logged_in"
-        _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次，并保持勾选“记住我输入的密码”：程序会把这次登录用的账号密码存进系统钥匙串，以后自己登录，只有手机上的二次确认需要你。")
+        if remembers_login(key, driver.login_url(ref) or ref.url):
+            _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次，并保持勾选“记住我输入的密码”：程序会把这次登录用的账号密码存进系统钥匙串，以后自己登录，只有手机上的二次确认需要你。")
+        _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次。想让程序以后自己登录：到“账号”页给这个网站（{key}）保存登录名和密码，之后只有手机上的二次确认需要你。")
 
     # 3. registration: the agent registers on sites the user has not applied on before;
     #    where an account probably exists, the user signs in once and the credentials are saved.
@@ -899,6 +901,24 @@ def _signed_in_by_hand(tenant_key: str, host: str, captured: dict[str, str]) -> 
 
         sites.set_fact(tenant_key, "sign_in_hosts", sorted({*(sites.fact(tenant_key, "sign_in_hosts") or []), typed_on}))
     return True
+
+
+def remembers_login(tenant_key: str, url: str = "") -> bool:
+    """Can the sign-in window for this site keep the login the applicant uses in it ("remember the password I type")?
+    The card offers it only where this is so - what it offers is done. Not for a sign-in provider: its password is
+    never stored, only its session. Not where the window is one the program does not look into until the sign-in is
+    done (browser.plain_login - a site that refuses the automated browser, with the ordinary one switched off): there
+    is nothing to hear. This follows takeover()'s own choice of window."""
+    if tenant_key.startswith("idp:"):
+        return False
+    from . import browser_policy
+
+    try:
+        if browser_policy.select(tenant_key, url, "login").backend == "nodriver":
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return getattr(_driver_of(tenant_key), "signed_in_url", None) is None or browser.no_screen()
 
 
 def _driver_of(tenant_key: str) -> Any:

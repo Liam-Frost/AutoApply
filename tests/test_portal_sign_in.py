@@ -124,17 +124,29 @@ def test_the_portal_is_signed_in_to_with_the_saved_login_and_only_the_phone_is_t
     assert len(campus.site.typed) == 1 and len(campus.told) == 1
 
 
-def test_without_a_saved_login_nothing_is_typed_and_the_card_says_how_to_have_it_done(campus):
-    from autoapply import auth
+def test_without_a_saved_login_nothing_is_typed_and_the_card_says_how_to_have_it_done(campus, monkeypatch):
+    from contextvars import ContextVar
+
+    from autoapply import auth, browser_policy
     from autoapply.ats.base import NeedsHuman
 
+    monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default=None))      # nothing chooses for this test
     auth.upsert_account(KEY, ats="pdportal", host=PORTAL, status="unknown", created_by="takeover")
     db.set_setting("account.email", "me@example.test")          # the applicant's e-mail is not a CWL name: it is not tried
     with pytest.raises(NeedsHuman) as e:
         auth.ensure_session(campus.page, campus.driver, campus.ref)
     (body, payload), = _cards()
     assert e.value.waits_for == f"account:{KEY}" and campus.site.typed == [] and campus.told == []
-    assert "记住我输入的密码" in body and payload["can_register"] is False
+    assert "保存登录名和密码" in body and payload["can_register"] is False       # (the plain window cannot remember: the Accounts page can)
+    # where the portal's sign-in is made in the ordinary browser, its window remembers: the card says so
+    from autoapply import notify
+
+    notify.close_todos("takeover", f"account:{KEY}")
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("browser.rules", [{"tenant": KEY, "backend": "nodriver"}])
+    with pytest.raises(NeedsHuman):
+        auth.ensure_session(campus.page, campus.driver, campus.ref)
+    assert "记住我输入的密码" in _cards()[0][0] and campus.site.typed == []
 
 
 def test_a_password_the_university_refuses_is_not_sent_a_third_time(campus):
@@ -265,3 +277,24 @@ def test_what_a_sign_in_form_sends_is_told_from_what_other_forms_send():
     assert credentials_sent("who=a%40b.example&pwd=pw3") == ("a@b.example", "pw3")              # a name the pattern does not know: the address is taken
     assert credentials_sent("q=backend+intern&page=2") is None and credentials_sent("") is None and credentials_sent("{not json") is None
     assert credentials_sent("new_password=x&confirm_password=x") is None                          # a change of password is not a sign-in
+
+
+def test_a_card_offers_to_remember_the_login_only_where_its_window_can(app_env, monkeypatch):
+    from contextvars import ContextVar
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import auth, browser_policy, notify
+    from autoapply.api.main import app
+
+    monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default=None))      # nothing chooses for this test
+    assert auth.remembers_login("someats:acme", "https://acme.example/login") is True          # the automated browser's window sees what is typed
+    assert auth.remembers_login("idp:google") is False                                           # a provider's password is never stored
+    assert auth.remembers_login(KEY, f"https://{PORTAL}/home.htm") is False                      # a window the program does not look into
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("browser.rules", [{"tenant": KEY, "backend": "nodriver"}])
+    assert auth.remembers_login(KEY, f"https://{PORTAL}/home.htm") is True                       # the ordinary browser's window hears what is sent
+    notify.add_todo("takeover", KEY, body="x", ref=f"account:{KEY}", payload={"tenant_key": KEY, "url": f"https://{PORTAL}/home.htm"})
+    notify.add_todo("takeover", "Google", body="x", ref="account:idp:google", payload={"tenant_key": "idp:google", "url": "https://accounts.google.com/"})
+    cards = {c["ref"]: c for c in TestClient(app).get("/api/todos").json()}
+    assert cards[f"account:{KEY}"]["remembers"] is True and cards["account:idp:google"]["remembers"] is False
