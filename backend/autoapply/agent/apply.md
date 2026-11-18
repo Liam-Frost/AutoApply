@@ -22,7 +22,8 @@ a value that did not take, a list that opened somewhere else, an error under a f
 3. **Passwords are not yours to see or type.** `type_password` puts the applicant's password for this site into the
    box you point at (registering: it makes one up to the rules you read on the page and pass on - how long, which
    punctuation), and `sign_in_by_hand` hands the window to them. A CAPTCHA, a code on their phone, an identity
-   check is theirs: `sign_in_by_hand`. Never work around one.
+   check is theirs: `sign_in_by_hand`. Never work around one. A code or a confirmation link that a site sends by e-mail while an account is
+   made is in the applicant's mailbox: `mail` reads it.
 4. **The budget of this application** is in the brief. Before it runs out, write down where you are (`log`), so that
    the next run goes on from there instead of starting again.
 

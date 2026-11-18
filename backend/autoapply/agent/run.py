@@ -152,6 +152,25 @@ class Desk:
         return (f"The cover letter is the file {got['name']!r}: upload it by that name."
                 + (f" The program's checks still object to: {'; '.join(got['problems'])[:400]}. Say so in your report." if got.get("problems") else ""))
 
+    def mail(self, minutes: int = 15, about: str = "") -> str:
+        """What arrived in the applicant's mailbox in the last minutes from this site: a code, a confirmation link.
+        Only mail that names the site or the employer; the mailbox is read, never written to."""
+        from datetime import timedelta, timezone
+
+        from .. import mailbox
+
+        try:
+            got = mailbox.fetch(datetime.now(timezone.utc) - timedelta(minutes=max(1, min(int(minutes or 15), 120))), limit=25)
+        except Exception as e:  # noqa: BLE001 - no mailbox connected: the applicant reads it
+            return f"The applicant's mailbox cannot be read from here ({type(e).__name__}). If the site waits for a code or a link from a mail, hand over with sign_in_by_hand."
+        host = self.hands.page.url.split("/")[2].lower() if "//" in self.hands.page.url else ""
+        words = {w for w in [*host.replace("www.", "").split(".")[:-1], *self.site.split(":", 1)[-1].replace("www.", "").split(".")[:-1], *str(about).lower().split()] if len(w) > 2}
+        hits = [m for m in got if any(w in f"{m.sender} {m.subject} {m.body[:3000]}".lower() for w in words)]
+        self.write("mail", found=len(hits))
+        if not hits:
+            return f"No mail about this site has arrived in the last {minutes} minutes (looked for: {', '.join(sorted(words)) or 'nothing to look for'}). It can take a minute: wait and ask again."
+        return "\n\n".join(f"From: {m.sender}\nSubject: {m.subject}\nReceived: {m.date}\n{m.body[:2500]}" for m in hits[:3])
+
     def sign_in_by_hand(self, why: str) -> str:
         self.waiting = str(why)[:600]
         self.write("needs_applicant", why=self.waiting, url=self.hands.page.url)
@@ -195,6 +214,8 @@ class Desk:
                                       "password again is filled by a second call without `new`. Read the site's password rules first and pass them on: `length` "
                                       "(default 20) and `symbols`, the punctuation the site allows (default !@#$%^&*; empty for none).",
                      spec(["ref"], ref=s, then_click=s, new=b, length={"type": "number"}, symbols=s), self.type_password),
+            llm.Tool("mail", "Read what this site has just sent to the applicant's mailbox: a verification code, a confirmation link (open the link with goto; type the code "
+                             "into its box). `minutes`: how far back; `about`: the employer's or the system's name, to find the mail by.", spec(minutes={"type": "number"}, about=s), self.mail),
             llm.Tool("cover_letter", "Have a cover letter written for this posting, when the posting or the form asks for one and none is among the files. It becomes a file you can "
                                      "upload. `instructions`: anything the letter must take into account.", spec(instructions=s), self.cover_letter),
             llm.Tool("sign_in_by_hand", "Hand the window to the applicant for something only they can do: a sign-in without a stored password, a code on their phone, a CAPTCHA. "
