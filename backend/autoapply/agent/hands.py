@@ -142,6 +142,8 @@ class Hands:
     def __init__(self, page: Any, *, files: dict[str, str] | None = None, shots: Path | None = None) -> None:
         self.page, self.files, self.shots = page, dict(files or {}), shots
         self.n_shots = 0
+        self._seen: dict[str, str] = {}      # the controls as they were last told to the agent: number -> its line
+        self._quiet = False                  # inside `steps`: what changed is told once, at the end
 
     # --- seeing ------------------------------------------------------------------------------------------------
     def _where_am_i(self) -> str:
@@ -177,7 +179,43 @@ class Hands:
     def controls(self, filter: str = "", all: bool = False) -> str:  # noqa: A002
         """Everything on the page that can be acted on, each with its number."""
         got = str(self.page.evaluate(_CONTROLS, {"filter": filter, "all": bool(all)}) or "")
+        if not filter:
+            self._seen = self._by_number(got)
         return f"{self._where_am_i()}\n{got or '(no controls found)'}"
+
+    @staticmethod
+    def _by_number(listing: str) -> dict[str, str]:
+        out = {}
+        for ln in listing.splitlines():
+            if ln.startswith("[") and "] " in ln:
+                out[ln[1:ln.index("]")]] = ln
+        return out
+
+    def _changes(self) -> str:
+        """What is different on the page since the agent was last told its controls: what appeared, what holds
+        something else now, how many went. Said after every action, so that seeing the effect of an action is not
+        a call of its own. (A run on a real form spent a third of its calls on looking again after each press.)"""
+        if self._quiet:
+            return ""
+        try:
+            now = self._by_number(str(self.page.evaluate(_CONTROLS, {"filter": "", "all": False}) or ""))
+        except Exception:  # noqa: BLE001 - between two pages: the agent looks when the page is there
+            return " (The page is loading: look again in a moment.)"
+        before, self._seen = self._seen, now
+        if not before:
+            return ""
+        new = [ln for ref, ln in now.items() if ref not in before]
+        same = lambda a, b: a.replace(' (off screen)', '') == b.replace(' (off screen)', '')      # noqa: E731 - scrolling is not a change
+        changed = [ln for ref, ln in now.items() if ref in before and not same(before[ref], ln)]
+        gone = sum(1 for ref in before if ref not in now)
+        if not new and not changed and not gone:
+            return "\nNothing on the page changed."
+        if len(new) > 40 and gone > len(before) // 2:
+            return f"\nThe page is another one now: {len(now)} controls (list them with `controls`)."
+        lines = [f"  ~ {ln}" for ln in changed[:15]] + [f"  + {ln}" for ln in new[:25]]
+        more = max(0, len(changed) - 15) + max(0, len(new) - 25)
+        return ("\nChanged on the page (~ holds something else now, + appeared):\n" + "\n".join(lines)
+                + (f"\n  … and {more} more (list them with `controls`)" if more else "") + (f"\n  ({gone} control(s) went)" if gone else ""))
 
     # --- acting ------------------------------------------------------------------------------------------------
     def _at(self, ref: str = "", selector: str = "") -> dict[str, Any]:
@@ -208,8 +246,9 @@ class Hands:
                 self.page.bring_to_front()
             except Exception:  # noqa: BLE001
                 pass
+            self._seen = {}
             return f" It opened a new tab, which is the current one now: {self._where_am_i()}."
-        return f" Now on {self._where_am_i()}."
+        return f" Now on {self._where_am_i()}." + self._changes()
 
     def _pages(self) -> list[Any]:
         try:
@@ -346,6 +385,28 @@ class Hands:
         time.sleep(max(0.2, min(float(seconds), 30)))
         return f"waited. Now on {self._where_am_i()}."
 
+    def steps(self, actions: list[dict[str, Any]]) -> str:
+        """Several actions in one call, in order: [{"do": "click", "ref": "12"}, {"do": "type", "ref": "13", "text": "..."}, ...].
+        Stops at the first that fails. What changed on the page is told once, after the last."""
+        can = {"click": self.click, "type": self.type, "press": self.press, "choose": self.choose, "upload": self.upload, "scroll": self.scroll, "wait": self.wait}
+        out: list[str] = []
+        self._quiet = True
+        try:
+            for n, act in enumerate(actions or [], 1):
+                act = dict(act or {})
+                do = str(act.pop("do", ""))
+                if do not in can:
+                    out.append(f"{n}. no such action {do!r} (one of {sorted(can)}); stopped here")
+                    break
+                try:
+                    out.append(f"{n}. {can[do](**act)}")
+                except Exception as e:  # noqa: BLE001 - told, and the rest is not done on a page that is not as expected
+                    out.append(f"{n}. {do} FAILED: {type(e).__name__}: {e}; the actions after it were not done")
+                    break
+        finally:
+            self._quiet = False
+        return "\n".join(out) + self._changes()
+
     # --- as tools ------------------------------------------------------------------------------------------------
     def tools(self) -> list[llm.Tool]:
         s, n, b = {"type": "string"}, {"type": "number"}, {"type": "boolean"}
@@ -376,4 +437,7 @@ class Hands:
             tool("script", "Run JavaScript in the page and get its result. For what the other tools do not reach: reading something exactly, a control that does not answer to a click.",
                  {**spec(code=s), "required": ["code"]}, self.script),
             tool("wait", "Wait some seconds (a page that is loading, a list that is filling).", spec(seconds=n), self.wait),
+            tool("steps", "Several actions in one call, in order - for a run of plain fields, or a click followed by its typing. Each is {\"do\": click | type | press | choose | upload | "
+                          "scroll | wait, ...the arguments of that tool}. Stops at the first that fails; what changed on the page is told once, at the end.",
+                 {"type": "object", "properties": {"actions": {"type": "array", "items": {"type": "object", "properties": {"do": s}, "required": ["do"]}}}, "required": ["actions"]}, self.steps),
         ]
