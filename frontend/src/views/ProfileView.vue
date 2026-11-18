@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../api'
 import { renderMarkdown } from '../md'
 import EmptyState from '../components/EmptyState.vue'
@@ -8,6 +8,7 @@ import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import { fmtTime, run as runAction, toast, ask } from '../ui'
 import { clone, mayLeave, same, useUnsaved } from '../dirty'
+import { useProfileInit } from '../profileInit'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -34,8 +35,23 @@ const editIdx = ref(-1)
 const editBody = ref('')
 const md = ref('')
 const notes = ref('')
-const draft = ref(null)
-const busy = ref(false)
+// "从简历生成" is a task on the server (profileInit.js): this page asks where it stands - also when it is opened again
+// after another page - and what was written is kept there until it is adopted or discarded. What is edited here is
+// the proposal's text.
+const { st: gen, phase: genPhase, working: genWorking, load: loadGen, start: startGen } = useProfileInit((now) => {
+  if (now === 'applied') { toast('个人资料已生成并保存'); load() }
+  else if (now === 'proposal') toast('个人资料草稿已生成，等你查看')
+})
+const genTask = computed(() => (gen.value && gen.value.task) || {})
+const draftOf = ref(0)        // the task whose proposal is being edited here
+const draftText = ref('')
+const draftDirty = computed(() => !!draftOf.value && draftText.value !== (genTask.value.draft || ''))
+watch(gen, (s) => {
+  const t = (s && s.task) || {}
+  if (t.draft) { if (draftOf.value !== t.id) { draftOf.value = t.id; draftText.value = t.draft } }
+  else { draftOf.value = 0; draftText.value = '' }
+  if (!notes.value && t.notes && (t.draft || ['queued', 'running'].includes(t.status))) notes.value = t.notes      // what this run was asked with
+})
 const upKind = ref('resume_site')
 const mdPreview = ref(true)
 const mdDirty = computed(() => md.value !== base.md)
@@ -56,6 +72,7 @@ async function load() {
   docs.value = await api.get('/documents')
   await loadSt()
   regions.value = await api.get('/regions')
+  await loadGen().catch(() => {})
 }
 const run = (fn, ok) => runAction(fn, ok, load)
 const active = computed(() => docs.value.filter((d) => d.active && d.kind !== 'cover_letter'))
@@ -94,11 +111,10 @@ const setKind = (k) => docAct(() => api.patch('/documents/' + cur.value.id, { ki
 const setActive = (on) => docAct(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? '已启用；同类的其他文件已停用' : '已停用，草案不会再用它')
 const destroy = async () => (await ask(`彻底删除「${cur.value.name}」？文件会从磁盘上删掉，不能恢复。`)) && docAct(() => api.del('/documents/' + cur.value.id + '?permanent=true'), '已删除')
 async function init() {
-  busy.value = true; draft.value = null
-  try { draft.value = await api.post('/profile/init', { notes: notes.value }) } catch (e) { toast(e.message, 'bad') }
-  busy.value = false
+  try { await startGen(notes.value) } catch (e) { toast(e.message, 'bad') }
 }
-const adopt = () => run(async () => { await api.put('/profile', { markdown: draft.value.draft, note: '从上传资料初始化' }); draft.value = null }, '已采用起草的个人资料')
+const adopt = () => run(async () => { await api.post(`/profile/init/${draftOf.value}/adopt`, { markdown: draftText.value }); await loadGen() }, '已采用起草的个人资料')
+const dropDraft = async () => (await ask('不采用这份草稿？草稿会被丢掉，现在的个人资料不变。')) && run(async () => { await api.post(`/profile/init/${draftOf.value}/discard`); await loadGen() }, '草稿已丢掉')
 
 // What is edited on each tab, and is asked about before it is left: another tab, another section, another page.
 const TAB_LABELS = { sections: '我的资料', pay: '薪资与推荐人', stories: '我的经历故事', init: '从简历生成', scoring: '岗位评分规则', markdown: '原文编辑', history: '历史版本' }
@@ -108,15 +124,18 @@ useUnsaved({ id: 'profile-pay', label: '薪资与推荐人', dirty: () => stDirt
 useUnsaved({ id: 'profile-stories', label: '我的经历故事', dirty: () => stories.value !== base.stories, save: () => saveStories(), discard: () => { stories.value = base.stories } })
 useUnsaved({ id: 'profile-scoring', label: '岗位评分规则', dirty: () => scoring.value !== base.scoring, save: () => saveScoring(), discard: () => { scoring.value = base.scoring } })
 useUnsaved({ id: 'profile-md', label: '原文编辑', dirty: () => mdDirty.value, save: () => saveMd(), discard: () => { md.value = base.md } })
-useUnsaved({ id: 'profile-draft', label: '生成的资料草稿', dirty: () => !!draft.value, save: () => adopt(), discard: () => { draft.value = null } })
+// (the proposal itself is kept on the server; what would be lost by leaving is only what was changed in it here)
+useUnsaved({ id: 'profile-draft', label: '对生成草稿的改动', dirty: () => draftDirty.value, save: () => adopt(), discard: () => { draftText.value = genTask.value.draft || '' } })
 const marked = (k) => (EDITED_ON[k] || []).some((id) => ({ 'profile-section': sectionDirty.value, 'profile-pay': stDirty.value, 'profile-stories': stories.value !== base.stories,
-  'profile-scoring': scoring.value !== base.scoring, 'profile-md': mdDirty.value, 'profile-draft': !!draft.value })[id])
+  'profile-scoring': scoring.value !== base.scoring, 'profile-md': mdDirty.value, 'profile-draft': draftDirty.value })[id])
 async function go(k) { if (k !== tab.value && (await mayLeave(EDITED_ON[tab.value] || []))) tab.value = k }
 onMounted(load)
 </script>
 
 <template>
   <PageHead title="个人资料" sub="填申请表、写求职信用的全部依据。这里没有写的事，程序不会替你编。">
+    <span v-if="genWorking" class="badge info">正在从简历生成</span>
+    <button v-else-if="genPhase === 'proposal' && tab !== 'init'" class="sm" @click="go('init')">有一份生成的草稿等你查看</button>
     <span v-if="todoCount" class="badge warn">还有 {{ todoCount }} 处没填</span>
   </PageHead>
   <div class="seg" style="margin-bottom: 16px">
@@ -212,14 +231,18 @@ onMounted(load)
       <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
       <h3>2. 补充说明（可选）</h3>
       <textarea v-model="notes" style="font-family: inherit" placeholder="简历上没有但申请表常问的信息：法定姓名和常用名、工作许可、是否需要签证担保、可工作时间、GPA、地址……"></textarea>
-      <div class="row" style="margin-top: 8px"><button class="primary" :disabled="busy" @click="init">{{ busy ? '正在阅读你的资料…' : '3. 生成个人资料草稿' }}</button></div>
-      <p class="muted small">程序只照抄资料里写明的事实；资料里没有而申请表需要的信息会标成“待填” 让你填，不会猜。</p>
+      <div class="row" style="margin-top: 8px"><button class="primary" :disabled="genWorking" @click="init">{{ genWorking ? '正在生成…' : '3. 生成个人资料草稿' }}</button></div>
+      <p v-if="genPhase === 'queued'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>已经排进队列，马上开始。不用等在这一页：去别的页面再回来，结果还在这里。</span></p>
+      <p v-else-if="genPhase === 'running'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>AI 正在阅读你的资料，一般需要一两分钟。不用等在这一页：去别的页面再回来，结果还在这里。</span></p>
+      <p v-else-if="genPhase === 'failed'" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>上一次没有生成：{{ genTask.error }}</span></p>
+      <p v-else-if="genPhase === 'applied'" class="callout ok" style="margin-top: 12px"><Icon name="check" /><span>{{ fmtTime(genTask.finished_at) }} 生成的内容已经保存为个人资料（当时个人资料还是空的）。可以在“我的资料”里查看和补全。</span></p>
+      <p class="muted small">程序只照抄资料里写明的事实；资料里没有而申请表需要的信息会标成“待填” 让你填，不会猜。已经有个人资料时，生成的是一份草稿，你对比之后决定是否采用。</p>
     </div>
-    <div v-if="draft" class="cols">
-      <div class="panel"><h3 style="margin-top: 0">当前个人资料</h3><pre>{{ draft.current }}</pre></div>
+    <div v-if="genPhase === 'proposal'" class="cols">
+      <div class="panel"><h3 style="margin-top: 0">当前个人资料</h3><pre>{{ gen.current }}</pre></div>
       <div class="panel" style="border-color: var(--ok)">
-        <div class="row"><h3 class="grow" style="margin: 0">生成的草稿</h3><button class="primary" @click="adopt">采用</button></div>
-        <textarea v-model="draft.draft" rows="40" style="margin-top: 8px"></textarea>
+        <div class="row"><h3 class="grow" style="margin: 0">生成的草稿</h3><span class="muted small">{{ fmtTime(genTask.finished_at) }}</span><button @click="dropDraft">不采用</button><button class="primary" @click="adopt">采用</button></div>
+        <textarea v-model="draftText" rows="40" style="margin-top: 8px"></textarea>
       </div>
     </div>
   </template>

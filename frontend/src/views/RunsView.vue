@@ -118,7 +118,7 @@ onMounted(load)
           <div v-for="(t, i) in plan.next" :key="t.id" class="item">
             <span class="badge" style="min-width: 40px; justify-content: center">{{ i + 1 }}</span>
             <div><div class="main">{{ t.label }}<span v-if="t.subject" class="muted" style="font-weight: 400"> · {{ t.subject }}</span></div>
-              <div class="sub"><template v-if="t.held_by_pause">自动运行暂停期间不会开始</template><template v-else-if="t.by_hand">你亲手开始的</template><template v-else>{{ t.lane === 'background' ? '后台线' : '表单线' }}</template></div></div>
+              <div class="sub"><template v-if="t.held_by_pause">自动运行暂停期间不会开始</template><template v-else-if="t.by_hand">你亲手开始的</template><template v-else>{{ t.lane === 'background' ? '后台线' : t.lane === 'desk' ? '资料线' : '表单线' }}</template></div></div>
             <div class="right row" style="flex-wrap: nowrap">
               <button v-if="i > 0 || t.held_by_pause" class="sm ghost" :disabled="!!busy" @click="control(t, 'first', '会先做这一个')">先做这个</button>
               <button class="sm ghost" :disabled="!!busy" @click="control(t, 'hold', '已暂缓')">暂缓</button>

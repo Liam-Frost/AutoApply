@@ -7,6 +7,7 @@ import AiPanel from '../components/AiPanel.vue'
 import EmployersPanel from '../components/EmployersPanel.vue'
 import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
+import { useProfileInit } from '../profileInit'
 import { loadPersona, toast } from '../ui'
 
 const router = useRouter()
@@ -28,7 +29,12 @@ const none = ref('')
 const kinds = ref('')
 const scoring = ref('')
 const tried = ref([])
-const resume = ref({ uploaded: false, name: '', profile: false, todos: 0 })
+const resume = ref({ uploaded: false, name: '' })
+// The profile is written from the résumé by a task that starts when the résumé is uploaded: the guide goes on meanwhile
+// and says where it stands (profileInit.js).
+const { st: piSt, phase: piPhase, working: piWorking, load: piLoad, start: piStart } = useProfileInit()
+const hasProfile = computed(() => (piSt.value ? !piSt.value.blank : !!(meta.value && meta.value.has_profile)))
+const piTask = computed(() => (piSt.value && piSt.value.task) || {})
 const bigtech = ref({})
 const trial = ref({ url: '', state: '', message: '', draft: 0, job: 0 })
 let trialTimer
@@ -40,7 +46,8 @@ const ready = computed(() => p.value.stage && p.value.field && (p.value.field !=
 async function load() {
   meta.value = await api.get('/persona')
   if (meta.value.persona.stage) { p.value = { ...p.value, ...meta.value.persona }; targetsText.value = (p.value.targets || []).join(', ') }
-  resume.value.uploaded = meta.value.resume_uploaded; resume.value.profile = meta.value.has_profile
+  resume.value.uploaded = meta.value.resume_uploaded
+  await piLoad().catch(() => {})
   const d = await api.get('/settings'); s.value = d.settings; info.value = d
 }
 async function testAi() {
@@ -59,16 +66,13 @@ async function upload(ev) {
     await api.upload('/documents', fd)
     if (word) { const fd2 = new FormData(); fd2.append('kind', 'source'); fd2.append('file', f); await api.upload('/documents', fd2) }
     resume.value.uploaded = true; resume.value.name = f.name
+    await piLoad()      // with no profile yet, the upload has started the writing of one
   } catch (e) { toast(e.message, 'bad') }
   busy.value = ''; ev.target.value = ''
 }
 async function makeProfile() {
   busy.value = 'profile'
-  try {
-    const r = await api.post('/profile/init', {})
-    await api.put('/profile', { markdown: r.draft, note: 'first-run guide' })
-    resume.value.profile = true; resume.value.todos = (r.draft.match(/TODO/g) || []).length
-  } catch (e) { toast(e.message, 'bad') }
+  try { await piStart() } catch (e) { toast(e.message, 'bad') }
   busy.value = ''
 }
 async function suggest() {
@@ -175,17 +179,23 @@ onMounted(load)
 
     <div v-else-if="step === 3" class="card wiz-card">
       <h2>上传简历</h2>
-      <p class="muted">程序会读你的简历，整理成一份“个人资料”，之后填申请表都从这里取内容。PDF 或 Word 都可以；如果有 Word 版，以后还能按岗位调整简历的顺序。</p>
+      <p class="muted">程序会读你的简历，整理成一份“个人资料”，之后给岗位评分、填申请表都从这里取内容。上传后马上开始整理，不用再点别的。PDF 或 Word 都可以；如果有 Word 版，以后还能按岗位调整简历的顺序。</p>
       <div class="row">
         <FileButton :class="{ primary: !resume.uploaded }" accept=".pdf,.docx,.doc" :disabled="busy === 'up'" @change="upload"><Icon name="inbox" />{{ busy === 'up' ? '正在上传…' : resume.uploaded ? '再传一份' : '选择简历文件' }}</FileButton>
         <span v-if="resume.uploaded" class="badge ok">已上传{{ resume.name ? '：' + resume.name : '' }}</span>
       </div>
-      <div v-if="resume.uploaded" style="margin-top: 16px">
-        <button :class="{ primary: !resume.profile }" :disabled="busy === 'profile'" @click="makeProfile"><Icon name="edit" />{{ busy === 'profile' ? 'AI 正在读简历，大约一分钟…' : resume.profile ? '重新生成个人资料' : '生成个人资料' }}</button>
-        <p v-if="resume.profile" class="callout" style="margin-top: 12px"><Icon name="check" /><span>个人资料已生成。<template v-if="resume.todos">里面有 {{ resume.todos }} 处简历上没有、需要你补充的信息（比如工作许可、称呼），</template>设置完成后到“个人资料”页看一遍、补全即可。</span></p>
+      <div v-if="resume.uploaded || hasProfile" style="margin-top: 16px">
+        <p v-if="piWorking" class="callout"><Icon name="clock" /><span>AI 正在读你的简历、整理个人资料，一般需要一两分钟。不用等在这一页：点“下一步”继续设置，它会在后台做完。</span></p>
+        <template v-else>
+          <p v-if="piPhase === 'failed'" class="callout warn"><Icon name="alert" /><span>个人资料没有生成：{{ piTask.error }}</span></p>
+          <p v-else-if="piPhase === 'proposal'" class="callout"><Icon name="check" /><span>按上传的资料又整理了一版，没有直接覆盖现有的个人资料。设置完成后到“个人资料 → 从简历生成”里对比，再决定是否采用。</span></p>
+          <p v-else-if="hasProfile && piSt && piSt.todos" class="callout"><Icon name="check" /><span>个人资料已生成，里面有 {{ piSt.todos }} 处简历上没有、需要你补充的信息（比如工作许可、称呼）。设置完成后到“个人资料”页看一遍、补全即可。</span></p>
+          <p v-else-if="hasProfile" class="callout"><Icon name="check" /><span>个人资料已生成。设置完成后到“个人资料”页看一遍即可。</span></p>
+          <button v-if="resume.uploaded" :class="{ primary: !hasProfile }" :disabled="busy === 'profile'" @click="makeProfile"><Icon name="edit" />{{ piPhase === 'failed' ? '再试一次' : hasProfile ? '按上传的资料重新整理一版' : '生成个人资料' }}</button>
+        </template>
       </div>
       <p class="hint" style="margin-top: 14px">没有连接 AI 的话这一步做不了，可以跳过，之后在“个人资料”页手动填写或生成。</p>
-      <div class="row" style="margin-top: 8px"><button @click="go(2)">上一步</button><button class="primary" @click="go(4)">{{ resume.profile ? '下一步' : '跳过，下一步' }}</button></div>
+      <div class="row" style="margin-top: 8px"><button @click="go(2)">上一步</button><button class="primary" @click="go(4)">{{ resume.uploaded || hasProfile ? '下一步' : '跳过，下一步' }}</button></div>
     </div>
 
     <div v-else-if="step === 4" class="card wiz-card">
@@ -229,13 +239,15 @@ onMounted(load)
       <p class="muted">设置已经生效。想马上看看它是怎么工作的，可以贴一个你想投的岗位的网址，程序会去读它的申请表、按你的资料准备一份草案给你看。<b>这一步不会提交任何东西</b>，草案要你批准后才会填写。</p>
       <div class="row" style="margin-top: 14px">
         <input v-model="trial.url" class="grow" placeholder="岗位页面的网址，例如 https://job-boards.greenhouse.io/…/jobs/…" :disabled="trial.state === 'running'" />
-        <button class="primary" :disabled="!trial.url.trim() || trial.state === 'running'" @click="tryOne"><Icon name="draft" />{{ trial.state === 'running' ? '正在准备…' : '准备一份草案' }}</button>
+        <button class="primary" :disabled="!trial.url.trim() || trial.state === 'running' || !hasProfile" @click="tryOne"><Icon name="draft" />{{ trial.state === 'running' ? '正在准备…' : '准备一份草案' }}</button>
       </div>
       <p v-if="trial.message" class="callout" :class="trial.state === 'failed' ? 'warn' : ''" style="margin-top: 12px"><Icon :name="trial.state === 'done' ? 'check' : trial.state === 'failed' ? 'alert' : 'clock'" /><span>{{ trial.message }}</span></p>
-      <p v-if="!resume.profile" class="hint">你还没有生成个人资料，草案里很多问题会是“还没有答案”。可以先去“个人资料”页补上再试。</p>
+      <p v-if="piWorking" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>个人资料还在生成，一两分钟后这里就可以试了。</span></p>
+      <p v-else-if="!hasProfile" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>个人资料还是空的，申请表没法回答，所以现在不能准备草案。先到“个人资料”页生成或填写，再回来试。</span></p>
       <div class="row" style="margin-top: 16px">
         <router-link v-if="trial.draft" :to="'/drafts/' + trial.draft" class="btn primary"><Icon name="draft" />看这份草案</router-link>
         <router-link v-if="trial.state === 'needs'" to="/todos" class="btn primary">去“需要我处理”</router-link>
+        <router-link v-if="!hasProfile && !piWorking" to="/profile?tab=init" class="btn primary">去“个人资料”页</router-link>
         <router-link to="/home" class="btn">{{ trial.state ? '进入概览' : '先不试，进入概览' }}</router-link>
       </div>
     </div>
@@ -249,8 +261,10 @@ onMounted(load)
         <div><div class="k">地区</div><div class="v">{{ p.countries.join('、') || '不限' }}</div></div>
         <div><div class="k">投法</div><div class="v">{{ p.strategy === 'targeted' ? '精投：我自己挑，自己点提交' : '多投：自动准备草案，我批准后投' }}</div></div>
         <div><div class="k">岗位来源</div><div class="v">{{ BIG.filter(([k]) => bigtech[k]).map(([, n]) => n).join('、') || '还没选（之后在“岗位 → 来源与关注公司”里加）' }}{{ p.portal ? '、学校门户' : '' }}</div></div>
-        <div><div class="k">个人资料</div><div class="v">{{ resume.profile ? '已生成' : '还没有，之后在“个人资料”页填' }}</div></div>
+        <div><div class="k">个人资料</div><div class="v">{{ hasProfile ? '已生成' : piWorking ? '正在生成，会在后台做完' : '还没有，之后在“个人资料”页填' }}</div></div>
       </div>
+      <p v-if="piWorking" class="callout"><Icon name="clock" /><span>个人资料还在生成。岗位评分和申请草案都要用到它，会等它生成好之后自动开始；扫描岗位不受影响。</span></p>
+      <p v-else-if="!hasProfile" class="callout warn"><Icon name="alert" /><span>个人资料还是空的。扫描到的岗位会先放着，等你生成或填写个人资料之后，才开始评分和准备草案。</span></p>
       <p class="hint">还可以之后设置：Telegram 通知（设置 → 通知与提醒）、邮箱跟踪（设置 → 账号与连接 → 收件邮箱）、网络代理（设置 → 系统与数据 → 网络连接）。</p>
       <div class="row" style="margin-top: 12px">
         <button @click="go(5)">上一步</button>

@@ -99,6 +99,7 @@ const scoreCls = (x) => (x == null ? '' : x >= 9 ? 'hi' : x >= 7.5 ? 'mid' : '')
 const FIX = {
   'config:gmail': ['/settings/accounts/mailbox', '打开邮箱设置'], 'config:resume': ['/files', '打开材料库'], 'config:pdportal-blocked': ['/settings/system/browser', '打开浏览器兼容设置'],
   'config:llm-limit': ['/settings/accounts/ai', '查看 AI 服务和额度'], 'config:llm': ['/settings/accounts/ai', '打开 AI 服务设置'],
+  'config:profile': ['/profile?tab=init', '生成或填写个人资料'],
 }
 const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.title, what: (x) => x.explained.message }
 

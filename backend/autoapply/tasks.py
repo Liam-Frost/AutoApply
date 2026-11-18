@@ -112,11 +112,19 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     return tid
 
 
-# Two workers. One fills and reads forms - a browser, a site, an account at a time. The other does what needs none of
+# Three workers. One fills and reads forms - a browser, a site, an account at a time. One does what needs none of
 # that and can take long: scanning the sources, scoring, reading mail, the self-check, learning from a run. A scan of
-# twenty minutes used to hold every application up; now the two do not wait for each other. Within each, one task at
-# a time, as before.
+# twenty minutes used to hold every application up; now the two do not wait for each other. The third is the desk:
+# writing the applicant asked for at a page and is waiting to see - their profile, from the résumé they just uploaded.
+# It needs no browser and no site, and it does not stand behind a form being read or a scan. Within each, one task
+# at a time, as before.
 BACKGROUND = ("discover", "score", "mail", "canary", "improve")
+DESK = ("profile_init",)
+LANES = ("forms", "background", "desk")
+
+
+def lane_of(kind: str) -> str:
+    return "background" if kind in BACKGROUND else "desk" if kind in DESK else "forms"
 
 
 def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
@@ -124,8 +132,10 @@ def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
         q = s.query(Task).filter_by(status="queued")
         if lane == "background":
             q = q.filter(Task.kind.in_(BACKGROUND))
+        elif lane == "desk":
+            q = q.filter(Task.kind.in_(DESK))
         elif lane == "forms":
-            q = q.filter(Task.kind.notin_(BACKGROUND))
+            q = q.filter(Task.kind.notin_(BACKGROUND + DESK))
         # a task that is for later (a retry, a look for the confirmation mail in half an hour) is not taken before its time
         due = q.filter((Task.due_at.is_(None)) | (Task.due_at <= now())).order_by(Task.priority, Task.id)
         # paused: only what the applicant asked for by hand (they pressed the button; the pause is for what runs by itself)
@@ -208,6 +218,10 @@ def _run_one(t: Task) -> None:
         if usage.calls:
             s.add(Run(task_id=t.id, kind="llm", ref=t.ref, ok=int(status == "done"), llm_calls=usage.calls,
                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))
+    if waits_for or result.get("waits_for_profile"):       # (what it waits for may have come while it was finding it missing)
+        from . import profile_init
+
+        profile_init.began_to_wait(status, waits_for, result)
 
 
 def _loop(lane: str = "") -> None:
@@ -341,7 +355,7 @@ def plan() -> dict[str, Any]:
 
     def row(t: Task) -> dict[str, Any]:
         return {"id": t.id, "kind": t.kind, "label": humanize.TASK.get(t.kind, t.kind), "subject": humanize.subject(t.ref), "ref": t.ref,
-                "status": t.status, "by_hand": bool((t.payload or {}).get("_by_hand")), "lane": "background" if t.kind in BACKGROUND else "forms",
+                "status": t.status, "by_hand": bool((t.payload or {}).get("_by_hand")), "lane": lane_of(t.kind),
                 "created_at": t.created_at.isoformat() if t.created_at else None, "started_at": t.started_at.isoformat() if t.started_at else None,
                 "due_at": t.due_at.isoformat() if t.due_at else None, "why": humanize.explain(t.error)["message"] if t.error else ""}
 
@@ -460,7 +474,7 @@ def start() -> None:
     try:  # postings left unscored by an interrupted or capped run are picked up again at start-up and by the hourly check
         from . import scoring
 
-        if scoring.unscored_count():
+        if scoring.unscored_count() and not scoring.nobody_to_score_for(quiet=True):
             enqueue("score", ref="unscored", priority=150)
     except Exception:  # noqa: BLE001
         pass
@@ -468,6 +482,7 @@ def start() -> None:
     _worker = threading.Thread(target=_loop, args=("forms",), name="autoapply-worker", daemon=True)
     _worker.start()
     threading.Thread(target=_loop, args=("background",), name="autoapply-background", daemon=True).start()
+    threading.Thread(target=_loop, args=("desk",), name="autoapply-desk", daemon=True).start()
     _sched = BackgroundScheduler(daemon=True)
     _schedule_jobs()
     _sched.start()
@@ -536,7 +551,7 @@ def _schedule_jobs() -> None:
     def unscored() -> None:  # safety net: nothing that can be scored stays unscored for long, whatever interrupted the last run
         from . import scoring
 
-        if scoring.unscored_count():
+        if scoring.unscored_count() and not scoring.nobody_to_score_for(quiet=True):
             enqueue("score", ref="unscored", priority=150)
 
     _sched.add_job(unscored, "interval", minutes=60, id="unscored", replace_existing=True)
