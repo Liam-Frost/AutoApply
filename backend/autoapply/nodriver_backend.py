@@ -556,11 +556,30 @@ class Locator:
         self.page.mouse.click(*point)
 
     def fill(self, value, timeout=None):
+        """Replace what the box holds, as the automated browser does it: its text is selected and the new text put in
+        its place, and the page hears an input event - not keys. (Keys are heard by more than the box. This used to
+        press Ctrl+A and Backspace first: in the search box of a list of chosen entries, Backspace on an empty box
+        takes the last entry out.)"""
+        from nodriver import cdp
+
         self.wait_for(timeout=timeout)
-        self.focus()
-        self.page.keyboard.press("ControlOrMeta+A")
-        self.page.keyboard.press("Backspace")
-        self.page.keyboard.type(str(value))
+        value = str(value)
+        how = self.evaluate("""(e, value) => {
+          // boxes that are not text to select and type over: the value is set, and the page is told
+          if (e.tagName === 'INPUT' && ['color', 'date', 'time', 'datetime-local', 'month', 'range', 'week'].includes(e.type)) {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, value);
+            e.dispatchEvent(new Event('input', {bubbles: true}));
+            e.dispatchEvent(new Event('change', {bubbles: true}));
+            return 'done';
+          }
+          e.focus();
+          if (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') e.select();
+          else if (e.isContentEditable) { const r = document.createRange(); r.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+          if (value === '') { document.execCommand('delete'); return 'done'; }
+          return 'insert';
+        }""", value)
+        if how == "insert":
+            self.page.send(cdp.input_.insert_text(value))
 
     def press(self, key, **kwargs):
         self.focus()
@@ -610,13 +629,33 @@ class Keyboard:
     def __init__(self, page):
         self.page = page
 
+    # where the keys of a US keyboard are, for the characters that are not letters or digits (the shifted ones too)
+    KEYS = {**{c: 186 + i for i, c in enumerate(";=,-./`")}, **{c: 186 + i for i, c in enumerate(":+<_>?~")}, **{c: 219 + i for i, c in enumerate("[\\]'")},
+            **{c: 219 + i for i, c in enumerate('{|}"')}, **{c: 48 + i for i, c in enumerate(")!@#$%^&*(")}, " ": 32}
+
     def type(self, text, delay=0):
+        """Type, key by key: the page hears a key go down, the character arrive and the key come up for each one - a
+        list that searches as one types listens for exactly that. (It used to put the whole text in at once: one
+        input event and no keys.) A character no key makes - anything beyond a US keyboard - is put in as text."""
         from nodriver import cdp
 
-        for chunk in str(text) if delay else [str(text)]:
-            self.page.send(cdp.input_.insert_text(chunk))
+        for ch in str(text):
+            if ch in "\r\n":
+                self.press("Enter")
+            elif ch.isascii() and ch.isprintable():
+                code = self.KEYS.get(ch) or ord(ch.upper())
+                self.page.send(cdp.input_.dispatch_key_event("keyDown", key=ch, windows_virtual_key_code=code, text=ch))
+                self.page.send(cdp.input_.dispatch_key_event("keyUp", key=ch, windows_virtual_key_code=code))
+            else:
+                self.page.send(cdp.input_.insert_text(ch))
             if delay:
                 time.sleep(delay / 1000)
+
+    def insert_text(self, text):
+        """Put text in where the caret is, without keys (as pasting does)."""
+        from nodriver import cdp
+
+        self.page.send(cdp.input_.insert_text(str(text)))
 
     def press(self, key):
         from nodriver import cdp
