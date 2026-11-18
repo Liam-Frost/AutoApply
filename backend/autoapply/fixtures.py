@@ -95,9 +95,15 @@ def _when(path: Path, meta: dict[str, Any]) -> str:
 
 
 def form_key(meta: dict[str, Any]) -> tuple[str, str, int, str]:
-    """Which page of which form a sample is of: the system, the employer, the page, and the address without what
-    follows "?" (two samples of one posting's form are the same form; another posting's is another)."""
-    url = str(meta.get("url") or "").split("#")[0].split("?")[0].rstrip("/").lower()
+    """Which page of which form a sample is of: the system, the employer, the page, and the form's address - all of it
+    but the fragment, what follows "?" included and put in order. Some systems name the posting there (Greenhouse's
+    hosted form: ?for=<board>&token=<job>), and another posting's form passing says nothing about this one's. Two
+    samples whose addresses differ in anything are taken for two forms: the failing one then simply stays."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit
+
+    u = urlsplit(str(meta.get("url") or ""))
+    query = urlencode(sorted(parse_qsl(u.query, keep_blank_values=True)))
+    url = f"{u.netloc.lower()}{u.path.rstrip('/')}" + (f"?{query}" if query else "")
     return str(meta.get("ats") or ""), str(meta.get("tenant") or ""), int(meta.get("page") or 0), url
 
 

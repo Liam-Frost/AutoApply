@@ -246,18 +246,29 @@ def test_a_saved_page_that_stops_matching_is_kept_until_the_form_gives_a_newer_o
     # another employer's form passing says nothing about this one
     _, out, cards = check()
     assert out["fixtures"]["archived"] == [] and out["fixtures"]["failed"] == 1 and cards[f"fixture:{name}"][0] == "open"
+    # ...nor does another posting's form at the same employer: some systems name the posting after the "?"
+    monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 12)
+    with browser.open_page() as page:
+        page.goto(FORM.as_uri() + "?for=acme&token=4002")
+        fixtures.save(schema, page, 0, reason="exec")
+    _, out, cards = check()
+    assert out["fixtures"]["archived"] == [] and out["fixtures"]["failed"] == 1 and cards[f"fixture:{name}"][0] == "open"
+    key = fixtures.form_key
+    hosted = {"ats": "greenhouse", "tenant": "acme", "page": 0}
+    assert key({**hosted, "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=4001"}) != key({**hosted, "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=4002"})
+    assert key({**hosted, "url": "https://boards.greenhouse.io/embed/job_app?for=acme&token=4001#app"}) == key({**hosted, "url": "https://Boards.Greenhouse.io/embed/job_app/?token=4001&for=acme"})
     # the form is filled and verified again: a later sample of the same page, which passes - the old one is moved aside
     monkeypatch.setattr(fixtures, "KEEP_PER_ATS", 12)
     with browser.open_page() as page:
-        page.goto(FORM.as_uri() + "?again=1")
+        page.goto(FORM.as_uri())
         later = Path(fixtures.save(schema, page, 0, reason="exec"))
     _, out, cards = check()
-    assert out["fixtures"]["archived"] == [name] and out["fixtures"]["failed"] == 0 and out["fixtures"]["total"] == 2
+    assert out["fixtures"]["archived"] == [name] and out["fixtures"]["failed"] == 0 and out["fixtures"]["total"] == 3
     assert not first.exists() and (first.parent / "archive" / first.name).exists() and (first.parent / "archive" / first.with_suffix(".html").name).exists()
     assert json.loads((first.parent / "archive" / first.name).read_text(encoding="utf-8"))["check"]["superseded_by"] == later.stem
     assert cards[f"fixture:{name}"] == ("done", "replaced by a later sample of the same form that passes")
     assert doctor._saved_pages()["level"] == "ok" and humanize.result_summary("canary", "done", out) == "自检完成"
-    assert fixtures.run_all()["fixtures"] == 2      # what was moved aside is not replayed
+    assert fixtures.run_all()["fixtures"] == 3      # what was moved aside is not replayed
 
 
 def test_a_saved_page_that_matches_again_is_marked_so(app_env):
