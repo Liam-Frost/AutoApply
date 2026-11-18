@@ -53,7 +53,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # Generous on purpose - a long form is not to be cut short - and the same whichever service does the thinking.
     "agent.budgets": {"explore_form": {"steps": 140, "minutes": 35}, "sign_in": {"steps": 80, "minutes": 20}, "account": {"steps": 60, "minutes": 15},
                       "take_over": {"steps": 120, "minutes": 30}, "confirm": {"steps": 40, "minutes": 10}, "navigate": {"steps": 40, "minutes": 10},
-                      "site_status": {"steps": 60, "minutes": 15}},
+                      "site_status": {"steps": 60, "minutes": 15},
+                      # one application, worked by one agent from the posting to the confirmation (agent/): per run
+                      "apply": {"steps": 400, "minutes": 45}},
     "agent.reads": ["*"],      # every site ("*"); a list of names limits it - kept for taking a site out, not for turning the agent off
     # While reading, a required question only the applicant can answer gets a stand-in answer so that the steps after it
     # can be read too; it is never submitted - the draft cannot be approved until the applicant has answered.
