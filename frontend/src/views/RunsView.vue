@@ -106,7 +106,8 @@ onMounted(load)
           <div v-for="t in plan.running" :key="t.id" class="item">
             <span class="badge info" style="min-width: 64px; justify-content: center">进行中</span>
             <div><div class="main">{{ t.label }}<span v-if="t.subject" class="muted" style="font-weight: 400"> · {{ t.subject }}</span></div>
-              <div class="sub">开始于 {{ fmtTime(t.started_at) }}。正在执行的任务不能中途取消。</div></div>
+              <div class="sub">开始于 {{ fmtTime(t.started_at) }}。</div></div>
+            <div v-if="['recon', 'execute', 'revise', 'reanswer'].includes(t.kind)" class="right"><button class="sm" :disabled="!!busy" @click="control(t, 'stop', '已叫停，Agent 会在下一步操作之前停下')">叫停</button></div>
           </div>
         </div>
         <div v-if="!plan.running.length" class="muted">现在没有任务在执行。</div>

@@ -23,6 +23,24 @@ from . import brief
 from .hands import Hands
 
 OUTCOMES = ("ready", "submitted", "needs_you", "cannot")
+STOP = "stop"       # a file of this name in the application's folder: the applicant says "stop" (work.stop)
+
+
+class _Budget:
+    """What one run may spend - and the applicant's word: with ``stop`` in the application's folder, the next action
+    is not carried out and the run ends ("stopped")."""
+
+    def __new__(cls, steps: int, seconds: float, folder: Path):  # noqa: ANN204
+        from .. import agentbudget
+
+        class Stoppable(agentbudget.Budget):
+            def spend(self) -> None:
+                if (folder / STOP).exists():
+                    self.ended = "stopped"
+                    raise agentbudget.Spent("stopped")
+                super().spend()
+
+        return Stoppable(steps, seconds, "apply")
 
 
 @dataclass
@@ -315,9 +333,9 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
         except ValueError:
             record = None
     per_run = agentbudget.for_kind("apply")
-    if budget:      # what this application has left over all its runs, when that is less than a run's share
-        per_run = agentbudget.Budget(int(max(1, min(per_run.steps, budget["steps"]))), max(60.0, min(per_run.seconds, budget["seconds"])), "apply")
-    budget = per_run
+    left = budget or {"steps": per_run.steps, "seconds": per_run.seconds}      # what this application has left over all its runs, when that is less than a run's share
+    (folder / STOP).unlink(missing_ok=True)       # (a word of "stop" is for the run it was said to)
+    budget = _Budget(int(max(1, min(per_run.steps, left["steps"]))), max(60.0, min(per_run.seconds, left["seconds"])), folder)
     systems = sorted(k.split(":", 1)[1] for k in _keys_with_notes() if k.startswith("system:"))
     goal = brief.goal(posting, applicant, mode=mode, site_notes=sites.notes(site), systems=systems, journal=journal_text(folder), record=record, answers=answers,
                       account=desk.account(), budget=f"About {budget.steps} tool calls and {int(budget.seconds // 60)} minutes for this run. Log where you are before it runs out.")

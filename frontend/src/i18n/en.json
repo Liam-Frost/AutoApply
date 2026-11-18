@@ -3422,5 +3422,13 @@
 "每份申请由 Agent 在雇主的网站上一直做到最后一步。这里决定最后那一下“提交”怎么办。": "The agent works each application on the employer's site up to the last step. This decides what happens with the final \"submit\".",
 "资料里都有答案、Agent 也没有拿不准的地方时，它直接提交，然后把记录和确认页交给你。有问题要你回答，或者它拿不准时，它停在提交之前。": "When your profile answers everything and the agent is not in doubt about anything, it sends the application and then gives you the record and the confirmation. When a question needs you, or it is unsure, it stops before sending.",
 "Agent 做到提交之前停下，把它填的每一项和依据给你看。你批准之后，它回去核对一遍再提交。": "The agent stops before sending and shows you every item it entered and where it comes from. After you approve, it goes back, checks once more and sends.",
-"Agent 被要求停在最后一步，把窗口交给你。这是给它的一条指令，不是一把锁：程序不靠识别按钮来拦它。": "The agent is told to stop at the last step and give you the window. That is an instruction to it, not a lock: the program does not stop it by recognising buttons."
+"Agent 被要求停在最后一步，把窗口交给你。这是给它的一条指令，不是一把锁：程序不靠识别按钮来拦它。": "The agent is told to stop at the last step and give you the window. That is an instruction to it, not a lock: the program does not stop it by recognising buttons.",
+"叫停": "Stop",
+"你叫停了 Agent": "You stopped the agent",
+"开始于 {0}。": "Started at {0}.",
+"{0}：已按你的要求停下": "{0}: stopped as you asked",
+"已叫停，Agent 会在下一步操作之前停下": "Stopped; the agent ends before its next action",
+"还没有可以叫停的申请运行": "There is no run of an application to stop yet",
+"这个任务现在不在运行，或者不是一份申请的运行": "This task is not running now, or is not the run of an application",
+"Agent 在下一步操作之前停了，没有再继续。网站上已经保存的内容还在。想让它接着做，点“让 Agent 再试一次”。": "The agent stopped before its next action and has not gone on. What the site had saved is still there. To have it go on, press \"Have the agent try again\"."
 }

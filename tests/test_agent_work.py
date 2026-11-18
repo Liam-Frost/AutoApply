@@ -264,3 +264,27 @@ def test_an_employer_the_applicant_sends_to_themselves_and_an_installation_from_
     assert agent.work.policy_from_before() == "hand_over"
     db.set_setting("submit.policy", "approve")
     assert agent.work.policy_from_before() is None                                                           # it has the one setting: nothing to work out
+
+
+def test_the_applicant_stops_the_agent_and_it_is_not_started_again_by_itself(agent):
+    from autoapply import agentbudget, tasks
+    from autoapply.agent import run
+    from autoapply.models import Task
+
+    # the run's own budget carries the word: with it said, the next action is not carried out
+    folder = agent.work.folder_of(7)
+    folder.mkdir(parents=True)
+    b = run._Budget(10, 60.0, folder)
+    b.spend()
+    agent.work.stop(7)
+    with pytest.raises(agentbudget.Spent) as e:
+        b.spend()
+    assert e.value.why == "stopped" and b.used == 1
+    # a run that ended so: one card, nothing queued
+    agent.ends.append({"outcome": "", "stopped": "stopped", "journal": [{"kind": "log", "text": "On step 2."}]})
+    tasks.enqueue("recon", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    status, _, cards, _ = _state(agent.job)
+    assert status == "failed" and [k for k, _ in cards] == ["failed"]
+    with db.session() as s:
+        assert s.query(Task).filter_by(status="queued").count() == 0

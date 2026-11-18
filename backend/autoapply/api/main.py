@@ -1121,6 +1121,23 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
     return {"ok": True}
 
 
+@app.post("/api/tasks/{task_id}/stop")
+def stop_task(task_id: int) -> dict[str, Any]:
+    """Stop the agent that is working an application right now: it ends before its next action."""
+    from ..agent import work as _work
+
+    with db.session() as s:
+        t = _404(s.get(Task, task_id))
+        if t.status != "running" or t.kind not in ("recon", "execute", "revise", "reanswer"):
+            raise HTTPException(409, "这个任务现在不在运行，或者不是一份申请的运行")
+        a = tasks.application_of(s, t.ref)
+        if a is None:
+            raise HTTPException(409, "还没有可以叫停的申请运行")
+        app_id = a.id
+    _work.stop(app_id)
+    return {"ok": True}
+
+
 @app.post("/api/tasks/{task_id}/{what}")
 def task_control(task_id: int, what: str) -> dict[str, Any]:
     do = {"cancel": tasks.cancel, "hold": tasks.hold, "take-up": tasks.take_up, "first": tasks.first}.get(what)

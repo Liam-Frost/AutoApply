@@ -83,6 +83,14 @@ def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
     return out[-limit:]
 
 
+def stop(application_id: int) -> None:
+    """The applicant says: stop. The run that is working this application ends before its next action; nothing is
+    started again for it until they say so."""
+    folder = folder_of(application_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / run.STOP).write_text("stop", encoding="utf-8")
+
+
 def spent(application_id: int) -> dict[str, Any]:
     """What this application has used of its budget, over all its runs."""
     used, total = _spent_so_far(folder_of(application_id)), _budget()
@@ -413,6 +421,14 @@ def _without_report(app_id: int, job_id: int, title: str, result: run.Result, fo
 
     if result.stopped.startswith("LLMUnavailable"):
         raise llm.LLMUnavailable(result.stopped.split(": ", 1)[-1])
+    if result.stopped == "stopped":      # the applicant's word: it is not taken up again by itself
+        with db.session() as s:
+            app = s.get(Application, app_id)
+            lifecycle.move(app, "failed", source="user")
+            app.last_event = "你叫停了 Agent"
+        notify.add_todo("failed", f"{title}：已按你的要求停下", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id}, push=False,
+                        body="Agent 在下一步操作之前停了，没有再继续。网站上已经保存的内容还在。想让它接着做，点“让 Agent 再试一次”。")
+        return {"status": "stopped", "steps": result.steps}
     place = _place(folder)
     same = _same_place(folder, place)
     with db.session() as s:
