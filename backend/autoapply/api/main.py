@@ -582,6 +582,10 @@ def get_draft(draft_id: int) -> dict[str, Any]:
     d["application"]["status_label"] = humanize.APP_STATUS.get(d["application"]["status"], d["application"]["status"])
     d["application"]["explained"] = humanize.explain(d["application"]["last_event"])
     d["job"]["ats_label"] = humanize.ats_name(d["job"]["ats"])
+    if d.get("agent") and not d["job"]["ats_label"]:      # no recruiting system is named for it: where it is made is the site
+        from urllib.parse import urlparse as _urlparse
+
+        d["job"]["ats_label"] = _urlparse(d["job"]["apply_url"] or "").netloc
     for a in d["answers"]:
         a["basis_display"] = humanize.basis(a.get("basis", ""))
         a["reused_display"] = humanize.reused(a.get("reused"), d["job"].get("ats", ""))

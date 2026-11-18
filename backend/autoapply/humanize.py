@@ -129,6 +129,7 @@ _NOTES: list[tuple[str, str]] = [
      r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，有 \2 个问题需要你回答。"),
     (r"^Reading the later steps stopped at \"(.*)\": (\d+) question\(s\) there need your answer\. Answer them and the reading goes on from there; nothing was submitted\.$",
      r"读后面的步骤时停在了「\1」：那里有 \2 个问题需要你回答。回答之后会从那里接着读；没有提交。"),
+    (r"^Still open: (.*)$", r"还没定：\1"),
     (r"^Reading the later steps did not work this time; .*$", r"这次没能读到后面的步骤；填表时会读到，问到的新问题会加进这份草案。"),
     (r"^Steps of this form that could not be read yet: (.*?)\. The form shows them only after the earlier steps are filled; .*$",
      r"这张表有几步在生成草案时还读不到：\1。要先填完前面的步骤，表单才显示它们；第一次填表时会读到，问到的新问题会加进这份草案，需要你回答的会退回给你。"),

@@ -220,9 +220,9 @@ def _budget_used(app_id: int, title: str, folder: Path) -> dict[str, Any]:
         app = s.get(Application, app_id)
         lifecycle.move(app, "failed", source="run")
         app.last_event = "这份申请的预算用完了，等你决定是否继续"
-    said = run.journal_text(folder).splitlines()[-1:] or [""]
+    said = [e["text"] for e in journal(app_id) if e["kind"] == "log"][-1:] or ["（没有）"]      # the agent's own last line
     notify.add_todo("failed", f"{title}：这份申请的预算用完了", ref=f"application:{app_id}", payload={"application_id": app_id, "budget": True},
-                    body=f"已经用了 {int(spent['steps'])} 步、约 {int(spent['seconds'] // 60)} 分钟，分 {int(spent.get('runs') or 0)} 次运行，还没有做完。最后的记录：{said[0][:300]}\n要继续的话，再给它一份预算。")
+                    body=f"已经用了 {int(spent['steps'])} 步、约 {int(spent['seconds'] // 60)} 分钟，分 {int(spent.get('runs') or 0)} 次运行，还没有做完。Agent 最后记下的是：{said[0][:300]}\n要继续的话，再给它一份预算。")
     return {"status": "budget_used", **spent}
 
 
@@ -245,7 +245,7 @@ def rows_of(record: dict[str, Any], files: dict[str, str]) -> tuple[list[dict[st
 def keep_record(app_id: int, record: dict[str, Any], files: dict[str, str], url: str) -> int:
     """The agent's record as a new pending draft of this application (the one before it is superseded)."""
     answers, open_, mats = rows_of(record, files)
-    notes = [str(record.get("summary", ""))[:3000]] + [f"Open: {x}"[:600] for x in record.get("open") or []]
+    notes = [str(record.get("summary", ""))[:3000]] + [f"Still open: {x}"[:600] for x in record.get("open") or []]
     with db.session() as s:
         app = s.get(Application, app_id)
         version = 1

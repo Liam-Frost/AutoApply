@@ -30,7 +30,9 @@ const VIEW = {
     tone: 'info',
     title: (t) => (t.payload && t.payload.incomplete ? `${t.title}：还没填完，需要你接手` : t.title),
     what: (t) =>
-      t.payload && t.payload.incomplete
+      t.application && t.application.status === 'submit_unknown'
+        ? t.explained.message      // (a submission whose outcome is not known says so in its own words, not "look it over and press submit")
+        : t.payload && t.payload.incomplete
         ? '申请表还没有填完：下面列出的几处，自动填写和 AI 接手都没能解决。请在弹出的浏览器窗口里把它们处理好，再点击提交。窗口会保留约 20 分钟。'
         : t.payload && t.payload.open_items
           ? '申请表已经填好，表单自己没有再报错；有几项程序读不回控件里的值，请在弹出的浏览器窗口里看一眼，然后点击提交。窗口会保留约 20 分钟。'
