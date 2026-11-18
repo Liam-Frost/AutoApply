@@ -155,3 +155,105 @@ def test_news_about_an_application_leads_to_the_application(app_env, monkeypatch
     notify.send("task_result", messages.failed("Acme · Intern", error="x"), ref="application:12")            # what has to be done is on the to-do list
     notify.send("status_update", messages.mail_update("interview", "Acme · Intern", "invited"), ref="application:12:manual", tag="interview")
     assert [p for p, _ in sent] == ["/applications/12", "/todos", "/applications/12"]
+
+
+def test_what_the_applicant_withdrew_is_not_filled_in_by_work_that_was_on_its_way(world):
+    """"I am not applying for this one" changed a status. The draft stayed approved and its filling stayed in the
+    queue: the next thing the program did was fill the form in and submit it. The same for "not applying" ticked on a
+    posting, which did not touch the application at all."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import drafts, executor, lifecycle
+    from autoapply.api.main import app
+    from autoapply.models import Application, Draft, Job, Task, Todo
+
+    def under_way(key):
+        """An approved draft with its filling queued, a reading that was put aside, and a card that asks for something."""
+        with db.session() as s:
+            a = s.get(Application, world[key])
+            a.status = "approved"
+            d = Draft(application_id=a.id, version=3, review_status="approved", schema={}, answers=[])
+            s.add(d)
+            s.flush()
+            run = Task(kind="execute", ref=f"application:{a.id}", payload={"draft_id": d.id}, status="queued")
+            read = Task(kind="scout", ref=f"draft:{d.id}", payload={"draft_id": d.id}, status="held")
+            card = Todo(kind="answer", ref=f"draft:{d.id}", title="a question", body="", payload={"draft_id": d.id})
+            s.add_all([run, read, card])
+            s.flush()
+            return a.id, a.job_id, d.id, run.id, read.id, card.id
+
+    def now(app_id, draft_id, run, read, card):
+        with db.session() as s:
+            return s.get(Application, app_id).status, s.get(Draft, draft_id).review_status, s.get(Task, run).status, s.get(Task, read).status, s.get(Todo, card).status
+
+    c = TestClient(app)
+    # recorded by hand on the application
+    app_id, job_id, did, run, read, card = under_way("draft")
+    assert c.post(f"/api/applications/{app_id}/correct", json={"status": "withdrawn"}).status_code == 200
+    assert now(app_id, did, run, read, card) == ("withdrawn", "closed", "cancelled", "cancelled", "done")
+    # a task that runs all the same (started again from the list of what has run, with a draft that says "approved"): nothing is filled in
+    with db.session() as s:
+        s.get(Draft, did).review_status = "approved"
+    assert executor.execute(app_id, did)["status"] == "skipped"
+    assert "不投" in lifecycle.closed_to_work(lifecycle_app(app_id))
+    # and the program does not read the form again for it by itself (a draft the applicant asks for does)
+    with pytest.raises(ValueError, match="not applying"):
+        drafts.build(job_id)
+    # "not applying" on the posting: the application is withdrawn with it
+    with db.session() as s:
+        lifecycle.move(s.get(Application, app_id), "draft_ready", source="user", back=True)
+    app_id, job_id, did, run, read, card = under_way("draft")
+    assert c.patch(f"/api/jobs/{job_id}", json={"status": "skipped"}).status_code == 200
+    assert now(app_id, did, run, read, card) == ("withdrawn", "closed", "cancelled", "cancelled", "done")
+    with db.session() as s:
+        assert s.get(Job, job_id).status == "skipped"
+        sent_job = s.get(Application, world["sent"]).job_id
+        unknown_job = s.get(Application, world["open"]).job_id
+    # what went out, or may have, is not undone by a tick in a list
+    assert c.patch(f"/api/jobs/{sent_job}", json={"status": "skipped"}).status_code == 409
+    got = c.post("/api/jobs/bulk", json={"action": "skip", "ids": [sent_job, unknown_job]}).json()
+    assert got == {"done": 0, "skipped": 2}
+    with db.session() as s:
+        assert s.get(Application, world["sent"]).status == "confirmed" and s.get(Application, world["open"]).status == "submit_unknown"
+
+
+def lifecycle_app(app_id):
+    from autoapply.models import Application
+
+    with db.session() as s:
+        a = s.get(Application, app_id)
+        s.expunge(a)
+        return a
+
+
+def test_a_note_alone_is_a_correction(world):
+    """The page sends no status when it is the one the application has: a note without one was answered "recorded" and thrown away."""
+    from fastapi.testclient import TestClient
+
+    from autoapply.api.main import app
+    from autoapply.models import ApplicationEvent
+
+    c = TestClient(app)
+    assert c.post(f"/api/applications/{world['talks']}/correct", json={"note": "second round is on the 3rd"}).status_code == 200
+    with db.session() as s:
+        last = s.query(ApplicationEvent).filter_by(application_id=world["talks"]).order_by(ApplicationEvent.id.desc()).first()
+        assert (last.old, last.new, last.source, last.note) == ("interview", "interview", "user", "second round is on the 3rd")
+    n = lambda: db.session().__enter__().query(ApplicationEvent).filter_by(application_id=world["talks"]).count()  # noqa: E731
+    before = n()
+    assert c.post(f"/api/applications/{world['talks']}/correct", json={}).status_code == 200 and n() == before          # nothing said, nothing recorded
+
+
+def test_a_mail_taken_off_an_application_asks_again_which_it_is_about(world):
+    """"This mail is not about this application" left the mail about no application and asked nobody which: a mail the
+    program matched itself never had the card, the mailbox is not read twice, and the page said it would wait among the to-dos."""
+    from fastapi.testclient import TestClient
+
+    from autoapply.api.main import app
+    from autoapply.models import MailEvent, Todo
+
+    c = TestClient(app)
+    assert c.post(f"/api/applications/{world['sent']}/mails/unlink", json={"message_id": "m-conf"}).status_code == 200
+    with db.session() as s:
+        assert s.query(MailEvent).filter_by(message_id="m-conf").one().application_id is None
+        card = s.query(Todo).filter_by(kind="mail_unmatched", ref="mail:m-conf", status="open").one()
+        assert card.payload["message_id"] == "m-conf" and "We received your application" in card.title

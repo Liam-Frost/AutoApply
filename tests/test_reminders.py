@@ -250,3 +250,27 @@ def test_one_thing_many_tasks_wait_for_is_one_card_and_one_notice(app_env, monke
     ids = {notify.add_todo("takeover", "Acme", body="please sign in", ref="account:workday:acme", payload={"n": i}) for i in range(5)}
     with db.session() as s:
         assert len(ids) == 1 and s.query(Todo).count() == 1 and pushed == ["Acme"]
+
+
+def test_a_reminder_that_repeats_the_date_leaves_the_card_where_the_applicant_put_it(app_env, monkeypatch):
+    """Every mail with a date brought a card back that had been put off - also a reminder that said the same date again."""
+    from datetime import timedelta
+
+    from autoapply import notify, reminders
+    from autoapply.models import Todo, now
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: True)
+    app_id = _app("interview")
+    asks = {"action": "Interview with the team", "due": "2026-12-03T10:00", "due_text": "Dec 3, 10:00 PT"}
+    tid = reminders.from_mail(app_id, "Acme · Intern", "interview", "new", "invited", asks, "m1")
+    until = now() + timedelta(days=2)
+    reminders.snooze(tid, until)
+    assert reminders.from_mail(app_id, "Acme · Intern", "interview", "reminder", "see you then", asks, "m2") == tid       # the same date, said again
+    with db.session() as s:
+        t = s.get(Todo, tid)
+        assert t.snoozed_until is not None and t.due_at.strftime("%Y-%m-%d %H:%M") == "2026-12-03 10:00"
+    moved = {**asks, "due": "2026-12-05T14:00", "due_text": "Dec 5, 2 pm PT"}
+    reminders.from_mail(app_id, "Acme · Intern", "interview", "rescheduled", "moved", moved, "m3")                       # the employer moves it: it is shown again
+    with db.session() as s:
+        t = s.get(Todo, tid)
+        assert t.snoozed_until is None and t.due_at.strftime("%Y-%m-%d %H:%M") == "2026-12-05 14:00"

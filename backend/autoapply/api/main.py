@@ -381,10 +381,11 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             a = j.application
             sent = a is not None and a.status in ("submitted", "confirmed", "assessment", "interview", "offer", "rejected")
             if action == "skip":
-                if sent:
+                # (lifecycle.not_applying: what was under way for the posting - an approved draft, its filling in the
+                # queue - is withdrawn with it; a posting whose application went out is left as it is)
+                if sent or not lifecycle.not_applying(j):
                     skipped += 1
                 else:
-                    j.status = "skipped"
                     done += 1
             elif action == "restore":
                 if j.status == "skipped":
@@ -417,8 +418,13 @@ def patch_job(job_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         j = _404(s.get(Job, job_id))
         for k, v in body.items():
-            if k in allowed:
-                setattr(j, k, v)
+            if k not in allowed:
+                continue
+            if k == "status" and v == "skipped":
+                if not lifecycle.not_applying(j):
+                    raise HTTPException(409, "这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。")
+                continue
+            setattr(j, k, v)
     return {"ok": True}
 
 
@@ -661,7 +667,7 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
         if app.status == UNKNOWN and not body.get("not_submitted"):
             raise HTTPException(409, "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。")
         app_id, deadline = app.id, app.job.deadline
-        lifecycle.move(app, "approved", source="user")
+        lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN, note="你确认上一次没有提交成功" if app.status == UNKNOWN else "")
     return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
 
 

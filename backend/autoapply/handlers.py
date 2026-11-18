@@ -7,8 +7,8 @@ from typing import Any
 
 from . import config, db, discover, drafts, executor, lifecycle, mail, messages, notify, scoring, tasks
 from .ats.base import AlreadyApplied, NeedsHuman
-from .models import Application, Job, Task
-from .tasks import enqueue, handler
+from .models import UNKNOWN, Application, Job, Task
+from .tasks import asked_again, enqueue, handler
 
 
 @handler("discover")
@@ -42,6 +42,10 @@ def _recon(t: Task) -> dict[str, Any]:
         draft_id = drafts.build(job_id, run_dir=config.RUNS / f"recon_job_{job_id}_t{t.id}", instructions=t.payload.get("instructions", ""))
     except AlreadyApplied:      # drafts.build has recorded it as sent and closed what waited on it: nothing is left to draft
         return {"already_applied": True}
+    except drafts.OutcomeUnknown as e:
+        # Submit was pressed on this form - just now, while it was being read, or before - and the outcome is not known.
+        # That is on the application and on its one card; this task has nothing to wait for and nothing to try again.
+        return {"status": UNKNOWN, "note": str(e)}
     except NeedsHuman as e:
         from .ats import registry
         from .models import Job
@@ -237,6 +241,7 @@ def resume_waiting(*handled: str) -> int:
             if not every and waits and waits not in handled:
                 continue
             t.status, t.error = "queued", ""
+            asked_again(t)      # (the applicant dealt with what it waited for: it is theirs from here)
             n += 1
             kind, _, num = t.ref.partition(":")
             if kind == "application" and num.split(":")[0].isdigit():

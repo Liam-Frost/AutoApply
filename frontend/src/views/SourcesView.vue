@@ -82,7 +82,7 @@ var s=document.createElement('script');s.src='{{ portal.base }}/pdportal-import.
                 <span v-else-if="r.read != null && !r.screened" class="muted">这个来源不受硬条件限制</span>
                 <span v-else class="muted">—</span>
               </td>
-              <td class="small"><template v-if="r.now.total">够线 <b>{{ r.now.above }}</b> · 不够 {{ r.now.below }} · 排除 {{ r.now.excluded }} · 没评 {{ r.now.unscored }}<div class="muted">分数线 {{ r.line }}</div></template><span v-else class="muted">没有在招的岗位</span></td>
+              <td class="small"><template v-if="r.now.total">够线 <b>{{ r.now.above }}</b> · 不够 {{ r.now.below }} · 排除 {{ r.now.excluded }} · 没评 {{ r.now.unscored }}<div class="muted">分数线 {{ (r.lines || [r.line]).join(' / ') }}</div></template><span v-else class="muted">没有在招的岗位</span></td>
             </tr>
             <tr v-if="r.error"><td colspan="7" class="small" style="border-top: 0; padding-top: 0"><span style="color: var(--bad)">{{ r.error }}</span><TechDetails :text="r.error_detail" /></td></tr>
             <tr v-if="open === r.name"><td colspan="7" class="small" style="border-top: 0; padding-top: 0"><span v-for="d in r.dropped" :key="d.key" class="tag" style="margin: 0 6px 4px 0">{{ d.label }} <b>{{ d.n }}</b></span></td></tr>

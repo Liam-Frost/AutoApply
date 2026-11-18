@@ -159,7 +159,9 @@ useUnsaved({ id: 'settings', label: '设置', dirty: () => pending.value > 0, sa
 // load takes what is new and leaves what is being edited)
 const act = (fn, ok) => runAction(fn, ok, load)
 const tgTest = () => act(() => api.post('/settings/telegram-test'), '测试消息已发送，请查看 Telegram')
-function toggle(key, sys) { s.value[key] = { ...s.value[key], [sys]: !s.value[key][sys] } }
+// (a table of the systems that are ticked: unticking takes the system out, as it is when it was never ticked - so that
+// ticking and unticking leaves nothing to save)
+function toggle(key, sys) { const p = { ...s.value[key] }; if (p[sys]) delete p[sys]; else p[sys] = true; s.value[key] = p }
 function setRegister(sys, on) { const p = { ...s.value['register.per_ats'] }; if (on) delete p[sys]; else p[sys] = false; s.value['register.per_ats'] = p }
 function setPolicy(sys, v) { const p = { ...s.value['policy.per_ats'] }; if (v) p[sys] = v; else delete p[sys]; s.value['policy.per_ats'] = p }
 

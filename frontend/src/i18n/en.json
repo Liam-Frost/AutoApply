@@ -3332,5 +3332,11 @@
 "上次导出：{0}，{1} 个文件，{2} MB，不含登录状态。这台电脑上保留最近 5 份。": "Last export: {0}, {1} files, {2} MB, without sign-ins. The last 5 are kept on this computer.",
 "密码和 API key 不会跟过去：在新电脑上重新填（设置里的“账号与连接”；各网站的密码在“网站账号”里）。": "Passwords and API keys do not come along: enter them again on the new computer (Settings → “Accounts and connections”; the sites' passwords under “Site accounts”).",
 "密码和 API key：它们在系统的密码库里（Windows 凭据管理器、macOS 钥匙串），不在数据文件夹里。": "Passwords and API keys: they are in the system's password store (Windows Credential Manager, the macOS Keychain), not in the data folder.",
-"登录状态不会跟过去：它是用这台电脑上的密钥加密的，换了电脑打不开。要么在新电脑上重新登录，要么在“网站账号”的“高级”里把某个登录单独导出（设一个口令），到新电脑上导入。": "Sign-ins do not come along: they are encrypted with a key on this computer and cannot be opened on another. Either sign in again on the new computer, or export a sign-in on its own under “Site accounts” → “Advanced” (with a passphrase you choose) and import it there."
+"登录状态不会跟过去：它是用这台电脑上的密钥加密的，换了电脑打不开。要么在新电脑上重新登录，要么在“网站账号”的“高级”里把某个登录单独导出（设一个口令），到新电脑上导入。": "Sign-ins do not come along: they are encrypted with a key on this computer and cannot be opened on another. Either sign in again on the new computer, or export a sign-in on its own under “Site accounts” → “Advanced” (with a passphrase you choose) and import it there.",
+"没有生成草案：这份申请点过提交，结果待确认": "No draft was made: Submit was pressed on this application and the outcome is not known yet",
+"这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。": "Submit was pressed on this application and the outcome is not known yet. Check for the confirmation mail first; once you are sure it did not go through, choose “It was not submitted, fill it in again” on this application's card.",
+"你确认上一次没有提交成功": "You confirmed that the last attempt did not go through",
+"你把这个岗位标成了不投": "You marked this posting as one you are not applying for",
+"这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。": "The application for this posting has gone out (or the outcome of its submission is not known yet); it cannot be marked as not applying.",
+"你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。": "You decided not to apply for this posting. To apply after all, prepare a new draft from the postings page."
 }

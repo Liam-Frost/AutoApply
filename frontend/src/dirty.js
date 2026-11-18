@@ -9,8 +9,10 @@ import { choose } from './ui'
 
 export const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
 
-// "nothing there": a box that was never ticked and one that was ticked and unticked are the same setting
-const nothing = (v) => v === undefined || v === null || v === '' || v === false || (Array.isArray(v) && v.length === 0)
+// "nothing there": a field that was never filled and one that was filled and emptied are the same setting. Not
+// `false`: in a table of exceptions ({ workday: false } - "not on this system") a "no" that was set is not the absence
+// of an answer, and taking the two for the same left the exception out of what there was to save.
+const nothing = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
 
 // Is `b` what `a` is, as far as saving goes? (The order of an object's keys does not matter; that of a list does.)
 export function same(a, b) {

@@ -64,8 +64,9 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
             if event == "reminder" and not due:
                 return t.id
             t.body, t.payload = body or t.body, {**(t.payload or {}), **payload, "_reminded": [] if due and due != t.due_at else (t.payload or {}).get("_reminded", [])}
-            if due:
+            if due and due != t.due_at:
                 t.due_at, t.snoozed_until = due, None      # a new date from the employer: it is shown again
+            # (the same date said once more - a reminder - leaves a card that was put off where the applicant put it)
             return t.id
         t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body, payload=payload, due_at=due)
         s.add(t)

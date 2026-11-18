@@ -12,7 +12,9 @@ somewhere on the page.
 
 So the question "would this send the application?" is asked here, of the element the action lands on, by every tool
 that clicks or presses a key - the reading agent's, the take-over agent's, and the tools a learned plugin adds (which
-get a page that asks it for them, ``guarded``).
+get a page that asks it for them, ``guarded``: every way that page has of clicking or pressing - its own, a locator's,
+an element's, the keyboard's, the mouse's - with the arguments passed by position or by name, and so does everything
+it hands out).
 
 What is asked:
 - a click: is the target, or the button it is inside, named like a control that sends an application? Named by any
@@ -114,59 +116,90 @@ def check_typing(page: Any, text: str, loc: Any = None) -> None:
 
 # --- the page a learned plugin gets -----------------------------------------------------------------------------------
 
-_LOCATORS = ("locator", "get_by_role", "get_by_text", "get_by_label", "get_by_placeholder", "get_by_test_id", "get_by_title", "get_by_alt_text", "frame_locator",
-             "filter", "or_", "and_", "nth")
-_PROPS = ("first", "last", "owner", "content_frame")
 _CLICKS = ("click", "dblclick", "tap", "check", "uncheck", "set_checked", "dispatch_event")
+_KEYS = ("press", "press_sequentially", "type")
+# events that press something when they are made up and sent to an element
+_PRESSES = ("click", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown", "keyup", "keypress", "touchstart", "touchend")
+
+
+def _named(a: tuple[Any, ...], k: dict[str, Any], *names: str) -> dict[str, Any]:
+    """The arguments of a call by their names, however each was passed: ``press("Enter")`` and ``press(key="Enter")``
+    are the same call, and were not the same to a gate that read ``a[0]``."""
+    got = dict(zip(names, a))
+    got.update({n: k[n] for n in names if n in k})
+    return got
+
+
+def _bare(x: Any) -> Any:
+    return x._real if isinstance(x, _Guarded) else x
+
+
+def _wrap(x: Any, page: Any) -> Any:
+    """Whatever a guarded thing hands out that can itself click or press - a locator, a frame, an element handle, another
+    page of the window, a list of them - asks too. The rest (text, numbers, what a script returned) is what it is."""
+    if x is None or isinstance(x, (_Guarded, _Keys, _Point, str, bytes, int, float, bool, dict)):
+        return x
+    if isinstance(x, (list, tuple)):
+        return type(x)(_wrap(i, page) for i in x)
+    if any(hasattr(x, n) for n in ("click", "locator", "new_page", "pages", "is_done")) or (hasattr(x, "__enter__") and type(x).__module__.startswith("playwright")):
+        return _Guarded(x, x if hasattr(x, "goto") and hasattr(x, "keyboard") else page)
+    return x
 
 
 class _Guarded:
-    """A page, a frame or a locator that asks ``check_click`` / ``check_key`` before it acts. Everything else is the
-    real thing's: what it reads, what it waits for, what it fills."""
+    """A page, a frame, a locator or an element that asks ``check_click`` / ``check_key`` before it acts. Everything else
+    is the real thing's: what it reads, what it waits for, what it fills - and what it hands out asks in its turn."""
 
-    __slots__ = ("_real", "_page")
+    __slots__ = ("_real", "_page", "_kept")
 
     def __init__(self, real: Any, page: Any) -> None:
         object.__setattr__(self, "_real", real)
         object.__setattr__(self, "_page", page)
+        object.__setattr__(self, "_kept", {})
 
     def __getattr__(self, name: str) -> Any:
         real, page = self._real, self._page
         value = getattr(real, name)
-        if name in _PROPS:
-            return _Guarded(value, page)
         if name == "keyboard":
             return _Keys(value, page)
-        if name in _LOCATORS:
-            return lambda *a, **k: _Guarded(value(*[x._real if isinstance(x, _Guarded) else x for x in a], **k), page)
-        if name == "all":
-            return lambda *a, **k: [_Guarded(x, page) for x in value(*a, **k)]
+        if name in ("mouse", "touchscreen"):      # one for the page's life: where the pointer was moved to is remembered
+            return self._kept.setdefault(name, _Point(value, page))
+        on_page = hasattr(real, "goto")       # a page or a frame: its actions take the selector first
+        first = ("selector",) if on_page else ()
         if name in _CLICKS:
             def act(*a: Any, **k: Any) -> Any:
-                if name == "dispatch_event" and not (a and str(a[0]).lower() in ("click", "submit", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown", "keyup", "keypress")):
-                    return value(*a, **k)
-                if name == "dispatch_event" and str(a[0]).lower() == "submit":
-                    raise Refused("refused: a learned tool does not send a form")
-                # called on the page with a selector (page.click("#x")), or on a locator
-                target = real.locator(a[0]).first if a and isinstance(a[0], str) and hasattr(real, "goto") else real
+                got = _named(a, k, *first, *(("type",) if name == "dispatch_event" else ()))
+                if name == "dispatch_event":
+                    event = str(got.get("type") or k.get("kind") or "").lower()
+                    if event == "submit":
+                        raise Refused("refused: a learned tool does not send a form")
+                    if event not in _PRESSES:
+                        return _wrap(value(*a, **k), page)
+                # called on the page with a selector (page.click("#x"), page.click(selector="#x")), or on a locator
+                target = real.locator(got["selector"]).first if on_page and isinstance(got.get("selector"), str) else real
                 check_click(page, target)
-                return value(*a, **k)
+                return _wrap(value(*a, **k), page)
             return act
-        if name in ("press", "press_sequentially", "type"):
+        if name in _KEYS:
             def key(*a: Any, **k: Any) -> Any:
-                on_page = hasattr(real, "goto")
-                target = real.locator(a[0]).first if on_page and a else real
-                what = (a[1] if on_page and len(a) > 1 else a[0]) if a else ""
-                if name == "press":
-                    check_key(page, str(what), target)
-                else:
-                    check_typing(page, str(what), target)
-                return value(*a, **k)
+                what = "key" if name == "press" else "text"
+                got = _named(a, k, *first, what)
+                target = (real.locator(got["selector"]).first if isinstance(got.get("selector"), str) else None) if on_page else real
+                (check_key if name == "press" else check_typing)(page, str(got.get(what) or ""), target)
+                return _wrap(value(*a, **k), page)
             return key
-        return value
+        if callable(value):
+            return lambda *a, **k: _wrap(value(*[_bare(x) for x in a], **{n: _bare(x) for n, x in k.items()}), page)
+        return _wrap(value, page)
 
     def __setattr__(self, name: str, value: Any) -> None:
         setattr(self._real, name, value)
+
+    def __enter__(self) -> Any:       # "with page.expect_popup() as p": the page that comes of it asks too
+        return _wrap(self._real.__enter__(), self._page)
+
+    def __exit__(self, *exc: Any) -> Any:
+        return self._real.__exit__(*exc)
 
     def __repr__(self) -> str:
         return f"guarded({self._real!r})"
@@ -178,23 +211,89 @@ class _Keys:
     def __init__(self, real: Any, page: Any) -> None:
         self._real, self._page = real, page
 
-    def press(self, key: str, **k: Any) -> Any:
-        check_key(self._page, key)
-        return self._real.press(key, **k)
+    def press(self, *a: Any, **k: Any) -> Any:
+        check_key(self._page, str(_named(a, k, "key").get("key") or ""))
+        return self._real.press(*a, **k)
 
-    def type(self, text: str, **k: Any) -> Any:
-        check_typing(self._page, text)
-        return self._real.type(text, **k)
+    def type(self, *a: Any, **k: Any) -> Any:
+        check_typing(self._page, str(_named(a, k, "text").get("text") or ""))
+        return self._real.type(*a, **k)
 
-    def insert_text(self, text: str) -> Any:
-        return self._real.insert_text(text)
+    def insert_text(self, *a: Any, **k: Any) -> Any:
+        return self._real.insert_text(*a, **k)
 
-    def down(self, key: str) -> Any:
-        check_key(self._page, key)
-        return self._real.down(key)
+    def down(self, *a: Any, **k: Any) -> Any:
+        check_key(self._page, str(_named(a, k, "key").get("key") or ""))
+        return self._real.down(*a, **k)
 
-    def up(self, key: str) -> Any:
-        return self._real.up(key)
+    def up(self, *a: Any, **k: Any) -> Any:
+        return self._real.up(*a, **k)
+
+
+# what is at a point of the page: the element there, looked for through the shadow roots it may be inside; a frame is
+# a page of its own, and what is in it cannot be seen from here
+_AT = r"""([x, y]) => {
+  let el = document.elementFromPoint(x, y);
+  while (el && el.shadowRoot && el.shadowRoot.elementFromPoint) {
+    const inner = el.shadowRoot.elementFromPoint(x, y);
+    if (!inner || inner === el) break;
+    el = inner;
+  }
+  if (!el) return {none: true};
+  if (/^(iframe|frame|object|embed)$/i.test(el.tagName)) return {frame: true};
+  return (%s)(el);
+}""" % _ABOUT
+
+
+class _Point:
+    """The mouse and the touch screen press where, not what. The gate looks at what is there."""
+
+    __slots__ = ("_real", "_page", "_at")
+
+    def __init__(self, real: Any, page: Any) -> None:
+        self._real, self._page, self._at = real, page, None
+
+    def _check(self, x: Any, y: Any) -> None:
+        try:
+            info = self._page.evaluate(_AT, [float(x), float(y)])
+        except Exception as e:  # noqa: BLE001
+            raise Refused(f"refused: could not look at what is at that point ({type(e).__name__}); click through a locator") from e
+        info = info if isinstance(info, dict) else {"none": True}
+        if info.get("frame"):
+            raise Refused("refused: that point is inside a frame, where what is pressed cannot be looked at from the page; click through the frame's locator")
+        if _sends(info):
+            raise Refused(f"refused: '{str(info['name'])[:80]}' sends the application; that is not available to the agent")
+
+    def _press(self, name: str, a: tuple[Any, ...], k: dict[str, Any]) -> Any:
+        got = _named(a, k, "x", "y")
+        if got.get("x") is None or got.get("y") is None:
+            raise Refused("refused: a click needs the point it lands on")
+        self._check(got["x"], got["y"])
+        self._at = (got["x"], got["y"])
+        return getattr(self._real, name)(*a, **k)
+
+    def click(self, *a: Any, **k: Any) -> Any:
+        return self._press("click", a, k)
+
+    def dblclick(self, *a: Any, **k: Any) -> Any:
+        return self._press("dblclick", a, k)
+
+    def tap(self, *a: Any, **k: Any) -> Any:
+        return self._press("tap", a, k)
+
+    def move(self, *a: Any, **k: Any) -> Any:
+        got = _named(a, k, "x", "y")
+        self._at = (got.get("x"), got.get("y")) if got.get("x") is not None and got.get("y") is not None else None
+        return self._real.move(*a, **k)
+
+    def down(self, *a: Any, **k: Any) -> Any:
+        if self._at is None:
+            raise Refused("refused: the button would go down where the gate has not looked; move the mouse there first, or click through a locator")
+        self._check(*self._at)
+        return self._real.down(*a, **k)
+
+    def __getattr__(self, name: str) -> Any:      # up, wheel: nothing is pressed by them
+        return getattr(self._real, name)
 
 
 def guarded(page: Any) -> Any:

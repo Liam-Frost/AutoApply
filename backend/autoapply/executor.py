@@ -246,6 +246,10 @@ def execute(application_id: int, draft_id: int, *, task_id: int | None = None, f
             # It has gone out - submitted, or already further: confirmed, an interview, a rejection. There is nothing
             # to fill again, whoever asks (a retry of an old task, a card that was still open). Its status is not touched.
             return {"status": app.status, "note": "already submitted"}  # idempotent
+        if app.status == "withdrawn":
+            # The applicant decided not to apply after this task was queued (or it was started again from the list of
+            # what has run): nothing is filled in. A new draft, asked for by them, is how it is taken up again.
+            return {"status": "skipped", "note": "the applicant is not applying for this one"}
         if app.status == UNKNOWN:
             # Submit was pressed and the outcome is not known. Filling the form again is for the applicant to decide,
             # after they have said it did not go through (the API moves it back to "approved" then) - not for a task
