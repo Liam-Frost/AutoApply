@@ -122,6 +122,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
+- `docs/DESIGN_SYSTEM.md` describes how pages are built now: the four states of a page that reads data, the one way
+  an action is carried out, what a layer over the page does with the keyboard, labels and names of controls,
+  foreground colours and the contrast test, where a page keeps what it shows. Two rules are no longer unconditional:
+  "the outcome of an action goes into a toast" and "what a figure counts goes into a tooltip".
 - **A draft says what to look at before the table of everything.** Above the answers: the questions that have no
   answer, the answers the program is not sure of, a sensitive question met for the first time, what changed with
   the form, the files written for this posting, and who presses Submit and why - each line leading to its row. The
