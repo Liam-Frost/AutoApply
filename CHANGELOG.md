@@ -4,6 +4,8 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-18
+
 ### Added
 
 - Analysis → Automation has a table by recruiting system: how reading its forms and filling them went (success rate with the counts under it, forms handed over and submissions awaiting confirmation listed apart), how long the program itself worked, how often a filling run handed the form to you, how often the AI took a page over, and what the model was asked for that system's postings. Every site's form is read by the AI first now; this is where to see on which systems that pays.
@@ -878,7 +880,8 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
-[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/Liam-Frost/AutoApply/compare/v1.0.0...v1.0.1

@@ -8,7 +8,7 @@ A feature is only as good as the last time it was actually used. This page separ
 
 Keep this distinction when you change something: say what you ran it against.
 
-Last updated for 1.0.3 (November 2026). The author uses the program on Windows with a Claude subscription.
+Last updated for 1.0.4 (November 2026). The author uses the program on Windows with a Claude subscription.
 
 ## The application chain
 
