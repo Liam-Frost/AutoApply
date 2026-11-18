@@ -176,8 +176,8 @@ STAGES = {"profile_first": "1,2", "embedded": "1", "account": "1"}
 
 
 def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa: ANN001
-    """The same form, worked the way the program works a posting: `recon` in the queue, the agent's record in the
-    drafts table, the applicant's answer given in the record, and - the policy being "send when nothing is open" -
+    """The same form, worked the way the program works a posting: the application's task in the queue, the agent's
+    record in the drafts table, the applicant's answer given in the record, and - the policy being "send when nothing is open" -
     the agent going on by itself."""
     from autoapply import db, drafts, handlers, knowledge, tasks  # noqa: F401
     from autoapply.agent import run, work
@@ -210,7 +210,7 @@ def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa
 
     run.apply = seen
     began = time.time()
-    tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id})
+    tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id})
     n = tasks.drain()
     status, draft_id, open_n = where()
     print(f"--- first pass: {n} task(s) · application {status} · {open_n} question(s) open · {results[-1].steps if results else 0} tool calls · {time.time() - began:.0f} s", flush=True)
@@ -239,8 +239,42 @@ def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa
     print(f"score: {ok} / {len(checks)}")
 
 
+def forget_logins() -> None:
+    """The accounts a run made on the evaluation site have passwords in this computer's keyring (under a service name
+    of their own): taken out again when the run is over."""
+    try:
+        from autoapply import auth, secrets
+
+        for acct in auth.list_accounts():
+            secrets.delete_password(acct["tenant_key"])
+    except Exception as e:  # noqa: BLE001 - a run that made no account has nothing to take out
+        print(f"(could not clear the evaluation's logins from the keyring: {type(e).__name__})")
+
+
+def every_form(args: list[str]) -> None:
+    """Each form in a process of its own, one after the other, and the scores together at the end."""
+    import subprocess
+
+    scores = {}
+    for form in sorted(GRADERS):
+        print(f"===== {form} =====", flush=True)
+        got = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--form", form, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        print(got.stdout, end="", flush=True)
+        if got.returncode:
+            print(got.stderr[-2000:], flush=True)
+        last = [ln for ln in got.stdout.splitlines() if ln.startswith("score: ")]
+        scores[form] = last[-1][7:] if last else f"no score (exit {got.returncode})"
+    print("===== all forms =====")
+    for form, score in scores.items():
+        print(f"  {form}: {score}")
+
+
 def main() -> None:
+    if "--all" in sys.argv[1:]:
+        every_form([x for x in sys.argv[1:] if x != "--all"])
+        return
     ap = argparse.ArgumentParser()
+    ap.add_argument("--all", action="store_true", help="every form, one after the other (each in a process of its own)")
     ap.add_argument("--form", default="profile_first", choices=sorted(GRADERS))
     ap.add_argument("--model", default="")
     ap.add_argument("--effort", default="")
@@ -304,9 +338,12 @@ def main() -> None:
     posting = brief.Posting(company=p["company"], title=p["title"], url=f"{base}/jobs/{a.form}", text=p["text"])
     folder = home / "applications" / a.form
     if a.queue:
-        through_the_queue(a, home, posting, applicant, state)
-        if site is not None:
-            site.close()
+        try:
+            through_the_queue(a, home, posting, applicant, state)
+        finally:
+            forget_logins()
+            if site is not None:
+                site.close()
         return
     print(f"form {a.form} at {posting.url}\nmodel {db.get_setting('llm.model')} ({db.get_setting('llm.effort')}), browser {a.backend}\neverything this leaves behind: {home}\n", flush=True)
     total = passed = 0
@@ -325,6 +362,7 @@ def main() -> None:
             print("  the agent's own summary:", str(result.record["summary"])[:700].replace("\n", " "))
         print(f"  {ok} / {len(checks)}\n", flush=True)
     print(f"score: {passed} / {total}")
+    forget_logins()
     if site is not None:
         site.close()
 
