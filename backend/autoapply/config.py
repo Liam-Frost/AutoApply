@@ -54,6 +54,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "agent.budgets": {"explore_form": {"steps": 140, "minutes": 35}, "sign_in": {"steps": 80, "minutes": 20}, "account": {"steps": 60, "minutes": 15},
                       "take_over": {"steps": 120, "minutes": 30}, "confirm": {"steps": 40, "minutes": 10}, "navigate": {"steps": 40, "minutes": 10},
                       "site_status": {"steps": 60, "minutes": 15},
+                      # a source read in a browser, when the program's own reading of it fails (agent/scan.py)
+                      "scan": {"steps": 80, "minutes": 20},
                       # one application, worked by one agent from the posting to the confirmation (agent/): per run
                       "apply": {"steps": 400, "minutes": 45}},
     # Who works an application: "agent" - one agent, from the posting to the confirmation (agent/); "legacy" - the

@@ -6,6 +6,10 @@ hosts: pdportal.apsc.ubc.ca, orbiscommunities.ca
   approve. A session lasts a few hours; "Not Logged In" means it is over.
 - Postings: the co-op postings page, searched with an EMPTY keyword (the placeholder "Keyword" is not a keyword: a
   filter chip with it shows nothing - remove it). Each row's button carries the form data that opens the posting.
+- A posting has no address of its own: the program names it "...postings.htm#posting=<id>", which opens the
+  postings page and nothing more. Open it from the list: take the object in a row button's
+  onclick="...buildForm({...})" and submit it with that posting's id, in this tab -
+  orbisAppSr.buildForm({...obj, postingId: '<id>'}, '', '_self').submit()
 - A posting says how to apply ("Application Receipt Procedure"): through the portal ("Online via system"), on the
   employer's own website (with its address), or by e-mail; and which documents it requires.
 - Employer-website postings: the application is made on the employer's site; in the portal the applicant only

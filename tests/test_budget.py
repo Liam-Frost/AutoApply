@@ -28,7 +28,7 @@ def _look(log, wait=0.0):
 
 
 def test_a_budget_is_so_many_tool_calls_and_a_moment_on_the_clock(app_env):
-    from autoapply import agentbudget
+    from autoapply import agentbudget, config
 
     b = agentbudget.Budget(2, 60, "navigate")
     b.spend()
@@ -287,13 +287,13 @@ def test_a_backup_service_goes_on_with_what_is_left_of_the_budget(app_env, monke
 def test_the_budgets_are_a_setting_shown_whole_and_checked_when_saved(app_env):
     from fastapi.testclient import TestClient
 
-    from autoapply import agentbudget
+    from autoapply import agentbudget, config
     from autoapply.api.main import app
 
     c = TestClient(app)
     db.set_setting("agent.budgets", {"explore_form": {"steps": 300}})      # saved before the other kinds were there
     shown = c.get("/api/settings").json()["settings"]["agent.budgets"]
-    assert shown["explore_form"] == {"steps": 300, "minutes": 35} and shown["take_over"] == {"steps": 120, "minutes": 30} and len(shown) == 7
+    assert shown["explore_form"] == {"steps": 300, "minutes": 35} and shown["take_over"] == {"steps": 120, "minutes": 30} and set(shown) == set(config.DEFAULT_SETTINGS["agent.budgets"])
     shown["navigate"] = {"steps": 55, "minutes": 12}
     assert c.put("/api/settings", json={"settings": {"agent.budgets": shown}}).status_code == 200
     assert (agentbudget.for_kind("navigate").steps, agentbudget.for_kind("navigate").seconds) == (55, 12 * 60)

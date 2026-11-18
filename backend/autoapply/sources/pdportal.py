@@ -155,7 +155,87 @@ def sign_in(page: Any) -> None:
     page.wait_for_selector("#widgetSearch", state="attached", timeout=20000)
 
 
+def _signed_out(page: Any) -> bool:
+    try:  # the postings page has the search widget only when signed in; otherwise it is a login / SSO page
+        page.wait_for_selector("#widgetSearch", state="attached", timeout=10000)
+    except Exception:  # noqa: BLE001
+        return True
+    return "notLoggedIn" in page.url or "Not Logged In" in page.inner_text("body")[:500]
+
+
+def _own(page: Any, known: set[str]) -> tuple[list[str], list[dict[str, Any]]]:
+    """The program's own reading of the page as it is now: every listed posting's id, and the text of the new ones."""
+    if page.evaluate("() => !!document.getElementById('widgetSearch')"):
+        page.evaluate("() => { const f = document.getElementById('widgetSearch'); f.widget1Keyword.value = ''; setTimeout(() => f.submit(), 50); }")
+        page.wait_for_load_state("domcontentloaded")
+    page.wait_for_selector("[onclick*=postingId]", timeout=30000)
+    listing = page.evaluate(_LIST_JS)
+    ids, obj = listing["ids"], listing["obj"]
+    if not ids or not obj:
+        raise RuntimeError("no row that opens a posting was found on this page (looked for [onclick*=postingId][onclick*=infoForPostings] with buildForm({...}))")
+    fresh = [i for i in ids if i not in known]
+    details: list[dict[str, Any]] = []
+    for k in range(0, len(fresh), 10):
+        details += page.evaluate(_DETAIL_JS, [obj, fresh[k : k + 10]])
+    return ids, details
+
+
+def _by_the_agent(page: Any, known: set[str], problem: str, got: dict[str, Any]) -> None:
+    """The program could not read the portal by itself: the window goes to the agent (agent/scan.py). What is
+    collected lands in ``got``; when the agent does not get there either, the applicant is asked, or the scan fails
+    with what the agent found."""
+    from .. import sites, tasks
+    from ..agent import scan as agent_scan
+    from ..models import Todo
+    from .. import db
+
+    ref = f"account:{TENANT}"
+    with db.session() as s:
+        asked = s.query(Todo).filter_by(kind="takeover", ref=ref, status="open").count()
+    if asked:           # the applicant was asked to sign in and has not yet: not tried again, their phone not rung again
+        raise NeedsHuman("PD Portal is signed out, and the card that asks for the sign-in is still open", kind="login", url=f"{BASE}/home.htm", waits_for=ref)
+    if notify.quiet_now() and not tasks.running_by_hand():      # a sign-in here rings the applicant's phone
+        raise NeedsHuman("PD Portal is signed out; it is not signed in to during the quiet hours", kind="login", url=f"{BASE}/home.htm")
+
+    def collect(script: str) -> str:
+        if script:
+            res = page.evaluate(script, sorted(known)) or {}
+            ids = [str(i) for i in (res.get("ids") or []) if str(i).strip()]
+            details = [{"id": str(d.get("id")), "text": str(d.get("text") or "")[:40000]} for d in (res.get("details") or []) if isinstance(d, dict)]
+        else:
+            ids, details = _own(page, known)
+        if not ids:
+            raise ValueError("the script returned no posting ids")
+        read = [d for d in details if d["text"] and parse_detail(d["id"], d["text"])["title"]]
+        new = [i for i in ids if i not in known]
+        if new and not read:
+            raise ValueError(f"{len(ids)} postings are listed, {len(new)} of them new, but no new posting's text could be read (a posting's text has lines such as "
+                             "'Job Title:', 'Organization:', 'Application Deadline:', 'Application Receipt Procedure:', 'Job Description:')")
+        got.update(ids=ids, details=read)
+        return f"{len(ids)} postings are listed; {len(new)} are new to the program, and the text of {len(read)} was read. " + (
+            "That is all of it: end with done." if len(read) >= len(new) else f"The text of {len(new) - len(read)} new ones is missing: collect again if it can be had, or end with done and say so.")
+
+    out = agent_scan.take_over(page, site=TENANT, name="UBC PD Portal (co-op postings)", url=POSTINGS, problem=problem, collect=collect,
+                               hint=f"The program already has the text of {len(known)} postings; a script of yours gets their ids as its one argument, and needs no details for them.")
+    if got.get("ids"):
+        return
+    if out.get("needs_applicant"):
+        notify.add_todo("takeover", "PD Portal（CWL + Duo）", ref=ref, body=out["needs_applicant"], payload={"tenant_key": TENANT, "ats": "pdportal", "url": f"{BASE}/home.htm"})
+        raise NeedsHuman(out["needs_applicant"], kind="login", url=f"{BASE}/home.htm", waits_for=ref)
+    sites.note(TENANT, f"A scan could not be made: {out.get('why') or problem}"[:600])
+    raise RuntimeError(f"the portal could not be read, by the program ({problem[:200]}) or by the agent ({out.get('why') or 'no reason given'})")
+
+
 def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
+    from ..agent import work
+
+    if known_ids is None:
+        from .. import db
+        from ..models import Job
+
+        with db.session() as s:
+            known_ids = {j.source_id for j in s.query(Job).filter(Job.source == "pdportal", Job.jd_text != "")}
+    got: dict[str, Any] = {}
     with browser.open_page(TENANT, url=POSTINGS, operation="scan") as page:
         page.goto(POSTINGS, wait_until="domcontentloaded")
         for _ in range(15):                 # the firewall's own check of the browser passes by itself in a real window: give it the time
@@ -164,31 +244,27 @@ def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
             page.wait_for_timeout(1000)
         else:
             firewall(page)
-        try:  # the postings page has the search widget only when signed in; otherwise it is a login / SSO page
-            page.wait_for_selector("#widgetSearch", state="attached", timeout=10000)
-            signed_in = True
-        except Exception:  # noqa: BLE001
-            signed_in = False
-        if not signed_in or "notLoggedIn" in page.url or "Not Logged In" in page.inner_text("body")[:500]:
-            sign_in(page)
-        page.evaluate("() => { const f = document.getElementById('widgetSearch'); f.widget1Keyword.value = ''; setTimeout(() => f.submit(), 50); }")
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_selector("[onclick*=postingId]", timeout=30000)
-        listing = page.evaluate(_LIST_JS)
+        problem = ""
+        if _signed_out(page):
+            if work.enabled():
+                problem = "The portal is signed out: the postings page shows a sign-in instead of its search form."
+            else:
+                sign_in(page)
+        if not problem:
+            try:
+                ids, details = _own(page, known_ids)
+                got.update(ids=ids, details=details)
+            except Exception as e:  # noqa: BLE001 - the page is not what the script was written for: the agent looks at it
+                if not work.enabled():
+                    raise
+                problem = f"The program's collecting script failed on the postings page: {type(e).__name__}: {str(e)[:500]}"
+        if problem:
+            _by_the_agent(page, known_ids, problem, got)
         notify.close_todos("config", "config:pdportal-blocked")      # the portal let this browser in: a card that said it did not is settled
-        ids, obj = listing["ids"], listing["obj"]
         browser.save_state(TENANT, page.context)
-        if known_ids is None:
-            from .. import db
-            from ..models import Job
-
-            with db.session() as s:
-                known_ids = {j.source_id for j in s.query(Job).filter(Job.source == "pdportal", Job.jd_text != "")}
-        fresh = [i for i in ids if i not in known_ids]
-        for i in ids:
-            if i in known_ids:
-                yield {"source": "pdportal", "source_id": i}
-        for k in range(0, len(fresh), 10):
-            for d in page.evaluate(_DETAIL_JS, [obj, fresh[k : k + 10]]):
-                if d["text"]:
-                    yield parse_detail(d["id"], d["text"])
+    for i in got["ids"]:
+        if i in known_ids:
+            yield {"source": "pdportal", "source_id": i}
+    for d in got["details"]:
+        if d.get("text"):
+            yield parse_detail(d["id"], d["text"])

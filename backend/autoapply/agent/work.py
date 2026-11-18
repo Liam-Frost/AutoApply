@@ -184,7 +184,9 @@ def work(job_id: int, *, task_id: int | None = None) -> dict[str, Any]:
         app_id, title, channel = app.id, f"{job.company} · {job.title}", job.channel or ""
         posting = brief.Posting(company=job.company, title=job.title, url=job.apply_url, text=job.jd_text or job.summary or "", deadline=job.deadline or "",
                                 extra=" · ".join(x for x in (f"Term: {job.term} {job.months}".strip() if (job.term or job.months) else "", f"Place: {job.location or job.work_type}" if (job.location or job.work_type) else "",
-                                                             f"Documents asked for: {job.docs_required}" if job.docs_required else "") if x))
+                                                             f"Documents asked for: {job.docs_required}" if job.docs_required else "",
+                                                             f"Found on {job.source} as posting {job.source_id}" if job.source_id and (job.channel or job.ats) else "",
+                                                             f"How it is applied for: {job.channel}" if job.channel else "") if x))
     folder, site = folder_of(app_id), brief.site_key(posting.url)
     from .. import tasks
 
