@@ -57,8 +57,10 @@ class Result:
 class Desk:
     """What the agent has besides the browser: the applicant's side (accounts, questions) and its own notes."""
 
-    def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None, job_id: int | None = None) -> None:
+    def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None, job_id: int | None = None,
+                 home: str = "") -> None:
         self.folder, self.hands, self.site, self.mode, self.login, self.job_id = folder, hands, site, mode, login, job_id
+        self.home = home.lower()         # the host of the posting: where this site is
         self.answers = dict(answers or {})
         self.asked: list[dict[str, Any]] = []
         self.reported: dict[str, Any] | None = None
@@ -151,13 +153,20 @@ class Desk:
         at = self.hands._at(ref)
         if at["type"] != "password":
             raise PermissionError(f"[{ref}] is not a password box")
+        here = self._host()
         if new:
             pw = secrets.generate_password(max(8, min(int(length or 20), 64)), symbols="".join(c for c in str(symbols) if not c.isalnum() and not c.isspace())[:16])
+            self._belongs_here(here)      # an account is being made on this address: its password belongs here from now on
             auth.upsert_account(self.site, host=self.site.split(":", 1)[-1], email=self.login, password=pw, status="pending", created_by="agent")      # kept before it is sent
         else:
             pw = secrets.get_password(self.site) or ""
             if not pw:
                 return "No password is stored for this site. Register with new=true if the applicant has no account here, or use sign_in_by_hand."
+            if not self._is_home(here):
+                # The stored password is typed where this site's sign-in lives - the site itself, or an address the
+                # applicant signed in on for it - and nowhere else: a page that only looks like it gets nothing.
+                raise PermissionError(f"this page is on {here or 'no site'}, which is not where the password of this site belongs ({', '.join(sorted(self._homes())) or 'no address on record'}). "
+                                      "If the site's sign-in really lives here, the applicant signs in by hand once (sign_in_by_hand); it is known from then on.")
         page = self.hands.page
         page.mouse.click(at["x"], at["y"])
         time.sleep(0.15)
@@ -213,6 +222,32 @@ class Desk:
         if not hits:
             return f"No mail about this site has arrived in the last {minutes} minutes (looked for: {', '.join(sorted(words)) or 'nothing to look for'}). It can take a minute: wait and ask again."
         return "\n\n".join(f"From: {m.sender}\nSubject: {m.subject}\nReceived: {m.date}\n{m.body[:2500]}" for m in hits[:3])
+
+    def _host(self) -> str:
+        from urllib.parse import urlparse
+
+        try:
+            return (urlparse(self.hands.page.url).hostname or "a-local-file").lower()      # (a page that is on no host is still a place)
+        except Exception:  # noqa: BLE001
+            return "a-local-file"
+
+    def _homes(self) -> set[str]:
+        from .. import auth, sites
+
+        acct = auth.account(self.site) or {}
+        return {h.lower() for h in [self.home, str(acct.get("host") or ""), *(sites.fact(self.site, "sign_in_hosts") or [])] if h}
+
+    def _is_home(self, host: str) -> bool:
+        from .. import auth
+
+        homes = self._homes()
+        return host in homes or (bool(host) and any(auth._site(host) == auth._site(h) and host.endswith(auth._site(h)) for h in homes))
+
+    def _belongs_here(self, host: str) -> None:
+        from .. import sites
+
+        if not self._is_home(host):
+            sites.set_fact(self.site, "sign_in_hosts", sorted({*(sites.fact(self.site, "sign_in_hosts") or []), host}))
 
     def sign_in_by_hand(self, why: str) -> str:
         self.waiting = str(why)[:600]
@@ -326,7 +361,9 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
 
     site = brief.site_key(posting.url)
     hands = Hands(page, files=applicant.files, shots=folder / "shots")
-    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id)
+    from urllib.parse import urlparse as _urlparse
+
+    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "")
     if record is None and (folder / "record.json").exists():
         try:
             record = json.loads((folder / "record.json").read_text(encoding="utf-8"))

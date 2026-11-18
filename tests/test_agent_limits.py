@@ -113,3 +113,26 @@ def test_a_question_to_the_applicant_stays_with_this_application(desk):
     d2 = desk.make()
     d2.answers = {"When can  you start?": "2027-01-04"}
     assert "2027-01-04" in d2.ask("When can you start?") and d2.asked == []
+
+
+def test_a_stored_password_is_typed_where_the_sites_sign_in_lives_and_nowhere_else(desk):
+    """A page that only looks like the site's sign-in gets nothing: the agent decides what a page is, the program
+    decides where a stored secret may go."""
+    from autoapply import auth, secrets, sites
+
+    key = "generic:careers.acme.example"
+    auth.upsert_account(key, host="careers.acme.example", email="alex@example.com", password="the stored one", status="ok")
+    d = desk.make()
+    d.home = "careers.acme.example"
+    pw = _ref(desk.hands, 'password "Password"')
+    with pytest.raises(PermissionError, match="not where the password of this site belongs"):      # the test page is on no host at all
+        d.type_password(pw)
+    assert desk.page.evaluate("document.getElementById('pw').value") == ""
+    # the site's own address, a subdomain of it, an address the applicant signed in on for it: these are home
+    assert d._is_home("careers.acme.example") and d._is_home("login.careers.acme.example") and not d._is_home("careers.acme.example.evil.test") and not d._is_home("acme.example.co")
+    sites.set_fact(key, "sign_in_hosts", ["sso.acme-login.example"])
+    assert d._is_home("sso.acme-login.example")
+    # an account being made somewhere is at home there from then on (the made-up password is that account's)
+    d.type_password(pw, new=True)
+    assert d._is_home(d._host()) and d._host() in sites.fact(key, "sign_in_hosts")
+    assert secrets.get_password(key) != "the stored one"
