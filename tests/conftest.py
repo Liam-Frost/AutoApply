@@ -90,6 +90,7 @@ def app_env(tmp_path, monkeypatch):
     def no_model(*a, **k):
         raise llm.LLMUnavailable("no model in tests")
 
+    monkeypatch.setattr(llm_sdk, "real_call", llm_sdk.call, raising=False)      # for the tests that are about the call itself (with the SDK replaced)
     monkeypatch.setattr(llm_sdk, "call", lambda *a, **k: (_ for _ in ()).throw(llm_sdk.SDKError("no model in tests", unavailable=True)))
     monkeypatch.setattr(llm, "_create", no_model)
     monkeypatch.setitem(sys.modules, "openai_codex", None)  # the ChatGPT runtime may be installed and signed in on this machine

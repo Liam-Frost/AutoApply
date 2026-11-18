@@ -74,7 +74,7 @@ def read(tenant_key: str, start_url: str, run_dir: Path) -> dict[str, Any]:
     with browser.open_page(tenant_key, url=start_url, operation="read") as page:
         page.goto(start_url, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
-        llm.agent(f"The site: {start_url}\nFind the applicant's list of applications and report it.", _tools(page, run_dir, out, home), system=SYSTEM, max_steps=30)
+        llm.agent(f"The site: {start_url}\nFind the applicant's list of applications and report it.", _tools(page, run_dir, out, home), system=SYSTEM, kind="site_status")
         try:
             browser.snapshot(page, run_dir, "applications")
         except Exception:  # noqa: BLE001

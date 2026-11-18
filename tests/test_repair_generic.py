@@ -23,7 +23,7 @@ def _the_applicant_submits(request):
 def _agent_that_fixes(log):
     """A stand-in model: tries to submit (must be refused), then sets the approved values with the tools."""
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         from autoapply import llm
 
         t = {x.name: x for x in tools}
@@ -95,7 +95,7 @@ def test_repair_cannot_rescue_a_wrong_value(pipeline, monkeypatch):  # noqa: F81
     nothing is submitted, and the difference goes to the user in the visible window."""
     from autoapply import drafts, executor, llm, tasks
 
-    def lazy_agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def lazy_agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         t["done"].fn(fixed=["email"], unfixed=[], cause="c", suggestion="s")
         return llm.AgentResult(final_text="done")
@@ -460,7 +460,7 @@ def test_the_form_has_the_last_word_and_the_agent_finishes_what_the_draft_did_no
     db.set_setting("repair.enabled", True)
     log = {"refused": 0}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         log["goal"] = goal
         log["first_check"] = t["check_form"].fn()
@@ -598,7 +598,7 @@ def test_a_form_with_several_steps_is_walked_by_what_is_on_screen(app_env, tmp_p
     db.set_setting("repair.enabled", True)
     calls = {"fix": 0, "nav": 0}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         if "check_form" in t:                      # finishing a step: the field the draft did not know, from the profile
             calls["fix"] += 1
@@ -670,7 +670,7 @@ def test_a_step_that_will_not_go_on_is_handed_to_the_user_with_the_reason(app_en
     db.set_setting("repair.enabled", True)
     calls = {"fix": 0, "nav": 0}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         if "check_form" in t:      # asked once to finish the step, with what the navigator saw: there is nothing it can fill
             calls["fix"] += 1
@@ -739,7 +739,7 @@ def test_a_form_that_names_a_missing_answer_only_after_continue_is_finished_and_
     db.set_setting("repair.enabled", True)
     goals = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         assert "check_form" in t, "the navigator is not needed: the form has a Continue button"
         goals.append(goal)
@@ -923,7 +923,7 @@ def test_the_user_submits_in_the_window_while_the_program_is_still_on_the_form(a
     db.set_setting("repair.enabled", True)
     calls = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
         t["click"].fn(selector="#user")           # meanwhile, in the same window, the user sends the application
@@ -994,7 +994,7 @@ def test_an_answer_the_form_refuses_for_its_length_is_adapted_by_the_take_over_a
     short = "C/C++ at an internship (a Windows key storage provider); Linux services; algorithms and complexity from coursework."
     log = {}
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         log["goal"], log["system"] = goal, system
         log["too_long"] = t["done"].fn(fixed=[], unfixed=[], cause="c", suggestion="s", adapted=[{"id": "#skills", "value": long[:300], "max_chars": 200}])   # still over the limit
@@ -1094,7 +1094,7 @@ def test_a_question_nobody_can_answer_but_the_applicant_is_asked_once_and_then_k
     calls = []
     label = "Have you been a government employee in the past three years?"
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
         if "check_form" in t:
@@ -1155,7 +1155,7 @@ def test_what_the_applicant_answers_in_the_window_is_kept_and_remembered(app_env
     db.set_setting("repair.enabled", True)
     label = "Have you been a government employee in the past three years?"
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         {x.name: x for x in tools}["done"].fn(fixed=[], unfixed=[], cause="Not in the profile.", suggestion="",
                                               needs_user=[{"label": label, "why": "The profile does not say.", "type": "radio", "options": ["No, never", "Yes"]}])
         return llm.AgentResult(final_text="done", steps=[{"tool": "done"}])
@@ -1247,7 +1247,7 @@ def test_the_later_steps_of_a_form_are_read_by_walking_it_with_the_drafts_answer
     label = "Have you been a government employee in the past three years?"
     calls = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         calls.append("fix" if "check_form" in t else "nav")
         assert "THIS STEP HAS NOT BEEN READ BEFORE" in goal
@@ -1401,7 +1401,7 @@ def test_a_step_the_site_does_not_show_again_is_read_from_the_review_page(app_en
     db.set_setting("repair.enabled", True)
     seen = []
 
-    def agent(goal, tools, *, system, max_steps=60, on_step=None):
+    def agent(goal, tools, *, system, kind="", on_step=None):
         t = {x.name: x for x in tools}
         seen.append("review" if "THIS IS THE REVIEW PAGE" in goal else "other")
         assert "Diversity (not yet visible)" in goal

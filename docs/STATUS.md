@@ -70,6 +70,7 @@ Last updated for 1.0.3 (November 2026). The author uses the program on Windows w
 | ChatGPT subscription | Text, structured output and tool calls used for real; a whole site exploration has not been run with it |
 | Claude API, OpenAI-compatible services (OpenAI, Gemini, DeepSeek, Qwen, OpenRouter, custom) | Unit-tested only (no real keys were used) |
 | Failover to a backup service | Used for real once: a ChatGPT subscription had actually run out and the calls moved to Claude. A switch in the middle of an AI-driven browser session: unit-tested only |
+| An agent's budget: so many tool calls and a deadline, the same for every service, and the model's run ended with it | Unit-tested with a stand-in for each of the four services (a model that never stops by itself): the count, the clock, a backup going on with what is left. Interrupting a real ChatGPT turn and cancelling a real Claude query when a budget runs out have not been done against the real command lines, and the built-in figures have not been tried on a long real form |
 | Reading the allowance | Claude and ChatGPT subscriptions: read for real. DeepSeek and OpenRouter: written from their documentation, unit-tested only |
 
 ## Packages

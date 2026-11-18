@@ -2104,7 +2104,11 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
     # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
-    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+    from .. import agentbudget
+
+    shown = {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}
+    shown["agent.budgets"] = agentbudget.table(shown.get("agent.budgets"))      # every kind of work, also the ones added since it was last saved
+    return {"settings": shown, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
             "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
 
 
@@ -2137,10 +2141,11 @@ def browser_test() -> dict[str, Any]:
 
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from .. import browser_policy
+    from .. import agentbudget, browser_policy
 
     try:
         browser_policy.validate(body.get("settings") or {})
+        agentbudget.validate(body.get("settings") or {})
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)

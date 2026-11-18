@@ -18,10 +18,16 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import json as _json
+import logging
 import queue
 import tempfile
 import threading
 from typing import Any, Callable
+
+from .agentbudget import Spent
+
+log = logging.getLogger("autoapply.llm_codex")
+WIND_DOWN = 15.0      # seconds an interrupted turn is given to end by itself before its runtime is closed
 
 RULES = ("You are used as a plain language model here, not as a coding agent. Do not run shell commands, do not read or write files, "
          "do not browse. Use only the tools named autoapply (if any are provided) and answer from the text you are given.")
@@ -121,8 +127,16 @@ def logout() -> None:
 
 
 def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict[str, Any] | None = None, tools: list[Any] | None = None,
-        on_step: Callable[[dict[str, Any]], None] | None = None, base_url: str = "", timeout: float = 3600) -> tuple[str, list[dict[str, Any]], dict[str, int]]:
-    """One turn (with tool use if ``tools`` is given). Returns (final_text, steps, usage). Tool functions run on the calling thread."""
+        on_step: Callable[[dict[str, Any]], None] | None = None, base_url: str = "", timeout: float = 3600,
+        budget: Any = None) -> tuple[str, list[dict[str, Any]], dict[str, int], str]:
+    """One turn (with tool use if ``tools`` is given). Returns (final_text, steps, usage, stopped). Tool functions run
+    on the calling thread.
+
+    ``budget`` (agentbudget.Budget, for an agent): the tools spend from it, and its deadline is a moment on the clock -
+    the wait for the runtime's next message is until then, not ``timeout`` over again with every message, which a
+    runtime that keeps calling tools never reaches. When the budget ends the run is ended on both sides: the address
+    the runtime calls the tools at stops answering, and its turn is interrupted (closed, if it does not wind down).
+    ``stopped`` says how it ended: "end_turn", "max_steps" or "timeout"."""
     from . import toolbridge
 
     if not isinstance(prompt, str):
@@ -132,6 +146,20 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
     steps: list[dict[str, Any]] = []
     bridge = toolbridge.open(tools or [], calls) if tools else None
     result: cf.Future = cf.Future()
+    running: dict[str, Any] = {}
+    stopped = "end_turn"
+
+    def stop(why: str) -> None:
+        """The budget is used up: no more tool calls are answered, and the runtime is told to stop thinking."""
+        nonlocal stopped
+        stopped = why
+        if bridge is not None:
+            bridge.close()
+        try:
+            if running.get("turn") is not None:
+                running["turn"].interrupt()
+        except Exception:  # noqa: BLE001 - it is closed below if this did not end it
+            log.debug("the turn could not be interrupted", exc_info=True)
 
     def work() -> None:
         try:
@@ -143,7 +171,9 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
                                                     "startup_timeout_sec": 30, "tool_timeout_sec": 300}}
             with codex as c, tempfile.TemporaryDirectory(prefix="autoapply-codex-", ignore_cleanup_errors=True) as d:  # an empty folder: nothing for an agent to read
                 th = c.thread_start(base_instructions=(system or "") + "\n\n" + RULES, config=cfg or None, cwd=d, ephemeral=True, sandbox=Sandbox.read_only, model=model or None)
-                r = th.run(prompt, output_schema=schema)
+                turn = th.turn(prompt, output_schema=schema)
+                running.update(turn=turn, runtime=c)      # for the thread that owns the page, to end it from there
+                r = turn.run()
                 err = getattr(r, "error", None)
                 if err is not None:
                     raise Failed(str(getattr(err, "message", err))[:400])
@@ -162,7 +192,13 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
     threading.Thread(target=work, daemon=True, name="chatgpt-turn").start()
     try:
         while True:  # tool calls arrive from the bridge; run them here, on the thread that owns the page
-            item = calls.get(timeout=timeout)
+            try:
+                item = calls.get(timeout=budget.left() if budget is not None else timeout)
+            except queue.Empty:
+                if budget is None or not budget.expired():
+                    raise
+                stop(budget.ended)      # the runtime was still thinking when the time was up
+                break
             if item is None:
                 break
             t, args, reply = item
@@ -171,6 +207,10 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
                 out = t.fn(**args)
                 step.update(ok=True, output="[blocks]" if isinstance(out, list) else str(out)[:2000])
                 reply.set_result(out)
+            except Spent as e:      # the budget does not cover this call: it is not carried out, and the run ends here
+                reply.set_exception(e)
+                stop(e.why)
+                break
             except Exception as e:  # noqa: BLE001 - errors go back to the model
                 step.update(ok=False, output=f"{type(e).__name__}: {e}"[:2000])
                 reply.set_exception(e)
@@ -182,6 +222,16 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
     finally:
         if bridge is not None:
             bridge.close()
+    if stopped != "end_turn":
+        try:      # an interrupted turn winds down by itself; one that does not is ended with its runtime
+            result.result(timeout=WIND_DOWN)
+        except Exception:  # noqa: BLE001 - whatever it ends with, the run is over
+            try:
+                if not result.done() and running.get("runtime") is not None:
+                    running["runtime"].close()
+            except Exception:  # noqa: BLE001
+                log.debug("the runtime could not be closed", exc_info=True)
+        return "", steps, {}, stopped
     try:
         text, usage = result.result(timeout=30)
     except (Unavailable, Failed):
@@ -192,6 +242,6 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
         if any(w in low for w in ("login", "auth", "unauthorized", "usage limit", "rate limit", "quota", "not signed in")):
             raise Unavailable(f"ChatGPT 登录不可用或额度已用完：{msg}") from e
         raise Failed(f"ChatGPT 出错：{msg}") from e
-    return text, steps, usage
+    return text, steps, usage, stopped
 
 

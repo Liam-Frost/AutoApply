@@ -122,6 +122,8 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Changed
 
+- An agent has one budget, the same whichever AI service does the thinking: so many tool calls, and a moment on the clock by which it ends. Until now each service counted in its own way (model turns, its own turns, requests) and the ChatGPT sign-in did not count at all, with a time limit that started again with every message - an agent that kept calling tools could occupy the place where forms are filled for as long as it liked. When the budget ends the model's run is ended too (the ChatGPT turn is interrupted, the Claude query cancelled), and the result says which it was: finished by itself, out of steps, or out of time. A backup service that takes over goes on with what is left.
+- How much each kind of work gets - reading a new form, taking over a fill, signing in, turning a page, checking values, looking up an application's status - is a setting: Settings → Automation → "How much the AI may do at a time".
 - `docs/DESIGN_SYSTEM.md` describes how pages are built now: the four states of a page that reads data, the one way
   an action is carried out, what a layer over the page does with the keyboard, labels and names of controls,
   foreground colours and the contrast test, where a page keeps what it shows. Two rules are no longer unconditional:

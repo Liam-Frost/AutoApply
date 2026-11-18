@@ -777,7 +777,7 @@ def sign_in(page: Page, ref: JobRef, title: str, form_url: str, run_dir: Path) -
             "Do not fill in or change anything on the application form itself, and do not describe it. "
             "If you cannot get in, call finish(ok=false) and say why in notes.")
     acct_state: dict[str, Any] = {}
-    res = llm.agent(goal, l0_tools(page, run_dir, {}, finish_tool=done) + account_tools(page, ref, acct_state), system=prompts.get("generic_agent"), max_steps=40)
+    res = llm.agent(goal, l0_tools(page, run_dir, {}, finish_tool=done) + account_tools(page, ref, acct_state), system=prompts.get("generic_agent"), kind="sign_in")
     (run_dir / "sign_in_trace.json").write_text(json.dumps(res.steps, ensure_ascii=False, default=str)[:300000], encoding="utf-8")
     if out["ok"]:
         browser.save_state(ref.tenant_key, page.context)
@@ -812,7 +812,7 @@ def account_after_submit(page: Page, ref: JobRef, run_dir: Path) -> dict[str, An
     acct_state: dict[str, Any] = {}
     keep = ("read_page", "list_controls", "screenshot", "click", "press", "type_keys", "finish")      # looking and moving about; no form filling, no uploads
     tools = [t for t in l0_tools(page, run_dir, {}, finish_tool=done) if t.name in keep] + account_tools(page, ref, acct_state)
-    res = llm.agent(goal, tools, system=prompts.get("generic_agent"), max_steps=30)
+    res = llm.agent(goal, tools, system=prompts.get("generic_agent"), kind="account")
     (run_dir / "account_after_submit_trace.json").write_text(json.dumps(res.steps, ensure_ascii=False, default=str)[:300000], encoding="utf-8")
     if out["ok"]:
         browser.save_state(acct_state.get("account_site") or ref.tenant_key, page.context)
@@ -861,7 +861,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
         ident = "\n".join(ln for ln in knowledge.read("profile").splitlines() if re.search(r"^- (Name on forms|Legal name|Phone|Mailing|Location|Email)", ln))[:1200]
         goal = f"Job: {job.company} - {job.title}\nStart URL: {ref.url}\nATS: {ref.ats}\n<applicant>\n{ident}\n</applicant>\n" + (f"\nNotes from earlier applications on this ATS:\n{hints[:4000]}\n" if hints else "")
         acct_state: dict[str, Any] = {}
-        out = llm.agent(goal, l0_tools(page, run_dir, result) + account_tools(page, ref, acct_state), system=prompts.get("generic_agent"), max_steps=70)
+        out = llm.agent(goal, l0_tools(page, run_dir, result) + account_tools(page, ref, acct_state), system=prompts.get("generic_agent"), kind="explore_form")
         if (early := submitwatch.sent(page)) is not None:
             raise SentEarly(early)
         if (not acct_state.get("outcome") and acct_state.get("created")) or (acct_state and result.get("questions")):
@@ -897,7 +897,7 @@ def _recon(job: Job, ref: JobRef, run_dir: Path) -> tuple[JobRef, FormSchema]:
     if why:
         raise NeedsHuman(f"{ref.ats}: the application page could not be worked. {notes}"[:300], kind="other", url=final_url)
     if not result.get("questions"):
-        raise DriverError("the agent could not determine the form structure", seen=(out.final_text or out.stopped)[:300])
+        raise DriverError("the agent could not determine the form structure", seen=out.said()[:300])
     ids = unique_ids([(q["selector"], int(q["page"]), q["label"]) for q in result["questions"]])
     qs = [
         Question(id=qid, label=q["label"], type=q["type"], required=bool(q["required"]), options=q.get("options") or [], page=int(q["page"]), locator={"selector": q["selector"]},

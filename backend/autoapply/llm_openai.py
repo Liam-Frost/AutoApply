@@ -120,14 +120,19 @@ class Client:
                 last.__cause__ = e
         raise last or Failed("no structured output")
 
-    def agent(self, goal: str, tools: list[Any], *, model: str, system: str, max_steps: int = 60,
+    def agent(self, goal: str, tools: list[Any], *, model: str, system: str, budget: Any,
               on_step: Callable[[dict[str, Any]], None] | None = None) -> tuple[str, list[dict[str, Any]], str]:
-        """Tool-use loop. ``tools`` are ``llm.Tool`` objects. Returns (final_text, steps, stopped)."""
+        """Tool-use loop. ``tools`` are ``llm.Tool`` objects, each of which spends from ``budget`` when it is called
+        (agentbudget.py). Returns (final_text, steps, stopped): stopped is "end_turn", or what the budget ended on."""
+        from .agentbudget import Spent
+
         by_name = {t.name: t for t in tools}
         specs = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}} for t in tools]
         messages = _messages(goal, system)
         steps: list[dict[str, Any]] = []
-        for _ in range(max_steps):
+        while True:
+            if budget.expired():
+                return "", steps, budget.ended
             body = _body(model, messages, 16000)
             body["tools"] = specs
             msg = self._post(body)["choices"][0]["message"]
@@ -144,6 +149,7 @@ class Client:
                     step["input"] = args
                     tool = by_name.get(name)
                     if tool is None:
+                        budget.spend()      # a call to a tool that is not there is a step too
                         raise KeyError(f"unknown tool {name}")
                     out = tool.fn(**args)
                     if isinstance(out, list):  # content blocks (a screenshot)
@@ -154,6 +160,8 @@ class Client:
                         txt = str(out)
                         step["output"] = txt[:2000]
                     step["ok"] = True
+                except Spent as e:      # not an error for the model to work around: the run ends here
+                    return "", steps, e.why
                 except Exception as e:  # noqa: BLE001 - errors go back to the model
                     txt = f"{type(e).__name__}: {e}"
                     step.update(ok=False, output=txt[:2000])
@@ -164,7 +172,6 @@ class Client:
                     on_step(step)
             if images:
                 messages.append({"role": "user", "content": [{"type": "text", "text": "Image(s) returned by the tool call(s) above:"}, *[_image(b) for b in images]]})
-        return "", steps, "max_steps"
 
 
 def _body(model: str, messages: list[dict[str, Any]], max_tokens: int) -> dict[str, Any]:
