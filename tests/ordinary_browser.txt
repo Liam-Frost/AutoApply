@@ -1,7 +1,9 @@
 # The tests that are run once more with every page opened in the ordinary browser (AUTOAPPLY_TEST_BROWSER=nodriver):
 # everything that drives a form or a sign-in. One list, read by the CI step and by anybody who runs the round by hand:
 #
-#   AUTOAPPLY_TEST_BROWSER=nodriver uv run --extra nodriver pytest -q $(grep -v '^#' tests/ordinary_browser.txt)
+#   AUTOAPPLY_TEST_BROWSER=nodriver uv run --extra nodriver pytest -q $(grep -vE '^(#|[[:space:]]*$)' tests/ordinary_browser.txt | tr -d '\r')
+#
+# (in a POSIX shell - Git Bash on Windows; the lines that are not comments are the files)
 #
 # A new test file that opens a page for a form or a sign-in belongs here.
 
