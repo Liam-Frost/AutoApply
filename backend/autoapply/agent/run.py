@@ -116,9 +116,7 @@ class Desk:
         return f"noted for {key}."
 
     def notes(self, about: str) -> str:
-        from .. import sites
-
-        return sites.notes(f"system:{about.strip().lower()}") or f"nothing is written down about {about!r}."
+        return brief.about(about) or f"nothing is written down about {about!r}."
 
     # --- the applicant ---------------------------------------------------------------------------------------------
     def ask(self, question: str, about: str = "applicant", options: list[str] | None = None, why: str = "") -> str:
@@ -373,8 +371,10 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     left = budget or {"steps": per_run.steps, "seconds": per_run.seconds}      # what this application has left over all its runs, when that is less than a run's share
     (folder / STOP).unlink(missing_ok=True)       # (a word of "stop" is for the run it was said to)
     budget = _Budget(int(max(1, min(per_run.steps, left["steps"]))), max(60.0, min(per_run.seconds, left["seconds"])), folder)
-    systems = sorted(k.split(":", 1)[1] for k in _keys_with_notes() if k.startswith("system:"))
-    goal = brief.goal(posting, applicant, mode=mode, site_notes=sites.notes(site), systems=systems, journal=journal_text(folder), record=record, answers=answers,
+    system, book = brief.playbook_for(posting.url)
+    systems = sorted({*brief.playbooks(), *(k.split(":", 1)[1] for k in _keys_with_notes() if k.startswith("system:"))} - {system})
+    known = "\n\n".join(x for x in ((f"About {system} (the system this site runs on):\n" + brief.about(system)) if system else "", sites.notes(site)) if x)
+    goal = brief.goal(posting, applicant, mode=mode, site_notes=known, systems=systems, journal=journal_text(folder), record=record, answers=answers,
                       account=desk.account(), budget=f"About {budget.steps} tool calls and {int(budget.seconds // 60)} minutes for this run. Log where you are before it runs out.")
     (folder / "brief.md").write_text(goal, encoding="utf-8")
     desk.write("run", mode=mode, url=posting.url)

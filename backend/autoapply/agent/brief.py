@@ -70,6 +70,43 @@ def manual() -> str:
     return MANUAL.read_text(encoding="utf-8")
 
 
+# --- what is known about recruiting systems -------------------------------------------------------------------------
+# Two kinds of notes reach the agent. What ships with the program (playbooks/*.md): what is true of a recruiting
+# system on every employer's site - written from applications made by hand, kept free of anything about a person.
+# And what agents wrote down themselves while they worked (sites.note): about one site, or about a system.
+PLAYBOOKS = Path(__file__).with_name("playbooks")
+
+
+def playbooks() -> dict[str, tuple[list[str], str]]:
+    """{name: (the hosts it is about, its text)}"""
+    out = {}
+    for p in sorted(PLAYBOOKS.glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        first, _, rest = text.partition("\n")
+        hosts = [h.strip().lower() for h in first.split(":", 1)[1].split(",")] if first.lower().startswith("hosts:") else []
+        out[p.stem] = (hosts, rest.strip() if hosts else text.strip())
+    return out
+
+
+def playbook_for(url: str) -> tuple[str, str]:
+    """(name, text) of the playbook about the system this address is on, or ("", "")."""
+    host = (urlparse(url).hostname or "").lower()
+    for name, (hosts, text) in playbooks().items():
+        if any(host == h or host.endswith("." + h) for h in hosts):
+            return name, text
+    return "", ""
+
+
+def about(name: str) -> str:
+    """Everything written down about a recruiting system: what ships with the program, then what agents noted."""
+    from .. import sites
+
+    name = name.strip().lower()
+    shipped = playbooks().get(name, ([], ""))[1]
+    noted = sites.notes(f"system:{name}")
+    return "\n\n".join(x for x in (shipped, ("Noted while working:\n" + noted) if noted else "") if x)
+
+
 def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str = "", systems: list[str] | None = None, journal: str = "",
          record: dict[str, Any] | None = None, answers: dict[str, str] | None = None, account: str = "", budget: str = "") -> str:
     """The whole context of this run, as the first thing the agent reads."""
