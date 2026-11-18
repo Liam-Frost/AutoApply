@@ -175,6 +175,70 @@ GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded, "ac
 STAGES = {"profile_first": "1,2", "embedded": "1", "account": "1"}
 
 
+def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa: ANN001
+    """The same form, worked the way the program works a posting: `recon` in the queue, the agent's record in the
+    drafts table, the applicant's answer given in the record, and - the policy being "send when nothing is open" -
+    the agent going on by itself."""
+    from autoapply import db, drafts, handlers, knowledge, tasks  # noqa: F401
+    from autoapply.agent import run, work
+    from autoapply.models import Document, Job
+
+    knowledge.write("profile", applicant.profile)
+    db.set_setting("account.email", applicant.login)
+    db.set_setting("policy.default", "auto_approve")
+    db.set_setting("browser.default_headless", True)
+    with db.session() as s:
+        for name, path in applicant.files.items():
+            s.add(Document(kind="resume_docx", name=name, path=path))
+        j = Job(source="manual", source_id=a.form, company=posting.company, title=posting.title, apply_url=posting.url, jd_text=posting.text, status="queued", online=1, channel="employer site")
+        s.add(j)
+        s.flush()
+        job_id = j.id
+
+    def where() -> tuple[str, int, int]:
+        with db.session() as s:
+            app = s.get(Job, job_id).application
+            d = app.drafts[-1] if app and app.drafts else None
+            return (app.status if app else "-", d.id if d else 0, len(d.unresolved) if d else 0)
+
+    results: list = []
+    real = run.apply
+
+    def seen(*args, **kw):  # noqa: ANN002, ANN003, ANN202
+        results.append(real(*args, **kw))
+        return results[-1]
+
+    run.apply = seen
+    began = time.time()
+    tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id})
+    n = tasks.drain()
+    status, draft_id, open_n = where()
+    print(f"--- first pass: {n} task(s) · application {status} · {open_n} question(s) open · {results[-1].steps if results else 0} tool calls · {time.time() - began:.0f} s", flush=True)
+    stage = 1
+    if open_n:
+        with db.session() as s:
+            from autoapply.models import Draft
+
+            rows = [(u["id"], u["label"]) for u in s.get(Draft, draft_id).unresolved]
+        for qid, label in rows:
+            print(f"  the applicant answers {label[:90]!r}: {ANSWERS[a.form]}")
+            drafts.edit_answer(draft_id, qid, ANSWERS[a.form])
+        began = time.time()
+        n = tasks.drain()
+        status, draft_id, open_n = where()
+        stage = 2
+        print(f"--- second pass: {n} task(s) · application {status} · {results[-1].steps} tool calls · {time.time() - began:.0f} s", flush=True)
+    result = results[-1] if results else run.Result()
+    checks = GRADERS[a.form](*state(), result, stage, **({"folder": work.folder_of(1)} if a.form == "account" else {}))
+    with db.session() as s:
+        app = s.get(Job, job_id).application
+        checks.append(("the application is recorded as sent, with its evidence", app.status == "submitted" and bool((app.evidence or {}).get("text")), f"{app.status} / {json.dumps(app.evidence or {}, ensure_ascii=False)[:160]}"))
+    ok = sum(1 for _, good, _ in checks if good)
+    for what, good, saw in checks:
+        print(f"  {'ok  ' if good else 'MISS'} {what}" + ("" if good else f"   [saw: {saw}]"))
+    print(f"score: {ok} / {len(checks)}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--form", default="profile_first", choices=sorted(GRADERS))
@@ -186,6 +250,7 @@ def main() -> None:
     ap.add_argument("--stages", default="")
     ap.add_argument("--site", default="", help="a site that is already running (python eval/server.py PORT): it outlives this run")
     ap.add_argument("--kill-after", type=int, default=0, help="end this process abruptly after that many tool calls - as a crash would")
+    ap.add_argument("--queue", action="store_true", help="through the program: a posting in its database, its queue, the record it keeps, the applicant answering in the record")
     a = ap.parse_args()
 
     home = Path(a.out) if a.out else Path(tempfile.mkdtemp(prefix="autoapply-eval-"))
@@ -238,6 +303,11 @@ def main() -> None:
     p = POSTINGS[a.form]
     posting = brief.Posting(company=p["company"], title=p["title"], url=f"{base}/jobs/{a.form}", text=p["text"])
     folder = home / "applications" / a.form
+    if a.queue:
+        through_the_queue(a, home, posting, applicant, state)
+        if site is not None:
+            site.close()
+        return
     print(f"form {a.form} at {posting.url}\nmodel {db.get_setting('llm.model')} ({db.get_setting('llm.effort')}), browser {a.backend}\neverything this leaves behind: {home}\n", flush=True)
     total = passed = 0
     for stage in [int(x) for x in (a.stages or STAGES[a.form]).split(",")]:
