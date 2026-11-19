@@ -1,8 +1,9 @@
 """Numbers for the analysis page: three views over one time window.
 
 * ``applications`` - what came of the applications that were sent;
-* ``automation``   - what the program's tasks (workflow executions) did, and where they failed - also per recruiting
-                     system (``_systems``): how reading its forms and filling them went, what it took, who had to step in;
+* ``automation``   - what the program's tasks (workflow executions) did, and where they failed - and, by application
+                     rather than by run (``_applications``): how many were prepared, how many without the applicant,
+                     how many of those to be sent went out with their evidence, what one application takes;
 * ``ai``           - what the model calls used and what they cost, by model, by feature and per result.
 
 Rules that hold everywhere:
@@ -401,26 +402,27 @@ def runs(w: Window, *, kind: str = "", outcome: str = "", offset: int = 0, limit
     return {"total": len(rows), "offset": max(0, int(offset or 0)), "limit": limit, "rows": out}
 
 
-def system_label(ats: str) -> str:
-    return "UBC PD Portal" if ats == "pdportal" else humanize.ats_name(ats) if ats and ats not in ("generic", "agent") else "雇主自己的网站"
+def _applications(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """How the agent does, counted by application and not by run - an application takes as many runs as it takes.
+    From the applications a run worked in the window:
 
-
-def _systems(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per recruiting system, from the tasks of the window that worked an application: how the runs ended, how long
-    they took, and what the model was asked for them.
-
-    - a task belongs to the system of the posting it is about (its "job:", "application:" or "draft:");
-    - success rate = succeeded / ran to an end of its own (succeeded + failed + interrupted). A run that ends with a
-      record waiting for the applicant, or with Submit pressed and no confirmation, is not in it either way - it is
-      shown beside it;
-    - the model's use is everything asked on behalf of the system's postings in the window, the failed runs too - and
-      a cost only where one is known.
+    - prepared: the application was brought to where one press sends it (a record with nothing open), or sent. Of
+      those that came to an end either way: an application that still waits for an answer or a sign-in, or is still
+      being worked, is in neither count;
+    - without you: of the prepared ones, those that got there with no question to the applicant, no stop on their
+      word and nothing the agent could not do (a sign-in only they can make is not counted against it);
+    - sent: of the applications that were to be sent - approved by the applicant, or sent by the agent itself under
+      "send when nothing is open" - those that are out with the confirmation kept as evidence. One that is still on
+      its way is not counted;
+    - for one application: the time and the model's tokens of all its runs together, the median over the prepared ones.
     """
     from . import lifecycle
+    from .models import SENT, UNKNOWN
 
-    jobs = {i: ats or "generic" for i, ats in s.query(Job.id, Job.ats)}
-    apps = dict(s.query(Application.id, Application.job_id).all())
-    drafts = dict(s.query(Draft.id, Draft.application_id).all())
+    apps_of_job = {job_id: (app_id, status, bool(auto), dict(ev or {})) for app_id, job_id, status, auto, ev in
+                   s.query(Application.id, Application.job_id, Application.status, Application.auto_approved, Application.evidence)}
+    job_of_app = {v[0]: k for k, v in apps_of_job.items()}
+    drafts = {d_id: (app_id, review) for d_id, app_id, review in s.query(Draft.id, Draft.application_id, Draft.review_status)}
 
     def posting(ref: str) -> int | None:
         kind, _, rest = (ref or "").partition(":")
@@ -428,30 +430,41 @@ def _systems(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) 
         if not num.isdigit():
             return None
         n = int(num)
-        return n if kind == "job" else apps.get(n) if kind == "application" else apps.get(drafts.get(n)) if kind == "draft" else None
+        return n if kind == "job" else job_of_app.get(n) if kind == "application" else job_of_app.get(drafts.get(n, (None, ""))[0]) if kind == "draft" else None
 
-    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for r in rows:
-        job = posting(r["ref"]) if r["kind"] in lifecycle.WORK else None
-        if job in jobs:
-            groups[jobs[job]].append({**r, "job": job})
-    out = []
-    for key, rs in groups.items():
-        c = {k: sum(1 for r in rs if r["outcome"] == k) for k in OUTCOMES}
-        settled = c["success"] + c["failed"] + c["interrupted"]
-        ran = sorted(r["duration"] for r in rs if r["duration"] is not None and r["outcome"] in ("success", "handed", "failed"))
-        got = [ai[r["id"]] for r in rs if r["id"] in ai]
-        postings = len({r["job"] for r in rs})
-        tokens = sum(g["tokens"] for g in got)
-        out.append({
-            "ats": key, "label": system_label(key), "postings": postings,
-            "runs": {"total": len(rs) - sum(c[k] for k in NOT_COUNTED), "success": c["success"], "failed": c["failed"] + c["interrupted"], "settled": settled,
-                     "success_rate": round(c["success"] / settled, 4) if settled else None, "median_s": _median(ran),
-                     "handed": c["handed"], "unknown": c["unknown"], "waiting": c["waiting"], "goes_on": c["rerun"], "running": c["running"]},
-            "ai": {"requests": sum(g["requests"] for g in got), "tokens": tokens, "tokens_per_posting": round(tokens / postings) if postings and tokens else None,
-                   "cost": sum(g["cost"] for g in got) if any(g["priced"] for g in got) else None, "cost_unknown_requests": sum(g["unknown"] for g in got)},
-        })
-    return sorted(out, key=lambda r: -r["runs"]["total"])
+    runs: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for r in sorted(rows, key=lambda r: (r["at"], r["id"])):
+        job = posting(r["ref"]) if r["kind"] in lifecycle.WORK and r["kind"] != "tailor" else None
+        # (a run the applicant stopped is no success and no failure of a run - and it is part of what its application took)
+        if job in apps_of_job and (r["outcome"] not in NOT_COUNTED or str((r["result"] or {}).get("status") or "") == "stopped"):
+            runs[job].append(r)
+    approved = {app_id for app_id, review in drafts.values() if review == "approved"}
+    prepared, failed, alone, to_send, sent, took, used = 0, 0, 0, 0, 0, [], []
+    for job, rs in runs.items():
+        app_id, status, auto, ev = apps_of_job[job]
+        said = [str((r["result"] or {}).get("status") or "") for r in rs]
+        got_there = any(x in ("ready", "submitted") for x in said) or status in SENT
+        if got_there:
+            prepared += 1
+            alone += not any(x in ("needs_input", "cannot", "stuck", "budget_used", "stopped") for x in said)
+            took.append(sum(r["duration"] or 0 for r in rs))
+            tokens = sum(ai[r["id"]]["tokens"] for r in rs if r["id"] in ai)
+            if tokens:
+                used.append(float(tokens))
+        elif rs[-1]["outcome"] in ("failed", "interrupted"):
+            failed += 1
+        if app_id in approved or auto or status in SENT:
+            if status in SENT:
+                to_send += 1
+                sent += bool(str(ev.get("text") or "").strip() or ev.get("mail_id") or ev.get("mail_ids"))
+            elif status in ("failed", UNKNOWN):
+                to_send += 1
+
+    def share(n: int, of: int) -> dict[str, Any]:
+        return {"n": n, "of": of, "rate": round(n / of, 4) if of else None}
+
+    return {"worked": len(runs), "prepared": share(prepared, prepared + failed), "alone": share(alone, prepared), "sent": share(sent, to_send),
+            "median_s": _median(sorted(took)), "median_tokens": _median(sorted(used))}
 
 
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
@@ -460,7 +473,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         rows = _task_rows(s, w)
         prev_n = sum(1 for t in s.query(Task.started_at, Task.created_at) if w.had(_naive(t[0] or t[1]))) if w.prev_lo is not None else None
         ai = _ai_by_task(s, [r["id"] for r in rows])
-        systems = _systems(s, rows, ai)
+        applications = _applications(s, rows, ai)
         kinds = sorted({r["kind"] for r in rows}, key=lambda k: -sum(1 for r in rows if r["kind"] == k))
         shown = [r for r in rows if not kind or r["kind"] == kind]
         recent = sorted(shown, key=lambda r: (r["at"], r["id"]), reverse=True)[:8]
@@ -524,7 +537,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
                     "auto_retries": sum(1 for r in shown if r["auto_retry"]), "restarted": sum(1 for r in shown if r["attempts"] > 1)},
         "outcomes": OUTCOMES,
         "recent": [_run_row(r, ai, subjects.get(r["id"], "")) for r in recent], "recent_total": len(shown),
-        "systems": systems,      # (all kinds of task, whatever ``kind`` narrows the rest to: a system is read and filled)
+        "applications": applications,      # (by application, whatever ``kind`` narrows the rest to)
     }
 
 

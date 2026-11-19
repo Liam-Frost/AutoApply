@@ -682,6 +682,32 @@ def get_application(application_id: int) -> dict[str, Any]:
     return out
 
 
+@app.post("/api/applications/{application_id}/say")
+def say_to_the_agent(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """A word from the applicant about this application. A run that is working it hears it with the answer to its next
+    action; with no run on it, the agent works the application again with it."""
+    from ..agent import work as _work
+
+    text = " ".join(str(body.get("text") or "").split())[:2000]
+    if not text:
+        raise HTTPException(400, "nothing was said")
+    with db.session() as s:
+        a = _404(s.get(Application, application_id))
+        if a.status in SENT:
+            raise _already_sent(a)
+        job_id, deadline = a.job_id, a.job.deadline
+        current = [d.id for d in a.drafts if d.review_status in ("pending", "approved")]
+    if _work.being_worked(job_id):
+        _work.say(application_id, text)
+        return {"heard": "now"}
+    if current:
+        try:
+            return {"task_id": drafts.comment(current[-1], text)}
+        except drafts.Locked as e:
+            raise HTTPException(409, str(e)) from e
+    return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": text}, priority=tasks.deadline_priority(deadline))}
+
+
 @app.get("/api/applications/{application_id}/confirmation.png")
 def confirmation_picture(application_id: int) -> FileResponse:
     """The page as it stood when the agent reported this application as sent (kept with its evidence)."""

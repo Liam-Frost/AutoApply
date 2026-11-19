@@ -349,45 +349,50 @@ def test_which_browser_a_task_worked_in_is_said_in_words():
         assert "browser:" not in said(s) and "nodriver" not in said(s)
 
 
-def test_the_analysis_page_compares_the_recruiting_systems(app_env):
-    """How the agent's runs went is asked system by system, by the definitions the rest of the page uses: a run that
-    sent the application is a success; one that left a record waiting for the applicant, pressed submit without a
-    confirmation, or used its share of the budget and goes on is neither a success nor a failure."""
+def test_the_analysis_page_counts_by_application(app_env):
+    """How the agent does is asked by application, not by run: how many were brought to where one press sends them,
+    how many of those without the applicant, how many of those that were to be sent are out with their evidence, and
+    what one application takes. An application that still waits for the applicant is in no count."""
     from datetime import timedelta
 
     from autoapply import analytics, db
-    from autoapply.models import Job, LLMRequest, Task, now
+    from autoapply.models import Application, Draft, Job, LLMRequest, Task, now
 
     at = now() - timedelta(hours=3)
     assert [analytics.outcome("apply", "done", {"status": x}, "") for x in ("submitted", "ready", "needs_input", "submit_unknown", "goes_on", "cannot", "stuck", "budget_used", "stopped")] == [
         "success", "handed", "handed", "unknown", "rerun", "failed", "failed", "failed", "cancelled"]
     assert analytics.outcome("apply", "done", {"already_applied": True}, "") == "skipped" and analytics.outcome("apply", "waiting_human", {}, "") == "waiting"
     assert analytics.outcome("execute", "done", {"status": "submitted"}, "") == "success"        # what earlier versions ran is still read as it was
+    # five applications: sent by itself in one run; asked a question, then approved and sent; could not be done;
+    # still waiting for an answer; approved, and the press came to nothing that is known
+    stories = {"alone": ("submitted", True, [{"status": "submitted"}]), "asked": ("submitted", False, [{"status": "needs_input"}, {"status": "ready"}, {"status": "submitted"}]),
+               "stopped": ("submitted", True, [{"status": "stopped"}, {"status": "submitted"}]), "cannot": ("failed", False, [{"status": "cannot"}]), "waits": ("needs_input", False, [{"status": "needs_input"}]), "unknown": ("submit_unknown", False, [{"status": "ready"}, {"status": "submit_unknown"}])}
     with db.session() as s:
-        jobs = {}
-        for ats in ("workday", "greenhouse"):
-            j = Job(source="x", source_id=f"s{ats}", title="Intern", company=f"Co {ats}", ats=ats, status="scored")
+        n = 0
+        for name, (status, auto, results) in stories.items():
+            j = Job(source="x", source_id=name, title="Intern", company=f"Co {name}", status="scored")
             s.add(j)
             s.flush()
-            jobs[ats] = j.id
-        n = 0
-        for ats, status, result, tokens, cost in (("workday", "done", {"status": "submitted"}, 1000, 400), ("workday", "done", {"status": "ready"}, 500, None),
-                                                  ("workday", "failed", {}, 100, 50), ("greenhouse", "done", {"status": "goes_on"}, 0, None)):
-            n += 1
-            t = Task(kind="apply", ref=f"job:{jobs[ats]}", status=status, result=result, error="boom" if status == "failed" else "", attempts=1, created_at=at, started_at=at,
-                     finished_at=at + timedelta(minutes=10), payload={"job_id": jobs[ats]})
-            s.add(t)
+            a = Application(job_id=j.id, status=status, auto_approved=int(auto), evidence={"text": "Thank you, received"} if status == "submitted" else {})
+            s.add(a)
             s.flush()
-            if tokens:
+            if name in ("asked", "unknown"):
+                s.add(Draft(application_id=a.id, version=1, review_status="approved", answers=[], unresolved=[], materials=[], notes=[], plan=[], schema={}))
+            for result in results:
+                n += 1
+                t = Task(kind="apply", ref=f"job:{j.id}", status="done", result=result, error="", attempts=1, created_at=at, started_at=at + timedelta(minutes=n),
+                         finished_at=at + timedelta(minutes=n + 10), payload={"job_id": j.id})
+                s.add(t)
+                s.flush()
                 s.add(LLMRequest(request_id=f"r{n}", call_id=f"c{n}", started_at=at, provider="anthropic", model="m", kind="agent", feature="apply", task_id=t.id, workflow="apply",
-                                 ref=t.ref, status="ok", turns=1, input_tokens=tokens, output_tokens=0, cost_micros=cost, source="live"))
-        s.add(Task(kind="score", ref=f"job:{jobs['workday']}", status="done", result={}, attempts=1, created_at=at, started_at=at, finished_at=at))      # not a run on an application
-    got = {y["ats"]: y for y in analytics.automation(analytics.window(7))["systems"]}
-    wd, gh = got["workday"], got["greenhouse"]
-    assert wd["postings"] == 1 and wd["runs"] == {"total": 3, "success": 1, "failed": 1, "settled": 2, "success_rate": 0.5, "median_s": 600.0, "handed": 1, "unknown": 0, "waiting": 0,
-                                                 "goes_on": 0, "running": 0}
-    assert wd["ai"]["tokens"] == 1600 and wd["ai"]["cost"] == 450 and wd["ai"]["cost_unknown_requests"] == 1 and wd["ai"]["tokens_per_posting"] == 1600
-    assert gh["runs"]["goes_on"] == 1 and gh["runs"]["success_rate"] is None and gh["ai"]["cost"] is None
+                                 ref=t.ref, status="ok", turns=1, input_tokens=1000, output_tokens=0, cost_micros=None, source="live"))
+        s.add(Task(kind="score", ref="job:1", status="done", result={}, attempts=1, created_at=at, started_at=at, finished_at=at))      # not a run on an application
+    got = analytics.automation(analytics.window(7))["applications"]
+    assert got["worked"] == 6
+    assert got["prepared"] == {"n": 4, "of": 5, "rate": 0.8}             # alone, asked, stopped, unknown got there; cannot did not; waits is not counted yet
+    assert got["alone"] == {"n": 2, "of": 4, "rate": 0.5}                # asked was asked a question; stopped was stopped by the applicant and taken up again
+    assert got["sent"] == {"n": 3, "of": 4, "rate": 0.75}                # alone, asked and stopped are out with evidence; unknown is not
+    assert got["median_s"] == 1200.0 and got["median_tokens"] == 2000.0  # one, three, two (the stopped run counts) and two runs of ten minutes and a thousand tokens each
 
 
 def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):

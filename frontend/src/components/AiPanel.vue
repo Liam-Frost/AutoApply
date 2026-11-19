@@ -184,7 +184,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
             <div v-if="claude.plan" class="small muted">套餐名是登录那一刻记下的。换了套餐后，在终端运行一次 <code>uv run autoapply claude-login</code> 重新登录，这里才会更新；额度本身不受这个显示影响。</div></div>
           <div v-else>还没有登录。在终端运行 <code>uv run autoapply claude-login</code>，在浏览器里登录后回到这里刷新。</div></div>
         <div class="kv" style="margin-top: 14px">
-          <label>主要模型</label><ModelPick v-model="props.s['llm.model']" :models="models" :loading="loadingModels" />
+          <label>主要模型</label><div><ModelPick v-model="props.s['llm.model']" :models="models" :loading="loadingModels" /><div class="hint">做申请的 Agent 用的就是这个模型和下面的思考深度。它要能调用工具、能看网页截图；做不到这两样的模型做不了申请。</div></div>
           <label>简单任务用的模型</label><div><ModelPick v-model="props.s['llm.small_model']" :models="models" :loading="loadingModels" /><div class="hint">给邮件分类、读验证码这类小事用，省额度。</div></div>
           <label>思考深度</label><AaSelect v-model="props.s['llm.effort']"><option value="low">低（快）</option><option value="medium">中</option><option value="high">高</option><option value="xhigh">最高（慢）</option></AaSelect>
           <label>长期令牌（可选）</label><div><input v-model="props.sec.claude_oauth_token" type="password" autocomplete="off" style="width: 100%" :placeholder="props.secrets.claude_oauth_token ? '已保存；要更换时在这里填新的' : '登录会过期；想长期无人值守时填 claude setup-token 生成的令牌'" /></div>
@@ -197,7 +197,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
         <p class="muted">用 Anthropic 的 API key，按用量付费。<a :href="cur.keys" target="_blank" rel="noopener">在这里申请 key ↗</a></p>
         <div class="kv" style="margin-top: 14px">
           <label>API key</label><input v-model="form.api_key" type="password" autocomplete="off" :placeholder="cur.has_key ? '已保存；要更换时在这里填新的' : '还没有保存'" @input="keyTyped" />
-          <label>主要模型</label><ModelPick v-model="props.s['llm.model']" :models="models" :loading="loadingModels" />
+          <label>主要模型</label><div><ModelPick v-model="props.s['llm.model']" :models="models" :loading="loadingModels" /><div class="hint">做申请的 Agent 用的就是这个模型和下面的思考深度。它要能调用工具、能看网页截图；做不到这两样的模型做不了申请。</div></div>
           <label>简单任务用的模型</label><ModelPick v-model="props.s['llm.small_model']" :models="models" :loading="loadingModels" />
           <label>思考深度</label><AaSelect v-model="props.s['llm.effort']"><option value="low">低（快）</option><option value="medium">中</option><option value="high">高</option><option value="xhigh">最高（慢）</option></AaSelect>
         </div>
@@ -231,7 +231,8 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
           <label>API key</label><input v-model="form.api_key" type="password" autocomplete="off" :placeholder="cur.has_key ? '已保存；要更换时在这里填新的' : cur.key === 'custom' ? '不需要就留空' : '还没有保存'" @input="keyTyped" />
           <label>主要模型</label>
           <div><ModelPick v-model="form.model" :models="models" :loading="loadingModels" />
-            <div v-if="!models.length && !loadingModels" class="hint">{{ modelNote || (cur.has_key || form.api_key || cur.key === 'custom' ? '这个服务没有返回模型列表，请手动填写模型名称。' : '填上 API key 后会自动读取这家的模型列表。') }}</div></div>
+            <div v-if="!models.length && !loadingModels" class="hint">{{ modelNote || (cur.has_key || form.api_key || cur.key === 'custom' ? '这个服务没有返回模型列表，请手动填写模型名称。' : '填上 API key 后会自动读取这家的模型列表。') }}</div>
+            <div class="hint">做申请的 Agent 用的就是这个模型。它要能调用工具、能看网页截图；做不到这两样的模型做不了申请。</div></div>
           <label>简单任务用的模型</label>
           <div><ModelPick v-model="form.small_model" :models="models" :loading="loadingModels" allow-empty="和主要模型一样" />
             <div class="hint">给邮件分类、读验证码这类小事用，可以选便宜的。</div></div>

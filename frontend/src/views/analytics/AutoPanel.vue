@@ -27,10 +27,6 @@ const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
 // by recruiting system: what the short figures stand for, in whole sentences
-const runsTip = (y) => `运行 ${y.runs.total} 次：提交成功 ${y.runs.success}，失败 ${y.runs.failed}，准备好等你 ${y.runs.handed}，点了提交、结果待确认 ${y.runs.unknown}，等你处理 ${y.runs.waiting}，预算内没做完、接着做 ${y.runs.goes_on}，还在跑 ${y.runs.running}`
-const runsLine = (y) => (y.runs.total ? `提交 ${y.runs.success} · 等你 ${y.runs.handed + y.runs.waiting} · 待确认 ${y.runs.unknown} · 接着做 ${y.runs.goes_on} · 失败 ${y.runs.failed}` : '—')
-const tokensTip = (y) => (y.ai.tokens_per_posting ? `${y.ai.requests} 次请求；平均每个岗位 ${compact(y.ai.tokens_per_posting)} token` : '')
-const unknownTip = (y) => `有 ${y.ai.cost_unknown_requests} 次请求算不出费用（没有价格，或是改造前的记录），没有计入`
 const count = (v) => String(Math.round(v))
 const TONE = { success: 'ok', handed: 'warn', unknown: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '', skipped: '' }
 const unfinishedTip = computed(() => `填好等你提交 ${t.value.handed}，点了提交、结果待确认 ${t.value.unknown}，等你处理（登录、验证码）${t.value.waiting}，改为可见窗口重跑 ${t.value.rerun}，进行中 ${t.value.running}`)
@@ -137,27 +133,24 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </p>
     </div>
 
-    <div v-if="d.systems && d.systems.length" class="card">
-      <div class="card-title">按招聘系统
-        <Explain>一次运行算在它处理的那个岗位所属的招聘系统上。成功率：提交成功的次数 ÷ 自己跑到头的次数（提交成功 + 失败 + 被中断）。准备好等你批准或回答、点了提交但结果待确认、预算内没做完下次接着做的，不算成功也不算失败，单独列出。AI 用量是这段时间里为这个系统的岗位问过模型的全部，失败的也算。</Explain></div>
-      <p class="card-sub">每份申请都由 Agent 从岗位页做到确认页。它在哪类网站上顺利、在哪类网站上费劲，看这张表。</p>
-      <div class="an-scroll">
-        <table class="an-table">
-          <thead><tr><th class="grow">招聘系统</th><th class="num">岗位</th><th class="num">提交成功率</th><th>运行的结果</th><th class="num">一次运行耗时</th><th class="num">AI 用量</th><th class="num">AI 成本</th></tr></thead>
-          <tbody>
-            <tr v-for="y in d.systems" :key="y.ats">
-              <td class="grow"><span class="name" :title="y.label">{{ y.label }}</span></td>
-              <td class="num">{{ y.postings }}</td>
-              <td class="num" :title="runsTip(y)">{{ y.runs.settled ? rate(y.runs.success_rate) : '—' }}<div v-if="y.runs.settled" class="small muted nowrap">{{ y.runs.success }} / {{ y.runs.settled }}</div></td>
-              <td class="small nowrap">{{ runsLine(y) }}</td>
-              <td class="num">{{ dur(y.runs.median_s) }}</td>
-              <td class="num" :title="tokensTip(y)">{{ y.ai.tokens ? compact(y.ai.tokens) : '—' }}</td>
-              <td class="num" :title="y.ai.cost_unknown_requests ? unknownTip(y) : ''">{{ money(y.ai.cost, y.ai.cost != null && y.ai.cost_unknown_requests > 0) }}</td>
-            </tr>
-          </tbody>
-        </table>
+    <div v-if="d.applications && d.applications.worked" class="card">
+      <div class="card-title">按一份申请算
+        <Explain>上面的数字按“一次运行”算；一份申请可能要好几次运行（等你回答、等你登录、预算用完接着做）。这里把同一份申请的运行合在一起看。只算已经有结果的申请：还在等你回答或登录的、还在做的，不进任何一个分母。</Explain></div>
+      <p class="card-sub">这段时间里 Agent 处理过 {{ d.applications.worked }} 份申请。次数少的时候百分比说明不了什么，所以每个比例下面都写着“几份里有几份”。</p>
+      <div class="kpis">
+        <div class="kpi"><div class="n" :class="{ na: d.applications.prepared.rate == null }">{{ rate(d.applications.prepared.rate) }}</div><div class="l">准备成功</div>
+          <div class="d">{{ d.applications.prepared.n }} / {{ d.applications.prepared.of }} 份</div>
+          <Explain>做到了“只差最后一下提交”（或者已经提交）的申请 ÷（这些 + 没做成的）。没做成 = Agent 说做不了、连续停在同一个地方、或者任务出错。</Explain></div>
+        <div class="kpi"><div class="n" :class="{ na: d.applications.alone.rate == null }">{{ rate(d.applications.alone.rate) }}</div><div class="l">不需要你（登录除外）</div>
+          <div class="d">{{ d.applications.alone.n }} / {{ d.applications.alone.of }} 份</div>
+          <Explain>准备成功的申请里，途中没有问过你问题、没有被你叫停、也没有卡住过的。只有你本人能做的登录不算在内。</Explain></div>
+        <div class="kpi"><div class="n" :class="{ na: d.applications.sent.rate == null }">{{ rate(d.applications.sent.rate) }}</div><div class="l">该提交的，提交成功并留了证据</div>
+          <div class="d">{{ d.applications.sent.n }} / {{ d.applications.sent.of }} 份</div>
+          <Explain>你批准过的、或者按“没有未决问题就直接提交”由 Agent 自己提交的申请里，已经发出并且留有确认页原话或确认邮件的。还在路上的不算。</Explain></div>
+        <div class="kpi"><div class="n" :class="{ na: d.applications.median_s == null }">{{ dur(d.applications.median_s) }}</div><div class="l">一份申请用时（中位数）</div>
+          <div class="d">{{ d.applications.median_tokens ? `AI 用量约 ${compact(d.applications.median_tokens)} tokens` : '没有记录到 AI 用量' }}</div>
+          <Explain>一份申请的所有运行加在一起；只算准备成功的。</Explain></div>
       </div>
-      <p class="hint" style="margin-top: 10px">次数少的时候百分比说明不了什么，所以每个成功率下面都写着“几次里成了几次”。</p>
     </div>
 
     <div class="card">

@@ -66,6 +66,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # once the applicant has approved its record; "hand_over" - the agent stops at the last step and gives the window
     # to the applicant (an instruction to the agent, not a lock: see agent/apply.md).
     "submit.policy": "auto",
+    "agent.parallel": 3,          # how many applications are worked at the same time (1-6); never two on one site
+    "agent.show_window": False,   # show the browser window while the agent works an application (to watch, to take over); hidden otherwise
     # An e-mail that does not say which application it is about: read the applicant page of the employer's site (with
     # the sign-in already saved for it) to find out, before asking the applicant.
     "mail.site_lookup": True,

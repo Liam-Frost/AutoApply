@@ -106,6 +106,10 @@ def detail(application_id: int) -> dict[str, Any] | None:
         out["evidence"] = {"text": str(ev.get("text") or ""), "url": str(ev.get("url") or ""), "read_by": str(ev.get("read_by") or ""),
                            "already_applied": bool(ev.get("already_applied")), "has_screenshot": picture(ev) is not None,
                            "mail_ids": list(ev.get("mail_ids") or ([ev["mail_id"]] if ev.get("mail_id") else [])), "by_user": bool(ev.get("user"))}
+        from .agent import work as _work
+
+        # what the agent wrote down while it worked this application, what it has used, and whether a run is on it now
+        out["journal"], out["spent"], out["running_task"], out["run_expected"] = _work.journal(a.id), _work.spent(a.id), _work.being_worked(j.id), _work.expected(j.id)
         drafts = list(a.drafts)
         out["drafts"] = [{"id": d.id, "version": d.version, "review_status": d.review_status, "review_label": humanize.REVIEW.get(d.review_status, d.review_status),
                           "created_at": _iso(d.created_at)} for d in drafts]

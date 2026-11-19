@@ -25,7 +25,7 @@ def agent(app_env, monkeypatch):
     seen: list[dict] = []
     ends: list = []
 
-    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None):
+    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None, heard=None):
         seen.append({"mode": mode, "answers": answers, "record": record, "budget": budget, "files": dict(applicant.files)})
         folder.mkdir(parents=True, exist_ok=True)
         end = ends.pop(0)
@@ -40,7 +40,7 @@ def agent(app_env, monkeypatch):
                 f.write(json.dumps({"at": "2026-11-19T10:00:01", **line}) + "\n")
             if end.get("outcome"):
                 f.write(json.dumps({"at": "2026-11-19T10:00:02", "kind": "report", "outcome": end["outcome"], "not_sent": end.get("not_sent", "")}) + "\n")
-        return run.Result(outcome=end.get("outcome", ""), record=end.get("record", {}), stopped=end.get("stopped", "end_turn"), steps=end.get("steps", 30), seconds=end.get("seconds", 100.0))
+        return run.Result(outcome=end.get("outcome", ""), record=end.get("record", {}), stopped=end.get("stopped", "end_turn"), steps=end.get("steps", 30), seconds=end.get("seconds", 100.0), unheard=list(end.get("unheard", [])))
 
     monkeypatch.setattr(run, "apply", apply)
     with db.session() as s:
@@ -519,3 +519,75 @@ def test_the_picture_of_the_confirmation_is_kept_with_the_evidence_and_only_the_
         a = s.get(Application, app_id)
         a.evidence = {**a.evidence, "screenshot": str(elsewhere)}
     assert c.get(f"/api/applications/{app_id}/confirmation.png").status_code == 404
+
+
+def test_what_the_applicant_says_reaches_a_run_that_is_working_and_one_that_is_not(agent):
+    """A word about an application: the run that is on it hears it at its next action; said too late for that run, the
+    agent takes the application up again with it; with no run on it, the agent works the application again."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import tasks
+    from autoapply.agent import run as _run
+    from autoapply.api.main import app
+    from autoapply.models import Job, Task
+
+    c = TestClient(app)
+    db.set_setting("submit.policy", "approve")
+    said_while = {}
+
+    def speaks():      # the applicant, at the page, while the run is working
+        with db.session() as s:
+            app_id = s.get(Job, agent.job).application.id
+        said_while["now"] = c.post(f"/api/applications/{app_id}/say", json={"text": "Use the Vancouver address."}).json()
+        said_while["app"] = app_id
+
+    agent.ends.append({"during": speaks, **READY, "unheard": ["Use the Vancouver address."]})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+    assert tasks.drain(1) == 1
+    assert said_while["now"] == {"heard": "now"}
+    folder = agent.work.folder_of(said_while["app"])
+    assert _run.Desk(folder, None, site="x", mode="auto").heard == 1                     # it is where a working run looks
+    assert [(e["kind"], e["text"]) for e in agent.work.journal(said_while["app"])][-1] == ("said_waiting", "Use the Vancouver address.")      # and the page shows it meanwhile
+    with db.session() as s:      # the run ended without having heard it: the application is taken up again
+        assert s.query(Task).filter_by(kind="apply", status="queued").count() == 1
+    agent.ends.append(READY)
+    assert tasks.drain(1) == 1
+    assert "Use the Vancouver address." in agent.seen[-1]["answers"].values()            # and the next run is told
+    # no run is on it: a word is a note on its record, and the agent works it again
+    out = c.post(f"/api/applications/{said_while['app']}/say", json={"text": "Say I can start in May."}).json()
+    assert out["task_id"]
+    agent.ends.append(READY)
+    assert tasks.drain(1) == 1 and "Say I can start in May." in agent.seen[-1]["answers"].values()
+    assert c.post(f"/api/applications/{said_while['app']}/say", json={"text": "  "}).status_code == 400
+    # said, and then stopped before the run came to it: their stop stands - nothing is started again by itself
+    with db.session() as s:
+        before = s.query(Task).filter_by(kind="apply").filter(Task.status.in_(("queued", "running"))).count()
+    agent.ends.append({"stopped": "stopped", "unheard": ["Wait, not this one."]})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+    assert tasks.drain(1) == 1
+    with db.session() as s:
+        assert before == 0 and s.query(Task).filter_by(kind="apply").filter(Task.status.in_(("queued", "running"))).count() == 0
+        assert s.get(Job, agent.job).application.status == "failed"
+
+
+def test_what_a_run_is_told_about_a_resume_for_the_posting(agent, monkeypatch):
+    """The program does not write one before the agent runs: it says what there is and what the applicant wants."""
+    from autoapply import tailor
+    from autoapply.agent import brief
+
+    who = brief.Applicant()
+    job = {"id": agent.job, "score": 8.5, "portal": False}
+    assert agent.work._resume(who, job, True).startswith("The applicant chose the résumé as uploaded")
+    monkeypatch.setattr(tailor, "existing", lambda job_id: None)
+    monkeypatch.setattr(tailor, "base_doc", lambda: None)
+    assert agent.work._resume(who, job, False) == ""                                     # nothing to rewrite: nothing to say
+    monkeypatch.setattr(tailor, "base_doc", lambda: {"id": 1, "name": "CV.docx", "path": "x"})
+    db.set_setting("tailor.mode", "rephrase")
+    told = agent.work._resume(who, job, False)
+    assert "`tailor_resume`" in told and "scored 8 or more (this one: 8.5)" in told and "reworded" in told and who.files == {}
+    db.set_setting("tailor.auto", False)
+    assert "when they ask for it themselves" in agent.work._resume(who, {**job, "portal": True}, False) and "inside a portal" in agent.work._resume(who, {**job, "portal": True}, False)
+    db.set_setting("tailor.mode", "off")
+    assert agent.work._resume(who, job, False) == ""
+    monkeypatch.setattr(tailor, "existing", lambda job_id: {"id": 2, "name": "Alex_Resume_Acme.pdf", "path": "p.pdf"})
+    assert "'Alex_Resume_Acme.pdf'" in agent.work._resume(who, job, False) and who.files == {"Alex_Resume_Acme.pdf": "p.pdf"}

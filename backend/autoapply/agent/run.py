@@ -25,6 +25,22 @@ from .hands import Hands
 
 OUTCOMES = ("ready", "submitted", "needs_you", "cannot")
 STOP = "stop"       # a file of this name in the application's folder: the applicant says "stop" (work.stop)
+SAID = "said.jsonl"     # what the applicant said to the agent about this application, a line each (work.say)
+
+
+def said_so_far(folder: Path) -> int:
+    """How many words the applicant has said to the runs of this application."""
+    try:
+        return sum(1 for ln in (folder / SAID).read_text(encoding="utf-8").splitlines() if ln.strip())
+    except OSError:
+        return 0
+
+
+def say(folder: Path, text: str) -> None:
+    """A word from the applicant: the run that is working this application hears it with the answer to its next action."""
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / SAID, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "text": str(text)[:2000]}, ensure_ascii=False) + "\n")
 
 
 class _Budget:
@@ -53,13 +69,14 @@ class Result:
     seconds: float = 0.0
     said: str = ""
     usage: dict[str, Any] = field(default_factory=dict)
+    unheard: list[str] = field(default_factory=list)      # what the applicant said too late for this run to hear
 
 
 class Desk:
     """What the agent has besides the browser: the applicant's side (accounts, questions) and its own notes."""
 
     def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None, job_id: int | None = None,
-                 home: str = "", on_hand: Any = None) -> None:
+                 home: str = "", on_hand: Any = None, heard: int | None = None) -> None:
         self.folder, self.hands, self.site, self.mode, self.login, self.job_id = folder, hands, site, mode, login, job_id
         self.on_hand = on_hand           # called when the window is given to the applicant: the program tells them
         self.home = home.lower()         # the host of the posting: where this site is
@@ -68,6 +85,9 @@ class Desk:
         self.reported: dict[str, Any] | None = None
         self.waiting = ""                # what the run stopped for, when it handed the window to the applicant
         self.hidden: set[str] = set()    # the passwords of this site: never in what a tool answers or the journal holds (guard)
+        # How much of what the applicant said is in this run's brief already (``heard``: counted when the brief's
+        # words were read - what comes after that, while the browser starts, is heard with the first action).
+        self.heard = len(self._said()) if heard is None else int(heard)
         folder.mkdir(parents=True, exist_ok=True)
 
     # --- the journal ---------------------------------------------------------------------------------------------
@@ -122,8 +142,32 @@ class Desk:
             except Exception:  # noqa: BLE001
                 pass
 
+    # --- a word from the applicant while the run is working ----------------------------------------------------------
+    def _said(self) -> list[str]:
+        try:
+            return [json.loads(ln)["text"] for ln in (self.folder / SAID).read_text(encoding="utf-8").splitlines() if ln.strip()]
+        except (OSError, ValueError, KeyError):
+            return []
+
+    def words(self) -> list[str]:
+        """What the applicant has said since this run last heard. Given once."""
+        said = self._said()
+        new, self.heard = said[self.heard:], len(said)
+        return new
+
+    def _with_words(self, out: Any) -> Any:
+        new = self.words()
+        if not new:
+            return out
+        for w in new:
+            self.write("said", text=w)
+        told = ("\n\n[THE APPLICANT SAYS, while you work - their word on this application, to weigh like anything else they told you:\n"
+                + "\n".join(f"- {w}" for w in new) + ("\nIf this answers a question you asked, enter it and call `answered` for that question." if self.asked else "") + "]")
+        return out + [{"type": "text", "text": told}] if isinstance(out, list) else str(out) + told
+
     def guard(self, tools: list[llm.Tool]) -> list[llm.Tool]:
-        """The same tools, answering without the passwords of this site in what they say."""
+        """The same tools, answering without the passwords of this site in what they say - and with what the applicant
+        said in the meantime after it (not after `report`: a word that comes that late is for the next run)."""
         from .. import secrets
 
         try:
@@ -136,7 +180,8 @@ class Desk:
         def kept(t: llm.Tool) -> llm.Tool:
             def run(**kw: Any) -> Any:
                 try:
-                    return self.clean(self._picture(lambda: t.fn(**kw)) if t.name == "look" else t.fn(**kw))
+                    out = self.clean(self._picture(lambda: t.fn(**kw)) if t.name == "look" else t.fn(**kw))
+                    return out if t.name in ("report", "done") else self._with_words(out)
                 except Exception as e:  # noqa: BLE001 - told to the agent as it is, without what is hidden
                     if any(pw in str(e) for pw in self.hidden):
                         raise RuntimeError(self._clean(f"{type(e).__name__}: {e}")) from None
@@ -186,8 +231,18 @@ class Desk:
                 return "The window is gone. Report what you know (ready, unless you saw it go out)."
             if self.hands.page.evaluate("() => !!window.__aaDone"):
                 break
-            time.sleep(2)
+            self._idle(2)
         return "The window is yours again. Look at what it shows now and at the site's list of applications, and report what the applicant did."
+
+    def _idle(self, seconds: float) -> None:
+        """Wait for the applicant at the window: through the page, so that a window shown in the web page (a server
+        without a screen) is served while waiting."""
+        try:
+            from .. import browser
+
+            browser.idle(self.hands.page, seconds)
+        except Exception:  # noqa: BLE001 - a page that cannot wait that way is waited for by the clock
+            time.sleep(seconds)
 
     # --- the site's notes ----------------------------------------------------------------------------------------
     def note(self, text: str, about: str = "") -> str:
@@ -212,6 +267,18 @@ class Desk:
         self.write("ask", question=q, about=about)
         return ("The question is on the record for the applicant; there is no answer yet. Leave what it is for as it is (empty, or the form's own default), "
                 "go on with everything else, and list it as open in your report. Do not send the application while it is open.")
+
+    def answered(self, question: str, answer: str) -> str:
+        """The applicant answered a question of this run by speaking to it: it is not open any more."""
+        want = " ".join(str(question).split()).lower()
+        hit = [q for q in self.asked if q["question"].lower() == want] or [q for q in self.asked if want and (want in q["question"].lower() or q["question"].lower() in want)]
+        if len(hit) != 1:
+            return ("That is not one of the questions open in this run: " + "; ".join(repr(q["question"]) for q in self.asked) if self.asked else "No question is open in this run.")
+        self.asked.remove(hit[0])
+        self.answers[hit[0]["question"]] = str(answer)[:1000]
+        (self.folder / "questions.json").write_text(json.dumps(self.asked, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.write("answered", question=hit[0]["question"], answer=str(answer)[:300])
+        return "The question is closed. In your report, give what you entered for it and say that it is the applicant's answer."
 
     def account(self) -> str:
         from .. import auth
@@ -286,6 +353,42 @@ class Desk:
         self.write("cover_letter", name=got["name"], problems=got.get("problems") or [])
         return (f"The cover letter is the file {got['name']!r}: upload it by that name."
                 + (f" The program's checks still object to: {'; '.join(got['problems'])[:400]}. Say so in your report." if got.get("problems") else ""))
+
+    def tailor_resume(self, instructions: str = "") -> str:
+        """Have the applicant's résumé rewritten for this posting (the program's own writer: within what the applicant's
+        settings allow, checked against the original) and add it to the files that may be uploaded."""
+        from .. import db, tailor
+        from ..models import Job
+
+        if not self.job_id:
+            return "No résumé can be rewritten here (this application is not one of the program's postings): use the résumé as it is."
+        if (tailor.settings().get("mode") or "off") == "off":
+            return "The applicant has switched off rewriting their résumé for postings: use the résumé as it is."
+        if tailor.base_doc() is None:
+            return "There is no Word résumé of the applicant's to rewrite (only a Word file can be): use the résumé as it is."
+        with db.session() as s:
+            job = s.get(Job, self.job_id)
+            s.expunge(job)
+        try:
+            doc = tailor.make(job, instructions=str(instructions)[:1000], automatic=True)
+        except Exception as e:  # noqa: BLE001 - told to the agent: the application goes on with the résumé as it is
+            self.write("resume", failed=f"{type(e).__name__}: {str(e)[:200]}")
+            return f"The résumé could not be rewritten ({type(e).__name__}: {str(e)[:200]}): use the résumé as it is."
+        info = doc.get("tailor") or {}
+        if not doc.get("current"):
+            why = "; ".join(map(str, info.get("problems") or [])) or "it came out the same as the original"
+            self.write("resume", failed=why[:300])
+            return f"Nothing usable came of rewriting it ({why[:400]}): use the résumé as it is."
+        self.hands.files[doc["name"]] = doc["path"]
+        self.write("resume", name=doc["name"])
+        said = (f"The rewritten résumé is the file {doc['name']!r}: upload it wherever the form takes a résumé, in place of the general one "
+                "(also where the general one was uploaded before).")
+        if self.mode == "auto" and db.get_setting("tailor.review"):
+            # the applicant's setting: a résumé written just now is looked at by them before it goes out
+            self.mode = "prepare"
+            said += (" The applicant has set that they look at a résumé written just now before it goes out: finish the application with it, "
+                     "do not send it in this run, and report `ready`.")
+        return said
 
     def mail(self, minutes: int = 15, about: str = "") -> str:
         """What arrived in the applicant's mailbox in the last minutes from this site: a code, a confirmation link.
@@ -385,6 +488,8 @@ class Desk:
             llm.Tool("notes", "Read what is written down about a recruiting system.", spec(["about"], about=s), self.notes),
             llm.Tool("ask", "Put a question to the applicant: something the form needs and you were not given. `about`: 'applicant' when it is about them in general, 'job' when it "
                             "is about this job only. `options`: the form's choices, when it has them. `why`: where the form asks it.", spec(["question"], question=s, about=s, options=arr, why=s), self.ask),
+            llm.Tool("answered", "The applicant answered a question you asked in this run by speaking to you while you worked: close it. `question`: as you asked it; "
+                                 "`answer`: what they said.", spec(["question", "answer"], question=s, answer=s), self.answered),
             llm.Tool("account", "What the program has on record for this site: the login name, whether a password is stored.", spec(), self.account),
             llm.Tool("type_password", "Have the applicant's password for this site typed into the password box `ref` (you do not see it), then press `then_click` (the sign-in or "
                                       "create-account button). `new`: make up and store a password first - for registering an account; a second box that wants the same "
@@ -395,6 +500,9 @@ class Desk:
                              "into its box). `minutes`: how far back; `about`: the employer's or the system's name, to find the mail by.", spec(minutes={"type": "number"}, about=s), self.mail),
             llm.Tool("cover_letter", "Have a cover letter written for this posting, when the posting or the form asks for one and none is among the files. It becomes a file you can "
                                      "upload. `instructions`: anything the letter must take into account.", spec(instructions=s), self.cover_letter),
+            llm.Tool("tailor_resume", "Have the applicant's résumé rewritten for this posting - reordered, and reworded where their settings allow, checked against the "
+                                      "original. It becomes a file you can upload. Whether this application is better with one is yours to judge, from the posting and from "
+                                      "what the brief says the applicant wants. `instructions`: anything the rewriting must take into account.", spec(instructions=s), self.tailor_resume),
             llm.Tool("sign_in_by_hand", "Hand the window to the applicant for something only they can do: a sign-in without a stored password, a code on their phone, a CAPTCHA. "
                                         "Ends this run; the next one goes on from here.", spec(["why"], why=s), self.sign_in_by_hand),
             llm.Tool("report", "End the run. outcome: ready (everything is in, one press from sending, not sent) | submitted (it went out: give the confirmation) | "
@@ -442,12 +550,14 @@ def journal_text(folder: Path) -> str:
             out.append(f"{e['at']} WAITED FOR THE APPLICANT: {e.get('why')}")
         elif kind == "ask":
             out.append(f"{e['at']} asked the applicant: {e.get('question')}")
+        elif kind == "said":
+            out.append(f"{e['at']} THE APPLICANT SAID, while the run worked: {e.get('text')}")
     cut_off()
     return "\n".join(out)
 
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
-          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None) -> Result:
+          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None) -> Result:
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
@@ -455,7 +565,7 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     hands = Hands(page, files=applicant.files, shots=folder / "shots")
     from urllib.parse import urlparse as _urlparse
 
-    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand)
+    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand, heard=heard)
     if record is None and (folder / "record.json").exists():
         try:
             record = json.loads((folder / "record.json").read_text(encoding="utf-8"))
@@ -489,6 +599,9 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
         res.outcome, res.record = "needs_you", {"outcome": "needs_you", "summary": desk.waiting, "asked": list(desk.asked)}
     else:
         desk.write("ended", why=res.stopped, steps=res.steps)
+    res.unheard = desk.words()
+    for w in res.unheard:      # said too late for this run: on the journal all the same, for the applicant and for the next run
+        desk.write("said", text=w, late=True)
     res.seconds = round(time.monotonic() - began, 1)
     return res
 
