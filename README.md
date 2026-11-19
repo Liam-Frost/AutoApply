@@ -4,8 +4,8 @@
 
 <p align="center">
   <b>A job-search assistant that runs on your own computer.</b><br>
-  It finds postings, scores them against your own rules, prepares every application as a draft,<br>
-  and fills in the form after <b>you</b> approve it. Then it reads your mail to track what happens.
+  It finds postings, scores them against your own rules, and an AI agent works each application<br>
+  from the posting to the confirmation - asking <b>you</b> what only you can answer. Then it reads your mail to track what happens.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
 - [How an application goes out](#how-an-application-goes-out)
 - [AI services, backups and allowance](#ai-services-backups-and-allowance)
 - [Your data](#your-data)
-- [What the previous version got wrong, and what changed](#what-the-previous-version-got-wrong-and-what-changed)
+- [What earlier versions got wrong, and what changed](#what-earlier-versions-got-wrong-and-what-changed)
 - [What has been verified](#what-has-been-verified)
 - [Development](#development)
 - [Community](#community)
@@ -41,16 +41,16 @@
 |---|---|
 | **Finds postings** | Reads the careers pages of the employers you choose (Greenhouse, Lever, Ashby, SmartRecruiters and Workday boards, eight large tech companies, field job boards with a feed, or any careers page read by the AI). 46 employers and 16 job boards are checked and ready to pick from. |
 | **Scores them** | Against rules written in plain language that you can edit. Postings that cannot fit (wrong country, wrong level) are dropped before any AI is spent on them. |
-| **Drafts the application** | Opens the real form, reads every question, and answers from your profile only. Each answer shows where it came from and how sure it is. Questions it cannot answer are left for you, not guessed. |
-| **Waits for you** | You review the draft, change anything in plain words ("make the second paragraph about my internship"), and approve. |
-| **Fills in the form** | The AI agent reads each page of the real form and fills it from the approved draft; the program reads every value back and asks the form what it still complains about. An approved draft is then submitted, unless you kept the last click for yourself. |
+| **Applies** | For a posting worth it, one AI agent opens the employer's site and works the application the way a careful person would: it reads the pages, signs in or registers, fills every section from your profile and résumé, uploads the right files, and looks again after every step. What the form needs and you never told the program, it asks you - it does not guess. |
+| **Keeps a record** | What was entered for every question and where that comes from. Correct an entry or say what to change in plain words ("say I can start in May"), and the agent goes back and changes it. |
+| **Sends it the way you chose** | By itself when nothing is open (the default); only after you have approved the record; or it stops at the last step and gives you the window. Per company if you like. |
 | **Tracks the result** | Reads your mailbox (read-only) for confirmations, rejections and interview invitations and updates each application. |
 
 It adapts to who you are: a first-run guide asks your career stage (internship, new graduate, experienced), field and target roles, and sets up filters, scoring rules and the interface accordingly. Not only for software jobs.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/draft-en.webp" alt="Reviewing a draft"><br><sub><b>A draft.</b> Every answer with its source; nothing is sent before you approve.</sub></td>
+<td width="50%"><img src="docs/images/draft-en.webp" alt="Reviewing a draft"><br><sub><b>The record of an application.</b> Every answer with where it comes from.</sub></td>
 <td width="50%"><img src="docs/images/todos-en.webp" alt="Things that need you"><br><sub><b>Needs you.</b> What the program could not do alone, listed by name.</sub></td>
 </tr>
 <tr>
@@ -64,15 +64,14 @@ It adapts to who you are: a first-run guide asks your career stage (internship, 
 
 ## What it will not do
 
-These are fixed in code and have no switch:
+The agent decides how to work a form. Four things are not its to decide:
 
-- **It does not invent anything about you.** Answers, cover letters and tailored résumés use only your résumé and the profile you confirmed.
-- **It does not submit what you have not approved.** The tools the AI is given cannot press Submit.
-- **It does not solve CAPTCHAs or type verification codes.** Those steps, and any site that turns the program's browser away, are handed to you. A second browser backend that sign-in pages are less likely to turn away can be switched on per site under *Settings → Network*; it is off by default.
-- **It does not call a form filled in while the form says otherwise.** If a field is still empty or rejected, you are told which one.
-- **It does not see your passwords.** They are in the system keyring; the AI only learns "signed in" or "needs you".
+- **It does not invent anything about you.** Answers, cover letters and tailored résumés come from your résumé, your profile and what you answered. What is missing is asked, and an application with a question open is not sent.
+- **Sending follows your rule.** A run is told whether it may send; saving a step or a profile on the way is not sending. An application is recorded as sent only with its confirmation: the page's own words, its address, and what ties it to the posting. If a run is cut off after it said it was about to send, the program looks whether the application is out before anything is pressed again. (This is an instruction the agent is given and reports against - the program does not claim to recognise every *Submit* button on every site.)
+- **It does not see your passwords, and does not get round a human check.** A stored password is typed by the program, into the site's own sign-in page and nowhere else; the agent only learns that it was typed. CAPTCHAs, codes on your phone and identity checks are handed to you.
+- **An application has a budget** (400 steps and 45 minutes by default). When it is used up the agent stops and asks whether to go on.
 
-## Install
+## Install## Install
 
 Download from the [latest release](https://github.com/Liam-Frost/AutoApply/releases/latest):
 
@@ -100,9 +99,10 @@ An icon appears in the tray (menu bar on macOS) and the page opens at `http://12
 1. **The guide** asks who you are and what you are looking for, then proposes filters and scoring rules you can edit.
 2. **AI service**: sign in with a Claude or ChatGPT subscription, or paste an API key (see below).
 3. **Profile**: upload your résumé; the program drafts your profile from it and marks what forms will ask that the résumé does not say.
-4. **Try one**: paste a posting's address and watch a draft being prepared, without sending anything.
+4. **How applications are sent**: by itself, after your approval, or by you (*Settings → Automation → How it is sent*). To watch first, choose approval.
+5. **Try one**: paste a posting's address and watch the agent work it.
 
-After that it works on a schedule: scan, score, draft, and tell you when something needs you (in the page, and on Telegram if you set it up).
+After that it works on a schedule: scan, score, apply, and tell you when something needs you (in the page, and on Telegram if you set it up).
 
 ## On a server
 
@@ -122,7 +122,7 @@ Then open `http://127.0.0.1:8000` on that computer. Everything that is yours is 
 
 What is different on a server:
 
-- **Windows that need you open in the web page.** Signing in to a site, pressing *Submit* yourself, taking over a form: on a desktop these open a browser window. Without a screen the page is shown in AutoApply's own page - a notice at the top, and a Telegram message with a link if you set that up - and you click and type there. A site that refuses a hidden browser gets a real window on a virtual screen, which is shown the same way.
+- **Windows that need you open in the web page.** Signing in to a site, pressing *Submit* yourself: on a desktop these open a browser window. Without a screen the page is shown in AutoApply's own page - a notice at the top, and a Telegram message with a link if you set that up - and you click and type there. A site that refuses a hidden browser gets a real window on a virtual screen, which is shown the same way.
 - **Use HTTPS from other devices.** The server speaks plain HTTP. For access from anywhere but the computer itself, put a reverse proxy that does HTTPS in front and turn on *a reverse proxy does the HTTPS* under *Settings → System and data → Remote access*. Until then the remote window is refused to other devices, because passwords are typed into it.
 - **Passwords and keys are in an encrypted file**, `data/secrets.bin`, because a server has no keyring. By default its master key is beside it; to keep the key elsewhere set `AUTOAPPLY_MASTER_KEY_FILE` (a Docker secret, a systemd credential). Keep a copy of that key: without it the saved passwords are lost.
 - **A sign-in that cannot be done on a server can be carried over.** Passkeys, and sites that only accept a computer they know: sign in with AutoApply on your own computer, export the sign-in under *Site accounts* (encrypted with a passphrase), import it on the server.
@@ -132,27 +132,26 @@ What is different on a server:
 ```mermaid
 flowchart LR
     A[Posting found] --> B[Scored by your rules]
-    B --> C[Form read,<br>draft prepared]
-    C --> D{You review}
-    D -- change it --> C
-    D -- approve --> E[Agent fills the form,<br>every value read back]
-    E --> F{Form reports<br>a problem?}
-    F -- no --> H[Submit]
-    F -- yes --> G[AI finishes the page<br>from your profile]
-    G --> F2{Still a problem?}
-    F2 -- no --> H
-    F2 -- yes --> I[Listed for you<br>in a visible window]
-    I --> H
+    B --> C[The agent works<br>the application]
+    C --> D{Something only<br>you can do?}
+    D -- a question --> Q[You answer<br>on the record]
+    D -- a sign-in, a code --> S[You sign in<br>in a window]
+    Q --> C
+    S --> C
+    D -- no --> E{Your rule<br>for sending}
+    E -- send --> H[Sent, with<br>its confirmation]
+    E -- approve first --> R[You approve<br>the record] --> C
+    E -- hand over --> W[You press<br>the last button] --> H
     H --> J[Mail tracked]
 ```
 
-Three things about this chain are worth knowing:
+What is worth knowing about it:
 
-- **The form has the last word.** After filling, the program asks the page itself what is wrong: fields it marks invalid, its error messages, required fields still empty. Neither the driver nor the AI can declare a page done while the page disagrees.
-- **The agent reads the form; code keeps the rules.** Every site's form is read and filled by the AI agent, page by page; the coded drivers sign in and serve as its tools. What the agent may not do is fixed in code: nothing is made up, nothing outside the approved draft is entered, and every value is read back and compared before anything is sent.
-- **What it learns stays.** Notes about a site, the form's own wording for your answers and the fields it discovered are kept, so the next run needs less help. And when a run stands out - a step much slower than usual, the AI taking over again and again - the AI writes down what the program should do differently on that site, as a recipe or a small piece of code; that is checked, tried in the runs that follow, taken out again if it fails, and kept in your data folder across upgrades. *Analysis → Time & learning* shows all of it.
-
-Who presses *Submit* is your choice per site or company: by default the program submits an approved draft once every value has been read back. It waits for your click when you kept the last click for that site, when an answer is below your confidence bar, or when the run cannot vouch for what the form holds.
+- **One agent, the whole task.** It is given everything at once - the posting, your profile and résumé, your files, what earlier runs on this application did, what is written down about the site - and one set of tools: look at the page, list its controls, click, type, choose, upload, run a script. Nothing prepares the form for it and nothing checks its clicks; it looks before it acts and again after.
+- **The program keeps what must not depend on a model's memory.** Where the application stands, its record, its journal and its budget are in the database and on disk: a run that is cut off - the window closed, the computer restarted - is taken up from there, in a new window if need be.
+- **Three different ways of stopping, three different answers.** The AI service's allowance has run out: the task waits and is tried again when it is back. The application's own budget is used up: you are asked whether to give it another. It ended at the same place three times: it is brought to you with what it wrote down.
+- **What it learns is words.** After working a site the agent writes down what the next application there should know - how a control behaves, what the résumé parser gets wrong - and reads it the next time. Notes about recruiting systems (Workday, Greenhouse, Ashby, SmartRecruiters, SuccessFactors and others) ship with the program. *Analysis → Site notes* shows what it wrote, and lets you clear it.
+- **How forms are filled is in a manual you can edit** (*Settings → System and data → Expert tools → Prompts*): fill optional sections, decline job alerts, what to do with consent notices. A rule about you alone belongs in your profile.
 
 ## AI services, backups and allowance
 
@@ -174,7 +173,7 @@ Who presses *Submit* is your choice per site or company: by default the program 
 
 **Allowance.** Where a service reports it, the program shows how much is used, warns you once when it passes the level you set (80 % by default), and stops calling a service that is used up until it resets.
 
-The Claude subscription is the best-tested service. Others work through the same interface; weaker models read forms less reliably. All the guard rails above are in code and do not depend on the model.
+The Claude subscription is the best-tested service, and the agent was built and measured with Anthropic's most capable model. Others work through the same interface; a weaker model works a form less reliably, and a whole application is many model calls - on real sites a run has used several million cached tokens. *Analysis → AI cost* shows what each application took.
 
 ## Your data
 
@@ -185,24 +184,26 @@ The Claude subscription is the best-tested service. Others work through the same
 - The server listens on `127.0.0.1` unless you change that under Settings → System and data → Remote access, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
 - *Settings → System and data → Backup and updates → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
 
-## What the previous version got wrong, and what changed
+## What earlier versions got wrong, and what changed
 
-AutoApply 1.0 is a rewrite. The earlier version (the `legacy-v0` branch) had about 55,000 lines of code and 1,720 passing tests, and could not submit an application: form filling, submission, status tracking and scheduled search all ended in `not_implemented`. In the same months, the same author sent more than 140 real applications by driving a general coding agent by hand. Comparing the two showed what was wrong.
+There have been three attempts, and the first two failed in the same direction.
 
-| What the previous version did | Why it failed | What 1.0 does |
-|---|---|---|
-| **Measured progress in tests.** 1,720 tests, none of which sent an application. | Tests passed while the product did not work. | Every milestone is accepted on real applications. [docs/STATUS.md](docs/STATUS.md) says what has been run for real and what has only been unit-tested. |
-| **Put the AI in boxes.** The model filled a few constrained text slots inside a fixed pipeline. | Real forms are irregular; a pipeline has no slot for "this field appeared after I answered that one". | The model perceives, judges and repairs; code keeps state, executes and enforces the rules. |
-| **Showed the model a summary of the page.** A static snapshot of at most 60 fields, no screenshot. | The model could not see what a person sees, so it could not notice an error message or a custom control. | The AI reads the whole page, takes screenshots, lists controls and their options, and asks the form what it still complains about. |
-| **Stored the applicant as tables and regular expressions.** A structured schema plus ten categories of pattern-matched answers. | Real rules have conditions and exceptions ("use my legal name only when the form asks for it") that a table cannot hold. | The profile is a dated Markdown document that you and the AI both read and correct. |
-| **Wrote cover letters from keyword buckets.** Classify the posting, pick a hard-coded skill bucket, fill five fixed paragraphs. | Letters that could be about anyone. | The letter is written from your whole résumé, the whole posting and your own example letters, then checked against your résumé for anything invented. |
-| **One adapter per job site, written in advance.** | Never caught up: most sites had none. | Dedicated drivers for the common systems; any other site is explored by the AI once, and what it learns is kept. |
-| **No fallback.** A step either worked or stopped. | One unexpected field ended the run. | Driver → the form's own verdict → AI take-over → verdict again → you. A run is handed over, not thrown away. |
+**The first** (the `legacy-v0` branch) had about 55,000 lines of code and 1,720 passing tests, and could not submit an application. The model filled a few constrained text slots inside a fixed pipeline, saw a summary of the page instead of the page, and the applicant was stored as tables and regular expressions. In the same months its author sent more than 140 real applications by driving a general coding agent by hand.
 
-Two mistakes were made again while building 1.0 and are fixed in this release, recorded here because they are easy to repeat:
+**1.0** gave the model the page and kept a pipeline around it: read the form into a structure, draft answers, fill by a coded driver per recruiting system, compare every value, let an AI "take over" a page that would not fill, gate what it could press, learn recipes and plugins from runs, replay saved pages as a self-check. It sent real applications. It also grew to about 31,000 lines and 86 regular expressions, with the model called through seven narrow openings, and every site that behaved a little differently became another rule, another gate and another test pinned to a fixture: an application made in four stages was reported as done after the first, a confirmation that showed no expected phrase was not recognised, a broken driver was retried instead of handed to the agent that could have done the work.
 
-- The AI take-over was first allowed to set only a given list of fields. It ignored a required field that appeared after an answer and reported a form as filled while the form showed errors. *Now it finishes the page, and the page decides.*
-- A form described with selectors like "the second drop-down on the page" gave several questions the same identity, and their answers were lost. *Now every question has its own identity however the form is described, and positional selectors are refused.*
+**2.0** takes the lesson the author's own hand-driven applications had been showing all along: a capable model with the whole context and ordinary browser tools works an application; software built around it to make it "safe" mostly keeps it from doing so.
+
+| What 1.x did | What 2.0 does |
+|---|---|
+| A pipeline of stages, each with its own narrow prompt and its own tools | One agent, one run, from the posting to the confirmation |
+| A driver per recruiting system, an explorer for the rest, a repair agent, a gate | One set of browser tools for every site; what is known about a system is notes the agent reads |
+| The form read into a structure first, answers drafted against it, values compared afterwards | The agent fills the real form and reports what it entered and why |
+| Rules in code for what a button is, what a confirmation looks like, when a step is the last | The agent judges the page; the program holds four limits and the state |
+| What was learned kept as recipes, plugins and saved pages, checked by more code | What was learned kept as sentences |
+| Tests pinned to saved pages of real sites | Evaluation forms with an employer's side: a run is judged by what the employer received (`eval/`) |
+
+The drivers, the fallback chain, the repair agent, the gate, the learned plugins and the self-check were removed, not kept as a fallback: more than 15,000 lines of code and tests.
 
 ## What has been verified
 
@@ -211,11 +212,12 @@ Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
 | | Status |
 |---|---|
 | Windows 10 / 11 | used daily |
-| Greenhouse; forms explored by the AI (Microsoft Careers, BambooHR, JazzHR sites) | real applications submitted and confirmed by mail |
-| Ashby | filled and read back on real forms; none submitted yet |
-| Forms read and filled by the agent, then submitted by the program | used for real: applications submitted and confirmed by the employer |
-| Workday | one form read and walked to its review page |
-| UBC portal | postings imported for real; signing in and scanning through the program not yet confirmed |
+| The application agent on the project's evaluation forms (a profile-first wizard, a form in another site's frame, a site that needs an account; a run killed half-way and taken up again) | every check passed, judged by what the employer's side received |
+| The application agent on real sites | three real postings worked up to the last step without sending (a SAP SuccessFactors site, a Workday site, Google Careers): accounts made, every step filled, questions asked. **No real application has been sent by the 2.0 agent yet** |
+| Sending by itself, after approval, or handing the window over | through the queue on the evaluation form; not on a real site |
+| Applications sent with 1.x (Greenhouse, Microsoft Careers, BambooHR and JazzHR sites) | real, confirmed by mail; that code is gone |
+| A co-op portal read by the agent | on the evaluation site's portal (a sign-in, a list on two pages): signed in, listed everything, stored every posting. Not on a real portal |
+| UBC portal | postings imported for real; the agent scanning the portal and applying through it are not confirmed on the real portal |
 | The login, the listening address and the path prefix | login run end to end on a scratch copy; access from another device or behind a real reverse proxy not run |
 | Windows installer (install, upgrade, refusing to run over a running copy, cancel with the previous version put back, uninstall) | run end to end into a scratch folder, by CI on every release |
 | Failover between AI services | run once for real, when a subscription had actually run out |
@@ -243,7 +245,7 @@ cd AutoApply
 | `uv run python scripts/make_release.py` | the portable zip |
 | `uv run python scripts/make_installer.py` | the Windows installer |
 
-Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `ats/` holds the drivers and the page audit, `executor.py` the fallback chain, `repair.py` the AI take-over, `llm.py` the services and their failover, `access.py` the login and where the server listens), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
+Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `agent/` is the application agent - `apply.md` its manual, `hands.py` its browser tools, `run.py` one run, `work.py` what a run's outcome becomes, `playbooks/` the notes about recruiting systems; `llm.py` the services and their failover, `access.py` the login and where the server listens), `eval` (forms with an employer's side, and the harness that runs the agent on them: `python eval/run.py --form profile_first` - it spends your AI allowance), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
 
 **Releasing.** Set the version in `pyproject.toml`, add the section to `CHANGELOG.md`, then:
 

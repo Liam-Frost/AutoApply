@@ -21,7 +21,7 @@ log = logging.getLogger("autoapply.lifecycle")
 LABEL = {"submitted": "已提交", "confirmed": "已确认收到", "assessment": "测评中", "interview": "面试中", "offer": "已拿到 offer", "rejected": "已被拒"}
 # cards that ask the applicant to do something for this application; a card about a driver, a setting or a mail is not one
 CARDS = ("failed", "submit", "answer", "takeover", "login", "blocked", "captcha")
-WORK = ("recon", "scout", "execute", "revise", "reanswer", "tailor")     # tasks that prepare or fill an application
+WORK = ("apply", "tailor", "recon", "scout", "execute", "revise", "reanswer")     # tasks that work an application (the last five: the kinds of earlier versions, in the history)
 
 
 def move(app: Any, to: str, *, source: str, evidence: dict[str, Any] | None = None, at: datetime | None = None, back: bool = False, note: str = "",

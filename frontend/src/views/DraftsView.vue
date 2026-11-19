@@ -21,7 +21,7 @@ async function read() {
 // sides of one thing; shown side by side they only repeated each other (and the second came out as an internal name).
 function state(d) {
   if (d.review_status === 'pending') {
-    if (d.app_status === 'recon') return ['正在读表', 'info']
+    if (d.app_status === 'recon') return ['Agent 正在做', 'info']
     if (d.unresolved) return ['等你回答问题', 'bad']
     return ['待审批', 'warn']
   }
@@ -64,7 +64,7 @@ async function dropPicked() {
   if (!(await ask(`不投所选的 ${chosen.value.length} 个岗位了？草案会关掉，岗位记为“不投”。`))) return
   await batch('withdraw', (n) => `已关掉 ${n} 份`)
 }
-const redoPicked = () => batch('rebuild', (n) => `已开始重新生成 ${n} 份草案`)
+const redoPicked = () => batch('rebuild', (n) => `Agent 会重新处理这 ${n} 份申请`)
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
 useRefresh(load)
@@ -83,7 +83,7 @@ onMounted(load)
     <span class="muted small">已选 {{ chosen.length }} 份<template v-if="chosen.length && approvable.length !== chosen.length">，其中 {{ approvable.length }} 份现在能批准</template></span>
     <span class="grow"></span>
     <button class="primary" :disabled="busy || !approvable.length" @click="approvePicked"><Icon name="check" />批准（{{ approvable.length }}）</button>
-    <button :disabled="busy || !chosen.length" @click="redoPicked"><Icon name="refresh" />重新生成（{{ chosen.length }}）</button>
+    <button :disabled="busy || !chosen.length" @click="redoPicked"><Icon name="refresh" />让 Agent 重做（{{ chosen.length }}）</button>
     <button class="ghost" :disabled="busy || !chosen.length" @click="dropPicked">不投这些了（{{ chosen.length }}）</button>
   </div>
 
@@ -103,8 +103,7 @@ onMounted(load)
           <td class="small col-more">{{ d.ats_label }}</td>
           <td>
             <span v-if="d.unresolved" class="tag bad">{{ d.unresolved }} 个问题要你回答</span>
-            <span v-if="d.sensitive_new" class="tag warn" style="margin-left: 4px">{{ d.sensitive_new }} 个敏感问题第一次遇到</span>
-            <span v-if="!d.unresolved && !d.sensitive_new" class="muted small">无</span>
+            <span v-if="!d.unresolved" class="muted small">无</span>
           </td>
           <td><span class="tag" :class="state(d)[1]">{{ state(d)[0] }}</span></td>
         </tr>

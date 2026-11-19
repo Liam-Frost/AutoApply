@@ -184,7 +184,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String)  # discover|score|recon|revise|execute|mail|canary|profile_init
+    kind: Mapped[str] = mapped_column(String)  # discover|score|apply|tailor|mail|site_status|profile_init (and, in the history, the kinds of earlier versions)
     status: Mapped[str] = mapped_column(String, default="queued")  # queued|running|done|failed|waiting_human|cancelled
     ref: Mapped[str] = mapped_column(String, default="")  # e.g. "job:12", "draft:4"
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -211,7 +211,7 @@ class Run(Base):
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     spans: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)      # where the time went (timing.py)
     site: Mapped[str | None] = mapped_column(String, nullable=True)                       # the site the form is on (a plan and notes are per site)
-    learned: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)                # what the program had learned that was in force (learned.py)
+    learned: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)                # (earlier versions: what had been learned that was in force)
     llm_calls: Mapped[int] = mapped_column(Integer, default=0)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -268,9 +268,9 @@ class Site(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)          # "generic:careers.acme.com", "workday:acme.wd1", "idp:google"
     same_as: Mapped[str] = mapped_column(String, default="")            # the site whose sign-in this one uses
-    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, driver_written
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, sign_in_hosts, second_factor (sites.FACTS)
     notes: Mapped[list] = mapped_column(JSON, default=list)             # [{"at": "2026-11-17", "text": ...}], newest first
-    steps: Mapped[dict] = mapped_column(JSON, default=dict)             # the steps of its form (siteplan.py)
+    steps: Mapped[dict] = mapped_column(JSON, default=dict)             # (earlier versions: the steps of its form)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 
 
@@ -311,7 +311,7 @@ class Todo(Base):
     __tablename__ = "todos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String)  # login|captcha|takeover|answer|drift|failed|mail_unmatched|driver_patch
+    kind: Mapped[str] = mapped_column(String)  # takeover|answer|submit|failed|blocked|config|mail_unmatched|followup (and, in the history, the kinds of earlier versions)
     ref: Mapped[str] = mapped_column(String, default="")
     title: Mapped[str] = mapped_column(String, default="")
     body: Mapped[str] = mapped_column(Text, default="")

@@ -1,7 +1,7 @@
 """One user-facing stage per job, derived from the job row and its application.
 
 Internally a job has a discovery status (new / scored / queued / skipped / offline) and, once a draft
-exists, an application status (the state machine in drafts.py and executor.py). The jobs table shows a
+exists, an application status (lifecycle.py; agent/work.py moves it while an application is worked). The jobs table shows a
 single stage instead, so "not applied" never hides behind an internal word like "queued".
 """
 

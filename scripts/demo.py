@@ -31,13 +31,17 @@ L = {  # text the program (or its AI) would have written, in the two interface l
                   "why": "根据简历里的 Lumen Health 实习和岗位说明写的，没有添加简历以外的经历", "start": "个人资料：2027 年 5 月毕业，6 月可以到岗"},
         "why": "Northwind 把运营数据直接用来改善门店体验，这正是我在 Lumen Health 实习时最喜欢做的事：我搭的周报看板把预约爽约率的分析时间从两天缩短到两小时。我想在一个数据会被真正用起来的团队里继续做这件事。",
         "mail": ["Harbor Bank 确认已收到你对 Junior Data Analyst 的申请，会在两周内回复。", "Kestrel Systems 邀请你参加 11 月 20 日上午 10 点的线上面试（45 分钟）。", "Pinecrest Labs 表示这次不再推进你的申请。"],
-        "todo_login": "这个网站要先登录才能申请。你在这里有账号的话，登录一次，程序会记住登录状态。",
-        "unresolved": "资料里没有写期望薪资。",
-        "open": [{"label": "Expected salary (CAD)", "expected": "", "kind": "fix", "why": "资料里没有这一项，需要你来填"}],
-        "mapped": [{"label": "Veteran Status", "approved": "No", "chosen": "I am not a protected veteran"}],
-        "added": [{"label": "Legal First Name", "value": "Alexander", "basis": "个人资料：证件上的名字是 Alexander Chen"}],
-        "submit_body": "还有 1 处没填好，需要你在窗口里处理；1 项是 AI 按你的资料补填的",
-        "answer_body": "1 个问题没有答案：\n· What are your salary expectations?",
+        "todo_login": "这个网站登录时要输入发到手机上的验证码，Agent 做不了这一步。请登录一次，程序会记住登录状态，之后它接着做。",
+        "unresolved": "第 2 步“Compensation”，必填。资料里没有写期望薪资。",
+        "answer_body": "1 个问题需要你回答：\n· What are your salary expectations?",
+        "budget_title": "这份申请的预算用完了",
+        "budget_body": "已经用了 400 步、约 41 分钟，分 2 次运行，还没有做完。Agent 最后记下的是：工作经历一共 6 段，已填好 4 段，第 5 段的结束日期控件不接受键盘输入，正在换一种方式。\n要继续的话，再给它一份预算。",
+        "summary": "申请表 3 步都填好了，停在最后的“Review”页，没有点提交。简历解析把两个课程项目当成了工作经历，已经删掉；求职信是为这个岗位写的。",
+        "journal": ["打开岗位页，点 Apply；这个网站不需要账号", "上传简历后表单自动填了姓名和邮箱；解析把两个课程项目当成了工作经历，已删除", "第 2 步的问题都按个人资料填好，“Why are you interested”按简历和岗位说明写了 60 词",
+                    "到了 Review 页，从头核对了一遍，和准备提交的内容一致"],
+        "site_notes": [("generic:careers.alder.example", ["简历在第一步上传，表单会从里面填姓名和邮箱，但会把课程项目当成工作经历：上传后要检查“Experience”。", "电话区号列表选中之后只显示区号本身，看上去像没选上，其实选上了。",
+                                                        "第 2 步的前进按钮叫“Save and continue”，不是“Next”。"]),
+                       ("system:workday", ["这家的 Workday 在“My Experience”里把学校名称做成了要搜索的列表：输入学校名的前几个词，等下拉出现再选。"])],
         "profile": "# 个人资料\n\n## 身份与联系方式\n\n- 姓名：Alex Chen（证件上的名字是 Alexander Chen）\n- 邮箱：alex.chen@example.com\n- 电话：+1 604-555-0142\n- 所在地：加拿大温哥华\n- LinkedIn：https://www.linkedin.com/in/alex-chen-example\n\n## 教育\n\n- Example University，商学学士（商业分析方向），2023 年 9 月 – 2027 年 5 月\n\n## 工作许可\n\n- 加拿大公民，可以合法工作；不需要签证担保。\n\n## 到岗\n\n- 2027 年 5 月毕业，6 月可以到岗。\n",
     },
     "en": {
@@ -49,13 +53,17 @@ L = {  # text the program (or its AI) would have written, in the two interface l
                   "why": "Written from the Lumen Health internship on the résumé and the posting; nothing added that is not on the résumé", "start": "Profile: graduates May 2027, can start in June"},
         "why": "Northwind uses its operations data to improve what happens in stores, which is the part of my Lumen Health internship I enjoyed most: the weekly dashboard I built cut the no-show analysis from two days to two hours. I want to keep doing that on a team where the numbers actually get used.",
         "mail": ["Harbor Bank confirmed it received your application for Junior Data Analyst and will reply within two weeks.", "Kestrel Systems invites you to a 45-minute online interview on 20 November at 10:00.", "Pinecrest Labs is not moving forward with your application this time."],
-        "todo_login": "This site needs you to sign in before applying. If you have an account here, sign in once and the program remembers it.",
-        "unresolved": "The profile does not state a salary expectation.",
-        "open": [{"label": "Expected salary (CAD)", "expected": "", "kind": "fix", "why": "The profile does not state this; it needs you"}],
-        "mapped": [{"label": "Veteran Status", "approved": "No", "chosen": "I am not a protected veteran"}],
-        "added": [{"label": "Legal First Name", "value": "Alexander", "basis": "Profile: the name on documents is Alexander Chen"}],
-        "submit_body": "1 item still needs you in the window; 1 item was filled in by the AI from your profile",
-        "answer_body": "1 question has no answer:\n· What are your salary expectations?",
+        "todo_login": "Signing in to this site asks for a code sent to your phone, which the agent cannot enter. Sign in once; the program keeps the sign-in and the agent goes on from there.",
+        "unresolved": "Step 2, “Compensation”, required. The profile does not state a salary expectation.",
+        "answer_body": "1 question needs your answer:\n· What are your salary expectations?",
+        "budget_title": "the budget of this application is used up",
+        "budget_body": "400 steps and about 41 minutes were used over 2 runs, and it is not finished. The agent's last note: of six work entries four are in; the end-date control of the fifth does not take typing, trying another way.\nGive it another budget to have it go on.",
+        "summary": "All three steps of the form are filled in; stopped on the final Review page without pressing submit. The résumé parser had turned two course projects into jobs: removed. The cover letter was written for this posting.",
+        "journal": ["Opened the posting and pressed Apply; this site needs no account", "After the résumé upload the form filled in name and e-mail; the parser had turned two course projects into jobs - removed",
+                    "Step 2 answered from the profile; “Why are you interested” written in 60 words from the résumé and the posting", "On the Review page: went through the whole form again; it matches what is to be sent"],
+        "site_notes": [("generic:careers.alder.example", ["The résumé is uploaded on the first step and the form takes name and e-mail from it, but it turns course projects into jobs: check Experience after the upload.",
+                                                        "The phone code list shows only the code once an entry is chosen; it looks unset and is not.", "The forward button on step 2 is called “Save and continue”, not “Next”."]),
+                       ("system:workday", ["On this employer's Workday the school name under My Experience is a list that searches: type the first words of the name and wait for the entries."])],
         "profile": "# Profile\n\n## Identity and contact\n\n- Name: Alex Chen (name on documents: Alexander Chen)\n- E-mail: alex.chen@example.com\n- Phone: +1 604-555-0142\n- Location: Vancouver, Canada\n- LinkedIn: https://www.linkedin.com/in/alex-chen-example\n\n## Education\n\n- Example University, Bachelor of Commerce (Business Analytics), Sept 2023 – May 2027\n\n## Work authorisation\n\n- Canadian citizen, legally able to work; no sponsorship needed.\n\n## Availability\n\n- Graduates May 2027; can start in June.\n",
     },
 }
@@ -64,7 +72,7 @@ JOBS = [  # company, title, location, score, source, application status
     ("Northwind Analytics", "Data Analyst, Store Operations (New Grad)", "Vancouver, BC, Canada", 9.2, "greenhouse", "draft_ready"),
     ("Harbor Bank", "Junior Data Analyst", "Toronto, ON, Canada", 8.8, "workday", "confirmed"),
     ("Kestrel Systems", "Business Intelligence Analyst I", "Vancouver, BC, Canada", 8.6, "ashby", "interview"),
-    ("Lumen Health", "Analyst, Clinical Operations", "Burnaby, BC, Canada", 8.4, "greenhouse", "ready_to_submit"),
+    ("Lumen Health", "Analyst, Clinical Operations", "Burnaby, BC, Canada", 8.4, "greenhouse", "failed"),
     ("Aurora Robotics", "Operations Analyst", "Seattle, WA, USA", 8.1, "page", "needs_human"),
     ("Pinecrest Labs", "Associate Analyst, Finance", "Calgary, AB, Canada", 7.9, "lever", "rejected"),
     ("Meridian Foods", "Supply Chain Analyst (Entry Level)", "Richmond, BC, Canada", 7.7, "workday", "needs_input"),
@@ -141,27 +149,32 @@ def seed(lang: str) -> None:
                  ("start", "Earliest start date", "text", "June 2027", "start"), ("heard", "How did you hear about this role?", "select", "Company website", "heard"),
                  ("why", "Why are you interested in this role at Northwind?", "textarea", t["why"], "why")]
 
-    def schema(ats: str, host: str) -> dict:
-        return {"ats": ats, "tenant": host.split(".")[0], "job_ref": "1", "url": f"https://{host}/jobs/1", "source": "api", "pages": ["Application"], "extra": {},
-                "questions": [{"id": i, "label": lab, "type": typ, "required": i not in ("linkedin", "heard"), "options": ["Yes", "No"] if typ == "select" and i != "heard" else
-                               (["Company website", "Job board", "Referral", "Other"] if i == "heard" else []), "page": 0, "section": "", "help": "", "locator": {}, "depends_on": "", "accept_text": False}
-                              for i, lab, typ, _, _ in questions],
-                "_ref": {"ats": ats, "tenant": host.split(".")[0], "job_id": "1", "url": f"https://{host}/jobs/1", "host": host, "extra": {}}}
+    def schema(host: str) -> dict:      # (a record the agent wrote has no form structure behind it)
+        return {"ats": "agent", "tenant": host, "url": f"https://{host}/jobs/1", "source": "agent", "pages": [], "questions": [], "extra": {"agent": True}}
 
     def answers(unresolved: bool = False) -> list[dict]:
-        rows = [{"id": i, "label": lab, "type": typ, "options": [], "required": i not in ("linkedin", "heard"), "page": 0, "value": val, "basis": t["basis"][b],
-                 "confidence": "medium" if i == "why" else "high", "source": "materials" if typ == "file" else "profile", "sensitive": "work_auth" if i == "auth" else "sponsorship" if i == "sponsor" else "",
-                 "sensitive_confirmed": True} for i, lab, typ, val, b in questions]
-        # two answers that were given before: one the applicant confirmed on this employer's form, one that was last used on another employer's
-        for r in rows:
-            if r["id"] == "auth":
-                r.update(source="cache", reused={"own": True, "confirmed": True, "employer": "", "at": (now - timedelta(days=9)).isoformat(timespec="minutes")})
-            elif r["id"] == "start":
-                r.update(source="cache", confidence="medium", reused={"own": False, "confirmed": False, "employer": "lumen", "at": (now - timedelta(days=4)).isoformat(timespec="minutes")})
+        rows = [{"id": f"a{k}", "label": lab, "type": typ, "options": [], "required": False, "page": 0, "value": val, "basis": t["basis"][b],
+                 "confidence": "medium" if i in ("why", "start") else "high", "source": "agent"} for k, (i, lab, typ, val, b) in enumerate(questions, 1) if typ != "file"]
         if unresolved:
-            rows.append({"id": "salary", "label": "What are your salary expectations?", "type": "text", "options": [], "required": True, "page": 0, "value": "", "basis": t["unresolved"],
-                         "confidence": "low", "source": "unresolved", "sensitive": "salary", "sensitive_confirmed": False})
+            rows.append({"id": "q1", "label": "What are your salary expectations?", "type": "text", "options": [], "required": True, "page": 0, "value": "", "basis": t["unresolved"],
+                         "confidence": "low", "source": "unresolved", "about": "applicant"})
         return rows
+
+    def journal(app_id: int, at: datetime, *, asked: bool = False, runs: int = 1, steps: int = 96, minutes: float = 12.5) -> None:
+        """What the agent wrote down while it worked this application, as its folder holds it (agent/work.py reads it)."""
+        import json
+
+        folder = config.DATA / "agent" / f"app_{app_id}"
+        folder.mkdir(parents=True, exist_ok=True)
+        lines = [{"at": at.isoformat(timespec="seconds"), "kind": "run", "mode": "prepare"}]
+        for k, text in enumerate(t["journal"]):
+            lines += [{"at": (at + timedelta(minutes=2 + 3 * k)).isoformat(timespec="seconds"), "kind": "tool", "tool": "steps", "ok": True, "output": ""}] * 12
+            lines.append({"at": (at + timedelta(minutes=3 + 3 * k)).isoformat(timespec="seconds"), "kind": "log", "text": text})
+        if asked:
+            lines.append({"at": (at + timedelta(minutes=9)).isoformat(timespec="seconds"), "kind": "ask", "question": "What are your salary expectations?", "about": "applicant"})
+        lines.append({"at": (at + timedelta(minutes=minutes)).isoformat(timespec="seconds"), "kind": "report", "outcome": "needs_you" if asked else "ready", "summary": t["summary"], "open": int(asked), "sent": False})
+        (folder / "journal.jsonl").write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n", encoding="utf-8")
+        (folder / "spent.json").write_text(json.dumps({"steps": steps, "seconds": minutes * 60, "runs": runs, "granted": 1}), encoding="utf-8")
 
     with db.session() as s:
         ids = {}
@@ -202,26 +215,33 @@ def seed(lang: str) -> None:
                 a.evidence = {"text": "Thank you for applying", "url": f"https://{host}/jobs/{100 + n}/confirmation"}
             s.add(a)
             s.flush()
-            if st in ("draft_ready", "needs_input", "ready_to_submit"):
+            if st in ("draft_ready", "needs_input"):
                 rows = answers(unresolved=st == "needs_input")
                 if not n:      # the first posting's letter was rewritten once: the earlier writing is kept beside the one in use
                     letter(j.id, company, title, 1, False)
                 cl = letter(j.id, company, title, 2 if not n else 1, True)
-                d = Draft(application_id=a.id, version=1, schema=schema("greenhouse", host), answers=rows, unresolved=[r for r in rows if r["source"] == "unresolved"],
-                          materials=[{"slot": "resume", "slot_label": "Resume/CV", "document_id": cv.id, "kind": "resume_site", "name": cv.name, "path": cv.path},
-                                     {"slot": "cover", "slot_label": "Cover Letter", "document_id": cl.id, "kind": "cover_letter", "name": cl.name, "path": cl.path}],
-                          review_status="approved" if st == "ready_to_submit" else "pending", notes=[], plan=[], auto_approve_check={"passed": False, "failed": ["cover_letter_ok"], "checks": {}})
+                d = Draft(application_id=a.id, version=1, schema=schema(host), answers=rows, unresolved=[r for r in rows if r["source"] == "unresolved"],
+                          materials=[{"slot": "Resume/CV", "label": "Resume/CV", "document_id": cv.id, "kind": "file", "name": cv.name, "path": cv.path},
+                                     {"slot": "Cover Letter", "label": "Cover Letter", "document_id": cl.id, "kind": "file", "name": cl.name, "path": cl.path}],
+                          review_status="pending", notes=[t["summary"]], plan=[])
                 s.add(d)
                 s.flush()
-                title_ = f"{company} · {title}"
+                journal(a.id, now - timedelta(hours=5 + n), asked=st == "needs_input")
                 if st == "needs_input":
-                    s.add(Todo(kind="answer", ref=f"draft:{d.id}", title=title_, body=t["answer_body"], payload={"draft_id": d.id}))
-                elif st == "ready_to_submit":
-                    s.add(Todo(kind="submit", ref=f"application:{a.id}", title=title_, body=t["submit_body"],
-                               payload={"draft_id": d.id, "incomplete": True, "open_items": t["open"], "mapped": t["mapped"], "added": t["added"]}))
+                    s.add(Todo(kind="answer", ref=f"draft:{d.id}", title=f"{company} · {title}", body=t["answer_body"], payload={"draft_id": d.id}))
+            title_ = f"{company} · {title}"
+            if st == "failed":       # an application whose budget is used up: the applicant is asked whether to give it another
+                a.last_event = t["budget_title"]
+                journal(a.id, now - timedelta(hours=9), runs=2, steps=400, minutes=41)
+                s.add(Todo(kind="failed", ref=f"application:{a.id}", title=f"{title_}：{t['budget_title']}" if lang == "zh" else f"{title_}: {t['budget_title']}", body=t["budget_body"],
+                           payload={"application_id": a.id, "budget": True}))
             if st == "needs_human":
-                s.add(Todo(kind="takeover", ref=f"account:generic:{host}", title=f"{company} · {title}", body=t["todo_login"],
-                           payload={"tenant_key": f"generic:{host}", "ats": "generic", "url": f"https://{host}/login", "job_url": f"https://{host}/jobs/{100 + n}", "can_register": True}))
+                s.add(Todo(kind="takeover", ref=f"account:generic:{host}", title=title_, body=t["todo_login"],
+                           payload={"tenant_key": f"generic:{host}", "url": f"https://{host}/login", "job_url": f"https://{host}/jobs/{100 + n}"}))
+        from autoapply.models import Site
+
+        for key, notes in t["site_notes"]:      # what the agent wrote down about the sites it worked (Analysis -> Site notes)
+            s.add(Site(key=key, facts={}, notes=[{"at": (now - timedelta(days=3 * k + 1)).date().isoformat(), "text": x} for k, x in enumerate(notes)], steps={}))
         apps = {a.job.company: a for a in s.query(Application)}
         for k, (company, cat, subj) in enumerate([("Harbor Bank", "confirmation", "Thank you for applying to Harbor Bank"), ("Kestrel Systems", "interview", "Interview invitation - Business Intelligence Analyst I"),
                                                    ("Pinecrest Labs", "rejection", "Update on your application")]):
@@ -229,7 +249,6 @@ def seed(lang: str) -> None:
             s.add(MailEvent(message_id=f"demo-mail-{k}", sender=f"careers@{company.split()[0].lower()}.example", subject=subj, received_at=now - timedelta(hours=5 + 20 * k), category=cat,
                             application_id=apps[company].id, company_guess=company, summary=t["mail"][k]))
         seed_history(s, now, lang)
-        seed_timing(s, now)
 
 
 SERVE = """
@@ -270,7 +289,7 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     import random
 
     from autoapply import metering
-    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
+    from autoapply.models import Application, ApplicationEvent, Job, LLMRequest, MailEvent, Task
 
     rnd = random.Random(7)
     firms = ["Alder", "Birchwood", "Cedar Point", "Dunmore", "Eastgate", "Fairhaven", "Glenrock", "Highfield", "Ironbridge", "Juniper", "Kingsley", "Larkspur"]
@@ -317,8 +336,6 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     # --- the program's tasks of the last five weeks, and their model requests --------------------------------------------
     OPUS, HAIKU, SONNET = "claude-opus-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"
     job_ids = [j.id for j in s.query(Job).order_by(Job.id)]
-    app_ids = [a.id for a in s.query(Application).order_by(Application.id)]
-    ats_of = {a.id: a.job.ats for a in s.query(Application)}
 
     def request(task: Task, at: datetime, feature: str, model: str, kind: str, tokens: tuple[int, int, int, int], *, turns: int = 1, ok: bool = True, backup: bool = False, call: str = "") -> None:
         provider = "anthropic" if backup else "claude_subscription"
@@ -351,124 +368,30 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
         t_ = task("mail", "schedule", base + timedelta(hours=2), "done", 0.6, result={"new_mail": new_mail})
         for i in range(new_mail):
             request(t_, t_.started_at + timedelta(seconds=9 * i), "mail_triage", HAIKU, "json", (rnd.randint(900, 2200), 0, 0, rnd.randint(120, 260)))
-        for _ in range(rnd.choice([0, 1, 1, 2]) if rnd.random() < busy else 0):           # drafts
+        for _ in range(rnd.choice([0, 1, 1, 2]) if rnd.random() < busy else 0):           # applications worked by the agent
             jid = rnd.choice(job_ids)
-            at = base + timedelta(hours=rnd.uniform(2.5, 5))
+            at = base + timedelta(hours=rnd.uniform(2.5, 7))
             roll = rnd.random()
-            if roll < 0.18:
-                err = rnd.choice(["网站暂时打不开：ERR_CONNECTION_TIMED_OUT；30 分钟后自动重试", "岗位在雇主官网上已关闭或链接失效，没有生成草案", "Claude subscription usage limit reached: resets 3pm"])
-                t_ = task("recon", f"job:{jid}", at, "failed", rnd.uniform(0.5, 2), error=err, stages=["read_form"] if "usage" not in err else ["read_form", "explore_form"])
+            if roll < 0.07:
+                err = rnd.choice(["网站暂时打不开：ERR_CONNECTION_TIMED_OUT；30 分钟后自动重试", "Claude subscription usage limit reached: resets 3pm"])
+                t_ = task("apply", f"job:{jid}", at, "failed", rnd.uniform(0.5, 2), error=err)
                 if "usage" in err:
-                    request(t_, at, "explore_form", OPUS, "agent", (0, 0, 0, 0), ok=False)
+                    request(t_, at, "apply", OPUS, "agent", (0, 0, 0, 0), ok=False)
                 continue
-            explored = rnd.random() < 0.45                                     # a site without a driver: the AI explores the form
-            t_ = task("recon", f"job:{jid}", at, "done", rnd.uniform(1.5, 6), result={"draft_id": 1}, stages=["read_form"] + (["explore_form"] if explored else []) + ["cover_letter", "tailor_resume", "answers"])
-            if explored:
-                turns = rnd.randint(14, 34)
-                if rnd.random() < 0.08:
-                    turns *= 3                                                  # the odd form that takes far longer than the others
-                request(t_, at, "explore_form", OPUS, "agent", (turns * 900, turns * 21000, turns * 2600, turns * 380), turns=turns)
-            request(t_, at + timedelta(minutes=1), "cover_letter", OPUS, "json", (rnd.randint(2500, 4000), rnd.randint(3000, 5000), 0, rnd.randint(900, 1400)))
-            request(t_, at + timedelta(minutes=1, seconds=40), "tailor_resume", OPUS, "json", (rnd.randint(2800, 4200), rnd.randint(3000, 5000), 0, rnd.randint(1200, 2100)))
-            call = f"demo-answers-{t_.id}"
-            if rnd.random() < 0.07:                                             # the subscription ran out: the same call is made again on the backup
-                request(t_, at + timedelta(minutes=2), "answers", OPUS, "json", (0, 0, 0, 0), ok=False, call=call)
-                request(t_, at + timedelta(minutes=2, seconds=20), "answers", SONNET, "json", (rnd.randint(7000, 11000), 0, 0, rnd.randint(1500, 2600)), backup=True, call=call)
+            status = "submitted" if roll < 0.62 else "ready" if roll < 0.76 else "needs_input" if roll < 0.88 else "goes_on" if roll < 0.95 else "cannot"
+            turns = rnd.randint(45, 140) if status != "goes_on" else 400
+            minutes = min(44.0, turns * rnd.uniform(0.09, 0.14))
+            t_ = task("apply", f"job:{jid}", at, "done", minutes, result={"status": status, "steps": turns, "seconds": minutes * 60})
+            if rnd.random() < 0.35:
+                request(t_, at, "cover_letter", OPUS, "json", (rnd.randint(2500, 4000), rnd.randint(3000, 5000), 0, rnd.randint(900, 1400)))
+            if rnd.random() < 0.3:
+                request(t_, at + timedelta(seconds=40), "tailor_resume", OPUS, "json", (rnd.randint(2800, 4200), rnd.randint(3000, 5000), 0, rnd.randint(1200, 2100)))
+            call = f"demo-apply-{t_.id}"
+            if rnd.random() < 0.06:                                             # the subscription ran out: the run goes on with the backup
+                request(t_, at + timedelta(minutes=1), "apply", OPUS, "agent", (0, 0, 0, 0), ok=False, call=call)
+                request(t_, at + timedelta(minutes=1, seconds=20), "apply", SONNET, "agent", (turns * 700, turns * 16000, turns * 900, turns * 260), turns=turns, backup=True, call=call)
             else:
-                request(t_, at + timedelta(minutes=2), "answers", OPUS, "json", (rnd.randint(1500, 2600), rnd.randint(6000, 9000), 0, rnd.randint(1500, 2600)), call=call)
-        if rnd.random() < 0.5 * busy:                                           # filling a form
-            aid = rnd.choice(app_ids)
-            at = base + timedelta(hours=rnd.uniform(5, 8))
-            roll = rnd.random()
-            outcome_ = "submitted" if roll < 0.52 else "ready_to_submit" if roll < 0.82 else "failed"
-            helped = rnd.random() < 0.5 or outcome_ == "failed"
-            stages = ["ensure_session", "open", "fill_page"] + (["form_reports", "repair"] if helped else []) + ["read_back"] + (["submit"] if outcome_ == "submitted" else ["handed_over"] if outcome_ == "ready_to_submit" else [])
-            res = {"status": outcome_, **({"error": rnd.choice(["could not advance to the next page", "values on the form differ from the approved draft"])} if outcome_ == "failed" else {})}
-            t_ = task("execute", f"application:{aid}", at, "done", rnd.uniform(1.2, 4) if outcome_ != "ready_to_submit" else rnd.uniform(6, 18), result=res, stages=stages)
-            # ...and its run: the steps it took (the page that compares the recruiting systems counts the hand-overs and
-            # the AI's take-overs from them) and where its working time went
-            worked = int(rnd.uniform(70, 230) * 1000)
-            s.add(Run(task_id=t_.id, kind="execute", ref=t_.ref, ats=ats_of.get(aid, "generic"), ok=int(outcome_ == "submitted"), created_at=at,
-                      steps=[{"op": x} for x in stages], human_interventions=stages.count("handed_over"),
-                      spans=[{"k": "site", "n": "load", "t": 0, "ms": int(worked * 0.3)}, {"k": "driver", "n": "field", "t": int(worked * 0.3), "ms": int(worked * 0.45)},
-                             {"k": "ai", "n": "take_over", "t": int(worked * 0.75), "ms": int(worked * 0.25) if helped else 0}]))
-            if helped:
-                turns = rnd.randint(5, 16)
-                request(t_, at + timedelta(seconds=50), "take_over", OPUS, "agent", (turns * 700, turns * 15000, turns * 1800, turns * 260), turns=turns)
-        if day % 9 == 4:
-            t_ = task("revise", f"draft:{rnd.randint(1, 3)}", base + timedelta(hours=9), "done", 0.8, result={"draft_id": 1})
-            request(t_, t_.started_at, "revise_draft", OPUS, "json", (rnd.randint(2000, 3200), rnd.randint(7000, 9000), 0, rnd.randint(700, 1300)))
-
-
-def seed_timing(s, now: datetime) -> None:  # noqa: ANN001
-    """What "Time & learning" on the analysis page shows: six weeks of form-filling runs with where their time went,
-    and two things the program learned from them - one that holds up, one that was taken out again. Made up."""
-    import json
-    import random
-
-    from autoapply import learned
-    from autoapply.models import Run
-
-    rnd = random.Random(11)
-    recipe = json.dumps({"controls": [{"when": {"label": "^Code$"}, "do": "leave_if_shown"}]}, indent=1)
-    code = "def set_value(page, q, value, w):\n    if q.label != \"Start date\":\n        return False\n    w.set_text(page.locator(\"#start-date\"), str(value))\n    return True\n"
-    made = (now - timedelta(days=16)).isoformat(timespec="seconds")
-    revs = [
-        {"id": "demo000001", "kind": "recipe", "target": "generic:careers.alder.example", "title": "区号列表已经显示所选条目时不再重选", "status": "active",
-         "why": "这个网站的电话区号列表选中后只显示“+1”，驱动每次都判定为没选上，AI 因此反复接手同一页。", "expected": "不再为 Code 字段接手，每次运行少等两到三次 AI。",
-         "why_status": "在 4 次运行里表现正常", "created": made, "from_run": 12, "version": "1.0.3", "strikes": 0, "baseline": {"runs": 6, "median_ms": 212000},
-         "trials": [{"run": 20 + i, "ok": True, "ms": 96000 + i * 3000, "human": 0, "used": True} for i in range(4)],
-         "history": [{"at": made, "status": "trial", "why": "passed the gate"}, {"at": (now - timedelta(days=11)).isoformat(timespec="seconds"), "status": "active", "why": "held up in 2 runs"}]},
-        {"id": "demo000002", "kind": "plugin", "target": "workday", "title": "开始日期用键盘直接输入", "status": "reverted",
-         "why": "日期控件逐格点击很慢，直接输入可以省十几秒。", "expected": "“填一个字段”里的日期不再超过 10 秒。",
-         "why_status": "在一次运行里出错，已退回原来的做法：set_value: TimeoutError", "created": (now - timedelta(days=9)).isoformat(timespec="seconds"), "from_run": 26, "version": "1.0.3", "strikes": 1,
-         "baseline": {"runs": 9, "median_ms": 148000}, "trials": [{"run": 31, "ok": False, "ms": 151000, "human": 0, "used": True, "strike": "set_value: TimeoutError"}],
-         "history": [{"at": (now - timedelta(days=9)).isoformat(timespec="seconds"), "status": "trial", "why": "passed the gate"},
-                     {"at": (now - timedelta(days=7)).isoformat(timespec="seconds"), "status": "reverted", "why": "it failed in a run: set_value: TimeoutError"}]},
-    ]
-    learned.root().mkdir(parents=True, exist_ok=True)
-    for rev, body, name in ((revs[0], recipe, "recipe.json"), (revs[1], code, "plugin.py")):
-        (learned.root() / rev["id"]).mkdir(exist_ok=True)
-        (learned.root() / rev["id"] / name).write_text(body, encoding="utf-8")
-    learned._save(revs)
-    # ... and what the program knows about one site, all in one place (sites.py)
-    from autoapply.models import Site
-
-    notes = ["The forward button on the questions step is labelled 'Save and continue'.", "The phone code list shows only the code once an entry is chosen.",
-             "The résumé is uploaded on the first step; the form fills name and e-mail from it."]
-    s.add(Site(key="generic:careers.alder.example", facts={"driver_written": True}, notes=[{"at": (now - timedelta(days=3 * n)).date().isoformat(), "text": t} for n, t in enumerate(notes)],
-               steps={"pages": ["Contact", "Questions", "Review"], "steps": {
-                   "Contact": {"questions": [{"label": x, "type": "text", "selector": f"#c{i}"} for i, x in enumerate(("First name", "Last name", "E-mail", "Phone code", "Phone number"))]},
-                   "Questions": {"questions": [{"label": x, "type": "radio", "selector": f"#q{i}"} for i, x in enumerate(("Are you legally authorised to work here?", "Will you require sponsorship?", "Earliest start date"))]}}}))
-
-    def spans(takeovers: int, slow_field: bool) -> list[dict]:
-        out, t = [], 0
-
-        def add(kind: str, name: str, ms: int, **extra) -> None:
-            nonlocal t
-            out.append({"k": kind, "n": name, "t": t, "ms": ms, **extra})
-            t += ms
-
-        add("site", "load", rnd.randint(1800, 5200), host="careers.alder.example")
-        for label in ("First name", "Last name", "Email", "Phone", "Code", "Current location", "Resume"):
-            failed = label == "Code" and takeovers > 0
-            add("driver", "field", rnd.randint(14000, 19000) if (slow_field and label == "Current location") else rnd.randint(300, 2600), label=label, **({"ok": False} if failed else {}))
-        for _ in range(takeovers):
-            add("ai", "take_over", rnd.randint(18000, 34000))
-            for tool in ("list_controls", "select", "check_form"):
-                add("tool", tool, rnd.randint(400, 3800), **({"ok": False} if tool == "select" else {}))
-        add("driver", "step:read_back", rnd.randint(900, 2400))
-        add("driver", "step:submit", rnd.randint(2500, 6000))
-        return out
-
-    for day in range(40, -1, -3):
-        at = now - timedelta(days=day, hours=rnd.randint(0, 6))
-        for ats, site, subject_id in (("generic", "site-careers.alder.example", 1), ("workday", "workday", 2)):
-            after = ats == "generic" and day <= 15
-            takeovers = 0 if after else rnd.choice([1, 2, 2, 3]) if ats == "generic" else rnd.choice([0, 1, 1])
-            steps = [{"op": "open"}, {"op": "fill_page"}] + [{"op": "repair", "cause": "the Code list shows only +1"}] * takeovers + [{"op": "read_back"}, {"op": "submit"}]
-            s.add(Run(kind="execute", ref=f"application:{subject_id}", ats=ats, ok=1, steps=steps, spans=spans(takeovers, slow_field=(ats == "workday" and day % 9 == 0)),
-                      site=site, learned=["demo000001"] if after else [], created_at=at))
+                request(t_, at + timedelta(minutes=1), "apply", OPUS, "agent", (turns * 600, turns * 19000, turns * 700, turns * 240), turns=turns, call=call)
 
 
 def shots(out: Path, lang: str, port: int = 8021, only: str = "") -> None:
@@ -511,11 +434,9 @@ def shots(out: Path, lang: str, port: int = 8021, only: str = "") -> None:
             page.set_viewport_size({"width": 1360, "height": 860})
 
             def to_ai() -> None:
-                page.get_by_role("button", name="AI 模型" if lang == "zh" else "AI model").first.click()
-                page.wait_for_timeout(1200)
                 page.add_style_tag(content=".pr-nav { visibility: hidden }")    # the side list is sticky and would cover the corner of the card
 
-            snap("failover", "/settings", element=".pr > .card:last-child", before=to_ai)
+            snap("failover", "/settings/accounts/ai", element=".pr > .card:last-child", before=to_ai)
             page.set_viewport_size({"width": 1360, "height": 1040})
             snap("analytics", "/analytics?view=ai")
             b.close()

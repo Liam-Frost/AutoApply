@@ -17,7 +17,7 @@ from typing import Any, Callable
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import db, llm, metering, notify
-from .ats.base import NeedsHuman, unreachable
+from .errors import NeedsHuman, unreachable
 from .models import Run, Task, now
 
 log = logging.getLogger("autoapply.tasks")
@@ -112,13 +112,13 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     return tid
 
 
-# Three workers. One fills and reads forms - a browser, a site, an account at a time. One does what needs none of
-# that and can take long: scanning the sources, scoring, reading mail, the self-check, learning from a run. A scan of
+# Three workers. One works applications - a browser, a site, an account at a time. One does what needs none of
+# that and can take long: scanning the sources, scoring, reading mail. A scan of
 # twenty minutes used to hold every application up; now the two do not wait for each other. The third is the desk:
 # writing the applicant asked for at a page and is waiting to see - their profile, from the résumé they just uploaded.
 # It needs no browser and no site, and it does not stand behind a form being read or a scan. Within each, one task
 # at a time, as before.
-BACKGROUND = ("discover", "score", "mail", "canary", "improve")
+BACKGROUND = ("discover", "score", "mail")
 DESK = ("profile_init",)
 LANES = ("forms", "background", "desk")
 
@@ -186,7 +186,7 @@ def _run_one(t: Task) -> None:
             # The subscription's quota is used up for now. Try again later instead of dropping the work.
             notify.add_todo("config", "AI 服务的额度暂时用完" + ("（备用的也都试过了）" if "所有配置的 AI 服务" in str(e) else ""), ref="config:llm-limit",
                             body=f"{str(e)[:200]}\n需要模型的任务会每 30 分钟自动重试一次，额度恢复后继续；不需要你操作。")
-            if t.kind in ("recon", "revise", "score") and int(t.payload.get("_limit_retries", 0)) < 12:
+            if t.kind in ("apply", "score") and int(t.payload.get("_limit_retries", 0)) < 12:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
             notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")
@@ -196,7 +196,7 @@ def _run_one(t: Task) -> None:
             # that timed out is the same thing, wherever in the run it happened). Try again later; nobody needs to do
             # anything. The first time soon: a network that dropped for a moment is back in minutes.
             n = int(t.payload.get("_down_retries", 0))
-            again, wait = t.kind == "recon" and n < 6, 5 if n == 0 else 30
+            again, wait = t.kind == "apply" and n < 6, 5 if n == 0 else 30
             status, error = "failed", f"网站暂时打不开：{str(e).splitlines()[0][:200]}" + (f"；{wait} 分钟后自动重试" if again else "")
             log.warning("task %s (%s): the site did not answer: %s", t.id, t.kind, str(e).splitlines()[0][:200])
             if again:
@@ -204,7 +204,7 @@ def _run_one(t: Task) -> None:
         else:
             status, error = "failed", f"{type(e).__name__}: {e}"
             log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
-            if t.kind in ("revise", "recon"):  # started by the user from the UI: say why it failed
+            if t.kind == "apply":  # an application the applicant waits for: say why it failed
                 from . import messages
 
                 notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
@@ -306,7 +306,7 @@ def cancel(task_id: int) -> None:
     if undo is not None:
         from . import drafts
 
-        drafts._undo(undo)
+        drafts.undo(undo)
 
 
 def hold(task_id: int) -> None:
@@ -404,9 +404,9 @@ def recover() -> None:
         # it can be started again instead of showing "filling in" for ever.
         from .models import Application
 
-        waiting = {t.ref for t in s.query(Task).filter(Task.kind == "execute", Task.status.in_(("queued", "running")))}
+        waiting = {t.ref for t in s.query(Task).filter(Task.kind == "apply", Task.status.in_(("queued", "running")))}
         for a in s.query(Application).filter_by(status="executing"):
-            if f"application:{a.id}" not in waiting:
+            if f"job:{a.job_id}" not in waiting:
                 from . import lifecycle
 
                 if lifecycle.move(a, "failed", source="recover"):
@@ -465,12 +465,6 @@ def start() -> None:
     # "finish and stop" was for closing the program: it has been started again
     db.set_setting("schedule.draining", False)
     db.set_setting("schedule.drain_told", False)
-    try:  # what was learned on another version of the program is checked again before it is used
-        from . import learned
-
-        learned.recheck_after_upgrade()
-    except Exception:  # noqa: BLE001
-        log.exception("could not re-check what was learned")
     try:  # postings left unscored by an interrupted or capped run are picked up again at start-up and by the hourly check
         from . import scoring
 
@@ -503,7 +497,7 @@ def _mail_new() -> None:
         log.info("could not ask the mailbox what is new (%s)", type(e).__name__)
 
 
-PERIODIC = ("discover", "mail", "mail_new", "canary", "upkeep", "unscored", "quota")      # what the clock starts by itself
+PERIODIC = ("discover", "mail", "mail_new", "upkeep", "unscored", "quota")      # what the clock starts by itself
 
 
 def _schedule_jobs() -> None:
@@ -516,7 +510,6 @@ def _schedule_jobs() -> None:
         "mail": ("schedule.mail_minutes", lambda: enqueue("mail", ref="schedule", priority=50)),
         # between the passes over the last days: only what arrived since the last look (one small request, usually "nothing")
         "mail_new": ("schedule.mail_new_minutes", _mail_new),
-        "canary": ("schedule.canary_minutes", lambda: enqueue("canary", ref="schedule", priority=900)),
     }
     from datetime import datetime, timedelta
 
@@ -530,12 +523,10 @@ def _schedule_jobs() -> None:
             _sched.add_job(fn, "interval", minutes=minutes, id=name, replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=max(120, due)))
 
     def upkeep() -> None:
-        """What should happen by itself between the big runs: drafts whose form still has unread steps are read on, and
-        postings that have come to qualify for a draft get one."""
+        """What should happen by itself between the big runs: postings that have come to qualify are applied for."""
         try:
-            from . import drafts, scoring
+            from . import scoring
 
-            drafts.walk_pending()
             scoring.queue_qualifying()
         except Exception:  # noqa: BLE001
             log.exception("upkeep failed")
@@ -569,7 +560,7 @@ def _schedule_jobs() -> None:
         _sched.add_job(quota_check, "interval", minutes=minutes, id="quota", replace_existing=True)
 
 
-SCHEDULED = {"discover": "schedule.discover_minutes", "mail": "schedule.mail_minutes", "canary": "schedule.canary_minutes"}
+SCHEDULED = {"discover": "schedule.discover_minutes", "mail": "schedule.mail_minutes"}
 
 
 def last_run(kind: str):  # noqa: ANN201

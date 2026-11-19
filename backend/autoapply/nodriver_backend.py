@@ -619,9 +619,12 @@ class Locator:
         self.focus()
         self.page.keyboard.press(key)
 
-    def press_sequentially(self, text, **kwargs):
+    def press_sequentially(self, text, delay=0, timeout=None, **_kwargs):
+        # (``timeout`` is how long to wait for the box, as in the automated browser - not something the keys take: it
+        # was handed on to them, and every box typed into with a timeout failed with a TypeError)
+        self.wait_for(timeout=timeout)
         self.focus()
-        self.page.keyboard.type(text, **kwargs)
+        self.page.keyboard.type(text, delay=delay)
 
     def set_checked(self, checked, **kwargs):
         if self.is_checked() != checked:

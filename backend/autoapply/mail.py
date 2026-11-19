@@ -1,8 +1,8 @@
-"""Gmail (read-only): verification codes for drivers, and application tracking.
+"""Gmail (read-only), and tracking what the mailbox says about the applications.
 
-Scope is ``gmail.readonly``. Nothing is sent, labelled, or modified.
-Verification codes/links are returned to drivers only (never to the LLM agent,
-never logged). Tracking sends one e-mail body at a time to the small model.
+Scope is ``gmail.readonly``. Nothing is sent, labelled, or modified. Tracking sends one e-mail body at a time to the
+small model. Mail about an account - a code, a link to confirm an address - is not tracked, summarised or notified;
+the agent reads it from the mailbox itself when a site sends one while it works (agent/run.py: ``mail``).
 """
 
 from __future__ import annotations
@@ -220,130 +220,10 @@ def added_since_last(limit: int = 50, *, skip: Any = None) -> list[dict[str, Any
     return out
 
 
-# --- verification ----------------------------------------------------------------------
-
-_CODE = re.compile(r"(?<![\w/=-])(\d{6,8}|[A-Z0-9]{6,8})(?![\w/=-])")
-_LINK = re.compile(r"https?://[^\s\"'<>]+")
-_LINK_HINT = re.compile(r"verif|confirm|activate|validate|token|registration", re.I)
-
-
-def extract_verification(subject: str, body: str) -> str | None:
-    """Rule-based extraction: a link that looks like a verification link, else a code near a keyword."""
-    for m in _LINK.finditer(body):
-        if _LINK_HINT.search(m.group(0)) and "unsubscribe" not in m.group(0).lower():
-            return m.group(0).rstrip(").,")
-    text = f"{subject}\n{body}"
-    for kw in re.finditer(r"(verification|security|one[- ]time|temporary|confirmation|access|login|sign[- ]?in)\s*(code|pin|passcode|password)|\b(otp|passcode)\b", text, re.I):
-        window = text[kw.end() : kw.end() + 200]
-        for m in _CODE.finditer(window):
-            if re.search(r"\d", m.group(1)):
-                return m.group(1)
-    m = re.search(r"\bcode\b[^\n]{0,40}?\b(\d{6,8})\b", text, re.I)
-    return m.group(1) if m else None
-
-
-_TWO_PART = {"co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.nz", "co.jp", "co.kr", "co.in", "com.cn", "com.hk", "com.sg", "com.br",
-             "com.mx", "com.tw", "co.za", "com.tr"}
-
-
-def site_domain(host: str) -> str:
-    """The part of a host that names the site's owner: metacareers.com for www.metacareers.com, acme.co.uk for jobs.acme.co.uk.
-    On a host shared by many employers the employer's own name is kept: ciena.wd5.myworkdayjobs.com stays whole."""
-    host = (host or "").lower().split(":")[0].strip(".")
-    parts = host.split(".")
-    if len(parts) < 2 or re.fullmatch(r"[\d.]+", host):
-        return ""
-    if re.search(r"(myworkdayjobs|myworkdaysite|icims|greenhouse|lever|ashbyhq|smartrecruiters|bamboohr|taleo|oraclecloud|successfactors|jobvite|workable)\.", host):
-        return host
-    n = 3 if ".".join(parts[-2:]) in _TWO_PART else 2
-    return ".".join(parts[-n:])
-
-
-def link_refusal(url: str, site_host: str) -> str:
-    """Why a link from an e-mail must not be opened by the program ('' when it may be).
-
-    A confirmation link is opened only when it is plainly the site's own: the program is in the middle of signing up or in
-    there, and the link leads to that same site over https. Anything else - another domain, a mail service's redirect, an
-    address with a user name or a port in it, a bare IP - is left to the applicant: a link in a mail is the oldest way to
-    send someone to a look-alike page, and this program types passwords."""
-    from urllib.parse import urlparse
-
-    try:
-        u = urlparse(url)
-    except ValueError:
-        return "not an address"
-    host = (u.hostname or "").lower()
-    if u.scheme != "https":
-        return "not https"
-    if u.username or u.password or (u.port not in (None, 443)):
-        return "has a user name or a port in it"
-    if not host or re.fullmatch(r"[\d.]+", host) or host.startswith("xn--") or ".xn--" in host:
-        return "not a plain host name"
-    want = site_domain(site_host)
-    if not want:
-        return "the site is not known"
-    if not (host == want or host.endswith("." + want)):
-        return f"leads to {host}, not to {want}"
-    return ""
-
-
-# the subject of a mail that carries a code or a link for an account: never summarised, stored or given to a model
+# Mail about an account - a code, a link to confirm an address, a password reset: not about an application. It is never
+# summarised, stored or notified; the agent reads it from the mailbox itself when a site sends one while it works.
 ACCOUNT_MAIL = re.compile(r"(security|verification|one[- ]time|temporary|access|login)\s*(code|pin|passcode|password)|\b(otp|passcode)\b|\bverify\b|"
                           r"\bactivate your\b|\bconfirm your\b.{0,40}\b(e-?mail|account|address)|reset your password", re.I)
-
-
-def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: datetime | None = None, site_host: str = "") -> str | None:
-    """Poll for a verification e-mail, the newest first. Returns the code or link, or None on timeout. With ``site_host``,
-    a link is returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
-    since = since or (datetime.now(timezone.utc) - timedelta(minutes=3))
-    # a mail from hours ago (an account whose confirmation was never finished) lies under whatever arrived since
-    many = 10 if datetime.now(timezone.utc) - since < timedelta(minutes=15) else 80
-    hint = re.sub(r"^(www|jobs|careers)\.", "", sender_hint).split(".")[0] if sender_hint else ""
-    from . import mailbox
-
-    deadline = time.time() + timeout
-    refused = ""
-    while time.time() < deadline:
-        try:
-            msgs = mailbox.fetch(since, many)
-        except mailbox.NotConfigured as e:
-            raise MailNotConfigured(str(e)) from e
-        for msg in msgs:
-            frm, subj, body = msg.sender, msg.subject, msg.body
-            if hint and hint.lower() not in (frm + subj + body[:2000]).lower():
-                continue
-            found = extract_verification(subj, body)
-            if found is None and site_host and re.search(r"confirm|verif|activate", subj, re.I):
-                # a confirmation mail whose link does not say so in its address: the site's own link if there is exactly one
-                links = [m.group(0).rstrip(").,") for m in _LINK.finditer(body) if not re.search(r"unsubscribe|privacy|/help|support|terms|\.(png|jpe?g|gif|css)\b", m.group(0), re.I)]
-                own = [u for u in links if not link_refusal(u, site_host)]
-                if len(own) == 1:
-                    found = own[0]
-                elif links and not own:
-                    refused = f"refused: {link_refusal(links[0], site_host)}"
-                    continue
-            if found is None and re.search(r"verif|code|confirm|password|passcode|otp|one[- ]time", subj, re.I):
-                try:
-                    out = llm.json(
-                        f"Subject: {subj}\n\n{body[:6000]}\n\nExtract the verification code or verification link from this e-mail.",
-                        llm.obj({"found": {"type": "boolean"}, "value": {"type": "string"}}),
-                        small=True, max_tokens=500,
-                    )
-                    found = out["value"] if out["found"] else None
-                except llm.LLMError:
-                    found = None
-            if found and str(found).startswith("http"):
-                if str(found) not in body:      # a model read it out of the mail: it has to be in there word for word
-                    found = None
-                elif site_host and (why := link_refusal(str(found), site_host)):
-                    refused = f"refused: {why}"
-                    found = None
-            if found:
-                return found
-        if refused:
-            return refused
-        time.sleep(8)
-    return None
 
 
 # --- tracking ----------------------------------------------------------------------------
@@ -585,10 +465,17 @@ def _was_filled(s: Any, application_id: int, before: datetime | None) -> bool:
     """Has the program filled this application's form (so that the applicant had it in front of them to submit) before
     this time? Then a confirmation is what it says, whatever the program believes about the run: a window that closed, a
     confirmation page that was not recognised."""
+    from .agent import work
     from .models import Run
 
-    for r in s.query(Run).filter_by(kind="execute", ref=f"application:{application_id}"):
-        at = getattr(r, "created_at", None)
+    began = [getattr(r, "created_at", None) for r in s.query(Run).filter_by(kind="execute", ref=f"application:{application_id}")]      # (runs of earlier versions)
+    for e in work.journal(application_id):      # the agent's runs on it
+        if e["kind"] == "run":
+            try:
+                began.append(datetime.fromisoformat(str(e["at"])).astimezone(timezone.utc))
+            except ValueError:
+                began.append(None)
+    for at in began:
         if before is None or at is None:
             return True
         a, b = (at if at.tzinfo else at.replace(tzinfo=timezone.utc)), (before if before.tzinfo else before.replace(tzinfo=timezone.utc))
@@ -659,7 +546,6 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
                 continue
         frm, subj, received, body = msg.sender, msg.subject, msg.date, msg.body
         if ACCOUNT_MAIL.search(subj):
-            # Codes are used by the sign-in / submit step only; they are never summarised, stored or notified.
             t = {"category": "other", "company": "", "job_title": "", "summary": "verification e-mail (not shown)"}
         else:
             t = triage(subj, frm, body)

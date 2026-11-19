@@ -49,18 +49,19 @@ _asking: ContextVar[dict[str, Any] | None] = ContextVar("metering", default=None
 # Which feature of the program a call belongs to, by where it was made. A call from a module that is not listed is
 # named after that module, so a new feature shows up by itself.
 CALLERS: dict[tuple[str, str], str] = {
-    ("scoring", ""): "scoring", ("answers", ""): "answers", ("generic", "sign_in"): "sign_in", ("generic", ""): "explore_form",
-    ("repair", "advance"): "navigate", ("repair", ""): "take_over", ("mail", ""): "mail_triage", ("materials", ""): "cover_letter",
-    ("tailor", ""): "tailor_resume", ("drafts", ""): "revise_draft", ("persona", ""): "intake_rules", ("profile_init", ""): "profile_setup",
+    ("scoring", ""): "scoring", ("agent.run", ""): "apply", ("agent.scan", ""): "scan", ("sitestatus", ""): "site_status", ("mail", ""): "mail_triage",
+    ("materials", ""): "cover_letter", ("tailor", ""): "tailor_resume", ("persona", ""): "intake_rules", ("profile_init", ""): "profile_setup",
     ("sources.watch", ""): "careers_page", ("api.main", ""): "connection_test",
 }
 FEATURES: dict[str, str] = {
-    "scoring": "给岗位评分", "answers": "回答申请表的问题", "explore_form": "探索申请表", "sign_in": "登录或注册网站", "take_over": "接手填表",
-    "navigate": "表单翻页", "mail_triage": "邮件分类", "cover_letter": "写求职信", "tailor_resume": "定制简历", "revise_draft": "按意见修改草案",
-    "intake_rules": "生成筛选规则", "profile_setup": "建立个人资料", "careers_page": "读取招聘页面", "connection_test": "连接测试", "": "未区分功能",
+    "scoring": "给岗位评分", "apply": "做一份申请", "scan": "读取要登录的岗位来源", "site_status": "到雇主网站查申请状态", "mail_triage": "邮件分类", "cover_letter": "写求职信",
+    "tailor_resume": "定制简历", "intake_rules": "生成筛选规则", "profile_setup": "建立个人资料", "careers_page": "读取招聘页面", "connection_test": "连接测试", "": "未区分功能",
+    # (what earlier versions asked the model for: in the history)
+    "answers": "回答申请表的问题", "explore_form": "探索申请表", "sign_in": "登录或注册网站", "take_over": "接手填表", "navigate": "表单翻页", "revise_draft": "按意见修改草案",
 }
 WORKFLOWS: dict[str, str] = {
-    "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "tailor": "按岗位调整简历", "revise": "按意见修改草案",
+    "discover": "扫描新岗位", "score": "给岗位评分", "apply": "做一份申请", "site_status": "到雇主网站查申请状态", "profile_init": "从简历生成个人资料",
+    "recon": "读取申请表、生成草案", "tailor": "按岗位调整简历", "revise": "按意见修改草案",
     "reanswer": "重新回答问题", "scout": "带着答案读完后面的步骤", "execute": "填写申请表", "mail": "查收邮件", "canary": "驱动巡检", "": "任务之外",
 }
 SUBSCRIPTIONS = ("claude_subscription", "chatgpt")
@@ -339,10 +340,6 @@ def record(*, provider: str, model: str, started: float, tokens: Tokens | None =
         from .models import LLMRequest
 
         c = _ctx()
-        from . import timing
-
-        timing.mark("ai", str(c.get("call_feature") or c.get("feature") or c.get("kind") or "request"),
-                    latency_ms if latency_ms is not None else max(0.0, (time.time() - started) * 1000.0), ok=status == "ok")
         tk = tokens or Tokens(detail="none")
         price = price_for(provider, model)
         cost, source, version = None, "", ""

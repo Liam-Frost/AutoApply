@@ -121,7 +121,7 @@ def template(p: dict[str, Any]) -> dict[str, Any]:
         "intake.title_none": list(dict.fromkeys([*st.get("exclude", []), *fd.get("not", [])])),
         "intake.countries": [c.upper() for c in p.get("countries") or []],
         "queue.min_score_for_draft": st.get("min_draft", 8.0) if p.get("strategy") != "targeted" else 11.0,
-        "policy.default": "approve_then_submit" if st.get("auto_submit") and p.get("strategy") != "targeted" else "manual",
+        "submit.policy": "auto" if st.get("auto_submit") and p.get("strategy") != "targeted" else "approve",
         "tailor.target_pages": 0 if p.get("field") == "academic" else st.get("pages", 0),   # an academic CV has no page limit
         "tailor.allow_drop": False,
         "sources.bigtech": {k: bool(fd.get("bigtech")) for k in LEGACY["sources.bigtech"]},

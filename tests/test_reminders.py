@@ -184,63 +184,6 @@ def test_in_the_quiet_hours_nothing_is_pushed_and_nothing_is_lost(app_env, monke
     assert notify.flush_held(morning) == 0
 
 
-def test_a_sign_in_that_would_ring_the_phone_is_not_begun_by_the_program_in_the_quiet_hours(app_env, monkeypatch):
-    """The portal's sign-in ends with an approval on the applicant's phone. A scan at three in the morning would have
-    typed the password and rung it."""
-    from autoapply import auth, browser, notify, sites, tasks
-    from autoapply.ats.base import JobRef, NeedsHuman
-    from autoapply.models import Todo
-
-    monkeypatch.setattr(browser, "save_state", lambda *a, **k: None)
-    ref = JobRef("pdportal", "ubc", "1", "https://pdportal.apsc.ubc.ca/myAccount/co-op/postings.htm", "pdportal.apsc.ubc.ca")
-    auth.upsert_account("pdportal:ubc", ats="pdportal", host=ref.host, email="cwlname", password="pw", status="unknown", created_by="manual")
-
-    class Portal:
-        requires_login, sso, ats = True, True, "pdportal"
-        second_factor_seen = True
-
-        def __init__(self):
-            self.logins, self.signed_in = 0, False
-
-        def is_logged_in(self, page, ref, navigate=True):
-            return self.signed_in
-
-        def resume(self, page, ref):
-            return False
-
-        def login(self, page, ref, user, pw):
-            self.logins += 1
-            self.signed_in = True
-
-        def login_url(self, ref):
-            return "https://pdportal.apsc.ubc.ca/home.htm"
-
-    page = type("P", (), {"context": None})()
-    quiet = {"now": True}
-    monkeypatch.setattr(notify, "quiet_now", lambda at=None: quiet["now"])
-    portal = Portal()
-    with pytest.raises(NeedsHuman) as e:                                            # by itself, at night: it waits
-        auth.ensure_session(page, portal, ref)
-    assert portal.logins == 0 and e.value.waits_for == "account:pdportal:ubc"
-    with db.session() as s:
-        card = s.query(Todo).filter_by(kind="takeover", status="open").one()
-        assert "静默时段" in card.body and card.payload["second_factor"] is True
-        card.status = "done"
-    monkeypatch.setattr(tasks, "running_by_hand", lambda: True)                      # the applicant asked for it: they are there
-    assert auth.ensure_session(page, portal, ref) == "logged_in" and portal.logins == 1
-    assert sites.fact("pdportal:ubc", "second_factor") is True                       # known now: this sign-in rings the phone
-    # a device the institution remembers needs no phone: such a sign-in goes ahead at any hour
-    monkeypatch.setattr(tasks, "running_by_hand", lambda: False)
-    sites.set_fact("pdportal:ubc", "second_factor", False)
-    portal.signed_in = False
-    assert auth.ensure_session(page, portal, ref) == "logged_in" and portal.logins == 2
-    # and in the daytime the program signs in by itself as before
-    quiet["now"] = False
-    sites.set_fact("pdportal:ubc", "second_factor", True)
-    portal.signed_in = False
-    assert auth.ensure_session(page, portal, ref) == "logged_in" and portal.logins == 3
-
-
 def test_one_thing_many_tasks_wait_for_is_one_card_and_one_notice(app_env, monkeypatch):
     from autoapply import notify
     from autoapply.models import Todo

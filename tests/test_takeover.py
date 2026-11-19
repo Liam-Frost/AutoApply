@@ -173,3 +173,42 @@ def test_a_login_is_not_remembered_when_that_is_not_ticked(window, site):
     got = auth.takeover(KEY, site + "/login", save_credentials=False, timeout_s=30)
     assert got["ok"] is True and got["credentials_saved"] is False
     assert not auth.account(KEY)["has_password"] and secrets.get_password(KEY) is None
+
+
+PORTAL, PORTAL_KEY = "pdportal.apsc.ubc.ca", "pdportal:ubc"
+
+
+def test_what_a_sign_in_form_sends_is_told_from_what_other_forms_send():
+    from autoapply.auth import credentials_sent
+
+    assert credentials_sent("j_username=cwlname&j_password=p%40ss+word&_eventId_proceed=") == ("cwlname", "p@ss word")
+    assert credentials_sent('{"email": "a@b.example", "password": "pw1", "remember": true}') == ("a@b.example", "pw1")
+    assert credentials_sent('{"data": {"identifier": "someone", "credentials": {"passwd": "pw2"}}}') == ("someone", "pw2")
+    assert credentials_sent("who=a%40b.example&pwd=pw3") == ("a@b.example", "pw3")              # a name the pattern does not know: the address is taken
+    assert credentials_sent("q=backend+intern&page=2") is None and credentials_sent("") is None and credentials_sent("{not json") is None
+    assert credentials_sent("new_password=x&confirm_password=x") is None                          # a change of password is not a sign-in
+    # a second factor is sent in a field with "pass" in its name: it is used once and is not the account's password
+    assert credentials_sent("passcode=123456") is None and credentials_sent('{"passcode": "123456", "device": "phone1"}') is None
+    assert credentials_sent("j_username=cwlname&j_password=pw&otp_code=123456") == ("cwlname", "pw")
+
+
+def test_a_card_offers_to_remember_the_login_only_where_its_window_can(app_env, monkeypatch):
+    from contextvars import ContextVar
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import auth, browser_policy, notify
+    from autoapply.api.main import app
+
+    monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default=None))      # nothing chooses for this test
+    db.set_setting("browser.nodriver_enabled", False)                                                   # (the round that runs everything in the ordinary browser switches it on)
+    assert auth.remembers_login("someats:acme", "https://acme.example/login") is True          # the automated browser's window sees what is typed
+    assert auth.remembers_login("idp:google") is False                                           # a provider's password is never stored
+    assert auth.remembers_login(PORTAL_KEY, f"https://{PORTAL}/home.htm") is False                      # a window the program does not look into
+    db.set_setting("browser.nodriver_enabled", True)
+    db.set_setting("browser.rules", [{"tenant": PORTAL_KEY, "backend": "nodriver"}])
+    assert auth.remembers_login(PORTAL_KEY, f"https://{PORTAL}/home.htm") is True                       # the ordinary browser's window hears what is sent
+    notify.add_todo("takeover", PORTAL_KEY, body="x", ref=f"account:{PORTAL_KEY}", payload={"tenant_key": PORTAL_KEY, "url": f"https://{PORTAL}/home.htm"})
+    notify.add_todo("takeover", "Google", body="x", ref="account:idp:google", payload={"tenant_key": "idp:google", "url": "https://accounts.google.com/"})
+    cards = {c["ref"]: c for c in TestClient(app).get("/api/todos").json()}
+    assert cards[f"account:{PORTAL_KEY}"]["remembers"] is True and cards["account:idp:google"]["remembers"] is False

@@ -36,7 +36,7 @@ def load_state(tenant_key: str) -> dict | None:
     try:
         return secrets.decrypt_json(p.read_bytes())  # type: ignore[return-value]
     except Exception as _e:  # noqa: BLE001 - corrupt or key rotated: start clean
-        from .ats.base import tolerated
+        from .errors import tolerated
         tolerated(_e)
         return None
 
@@ -90,7 +90,7 @@ def _at(url: str, domain: str, path: str = "") -> bool:
     name somewhere in the address: "https://evil.example/?next=myaccount.google.com" is not Google."""
     from urllib.parse import urlparse
 
-    from .ats.base import host_is
+    from .errors import host_is
 
     try:
         u = urlparse(url)
@@ -257,7 +257,7 @@ def plain_login(tenant_key: str, url: str, is_logged_in_url, *, timeout_s: int =
             try:
                 tabs = _json.loads(opener.open(f"http://127.0.0.1:{port}/json/list", timeout=3).read())
             except Exception as _e:  # noqa: BLE001 - browser still starting, or closed
-                from .ats.base import tolerated
+                from .errors import tolerated
                 tolerated(_e)
                 continue
             if any(t.get("type") == "page" and is_logged_in_url(t.get("url", "")) for t in tabs):
@@ -273,7 +273,7 @@ def plain_login(tenant_key: str, url: str, is_logged_in_url, *, timeout_s: int =
             try:
                 b.new_browser_cdp_session().send("Browser.close")
             except Exception as _e:  # noqa: BLE001
-                from .ats.base import tolerated
+                from .errors import tolerated
                 tolerated(_e)
                 pass
         return {"ok": True}
@@ -502,7 +502,7 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
                 try:
                     ctx.close()
                 except Exception as _e:  # noqa: BLE001 - the user closed the window themselves
-                    from .ats.base import tolerated
+                    from .errors import tolerated
                     tolerated(_e)
                     pass
         finally:
@@ -510,19 +510,19 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
             try:
                 browser.close()
             except Exception as _e:  # noqa: BLE001
-                from .ats.base import tolerated
+                from .errors import tolerated
                 tolerated(_e)
                 pass
 
 
 def snapshot(page: Page, run_dir: Path, name: str) -> dict[str, str]:
-    """Save a screenshot and the DOM (the DOM doubles as a driver regression fixture)."""
+    """Save a screenshot and the DOM."""
     run_dir.mkdir(parents=True, exist_ok=True)
     shot, dom = run_dir / f"{name}.png", run_dir / f"{name}.html"
     try:
         page.screenshot(path=str(shot), full_page=True)
     except Exception as _e:  # noqa: BLE001
-        from .ats.base import tolerated
+        from .errors import tolerated
         tolerated(_e)
         pass
     try:
@@ -531,7 +531,7 @@ def snapshot(page: Page, run_dir: Path, name: str) -> dict[str, str]:
         html = __import__("re").sub(r'(<input[^>]*type="password"[^>]*value=")[^"]*', r"\1", html)
         dom.write_text(html, encoding="utf-8")
     except Exception as _e:  # noqa: BLE001
-        from .ats.base import tolerated
+        from .errors import tolerated
         tolerated(_e)
         pass
     return {"screenshot": str(shot), "dom": str(dom)}

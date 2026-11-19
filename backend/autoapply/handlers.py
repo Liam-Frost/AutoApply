@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from . import config, db, discover, drafts, executor, knowledge, lifecycle, mail, messages, notify, profile_init, scoring, tasks
-from .ats.base import AlreadyApplied, NeedsHuman
-from .models import UNKNOWN, Application, Job, Task
+from . import db, discover, knowledge, lifecycle, mail, messages, notify, profile_init, scoring, tasks
+from .errors import NeedsHuman
+from .models import Application, Task
 from .tasks import asked_again, enqueue, handler
 
 
@@ -38,61 +37,27 @@ def _score(t: Task) -> dict[str, Any]:
     return out
 
 
-@handler("recon")
-def _recon(t: Task) -> dict[str, Any]:
-    job_id = int(t.payload["job_id"])
+@handler("apply")
+def _apply(t: Task) -> dict[str, Any]:
+    """One application, worked by the agent from the posting to the confirmation - or as far as this run gets
+    (agent/work.py). Whatever started it - a posting that scored well, the applicant's "apply", their answer to a
+    question, their approval, their note on the record - it is the same task: the agent reads where the application
+    stands and goes on from there."""
+    from .agent import work
+
     if knowledge.blank():
         # Nothing is known about the applicant: every question of the form would come back unanswered, after minutes
         # at the employer's site. The task waits for the profile - which may be on its way (written from the résumé
         # just uploaded) - and goes on by itself when it is there (profile_init.arrived).
         raise NeedsHuman("个人资料还是空的，申请表没法回答。个人资料有了之后会自动继续。", kind="profile", waits_for=profile_init.wanted())
-    if not t.payload.get("instructions"):
-        from .models import Draft
-
-        with db.session() as s:  # another run for the same posting finished while this one was waiting: its draft stands
-            a = s.query(Application).filter_by(job_id=job_id).first()
-            newer = [d for d in (a.drafts if a else []) if d.review_status == "pending" and d.created_at >= t.created_at]
-            if newer:
-                return {"draft_id": newer[-1].id, "reused": True}
-    try:
-        draft_id = drafts.build(job_id, run_dir=config.RUNS / f"recon_job_{job_id}_t{t.id}", instructions=t.payload.get("instructions", ""))
-    except AlreadyApplied:      # drafts.build has recorded it as sent and closed what waited on it: nothing is left to draft
-        return {"already_applied": True}
-    except drafts.OutcomeUnknown as e:
-        # Submit was pressed on this form - just now, while it was being read, or before - and the outcome is not known.
-        # That is on the application and on its one card; this task has nothing to wait for and nothing to try again.
-        return {"status": UNKNOWN, "note": str(e)}
-    except NeedsHuman as e:
-        from .ats import registry
-        from .models import Job
-
-        with db.session() as s:
-            j = s.get(Job, job_id)
-            company, url = j.company, j.apply_url
-        ref = registry.detect(url) if url else None
-        from . import auth
-
-        if ref is not None and e.kind in ("login", "account", "register") and (auth.key_for(ref.tenant_key).startswith("idp:") or auth.provider_at(e.url or "", e.reason or "")):
-            # the run stopped at a sign-in provider's own page: that provider's sign-in is what is missing
-            e.waits_for = auth.ask_to_sign_in(ref, company, e.reason, url=e.url or url, retry_task=t.id)
-        elif e.kind not in ("login", "captcha"):
-            # not a sign-in problem: the page does not work in this program's browser (blank page, site error, apply button leads nowhere)
-            notify.add_todo("blocked", f"{company}", body=e.reason, ref=f"job:{job_id}", payload={"url": url, "job_id": job_id, "retry_task": t.id, "why": e.kind})
-            e.waits_for = f"job:{job_id}"
-        elif e.kind == "captcha" or ref is None:
-            notify.add_todo("login", f"{company}：需要你处理", body=e.reason, ref=f"job:{job_id}", payload={"url": e.url, "retry_task": t.id})
-            e.waits_for = f"job:{job_id}"
-        else:  # signing in: the same card as every other login, with the choice to let the agent register instead
-            e.waits_for = auth.ask_to_sign_in(ref, f"{company}（{ref.host or ref.tenant_key}）", e.reason, url=e.url or url, retry_task=t.id, can_register=True)
-        raise
-    return {"draft_id": draft_id}
+    return work.work(int(t.payload["job_id"]), task_id=t.id, instructions=str(t.payload.get("instructions") or ""))
 
 
 @handler("tailor")
 def _tailor(t: Task) -> dict[str, Any]:
-    """Write (or rewrite) the tailored résumé for one job and put it into the open draft, if there is one."""
+    """Write (or rewrite) the tailored résumé for one job."""
     from . import tailor
-    from .models import Draft, Job
+    from .models import Job
 
     job_id = int(t.payload["job_id"])
     with db.session() as s:
@@ -100,47 +65,9 @@ def _tailor(t: Task) -> dict[str, Any]:
         s.expunge(job)
     doc = tailor.make(job, instructions=t.payload.get("instructions", ""))
     info = doc["tailor"]
-    swapped = 0
-    if doc["current"]:      # it passed: the open draft carries it; one that did not is kept as a record only
-        with db.session() as s:
-            for d in s.query(Draft).filter(Draft.review_status == "pending"):
-                if d.application.job_id == job_id:
-                    swapped += drafts.swap_resume(d, doc)
     notify.send("task_result", messages.tailored(f"{job.company} · {job.title}", focus=info["focus"], problems=info["problems"]), ref=f"job:{job_id}")
-    return {"document_id": doc["id"], "changes": len(info["changes"]), "in_draft": bool(swapped), "problems": info["problems"]}
-
-
-@handler("reanswer")
-def _reanswer(t: Task) -> dict[str, Any]:
-    return drafts.reanswer(int(t.payload["draft_id"]))
-
-
-@handler("scout")
-def _scout(t: Task) -> dict[str, Any]:
-    """Read the later steps of a form by walking it with the draft's answers (nothing is submitted)."""
-    return drafts.scout(int(t.payload["draft_id"]), task_id=t.id)
-
-
-@handler("revise")
-def _revise(t: Task) -> dict[str, Any]:
-    return drafts.revise(int(t.payload["draft_id"]), t.payload["comment"])
-
-
-@handler("execute")
-def _execute(t: Task) -> dict[str, Any]:
-    app_id = int(t.ref.split(":")[1])
-    out = executor.execute(app_id, int(t.payload["draft_id"]), task_id=t.id, force_manual=t.payload.get("force_manual", ""))
-    if out["status"] == "needs_human":
-        raise NeedsHuman(out.get("error", "needs human"), waits_for=out.get("waits_for", ""))
-    return {k: v for k, v in out.items() if k != "evidence"}
-
-
-@handler("improve")
-def _improve(t: Task) -> dict[str, Any]:
-    """Look at a run that stood out and have the agent write what the program should do differently (improve.py)."""
-    from . import improve
-
-    return improve.propose(int(t.payload["run_id"]), driver=bool(t.payload.get("driver")))
+    # (one that passed is among the files of the agent's next run on this application, and the run is told to use it: agent/work.py)
+    return {"document_id": doc["id"], "changes": len(info["changes"]), "current": bool(doc["current"]), "problems": info["problems"]}
 
 
 @handler("mail")
@@ -161,82 +88,6 @@ def _site_status(t: Task) -> dict[str, Any]:
     from . import sitestatus
 
     return sitestatus.resolve(str(t.payload["message_id"]))
-
-
-@handler("canary")
-def _canary(t: Task) -> dict[str, Any]:
-    """The self-check: the coded reading of each system against an open posting, and the saved form pages against the
-    current code.
-
-    Nobody is asked to do anything about what it finds - the applicant cannot repair a driver - and nothing it finds
-    is made to go away either. A saved page that no longer matches may be out of date or may show that the code lost
-    something; it cannot be told which, so the page is kept and marked (fixtures.record) and leaves only when a later
-    sample of the same form passes (fixtures.archive_superseded). It used to be deleted on the spot and counted as
-    "repaired", which left the next check with nothing to fail on. The cards of the earlier self-check ("driver") are
-    closed one by one, each on what this run shows about it (_settle_driver_cards), not all at once."""
-    from .ats import registry
-
-    out: dict[str, Any] = {}
-    targets: list[tuple[str, Any, list[str]]] = []
-    with db.session() as s:
-        for ats, drv in registry.drivers().items():
-            if drv.requires_login:
-                continue
-            urls = [j.apply_url for j in s.query(Job).filter(Job.ats == ats, Job.online == 1, Job.apply_url != "").order_by(Job.last_seen.desc()).limit(3)]
-            if urls:
-                targets.append((ats, drv, urls))
-    for ats, drv, urls in targets:
-        last = ""
-        for url in urls:      # one posting that has just closed is not a finding about the system: try the next
-            try:
-                sc = drv.get_schema(registry.detect(url), None)
-                out[ats] = {"ok": True, "questions": len(sc.questions)}
-                break
-            except Exception as e:  # noqa: BLE001
-                last = str(e)[:200]
-        else:
-            out[ats] = {"ok": False, "error": last, "handled": "forms of this system are read by the agent; nothing waits on this"}
-    from . import fixtures
-
-    fx = fixtures.run_all()
-    seen = fixtures.record(fx["results"])
-    archived = fixtures.archive_superseded()
-    left = fixtures.failing()
-    out["fixtures"] = {"total": fx["fixtures"] - len(archived), "failed": len(left), "failing": [f["name"] for f in left][:20],
-                       "new": seen["new"][:20], "recovered": seen["recovered"][:20], "archived": archived[:20]}
-    out["cards_closed"] = _settle_driver_cards(out, {r["ats"] + "/" + r["fixture"]: r["ok"] for r in fx["results"]}, set(archived))
-    return out
-
-
-def _settle_driver_cards(out: dict[str, Any], replayed: dict[str, bool], archived: set[str]) -> int:
-    """Close the cards of the earlier self-check that this run has an answer to; leave the others.
-
-    - "driver:<system>": the coded reading of that system failed. It works again, or - it still fails - the forms of
-      that system are read by the agent and nothing waits on it: either way the card has its answer.
-    - "fixture:<system>/<page>": a saved page did not match. It matches again; or it was replaced by a later sample of
-      the same form that passes; or the page is not there any more, so there is nothing left to check. A page that is
-      still there and still does not match keeps its card."""
-    from . import fixtures
-    from .models import Todo, now
-
-    n = 0
-    with db.session() as s:
-        for td in s.query(Todo).filter_by(kind="driver", status="open"):
-            what, _, name = (td.ref or "").partition(":")
-            why = ""
-            if what == "driver":
-                why = "the coded reading works again" if (out.get(name) or {}).get("ok") else "forms of this system are read by the agent; nothing waits on this"
-            elif what == "fixture":
-                if replayed.get(name):
-                    why = "the saved page matches again"
-                elif name in archived:
-                    why = "replaced by a later sample of the same form that passes"
-                elif name not in replayed and not (fixtures.root() / f"{name}.json").exists():
-                    why = "the saved page is not there any more"
-            if why:
-                td.status, td.done_at, td.payload = "done", now(), {**(td.payload or {}), "closed_because": why}
-                n += 1
-    return n
 
 
 def resume_waiting(*handled: str) -> int:

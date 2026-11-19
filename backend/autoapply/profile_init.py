@@ -143,17 +143,17 @@ def failed() -> None:
 
 def arrived() -> None:
     """There is something in the profile now (knowledge.write, whoever wrote it): what waited for it goes on
-    (``go_on``). A draft that was written while there was no profile (before forms waited for one) has its unanswered
-    questions asked again - they were asked of nothing."""
+    (``go_on``). An application whose record was written while there was no profile is worked again: its open
+    questions were asked of nothing."""
     from . import tasks
     from .models import Draft
 
     go_on()
     with db.session() as s:
-        open_ = [d.id for d in s.query(Draft).filter(Draft.review_status == "pending").order_by(Draft.id)
-                 if any(a.get("source") == "unresolved" for a in (d.answers or []))]
-    for draft_id in open_:
-        tasks.enqueue("reanswer", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)
+        open_ = sorted({d.application.job_id for d in s.query(Draft).filter(Draft.review_status == "pending")
+                        if any(a.get("source") == "unresolved" for a in (d.answers or []))})
+    for job_id in open_:
+        tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=10)
 
 
 def go_on() -> None:

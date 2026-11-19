@@ -21,7 +21,7 @@ ATS = {
     "icims": "iCIMS", "successfactors": "SAP SuccessFactors", "jazzhr": "JazzHR", "": "",
 }
 TASK = {
-    "discover": "扫描新岗位", "score": "给岗位评分", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
+    "discover": "扫描新岗位", "score": "给岗位评分", "apply": "做这份申请", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
     "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检", "site_status": "到雇主网站查申请状态", "profile_init": "从简历生成个人资料",
 }
 TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn"),
@@ -129,6 +129,7 @@ _NOTES: list[tuple[str, str]] = [
      r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，有 \2 个问题需要你回答。"),
     (r"^Reading the later steps stopped at \"(.*)\": (\d+) question\(s\) there need your answer\. Answer them and the reading goes on from there; nothing was submitted\.$",
      r"读后面的步骤时停在了「\1」：那里有 \2 个问题需要你回答。回答之后会从那里接着读；没有提交。"),
+    (r"^Still open: (.*)$", r"还没定：\1"),
     (r"^Reading the later steps did not work this time; .*$", r"这次没能读到后面的步骤；填表时会读到，问到的新问题会加进这份草案。"),
     (r"^Steps of this form that could not be read yet: (.*?)\. The form shows them only after the earlier steps are filled; .*$",
      r"这张表有几步在生成草案时还读不到：\1。要先填完前面的步骤，表单才显示它们；第一次填表时会读到，问到的新问题会加进这份草案，需要你回答的会退回给你。"),
@@ -220,9 +221,17 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
     if kind == "score" and r.get("waits_for_profile"):
         return "个人资料还是空的，等资料有了再评分"
     if kind == "score":
-        return (f"评了 {r.get('scored', 0)} 个岗位" + (f"，{r['queued_for_draft']} 个高分岗位排队生成草案" if r.get("queued_for_draft") else "")
+        return (f"评了 {r.get('scored', 0)} 个岗位" + (f"，{r['queued_for_draft']} 个高分岗位排队等 Agent 去申请" if r.get("queued_for_draft") else "")
                 + (f"；还有 {r['remaining']} 个没评，几分钟后接着评" if r.get("remaining") else "")) if "scored" in r else "已评分"
-    if kind == "recon":
+    if kind == "apply":
+        if r.get("already_applied"):
+            return "这份申请已经发出去了，没有再做"
+        if r.get("skipped"):
+            return "没有做：你已经决定不投这个岗位"
+        return {"submitted": "已提交，确认凭据已保存", "ready": "已填到最后一步，申请记录等你批准", "needs_input": "有问题需要你回答，其余已经填好", "submit_unknown": "点了提交，结果待确认",
+                "not_sent": "到网站上核实过：上一次没有发出，接着做", "goes_on": "这一次的预算用完了，下一次接着做", "cannot": "没有做成，原因见待办", "stuck": "连续几次停在同一个地方，等你看一下",
+                "budget_used": "这份申请的预算用完了，等你决定是否继续", "stopped": "已按你的要求停下"}.get(str(r.get("status")), "")
+    if kind == "recon":      # (and below: what earlier versions ran, in the history)
         if r.get("status") == "submit_unknown":
             return "没有生成草案：这份申请点过提交，结果待确认"
         return "草案已生成，等你审批" if r.get("draft_id") else ""
