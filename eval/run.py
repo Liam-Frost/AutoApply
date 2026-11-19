@@ -289,6 +289,7 @@ GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded, "ac
            "approve": grade_approve, "hand_over": grade_hand_over}
 STAGES = {"profile_first": "1,2", "embedded": "1", "account": "1", "widgets": "1", "returning": "1", "closed": "1", "approve": "1,2", "hand_over": "1"}
 FORM_OF = {"approve": "embedded", "hand_over": "embedded"}      # the same form, worked under another setting
+THROUGH_THE_QUEUE = ("profile_first", "embedded", "account", "widgets")      # the forms --queue can work: nothing to set up on the site first, sent by the agent itself when nothing is open
 WANTS = {"account": ("folder",), "returning": ("folder", "site"), "closed": ("site",), "approve": ("folder",), "hand_over": ("folder",)}      # what a grader looks at besides the form's state
 
 
@@ -500,7 +501,8 @@ def every_form(args: list[str]) -> None:
     scores = {}
     for form in sorted(GRADERS):
         print(f"===== {form} =====", flush=True)
-        got = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--form", form, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        mine = [x for x in args if x != "--queue" or form in THROUGH_THE_QUEUE]      # (a form the queue's path does not do is run directly)
+        got = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--form", form, *mine], capture_output=True, text=True, encoding="utf-8", errors="replace")
         print(got.stdout, end="", flush=True)
         if got.returncode:
             print(got.stderr[-2000:], flush=True)
@@ -538,6 +540,9 @@ def main() -> None:
     ap.add_argument("--portal-apply", action="store_true", help="not a form: an application inside the evaluation site's co-op portal, through the program's queue")
     ap.add_argument("--queue", action="store_true", help="through the program: a posting in its database, its queue, the record it keeps, the applicant answering in the record")
     a = ap.parse_args()
+    if a.queue and not (a.scan or a.portal_apply) and a.form not in THROUGH_THE_QUEUE:
+        # said before anything is spent: through the queue the setting is "send when nothing is open" and nothing is set up on the site
+        raise SystemExit(f"--queue works {', '.join(THROUGH_THE_QUEUE)}; {a.form} is run without it")
 
     home = Path(a.out) if a.out else Path(tempfile.mkdtemp(prefix="autoapply-eval-"))
     (home / "data").mkdir(parents=True, exist_ok=True)
