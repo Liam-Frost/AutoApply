@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 FORMS = Path(__file__).with_name("forms")
+PAGES = {p.stem: p for p in FORMS.glob("*.html")}
 POSTINGS = {
     "profile_first": {
         "company": "Northwind", "title": "Software Developer Intern, Winter 2027 - Waterloo or Toronto",
@@ -124,8 +125,8 @@ class Site:
                     p = POSTINGS[name]
                     return self._send(200, (f"<!doctype html><meta charset='utf-8'><title>{p['title']} - {p['company']} Careers</title><main style='max-width:720px;margin:40px auto;"
                                             f"font:15px/1.6 system-ui'><h1>{p['title']}</h1><p>{p['text']}</p><p><a href='/forms/{name}' aria-label='Apply'><button>Apply</button></a></p></main>").encode())
-                if u.path.startswith("/forms/") and (FORMS / f"{name}.html").exists():
-                    return self._send(200, (FORMS / f"{name}.html").read_bytes())
+                if u.path.startswith("/forms/") and name in PAGES:      # (only the forms that are there: a name from an address is never made into a path)
+                    return self._send(200, PAGES[name].read_bytes())
                 if u.path.startswith("/portal/"):
                     if u.path == "/portal/logout":
                         self.send_response(302)
