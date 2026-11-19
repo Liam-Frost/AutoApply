@@ -91,8 +91,13 @@ def test_export_and_restore_round_trip(app_env, tmp_path, monkeypatch):
     (config.RUNS / "exec_1").mkdir(parents=True, exist_ok=True)
     (config.RUNS / "exec_1" / "shot.png").write_bytes(b"x" * 100)
     (config.SESSIONS / "site.enc").write_bytes(b"secret-session")
+    (config.DATA / "agent" / "app_1" / "shots").mkdir(parents=True, exist_ok=True)
+    (config.DATA / "agent" / "app_1" / "journal.jsonl").write_text('{"kind": "run"}\n', encoding="utf-8")
+    (config.DATA / "agent" / "app_1" / "shots" / "001.png").write_bytes(b"x" * 100)
     out = backup.export()
     names = zipfile.ZipFile(out["path"]).namelist()
+    # what the agent wrote down about an application goes with it (the next run takes it up from there); its pictures do not
+    assert "data/agent/app_1/journal.jsonl" in names and not any("shots" in n for n in names)
     assert "data/app.db" in names and "data/files/resume.pdf" in names and "knowledge/profile.md" in names and "manifest.json" in names
     assert not any(n.startswith(("data/runs", "data/sessions", "data/exports")) for n in names)       # no screenshots, no sign-ins unless asked
     with_sessions = backup.export(sessions=True)

@@ -394,7 +394,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         with db.session() as s:
             app = s.get(Application, app_id)
             lifecycle.move(app, "submitted", source="run", at=now(), evidence={"url": conf.get("url", ""), "text": str(conf.get("words", ""))[:600], "ties_to_posting": str(conf.get("ties_to_posting", ""))[:300],
-                                                                    "read_by": "agent", "folder": str(folder)})
+                                                                    "read_by": "agent", "folder": str(folder), **({"screenshot": rec["shot"]} if rec.get("shot") else {})})
             app.last_event = ""
             was_auto = mode == "auto"
             app.auto_approved = int(was_auto)

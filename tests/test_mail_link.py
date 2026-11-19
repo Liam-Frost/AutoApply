@@ -61,9 +61,7 @@ def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
     with db.session() as s:
         first, second = _two_sent_applications(s)
     _card()
-    assert sitestatus.resolve("m1") == {"skipped": "no saved sign-in for this employer's site"}      # neither a session nor a login to get in with: the site is not opened
-    monkeypatch.setattr(browser, "load_state", lambda key: {"cookies": [{"name": "s"}]})
-    opened = []
+    opened = []      # (whether there is a saved sign-in or a stored login is said to the agent; it is sent either way)
 
     def site(key, start, folder, question):
         opened.append((key, start))

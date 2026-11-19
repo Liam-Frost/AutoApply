@@ -146,7 +146,7 @@ def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str =
     if journal.strip():
         parts += ["# Earlier runs on this application",
                   "What was written down then, oldest first. The site may not have kept everything: read back what is there before you go on.",
-                  f"<journal>\n{journal.strip()[-12000:]}\n</journal>"]
+                  f"<journal>\n{journal.strip()[-60000:]}\n</journal>"]
     if budget:
         parts += ["# Budget", budget]
     parts += ["# Language", reads()]

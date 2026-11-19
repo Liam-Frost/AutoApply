@@ -119,7 +119,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "sources.lever": [],
     "sources.ashby": [],
     "sources.workday": [],  # [{"host": "altera.wd1.myworkdayjobs.com", "site": "Altera", "tenant": "altera"}]
-    "sources.pdportal": False,  # the portal refuses automated browsers; postings come in through the importer in the user's browser
+    "sources.pdportal": False,  # the school's co-op portal, read by the agent with the applicant's sign-in (agent/scan.py)
     # the large tech employers' own career sites (sources/bigtech.py); always watched unless switched off
     "sources.bigtech": {"amazon": False, "apple": False, "google": False, "microsoft": False, "meta": False, "nvidia": False, "amd": False, "intel": False},
     "sources.search_terms": [],  # what to type into a career site's search box

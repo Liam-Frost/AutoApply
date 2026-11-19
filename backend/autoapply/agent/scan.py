@@ -91,7 +91,7 @@ def read(page: Any, *, site: str, name: str, url: str, known: set[str], keep: Ca
     own = {t.name: t for t in desk.tools()}
     posting = {"type": "object", "properties": {k: s for k in ("id", "text", "title", "company", "deadline", "how_to_apply", "apply_url", "documents", "term", "months", "location", "salary")},
                "required": ["id"]}
-    tools = hands.tools() + [own[n] for n in ("log", "note", "notes", "account", "type_password", "mail")] + [
+    tools = desk.guard(hands.tools() + [own[n] for n in ("log", "note", "notes", "account", "type_password", "mail")] + [
         llm.Tool("sign_in_by_hand", own["sign_in_by_hand"].description, own["sign_in_by_hand"].input_schema, by_hand),
         llm.Tool("save_postings", "Give postings to the program: `script` (an async arrow function run in the page, see the manual) and/or `postings` and `listed` directly. "
                                   "Answers with what was stored for each posting.",
@@ -99,7 +99,7 @@ def read(page: Any, *, site: str, name: str, url: str, known: set[str], keep: Ca
         llm.Tool("tell_applicant", "Tell the applicant, now, that the site waits for something on their side (approve the sign-in on their phone). `what`: the method, e.g. Duo.",
                  {"type": "object", "properties": {"what": s}, "required": ["what"], "additionalProperties": False}, tell_applicant),
         llm.Tool("done", "End: ok (the postings were saved) or not, and why.", {"type": "object", "properties": {"ok": {"type": "boolean"}, "why": s}, "required": ["ok"], "additionalProperties": False}, done),
-    ]
+    ])
     system = system or brief.playbook_for(url)[0]      # which kind of site this is: what is known about that kind is in the brief
     goal = "\n\n".join(x for x in (
         f"# The source\n{name}, at {url}\nThe program has the text of {len(known)} of its postings already; a script you give to `save_postings` gets their ids.",

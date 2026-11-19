@@ -67,12 +67,78 @@ class Desk:
         self.asked: list[dict[str, Any]] = []
         self.reported: dict[str, Any] | None = None
         self.waiting = ""                # what the run stopped for, when it handed the window to the applicant
+        self.hidden: set[str] = set()    # the passwords of this site: never in what a tool answers or the journal holds (guard)
         folder.mkdir(parents=True, exist_ok=True)
 
     # --- the journal ---------------------------------------------------------------------------------------------
     def write(self, kind: str, **what: Any) -> None:
         with open(self.folder / "journal.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "kind": kind, **what}, ensure_ascii=False, default=str) + "\n")
+            f.write(self._clean(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "kind": kind, **what}, ensure_ascii=False, default=str)) + "\n")
+
+    # --- what the program types for the applicant stays out of what the agent reads ----------------------------------
+    # The agent has the whole page in its hands - a script, the list of controls, a picture. A password the program
+    # typed into a box is on that page until the form is sent (a registration asks for it twice), and a page can show
+    # it in clear. So the limit is held where the tools answer: the passwords of this site are taken out of every
+    # answer and of the journal, and a box that holds one is covered while a picture is taken. (A password that only
+    # the browser knows - filled in by its own password manager - is hidden in the list of controls and in pictures;
+    # the program cannot take out of a script's answer what it does not know.)
+    def _clean(self, text: str) -> str:
+        for pw in self.hidden:
+            if pw in text:
+                text = text.replace(pw, "(hidden)")
+        return text
+
+    def clean(self, out: Any) -> Any:
+        if isinstance(out, str):
+            return self._clean(out)
+        if isinstance(out, list):
+            return [{**b, "text": self._clean(b["text"])} if isinstance(b, dict) and isinstance(b.get("text"), str) else b for b in out]
+        return out
+
+    _COVER = """() => { const walk = (root) => { for (const e of root.querySelectorAll('*')) {
+        if (e.tagName === 'INPUT' && (e.getAttribute('type') || '').toLowerCase() === 'password') e.setAttribute('data-aa-secret', '');
+        else if (e.hasAttribute && e.hasAttribute('data-aa-secret') && !e.hasAttribute('data-aa-covered')) { e.setAttribute('data-aa-covered', e.style.webkitTextSecurity || ''); e.style.webkitTextSecurity = 'disc'; }
+        if (e.shadowRoot) walk(e.shadowRoot); } }; walk(document); }"""
+    _UNCOVER = """() => { const walk = (root) => { for (const e of root.querySelectorAll('*')) {
+        if (e.hasAttribute && e.hasAttribute('data-aa-covered')) { e.style.webkitTextSecurity = e.getAttribute('data-aa-covered'); e.removeAttribute('data-aa-covered'); }
+        if (e.shadowRoot) walk(e.shadowRoot); } }; walk(document); }"""
+
+    def _picture(self, take: Any) -> Any:
+        """Take a picture with every box that holds (or held) a password covered."""
+        try:
+            self.hands.page.evaluate(self._COVER)
+        except Exception:  # noqa: BLE001 - between two pages: there is no box to cover
+            pass
+        try:
+            return take()
+        finally:
+            try:
+                self.hands.page.evaluate(self._UNCOVER)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def guard(self, tools: list[llm.Tool]) -> list[llm.Tool]:
+        """The same tools, answering without the passwords of this site in what they say."""
+        from .. import secrets
+
+        try:
+            stored = secrets.get_password(self.site) or ""
+        except Exception:  # noqa: BLE001 - no store to ask: what is typed in this run is still known
+            stored = ""
+        if len(stored) >= 6:
+            self.hidden.add(stored)
+
+        def kept(t: llm.Tool) -> llm.Tool:
+            def run(**kw: Any) -> Any:
+                try:
+                    return self.clean(self._picture(lambda: t.fn(**kw)) if t.name == "look" else t.fn(**kw))
+                except Exception as e:  # noqa: BLE001 - told to the agent as it is, without what is hidden
+                    if any(pw in str(e) for pw in self.hidden):
+                        raise RuntimeError(self._clean(f"{type(e).__name__}: {e}")) from None
+                    raise
+            return llm.Tool(t.name, t.description, t.input_schema, run)
+
+        return [kept(t) for t in tools]
 
     def step(self, step: dict[str, Any]) -> None:
         """A tool call, as the model's run reports it."""
@@ -161,7 +227,7 @@ class Desk:
         from .. import auth, secrets
 
         at = self.hands._at(ref)
-        if at["type"] != "password":
+        if at["type"] != "password" and not at.get("secret"):
             raise PermissionError(f"[{ref}] is not a password box")
         here = self._host()
         if new:
@@ -177,10 +243,12 @@ class Desk:
                 # applicant signed in on for it - and nowhere else: a page that only looks like it gets nothing.
                 raise PermissionError(f"this page is on {here or 'no site'}, which is not where the password of this site belongs ({', '.join(sorted(self._homes())) or 'no address on record'}). "
                                       "If the site's sign-in really lives here, the applicant signs in by hand once (sign_in_by_hand); it is known from then on.")
+        if len(pw) >= 6:
+            self.hidden.add(pw)
         page = self.hands.page
         page.mouse.click(at["x"], at["y"])
         time.sleep(0.15)
-        page.evaluate("() => { const e = window.__aaAt; if (e && e.select) e.select(); }")
+        page.evaluate("() => { const e = window.__aaAt; if (e) { e.setAttribute('data-aa-secret', ''); if (e.select) e.select(); } }")
         page.keyboard.insert_text(pw)
         if not then_click:
             return ("typed (hidden). If the form wants it a second time (verify password), call this again for that box - without new, so that it is the same password - "
@@ -275,11 +343,18 @@ class Desk:
             at = str(self.hands.page.url)
         except Exception:  # noqa: BLE001
             at = ""
+        shot = ""
+        if outcome == "submitted":      # the page as it stands when the agent says the application is out: kept with the evidence
+            try:
+                (self.folder / "confirmation.png").write_bytes(self._picture(lambda: self.hands.page.screenshot(full_page=True)))
+                shot = str(self.folder / "confirmation.png")
+            except Exception:  # noqa: BLE001 - the words and the address are the evidence; the picture is beside them when there is one
+                pass
         self.reported = {"outcome": outcome, "summary": str(summary)[:3000], "url": at, "answers": list(answers or []), "files": list(files or []), "open": [str(x) for x in (open or [])],
                          "confirmation": dict(confirmation or {}), "sent": bool(sent or outcome == "submitted"), "asked": list(self.asked),
                          "at": datetime.now().isoformat(timespec="seconds"), "mode": self.mode}
         (self.folder / "record.json").write_text(json.dumps(self.reported, ensure_ascii=False, indent=1), encoding="utf-8")
-        self.reported["not_sent"] = str(not_sent)[:600]
+        self.reported["not_sent"], self.reported["shot"] = str(not_sent)[:600], shot
         self.write("report", outcome=outcome, summary=str(summary)[:600], open=len(open or []), sent=self.reported["sent"], not_sent=str(not_sent)[:600])
         return "recorded. The run is over: stop here."
 
@@ -398,7 +473,7 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     except Exception as e:  # noqa: BLE001 - the agent sees what the window shows and decides
         desk.write("log", text=f"(the program could not open the posting's address by itself: {type(e).__name__})")
     try:
-        out = llm.agent(goal, hands.tools() + desk.tools(), system=brief.manual(), kind="apply", on_step=desk.step, budget=budget)
+        out = llm.agent(goal, desk.guard(hands.tools() + desk.tools()), system=brief.manual(), kind="apply", on_step=desk.step, budget=budget)
         res.stopped, res.steps, res.said = out.stopped or "end_turn", len(out.steps), (out.final_text or "")[:2000]
         res.usage = dict(out.budget or {})
     except llm.LLMError as e:

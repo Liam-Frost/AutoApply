@@ -682,6 +682,18 @@ def get_application(application_id: int) -> dict[str, Any]:
     return out
 
 
+@app.get("/api/applications/{application_id}/confirmation.png")
+def confirmation_picture(application_id: int) -> FileResponse:
+    """The page as it stood when the agent reported this application as sent (kept with its evidence)."""
+    with db.session() as s:
+        a = _404(s.get(Application, application_id))
+        shot = str((a.evidence or {}).get("screenshot") or "")
+    p = Path(shot).resolve() if shot else None
+    if p is None or not p.is_file() or config.DATA.resolve() not in p.parents:      # (only a picture the program itself kept)
+        raise HTTPException(404, "no picture was kept")
+    return FileResponse(p, media_type="image/png", content_disposition_type="inline")
+
+
 @app.post("/api/applications/{application_id}/budget")
 def more_budget(application_id: int) -> dict[str, Any]:
     """The applicant gives an application whose budget is used up another one, and the agent goes on."""

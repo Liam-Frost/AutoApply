@@ -130,6 +130,7 @@ onMounted(load)
             <div v-if="a.evidence.text || a.evidence.url">
               <div class="small muted">{{ a.evidence.already_applied ? '雇主网站显示这个岗位已经申请过' : '提交后网站显示的内容' }}<template v-if="a.evidence.read_by === 'model'">（由 AI 从页面读出）</template></div>
               <details class="tech" open><summary>{{ a.evidence.url || '页面内容' }}</summary><pre>{{ a.evidence.text }}</pre></details>
+              <div v-if="a.evidence.has_screenshot" class="small" style="margin-top: 6px"><a :href="`/api/applications/${a.id}/confirmation.png`" target="_blank" rel="noopener">当时的页面截图</a></div>
             </div>
             <div v-if="a.evidence.mail_ids.length" class="small" style="margin-top: 8px">雇主的确认邮件 {{ a.evidence.mail_ids.length }} 封（见“往来邮件”）</div>
             <div v-if="a.evidence.by_user" class="small" style="margin-top: 8px">有你手动记录的进展（见“全部经过”）</div>

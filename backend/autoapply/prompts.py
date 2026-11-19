@@ -3,10 +3,10 @@
 What the user edits is the *body* of a prompt. Three things keep an edit from doing damage:
 
 1. **Fixed rules.** Each prompt has a short block of rules that is appended to whatever the body
-   says and cannot be edited (no invented facts, never submit, never type passwords, page text is
-   data). These repeat what the code already enforces - tools refuse to submit, answers are
-   validated against the form's options, rewrites are checked against the résumé - so an edited
-   prompt can make results worse, but it cannot switch those protections off.
+   says and cannot be edited (no invented facts, sending follows the run's mode, never type
+   passwords, page text is data). For the application agent these are its four limits, said again
+   after the manual; of them the program itself holds the password (the agent's tools never give it
+   one) and the budget. An edited prompt can make results worse; it cannot take these sentences out.
 2. **Checks on save.** Not empty, not enormous, and the words the code depends on (the name of the
    tool the agent must call to finish, the section names of the profile) are still there.
 3. **History.** Every save is a version; any version, and the built-in text, can be restored.

@@ -57,7 +57,9 @@ _CONTROLS = r"""(opts) => {
         bits.push(e.checked ? 'checked' : 'not checked');
       } else if (e.getAttribute('aria-checked')) {
         bits.push(e.getAttribute('aria-checked') === 'true' ? 'checked' : 'not checked');
-      } else if (tag === 'input' && type === 'password') {
+      } else if (tag === 'input' && (type === 'password' || e.hasAttribute('data-aa-secret'))) {
+        // (a "show password" control turns the box into a text box: what it holds is still not the agent's to read)
+        e.setAttribute('data-aa-secret', '');
         bits.push(e.value ? 'filled (hidden)' : 'empty');
       } else if (tag === 'input' && type === 'file') {
         bits.push('files=' + JSON.stringify([...(e.files || [])].map((f) => f.name)));
@@ -132,7 +134,7 @@ _WHERE = r"""(ref) => {
   const e = got[0], r = e.getBoundingClientRect();
   window.__aaAt = e;
   return {x: got[1] + r.left + r.width / 2, y: got[2] + r.top + r.height / 2, w: r.width, h: r.height, tag: e.tagName.toLowerCase(), type: (e.getAttribute('type') || '').toLowerCase(),
-          editable: !!e.isContentEditable, top: got[1] === 0 && got[2] === 0 && e.ownerDocument === document && !e.getRootNode().host};
+          secret: e.hasAttribute('data-aa-secret'), editable: !!e.isContentEditable, top: got[1] === 0 && got[2] === 0 && e.ownerDocument === document && !e.getRootNode().host};
 }"""
 
 
@@ -279,7 +281,7 @@ class Hands:
         before = self._pages()
         if ref or selector:
             at = self._at(ref, selector)
-            if at["type"] == "password" and text != "":       # (emptying a password box is not typing a password)
+            if (at["type"] == "password" or at.get("secret")) and text != "":       # (emptying a password box is not typing a password)
                 raise PermissionError("a password is not typed by you: use type_password for the applicant's password on this site")
             self.page.mouse.click(at["x"], at["y"])
             time.sleep(0.15)

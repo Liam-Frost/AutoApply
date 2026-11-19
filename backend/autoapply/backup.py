@@ -54,9 +54,11 @@ def export(*, sessions: bool = False) -> dict[str, Any]:
         dst.close()
     finally:
         src.close()
-    # (what the program learned from its runs is the applicant's too: the revisions' text is in data/learned, the rest -
-    # notes, the steps of forms - in the database with everything else known about a site)
-    folders = {"data/files": config.FILES, "data/materials": config.MATERIALS, "knowledge": config.KNOWLEDGE, "data/learned": config.DATA / "learned"}
+    # (data/agent: what the agent wrote down about each application - its journal, what the application has used of its
+    # budget, what the applicant said when they asked for it, the picture of the confirmation. An application that is
+    # carried to another computer is taken up from these. The pictures it took on the way are left out: large, and of
+    # no use to the next run.)
+    folders = {"data/files": config.FILES, "data/materials": config.MATERIALS, "knowledge": config.KNOWLEDGE, "data/agent": config.DATA / "agent"}
     if sessions:
         folders["data/sessions"] = config.SESSIONS
     count = 1
@@ -65,7 +67,7 @@ def export(*, sessions: bool = False) -> dict[str, Any]:
             z.write(snap, "data/app.db")
             for arc, folder in folders.items():
                 for f in sorted(folder.rglob("*")):
-                    if f.is_file():
+                    if f.is_file() and "shots" not in f.relative_to(folder).parts:
                         z.write(f, f"{arc}/{f.relative_to(folder).as_posix()}")
                         count += 1
             z.writestr("manifest.json", json.dumps({"app": "autoapply", "version": version(), "created": datetime.now().isoformat(timespec="seconds"),

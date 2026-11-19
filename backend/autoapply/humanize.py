@@ -244,7 +244,8 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
         r = result or {}
         if r.get("linked"):
             return f"在雇主网站上查到了，邮件已关联到 {len(r['linked'])} 个申请"
-        return {"already linked": "邮件已经关联过了", "no saved sign-in for this employer's site": "这个雇主的网站没有保存的登录，没法查"}.get(
+        return {"already linked": "邮件已经关联过了", "no saved sign-in for this employer's site": "这个雇主的网站没有保存的登录，没法查",
+                "no address of the employer's site": "不知道这个雇主的网站地址，没法查"}.get(
             r.get("skipped", ""), f"读到网站上的 {r.get('read', 0)} 个申请，但没能确定邮件属于哪一个，留给你指定")
     if kind == "canary":
         n = int(((result or {}).get("fixtures") or {}).get("failed") or 0)

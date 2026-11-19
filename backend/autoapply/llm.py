@@ -2,8 +2,8 @@
 
 Three entry points:
   * ``text``  - free-form generation (cover letters).
-  * ``json``  - schema-constrained output (scoring, answer resolution, mail triage).
-  * ``agent`` - tool-use loop with vision (reconnaissance on unknown ATS, repair).
+  * ``json``  - schema-constrained output (scoring, mail triage).
+  * ``agent`` - a model with tools, working until it is done (an application, a portal's postings, an employer's site).
 
 Backends, chosen by the ``llm.provider`` setting: the Claude subscription (``llm_sdk``), the Anthropic API, the ChatGPT
 subscription (``llm_codex``) and any OpenAI-compatible service (``llm_openai``).
@@ -601,7 +601,7 @@ def agent(
     """Manual tool-use loop (kept manual so tool results can carry screenshots
     and every call is recorded on the run).
 
-    ``kind`` names the work ("explore_form", "take_over", ...): it decides how many tool calls and how long the agent
+    ``kind`` names the work ("apply", "scan", "site_status"): it decides how many tool calls and how long the agent
     is given (the setting agent.budgets). There is one budget for the whole of it, counted here - every tool the model
     is handed goes through ``spend`` - so it is the same for every service, and a backup that takes over goes on with
     what is left. How the run ended is in ``stopped``.
