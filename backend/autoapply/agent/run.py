@@ -84,8 +84,11 @@ class Desk:
     # the program cannot take out of a script's answer what it does not know.)
     def _clean(self, text: str) -> str:
         for pw in self.hidden:
-            if pw in text:
-                text = text.replace(pw, "(hidden)")
+            # as it is, and as it reads inside JSON (a script's answer and the journal are JSON: a quote or a backslash
+            # in a password is written with a backslash before it there, a letter outside ASCII may be written as \uXXXX)
+            for form in sorted({pw, json.dumps(pw, ensure_ascii=False)[1:-1], json.dumps(pw)[1:-1]}, key=len, reverse=True):
+                if form in text:
+                    text = text.replace(form, "(hidden)")
         return text
 
     def clean(self, out: Any) -> Any:
@@ -98,10 +101,12 @@ class Desk:
     _COVER = """() => { const walk = (root) => { for (const e of root.querySelectorAll('*')) {
         if (e.tagName === 'INPUT' && (e.getAttribute('type') || '').toLowerCase() === 'password') e.setAttribute('data-aa-secret', '');
         else if (e.hasAttribute && e.hasAttribute('data-aa-secret') && !e.hasAttribute('data-aa-covered')) { e.setAttribute('data-aa-covered', e.style.webkitTextSecurity || ''); e.style.webkitTextSecurity = 'disc'; }
-        if (e.shadowRoot) walk(e.shadowRoot); } }; walk(document); }"""
+        if (e.shadowRoot) walk(e.shadowRoot);
+        if (e.tagName === 'IFRAME') { try { if (e.contentDocument) walk(e.contentDocument); } catch (err) {} } } }; walk(document); }"""
     _UNCOVER = """() => { const walk = (root) => { for (const e of root.querySelectorAll('*')) {
         if (e.hasAttribute && e.hasAttribute('data-aa-covered')) { e.style.webkitTextSecurity = e.getAttribute('data-aa-covered'); e.removeAttribute('data-aa-covered'); }
-        if (e.shadowRoot) walk(e.shadowRoot); } }; walk(document); }"""
+        if (e.shadowRoot) walk(e.shadowRoot);
+        if (e.tagName === 'IFRAME') { try { if (e.contentDocument) walk(e.contentDocument); } catch (err) {} } } }; walk(document); }"""
 
     def _picture(self, take: Any) -> Any:
         """Take a picture with every box that holds (or held) a password covered."""

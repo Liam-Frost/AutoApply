@@ -685,11 +685,11 @@ def get_application(application_id: int) -> dict[str, Any]:
 @app.get("/api/applications/{application_id}/confirmation.png")
 def confirmation_picture(application_id: int) -> FileResponse:
     """The page as it stood when the agent reported this application as sent (kept with its evidence)."""
+    from .. import applications
+
     with db.session() as s:
-        a = _404(s.get(Application, application_id))
-        shot = str((a.evidence or {}).get("screenshot") or "")
-    p = Path(shot).resolve() if shot else None
-    if p is None or not p.is_file() or config.DATA.resolve() not in p.parents:      # (only a picture the program itself kept)
+        p = applications.picture(_404(s.get(Application, application_id)).evidence)
+    if p is None:      # (none, or not one the program itself kept)
         raise HTTPException(404, "no picture was kept")
     return FileResponse(p, media_type="image/png", content_disposition_type="inline")
 

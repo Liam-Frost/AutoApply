@@ -111,6 +111,20 @@ def test_what_the_program_typed_is_in_no_answer_of_the_agents_tools(desk):
     d2 = desk.make()
     d2.guard([])
     assert stored in d2.hidden
+    # a password with a quote or a backslash in it reads differently inside JSON - which is what a script's answer and
+    # the journal are - and is taken out of that too; a box in a frame of the same site is covered like any other
+    odd = 'p"a\\ss wörd'
+    d2.hidden = {odd}
+    assert odd not in d2.clean(json.dumps({"password": odd}, ensure_ascii=False)) and "wörd" not in d2.clean(json.dumps({"password": odd}, ensure_ascii=False))
+    assert "ss w" not in d2.clean(json.dumps([odd]))
+    d2.write("log", text=odd)
+    assert "ss w" not in (desk.folder / "journal.jsonl").read_text(encoding="utf-8")
+    desk.page.evaluate("""() => { const f = document.createElement('iframe'); document.body.appendChild(f);
+        f.contentDocument.body.innerHTML = '<input id="inner" type="password" value="x">'; }""")
+    inner = "getComputedStyle(document.querySelector('iframe').contentDocument.getElementById('inner')).webkitTextSecurity"
+    desk.page.evaluate(d2._COVER)                                       # (seen as a password box: marked)
+    desk.page.evaluate("document.querySelector('iframe').contentDocument.getElementById('inner').type = 'text'")
+    assert d2._picture(lambda: desk.page.evaluate(inner)) == "disc" and desk.page.evaluate(inner) != "disc"
 
 
 def test_a_run_that_may_not_send_is_told_so_and_a_run_that_may_writes_it_down_first(desk):

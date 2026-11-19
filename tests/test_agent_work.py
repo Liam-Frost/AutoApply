@@ -508,7 +508,7 @@ def test_the_picture_of_the_confirmation_is_kept_with_the_evidence_and_only_the_
     with db.session() as s:
         a = s.get(Job, agent.job).application
         app_id = a.id
-        assert a.status == "submitted" and a.evidence["screenshot"] == str(shot)
+        assert a.status == "submitted" and a.evidence["screenshot"] == "agent/app_1/confirmation.png"      # by where it is in the data: found again after a restore elsewhere
     c = TestClient(app)
     assert c.get(f"/api/applications/{app_id}").json()["evidence"]["has_screenshot"] is True
     got = c.get(f"/api/applications/{app_id}/confirmation.png")
