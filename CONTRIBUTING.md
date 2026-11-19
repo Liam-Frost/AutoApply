@@ -122,8 +122,12 @@ gets wrong, how a sent application is confirmed. Write what you saw when you app
 nothing about a person. `ashby.md` is a short example.
 
 A change to how every form is worked belongs in the manual, `backend/autoapply/agent/apply.md`. Before proposing one,
-run the evaluation forms (`python eval/run.py --form profile_first`, also `embedded` and `account`; it spends your AI
-allowance) and say what they gave: a run is judged by what the employer's side received, not by what the agent says.
+run the evaluation (`python eval/run.py --all`, or one shape at a time: `--form profile_first`, `embedded`, `account`,
+`widgets`, `returning`, `closed`, `approve`, `hand_over`, and `--scan` / `--portal-apply` for the co-op portal; it
+spends your AI allowance) and say what it gave: a run is judged by what the employer's side received, not by what
+the agent says. A shape of form the agent got wrong on a real site and that none of these has belongs here as a new
+form: `eval/forms/<name>.html`, its posting in `eval/server.py`, what a careful person would have got right in
+`eval/run.py`.
 
 ## Reporting what was verified
 

@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Litware Careers</title>
+<!--
+  A site the applicant has been to before:
+  - they have an account (the program holds its login; the site itself checks the password - the page does not know it);
+  - "My applications" lists a draft for this posting, begun weeks ago, and an application for another posting that
+    went out last winter;
+  - the draft holds what was true then: another phone number, another city, the graduation year of the old résumé,
+    the old résumé itself, a preferred office the applicant no longer wants;
+  - sending leads back to "My applications", where the entry now reads "Submitted": there is no thank-you page and
+    no reference number.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #222; background: #f6f5f2; }
+  header { background: #5b2a86; color: #fff; padding: 14px 28px; font-size: 19px; display: flex; justify-content: space-between; }
+  header button { background: none; border: 0; color: #fff; text-decoration: underline; font: inherit; cursor: pointer; }
+  main { max-width: 720px; margin: 20px auto; background: #fff; padding: 20px 28px 50px; border-radius: 8px; }
+  label.f { display: block; margin: 14px 0 4px; font-weight: 600; }
+  input[type=text], input[type=password], select { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #999; border-radius: 4px; font: inherit; }
+  .row { border: 1px solid #ccc; border-radius: 6px; padding: 10px 14px; margin: 10px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .tag { border-radius: 10px; padding: 2px 10px; font-size: 13px; background: #eee; } .tag.sent { background: #d9f2df; } .err { color: #b00; margin-top: 10px; }
+  button.main { background: #5b2a86; color: #fff; border: 0; border-radius: 6px; padding: 9px 20px; font: inherit; cursor: pointer; margin-top: 18px; }
+  button.plain { background: #fff; border: 1px solid #5b2a86; color: #5b2a86; border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  .crumbs { color: #666; font-size: 13px; }
+</style>
+<header><span>Litware Careers</span><span id="who"></span></header>
+<main><div class="crumbs" id="crumbs"></div><h1 id="t"></h1><div id="body"></div></main>
+<script>
+const NAME = 'returning';
+const STEPS = ['Contact details', 'Education and role', 'Review'];
+let S = { account: { email: '' }, step: 0, contact: {}, edu: {}, resume: '', submitted: false, submitted_on: '', created: 0 };
+let signedIn = false, view = 'list';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const post = (what) => fetch('/__/' + what + '?form=' + NAME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S) }).catch(() => {});
+const text = (id, label, v) => `<label class="f" for="${id}">${label} *</label><input type="text" id="${id}" value="${esc(v || '')}">`;
+const pick = (id, label, opts, v) => `<label class="f" for="${id}">${label} *</label><select id="${id}">${['', ...opts].map((o) => `<option ${v === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+
+function door(err, tab) {
+  $('who').innerHTML = ''; $('crumbs').textContent = ''; $('t').textContent = tab === 'new' ? 'Create an account' : 'Sign in';
+  $('body').innerHTML = `<p>${tab === 'new' ? 'Already registered? <button class="plain" id="swap" type="button">Sign in</button>' : 'New to Litware Careers? <button class="plain" id="swap" type="button">Create an account</button>'}</p>
+    <label class="f" for="email">E-mail address *</label><input type="text" id="email" autocomplete="username">
+    <label class="f" for="pw">Password *</label><input type="password" id="pw" autocomplete="${tab === 'new' ? 'new-password' : 'current-password'}">
+    <div class="err" role="alert">${esc(err || '')}</div><button class="main" id="go" type="button">${tab === 'new' ? 'Create account' : 'Sign in'}</button>`;
+  $('swap').onclick = () => door('', tab === 'new' ? '' : 'new');
+  $('go').onclick = async () => {
+    const email = $('email').value.trim(), pw = $('pw').value;
+    if (tab === 'new') {      // the applicant has an account here already: a second one is not made
+      if (email.toLowerCase() === String(S.account.email).toLowerCase()) return door('An account with this e-mail address already exists. Sign in instead.', 'new');
+      S.created++; post('save'); return door('We could not create this account. Sign in with the account you already have.', 'new');
+    }
+    const r = await fetch('/__/login?form=' + NAME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, pw }) }).then((x) => x.json()).catch(() => ({ ok: false }));
+    if (!r.ok) return door('The e-mail address or password is not right.');
+    signedIn = true; view = 'list'; render();
+  };
+}
+
+function list() {
+  $('crumbs').textContent = ''; $('t').textContent = 'My applications';
+  $('body').innerHTML = `<div class="row"><div><b>Full-Stack Developer Intern (Winter 2027)</b><br><small>${S.submitted ? 'Submitted on ' + esc(S.submitted_on) : 'Draft · last saved October 30, 2026'}</small></div>
+      <div>${S.submitted ? '<span class="tag sent">Submitted</span>' : '<span class="tag">Draft</span> <button class="plain" id="cont" type="button">Continue application</button>'}</div></div>
+    <div class="row"><div><b>Data Analyst Intern (Summer 2026)</b><br><small>Submitted on February 12, 2026</small></div><div><span class="tag sent">Submitted</span></div></div>
+    <p><small>Looking for something else? <a href="/jobs/returning">Back to the posting</a></small></p>`;
+  if ($('cont')) $('cont').onclick = () => { view = 'form'; render(); };
+}
+
+const steps = [
+  () => `${text('first', 'First name', S.contact.first)}${text('last', 'Last name', S.contact.last)}${text('email', 'E-mail', S.contact.email)}${text('phone', 'Phone', S.contact.phone)}${text('city', 'City you live in', S.contact.city)}`,
+  () => `${text('school', 'School', S.edu.school)}${text('degree', 'Degree and programme', S.edu.degree)}${text('grad', 'Expected graduation (MM/YYYY)', S.edu.grad)}
+    ${pick('office', 'Preferred office', ['Remote', 'Toronto', 'Vancouver'], S.edu.office)}${pick('adult', 'Are you 18 years of age or older?', ['Yes', 'No'], S.edu.adult)}
+    <label class="f">Résumé *</label><div>On file: <b id="fname">${esc(S.resume)}</b> <button class="plain" id="replace" type="button">Replace</button><input type="file" id="file" style="display:none"></div>`,
+  () => `<p>This is what will be sent to Litware.</p>
+    <div class="row"><div><b>Contact details</b><br>${esc(S.contact.first)} ${esc(S.contact.last)} · ${esc(S.contact.email)} · ${esc(S.contact.phone)} · ${esc(S.contact.city)}</div><button class="plain" data-edit="0" type="button">Edit</button></div>
+    <div class="row"><div><b>Education and role</b><br>${esc(S.edu.school)} · ${esc(S.edu.degree)} · graduating ${esc(S.edu.grad)}<br>Preferred office: ${esc(S.edu.office)} · 18 or older: ${esc(S.edu.adult)}<br>Résumé: ${esc(S.resume)}</div><button class="plain" data-edit="1" type="button">Edit</button></div>`,
+];
+
+function keep() {
+  const v = (id) => ($(id) ? $(id).value : undefined);
+  if (S.step === 0) for (const k of ['first', 'last', 'email', 'phone', 'city']) if (v(k) !== undefined) S.contact[k] = v(k);
+  if (S.step === 1) for (const k of ['school', 'degree', 'grad', 'office', 'adult']) if (v(k) !== undefined) S.edu[k] = v(k);
+}
+
+function render(err) {
+  if (!signedIn) return door();
+  $('who').innerHTML = esc(S.account.email) + ' · <button id="apps" type="button">My applications</button>';
+  $('apps').onclick = () => { view = 'list'; render(); };
+  if (view === 'list' || S.submitted) return list();
+  $('crumbs').textContent = 'Full-Stack Developer Intern (Winter 2027)   ' + STEPS.map((s, i) => (i === S.step ? '● ' : '○ ') + s).join('   ');
+  $('t').textContent = STEPS[S.step];
+  $('body').innerHTML = steps[S.step]() + `<div class="err" role="alert">${esc(err || '')}</div>${S.step ? '<button class="plain" id="back" type="button">Back</button> ' : ''}<button class="main" id="go" type="button">${S.step === 2 ? 'Submit application' : 'Save and continue'}</button>`;
+  if ($('back')) $('back').onclick = () => { keep(); S.step--; render(); };
+  document.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { S.step = +b.dataset.edit; render(); });
+  if ($('replace')) { $('replace').onclick = () => $('file').click(); $('file').onchange = (ev) => { const f = ev.target.files[0]; if (f) { keep(); S.resume = f.name; render(); } }; }
+  $('go').onclick = () => {
+    keep();
+    const miss = [];
+    if (S.step === 0) for (const k of ['first', 'last', 'email', 'phone', 'city']) if (!S.contact[k]) miss.push(k);
+    if (S.step === 1) { for (const k of ['school', 'degree', 'grad', 'office', 'adult']) if (!S.edu[k]) miss.push(k); if (!/^\d{2}\/\d{4}$/.test(S.edu.grad || '')) miss.push('graduation as MM/YYYY'); }
+    if (miss.length) return render('Please complete: ' + miss.join('; '));
+    if (S.step === 2) { S.submitted = true; S.submitted_on = new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' }); post('submit'); view = 'list'; return render(); }
+    S.step++; post('save'); render(); scrollTo(0, 0);
+  };
+}
+// the site keeps the draft; the session is this page's: a page opened again asks for the sign-in
+fetch('/__/load?form=' + NAME).then((r) => r.json()).then((kept) => { if (kept && kept.contact) S = kept; render(); }).catch(() => render());
+</script>

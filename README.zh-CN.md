@@ -245,7 +245,7 @@ cd AutoApply
 | `uv run python scripts/make_release.py` | 打免安装的 zip |
 | `uv run python scripts/make_installer.py` | 打 Windows 安装包 |
 
-目录：`backend/autoapply`（FastAPI、SQLite、Playwright；`agent/` 是申请 Agent——`apply.md` 是它的手册，`hands.py` 是浏览器工具，`run.py` 是一次运行，`work.py` 把一次运行的结果落到程序里，`playbooks/` 是各招聘系统的笔记；`llm.py` 是各家 AI 服务和故障转移，`access.py` 是登录和监听地址）、`eval`（带“雇主一侧”的评测表单和跑评测的脚本：`python eval/run.py --form profile_first`，会用掉你的 AI 额度）、`frontend`（Vue 3）、`scripts`（打包、安装、演示）、`docs`。
+目录：`backend/autoapply`（FastAPI、SQLite、Playwright；`agent/` 是申请 Agent——`apply.md` 是它的手册，`hands.py` 是浏览器工具，`run.py` 是一次运行，`work.py` 把一次运行的结果落到程序里，`playbooks/` 是各招聘系统的笔记；`llm.py` 是各家 AI 服务和故障转移，`access.py` 是登录和监听地址）、`eval`（带“雇主一侧”的评测表单和跑评测的脚本：`python eval/run.py --all`，或用 `--form profile_first` 只跑一种形态，会用掉你的 AI 额度）、`frontend`（Vue 3）、`scripts`（打包、安装、演示）、`docs`。
 
 **发布。** 改 `pyproject.toml` 里的版本号，在 `CHANGELOG.md` 里加上这一版的说明，然后：
 

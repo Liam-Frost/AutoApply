@@ -206,6 +206,11 @@ def _claude_command_line(monkeypatch, state):
 
     async def query(prompt, options):
         handlers = options.mcp_servers["autoapply"]
+        state["system"] = options.system_prompt
+        async for first in prompt:
+            state["first"] = first["message"]["content"]
+        if state.get("summarizes"):      # the command line shortened a long conversation
+            yield System("compact_boundary", {"compact_metadata": {"trigger": "auto", "pre_tokens": 150000}})
         try:
             while True:
                 if state.get("thinks_only"):
@@ -223,7 +228,11 @@ def _claude_command_line(monkeypatch, state):
             self.__dict__.update(kw)
             state["max_turns"] = kw.get("max_turns")
 
-    fake = types.SimpleNamespace(AssistantMessage=type("AssistantMessage", (), {}), ClaudeAgentOptions=Options, RateLimitEvent=type("RateLimitEvent", (), {}),
+    class System:
+        def __init__(self, subtype, data):
+            self.subtype, self.data = subtype, data
+
+    fake = types.SimpleNamespace(AssistantMessage=type("AssistantMessage", (), {}), ClaudeAgentOptions=Options, RateLimitEvent=type("RateLimitEvent", (), {}), SystemMessage=System,
                                  ResultMessage=type("ResultMessage", (), {}), create_sdk_mcp_server=lambda name, tools: tools, query=query, tool=tool,
                                  ClaudeSDKError=type("ClaudeSDKError", (Exception,), {}), CLINotFoundError=type("CLINotFoundError", (Exception,), {}))
     monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake)
@@ -255,6 +264,24 @@ def test_the_claude_command_line_is_stopped_by_the_count_and_by_the_clock_and_it
     res = llm.agent("go on", _look([]), system="s", budget=agentbudget.Budget(1000, 0.3))
     time.sleep(0.2)
     assert res.stopped == "timeout" and res.steps == [] and state.get("cancelled")
+
+
+def test_what_an_agent_is_told_stands_with_its_instructions_and_a_summarized_conversation_is_said(app_env, monkeypatch, tmp_path):
+    """A long run's conversation is shortened by the service that holds it. What the agent was told about its task is
+    not in the conversation: it goes with the instructions, which are sent whole with every step."""
+    from autoapply import agentbudget, llm
+    from autoapply.agent.run import Desk
+
+    state = {"summarizes": True}
+    _claude_command_line(monkeypatch, state)
+    desk = Desk(tmp_path, None, site="generic:example.com", mode="auto")
+    res = llm.agent("THE APPLICANT'S PROFILE, THE RECORD, THEIR ANSWERS", _look([]), system="the manual", budget=agentbudget.Budget(2, 60), on_step=desk.step)
+    assert state["system"].startswith("the manual") and "THE APPLICANT'S PROFILE, THE RECORD, THEIR ANSWERS" in state["system"]
+    assert "PROFILE" not in str(state["first"]) and str(state["first"]).startswith("Begin.")
+    assert res.budget["steps"] == 2 and all(st.get("tool") == "look" for st in res.steps)      # the summary is not a tool call: it takes nothing from the budget
+    lines = [json.loads(ln) for ln in (tmp_path / "journal.jsonl").read_text(encoding="utf-8").splitlines()]
+    said = [e["text"] for e in lines if e["kind"] == "log"]
+    assert len(said) == 1 and "summarized" in said[0] and "150,000" in said[0]      # whoever follows the run can see that it happened
 
 
 def test_a_backup_service_goes_on_with_what_is_left_of_the_budget(app_env, monkeypatch):

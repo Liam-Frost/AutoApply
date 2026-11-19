@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Software Developer Co-op - Adatum Careers</title>
+<!--
+  A one-page form made of the page's own widgets instead of the browser's:
+  - "Country" and "Province" are buttons that open a list with a search box; the province is asked only once the
+    country is Canada; "On what basis?" only once "legally entitled to work" is Yes;
+  - yes/no questions and the length of the term are cards (role=radio); the offices are pills (role=checkbox);
+  - the graduation date is one box that wants MM/YYYY;
+  - the résumé goes through the file window: there is no file field in the page until "Browse" is pressed;
+  - the phone number is refused only when the form is sent ("digits only"): the first press of Submit may come back
+    with an error, and the application is out only when the thank-you page with its reference shows.
+  Nothing here is beyond the applicant's profile: a run told to send when nothing is open sends.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #1d2433; background: #f3f4f7; }
+  main { max-width: 680px; margin: 24px auto; background: #fff; padding: 18px 28px 60px; border-radius: 10px; }
+  .q { margin: 18px 0 6px; font-weight: 600; } .q small { font-weight: 400; color: #667; }
+  input.t { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #99a; border-radius: 6px; font: inherit; }
+  .dd { position: relative; } .dd > button { width: 100%; text-align: left; background: #fff; border: 1px solid #99a; border-radius: 6px; padding: 8px; font: inherit; cursor: pointer; }
+  .dd .list { position: absolute; z-index: 5; left: 0; right: 0; background: #fff; border: 1px solid #667; border-radius: 6px; max-height: 220px; overflow: auto; box-shadow: 0 6px 18px #0003; }
+  .dd .list input { width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid #ccd; padding: 8px; font: inherit; }
+  .dd li { list-style: none; padding: 6px 10px; cursor: pointer; } .dd li:hover { background: #e8ecff; } .dd ul { margin: 0; padding: 0; }
+  .cards { display: flex; gap: 10px; flex-wrap: wrap; } .cards div { border: 1px solid #99a; border-radius: 8px; padding: 8px 16px; cursor: pointer; user-select: none; }
+  .cards div[aria-checked=true] { background: #2b4acb; color: #fff; border-color: #2b4acb; }
+  .drop { border: 2px dashed #99a; border-radius: 8px; padding: 16px; text-align: center; color: #556; }
+  .err { color: #b00020; margin: 14px 0; white-space: pre-line; } .ph { color: #99a; }
+  button.go { background: #2b4acb; color: #fff; border: 0; border-radius: 8px; padding: 10px 22px; font: inherit; cursor: pointer; margin-top: 22px; }
+  button.link { background: none; border: 0; color: #2b4acb; text-decoration: underline; font: inherit; cursor: pointer; padding: 0; }
+</style>
+<main id="root"></main>
+<script>
+const NAME = 'widgets';
+let S = { first: '', last: '', email: '', phone: '', country: '', province: '', city: '', grad: '', term: '', offices: [], entitled: '', basis: '', sponsorship: '', before: '', resume: '', refused: 0, submitted: false };
+let open = '', find = '';
+const COUNTRIES = ['Australia', 'Brazil', 'Canada', 'China', 'France', 'Germany', 'India', 'Ireland', 'Japan', 'Mexico', 'Netherlands', 'New Zealand', 'Singapore', 'South Korea', 'Spain', 'United Kingdom', 'United States'];
+const PROVINCES = ['Alberta', 'British Columbia', 'Manitoba', 'New Brunswick', 'Newfoundland and Labrador', 'Nova Scotia', 'Ontario', 'Prince Edward Island', 'Quebec', 'Saskatchewan'];
+const BASES = ['Canadian citizen', 'Permanent resident', 'Open work permit', 'Study permit with a co-op work permit'];
+const LISTS = { country: COUNTRIES, province: PROVINCES, basis: BASES };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const post = (what) => fetch('/__/' + what + '?form=' + NAME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S) }).catch(() => {});
+const text = (k, label, hint) => `<div class="q" id="l-${k}">${label} *${hint ? ` <small>${hint}</small>` : ''}</div><input class="t" type="text" aria-labelledby="l-${k}" data-k="${k}" value="${esc(S[k])}">`;
+const dd = (k, label) => `<div class="q" id="l-${k}">${label} *</div><div class="dd"><button type="button" aria-haspopup="listbox" aria-expanded="${open === k}" aria-labelledby="l-${k}" data-dd="${k}">${S[k] ? esc(S[k]) : '<span class="ph">Select…</span>'}</button>
+  ${open === k ? `<div class="list"><input type="text" id="find" placeholder="Search" aria-label="Search ${label}" value="${esc(find)}"><ul role="listbox">${LISTS[k].filter((o) => o.toLowerCase().includes(find.toLowerCase())).map((o) => `<li role="option" data-opt="${esc(o)}">${esc(o)}</li>`).join('') || '<li>No results</li>'}</ul></div>` : ''}</div>`;
+const cards = (k, label, opts, many) => `<div class="q" id="l-${k}">${label} *</div><div class="cards" role="${many ? 'group' : 'radiogroup'}" aria-labelledby="l-${k}">${opts.map((o) => `<div role="${many ? 'checkbox' : 'radio'}" tabindex="0" aria-checked="${many ? S[k].includes(o) : S[k] === o}" data-card="${k}" data-v="${esc(o)}">${esc(o)}</div>`).join('')}</div>`;
+
+function render(err) {
+  const root = document.getElementById('root');
+  if (S.submitted) { root.innerHTML = '<h1>Thank you, ' + esc(S.first) + '</h1><p>We have received your application for <b>Software Developer Co-op (Toronto)</b>. Your reference is <b>ADT-77120</b>. You will hear from our campus team by e-mail.</p>'; return; }
+  root.innerHTML = `<h1>Software Developer Co-op (Toronto)</h1><p>Adatum · Application</p>
+    ${text('first', 'First name')}${text('last', 'Last name')}${text('email', 'E-mail')}${text('phone', 'Phone number')}
+    ${dd('country', 'Country of residence')}${S.country === 'Canada' ? dd('province', 'Province') : ''}${text('city', 'City')}
+    ${text('grad', 'Expected graduation', 'MM/YYYY')}
+    ${cards('term', 'How long a work term are you applying for?', ['4 months', '8 months', '12 months'])}
+    ${cards('offices', 'Which of our offices could you work from? Select all that apply.', ['Calgary', 'Montréal', 'Toronto'], true)}
+    ${cards('entitled', 'Are you legally entitled to work in Canada?', ['Yes', 'No'])}${S.entitled === 'Yes' ? dd('basis', 'On what basis?') : ''}
+    ${cards('sponsorship', 'Will you require sponsorship to work in Canada, now or later?', ['Yes', 'No'])}
+    ${cards('before', 'Have you ever been employed by Adatum or one of its subsidiaries?', ['Yes', 'No'])}
+    <div class="q">Résumé *</div><div class="drop">${S.resume ? esc(S.resume) + ' · ' : 'Drag your résumé here, or '}<button type="button" class="link" id="browse">${S.resume ? 'Replace' : 'Browse'}</button></div>
+    <div class="err" role="alert">${esc(err || '')}</div><button class="go" id="go" type="button">Submit application</button>`;
+  root.querySelectorAll('[data-k]').forEach((e) => e.addEventListener('input', () => { S[e.dataset.k] = e.value; }));
+  root.querySelectorAll('[data-dd]').forEach((b) => b.onclick = () => { open = open === b.dataset.dd ? '' : b.dataset.dd; find = ''; render(); const f = document.getElementById('find'); if (f) f.focus(); });
+  const f = document.getElementById('find');
+  if (f) f.addEventListener('input', () => { find = f.value; const at = f.selectionStart; render(); const g = document.getElementById('find'); g.focus(); g.setSelectionRange(at, at); });
+  root.querySelectorAll('[data-opt]').forEach((li) => li.onclick = () => { S[open] = li.dataset.opt; if (open === 'country' && S.country !== 'Canada') S.province = ''; open = ''; render(); });
+  root.querySelectorAll('[data-card]').forEach((c) => { const pick = () => { const k = c.dataset.card, v = c.dataset.v;
+    if (Array.isArray(S[k])) S[k] = S[k].includes(v) ? S[k].filter((x) => x !== v) : [...S[k], v]; else S[k] = v;
+    if (k === 'entitled' && v !== 'Yes') S.basis = '';
+    render(); };
+    c.onclick = pick; c.onkeydown = (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); pick(); } }; });
+  // no file field is in the page: "Browse" makes one and opens the file window
+  document.getElementById('browse').onclick = () => { const i = document.createElement('input'); i.type = 'file'; i.onchange = () => { if (i.files[0]) { S.resume = i.files[0].name; render(); } }; i.click(); };
+  document.getElementById('go').onclick = () => {
+    const miss = [['first', 'First name'], ['last', 'Last name'], ['email', 'E-mail'], ['phone', 'Phone number'], ['country', 'Country of residence'], ['city', 'City'], ['grad', 'Expected graduation'], ['term', 'Length of the work term'],
+      ['entitled', 'Legally entitled to work in Canada'], ['sponsorship', 'Sponsorship'], ['before', 'Employed by Adatum before'], ['resume', 'Résumé']].filter(([k]) => !S[k]).map(([, n]) => n);
+    if (S.country === 'Canada' && !S.province) miss.push('Province');
+    if (S.entitled === 'Yes' && !S.basis) miss.push('On what basis?');
+    if (!S.offices.length) miss.push('Offices (select at least one)');
+    if (miss.length) return render('Please complete: ' + miss.join('; '));
+    // what only the "server" objects to: said after the form was sent, not before
+    const wrong = [];
+    if (!/^\d{10}$/.test(S.phone)) wrong.push('Phone number: enter 10 digits only, without spaces, brackets, dashes or a country code.');
+    if (!/^(0[1-9]|1[0-2])\/\d{4}$/.test(S.grad)) wrong.push('Expected graduation: use MM/YYYY.');
+    if (wrong.length) { S.refused++; post('save'); return render('Your application was not submitted.\n' + wrong.join('\n')); }
+    S.submitted = true; post('submit'); render(); scrollTo(0, 0);
+  };
+}
+document.addEventListener('click', (ev) => { if (open && !ev.target.closest('.dd')) { open = ''; render(); } });
+render();
+</script>
