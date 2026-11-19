@@ -125,7 +125,8 @@ def mode_for(app_status: str, draft: Draft | None, company: str = "") -> str:
     if app_status == UNKNOWN:
         return "verify"
     if draft is not None and draft.review_status == "approved":
-        return "send"
+        # their approval is of the record; who presses the last button stays as they set it
+        return "hand_over" if policy(company) == "hand_over" else "send"
     return MODE_OF_POLICY[policy(company)]
 
 
@@ -136,7 +137,10 @@ def record_of(draft: Draft | None) -> dict[str, Any] | None:
     rows = [a for a in draft.answers or [] if a.get("value") not in ("", None, [])]
     return {"answers": [{"question": a.get("label", ""), "entered": a.get("value"), "from": a.get("basis", "")} for a in rows if a.get("type") != "file"],
             "files": [{"field": m.get("slot") or m.get("label") or "", "file": m.get("name") or ""} for m in draft.materials or []],
-            "notes": list(draft.notes or [])[:12]}
+            "notes": list(draft.notes or [])[:12], "approved_by_the_applicant": draft.review_status == "approved"}
+
+
+CLEARED = "(the applicant emptied this: leave it empty on the form, and clear it if the site still holds something)"
 
 
 def answers_of(draft: Draft | None) -> dict[str, str]:
@@ -146,8 +150,15 @@ def answers_of(draft: Draft | None) -> dict[str, str]:
 
     if draft is None:
         return {}
-    said = {str(a.get("label", "")): _shown(a.get("value")) for a in draft.answers or [] if a.get("basis") == "edited by user" and a.get("value") not in ("", None, [])}
-    said.update({str(a.get("label", "")): NOT_TO_ANSWER for a in draft.answers or [] if a.get("dropped")})
+    open_ = {u.get("id") for u in draft.unresolved or []}
+    said = {}
+    for a in draft.answers or []:
+        if a.get("dropped"):
+            said[str(a.get("label", ""))] = NOT_TO_ANSWER
+        elif a.get("basis") == "edited by user" and a.get("value") not in ("", None, []):
+            said[str(a.get("label", ""))] = _shown(a.get("value"))
+        elif a.get("basis") == "edited by user" and a.get("id") not in open_:      # they emptied an entry: that is their answer, not a question left open
+            said[str(a.get("label", ""))] = CLEARED
     for n, c in enumerate(draft.comments or [], 1):      # what they wrote about the record as a whole
         if str(c.comment or "").strip():
             said[f"(the applicant's note {n} on this application)"] = str(c.comment)[:1500]
@@ -221,6 +232,10 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
 
     with browser.open_page(site, headless=mode != "hand_over", url=posting.url) as page:
         result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed)
+        try:      # what the agent signed in to, or registered, is there for the next run on this site
+            browser.save_state(site, page.context)
+        except Exception as e:  # noqa: BLE001 - the window is gone (the applicant closed it): the run's outcome stands
+            log.info("the session of %s was not kept after the run (%s)", site, type(e).__name__)
     notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
     _spent(folder, result)
     return settle(app_id, job_id, title, site, mode, result, folder, began=began)
@@ -378,7 +393,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         conf = rec.get("confirmation") or {}
         with db.session() as s:
             app = s.get(Application, app_id)
-            lifecycle.move(app, "submitted", source="run", evidence={"url": conf.get("url", ""), "text": str(conf.get("words", ""))[:600], "ties_to_posting": str(conf.get("ties_to_posting", ""))[:300],
+            lifecycle.move(app, "submitted", source="run", at=now(), evidence={"url": conf.get("url", ""), "text": str(conf.get("words", ""))[:600], "ties_to_posting": str(conf.get("ties_to_posting", ""))[:300],
                                                                     "read_by": "agent", "folder": str(folder)})
             app.last_event = ""
             was_auto = mode == "auto"
@@ -387,7 +402,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         return {"status": "submitted", "steps": result.steps, "seconds": result.seconds}
     if _was_sending(folder, began):
         # the run said it was about to send, and did not say what came of it: the application may be out
-        lifecycle.outcome_unknown(app_id, title, "Agent 已经要点提交了，运行在给出结果之前中断；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。")
+        lifecycle.outcome_unknown(app_id, title, "Agent 已经要点提交了，但这次运行没有拿到确认就结束了；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。")
         from .. import tasks
 
         tasks.enqueue_later("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=3, priority=30)
@@ -442,7 +457,10 @@ def _sent(app_id: int, title: str, conf: dict[str, Any], was_auto: bool) -> None
 
 
 def _was_sending(folder: Path, began: Any) -> bool:
-    """Did this run write that it was about to send the application - and nothing about how it ended?"""
+    """Did this run write that it was about to send the application, and nothing after it that settles whether it
+    went out? A report settles it when it brings the confirmation, or says what shows that nothing was sent
+    (``not_sent``). Any other report - "I could not find a confirmation", a question, a sign-in - does not: the press
+    may have gone through."""
     p = folder / "journal.jsonl"
     if not p.exists():
         return False
@@ -456,7 +474,7 @@ def _was_sending(folder: Path, began: Any) -> bool:
             sending = False
         elif e.get("kind") == "sending":
             sending = True
-        elif e.get("kind") == "report":
+        elif e.get("kind") == "report" and (e.get("outcome") == "submitted" or str(e.get("not_sent") or "").strip()):
             sending = False
     return sending
 

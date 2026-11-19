@@ -29,6 +29,8 @@ def agent(app_env, monkeypatch):
         seen.append({"mode": mode, "answers": answers, "record": record, "budget": budget, "files": dict(applicant.files)})
         folder.mkdir(parents=True, exist_ok=True)
         end = ends.pop(0)
+        if end.get("during"):                              # something happens while the run is working
+            end["during"]()
         if end.get("hands") and on_hand is not None:      # the run gives the window to the applicant
             on_hand()
             end["cards_then"] = [(t.kind, t.ref) for t in db.session().__enter__().query(__import__("autoapply.models", fromlist=["Todo"]).Todo).filter_by(status="open")]
@@ -37,7 +39,7 @@ def agent(app_env, monkeypatch):
             for line in end.get("journal", []):
                 f.write(json.dumps({"at": "2026-11-19T10:00:01", **line}) + "\n")
             if end.get("outcome"):
-                f.write(json.dumps({"at": "2026-11-19T10:00:02", "kind": "report", "outcome": end["outcome"]}) + "\n")
+                f.write(json.dumps({"at": "2026-11-19T10:00:02", "kind": "report", "outcome": end["outcome"], "not_sent": end.get("not_sent", "")}) + "\n")
         return run.Result(outcome=end.get("outcome", ""), record=end.get("record", {}), stopped=end.get("stopped", "end_turn"), steps=end.get("steps", 30), seconds=end.get("seconds", 100.0))
 
     monkeypatch.setattr(run, "apply", apply)
@@ -400,4 +402,90 @@ def test_what_waited_in_the_queue_under_the_kinds_of_earlier_versions_is_the_one
         assert [c.comment for c in s.query(DraftComment).filter_by(draft_id=draft_id)] == ["ask for 35 an hour"]      # what they wrote is with the record
     assert agent.work.tasks_from_before() == 0
     assert tasks.lane_of("apply") == "forms"
+
+
+def test_an_approval_is_of_the_record_and_does_not_change_who_presses_the_last_button(agent):
+    from autoapply import drafts, tasks
+    from autoapply.models import Job
+
+    db.set_setting("submit.policy", "hand_over")
+    agent.ends.append(READY)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1 and agent.seen[-1]["mode"] == "hand_over"
+    with db.session() as s:
+        did = s.get(Job, agent.job).application.drafts[-1].id
+    drafts.approve(did)
+    agent.ends.append({"hands": True, **SENT})
+    assert tasks.drain() == 1
+    last = agent.seen[-1]
+    assert last["mode"] == "hand_over" and last["record"]["approved_by_the_applicant"] is True      # still theirs to press, with the record they approved
+    with db.session() as s:
+        app = s.get(Job, agent.job).application
+        assert app.status == "submitted" and app.submitted_at is not None      # an application sent in this run has the time it was sent
+
+
+def test_an_entry_the_applicant_emptied_is_told_to_the_next_run_as_that(agent):
+    from autoapply import drafts, tasks
+    from autoapply.models import Job
+
+    db.set_setting("submit.policy", "approve")
+    agent.ends.append(READY)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.drain()
+    with db.session() as s:
+        did = s.get(Job, agent.job).application.drafts[-1].id
+    drafts.edit_answer(did, "a2", "")
+    drafts.approve(did)
+    agent.ends.append(SENT)
+    tasks.drain()
+    last = agent.seen[-1]
+    assert last["answers"] == {"Degree": agent.work.CLEARED} and "Degree" not in {a["question"] for a in last["record"]["answers"]}
+
+
+def test_a_run_that_said_it_was_sending_and_did_not_confirm_it_leaves_the_outcome_unknown_whatever_else_it_reports(agent):
+    from autoapply import tasks
+
+    db.set_setting("submit.policy", "auto")
+    said = [{"kind": "sending", "button": "Submit application"}]
+    # it pressed, and then could not find a confirmation: the press may have gone through
+    agent.ends.append({"outcome": "cannot", "journal": said, "record": {"summary": "After the press the page went blank; I could not find a confirmation."}})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    status, _, cards, _ = _state(agent.job)
+    assert status == "submit_unknown" and [k for k, _ in cards] == ["submit"]      # the card of an outcome that is not known
+    # the next run only looks. It finds the application is not out - and the run after that says what shows the press did not send it
+    with db.session() as s:
+        from autoapply.models import Task
+
+        for t in s.query(Task).filter_by(status="queued", kind="apply"):
+            t.due_at = None
+    agent.ends.append({"outcome": "ready", "record": {"summary": "The site lists it as a draft."}})
+    agent.ends.append({"outcome": "cannot", "journal": said, "not_sent": "The form answered 'Résumé is required' and stayed on the page; the site lists the application as a draft.",
+                       "record": {"summary": "The form will not take the file."}})
+    assert tasks.drain() == 2 and [x["mode"] for x in agent.seen] == ["auto", "verify", "auto"]
+    assert _state(agent.job)[0] == "failed"      # known not to be out: it did not get there, and can be worked again
+
+
+def test_a_record_is_not_changed_under_a_run_that_is_working_from_it(agent):
+    from autoapply import drafts, tasks
+    from autoapply.models import Job
+
+    db.set_setting("submit.policy", "approve")
+    agent.ends.append(READY)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.drain()
+    with db.session() as s:
+        did = s.get(Job, agent.job).application.drafts[-1].id
+    db.set_setting("submit.policy", "auto")
+    tried = []
+
+    def edits_meanwhile():
+        try:
+            drafts.edit_answer(did, "a1", "Alexander")
+        except drafts.Locked as e:
+            tried.append(str(e))
+
+    agent.ends.append({"during": edits_meanwhile, **SENT})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1 and len(tried) == 1 and "叫停" in tried[0]      # said, instead of taken and then not used
 

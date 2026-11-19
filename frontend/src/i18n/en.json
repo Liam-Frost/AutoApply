@@ -2680,7 +2680,6 @@
 "{0} 个问题需要你回答： {1}": "{0} question(s) need your answer: {1}",
 "{0}：连续 {1} 次停在同一个地方": "{0}: stopped at the same place {1} times in a row",
 "这份申请的预算用完了，等你决定是否继续": "This application's budget is used up; it waits for you to decide whether to go on",
-"Agent 已经要点提交了，运行在给出结果之前中断；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。": "The agent was about to press submit and the run was cut off before it said what came of it; this application may already be out. The program first checks the site and the mailbox, and does not press it again.",
 "问你：{0}": "Asks you: {0}",
 "等你处理：{0}": "Waits for you: {0}",
 "即将点提交：{0}": "About to press submit: {0}",
@@ -2807,7 +2806,6 @@
 "Agent 填好后把申请记录给你看，你批准之后它才提交": "The agent fills in the form and shows you the record; it submits once you approve",
 "刚补充过个人资料，或觉得这些问题资料里明明有答案时用。": "For when you have just added to your profile, or think the profile does hold the answers.",
 "这份申请用的是原版简历。可以让程序按这个岗位改写一份。": "This application uses the résumé as uploaded. The program can rewrite one for this posting.",
-"Agent 正在按这份草案填写表单，等这一次结束后再改。": "The agent is filling in the form from this draft; change it when this run has ended.",
 "勾选后，用了刚改写的简历的申请不会直接提交，先等你批准。": "When ticked, an application with a résumé rewritten just now is not sent straight away: it waits for your approval.",
 "Agent 正在按你的意见处理这份申请，完成后会跳到新版本": "The agent is working this application the way you said; the page moves to the new version when it is done",
 "这份申请改用你上传的原版简历；Agent 下次处理时会换上": "This application now uses the résumé you uploaded; the agent puts it in on its next run",
@@ -2877,5 +2875,7 @@
 "具体到每一份申请，它的记录页上写着 Agent 做了什么、填了什么、批准之后由谁提交。": "For each application, its record says what the agent did, what it entered, and who submits after approval.",
 "从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的 Agent 才去做申请。": "From top to bottom, the gates a posting passes: first the hard conditions (what fails them is not stored), then the score by your preferences; the agent applies only for those that reach the threshold.",
 "读取要登录的岗位来源": "Reading a source of postings that needs a sign-in",
-"学校门户这类要登录才能看到岗位的来源，由 Agent 登录进去、把岗位读回来。": "A source whose postings are behind a sign-in, such as a school's portal: the agent signs in and reads the postings."
+"学校门户这类要登录才能看到岗位的来源，由 Agent 登录进去、把岗位读回来。": "A source whose postings are behind a sign-in, such as a school's portal: the agent signs in and reads the postings.",
+"Agent 正在处理这份申请，等这一次结束后再改；想马上改，先在“活动记录”里把它叫停。": "The agent is working this application: change it when this run has ended, or stop the run under Activity first.",
+"Agent 已经要点提交了，但这次运行没有拿到确认就结束了；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。": "The agent was about to press submit, and the run ended without a confirmation; the application may have gone out. The program checks on the site and in the mailbox first, and does not press again."
 }

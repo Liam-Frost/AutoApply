@@ -37,9 +37,18 @@ def locked(d: Draft) -> str:
     status = d.application.status
     if status in SENT:
         return "这份申请已经发出去了，草案保留作记录，不能再改。"
-    if status == "executing":
-        return "Agent 正在按这份草案填写表单，等这一次结束后再改。"
+    if status == "executing" or _being_worked(d.application.job_id):
+        # the run read the record when it began: a change made now would not reach it, and it may send what it read
+        return "Agent 正在处理这份申请，等这一次结束后再改；想马上改，先在“活动记录”里把它叫停。"
     return ""
+
+
+def _being_worked(job_id: int) -> bool:
+    """Is a run of the agent working this application this moment?"""
+    from .models import Task
+
+    with db.session() as s:
+        return s.query(Task).filter_by(kind="apply", ref=f"job:{job_id}", status="running").count() > 0
 
 
 def _files_as_they_are(mats: list[dict[str, Any]]) -> list[dict[str, Any]]:

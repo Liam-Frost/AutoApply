@@ -141,7 +141,7 @@ def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str =
     if answers:
         parts += ["# What the applicant answered when asked about this application", "\n".join(f"- {q}\n  → {a}" for q, a in answers.items())]
     if record:
-        parts += ["# The record of this application" + (" (approved by the applicant)" if mode == "send" else " (from the last run)"),
+        parts += ["# The record of this application" + (" (approved by the applicant)" if record.get("approved_by_the_applicant") else " (from the last run)"),
                   f"<record>\n{json.dumps(record, ensure_ascii=False, indent=1)[:40000]}\n</record>"]
     if journal.strip():
         parts += ["# Earlier runs on this application",

@@ -66,7 +66,7 @@ def read(page: Any, *, site: str, name: str, url: str, known: set[str], keep: Ca
     def save_postings(script: str = "", postings: list[dict[str, Any]] | None = None, listed: list[str] | None = None) -> str:
         got: dict[str, Any] = {"listed": list(listed or []), "postings": list(postings or [])}
         if str(script or "").strip():
-            res = page.evaluate(str(script), sorted(known)) or {}
+            res = hands.page.evaluate(str(script), sorted(known)) or {}      # (the tab the agent is on now, which may not be the one it began in)
             if not isinstance(res, dict):
                 return f"The script returned {type(res).__name__}, not an object with `listed` and `postings`."
             got["listed"] += list(res.get("listed") or res.get("ids") or [])

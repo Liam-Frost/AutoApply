@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import llm
+from ..errors import tolerated
 
 # The controls of the page, numbered. Run in the page; returns lines of text.
 _CONTROLS = r"""(opts) => {
@@ -328,7 +329,15 @@ class Hands:
         at = self._at(ref, selector)
         before = self._pages()
         if at["tag"] == "input" and at["type"] == "file":
-            self.page.locator(f'[data-aa="{at["ref"]}"]').set_input_files(path)
+            field = self.page.locator(f'[data-aa="{at["ref"]}"]')
+            for frame in getattr(self.page, "frames", None) or []:      # the controls are numbered through frames of the same site: the field is looked for where it is
+                try:
+                    if frame.locator(f'[data-aa="{at["ref"]}"]').count():
+                        field = frame.locator(f'[data-aa="{at["ref"]}"]')
+                        break
+                except Exception as e:  # noqa: BLE001 - a frame that is going away
+                    tolerated(e)
+            field.first.set_input_files(path)
         else:
             with self.page.expect_file_chooser(timeout=15000) as chooser:
                 self.page.mouse.click(at["x"], at["y"])

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import llm
+from ..errors import tolerated
 from . import brief
 from .hands import Hands
 
@@ -260,7 +261,7 @@ class Desk:
 
     # --- the end ---------------------------------------------------------------------------------------------------
     def report(self, outcome: str, summary: str, answers: list[dict[str, Any]] | None = None, files: list[dict[str, Any]] | None = None,
-               open: list[str] | None = None, confirmation: dict[str, Any] | None = None, sent: bool = False) -> str:  # noqa: A002
+               open: list[str] | None = None, confirmation: dict[str, Any] | None = None, sent: bool = False, not_sent: str = "") -> str:  # noqa: A002
         if outcome not in OUTCOMES:
             raise ValueError(f"outcome is one of {OUTCOMES}")
         if outcome == "submitted" and not (confirmation and str(confirmation.get('words') or '').strip() and str(confirmation.get('ties_to_posting') or '').strip()):
@@ -273,7 +274,8 @@ class Desk:
                          "confirmation": dict(confirmation or {}), "sent": bool(sent or outcome == "submitted"), "asked": list(self.asked),
                          "at": datetime.now().isoformat(timespec="seconds"), "mode": self.mode}
         (self.folder / "record.json").write_text(json.dumps(self.reported, ensure_ascii=False, indent=1), encoding="utf-8")
-        self.write("report", outcome=outcome, summary=str(summary)[:600], open=len(open or []), sent=self.reported["sent"])
+        self.reported["not_sent"] = str(not_sent)[:600]
+        self.write("report", outcome=outcome, summary=str(summary)[:600], open=len(open or []), sent=self.reported["sent"], not_sent=str(not_sent)[:600])
         return "recorded. The run is over: stop here."
 
     def tools(self) -> list[llm.Tool]:
@@ -311,9 +313,10 @@ class Desk:
             llm.Tool("sign_in_by_hand", "Hand the window to the applicant for something only they can do: a sign-in without a stored password, a code on their phone, a CAPTCHA. "
                                         "Ends this run; the next one goes on from here.", spec(["why"], why=s), self.sign_in_by_hand),
             llm.Tool("report", "End the run. outcome: ready (everything is in, one press from sending, not sent) | submitted (it went out: give the confirmation) | "
-                               "needs_you (only the applicant can go on) | cannot (say why, and what the page shows).",
+                               "needs_you (only the applicant can go on) | cannot (say why, and what the page shows). `not_sent`: if you called `sending` in this run and the "
+                               "application did not go out, what shows that it did not.",
                      spec(["outcome", "summary"], outcome={"type": "string", "enum": list(OUTCOMES)}, summary=s, answers={"type": "array", "items": answer},
-                          files={"type": "array", "items": gave}, open=arr, confirmation=conf, sent=b), self.report),
+                          files={"type": "array", "items": gave}, open=arr, confirmation=conf, sent=b, not_sent=s), self.report),
         ]
 
 
@@ -411,6 +414,7 @@ def _keys_with_notes() -> list[str]:
 
     try:
         with db.session() as s:
-            return [r.key for r in s.query(Site) if (r.notes or "").strip()]
-    except Exception:  # noqa: BLE001 - how notes are stored is not this module's to depend on
+            return [r.key for r in s.query(Site) if r.notes]
+    except Exception as e:  # noqa: BLE001 - a brief without the list of systems is still a brief
+        tolerated(e)
         return []
