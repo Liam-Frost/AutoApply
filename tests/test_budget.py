@@ -49,7 +49,7 @@ def test_a_budget_is_so_many_tool_calls_and_a_moment_on_the_clock(app_env):
     assert (got.steps, got.seconds, got.kind) == (400, 45 * 60, "apply")
     db.set_setting("agent.budgets", {"apply": {"steps": 300}, "scan": {"steps": 0, "minutes": "x"}})
     assert (agentbudget.for_kind("apply").steps, agentbudget.for_kind("apply").seconds) == (300, 45 * 60)
-    assert (agentbudget.for_kind("scan").steps, agentbudget.for_kind("scan").seconds) == (80, 20 * 60)      # nonsense is not a budget
+    assert (agentbudget.for_kind("scan").steps, agentbudget.for_kind("scan").seconds) == (150, 30 * 60)      # nonsense is not a budget
     assert (agentbudget.for_kind("something new").steps, agentbudget.for_kind("something new").seconds) == (60, 20 * 60)
 
 

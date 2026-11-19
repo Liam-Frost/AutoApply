@@ -2748,7 +2748,6 @@
 "你说这一项不用填": "You said to leave this one",
 "只和这个岗位有关": "About this job only",
 "我已经自己提交了": "I have submitted it myself",
-"接手读取岗位来源": "Taking over a source of postings",
 "Agent 正在做": "The agent is working on it",
 "按这个岗位改写简历": "Rewrite the résumé for this posting",
 "为这个岗位改写的简历": "the résumé rewritten for this posting",
@@ -2825,7 +2824,6 @@
 "已开始按这个岗位改写简历，大约一两分钟；Agent 下次处理这份申请时会用它": "Rewriting the résumé for this posting has started and takes a minute or two; the agent uses it on its next run on this application",
 "次数少的时候百分比说明不了什么，所以每个成功率下面都写着“几次里成了几次”。": "With few runs a percentage says little, so each rate has “how many out of how many” under it.",
 "不管上面选的是什么，这些公司的申请 Agent 都做到最后一步停下，把窗口交给你。": "Whatever is chosen above, the agent stops at the last step for these companies and gives you the window.",
-"程序自己读不了一个要登录的岗位来源时（登录失效、页面改版），由 Agent 接手。": "When the program cannot read a source of postings that needs a sign-in by itself (the sign-in ran out, the page changed), the agent takes over.",
 "表单需要、而你的资料里没有的信息，Agent 不会编：它会问你，问题没答完不会提交": "What the form needs and your profile does not have, the agent does not make up: it asks you, and nothing is sent while a question is open",
 "已保存。这份记录仍然是批准状态；点“让 Agent 再提交一次”，它会按现在的答案去做": "Saved. The record is still approved; press “Have the agent submit again” and it goes by the answers as they are now",
 "Agent 会再处理一次这份申请：它会读你现在的资料和这份记录，从网站上现在的样子接着做": "The agent will work this application once more: it reads your profile and this record as they are now and goes on from what the site shows",
@@ -2877,5 +2875,7 @@
 "重点雇主（{0} 家）的岗位达到 {1} 分就去做申请": "Postings of priority employers ({0}) are applied for from a score of {1}",
 "这是表单需要、而你的资料里没有的信息。回答后 Agent 接着做。": "The form needs this and your profile does not have it. Once you answer, the agent goes on.",
 "具体到每一份申请，它的记录页上写着 Agent 做了什么、填了什么、批准之后由谁提交。": "For each application, its record says what the agent did, what it entered, and who submits after approval.",
-"从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的 Agent 才去做申请。": "From top to bottom, the gates a posting passes: first the hard conditions (what fails them is not stored), then the score by your preferences; the agent applies only for those that reach the threshold."
+"从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的 Agent 才去做申请。": "From top to bottom, the gates a posting passes: first the hard conditions (what fails them is not stored), then the score by your preferences; the agent applies only for those that reach the threshold.",
+"读取要登录的岗位来源": "Reading a source of postings that needs a sign-in",
+"学校门户这类要登录才能看到岗位的来源，由 Agent 登录进去、把岗位读回来。": "A source whose postings are behind a sign-in, such as a school's portal: the agent signs in and reads the postings."
 }

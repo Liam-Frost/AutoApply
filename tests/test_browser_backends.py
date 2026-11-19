@@ -354,10 +354,12 @@ def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_as
 
     monkeypatch.setattr(browser, "open_page", open_page)
 
-    def nobody_signs_in(page, known, problem, got):      # (what the agent does with a signed-out portal is test_agent_scan.py's subject)
+    from autoapply.agent import scan as agent_scan
+
+    def nobody_signs_in(page, **kw):      # (what the agent does with the portal is test_agent_scan.py's subject)
         raise NeedsHuman("PD Portal session expired", kind="login")
 
-    monkeypatch.setattr(pdportal, "_by_the_agent", nobody_signs_in)
+    monkeypatch.setattr(agent_scan, "read", nobody_signs_in)
     order = [True, False]                    # hidden: turned away; in a window: let in
     with pytest.raises(NeedsHuman, match="session expired"):
         list(pdportal.scan(set()))

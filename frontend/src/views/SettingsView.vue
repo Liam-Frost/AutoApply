@@ -80,7 +80,7 @@ const COUNTRIES = [['CA', '加拿大'], ['US', '美国']]
 // What the AI may spend on one piece of work, by kind (the setting agent.budgets; the kinds are the server's).
 const BUDGETS = [
   ['apply', '一份申请', '从岗位页到确认页，这份申请的所有运行加在一起。用完了 Agent 会停下来，问你要不要再给一份。'],
-  ['scan', '接手读取岗位来源', '程序自己读不了一个要登录的岗位来源时（登录失效、页面改版），由 Agent 接手。'],
+  ['scan', '读取要登录的岗位来源', '学校门户这类要登录才能看到岗位的来源，由 Agent 登录进去、把岗位读回来。'],
   ['site_status', '到雇主网站查申请状态', '邮件对不上是哪一个申请时。'],
 ]
 const budgetLabel = (name, what) => `${name}：${what}`

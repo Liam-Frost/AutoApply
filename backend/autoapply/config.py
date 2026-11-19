@@ -58,8 +58,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # "apply" is one run on an application; an application has one such budget over all its runs, and the applicant
     # can give it another (agent/work.py).
     "agent.budgets": {"apply": {"steps": 400, "minutes": 45},
-                      # a source read in a browser, when the program's own reading of it fails (agent/scan.py)
-                      "scan": {"steps": 80, "minutes": 20},
+                      # reading the postings of a source that needs a sign-in - a school's portal (agent/scan.py)
+                      "scan": {"steps": 150, "minutes": 30},
                       # reading the applicant's list of applications on an employer's site (sitestatus.py)
                       "site_status": {"steps": 60, "minutes": 15}},
     # How an application is sent (the application agent): "auto" - when nothing is open, without asking; "approve" -

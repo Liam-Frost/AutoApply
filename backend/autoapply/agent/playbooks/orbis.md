@@ -21,3 +21,39 @@ hosts: pdportal.apsc.ubc.ca, orbiscommunities.ca
 - Documents are uploaded under My Documents, "Upload Document" (a name, a type, the file). After choosing the file
   the upload link may need pressing twice: check that the page has left "Upload a Document".
 - Deadlines are in the portal's time zone, not the viewer's.
+
+## Reading every posting (what worked on UBC's PD Portal)
+
+On the postings page, submit the search form with an empty keyword (`#widgetSearch`, field `widget1Keyword`) so that
+everything is listed. Then this script, given to `save_postings`, reads the ids from every page of the list and
+fetches the text of the postings that are new - the detail page is a POST with the object from a row's button:
+
+```js
+async (known) => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const grab = () => [...new Set([...document.querySelectorAll('[onclick*=postingId]')]
+      .map(e => (e.getAttribute('onclick').match(/postingId[^0-9]{1,6}(\d{5,7})/) || [])[1]).filter(Boolean))];
+  const el = document.querySelector('[onclick*=postingId][onclick*=infoForPostings]');
+  const obj = (0, eval)('(' + el.getAttribute('onclick').match(/buildForm\((\{[\s\S]*?\})\s*,/)[1] + ')'); delete obj.postingId;
+  const all = new Set(grab());
+  const pages = [...document.querySelectorAll('a')].map(a => (a.getAttribute('onclick') || '')
+      .match(/loadPostingTable\([^)]*?'(\d+)'\s*,\s*'advanced'/)).filter(Boolean).map(m => +m[1]);
+  for (let p = 2; p <= Math.max(1, ...pages); p++) {
+    window.loadPostingTable('', 'ID', 'Reverse', String(p), 'advanced', '', null); await sleep(3500); grab().forEach(i => all.add(i));
+  }
+  const postings = [];
+  for (const id of [...all].filter(i => !known.includes(i))) {
+    const r = await fetch('/myAccount/co-op/postings.htm', {method: 'POST', body: new URLSearchParams({...obj, postingId: id})});
+    const d = document.createElement('div'); d.innerHTML = await r.text();
+    postings.push({id, text: (d.querySelector('main') || d).innerText.replace(/[ \t]+/g, ' ').slice(0, 40000)});
+  }
+  return {listed: [...all], postings};
+}
+```
+
+A posting's text has lines the program reads by itself when you give only the text: "Job Title:", "Organization:",
+"Application Deadline:", "Application Receipt Procedure:" (Online via system = applied for in the portal; otherwise
+"If by Website, go to:" has the employer's address), "Application Documents Required:", "Co-op Work Term:", "Length
+of Work Term:", "Job Location:", "Salary ($):", "Job Description:". If the portal has changed and this no longer
+holds, read the fields yourself and give them with each posting.
+

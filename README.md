@@ -216,7 +216,7 @@ Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
 | The application agent on real sites | three real postings worked up to the last step without sending (a SAP SuccessFactors site, a Workday site, Google Careers): accounts made, every step filled, questions asked. **No real application has been sent by the 2.0 agent yet** |
 | Sending by itself, after approval, or handing the window over | through the queue on the evaluation form; not on a real site |
 | Applications sent with 1.x (Greenhouse, Microsoft Careers, BambooHR and JazzHR sites) | real, confirmed by mail; that code is gone |
-| UBC portal | postings imported for real; scanning, the agent taking over a scan, and applying through the portal are not confirmed on the real portal |
+| UBC portal | postings imported for real; the agent scanning the portal and applying through it are not confirmed on the real portal |
 | The login, the listening address and the path prefix | login run end to end on a scratch copy; access from another device or behind a real reverse proxy not run |
 | Windows installer (install, upgrade, refusing to run over a running copy, cancel with the previous version put back, uninstall) | run end to end into a scratch folder, by CI on every release |
 | Failover between AI services | run once for real, when a subscription had actually run out |

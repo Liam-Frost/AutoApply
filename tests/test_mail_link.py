@@ -61,7 +61,7 @@ def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
     with db.session() as s:
         first, second = _two_sent_applications(s)
     _card()
-    assert sitestatus.resolve("m1") == {"skipped": "no saved sign-in for this employer's site"}      # nothing saved: the site is not opened
+    assert sitestatus.resolve("m1") == {"skipped": "no saved sign-in for this employer's site"}      # neither a session nor a login to get in with: the site is not opened
     monkeypatch.setattr(browser, "load_state", lambda key: {"cookies": [{"name": "s"}]})
     opened = []
 
@@ -99,15 +99,15 @@ def test_a_site_that_does_not_settle_it_leaves_the_card_with_what_it_shows(app_e
         assert t.status == "open" and t.payload["site"] == ["Software Dev Engineer Intern：Under review"]
 
 
-def test_the_visit_to_the_site_only_reads(app_env, tmp_path, monkeypatch):
-    """The agent that reads the applicant page is given the tools that look and move about the site, and none that
-    type, choose, upload or run a script; what it reports is what resolve gets."""
+def test_the_visit_to_the_site_is_the_agents_with_its_tools_and_what_it_reports_is_kept(app_env, tmp_path, monkeypatch):
+    """The agent goes to the employer's site the way it goes anywhere: with the browser tools and the account tools,
+    so that a sign-in that has run out is signed in to again. What it reports is what resolve gets."""
     from contextlib import contextmanager
 
     from autoapply import browser, llm, sitestatus
 
     page = tmp_path / "applications.html"
-    page.write_text("<main><h1>My applications</h1><p>SDE Intern - Assessment pending</p><button>Withdraw application</button></main>", encoding="utf-8")
+    page.write_text("<main><h1>My applications</h1><p>SDE Intern - Assessment pending</p></main>", encoding="utf-8")
     real = browser.open_page
 
     @contextmanager
@@ -116,6 +116,7 @@ def test_the_visit_to_the_site_only_reads(app_env, tmp_path, monkeypatch):
             yield p
 
     monkeypatch.setattr(browser, "open_page", open_page)
+    monkeypatch.setattr(browser, "save_state", lambda *a, **k: None)
     given = {}
 
     def agent(goal, tools, *, system, kind="", on_step=None, budget=None):
@@ -125,9 +126,10 @@ def test_the_visit_to_the_site_only_reads(app_env, tmp_path, monkeypatch):
 
     monkeypatch.setattr(llm, "agent", agent)
     out = sitestatus.read("generic:www.amazon.jobs", page.as_uri(), tmp_path / "visit", "The e-mail: ...")
-    assert given["tools"] == {*sitestatus.LOOKING, "report"} and not given["tools"] & {"type", "choose", "upload", "script"} and given["kind"] == "site_status"
+    assert {"look", "read", "controls", "click", "type", "script", "goto", "account", "type_password", "mail", "sign_in_by_hand", "note", "report"} <= given["tools"] and given["kind"] == "site_status"
     assert "Assessment pending" in given["read"] and "The e-mail: ..." in given["goal"]
-    assert out == {"signed_in": True, "about": [7], "reason": "it waits for an assessment", "applications": [{"title": "SDE Intern", "job_id": "", "status": "Assessment pending", "date": ""}]}
+    assert out == {"signed_in": True, "about": [7], "reason": "it waits for an assessment", "needs_applicant": "",
+                   "applications": [{"title": "SDE Intern", "job_id": "", "status": "Assessment pending", "date": ""}]}
 
 
 def test_nothing_the_server_starts_opens_a_console_window(monkeypatch):
