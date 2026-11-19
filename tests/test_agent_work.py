@@ -280,3 +280,124 @@ def test_the_applicant_stops_the_agent_and_it_is_not_started_again_by_itself(age
     assert status == "failed" and [k for k, _ in cards] == ["failed"]
     with db.session() as s:
         assert s.query(Task).filter_by(status="queued").count() == 0
+
+
+def test_what_the_applicant_says_on_the_record_reaches_the_runs_after_it(agent):
+    """A note about the whole, an entry put right, and what they said when they asked for the application: each is on
+    the record for the agent - also what was said on a version a later one replaced."""
+    from autoapply import drafts, tasks
+    from autoapply.models import Job
+
+    db.set_setting("submit.policy", "approve")
+    agent.ends.append(READY)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job, "instructions": "Use my legal first name on this one."})
+    assert tasks.drain() == 1 and "Use my legal first name on this one." in agent.seen[-1]["answers"].values()
+    with db.session() as s:
+        first = s.get(Job, agent.job).application.drafts[-1].id
+    agent.ends.append(READY)
+    drafts.comment(first, "Say I can start in May.")
+    assert _state(agent.job)[0] == "revising" and tasks.drain() == 1
+    said = list(agent.seen[-1]["answers"].values())
+    assert "Say I can start in May." in said and "Use my legal first name on this one." in said and agent.seen[-1]["mode"] == "prepare"
+    status, records, _, _ = _state(agent.job)
+    assert status == "draft_ready" and [r[0] for r in records] == ["superseded", "pending"]
+    with db.session() as s:
+        second = s.get(Job, agent.job).application.drafts[-1].id
+    drafts.edit_answer(second, "a1", "Alexander")
+    with db.session() as s:
+        from autoapply.models import Task
+
+        assert s.query(Task).filter_by(status="queued").count() == 0      # (approval is asked for: correcting an entry does not send it)
+    drafts.approve(second)
+    agent.ends.append(SENT)
+    assert tasks.drain() == 1
+    last = agent.seen[-1]
+    assert last["mode"] == "send" and last["answers"]["First name"] == "Alexander" and "Say I can start in May." in last["answers"].values()
+    assert _state(agent.job)[0] == "submitted"
+    with pytest.raises(drafts.Locked):
+        drafts.edit_answer(second, "a1", "Alex")                       # it has gone out: the record is what was sent
+
+
+def test_a_question_the_applicant_says_is_not_to_be_answered_stops_being_open(agent):
+    from autoapply import drafts, tasks
+    from autoapply.models import Job
+
+    db.set_setting("submit.policy", "auto")
+    asked = {"question": "Employee ID of the person who referred you", "about": "job", "options": [], "why": "Step 1"}
+    agent.ends.append({"outcome": "needs_you", "record": {"summary": "One question is open.", "url": "https://careers.acme.example/apply/1", "answers": READY["record"]["answers"], "files": [],
+                                                           "open": ["referrer"], "asked": [asked]}})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    with db.session() as s:
+        d = s.get(Job, agent.job).application.drafts[-1]
+        did, qid = d.id, d.unresolved[0]["id"]
+    with pytest.raises(drafts.Locked):
+        drafts.drop_question(did, "a1")                                # an entry the agent made is corrected, not taken out
+    agent.ends.append(SENT)
+    drafts.drop_question(did, qid)
+    assert _state(agent.job)[2] == [] and tasks.drain() == 1           # nothing is open any more: the agent goes on
+    assert agent.seen[-1]["answers"] == {"Employee ID of the person who referred you": drafts.NOT_TO_ANSWER}
+
+
+def test_the_window_handed_to_the_applicant_is_a_card_while_it_is_open(agent):
+    from autoapply import tasks
+
+    db.set_setting("submit.policy", "hand_over")
+    end = {"hands": True, **SENT}
+    agent.ends.append(end)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1 and agent.seen[-1]["mode"] == "hand_over"
+    assert end["cards_then"] == [("submit", f"application:{_app(agent.job)}")]      # while the window was theirs
+    status, _, cards, evidence = _state(agent.job)
+    assert status == "submitted" and cards == [] and "Reference AC-1" in evidence["text"]
+
+
+def test_an_application_the_applicant_withdrew_is_taken_up_only_when_they_ask(agent):
+    from autoapply import lifecycle, tasks
+    from autoapply.models import Job
+
+    db.set_setting("submit.policy", "approve")
+    agent.ends.append(READY)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.drain()
+    with db.session() as s:
+        lifecycle.move(s.get(Job, agent.job).application, "withdrawn", source="user")
+    runs = len(agent.seen)
+    assert agent.work.work(agent.job) == {"skipped": "the applicant is not applying for this one"} and len(agent.seen) == runs      # a task that was on its way
+    token = tasks._started_by_hand.set(True)                           # they ask for it again themselves
+    try:
+        agent.ends.append(READY)
+        assert agent.work.work(agent.job)["status"] == "ready" and len(agent.seen) == runs + 1
+    finally:
+        tasks._started_by_hand.reset(token)
+
+
+def test_what_waited_in_the_queue_under_the_kinds_of_earlier_versions_is_the_one_task_now(agent):
+    from autoapply import tasks
+    from autoapply.models import Application, Draft, DraftComment, Job, Task
+
+    with db.session() as s:
+        app = Application(job_id=agent.job, status="draft_ready")
+        s.add(app)
+        s.flush()
+        d = Draft(application_id=app.id, version=1, review_status="pending", schema={}, answers=[])
+        other = Job(source="manual", source_id="a2", company="Beta", title="Analyst", apply_url="https://beta.example/jobs/2", jd_text="x" * 300, status="queued", online=1)
+        s.add_all([d, other])
+        s.flush()
+        s.add_all([Task(kind="revise", ref=f"draft:{d.id}", status="queued", payload={"draft_id": d.id, "comment": "ask for 35 an hour"}),
+                   Task(kind="execute", ref=f"application:{app.id}", status="queued", payload={"draft_id": d.id}),
+                   Task(kind="recon", ref=f"job:{other.id}", status="waiting_human", payload={"job_id": other.id, "waits_for": "account:generic:beta.example", "instructions": "mention the referral"}),
+                   Task(kind="scout", ref="draft:999", status="queued", payload={"draft_id": 999}),
+                   Task(kind="recon", ref="job:5", status="done", payload={"job_id": 5}), Task(kind="mail", ref="schedule", status="queued", payload={})])
+        other_id, draft_id = other.id, d.id
+    assert agent.work.tasks_from_before() == 4
+    with db.session() as s:
+        got = [(t.kind, t.ref, t.status) for t in s.query(Task).order_by(Task.id)]
+        assert got == [("apply", f"job:{agent.job}", "queued"), ("execute", f"application:{_app(agent.job)}", "cancelled"), ("apply", f"job:{other_id}", "waiting_human"),
+                       ("scout", "draft:999", "cancelled"), ("recon", "job:5", "done"), ("mail", "schedule", "queued")]
+        kept = s.query(Task).filter_by(ref=f"job:{other_id}").one().payload
+        assert kept == {"job_id": other_id, "waits_for": "account:generic:beta.example", "instructions": "mention the referral"}
+        assert [c.comment for c in s.query(DraftComment).filter_by(draft_id=draft_id)] == ["ask for 35 an hour"]      # what they wrote is with the record
+    assert agent.work.tasks_from_before() == 0
+    assert tasks.lane_of("apply") == "forms"
+
