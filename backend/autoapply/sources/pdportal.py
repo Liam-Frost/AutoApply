@@ -151,6 +151,30 @@ def _facts() -> str:
     return "\n".join(f"- {x}" for x in out)
 
 
+def collector(known_ids: set[str]) -> tuple[Any, list[str], dict[str, dict[str, Any]]]:
+    """(keep, listed, rows): ``keep`` stores what the agent saves into the other two, and answers with what the agent
+    is shown of it."""
+    listed: list[str] = []
+    rows: dict[str, dict[str, Any]] = {}
+
+    def keep(ids: list[str], postings: list[dict[str, Any]]) -> str:
+        listed[:] = list(dict.fromkeys([*listed, *ids]))
+        shown = []
+        for p in postings:
+            row, look = row_of(p)
+            if not row["source_id"]:
+                continue
+            rows[row["source_id"]] = row
+            shown.append(f"  {row['source_id']} | {row.get('title') or '?'} | {row.get('company') or '?'} | deadline {row.get('deadline') or '?'} | applied for: {row.get('channel') or '?'}"
+                         + (f" {row['apply_url']}" if row.get("channel") == "employer site" else "") + (f"   <- {'; '.join(look)}" if look else ""))
+        missing = [i for i in listed if i not in known_ids and i not in rows]
+        return (f"{len(listed)} postings are listed; the program had the text of {sum(1 for i in listed if i in known_ids)} of them. Stored so far: {len(rows)}."
+                + ("\nStored now:\n" + "\n".join(shown[:80]) + (f"\n  ... and {len(shown) - 80} more, stored the same way" if len(shown) > 80 else "") if shown else "")
+                + (f"\nListed, new, and not stored yet: {', '.join(missing[:60])}" + (" ..." if len(missing) > 60 else "") if missing else "\nNothing that is listed is missing."))
+
+    return keep, listed, rows
+
+
 def scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
     """Yield every live posting. The text is read only for ids not in ``known_ids``; known ones are yielded as bare
     ids so the caller can keep them online."""
@@ -170,24 +194,7 @@ def _scan(known_ids: set[str] | None = None) -> Iterator[dict[str, Any]]:
 
         with db.session() as s:
             known_ids = {j.source_id for j in s.query(Job).filter(Job.source == "pdportal", Job.jd_text != "")}
-    listed: list[str] = []
-    rows: dict[str, dict[str, Any]] = {}
-
-    def keep(ids: list[str], postings: list[dict[str, Any]]) -> str:
-        """Store what the agent saved, and show it what was stored."""
-        listed[:] = list(dict.fromkeys([*listed, *ids]))
-        shown = []
-        for p in postings:
-            row, look = row_of(p)
-            if not row["source_id"]:
-                continue
-            rows[row["source_id"]] = row
-            shown.append(f"  {row['source_id']} | {row.get('title') or '?'} | {row.get('company') or '?'} | deadline {row.get('deadline') or '?'} | applied for: {row.get('channel') or '?'}"
-                         + (f" {row['apply_url']}" if row.get("channel") == "employer site" else "") + (f"   <- {'; '.join(look)}" if look else ""))
-        missing = [i for i in listed if i not in known_ids and i not in rows]
-        return (f"{len(listed)} postings are listed; the program had the text of {sum(1 for i in listed if i in known_ids)} of them. Stored so far: {len(rows)}."
-                + ("\nStored now:\n" + "\n".join(shown[:80]) + (f"\n  ... and {len(shown) - 80} more, stored the same way" if len(shown) > 80 else "") if shown else "")
-                + (f"\nListed, new, and not stored yet: {', '.join(missing[:60])}" + (" ..." if len(missing) > 60 else "") if missing else "\nNothing that is listed is missing."))
+    keep, listed, rows = collector(known_ids)
 
     with browser.open_page(TENANT, url=POSTINGS, operation="scan") as page:
         page.goto(POSTINGS, wait_until="domcontentloaded")

@@ -1,6 +1,9 @@
 """Run the application agent on the evaluation forms and say how it did.
 
     python eval/run.py [--form profile_first] [--model claude-fable-5-2] [--headed] [--backend playwright|nodriver] [--out DIR]
+    python eval/run.py --form account --queue        the same form through the program's queue, record and cards
+    python eval/run.py --scan                        the agent reads a co-op portal: a sign-in, a list on two pages
+    python eval/run.py --all                         every form and the portal, one after the other
 
 One made-up applicant, local forms shaped like real ones, a fresh data folder each time. A run is judged by what the
 form's server received. This spends the model allowance of whoever runs it; nothing leaves the machine but the model
@@ -239,6 +242,53 @@ def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa
     print(f"score: {ok} / {len(checks)}")
 
 
+def read_the_portal(a, home: Path, site, base: str) -> None:  # noqa: ANN001
+    """The agent reads the evaluation site's co-op portal: behind a sign-in, listed on two pages, each posting opened
+    by a POST with a token - shaped like the portals the agent's notes are about, and not identical to them. Judged by
+    what the portal saw (the sign-in, the search, which postings were opened) and by what reached the program."""
+    from autoapply import auth, browser, secrets, sites
+    from autoapply.agent import scan as agent_scan
+    from autoapply.sources import pdportal
+    from server import PORTAL_POSTINGS, PORTAL_USER
+
+    url = f"{base}/portal/postings"
+    key = sites.key_of(url)
+    site.portal_password = secrets.generate_password(16)       # made up for this run, kept in the keyring like any stored login, never printed
+    auth.upsert_account(key, host=key.split(":", 1)[1], email=PORTAL_USER, password=site.portal_password, status="ok", created_by="evaluation")
+    known = {PORTAL_POSTINGS[0][0]}                             # one posting the program has already
+    keep, listed, rows = pdportal.collector(known)
+    began = time.time()
+    with browser.open_page(key, headless=not a.headed, backend=a.backend) as page:
+        page.goto(url, wait_until="domcontentloaded")
+        out = agent_scan.read(page, site=key, name="Contoso University co-op portal", url=url, known=known, keep=keep, system="orbis")
+    saw = site.portal
+    by_id = {r[0]: r for r in PORTAL_POSTINGS}
+    new = [i for i in by_id if i not in known]
+    wrong = [i for i in new if i not in rows or rows[i].get("title") != by_id[i][1] or rows[i].get("company") != by_id[i][2]]
+    late = [i for i in new if i in rows and rows[i].get("deadline") != time.strftime("%Y-%m-%d %H:%M", time.strptime(by_id[i][3], "%B %d, %Y %I:%M %p"))]
+    how = [i for i in new if i in rows and ((rows[i].get("channel") == "PD Portal") != (by_id[i][4] == "Online via system") or (by_id[i][5] and rows[i].get("apply_url") != by_id[i][5]))]
+    checks = [
+        ("signed in with the stored login, and the portal never refused a password", saw["signed_in"] >= 1 and saw["refused"] == 0, f"signed in {saw['signed_in']}, refused {saw['refused']}"),
+        ("everything was listed (the search was made with an empty keyword)", "" in saw["searches"], f"searches {saw['searches']}"),
+        ("every posting on both pages reached the program as listed", sorted(listed) == sorted(by_id), f"{sorted(listed)}"),
+        ("each new posting was stored with its title and employer", not wrong, f"wrong or missing: {wrong}"),
+        ("deadlines as the portal gives them", not late, f"{[(i, rows[i].get('deadline')) for i in late]}"),
+        ("how each is applied for: in the portal, or on the employer's site with its address", not how, f"{[(i, rows[i].get('channel'), rows[i].get('apply_url')) for i in how]}"),
+        ("the text of each new posting was read", all(len(rows[i].get("jd_text") or "") > 80 for i in new if i in rows) and not wrong, "short or missing text"),
+        # (opening it once to see what a posting's page is like is looking; reading it again with every scan is what the list of known ids is for)
+        ("the posting the program already had was not read again with the others", saw["opened"].count(PORTAL_POSTINGS[0][0]) <= 1, f"opened {saw['opened']}"),
+        ("the run said how it ended", bool(out.get("ok")), f"{out.get('why')}"),
+        ("it left a note for the next scan", bool(sites.notes(key)), "no note"),
+    ]
+    ok = sum(1 for _, good, _ in checks if good)
+    print(f"--- scan: {'done' if out.get('ok') else 'not done'} · {out.get('steps')} tool calls · {time.time() - began:.0f} s")
+    for what, good, seen in checks:
+        print(f"  {'ok  ' if good else 'MISS'} {what}" + ("" if good else f"   [saw: {seen}]"))
+    if out.get("why"):
+        print("  the agent's own word:", str(out["why"])[:500])
+    print(f"score: {ok} / {len(checks)}")
+
+
 def forget_logins() -> None:
     """The accounts a run made on the evaluation site have passwords in this computer's keyring (under a service name
     of their own): taken out again when the run is over."""
@@ -264,6 +314,11 @@ def every_form(args: list[str]) -> None:
             print(got.stderr[-2000:], flush=True)
         last = [ln for ln in got.stdout.splitlines() if ln.startswith("score: ")]
         scores[form] = last[-1][7:] if last else f"no score (exit {got.returncode})"
+    print("===== the co-op portal =====", flush=True)
+    got = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--scan", *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    print(got.stdout, end="", flush=True)
+    last = [ln for ln in got.stdout.splitlines() if ln.startswith("score: ")]
+    scores["reading the co-op portal"] = last[-1][7:] if last else f"no score (exit {got.returncode})"
     print("===== all forms =====")
     for form, score in scores.items():
         print(f"  {form}: {score}")
@@ -284,6 +339,7 @@ def main() -> None:
     ap.add_argument("--stages", default="")
     ap.add_argument("--site", default="", help="a site that is already running (python eval/server.py PORT): it outlives this run")
     ap.add_argument("--kill-after", type=int, default=0, help="end this process abruptly after that many tool calls - as a crash would")
+    ap.add_argument("--scan", action="store_true", help="not a form: the agent reads the evaluation site's co-op portal (a sign-in, a list on two pages)")
     ap.add_argument("--queue", action="store_true", help="through the program: a posting in its database, its queue, the record it keeps, the applicant answering in the record")
     a = ap.parse_args()
 
@@ -334,6 +390,15 @@ def main() -> None:
                 os._exit(3)
 
         run.Desk.step = counted
+    if a.scan:
+        if site is None:
+            raise SystemExit("--scan needs the site in this process (the portal's password is made up here): do not pass --site")
+        try:
+            read_the_portal(a, home, site, base)
+        finally:
+            forget_logins()
+            site.close()
+        return
     p = POSTINGS[a.form]
     posting = brief.Posting(company=p["company"], title=p["title"], url=f"{base}/jobs/{a.form}", text=p["text"])
     folder = home / "applications" / a.form
