@@ -245,7 +245,7 @@ cd AutoApply
 | `uv run python scripts/make_release.py` | the portable zip |
 | `uv run python scripts/make_installer.py` | the Windows installer |
 
-Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `agent/` is the application agent - `apply.md` its manual, `hands.py` its browser tools, `run.py` one run, `work.py` what a run's outcome becomes, `playbooks/` the notes about recruiting systems; `llm.py` the services and their failover, `access.py` the login and where the server listens), `eval` (forms with an employer's side, and the harness that runs the agent on them: `python eval/run.py --form profile_first` - it spends your AI allowance), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
+Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `agent/` is the application agent - `apply.md` its manual, `hands.py` its browser tools, `run.py` one run, `work.py` what a run's outcome becomes, `playbooks/` the notes about recruiting systems; `llm.py` the services and their failover, `access.py` the login and where the server listens), `eval` (forms with an employer's side, and the harness that runs the agent on them: `python eval/run.py --all`, or one shape with `--form profile_first` - it spends your AI allowance), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
 
 **Releasing.** Set the version in `pyproject.toml`, add the section to `CHANGELOG.md`, then:
 

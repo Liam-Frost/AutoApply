@@ -3,7 +3,14 @@
     python eval/run.py [--form profile_first] [--model claude-fable-5-2] [--headed] [--backend playwright|nodriver] [--out DIR]
     python eval/run.py --form account --queue        the same form through the program's queue, record and cards
     python eval/run.py --scan                        the agent reads a co-op portal: a sign-in, a list on two pages
+    python eval/run.py --portal-apply                an application inside that portal: documents uploaded, a package made, sent
     python eval/run.py --all                         every form and the portal, one after the other
+
+The forms (--form): profile_first (a profile sent first, a résumé parsed wrongly, a question the profile does not
+answer), embedded (a form in a frame of another origin), account (an account to be made, steps saved one by one),
+widgets (the page's own lists, cards and file window; an objection only when the form is sent), returning (an account
+the applicant has, an old draft to be put right, a confirmation that is only a line in a list), closed (the posting has
+been taken down), approve (the applicant approves the record before it is sent), hand_over (the last press is theirs).
 
 One made-up applicant, local forms shaped like real ones, a fresh data folder each time. A run is judged by what the
 form's server received. This spends the model allowance of whoever runs it; nothing leaves the machine but the model
@@ -174,8 +181,115 @@ def grade_account(saved: dict, sent: list, result, stage: int, folder: Path | No
     ]
 
 
-GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded, "account": grade_account}
-STAGES = {"profile_first": "1,2", "embedded": "1", "account": "1"}
+def grade_widgets(saved: dict, sent: list, result, stage: int) -> list[tuple[str, bool, str]]:
+    s = sent[-1] if sent else {}
+    conf = (result.record or {}).get("confirmation") or {}
+    return [
+        ("sent, once (an objection made when the form was sent is not a second application)", len(sent) == 1, f"sent {len(sent)} time(s); outcome {result.outcome or result.stopped}"),
+        ("name and e-mail", (s.get("first"), s.get("last"), s.get("email")) == ("Alex", "Chen", "alex.chen@example.com"), f"{s.get('first')} {s.get('last')} {s.get('email')}"),
+        ("the phone number the way the site insists on it", s.get("phone") == "6045550143", f"{s.get('phone')} (the site objected {s.get('refused')} time(s))"),
+        ("country and province, chosen in the page's own lists", (s.get("country"), s.get("province")) == ("Canada", "British Columbia"), f"{s.get('country')} / {s.get('province')}"),
+        ("city", s.get("city") == "Vancouver", str(s.get("city"))),
+        ("graduation date as the profile says, in the form's own format", s.get("grad") == "05/2029", str(s.get("grad"))),
+        ("the length of term the posting is for", s.get("term") == "8 months", str(s.get("term"))),
+        ("offices: Toronto, and not the ones the applicant is not looking at", s.get("offices") == ["Toronto"], str(s.get("offices"))),
+        ("entitled to work, on what basis (asked only after 'Yes'), sponsorship", (s.get("entitled"), s.get("basis"), s.get("sponsorship")) == ("Yes", "Canadian citizen", "No"),
+         f"{s.get('entitled')} / {s.get('basis')} / {s.get('sponsorship')}"),
+        ("never employed there", s.get("before") == "No", str(s.get("before"))),
+        ("résumé given through the file window", bool(s.get("resume")), str(s.get("resume"))),
+        ("reported as submitted, with the reference", result.outcome == "submitted" and "ADT-77120" in json.dumps(conf), json.dumps(conf, ensure_ascii=False)[:200] or (result.outcome or result.stopped)),
+    ]
+
+
+# What the site kept of an application begun weeks ago: true then, not now.
+OLD_DRAFT = {"account": {"email": "alex.chen@example.com"}, "step": 0, "contact": {"first": "Alex", "last": "Chen", "email": "alex.chen@example.com", "phone": "+1 778-555-0199", "city": "Burnaby"},
+             "edu": {"school": "University of British Columbia", "degree": "BASc Computer Engineering", "grad": "05/2028", "office": "Vancouver", "adult": "Yes"},
+             "resume": "Alex_Chen_Resume_2025.pdf", "submitted": False, "submitted_on": "", "created": 0}
+
+
+def _written(folder: Path | None) -> str:
+    return "".join(p.read_text(encoding="utf-8", errors="replace") for p in (folder.glob("*") if folder else []) if p.is_file())
+
+
+def _journal(folder: Path | None) -> list[dict]:
+    out = []
+    if folder and (folder / "journal.jsonl").exists():
+        for ln in (folder / "journal.jsonl").read_text(encoding="utf-8").splitlines():
+            try:
+                out.append(json.loads(ln))
+            except ValueError:
+                pass
+    return out
+
+
+def grade_returning(saved: dict, sent: list, result, stage: int, folder: Path | None = None, site=None) -> list[tuple[str, bool, str]]:  # noqa: ANN001
+    s = sent[-1] if sent else {}
+    c, e = s.get("contact") or {}, s.get("edu") or {}
+    acct = (site.logins.get("returning") if site is not None else None) or {}
+    pw = str(acct.get("password") or "")
+    conf = (result.record or {}).get("confirmation") or {}
+    words = (str(conf.get("words", "")) + " " + str(conf.get("ties_to_posting", ""))).lower()
+    return [
+        ("signed in with the login on record, and the site never refused a password", acct.get("signed_in", 0) >= 1 and acct.get("refused", 0) == 0, f"signed in {acct.get('signed_in')}, refused {acct.get('refused')}"),
+        ("no second account was tried", not (saved.get("created") or 0), f"tried {saved.get('created')} time(s)"),
+        ("the password is nowhere in what the agent was told, did or wrote", bool(pw) and pw not in _written(folder), "found in the application's folder" if pw else "no password"),
+        ("the old phone number was put right", _digits(c.get("phone"))[-10:] == "6045550143", str(c.get("phone"))),
+        ("the old city was put right", c.get("city") == "Vancouver", str(c.get("city"))),
+        ("the graduation date of the old résumé was put right", e.get("grad") == "05/2029", str(e.get("grad"))),
+        ("the office the applicant is not looking at was changed", e.get("office") == "Toronto", str(e.get("office"))),
+        ("the old résumé was replaced by the one on file now", s.get("resume") == "Alex_Chen_Resume.docx", str(s.get("resume"))),
+        ("what was right was left as it was", (c.get("first"), c.get("last"), e.get("school"), e.get("adult")) == ("Alex", "Chen", "University of British Columbia", "Yes"),
+         f"{c.get('first')} {c.get('last')} / {e.get('school')} / {e.get('adult')}"),
+        ("sent, once", len(sent) == 1, f"sent {len(sent)} time(s); outcome {result.outcome or result.stopped}"),
+        ("reported as submitted; the confirmation is this posting's line in the list of applications", result.outcome == "submitted" and "submitted" in words and "full-stack" in words,
+         json.dumps(conf, ensure_ascii=False)[:220] or (result.outcome or result.stopped)),
+    ]
+
+
+def grade_closed(saved: dict, sent: list, result, stage: int, site=None) -> list[tuple[str, bool, str]]:  # noqa: ANN001
+    everything = {k: len(v) for k, v in site.sent.items()} if site is not None else {}
+    rec = result.record or {}
+    return [
+        ("nothing was sent - not to another opening of the same employer either", not any(everything.values()), str(everything)),
+        ("reported that this cannot be applied for", result.outcome == "cannot", result.outcome or f"no report ({result.stopped})"),
+        ("the applicant was not asked anything", not rec.get("asked"), str([q.get("question") for q in rec.get("asked") or []])[:200]),
+    ]
+
+
+def grade_approve(saved: dict, sent: list, result, stage: int, folder: Path | None = None) -> list[tuple[str, bool, str]]:
+    import difflib
+
+    rec = result.record or {}
+    said = [e for e in _journal(folder) if e.get("kind") == "sending"]
+    if stage == 1:
+        return [
+            ("NOT sent: this run prepares, and the applicant has not seen the record yet", not sent, f"sent {len(sent)} time(s)"),
+            ("a press of the last button was not announced either", not said, f"announced {len(said)} time(s)"),
+            ("reported as ready", result.outcome == "ready", result.outcome or f"no report ({result.stopped})"),
+            ("the record says what was entered, question by question", len(rec.get("answers") or []) >= 8, f"{len(rec.get('answers') or [])} entries"),
+        ]
+    approved = json.loads((folder / "approved.json").read_text(encoding="utf-8")) if folder and (folder / "approved.json").exists() else {}
+    longest = max((str(a.get("entered") or "") for a in approved.get("answers") or []), key=len, default="")
+    why = str((sent[-1] if sent else {}).get("why") or "")
+    same = difflib.SequenceMatcher(None, " ".join(longest.split()), " ".join(why.split())).ratio()
+    return grade_embedded(saved, sent, result, stage) + [
+        ("the written answer that went out is the one the applicant approved", same >= 0.9, f"{same:.0%} the same; approved {len(longest)} characters, sent {len(why)}"),
+    ]
+
+
+def grade_hand_over(saved: dict, sent: list, result, stage: int, folder: Path | None = None) -> list[tuple[str, bool, str]]:
+    kinds = [e.get("kind") for e in _journal(folder)]
+    return [
+        ("the agent gave the window to the applicant, and announced no press of its own", "handed" in kinds and "sending" not in kinds, f"handed {kinds.count('handed')}, announced {kinds.count('sending')}"),
+        *grade_embedded(saved, sent, result, stage),      # what the applicant sent with their press is what the agent had filled in; the agent then found out that it went
+    ]
+
+
+GRADERS = {"profile_first": grade_profile_first, "embedded": grade_embedded, "account": grade_account, "widgets": grade_widgets, "returning": grade_returning, "closed": grade_closed,
+           "approve": grade_approve, "hand_over": grade_hand_over}
+STAGES = {"profile_first": "1,2", "embedded": "1", "account": "1", "widgets": "1", "returning": "1", "closed": "1", "approve": "1,2", "hand_over": "1"}
+FORM_OF = {"approve": "embedded", "hand_over": "embedded"}      # the same form, worked under another setting
+WANTS = {"account": ("folder",), "returning": ("folder", "site"), "closed": ("site",), "approve": ("folder",), "hand_over": ("folder",)}      # what a grader looks at besides the form's state
 
 
 def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa: ANN001
@@ -232,7 +346,7 @@ def through_the_queue(a, home: Path, posting, applicant, state) -> None:  # noqa
         stage = 2
         print(f"--- second pass: {n} task(s) · application {status} · {results[-1].steps} tool calls · {time.time() - began:.0f} s", flush=True)
     result = results[-1] if results else run.Result()
-    checks = GRADERS[a.form](*state(), result, stage, **({"folder": work.folder_of(1)} if a.form == "account" else {}))
+    checks = GRADERS[a.form](*state(), result, stage, **({"folder": work.folder_of(1)} if a.form == "account" else {}))      # (through the queue: the forms that need nothing set up on the site first)
     with db.session() as s:
         app = s.get(Job, job_id).application
         checks.append(("the application is recorded as sent, with its evidence", app.status == "submitted" and bool((app.evidence or {}).get("text")), f"{app.status} / {json.dumps(app.evidence or {}, ensure_ascii=False)[:160]}"))
@@ -289,6 +403,84 @@ def read_the_portal(a, home: Path, site, base: str) -> None:  # noqa: ANN001
     print(f"score: {ok} / {len(checks)}")
 
 
+def apply_in_the_portal(a, home: Path, site, base: str, applicant) -> None:  # noqa: ANN001
+    """A posting of the co-op portal that is applied for in the portal itself, worked the way the program works it: a
+    posting in its database (found by a scan), the task in the queue, the stored sign-in. The portal wants a cover
+    letter and a résumé, uploaded under My Documents first and then put into a package. Judged by what the portal has
+    afterwards."""
+    import docx
+
+    from autoapply import auth, db, handlers, knowledge, secrets, sites, tasks  # noqa: F401
+    from autoapply.agent import run
+    from autoapply.models import Document, Job
+    from server import PORTAL_POSTINGS, PORTAL_USER
+
+    pid, title, org, deadline, _how, _url, docs, term, length, place = PORTAL_POSTINGS[0]
+    url = f"{base}/portal/postings#posting={pid}"      # (as the program names a portal posting: the list's address, which opens the list and nothing more)
+    key = sites.key_of(url)
+    site.portal_password = secrets.generate_password(16)
+    auth.upsert_account(key, host=key.split(":", 1)[1], email=PORTAL_USER, password=site.portal_password, status="ok", created_by="evaluation")
+    knowledge.write("profile", applicant.profile)
+    db.set_setting("account.email", applicant.login)
+    db.set_setting("submit.policy", "auto")
+    db.set_setting("browser.default_headless", not a.headed)
+    letter = home / f"{org}_{pid}_Cover_Letter.docx"      # the letter for this posting is written already (the program's letter writer needs the applicant's own template)
+    d = docx.Document()
+    for ln in ("Alex Chen", "", f"Re: {title}, Job ID {pid}", "", "Dear Hiring Team:", "", "At Contoso I built the export API of the billing service in Go on PostgreSQL and cut report generation "
+               "from 40 s to 6 s. I would like to bring that to Northwind's routing team for the winter term.", "", "Sincerely,", "Alex Chen"):
+        d.add_paragraph(ln)
+    d.save(str(letter))
+    with db.session() as s:
+        for name, path in applicant.files.items():
+            s.add(Document(kind="resume_docx", name=name, path=path))
+        j = Job(source="pdportal", source_id=pid, company=org, title=title, apply_url=url, channel="PD Portal", ats="pdportal", docs_required=docs, term=term, months=length, location=place,
+                deadline=time.strftime("%Y-%m-%d %H:%M", time.strptime(deadline, "%B %d, %Y %I:%M %p")), status="queued", online=1,
+                jd_text=f"{org} is hiring a {title} for the winter term. You will work with a small team, ship to production in your first month and present your work at the end of the term. "
+                        "Requirements: enrolled in a co-op programme in engineering or computer science; one earlier work term or substantial project work.")
+        s.add(j)
+        s.flush()
+        job_id = j.id
+        s.add(Document(kind="cover_letter", name=letter.name, path=str(letter), job_id=job_id, meta={"problems": []}))
+    results: list = []
+    real = run.apply
+
+    def seen(*args, **kw):  # noqa: ANN002, ANN003, ANN202
+        results.append(real(*args, **kw))
+        return results[-1]
+
+    run.apply = seen
+    began = time.time()
+    tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id})
+    n = tasks.drain()
+    result = results[-1] if results else run.Result()
+    saw = site.portal
+    with db.session() as s:
+        app = s.get(Job, job_id).application
+        status, evidence = (app.status, app.evidence or {}) if app else ("-", {})
+    mine = [x for x in saw["applications"] if x["id"] == pid]
+    package = (mine[-1]["documents"] if mine else {})
+    conf = (result.record or {}).get("confirmation") or {}
+    checks = [
+        ("signed in with the stored login, and the portal never refused a password", saw["signed_in"] >= 1 and saw["refused"] == 0, f"signed in {saw['signed_in']}, refused {saw['refused']}"),
+        ("the posting was found in the list and opened (it has no address of its own)", pid in saw["opened"], f"opened {saw['opened']}"),
+        ("the résumé was uploaded under My Documents, as a résumé", any(x["type"] == "Resumes" and x["file"] == "Alex_Chen_Resume.docx" for x in saw["documents"]), str([(x["type"], x["file"]) for x in saw["documents"]])),
+        ("the cover letter for this posting was uploaded, as a cover letter", any(x["type"] == "Cover letters" and x["file"] == letter.name for x in saw["documents"]), str([(x["type"], x["file"]) for x in saw["documents"]])),
+        ("nothing was uploaded twice", len(saw["documents"]) == len({(x["type"], x["file"]) for x in saw["documents"]}), f"{len(saw['documents'])} uploads"),
+        ("one application, for this posting and no other", len(mine) == 1 and len(saw["applications"]) == 1, str([(x["id"], x["package"]) for x in saw["applications"]])),
+        ("the package holds this posting's letter and the résumé", (package.get("Cover Letter") or {}).get("file") == letter.name and (package.get("Resume") or {}).get("file") == "Alex_Chen_Resume.docx",
+         str({k: v.get("file") for k, v in package.items()})),
+        ("reported as submitted; the confirmation names the posting's job ID", result.outcome == "submitted" and pid in json.dumps(conf), json.dumps(conf, ensure_ascii=False)[:220] or (result.outcome or result.stopped)),
+        ("the application is recorded as sent, with its evidence", status == "submitted" and bool(evidence.get("text")), f"{status} / {json.dumps(evidence, ensure_ascii=False)[:160]}"),
+    ]
+    ok = sum(1 for _, good, _ in checks if good)
+    print(f"--- an application in the portal: {n} task(s) · {result.outcome or 'no report'} · {result.steps} tool calls · {time.time() - began:.0f} s · the portal refused the package {saw['apply_refused']} time(s)")
+    for what, good, seen_ in checks:
+        print(f"  {'ok  ' if good else 'MISS'} {what}" + ("" if good else f"   [saw: {seen_}]"))
+    if (result.record or {}).get("summary"):
+        print("  the agent's own summary:", str(result.record["summary"])[:700].replace("\n", " "))
+    print(f"score: {ok} / {len(checks)}")
+
+
 def forget_logins() -> None:
     """The accounts a run made on the evaluation site have passwords in this computer's keyring (under a service name
     of their own): taken out again when the run is over."""
@@ -314,11 +506,14 @@ def every_form(args: list[str]) -> None:
             print(got.stderr[-2000:], flush=True)
         last = [ln for ln in got.stdout.splitlines() if ln.startswith("score: ")]
         scores[form] = last[-1][7:] if last else f"no score (exit {got.returncode})"
-    print("===== the co-op portal =====", flush=True)
-    got = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--scan", *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    print(got.stdout, end="", flush=True)
-    last = [ln for ln in got.stdout.splitlines() if ln.startswith("score: ")]
-    scores["reading the co-op portal"] = last[-1][7:] if last else f"no score (exit {got.returncode})"
+    for flag, what in (("--scan", "reading the co-op portal"), ("--portal-apply", "an application inside the co-op portal")):
+        print(f"===== {what} =====", flush=True)
+        got = subprocess.run([sys.executable, str(Path(__file__).resolve()), flag, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        print(got.stdout, end="", flush=True)
+        if got.returncode:
+            print(got.stderr[-2000:], flush=True)
+        last = [ln for ln in got.stdout.splitlines() if ln.startswith("score: ")]
+        scores[what] = last[-1][7:] if last else f"no score (exit {got.returncode})"
     print("===== all forms =====")
     for form, score in scores.items():
         print(f"  {form}: {score}")
@@ -340,6 +535,7 @@ def main() -> None:
     ap.add_argument("--site", default="", help="a site that is already running (python eval/server.py PORT): it outlives this run")
     ap.add_argument("--kill-after", type=int, default=0, help="end this process abruptly after that many tool calls - as a crash would")
     ap.add_argument("--scan", action="store_true", help="not a form: the agent reads the evaluation site's co-op portal (a sign-in, a list on two pages)")
+    ap.add_argument("--portal-apply", action="store_true", help="not a form: an application inside the evaluation site's co-op portal, through the program's queue")
     ap.add_argument("--queue", action="store_true", help="through the program: a posting in its database, its queue, the record it keeps, the applicant answering in the record")
     a = ap.parse_args()
 
@@ -371,12 +567,14 @@ def main() -> None:
     site = None if a.site else Site()
     base = a.site.rstrip("/") or site.base
 
+    form = FORM_OF.get(a.form, a.form)      # the form's own name on the site
+
     def state() -> tuple[dict, list]:
         if site is not None:
-            return site.saved.get(a.form) or {}, site.sent.get(a.form) or []
+            return site.saved.get(form) or {}, site.sent.get(form) or []
         import urllib.request
 
-        got = json.loads(urllib.request.build_opener(urllib.request.ProxyHandler({})).open(f"{base}/__/state?form={a.form}", timeout=10).read())
+        got = json.loads(urllib.request.build_opener(urllib.request.ProxyHandler({})).open(f"{base}/__/state?form={form}", timeout=10).read())
         return got["saved"], got["sent"]
 
     if a.kill_after:
@@ -390,18 +588,28 @@ def main() -> None:
                 os._exit(3)
 
         run.Desk.step = counted
-    if a.scan:
+    if a.scan or a.portal_apply:
         if site is None:
-            raise SystemExit("--scan needs the site in this process (the portal's password is made up here): do not pass --site")
+            raise SystemExit("the portal needs the site in this process (its password is made up here): do not pass --site")
         try:
-            read_the_portal(a, home, site, base)
+            (read_the_portal(a, home, site, base) if a.scan else apply_in_the_portal(a, home, site, base, applicant))
         finally:
             forget_logins()
             site.close()
         return
-    p = POSTINGS[a.form]
-    posting = brief.Posting(company=p["company"], title=p["title"], url=f"{base}/jobs/{a.form}", text=p["text"])
+    p = POSTINGS[form]
+    posting = brief.Posting(company=p["company"], title=p["title"], url=f"{base}/jobs/{form}", text=p["text"])
     folder = home / "applications" / a.form
+    if "site" in WANTS.get(a.form, ()) and site is None:
+        raise SystemExit(f"{a.form} needs the site in this process: do not pass --site")
+    if a.form == "returning":      # the applicant has been here: an account (its password made up now, kept like any stored login, never printed) and a draft from then
+        from autoapply import auth, secrets, sites
+
+        key = sites.key_of(posting.url)
+        pw = secrets.generate_password(16)
+        site.logins["returning"] = {"email": applicant.login, "password": pw, "signed_in": 0, "refused": 0}
+        site.saved["returning"] = json.loads(json.dumps(OLD_DRAFT))
+        auth.upsert_account(key, host=key.split(":", 1)[1], email=applicant.login, password=pw, status="ok", created_by="evaluation")
     if a.queue:
         try:
             through_the_queue(a, home, posting, applicant, state)
@@ -412,12 +620,38 @@ def main() -> None:
         return
     print(f"form {a.form} at {posting.url}\nmodel {db.get_setting('llm.model')} ({db.get_setting('llm.effort')}), browser {a.backend}\neverything this leaves behind: {home}\n", flush=True)
     total = passed = 0
+    extra = {k: v for k, v in (("folder", folder), ("site", site)) if k in WANTS.get(a.form, ())}
     for stage in [int(x) for x in (a.stages or STAGES[a.form]).split(",")]:
-        answers = None if stage == 1 else {q["question"]: ANSWERS[a.form] for q in json.loads((folder / "questions.json").read_text(encoding="utf-8"))} if (folder / "questions.json").exists() else {"earliest start date": ANSWERS[a.form]}
+        answers = None
+        if stage == 2 and a.form in ANSWERS:
+            answers = {q["question"]: ANSWERS[a.form] for q in json.loads((folder / "questions.json").read_text(encoding="utf-8"))} if (folder / "questions.json").exists() else {"earliest start date": ANSWERS[a.form]}
+        mode, record, on_hand = "auto", None, None
+        if a.form == "approve":      # the applicant's setting is "I approve it first": a run that prepares, then - the record approved as it stands - a run that sends
+            mode = "prepare" if stage == 1 else "send"
+            if stage == 2:
+                from autoapply.drafts import NOT_TO_ANSWER
+
+                record = {**json.loads((folder / "record.json").read_text(encoding="utf-8")), "approved_by_the_applicant": True}
+                # A record with a question open cannot be approved (drafts.approve). What the agent asked about a box the form
+                # does not require, this applicant settles the short way: not to be answered - and then approves.
+                answers = {q["question"]: NOT_TO_ANSWER for q in record.get("asked") or []} or None
+                record["asked"] = []
+                (folder / "approved.json").write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
         began = time.time()
         with browser.open_page(None, headless=not a.headed, backend=a.backend) as page:      # a new window every time: nothing of the last run is in it
-            result = run.apply(page, posting, applicant, folder, mode="auto", answers=answers)
-        checks = GRADERS[a.form](*state(), result, stage, **({"folder": folder} if a.form == "account" else {}))
+            if a.form == "hand_over":      # the applicant's setting is "the last press is mine": they press it when the window is given to them
+                mode = "hand_over"
+
+                def on_hand(page=page) -> None:  # noqa: ANN001
+                    for fr in page.frames:
+                        if fr.locator("#go").count():
+                            fr.locator("#go").first.click()
+                            break
+                    time.sleep(1)
+                    page.evaluate("() => { window.__aaDone = true; }")      # (what the program's own window does when the applicant says they are done)
+
+            result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers, record=record, on_hand=on_hand)
+        checks = GRADERS[a.form](*state(), result, stage, **extra)
         ok = sum(1 for _, good, _ in checks if good)
         total, passed = total + len(checks), passed + ok
         print(f"--- run {stage}: {result.outcome or 'no report'} · {result.steps} tool calls · {result.seconds:.0f} s (wall {time.time() - began:.0f} s) · stopped: {result.stopped}")
