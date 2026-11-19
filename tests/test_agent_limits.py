@@ -192,3 +192,63 @@ def test_a_stored_password_is_typed_where_the_sites_sign_in_lives_and_nowhere_el
     d.type_password(pw, new=True)
     assert d._is_home(d._host()) and d._host() in sites.fact(key, "sign_in_hosts")
     assert secrets.get_password(key) != "the stored one"
+
+
+def test_a_word_from_the_applicant_reaches_the_run_that_is_working(desk):
+    """What the applicant says while the agent works comes with the answer to its next action - once, and not after the
+    report: a word that comes that late is for the next run."""
+    from autoapply.agent import run
+
+    d = desk.make()
+    tools = {t.name: t.fn for t in d.guard(desk.hands.tools() + d.tools())}
+    assert "APPLICANT SAYS" not in tools["read"]()
+    run.say(desk.folder, "Use my Vancouver address, not the Toronto one.")
+    heard = tools["controls"]()
+    assert "THE APPLICANT SAYS" in heard and "Use my Vancouver address" in heard
+    assert "APPLICANT SAYS" not in tools["read"]() and d.words() == []                  # said once
+    blocks = (run.say(desk.folder, "And skip the newsletter."), tools["look"]())[1]      # a picture's answer carries it as well
+    assert any("skip the newsletter" in b.get("text", "") for b in blocks if isinstance(b, dict))
+    run.say(desk.folder, "One more thing.")
+    said = tools["report"](outcome="ready", summary="Everything is in.")
+    assert "One more thing" not in said and d.words() == ["One more thing."]             # left for the next run
+    lines = [json.loads(ln) for ln in (desk.folder / "journal.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [ln["text"] for ln in lines if ln["kind"] == "said"] == ["Use my Vancouver address, not the Toronto one.", "And skip the newsletter."]
+    assert "THE APPLICANT SAID, while the run worked: Use my Vancouver" in run.journal_text(desk.folder)
+    # a run that begins later has what was said in its brief: it does not hear it a second time
+    assert desk.make().words() == []
+
+
+def test_a_resume_for_the_posting_is_written_when_the_agent_asks_and_the_applicants_setting_about_it_holds(desk, monkeypatch):
+    """Whether an application is better with a résumé rewritten for the posting is the agent's to judge: it has a tool
+    for it. The applicant's settings are theirs: switched off, none is written; and one written just now is looked at
+    by them before it goes out, when they have set so."""
+    from autoapply import tailor
+    from autoapply.models import Job
+
+    with db.session() as s:
+        j = Job(source="manual", source_id="r1", company="Acme", title="Backend Intern", apply_url="https://careers.acme.example/jobs/1", jd_text="x" * 300, status="queued", online=1)
+        s.add(j)
+        s.flush()
+        job_id = j.id
+    made = []
+
+    def make(job, *, instructions="", automatic=False):
+        made.append(instructions)
+        return {"id": 1, "name": "Alex_Resume_Acme.pdf", "path": str(desk.folder / "r.pdf"), "current": instructions != "worse", "tailor": {"problems": ["a number that is not in the original"] if instructions == "worse" else []}}
+
+    monkeypatch.setattr(tailor, "make", make)
+    d = desk.make("auto")
+    d.job_id = job_id
+    db.set_setting("tailor.mode", "off")
+    assert "switched off" in d.tailor_resume() and made == []
+    db.set_setting("tailor.mode", "select")
+    monkeypatch.setattr(tailor, "base_doc", lambda: None)
+    assert "no Word résumé" in d.tailor_resume() and made == []
+    monkeypatch.setattr(tailor, "base_doc", lambda: {"id": 1, "name": "CV.docx", "path": "x"})
+    assert "Nothing usable" in d.tailor_resume("worse") and "Alex_Resume_Acme.pdf" not in desk.hands.files and d.mode == "auto"
+    db.set_setting("tailor.review", False)
+    said = d.tailor_resume("lead with the backend work")
+    assert "'Alex_Resume_Acme.pdf'" in said and desk.hands.files["Alex_Resume_Acme.pdf"] and d.mode == "auto" and "do not send" not in said
+    db.set_setting("tailor.review", True)             # the applicant looks at a new one first: this run does not send
+    said = d.tailor_resume()
+    assert "do not send it in this run" in said and d.mode == "prepare" and "does not send" in d.sending("Submit")

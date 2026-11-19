@@ -429,24 +429,6 @@ def existing(job_id: int) -> dict[str, Any] | None:
         return {"id": d.id, "name": d.name, "path": d.path, "kind": d.kind, "tailor": (d.meta or {}).get("tailor", {})}
 
 
-def wanted(job: Job) -> str:
-    """'' when this job should get a tailored résumé automatically, else the reason it does not."""
-    cfg = settings()
-    if (cfg.get("mode") or "off") == "off":
-        return "off"
-    if not cfg.get("auto", True):
-        return "manual only"
-    if job.channel == "PD Portal" or job.ats == "pdportal":
-        return "portal uses the documents stored there"
-    if job.score is None or job.score < float(cfg.get("min_score") or 0):
-        return "score below the threshold"
-    if len(job.jd_text or "") < 200:
-        return "no job description"
-    if base_doc() is None:
-        return "no Word résumé uploaded"
-    return ""
-
-
 def make(job: Job, *, instructions: str = "", automatic: bool = False) -> dict[str, Any]:
     """Plan -> apply -> render -> trim to the page limit. Stores a Document and returns its dict."""
     cfg = settings()
@@ -498,15 +480,3 @@ def make(job: Job, *, instructions: str = "", automatic: bool = False) -> dict[s
         current = not problems and not (automatic and info["unchanged"])
         doc_id = materials.publish(OUT_KIND, job.id, out["pdf"], {"tailor": info, "docx": out["docx"], "pages": out["pages"]}, current=current)
     return {"id": doc_id, "name": Path(out["pdf"]).name, "path": out["pdf"], "kind": OUT_KIND, "tailor": info, "current": current}
-
-
-def for_job(job: Job, *, instructions: str = "") -> tuple[dict[str, Any] | None, bool]:
-    """The tailored résumé to use for this job, if any: (document, newly_made)."""
-    if not instructions and (cur := existing(job.id)) is not None:
-        return cur, False
-    if wanted(job):
-        return None, False
-    doc = make(job, instructions=instructions, automatic=True)
-    if not doc["current"]:      # nothing useful came out: the record is kept for the applicant to see, and not attached
-        return None, False
-    return doc, True

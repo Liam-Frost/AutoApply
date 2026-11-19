@@ -39,7 +39,7 @@ def locked(d: Draft) -> str:
         return "这份申请已经发出去了，草案保留作记录，不能再改。"
     if status == "executing" or _being_worked(d.application.job_id):
         # the run read the record when it began: a change made now would not reach it, and it may send what it read
-        return "Agent 正在处理这份申请，等这一次结束后再改；想马上改，先在“活动记录”里把它叫停。"
+        return "Agent 正在处理这份申请，等这一次结束后再改；有话可以直接对它说，想马上改就先把它叫停。"
     return ""
 
 
@@ -68,6 +68,7 @@ def get(draft_id: int) -> dict[str, Any]:
         return {
             "id": d.id, "version": d.version, "review_status": d.review_status, "created_at": d.created_at.isoformat(),
             "locked": locked(d),            # why nothing in it can be changed now; "" when the applicant can change it
+            "running_task": work.being_worked(job.id),      # the run that is on this application now (0: none): it can be spoken to, and stopped
             "application": {"id": app.id, "status": app.status, "last_event": app.last_event},
             "job": {"id": job.id, "company": job.company, "title": job.title, "deadline": job.deadline, "score": job.score,
                     "score_reason": job.score_reason, "apply_url": job.apply_url, "ats": job.ats, "source_id": job.source_id},
@@ -172,6 +173,12 @@ def comment(draft_id: int, text: str) -> int:
         if d.review_status == "superseded":      # written on a version a later one has replaced: it is about the record, and that is its newest version
             newest = [x for x in d.application.drafts if x.review_status in ("pending", "approved")]
             d = newest[-1] if newest else d
+        if d.application.status not in SENT and _being_worked(d.application.job_id):
+            # the agent is on this application this moment: it hears it with the answer to its next action
+            from .agent import work
+
+            work.say(d.application_id, str(text)[:2000])
+            return 0
         why = locked(d)
         if why:
             raise Locked(why)

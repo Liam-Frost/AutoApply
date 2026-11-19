@@ -64,6 +64,8 @@ def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
             out.append({"at": e.get("at"), "kind": "log", "text": str(e.get("text") or "")})
         elif kind == "ask":
             out.append({"at": e.get("at"), "kind": "ask", "text": str(e.get("question") or "")})
+        elif kind == "said":
+            out.append({"at": e.get("at"), "kind": "said", "text": str(e.get("text") or "")})
         elif kind == "note":
             out.append({"at": e.get("at"), "kind": "note", "text": str(e.get("text") or "")})
         elif kind == "sending":
@@ -83,6 +85,23 @@ def stop(application_id: int) -> None:
     folder = folder_of(application_id)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / run.STOP).write_text("stop", encoding="utf-8")
+
+
+def say(application_id: int, text: str) -> None:
+    """The applicant says something to the agent that is working this application. The run hears it with the answer to
+    its next action; it is kept with what they said when they asked for the application, for every run after."""
+    folder = folder_of(application_id)
+    _instructions(folder, text)
+    run.say(folder, text)
+
+
+def being_worked(job_id: int) -> int:
+    """The task of the run that is working this posting's application this moment (0: none is)."""
+    from ..models import Task
+
+    with db.session() as s:
+        t = s.query(Task).filter_by(kind="apply", ref=f"job:{job_id}", status="running").first()
+        return t.id if t is not None else 0
 
 
 def spent(application_id: int) -> dict[str, Any]:
@@ -201,6 +220,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         if mode != "verify":
             lifecycle.move(app, "executing" if mode == "send" else "recon", source="run")
         app_id, title, channel = app.id, f"{job.company} · {job.title}", job.channel or ""
+        about_job = {"id": job.id, "score": job.score, "portal": job.channel == "PD Portal" or job.ats == "pdportal"}
         posting = brief.Posting(company=job.company, title=job.title, url=job.apply_url, text=job.jd_text or job.summary or "", deadline=job.deadline or "",
                                 extra=" · ".join(x for x in (f"Term: {job.term} {job.months}".strip() if (job.term or job.months) else "", f"Place: {job.location or job.work_type}" if (job.location or job.work_type) else "",
                                                              f"Documents asked for: {job.docs_required}" if job.docs_required else "",
@@ -210,7 +230,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
     from .. import tasks
 
     for n, said in enumerate(_instructions(folder, instructions), 1):
-        answers[f"(what the applicant said when they asked for this application, {n})"] = said
+        answers[f"(what the applicant said about this application, {n})"] = said
 
     if tasks.running_by_hand():      # the applicant asked for it: what counted "the same place again" starts anew
         (folder / "places.json").unlink(missing_ok=True)
@@ -220,17 +240,16 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
     applicant = brief.applicant_on_file(channel)
     _own_letter(applicant, job_id)
     if mode != "verify":
-        told, new = _own_resume(applicant, job_id, base)
+        told = _resume(applicant, about_job, base)
         if told:
             answers["(the résumé for this application)"] = told
-        if new and mode == "auto" and db.get_setting("tailor.review"):
-            mode = "prepare"        # a résumé written just now is looked at by the applicant before it goes out
     began = now()
     def handed() -> None:       # the window is the applicant's: they are told, on a card and on their phone
         notify.add_todo("submit", f"{title}：请检查并点提交", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
                         body="Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口。")
 
-    with browser.open_page(site, headless=mode != "hand_over", url=posting.url) as page:
+    # (the window: the applicant's when the last press is theirs; otherwise hidden, or shown while the agent works if they set so)
+    with browser.open_page(site, headless=mode != "hand_over" and not db.get_setting("agent.show_window"), url=posting.url) as page:
         result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed)
         try:      # what the agent signed in to, or registered, is there for the next run on this site
             browser.save_state(site, page.context)
@@ -238,6 +257,9 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
             log.info("the session of %s was not kept after the run (%s)", site, type(e).__name__)
     notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
     _spent(folder, result)
+    if result.unheard and result.outcome != "submitted":
+        # the applicant said something after the run's last action: it is in the brief of the next run, which is this one
+        tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "said": now().isoformat()}, priority=20)
     return settle(app_id, job_id, title, site, mode, result, folder, began=began)
 
 
@@ -255,29 +277,29 @@ def _instructions(folder: Path, new: str = "") -> list[str]:
     return said
 
 
-def _own_resume(applicant: brief.Applicant, job_id: int, base: bool) -> tuple[str, bool]:
-    """The résumé written for this posting (tailor.py: one that exists, or one written now when the applicant's
-    settings ask for it) is among the files, and the run is told to use it. Returns (what the run is told, it was
-    written just now). ``base``: the applicant chose the résumé as uploaded for this application."""
-    from .. import llm, tailor
+def _resume(applicant: brief.Applicant, job: dict[str, Any], base: bool) -> str:
+    """What the run is told about a résumé rewritten for this posting. One that exists is among the files. Whether one
+    is written is the agent's to decide (its tool ``tailor_resume``): what the applicant's settings say about it is
+    said here, for it to weigh. ``base``: the applicant chose the résumé as uploaded for this application."""
+    from .. import tailor
 
     if base:
-        return "The applicant chose the résumé as uploaded for this application, not one rewritten for the posting.", False
-    with db.session() as s:
-        job = s.get(Job, job_id)
-        s.expunge(job)
-    try:
-        doc, new = tailor.for_job(job)
-    except llm.LLMUnavailable:
-        raise
-    except Exception as e:  # noqa: BLE001 - the application goes ahead with the résumé as uploaded
-        log.warning("no résumé was written for job %s: %s", job_id, e)
-        return "", False
-    if doc is None:
-        return "", False
-    applicant.files[doc["name"]], applicant.file_notes[doc["name"]] = doc["path"], "résumé rewritten for this posting"
-    return (f"A résumé was rewritten for this posting: the file {doc['name']!r}. Upload it wherever the form takes a résumé, in place of the general one "
-            "(also where an earlier run uploaded the general one)."), new
+        return "The applicant chose the résumé as uploaded for this application, not one rewritten for the posting: do not have one written."
+    doc = tailor.existing(job["id"])
+    if doc is not None:
+        applicant.files[doc["name"]], applicant.file_notes[doc["name"]] = doc["path"], "résumé rewritten for this posting"
+        return (f"A résumé was rewritten for this posting: the file {doc['name']!r}. Upload it wherever the form takes a résumé, in place of the general one "
+                "(also where an earlier run uploaded the general one).")
+    cfg = tailor.settings()
+    mode = str(cfg.get("mode") or "off")
+    if mode == "off" or tailor.base_doc() is None:
+        return ""
+    score = "not scored" if job.get("score") is None else f"{job['score']:g}"
+    wish = (f"they have one written for postings scored {float(cfg.get('min_score') or 0):g} or more (this one: {score})" if cfg.get("auto", True)
+            else "they have one written when they ask for it themselves")
+    return ("No résumé has been rewritten for this posting. `tailor_resume` has one written from the applicant's own résumé (" + ("reordered and reworded" if mode == "rephrase" else "reordered, nothing reworded")
+            + ", checked against the original). The applicant's setting: " + wish + "."
+            + (" This application is made inside a portal, which sends the documents stored there: one is of use only if you upload it there." if job.get("portal") else ""))
 
 
 def _own_letter(applicant: brief.Applicant, job_id: int) -> None:

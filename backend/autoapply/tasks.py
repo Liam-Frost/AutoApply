@@ -112,15 +112,36 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     return tid
 
 
-# Three workers. One works applications - a browser, a site, an account at a time. One does what needs none of
-# that and can take long: scanning the sources, scoring, reading mail. A scan of
-# twenty minutes used to hold every application up; now the two do not wait for each other. The third is the desk:
-# writing the applicant asked for at a page and is waiting to see - their profile, from the résumé they just uploaded.
-# It needs no browser and no site, and it does not stand behind a form being read or a scan. Within each, one task
-# at a time, as before.
+# Three kinds of worker. One kind works applications - each a browser, a site, an account: as many at a time as the
+# applicant has set (agent.parallel; three unless they say otherwise), never two on the same application and never
+# two on the same site (an account and its sign-in are one). One does what needs none of that and can take long:
+# scanning the sources, scoring, reading mail. A scan of twenty minutes used to hold every application up; now they
+# do not wait for each other. The third is the desk: writing the applicant asked for at a page and is waiting to see -
+# their profile, from the résumé they just uploaded. The last two: one task at a time.
 BACKGROUND = ("discover", "score", "mail")
 DESK = ("profile_init",)
 LANES = ("forms", "background", "desk")
+MOST = 6       # the most applications that can be worked at once, whatever is set
+_claiming = threading.Lock()      # (several workers look at the same queue: one takes a task at a time)
+
+
+def parallel() -> int:
+    """How many applications are worked at the same time (the setting agent.parallel)."""
+    try:
+        return max(1, min(int(db.get_setting("agent.parallel") or 3), MOST))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _site(s: Any, t: Task) -> str:
+    """The site an application's task works on ('' for a task that is not an application's)."""
+    from . import sites
+    from .models import Job
+
+    if t.kind != "apply" or not t.ref.startswith("job:") or not t.ref[4:].isdigit():
+        return ""
+    job = s.get(Job, int(t.ref[4:]))
+    return sites.key_of(job.apply_url) if job is not None and job.apply_url else ""
 
 
 def lane_of(kind: str) -> str:
@@ -128,7 +149,7 @@ def lane_of(kind: str) -> str:
 
 
 def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
-    with db.session() as s:
+    with _claiming, db.session() as s:
         q = s.query(Task).filter_by(status="queued")
         if lane == "background":
             q = q.filter(Task.kind.in_(BACKGROUND))
@@ -139,7 +160,13 @@ def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
         # a task that is for later (a retry, a look for the confirmation mail in half an hour) is not taken before its time
         due = q.filter((Task.due_at.is_(None)) | (Task.due_at <= now())).order_by(Task.priority, Task.id)
         # paused: only what the applicant asked for by hand (they pressed the button; the pause is for what runs by itself)
-        t = next((x for x in due.limit(200) if (x.payload or {}).get("_by_hand")), None) if only_by_hand else due.first()
+        if lane == "forms":
+            # not the application another worker is on, and not another application on the site one is on
+            busy = s.query(Task).filter(Task.status == "running", Task.kind.notin_(BACKGROUND + DESK)).all()
+            refs, on = {b.ref for b in busy}, {_site(s, b) for b in busy} - {""}
+            t = next((x for x in due.limit(200) if (not only_by_hand or (x.payload or {}).get("_by_hand")) and x.ref not in refs and (_site(s, x) or None) not in on), None)
+        else:
+            t = next((x for x in due.limit(200) if (x.payload or {}).get("_by_hand")), None) if only_by_hand else due.first()
         if t is None:
             return None
         t.status, t.started_at, t.attempts = "running", now(), t.attempts + 1
@@ -224,8 +251,12 @@ def _run_one(t: Task) -> None:
         profile_init.began_to_wait(status, waits_for, result)
 
 
-def _loop(lane: str = "") -> None:
+def _loop(lane: str = "", nth: int = 0) -> None:
+    """``nth``: which of the workers of this lane this is (from 0). One beyond the number set takes nothing."""
     while not _stop.is_set():
+        if nth and nth >= parallel():
+            _stop.wait(5)
+            continue
         if db.get_setting("schedule.draining"):
             # "finish what is being done and start nothing new": nothing is claimed; when the last task has ended, say so once
             _tell_when_drained()
@@ -475,6 +506,8 @@ def start() -> None:
     _stop.clear()
     _worker = threading.Thread(target=_loop, args=("forms",), name="autoapply-worker", daemon=True)
     _worker.start()
+    for nth in range(1, MOST):      # (they are all there; how many take work is the setting, read as they go)
+        threading.Thread(target=_loop, args=("forms", nth), name=f"autoapply-worker-{nth + 1}", daemon=True).start()
     threading.Thread(target=_loop, args=("background",), name="autoapply-background", daemon=True).start()
     threading.Thread(target=_loop, args=("desk",), name="autoapply-desk", daemon=True).start()
     _sched = BackgroundScheduler(daemon=True)
