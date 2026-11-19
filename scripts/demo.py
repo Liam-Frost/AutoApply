@@ -312,7 +312,8 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
                     jd_text="x" * 300, first_seen=sent - timedelta(days=rnd.randint(1, 9)), archived_at=now - timedelta(days=5))
             s.add(j)
             s.flush()
-            a = Application(job_id=j.id, status=status, channel="employer site", submitted_at=sent, created_at=sent - timedelta(hours=2))
+            a = Application(job_id=j.id, status=status, channel="employer site", submitted_at=sent, created_at=sent - timedelta(hours=2),
+                            evidence={"text": "Thank you for applying. We have received your application.", "url": j.apply_url or ""})      # (what the agent kept of the confirmation page)
             s.add(a)
             s.flush()
             if status != "submitted":

@@ -47,7 +47,7 @@ def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
     if not p.exists():
         return []
     out: list[dict[str, Any]] = []
-    calls = 0
+    calls = heard = 0
     for ln in p.read_text(encoding="utf-8").splitlines():
         try:
             e = json.loads(ln)
@@ -65,6 +65,7 @@ def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
         elif kind == "ask":
             out.append({"at": e.get("at"), "kind": "ask", "text": str(e.get("question") or "")})
         elif kind == "said":
+            heard += 1
             out.append({"at": e.get("at"), "kind": "said", "text": str(e.get("text") or "")})
         elif kind == "note":
             out.append({"at": e.get("at"), "kind": "note", "text": str(e.get("text") or "")})
@@ -76,6 +77,11 @@ def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
             out.append({"at": e.get("at"), "kind": "report", "text": str(e.get("summary") or ""), "outcome": e.get("outcome"), "calls": calls})
         elif kind == "ended":
             out.append({"at": e.get("at"), "kind": "ended", "text": str(e.get("why") or ""), "calls": calls})
+    try:      # what the applicant has said and the run has not come to yet (it hears it with its next action)
+        said = [json.loads(ln) for ln in (folder_of(application_id) / run.SAID).read_text(encoding="utf-8").splitlines() if ln.strip()]
+    except (OSError, ValueError):
+        said = []
+    out += [{"at": w.get("at"), "kind": "said_waiting", "text": str(w.get("text") or "")} for w in said[heard:]]
     return out[-limit:]
 
 

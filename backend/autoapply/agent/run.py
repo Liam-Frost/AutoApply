@@ -576,6 +576,8 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     else:
         desk.write("ended", why=res.stopped, steps=res.steps)
     res.unheard = desk.words()
+    for w in res.unheard:      # said too late for this run: on the journal all the same, for the applicant and for the next run
+        desk.write("said", text=w, late=True)
     res.seconds = round(time.monotonic() - began, 1)
     return res
 

@@ -547,6 +547,7 @@ def test_what_the_applicant_says_reaches_a_run_that_is_working_and_one_that_is_n
     assert said_while["now"] == {"heard": "now"}
     folder = agent.work.folder_of(said_while["app"])
     assert _run.Desk(folder, None, site="x", mode="auto").heard == 1                     # it is where a working run looks
+    assert [(e["kind"], e["text"]) for e in agent.work.journal(said_while["app"])][-1] == ("said_waiting", "Use the Vancouver address.")      # and the page shows it meanwhile
     with db.session() as s:      # the run ended without having heard it: the application is taken up again
         assert s.query(Task).filter_by(kind="apply", status="queued").count() == 1
     agent.ends.append(READY)

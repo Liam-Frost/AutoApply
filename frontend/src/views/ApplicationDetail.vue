@@ -4,6 +4,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import AgentJournal from '../components/AgentJournal.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import AaSelect from '../components/Select.vue'
@@ -107,6 +108,8 @@ onMounted(load)
         <router-link v-for="c in a.cards" :key="c.id" to="/todos" class="tag warn" style="margin: 4px 6px 0 0">{{ c.title }}</router-link>
       </div>
     </div>
+
+    <AgentJournal :journal="a.journal || []" :spent="a.spent" :running-task="a.running_task || 0" :application-id="a.id" note="Agent 在这份申请上途中记下的话；它填了什么、依据是什么，在草案里。" @refresh="load" />
 
     <div v-if="fix.open" class="card">
       <div class="card-title">更正记录</div>

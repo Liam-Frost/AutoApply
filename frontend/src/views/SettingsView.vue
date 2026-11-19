@@ -54,7 +54,7 @@ const checkUpdate = async () => {
 const GROUPS = [
   ['overview', '总览', '这些设置合起来是什么意思：你会投什么，程序现在自己能做到哪一步。只读；每一条都能点到改它的地方。', []],
   ['goals', '求职目标与匹配', '想找什么样的岗位：哪些根本不看，哪些优先。', [['profile', '求职档案'], ['filters', '入库前的硬条件'], ['search', '在大型官网上搜什么'], ['sources', '来源与关注公司']]],
-  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动开始申请'], ['submit', '怎么提交'], ['limits', 'Agent 每次能做多少'], ['schedule', '工作计划']]],
+  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动开始申请'], ['submit', '怎么提交'], ['limits', 'Agent 怎么工作'], ['schedule', '工作计划']]],
   ['materials', '材料', '简历怎么调、求职信怎么写。', [['resume', '简历'], ['cover', '求职信']]],
   ['accounts', '账号与连接', '招聘网站的登录、收信的邮箱、用哪家 AI。', [['logins', '招聘网站的登录'], ['mailbox', '收件邮箱'], ['ai', 'AI 服务']]],
   ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['events', '通知什么、什么时候']]],
@@ -77,13 +77,6 @@ function settle() {
 watch(() => [route.params.group, route.params.section, !!s.value], settle)
 
 const COUNTRIES = [['CA', '加拿大'], ['US', '美国']]
-// What the AI may spend on one piece of work, by kind (the setting agent.budgets; the kinds are the server's).
-const BUDGETS = [
-  ['apply', '一份申请', '从岗位页到确认页，这份申请的所有运行加在一起。用完了 Agent 会停下来，问你要不要再给一份。'],
-  ['scan', '读取要登录的岗位来源', '学校门户这类要登录才能看到岗位的来源，由 Agent 登录进去、把岗位读回来。'],
-  ['site_status', '到雇主网站查申请状态', '邮件对不上是哪一个申请时。'],
-]
-const budgetLabel = (name, what) => `${name}：${what}`
 const examples = ref('Software Engineering Intern, Summer 2027 | Seattle, WA, US\nSenior Software Engineer | Toronto, ON, CA\nSoftware Developer Co-op | Vancouver, BC, Canada\nMBA Intern | New York, NY, US\nSoftware Engineering Intern | Singapore')
 const tried = ref([])
 const csv = (key) => (s.value[key] || []).join(', ')
@@ -303,19 +296,27 @@ onMounted(load)
         </div>
       </SetSection>
 
-      <SetSection id="limits" title="Agent 每次能做多少">
+      <SetSection id="limits" title="Agent 怎么工作">
         <div class="card">
-          <p class="muted" style="margin-top: 0">Agent 做一件事最多用多少步（每调用一次工具算一步）、最多用多久。到了上限它就停下来问你，不会一直做下去。表单很长的网站可以调大。</p>
-          <table aria-label="Agent 每次能做多少">
-            <thead><tr><th scope="col">做什么</th><th scope="col">最多多少步</th><th scope="col">最多多少分钟</th></tr></thead>
-            <tbody>
-              <tr v-for="[k, name, hint] in BUDGETS" :key="k">
-                <th scope="row" style="font-weight: 400">{{ name }}<div class="hint">{{ hint }}</div></th>
-                <td><input v-model.number="s['agent.budgets'][k].steps" type="number" min="1" max="2000" style="width: 90px" :aria-label="budgetLabel(name, '步数')" /></td>
-                <td><input v-model.number="s['agent.budgets'][k].minutes" type="number" min="1" max="240" style="width: 90px" :aria-label="budgetLabel(name, '分钟数')" /></td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="card-title">一份申请最多做多少</div>
+          <p class="muted">一份申请从岗位页到确认页，所有运行加在一起最多用多少步（每调用一次工具算一步）、最多用多久。用完了 Agent 会停下来，问你要不要再给一份。表单很长的网站可以调高。</p>
+          <div class="kv">
+            <label for="f-budget-steps">最多多少步</label>
+            <div><input id="f-budget-steps" v-model.number="s['agent.budgets'].apply.steps" type="number" min="1" max="2000" style="width: 90px" /></div>
+            <label for="f-budget-minutes">最多多少分钟</label>
+            <div><input id="f-budget-minutes" v-model.number="s['agent.budgets'].apply.minutes" type="number" min="1" max="240" style="width: 90px" /></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">同时做几份、看不看得到</div>
+          <div class="kv">
+            <label for="f-parallel">同时做几份申请</label>
+            <div><input id="f-parallel" v-model.number="s['agent.parallel']" type="number" min="1" max="6" style="width: 90px" />
+              <div class="hint">每份申请各用各的浏览器，最多 6 份。同一个网站上的申请一次只做一份，因为那里的账号和登录只有一份。</div></div>
+            <label for="f-show-window">Agent 工作时的浏览器窗口</label>
+            <div><label><input id="f-show-window" v-model="s['agent.show_window']" type="checkbox" /> 显示在屏幕上</label>
+              <div class="hint">打开后，Agent 做申请时浏览器窗口在屏幕上：你可以看着它做，也可以叫停之后自己接着操作。不需要看就关着，它在后台做。最后一步交给你自己点的申请，窗口总是会显示。</div></div>
+          </div>
         </div>
       </SetSection>
 

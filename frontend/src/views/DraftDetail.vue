@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import AgentJournal from '../components/AgentJournal.vue'
 import Icon from '../components/Icon.vue'
 import TechDetails from '../components/TechDetails.vue'
 import { decisions, toDecide } from '../draftsum'
@@ -170,24 +171,7 @@ onUnmounted(() => clearInterval(timer))
         <span class="muted small">刚补充过个人资料，或觉得这些问题资料里明明有答案时用。</span></div>
     </div>
 
-    <div v-if="d.journal && d.journal.length" class="panel" style="margin-bottom: 16px">
-      <div class="row"><h3 class="grow" style="margin: 0">Agent 做了什么</h3>
-        <span v-if="d.spent" class="muted small">已用 {{ d.spent.steps }} / {{ d.spent.of_steps }} 步，约 {{ d.spent.minutes }} 分钟，{{ d.spent.runs }} 次运行</span></div>
-      <div class="muted small">这份记录是 Agent 自己在网站上做完之后写的：每一项填了什么、依据是什么，都在下面的表里。这里是它途中记下的话。</div>
-      <ul class="journal">
-        <li v-for="(e, i) in d.journal" :key="i" :class="'j-' + e.kind">
-          <span class="muted small nowrap">{{ fmtTime(e.at) }}</span>
-          <span v-if="e.kind === 'run'" class="badge">开始一次运行</span>
-          <span v-else-if="e.kind === 'ask'" class="j-strong">问你：{{ e.text }}</span>
-          <span v-else-if="e.kind === 'waits'" class="j-strong">等你处理：{{ e.text }}</span>
-          <span v-else-if="e.kind === 'sending'" class="j-strong">即将点提交：{{ e.text }}</span>
-          <span v-else-if="e.kind === 'report'">这次运行结束（{{ e.calls }} 次操作）：{{ e.text }}</span>
-          <span v-else-if="e.kind === 'ended'" class="j-strong">这次运行中断（{{ e.calls }} 次操作）：{{ e.text }}</span>
-          <span v-else-if="e.kind === 'note'" class="muted">记下了这个网站的一条经验：{{ e.text }}</span>
-          <span v-else>{{ e.text }}</span>
-        </li>
-      </ul>
-    </div>
+    <AgentJournal :journal="d.journal || []" :spent="d.spent" :running-task="d.running_task || 0" :application-id="d.application.id" note="这份记录是 Agent 自己在网站上做完之后写的：每一项填了什么、依据是什么，都在下面的表里。这里是它途中记下的话。" @refresh="load" />
 
     <div v-if="toLook.length" class="panel look" aria-labelledby="look-h">
       <h3 id="look-h" style="margin-top: 0">先看这几项<span v-if="toDecide(toLook)" class="muted small" style="font-weight: 400">　{{ toDecide(toLook) }} 项需要你过目，其余的是资料里写明的事实</span>
