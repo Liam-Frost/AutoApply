@@ -394,7 +394,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         with db.session() as s:
             app = s.get(Application, app_id)
             lifecycle.move(app, "submitted", source="run", at=now(), evidence={"url": conf.get("url", ""), "text": str(conf.get("words", ""))[:600], "ties_to_posting": str(conf.get("ties_to_posting", ""))[:300],
-                                                                    "read_by": "agent", "folder": str(folder)})
+                                                                    "read_by": "agent", "folder": str(folder), **({"screenshot": _in_data(rec["shot"])} if rec.get("shot") else {})})
             app.last_event = ""
             was_auto = mode == "auto"
             app.auto_approved = int(was_auto)
@@ -444,6 +444,14 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         notify.send("task_result", messages.failed(title, error=why), ref=f"application:{app_id}")
         return {"status": "cannot", "steps": result.steps}
     return _without_report(app_id, job_id, title, result, folder)
+
+
+def _in_data(path: str) -> str:
+    """A file of the program's own, by where it is in its data folder (a backup restored somewhere else finds it again)."""
+    try:
+        return Path(path).resolve().relative_to(config.DATA.resolve()).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _sent(app_id: int, title: str, conf: dict[str, Any], was_auto: bool) -> None:

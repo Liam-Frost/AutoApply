@@ -30,6 +30,9 @@ application's own page when the list does not show its state.
   types the stored password into the box you point at (you never see it) and presses the button, and a code or a link
   the site sends by e-mail is in the mailbox (`mail`). What only the applicant can do (no stored password, a code on
   their phone, a CAPTCHA) is `sign_in_by_hand`; then report signed_in=false.
+- The task says what the program has to get in with. When it has nothing and the site shows no account of the
+  applicant's (many boards take an application without one), there is nothing to read here: report signed_in=false
+  and say so in `reason`. `sign_in_by_hand` is for a site where they do have an account.
 - This visit is to find out where the applications stand. It is not the place to start, change or withdraw one, or
   to begin an assessment the e-mail asks for: that is the applicant's to do, and they are told what you found.
 - Write down (`note`) what the next visit to this site should know: where the list is, how its states are worded.
@@ -68,19 +71,20 @@ def read(site: str, start_url: str, folder: Path, question: str = "") -> dict[st
             return "The applicant is asked. Report now, with signed_in false."
 
         own = {t.name: t for t in desk.tools()}
-        tools = hands.tools() + [own[n] for n in ("log", "note", "notes", "account", "type_password", "mail")] + [
+        tools = desk.guard(hands.tools() + [own[n] for n in ("log", "note", "notes", "account", "type_password", "mail")] + [
             llm.Tool("sign_in_by_hand", own["sign_in_by_hand"].description, own["sign_in_by_hand"].input_schema, by_hand),
             llm.Tool("report", "Report the applications the site lists, each with its state, and which of the program's applications the e-mail is about; then stop.",
                      {"type": "object", "properties": {
                          "signed_in": {"type": "boolean"}, "reason": st, "about": {"type": "array", "items": {"type": "integer"}},
                          "applications": {"type": "array", "items": {"type": "object", "properties": {"title": st, "job_id": st, "status": st, "date": st},
                                                                      "required": ["title", "status"], "additionalProperties": False}}},
-                      "required": ["signed_in", "applications"], "additionalProperties": False}, report)]
+                      "required": ["signed_in", "applications"], "additionalProperties": False}, report)])
         from . import sites
 
         system, _ = brief.playbook_for(start_url)
         goal = "\n\n".join(x for x in (
-            f"# The site\n{start_url}\n{desk.account()}", question,
+            f"# The site\n{start_url}\n{desk.account()}\n"
+            + ("A sign-in from an earlier visit is saved for this site (it may have run out)." if browser.load_state(site) else "No sign-in from an earlier visit is saved for this site."), question,
             (f"About {system}:\n" + brief.about(system)) if system else "",
             (f"<site_notes>\n{sites.notes(site)}\n</site_notes>" if sites.notes(site) else ""),
             "# Language\n" + brief.reads()) if x)
@@ -97,17 +101,14 @@ def read(site: str, start_url: str, folder: Path, question: str = "") -> dict[st
 
 
 def _site_of(app: Application) -> tuple[str, str] | None:
-    """(account key, address to start from) of the site an application was sent on - where there is a saved sign-in or
-    a stored login to get in with."""
+    """(account key, address to start from) of the site an application was sent on. Whether there is anything to get
+    in with - a saved sign-in, a stored login - is said to the agent, which goes and looks (``read``)."""
     from .agent import brief
 
     url = (app.job.apply_url or "") if app.job else ""
     if not url.startswith("http"):
         return None
-    key = auth.key_for(brief.site_key(url))
-    if not browser.load_state(key) and not (auth.account(key) or {}).get("has_password"):      # nothing to get in with: the applicant says which application it is
-        return None
-    return key, f"https://{urlparse(url).netloc}/"
+    return auth.key_for(brief.site_key(url)), f"https://{urlparse(url).netloc}/"
 
 
 def resolve(message_id: str) -> dict[str, Any]:
@@ -122,7 +123,7 @@ def resolve(message_id: str) -> dict[str, Any]:
         rows = {i: {"title": a.job.title, "job_id": a.job.source_id or "", "status": a.status, "site": site} for i, (a, site) in apps.items()}
     sites = {r["site"] for r in rows.values() if r["site"]}
     if not sites:
-        return {"skipped": "no saved sign-in for this employer's site"}
+        return {"skipped": "no address of the employer's site"}
     mine = "\n".join(f"- id={i} | {r['title']} | job {r['job_id'] or '?'}" for i, r in rows.items())
     question = (f"The e-mail ({category}, received {received}): {subject}\n{summary}\n\n"
                 f"The applicant's applications at this employer, as the program knows them:\n{mine}")

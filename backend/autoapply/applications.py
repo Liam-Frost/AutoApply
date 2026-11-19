@@ -75,6 +75,19 @@ def listing() -> list[dict[str, Any]]:
     return sorted(rows, key=lambda r: r["updated_at"] or r["created_at"] or "", reverse=True)
 
 
+def picture(evidence: dict[str, Any] | None) -> Path | None:
+    """The picture kept with an application's evidence, when there is one and it is in the program's own data: named
+    by where it is in the data folder (or, in records of earlier versions, by its whole path)."""
+    from . import config
+
+    shot = str((evidence or {}).get("screenshot") or "")
+    if not shot:
+        return None
+    p = Path(shot)
+    p = (p if p.is_absolute() else config.DATA / p).resolve()
+    return p if p.is_file() and config.DATA.resolve() in p.parents else None
+
+
 def detail(application_id: int) -> dict[str, Any] | None:
     with db.session() as s:
         a = s.get(Application, application_id)
@@ -90,9 +103,8 @@ def detail(application_id: int) -> dict[str, Any] | None:
                       "online": bool(j.online), "posted": j.posted, "summary": j.summary, "brief": j.brief, "source": j.source, "source_id": j.source_id,
                       "ats_label": humanize.ats_name(j.ats), "term": j.term, "months": j.months, "salary": j.salary}
         ev = dict(a.evidence or {})
-        shot = str(ev.get("screenshot") or "")
         out["evidence"] = {"text": str(ev.get("text") or ""), "url": str(ev.get("url") or ""), "read_by": str(ev.get("read_by") or ""),
-                           "already_applied": bool(ev.get("already_applied")), "has_screenshot": bool(shot and Path(shot).exists()),
+                           "already_applied": bool(ev.get("already_applied")), "has_screenshot": picture(ev) is not None,
                            "mail_ids": list(ev.get("mail_ids") or ([ev["mail_id"]] if ev.get("mail_id") else [])), "by_user": bool(ev.get("user"))}
         drafts = list(a.drafts)
         out["drafts"] = [{"id": d.id, "version": d.version, "review_status": d.review_status, "review_label": humanize.REVIEW.get(d.review_status, d.review_status),

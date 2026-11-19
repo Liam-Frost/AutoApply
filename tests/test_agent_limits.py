@@ -73,6 +73,60 @@ def test_a_password_is_typed_by_the_program_and_is_nowhere_the_agent_can_read(de
     assert "filled (hidden)" not in desk.hands.controls()
 
 
+def test_what_the_program_typed_is_in_no_answer_of_the_agents_tools(desk):
+    """The agent has the whole page in its hands - a script, the list of controls, a picture - and a password typed into
+    a box is on that page until the form is sent. The tools it is given answer without it."""
+    from autoapply import secrets
+
+    d = desk.make()
+    tools = {t.name: t.fn for t in d.guard(desk.hands.tools() + d.tools())}
+    pw = _ref(desk.hands, 'password "Password"')
+    tools["type_password"](ref=pw, new=True, length=14, symbols="!#")      # the first of two boxes: nothing is sent yet, the box stays filled
+    stored = secrets.get_password("generic:careers.acme.example")
+    assert stored and desk.page.evaluate("document.getElementById('pw').value") == stored
+    said = tools["script"](code="() => document.getElementById('pw').value")
+    assert stored not in said and "(hidden)" in said
+    # a page that shows the password in clear ("show password"): the box is still not one the agent reads, or types into
+    desk.page.evaluate("document.getElementById('pw').type = 'text'")
+    listed = tools["controls"]()
+    assert stored not in listed and "filled (hidden)" in listed
+    with pytest.raises(PermissionError):
+        tools["type"](text="hunter2", ref=pw)
+    # a picture is taken with that box covered, and the page is as it was afterwards
+    covered = "getComputedStyle(document.getElementById('pw')).webkitTextSecurity"
+    seen, real = [], desk.page.screenshot
+    desk.page.screenshot = lambda **kw: (seen.append(desk.page.evaluate(covered)), real(**kw))[1]
+    try:
+        tools["look"]()
+    finally:
+        desk.page.screenshot = real
+    assert seen == ["disc"] and desk.page.evaluate(covered) != "disc"
+    # an error that carries it is told without it, and the journal holds nothing of it
+    with pytest.raises(Exception) as e:  # noqa: PT011 - whatever the browser raises
+        tools["script"](code="() => { throw new Error(document.getElementById('pw').value) }")
+    assert stored not in str(e.value)
+    d.step({"tool": "script", "input": {"code": f"'{stored}'"}, "ok": True, "output": f"it says {stored}"})      # (whatever reached the journal some other way)
+    assert stored not in (desk.folder / "journal.jsonl").read_text(encoding="utf-8")
+    # the password stored for the site before this run is known to the guard as well
+    d2 = desk.make()
+    d2.guard([])
+    assert stored in d2.hidden
+    # a password with a quote or a backslash in it reads differently inside JSON - which is what a script's answer and
+    # the journal are - and is taken out of that too; a box in a frame of the same site is covered like any other
+    odd = 'p"a\\ss wörd'
+    d2.hidden = {odd}
+    assert odd not in d2.clean(json.dumps({"password": odd}, ensure_ascii=False)) and "wörd" not in d2.clean(json.dumps({"password": odd}, ensure_ascii=False))
+    assert "ss w" not in d2.clean(json.dumps([odd]))
+    d2.write("log", text=odd)
+    assert "ss w" not in (desk.folder / "journal.jsonl").read_text(encoding="utf-8")
+    desk.page.evaluate("""() => { const f = document.createElement('iframe'); document.body.appendChild(f);
+        f.contentDocument.body.innerHTML = '<input id="inner" type="password" value="x">'; }""")
+    inner = "getComputedStyle(document.querySelector('iframe').contentDocument.getElementById('inner')).webkitTextSecurity"
+    desk.page.evaluate(d2._COVER)                                       # (seen as a password box: marked)
+    desk.page.evaluate("document.querySelector('iframe').contentDocument.getElementById('inner').type = 'text'")
+    assert d2._picture(lambda: desk.page.evaluate(inner)) == "disc" and desk.page.evaluate(inner) != "disc"
+
+
 def test_a_run_that_may_not_send_is_told_so_and_a_run_that_may_writes_it_down_first(desk):
     for mode in ("prepare", "hand_over", "verify"):
         d = desk.make(mode)
@@ -96,6 +150,8 @@ def test_an_application_is_not_reported_as_sent_without_its_confirmation(desk):
     assert d.reported is None
     d.report("submitted", "It went out.", confirmation={"words": "Thank you, your application was received", "url": "https://x.example/done", "ties_to_posting": "reference AC-1 for Backend Intern"})
     assert d.reported["sent"] is True and json.loads((desk.folder / "record.json").read_text(encoding="utf-8"))["outcome"] == "submitted"
+    # the page as it stood then is kept beside the words
+    assert (desk.folder / "confirmation.png").read_bytes()[:4] == b"\x89PNG" and d.reported["shot"].endswith("confirmation.png")
 
 
 def test_a_question_to_the_applicant_stays_with_this_application(desk):

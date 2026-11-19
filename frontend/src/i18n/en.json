@@ -2877,5 +2877,7 @@
 "读取要登录的岗位来源": "Reading a source of postings that needs a sign-in",
 "学校门户这类要登录才能看到岗位的来源，由 Agent 登录进去、把岗位读回来。": "A source whose postings are behind a sign-in, such as a school's portal: the agent signs in and reads the postings.",
 "Agent 正在处理这份申请，等这一次结束后再改；想马上改，先在“活动记录”里把它叫停。": "The agent is working this application: change it when this run has ended, or stop the run under Activity first.",
-"Agent 已经要点提交了，但这次运行没有拿到确认就结束了；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。": "The agent was about to press submit, and the run ended without a confirmation; the application may have gone out. The program checks on the site and in the mailbox first, and does not press again."
+"Agent 已经要点提交了，但这次运行没有拿到确认就结束了；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。": "The agent was about to press submit, and the run ended without a confirmation; the application may have gone out. The program checks on the site and in the mailbox first, and does not press again.",
+"当时的页面截图": "Picture of the page at that moment",
+"不知道这个雇主的网站地址，没法查": "The address of this employer's site is not known, so it could not be looked up"
 }

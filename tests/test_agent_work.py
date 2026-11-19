@@ -489,3 +489,33 @@ def test_a_record_is_not_changed_under_a_run_that_is_working_from_it(agent):
     tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1 and len(tried) == 1 and "叫停" in tried[0]      # said, instead of taken and then not used
 
+
+
+def test_the_picture_of_the_confirmation_is_kept_with_the_evidence_and_only_the_programs_own_is_served(agent, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from autoapply import config, tasks
+    from autoapply.api.main import app
+    from autoapply.models import Application, Job
+
+    shot = config.DATA / "agent" / "app_1" / "confirmation.png"
+    shot.parent.mkdir(parents=True, exist_ok=True)
+    shot.write_bytes(b"\x89PNG demo")
+    db.set_setting("submit.policy", "auto")
+    agent.ends.append({**SENT, "record": {**SENT["record"], "shot": str(shot)}})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+    assert tasks.drain() == 1
+    with db.session() as s:
+        a = s.get(Job, agent.job).application
+        app_id = a.id
+        assert a.status == "submitted" and a.evidence["screenshot"] == "agent/app_1/confirmation.png"      # by where it is in the data: found again after a restore elsewhere
+    c = TestClient(app)
+    assert c.get(f"/api/applications/{app_id}").json()["evidence"]["has_screenshot"] is True
+    got = c.get(f"/api/applications/{app_id}/confirmation.png")
+    assert got.status_code == 200 and got.content == b"\x89PNG demo"
+    elsewhere = tmp_path / "elsewhere.png"       # a path that is not under the program's data: not a picture it kept
+    elsewhere.write_bytes(b"x")
+    with db.session() as s:
+        a = s.get(Application, app_id)
+        a.evidence = {**a.evidence, "screenshot": str(elsewhere)}
+    assert c.get(f"/api/applications/{app_id}/confirmation.png").status_code == 404
