@@ -54,6 +54,7 @@ class SDKResult:
     api_ms: int | None = None
     session_id: str = ""
     model_usage: dict[str, Any] | None = None
+    summarized: int = 0                      # how many times the command line summarized the older part of the conversation
 
 
 def cli_path() -> str | None:
@@ -165,7 +166,7 @@ def _mcp_content(out: Any) -> list[dict[str, Any]]:
 
 async def _run(content: Any, *, system: str | None, model: str, effort: str | None, schema: dict[str, Any] | None,
                tools: list[Any], max_turns: int | None, token: str | None, calls: "queue.Queue[Any]", timeout: float, res: SDKResult) -> SDKResult:
-    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, create_sdk_mcp_server, query, tool
+    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, SystemMessage, create_sdk_mcp_server, query, tool
     sdk_tools = []
     for t in tools:
 
@@ -218,6 +219,12 @@ async def _run(content: Any, *, system: str | None, model: str, effort: str | No
                     quota.remember_claude(info.raw or {"status": info.status, "rateLimitType": info.rate_limit_type, "resetsAt": info.resets_at})
                 except Exception:  # noqa: BLE001 - bookkeeping must never fail a call
                     pass
+                continue
+            if isinstance(msg, SystemMessage):
+                if msg.subtype == "compact_boundary":      # the command line summarized the older part of the conversation: said to whoever follows the run
+                    meta = (msg.data or {}).get("compact_metadata") or {}
+                    res.summarized += 1
+                    calls.put(("step", {"event": "summarized", "tokens_before": meta.get("pre_tokens")}))
                 continue
             if isinstance(msg, AssistantMessage) and msg.stop_reason == "refusal":
                 raise SDKError("the model declined this request", refused=True)

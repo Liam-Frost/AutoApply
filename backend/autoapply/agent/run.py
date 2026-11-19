@@ -76,6 +76,11 @@ class Desk:
 
     def step(self, step: dict[str, Any]) -> None:
         """A tool call, as the model's run reports it."""
+        if step.get("event") == "summarized":      # not a tool call: the conversation grew long and its older part was summarized
+            n = step.get("tokens_before")
+            self.write("log", text="(the conversation grew long" + (f", about {int(n):,} tokens" if n else "") + ": the model's program summarized its older part here. "
+                                   "What the run was told at its start is unchanged; what pages showed earlier may need to be looked at again.)")
+            return
         inp = {k: (v if len(str(v)) < 300 else str(v)[:300] + "…") for k, v in (step.get("input") or {}).items()}
         self.write("tool", tool=step.get("tool"), input=inp, ok=step.get("ok"), output=str(step.get("output") or "")[:600], ms=step.get("ms"))
 

@@ -634,7 +634,15 @@ def agent(
     return res
 
 
+# What an agent is told about its task goes with its instructions, not at the head of the conversation. A long run's
+# conversation is shortened by the service that holds it (the command line summarizes the older part when it fills
+# up): what stands with the instructions is sent whole with every step, so the applicant's profile, the record and
+# their answers are the same words at step 300 as at step 1.
+BEGIN = "Begin. Everything you were told about this task is above, with your instructions, and stays there for the whole run."
+
+
 def _agent(goal: str, tools: list[Tool], *, system: str, budget: agentbudget.Budget, on_step: Callable[[dict[str, Any]], None] | None) -> AgentResult:
+    system, goal = f"{system}\n\n{goal}", BEGIN
     if backend() == "openai":
         final, steps, stopped = _oa(lambda c, m: c.agent(goal, tools, model=m, system=system, budget=budget, on_step=on_step))
         return AgentResult(final_text=final, steps=steps, stopped=stopped)
