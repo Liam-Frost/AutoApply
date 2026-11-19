@@ -516,7 +516,7 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
 
 
 def snapshot(page: Page, run_dir: Path, name: str) -> dict[str, str]:
-    """Save a screenshot and the DOM (the DOM doubles as a driver regression fixture)."""
+    """Save a screenshot and the DOM."""
     run_dir.mkdir(parents=True, exist_ok=True)
     shot, dom = run_dir / f"{name}.png", run_dir / f"{name}.html"
     try:

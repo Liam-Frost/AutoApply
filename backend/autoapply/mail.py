@@ -1,8 +1,8 @@
-"""Gmail (read-only): verification codes for drivers, and application tracking.
+"""Gmail (read-only), and tracking what the mailbox says about the applications.
 
-Scope is ``gmail.readonly``. Nothing is sent, labelled, or modified.
-Verification codes/links are returned to drivers only (never to the LLM agent,
-never logged). Tracking sends one e-mail body at a time to the small model.
+Scope is ``gmail.readonly``. Nothing is sent, labelled, or modified. Tracking sends one e-mail body at a time to the
+small model. Mail about an account - a code, a link to confirm an address - is not tracked, summarised or notified;
+the agent reads it from the mailbox itself when a site sends one while it works (agent/run.py: ``mail``).
 """
 
 from __future__ import annotations

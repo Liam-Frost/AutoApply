@@ -36,7 +36,7 @@ def get_engine():
 
         @event.listens_for(_Session, "before_flush")
         def _status_history(session, _ctx, _instances):  # noqa: ANN001
-            """Whoever changes an application's status - the executor, the mail tracker, the user - the change is kept."""
+            """Whoever changes an application's status - the agent's run, the mail tracker, the user - the change is kept."""
             from sqlalchemy import inspect as sa_inspect
 
             from .models import Application, ApplicationEvent, SENT

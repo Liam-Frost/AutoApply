@@ -268,7 +268,7 @@ class Site(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)          # "generic:careers.acme.com", "workday:acme.wd1", "idp:google"
     same_as: Mapped[str] = mapped_column(String, default="")            # the site whose sign-in this one uses
-    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, driver_written
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, sign_in_hosts, second_factor (sites.FACTS)
     notes: Mapped[list] = mapped_column(JSON, default=list)             # [{"at": "2026-11-17", "text": ...}], newest first
     steps: Mapped[dict] = mapped_column(JSON, default=dict)             # (earlier versions: the steps of its form)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
@@ -311,7 +311,7 @@ class Todo(Base):
     __tablename__ = "todos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String)  # login|captcha|takeover|answer|drift|failed|mail_unmatched|driver_patch
+    kind: Mapped[str] = mapped_column(String)  # takeover|answer|submit|failed|blocked|config|mail_unmatched|followup (and, in the history, the kinds of earlier versions)
     ref: Mapped[str] = mapped_column(String, default="")
     title: Mapped[str] = mapped_column(String, default="")
     body: Mapped[str] = mapped_column(Text, default="")

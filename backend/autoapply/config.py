@@ -17,7 +17,7 @@ KNOWLEDGE = Path(os.environ.get("AUTOAPPLY_KNOWLEDGE", ROOT / "knowledge"))
 DB_PATH = DATA / "app.db"
 FILES = DATA / "files"  # uploaded source documents, résumés, transcripts
 MATERIALS = DATA / "materials"  # generated cover letters, merged PDFs
-RUNS = DATA / "runs"  # per-run screenshots, DOM fixtures, evidence
+RUNS = DATA / "runs"  # screenshots and evidence of runs (the agent's own folders are under data/agent)
 SESSIONS = DATA / "sessions"  # encrypted Playwright storage states
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
