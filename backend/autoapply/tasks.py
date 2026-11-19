@@ -141,7 +141,8 @@ def _site(s: Any, t: Task) -> str:
     if t.kind != "apply" or not t.ref.startswith("job:") or not t.ref[4:].isdigit():
         return ""
     job = s.get(Job, int(t.ref[4:]))
-    return sites.key_of(job.apply_url) if job is not None and job.apply_url else ""
+    # (the key its account and its saved sign-in are kept under: two addresses that turned out to sign in on the same one are one site here)
+    return sites.account(sites.key_of(job.apply_url)) if job is not None and job.apply_url else ""
 
 
 def lane_of(kind: str) -> str:

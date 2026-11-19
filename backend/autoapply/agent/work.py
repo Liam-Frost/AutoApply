@@ -110,6 +110,14 @@ def being_worked(job_id: int) -> int:
         return t.id if t is not None else 0
 
 
+def expected(job_id: int) -> bool:
+    """Is a run for this posting's application waiting in the queue (so that one may begin any moment)?"""
+    from ..models import Task
+
+    with db.session() as s:
+        return s.query(Task).filter_by(kind="apply", ref=f"job:{job_id}", status="queued").count() > 0
+
+
 def spent(application_id: int) -> dict[str, Any]:
     """What this application has used of its budget, over all its runs."""
     used, total = _spent_so_far(folder_of(application_id)), _budget()
@@ -235,6 +243,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
     folder, site = folder_of(app_id), brief.site_key(posting.url)
     from .. import tasks
 
+    heard = run.said_so_far(folder)      # (counted before their words are read for the brief: one said in between is heard twice, never missed)
     for n, said in enumerate(_instructions(folder, instructions), 1):
         answers[f"(what the applicant said about this application, {n})"] = said
 
@@ -256,14 +265,14 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
 
     # (the window: the applicant's when the last press is theirs; otherwise hidden, or shown while the agent works if they set so)
     with browser.open_page(site, headless=mode != "hand_over" and not db.get_setting("agent.show_window"), url=posting.url) as page:
-        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed)
+        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard)
         try:      # what the agent signed in to, or registered, is there for the next run on this site
             browser.save_state(site, page.context)
         except Exception as e:  # noqa: BLE001 - the window is gone (the applicant closed it): the run's outcome stands
             log.info("the session of %s was not kept after the run (%s)", site, type(e).__name__)
     notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
     _spent(folder, result)
-    if result.unheard and result.outcome != "submitted":
+    if result.unheard and result.outcome != "submitted" and result.stopped != "stopped":
         # the applicant said something after the run's last action: it is in the brief of the next run, which is this one
         tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "said": now().isoformat()}, priority=20)
     return settle(app_id, job_id, title, site, mode, result, folder, began=began)

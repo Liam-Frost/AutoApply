@@ -109,7 +109,7 @@ onMounted(load)
       </div>
     </div>
 
-    <AgentJournal :journal="a.journal || []" :spent="a.spent" :running-task="a.running_task || 0" :application-id="a.id" note="Agent 在这份申请上途中记下的话；它填了什么、依据是什么，在草案里。" @refresh="load" />
+    <AgentJournal :journal="a.journal || []" :spent="a.spent" :running-task="a.running_task || 0" :expected="!!a.run_expected" :application-id="a.id" note="Agent 在这份申请上途中记下的话；它填了什么、依据是什么，在草案里。" @refresh="load" />
 
     <div v-if="fix.open" class="card">
       <div class="card-title">更正记录</div>

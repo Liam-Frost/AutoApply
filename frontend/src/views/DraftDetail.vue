@@ -171,7 +171,7 @@ onUnmounted(() => clearInterval(timer))
         <span class="muted small">刚补充过个人资料，或觉得这些问题资料里明明有答案时用。</span></div>
     </div>
 
-    <AgentJournal :journal="d.journal || []" :spent="d.spent" :running-task="d.running_task || 0" :application-id="d.application.id" note="这份记录是 Agent 自己在网站上做完之后写的：每一项填了什么、依据是什么，都在下面的表里。这里是它途中记下的话。" @refresh="load" />
+    <AgentJournal :journal="d.journal || []" :spent="d.spent" :running-task="d.running_task || 0" :expected="!!d.run_expected" :application-id="d.application.id" note="这份记录是 Agent 自己在网站上做完之后写的：每一项填了什么、依据是什么，都在下面的表里。这里是它途中记下的话。" @refresh="load" />
 
     <div v-if="toLook.length" class="panel look" aria-labelledby="look-h">
       <h3 id="look-h" style="margin-top: 0">先看这几项<span v-if="toDecide(toLook)" class="muted small" style="font-weight: 400">　{{ toDecide(toLook) }} 项需要你过目，其余的是资料里写明的事实</span>

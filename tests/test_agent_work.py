@@ -25,7 +25,7 @@ def agent(app_env, monkeypatch):
     seen: list[dict] = []
     ends: list = []
 
-    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None):
+    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None, heard=None):
         seen.append({"mode": mode, "answers": answers, "record": record, "budget": budget, "files": dict(applicant.files)})
         folder.mkdir(parents=True, exist_ok=True)
         end = ends.pop(0)
@@ -559,6 +559,15 @@ def test_what_the_applicant_says_reaches_a_run_that_is_working_and_one_that_is_n
     agent.ends.append(READY)
     assert tasks.drain(1) == 1 and "Say I can start in May." in agent.seen[-1]["answers"].values()
     assert c.post(f"/api/applications/{said_while['app']}/say", json={"text": "  "}).status_code == 400
+    # said, and then stopped before the run came to it: their stop stands - nothing is started again by itself
+    with db.session() as s:
+        before = s.query(Task).filter_by(kind="apply").filter(Task.status.in_(("queued", "running"))).count()
+    agent.ends.append({"stopped": "stopped", "unheard": ["Wait, not this one."]})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+    assert tasks.drain(1) == 1
+    with db.session() as s:
+        assert before == 0 and s.query(Task).filter_by(kind="apply").filter(Task.status.in_(("queued", "running"))).count() == 0
+        assert s.get(Job, agent.job).application.status == "failed"
 
 
 def test_what_a_run_is_told_about_a_resume_for_the_posting(agent, monkeypatch):

@@ -228,6 +228,19 @@ def test_several_applications_are_worked_at_once_but_not_two_on_one_application_
         s.get(Task, first.id).status = "done"
     third = tasks._claim("forms")                   # the site is free again
     assert third.ref == f"job:{ids[0]}" and third.id != first.id
+    # two addresses that turned out to sign in on the same one share an account and a saved sign-in: one site
+    from autoapply import sites
+
+    with db.session() as s:
+        for t in s.query(Task):
+            t.status = "done"
+        j = Job(source="manual", source_id="p9", company="C", title="T9", apply_url="https://apply.acme-talent.example/7", jd_text="x" * 300, status="queued", online=1)
+        s.add(j)
+        s.flush()
+        s.add(Task(kind="apply", ref=f"job:{ids[1]}", payload={"job_id": ids[1]}, priority=1))
+        s.add(Task(kind="apply", ref=f"job:{j.id}", payload={"job_id": j.id}, priority=2))
+    sites.link(sites.key_of("https://apply.acme-talent.example/7"), sites.key_of("https://careers.acme.example/jobs/2"))
+    assert tasks._claim("forms").ref == f"job:{ids[1]}" and tasks._claim("forms") is None
 
 
 # --- a service that turns this computer's network away ---

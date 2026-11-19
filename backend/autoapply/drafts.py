@@ -69,6 +69,7 @@ def get(draft_id: int) -> dict[str, Any]:
             "id": d.id, "version": d.version, "review_status": d.review_status, "created_at": d.created_at.isoformat(),
             "locked": locked(d),            # why nothing in it can be changed now; "" when the applicant can change it
             "running_task": work.being_worked(job.id),      # the run that is on this application now (0: none): it can be spoken to, and stopped
+            "run_expected": work.expected(job.id),          # one waits in the queue: the page keeps looking for it to begin
             "application": {"id": app.id, "status": app.status, "last_event": app.last_event},
             "job": {"id": job.id, "company": job.company, "title": job.title, "deadline": job.deadline, "score": job.score,
                     "score_reason": job.score_reason, "apply_url": job.apply_url, "ats": job.ats, "source_id": job.source_id},

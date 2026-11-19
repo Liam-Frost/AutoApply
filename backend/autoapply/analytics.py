@@ -435,7 +435,8 @@ def _applications(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, An
     runs: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for r in sorted(rows, key=lambda r: (r["at"], r["id"])):
         job = posting(r["ref"]) if r["kind"] in lifecycle.WORK and r["kind"] != "tailor" else None
-        if job in apps_of_job and r["outcome"] not in NOT_COUNTED:
+        # (a run the applicant stopped is no success and no failure of a run - and it is part of what its application took)
+        if job in apps_of_job and (r["outcome"] not in NOT_COUNTED or str((r["result"] or {}).get("status") or "") == "stopped"):
             runs[job].append(r)
     approved = {app_id for app_id, review in drafts.values() if review == "approved"}
     prepared, failed, alone, to_send, sent, took, used = 0, 0, 0, 0, 0, [], []

@@ -216,6 +216,21 @@ def test_a_word_from_the_applicant_reaches_the_run_that_is_working(desk):
     assert "THE APPLICANT SAID, while the run worked: Use my Vancouver" in run.journal_text(desk.folder)
     # a run that begins later has what was said in its brief: it does not hear it a second time
     assert desk.make().words() == []
+    # ... counted from when its brief's words were read: one said after that, while the browser starts, is still heard
+    from autoapply.agent.run import Desk
+
+    late = Desk(desk.folder, desk.hands, site="generic:careers.acme.example", mode="auto", heard=2)
+    assert late.words() == ["One more thing."]
+    # an answer given by speaking closes the question it answers: the record does not ask it again
+    d3 = desk.make()
+    tools = {t.name: t.fn for t in d3.guard(desk.hands.tools() + d3.tools())}
+    tools["ask"](question="When can you start?", about="job")
+    run.say(desk.folder, "I can start on 4 January.")
+    assert "call `answered`" in tools["read"]()
+    assert "not one of the questions" in tools["answered"](question="What is your salary expectation?", answer="x")
+    assert "closed" in tools["answered"](question="When can you start?", answer="2027-01-04")
+    tools["report"](outcome="ready", summary="Everything is in.")
+    assert d3.reported["asked"] == [] and d3.answers["When can you start?"] == "2027-01-04"
 
 
 def test_a_resume_for_the_posting_is_written_when_the_agent_asks_and_the_applicants_setting_about_it_holds(desk, monkeypatch):

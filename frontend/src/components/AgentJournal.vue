@@ -9,6 +9,7 @@ const props = defineProps({
   journal: { type: Array, default: () => [] },
   spent: { type: Object, default: null },
   runningTask: { type: Number, default: 0 },       // the task of the run that is on this application now (0: none)
+  expected: { type: Boolean, default: false },     // a run waits in the queue: it may begin any moment
   applicationId: { type: Number, required: true },
   note: { type: String, default: '' },
 })
@@ -16,10 +17,11 @@ const emit = defineEmits(['refresh'])
 const word = ref('')
 let timer = null
 
-// while a run is working, the page keeps up with what it writes down
-watch(() => props.runningTask, (on) => {
+// While a run is working, the page keeps up with what it writes down; while one waits in the queue, it looks for it
+// to begin (a page opened before the worker took the task would otherwise never show the run).
+watch(() => [props.runningTask, props.expected], ([on, soon]) => {
   clearInterval(timer)
-  timer = on ? setInterval(() => emit('refresh'), 4000) : null
+  timer = on || soon ? setInterval(() => emit('refresh'), on ? 4000 : 6000) : null
 }, { immediate: true })
 onUnmounted(() => clearInterval(timer))
 

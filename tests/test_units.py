@@ -366,7 +366,7 @@ def test_the_analysis_page_counts_by_application(app_env):
     # five applications: sent by itself in one run; asked a question, then approved and sent; could not be done;
     # still waiting for an answer; approved, and the press came to nothing that is known
     stories = {"alone": ("submitted", True, [{"status": "submitted"}]), "asked": ("submitted", False, [{"status": "needs_input"}, {"status": "ready"}, {"status": "submitted"}]),
-               "cannot": ("failed", False, [{"status": "cannot"}]), "waits": ("needs_input", False, [{"status": "needs_input"}]), "unknown": ("submit_unknown", False, [{"status": "ready"}, {"status": "submit_unknown"}])}
+               "stopped": ("submitted", True, [{"status": "stopped"}, {"status": "submitted"}]), "cannot": ("failed", False, [{"status": "cannot"}]), "waits": ("needs_input", False, [{"status": "needs_input"}]), "unknown": ("submit_unknown", False, [{"status": "ready"}, {"status": "submit_unknown"}])}
     with db.session() as s:
         n = 0
         for name, (status, auto, results) in stories.items():
@@ -388,11 +388,11 @@ def test_the_analysis_page_counts_by_application(app_env):
                                  ref=t.ref, status="ok", turns=1, input_tokens=1000, output_tokens=0, cost_micros=None, source="live"))
         s.add(Task(kind="score", ref="job:1", status="done", result={}, attempts=1, created_at=at, started_at=at, finished_at=at))      # not a run on an application
     got = analytics.automation(analytics.window(7))["applications"]
-    assert got["worked"] == 5
-    assert got["prepared"] == {"n": 3, "of": 4, "rate": 0.75}            # alone, asked, unknown got there; cannot did not; waits is not counted yet
-    assert got["alone"] == {"n": 2, "of": 3, "rate": 0.6667}             # asked was asked a question
-    assert got["sent"] == {"n": 2, "of": 3, "rate": 0.6667}              # alone and asked are out with evidence; unknown is not
-    assert got["median_s"] == 1200.0 and got["median_tokens"] == 2000.0  # one, three and two runs of ten minutes and a thousand tokens each
+    assert got["worked"] == 6
+    assert got["prepared"] == {"n": 4, "of": 5, "rate": 0.8}             # alone, asked, stopped, unknown got there; cannot did not; waits is not counted yet
+    assert got["alone"] == {"n": 2, "of": 4, "rate": 0.5}                # asked was asked a question; stopped was stopped by the applicant and taken up again
+    assert got["sent"] == {"n": 3, "of": 4, "rate": 0.75}                # alone, asked and stopped are out with evidence; unknown is not
+    assert got["median_s"] == 1200.0 and got["median_tokens"] == 2000.0  # one, three, two (the stopped run counts) and two runs of ten minutes and a thousand tokens each
 
 
 def test_the_backup_page_is_told_when_the_data_was_last_exported(app_env):

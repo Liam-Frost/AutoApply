@@ -28,6 +28,14 @@ STOP = "stop"       # a file of this name in the application's folder: the appli
 SAID = "said.jsonl"     # what the applicant said to the agent about this application, a line each (work.say)
 
 
+def said_so_far(folder: Path) -> int:
+    """How many words the applicant has said to the runs of this application."""
+    try:
+        return sum(1 for ln in (folder / SAID).read_text(encoding="utf-8").splitlines() if ln.strip())
+    except OSError:
+        return 0
+
+
 def say(folder: Path, text: str) -> None:
     """A word from the applicant: the run that is working this application hears it with the answer to its next action."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -68,7 +76,7 @@ class Desk:
     """What the agent has besides the browser: the applicant's side (accounts, questions) and its own notes."""
 
     def __init__(self, folder: Path, hands: Hands, *, site: str, mode: str, login: str = "", answers: dict[str, str] | None = None, job_id: int | None = None,
-                 home: str = "", on_hand: Any = None) -> None:
+                 home: str = "", on_hand: Any = None, heard: int | None = None) -> None:
         self.folder, self.hands, self.site, self.mode, self.login, self.job_id = folder, hands, site, mode, login, job_id
         self.on_hand = on_hand           # called when the window is given to the applicant: the program tells them
         self.home = home.lower()         # the host of the posting: where this site is
@@ -77,7 +85,9 @@ class Desk:
         self.reported: dict[str, Any] | None = None
         self.waiting = ""                # what the run stopped for, when it handed the window to the applicant
         self.hidden: set[str] = set()    # the passwords of this site: never in what a tool answers or the journal holds (guard)
-        self.heard = len(self._said())   # what was said before this run began is in its brief
+        # How much of what the applicant said is in this run's brief already (``heard``: counted when the brief's
+        # words were read - what comes after that, while the browser starts, is heard with the first action).
+        self.heard = len(self._said()) if heard is None else int(heard)
         folder.mkdir(parents=True, exist_ok=True)
 
     # --- the journal ---------------------------------------------------------------------------------------------
@@ -152,7 +162,7 @@ class Desk:
         for w in new:
             self.write("said", text=w)
         told = ("\n\n[THE APPLICANT SAYS, while you work - their word on this application, to weigh like anything else they told you:\n"
-                + "\n".join(f"- {w}" for w in new) + "]")
+                + "\n".join(f"- {w}" for w in new) + ("\nIf this answers a question you asked, enter it and call `answered` for that question." if self.asked else "") + "]")
         return out + [{"type": "text", "text": told}] if isinstance(out, list) else str(out) + told
 
     def guard(self, tools: list[llm.Tool]) -> list[llm.Tool]:
@@ -257,6 +267,18 @@ class Desk:
         self.write("ask", question=q, about=about)
         return ("The question is on the record for the applicant; there is no answer yet. Leave what it is for as it is (empty, or the form's own default), "
                 "go on with everything else, and list it as open in your report. Do not send the application while it is open.")
+
+    def answered(self, question: str, answer: str) -> str:
+        """The applicant answered a question of this run by speaking to it: it is not open any more."""
+        want = " ".join(str(question).split()).lower()
+        hit = [q for q in self.asked if q["question"].lower() == want] or [q for q in self.asked if want and (want in q["question"].lower() or q["question"].lower() in want)]
+        if len(hit) != 1:
+            return ("That is not one of the questions open in this run: " + "; ".join(repr(q["question"]) for q in self.asked) if self.asked else "No question is open in this run.")
+        self.asked.remove(hit[0])
+        self.answers[hit[0]["question"]] = str(answer)[:1000]
+        (self.folder / "questions.json").write_text(json.dumps(self.asked, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.write("answered", question=hit[0]["question"], answer=str(answer)[:300])
+        return "The question is closed. In your report, give what you entered for it and say that it is the applicant's answer."
 
     def account(self) -> str:
         from .. import auth
@@ -466,6 +488,8 @@ class Desk:
             llm.Tool("notes", "Read what is written down about a recruiting system.", spec(["about"], about=s), self.notes),
             llm.Tool("ask", "Put a question to the applicant: something the form needs and you were not given. `about`: 'applicant' when it is about them in general, 'job' when it "
                             "is about this job only. `options`: the form's choices, when it has them. `why`: where the form asks it.", spec(["question"], question=s, about=s, options=arr, why=s), self.ask),
+            llm.Tool("answered", "The applicant answered a question you asked in this run by speaking to you while you worked: close it. `question`: as you asked it; "
+                                 "`answer`: what they said.", spec(["question", "answer"], question=s, answer=s), self.answered),
             llm.Tool("account", "What the program has on record for this site: the login name, whether a password is stored.", spec(), self.account),
             llm.Tool("type_password", "Have the applicant's password for this site typed into the password box `ref` (you do not see it), then press `then_click` (the sign-in or "
                                       "create-account button). `new`: make up and store a password first - for registering an account; a second box that wants the same "
@@ -533,7 +557,7 @@ def journal_text(folder: Path) -> str:
 
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
-          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None) -> Result:
+          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None) -> Result:
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
@@ -541,7 +565,7 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     hands = Hands(page, files=applicant.files, shots=folder / "shots")
     from urllib.parse import urlparse as _urlparse
 
-    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand)
+    desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand, heard=heard)
     if record is None and (folder / "record.json").exists():
         try:
             record = json.loads((folder / "record.json").read_text(encoding="utf-8"))

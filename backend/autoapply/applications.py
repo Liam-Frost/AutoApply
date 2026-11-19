@@ -109,7 +109,7 @@ def detail(application_id: int) -> dict[str, Any] | None:
         from .agent import work as _work
 
         # what the agent wrote down while it worked this application, what it has used, and whether a run is on it now
-        out["journal"], out["spent"], out["running_task"] = _work.journal(a.id), _work.spent(a.id), _work.being_worked(j.id)
+        out["journal"], out["spent"], out["running_task"], out["run_expected"] = _work.journal(a.id), _work.spent(a.id), _work.being_worked(j.id), _work.expected(j.id)
         drafts = list(a.drafts)
         out["drafts"] = [{"id": d.id, "version": d.version, "review_status": d.review_status, "review_label": humanize.REVIEW.get(d.review_status, d.review_status),
                           "created_at": _iso(d.created_at)} for d in drafts]
