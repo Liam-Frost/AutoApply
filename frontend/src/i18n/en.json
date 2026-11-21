@@ -3219,5 +3219,12 @@
 "对方要补充信息": "Information asked",
 "Offer 答复": "Offer reply",
 "这件事不能加提醒。": "This item cannot have reminders.",
-"提前多久要是一个数字（分钟）。": "How long before has to be a number (minutes)."
+"提前多久要是一个数字（分钟）。": "How long before has to be a number (minutes).",
+"昨天投出": "Sent yesterday",
+"{0} 份": "{0}",
+"{0} 封": "{0}",
+"今天的日程": "Today",
+"今天的日程：": "Today:",
+"昨天收到的回复": "Replies yesterday",
+"早上好：今天的情况": "Good morning: today"
 }

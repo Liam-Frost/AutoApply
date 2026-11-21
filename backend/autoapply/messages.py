@@ -176,6 +176,14 @@ def alarm(title: str, subject: str, start: Any, all_day: bool, kind: str, before
                 path=f"/calendar?view=day&date={start.strftime('%Y-%m-%d')}", link="打开日程", open_url=link)
 
 
+def morning(waiting: list[str], today: list[tuple[str, str, str]], *, sent: int, replies: int) -> Card:
+    """The summary each morning (chat.morning)."""
+    items = [f"{t} {k}：{s}".strip() for t, k, s in today[:8]]
+    return Card("☀️", "早上好：今天的情况", fields=[("等你处理", f"{len(waiting)} 件"), ("昨天投出", f"{sent} 份"), ("昨天收到的回复", f"{replies} 封")],
+                inline=True, items_title="今天的日程：" if items else "", items=items,
+                detail="\n".join(f"• {w}" for w in waiting[:5]), path="/todos", link="打开待办")
+
+
 def drained() -> Card:
     return Card("⏹️", "手上的任务都做完了，程序已停下", hint="不会再开始新的任务。现在可以放心关闭或重启程序；重新启动后队列会接着做。", path="/runs", link="查看工作计划")
 

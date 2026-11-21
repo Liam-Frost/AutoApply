@@ -202,6 +202,11 @@
       "quietLabel": "Quiet hours",
       "quiet": "A reminder in the quiet hours waits for them to end",
       "hint": "Without the box ticked, a reminder goes out at its time even in the quiet hours: you set the time yourself."
+    },
+    "summary": {
+      "on": "Send me a summary each morning at",
+      "at": "Time of the morning summary",
+      "hint": "What waits for you, what is on your calendar today, how many went out and how many replies came yesterday - put together by the program, without the AI."
     }
   },
   "files": {

@@ -125,7 +125,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "calendar.allday_at": "09:00",
     "calendar.reminders_quiet": False,     # True: a reminder that falls in the quiet hours waits for them to end
     "bot.listen": True,                 # the bots take presses, replies and commands (off: they only send)
-    "bot.chat": True,                   # what is said to a bot that is not a command or a reply goes to the assistant
+    "bot.chat": True,
+    "bot.daily_summary": {"on": False, "at": "08:30"},      # a summary each morning on the phone (chat.morning)                   # what is said to a bot that is not a command or a reply goes to the assistant
     # Hours in which nothing is pushed to the phone ({"on", "from", "to"}, local time; "to" may be on the next day).
     # What comes in then is kept and goes out as one message when the hours end. Off by default.
     "notify.quiet": {"on": False, "from": "22:00", "to": "08:00"},
