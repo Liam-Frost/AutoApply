@@ -3073,5 +3073,20 @@
 "第二轮及以后各轮的工具调用 ÷ 全部工具调用。越低越好：说明一份申请大多一轮就做完，或者接着做时没有从头来。": "Tool calls of every run after the first ÷ all tool calls. Lower is better: applications mostly done in one run, or taken up again without starting over.",
 "从每份申请自己的运行记录算。一份申请常常要好几轮：等你回答、等你登录、批准后再提交、中途断了接着做。第二轮以后的每一轮都要从头打开浏览器、重新走到表单、核对上一轮填了什么，这部分是“重来”。": "From each application's own record of its runs. An application often takes several: waiting for your answer or sign-in, sending after approval, going on after being cut off. Every run after the first opens the browser again, finds its way back to the form and checks what the last one filled - that is \"going over it again\".",
 "做完": "Done",
-"做不成": "Could not be done"
+"做不成": "Could not be done",
+"这一行": "This line",
+"（删掉了）": "(removed)",
+"勾上的照旧发": "Send the ticked ones as they are",
+"好的，照旧发": "All right, sent as they are",
+"删掉了“{0}”": "removed \"{0}\"",
+"勾上的按新的重新准备": "Prepare the ticked ones again with the new facts",
+"正在做，已经告诉它了": "Being worked: it has been told",
+"· {0}（{1} 项）": "· {0} ({1} answers)",
+"“{0}”改成了“{1}”": "\"{0}\" became \"{1}\"",
+"个人资料改了，有申请还用着旧的": "Your profile changed; some applications still use the old facts",
+"已经排上，Agent 只改依据变了的那几项": "Queued: the agent changes only the answers that rest on what changed",
+"这些申请已经先停下；在待办里选：按新的重新准备，或者照旧发。": "These applications have been stopped; in the to-dos, choose to prepare them again with the new facts, or to send them as they are.",
+"我刚改了个人资料：{0}。这份申请里依据这些的答案，请在表单上改成新的；其他已经填好的保持不变，不要重填。": "I have just changed my profile: {0}. Change the answers of this application that rest on these to the new ones on the form; leave everything else as it is filled in, do not fill it in again.",
+"你改了个人资料里的 {0} 处。下面 {1} 份还没发出的申请里有答案用的是旧的，已经先停下来等你决定： {2}": "You changed {0} line(s) of your profile. The {1} applications below, not sent yet, have answers that use the old facts; they have been stopped until you decide: {2}",
+"已经发出的 {0} 份也用了旧的：{1}。它们不会改动。": "{0} already sent also used the old facts: {1}. They are not changed."
 }

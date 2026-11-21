@@ -949,7 +949,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from .. import browser_policy
     enabled = bool(db.get_setting("browser.nodriver_enabled"))
 
-    CAT = {"mail_out": "submit", "takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+    CAT = {"facts_changed": "answer", "mail_out": "submit", "takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
            "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
@@ -1167,6 +1167,17 @@ def chain_mend() -> dict[str, Any]:
     from .. import chain
 
     return {"mended": chain.mend()}
+
+
+@app.post("/api/facts/{todo_id}")
+def facts_decide(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant's choice on the "profile changed" card: prepare again ("redo") or send as it is ("keep")."""
+    from .. import facts
+
+    try:
+        return facts.decide(todo_id, str(body.get("action") or ""), [int(i) for i in body.get("application_ids") or []])
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
 
 
 @app.post("/api/todos/{todo_id}/code")
