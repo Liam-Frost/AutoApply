@@ -160,12 +160,27 @@ const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_
 const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
-useRefresh(load, { every: 15000 })
-onMounted(load)
+useRefresh(() => { loadRang(); return load() }, { every: 15000 })
+// the reminders that went off in the last hours (the calendar's, alarms.py): what is about to happen, at the top
+const rang = ref([])
+const loadRang = () => api.get('/calendar/alarms/recent').then((r) => (rang.value = r)).catch(() => {})
+onMounted(() => { load(); loadRang() })
 </script>
 
 <template>
   <PageHead title="需要我处理" sub="程序自己做不了、需要你出面的事。处理完，相关任务会自动继续。" />
+  <div v-if="rang.length" class="callout" style="margin-bottom: 12px">
+    <Icon name="clock" />
+    <div class="grow">
+      <b>{{ $t('calendar.rang.title') }}</b>
+      <div v-for="x in rang" :key="x.id" class="row small" style="gap: 8px; margin-top: 4px; flex-wrap: wrap">
+        <span>{{ x.subject || x.title }}<template v-if="x.subject"> · {{ x.title }}</template></span>
+        <span class="muted">{{ x.all_day ? dayText(x.start) : dateTimeOf(new Date(x.start)) }}</span>
+        <a v-if="x.link" :href="x.link" target="_blank" rel="noopener" class="btn sm primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
+        <router-link :to="{ path: '/calendar', query: { view: 'day', date: x.start.slice(0, 10) } }" class="btn sm ghost">{{ $t('calendar.rang.openDay') }}</router-link>
+      </div>
+    </div>
+  </div>
   <DataState :s="st" what="待办" @retry="load" />
   <template v-if="st.at">
 

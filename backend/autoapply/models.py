@@ -474,3 +474,19 @@ class TaskExecution(Base):
     worker: Mapped[str] = mapped_column(String)
     heartbeat: Mapped[datetime] = mapped_column(DateTime)
     checkpoint: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class Alarm(Base):
+    """A reminder of one dated item (alarms.py): how long before it, and for which time of the item it was sent - an
+    item that is moved is reminded of again, at its new time."""
+
+    __tablename__ = "alarms"
+    __table_args__ = (Index("ix_alarms_item", "item"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item: Mapped[str] = mapped_column(String)                     # the calendar item: "todo:12" | "job:5" (agenda.py)
+    before: Mapped[int] = mapped_column(Integer, default=0)       # minutes before it; for a whole day: days before, at the morning hour
+    sent_for: Mapped[str] = mapped_column(String, default="")     # the item's time it was sent for ("" not yet)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    by: Mapped[str] = mapped_column(String, default="default")    # default (of its kind) | user
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)

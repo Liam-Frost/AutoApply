@@ -91,7 +91,12 @@ def for_record(draft_id: int) -> list[dict[str, str]]:
 def decorate(card: Card, ref: str, todo_id: int | None) -> list[dict[str, str]]:
     """The buttons for a card that is being sent, and what the card has to show for them to be pressed from a phone:
     under "approve and send", every answer the agent was not sure of, what changed since the version before, and every
-    file that goes with it."""
+    file that goes with it. A card about something that has a place of its own (an interview's meeting) leads there."""
+    go = [{"label": _t("打开"), "url": card.open_url}] if card.open_url else []
+    return go + _decorate(card, ref, todo_id)
+
+
+def _decorate(card: Card, ref: str, todo_id: int | None) -> list[dict[str, str]]:
     if todo_id:
         acts = for_todo(todo_id)
         with db.session() as s:

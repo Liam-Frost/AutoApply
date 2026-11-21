@@ -253,7 +253,7 @@ def tg_keyboard(buttons: list[dict[str, str]]) -> dict[str, Any] | None:
         return None
     rows, row = [], []
     for b in buttons:
-        row.append({"text": b["label"][:60], "callback_data": b["data"][:64]})
+        row.append({"text": b["label"][:60], "url": b["url"]} if b.get("url") else {"text": b["label"][:60], "callback_data": b["data"][:64]})
         if len(row) == 2 or len(b["label"]) > 18:
             rows.append(row)
             row = []

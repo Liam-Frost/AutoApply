@@ -12,7 +12,7 @@ import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import { t, tag } from '../i18n/catalog'
 import { clockOf, dateOf, weekStart } from '../i18n/format'
-import { run } from '../ui'
+import { ask, run, toast } from '../ui'
 
 const route = useRoute()
 const router = useRouter()
@@ -102,10 +102,40 @@ const notApplying = (x) => run(() => api.patch(`/jobs/${x.about.job_id}`, { stat
 const draft = ref(null)
 const newItem = (d) => { draft.value = { title: '', day: iso(d || day.value), time: '', link: '', note: '' } }
 const saveNew = () => run(() => api.post('/calendar/items', draft.value), t('calendar.added'), () => { draft.value = null; load() })
+
+// --- the reminders of an item (alarms.py): "this long before", as many as wanted -------------------------------------
+const itemKey = (x) => (x.about.todo_id && x.id.startsWith('todo:') ? x.id : x.kind === 'deadline' ? x.id : '')
+const alarms = ref(null)
+const choices = ref([])
+const custom = ref('')
+watch(sel, async (x) => {
+  alarms.value = null
+  if (!x || !itemKey(x)) return
+  const r = await api.get('/calendar/alarms?item=' + encodeURIComponent(itemKey(x)))
+  alarms.value = r.alarms
+  choices.value = r.choices
+})
+// "30 minutes before", "1 day before" - for a whole-day item, the morning of that many days before
+function ahead(before, allDay) {
+  if (allDay || before % 1440 === 0) { const d = Math.ceil(before / 1440); return d === 0 ? t('calendar.alarm.sameDay') : t('calendar.alarm.days', { n: d }, d) }
+  if (before % 60 === 0) return t('calendar.alarm.hours', { n: before / 60 }, before / 60)
+  return t('calendar.alarm.minutes', { n: before }, before)
+}
+const addAlarm = (before) => run(async () => { alarms.value = (await api.post('/calendar/alarms', { item: itemKey(sel.value), before: Number(before) })).alarms }, t('calendar.alarm.added'))
+const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a.id}`); alarms.value = alarms.value.filter((x) => x.id !== a.id) }, t('calendar.alarm.removed'))
+
+// --- the calendar as a file, and the address to subscribe to (ics.py) -------------------------------------------------
+const share = ref(null)
+const exportUrl = computed(() => 'api/calendar/export.ics?' + new URLSearchParams({ start: iso(range.value[0]), end: iso(range.value[1]), kinds: kinds.value.join(','),
+  states: f.value.state, company: f.value.company, priority: f.value.prio ? 'true' : 'false', min_score: String(f.value.min || 0), all_deadlines: f.value.all ? 'true' : 'false' }))
+const openShare = async () => { share.value = await api.get('/calendar/feed') }
+const copyFeed = async () => { try { await navigator.clipboard.writeText(share.value.url); toast(t('calendar.share.copied')) } catch (e) { toast(t('calendar.share.copyFailed'), 'bad') } }
+const renew = async () => { if (await ask(t('calendar.share.renewAsk'), { ok: t('calendar.share.renew'), danger: true })) run(async () => { share.value = await api.post('/calendar/feed/renew') }, t('calendar.share.renewed')) }
 </script>
 
 <template>
   <PageHead :title="$t('calendar.title')" :sub="$t('calendar.sub')">
+    <button @click="openShare"><Icon name="clock" />{{ $t('calendar.share.button') }}</button>
     <button class="primary" @click="newItem()"><Icon name="edit" />{{ $t('calendar.add') }}</button>
   </PageHead>
 
@@ -205,6 +235,32 @@ const saveNew = () => run(() => api.post('/calendar/items', draft.value), t('cal
       </div>
       <div v-if="dueEdit !== null" class="row"><input v-model="dueEdit" type="datetime-local" /><button class="primary" @click="saveDue(sel)">{{ $t('calendar.save') }}</button><button class="ghost" @click="dueEdit = null">{{ $t('calendar.cancel') }}</button></div>
       <div v-if="linkEdit !== null" class="row"><input v-model="linkEdit" placeholder="https://" style="flex: 1" /><button class="primary" @click="saveLink(sel)">{{ $t('calendar.save') }}</button><button class="ghost" @click="linkEdit = null">{{ $t('calendar.cancel') }}</button></div>
+      <div v-if="alarms" class="card" style="margin: 4px 0 0">
+        <div class="card-title">{{ $t('calendar.alarm.title') }}</div>
+        <div v-if="!alarms.length" class="small muted">{{ $t('calendar.alarm.none') }}</div>
+        <div class="row" style="flex-wrap: wrap; gap: 6px">
+          <span v-for="a in alarms" :key="a.id" class="tag" :class="{ ok: a.sent }">{{ ahead(a.before, sel.all_day) }}<button class="ghost sm" style="padding: 0 4px; min-height: 0" :aria-label="$t('calendar.alarm.remove')" @click="removeAlarm(a)">×</button></span>
+        </div>
+        <div class="row" style="flex-wrap: wrap; gap: 6px; margin-top: 8px">
+          <button v-for="c in choices.filter((c) => !sel.all_day || c % 1440 === 0 || c === 0)" :key="c" class="sm chip" :disabled="alarms.some((a) => a.before === c)" @click="addAlarm(c)">+ {{ ahead(c, sel.all_day) }}</button>
+          <span class="nowrap small"><input v-model.number="custom" type="number" min="0" style="width: 72px" :aria-label="$t('calendar.alarm.customLabel')" /> {{ $t('calendar.alarm.customUnit') }}
+            <button class="sm" :disabled="!(custom >= 0) || custom === ''" @click="addAlarm(custom); custom = ''">{{ $t('calendar.alarm.add') }}</button></span>
+        </div>
+        <div class="hint" style="margin-top: 6px">{{ sel.all_day ? $t('calendar.alarm.hintAllDay') : $t('calendar.alarm.hint') }}</div>
+      </div>
+    </div>
+  </SideDrawer>
+
+  <SideDrawer v-if="share" :title="$t('calendar.share.title')" :wide="false" @close="share = null">
+    <div class="stack">
+      <div class="card-title">{{ $t('calendar.share.exportTitle') }}</div>
+      <p class="small muted">{{ $t('calendar.share.exportText') }}</p>
+      <div><a class="btn" :href="exportUrl" download><Icon name="clock" />{{ $t('calendar.share.export') }}</a></div>
+      <div class="card-title" style="margin-top: 12px">{{ $t('calendar.share.subscribeTitle') }}</div>
+      <p class="small muted">{{ $t('calendar.share.subscribeText') }}</p>
+      <div class="row"><input :value="share.url" readonly style="flex: 1" @focus="$event.target.select()" /><button @click="copyFeed">{{ $t('calendar.share.copy') }}</button></div>
+      <p class="hint">{{ share.local_only ? $t('calendar.share.localOnly') : $t('calendar.share.reachable') }}</p>
+      <div><button class="ghost sm danger" @click="renew">{{ $t('calendar.share.renew') }}</button></div>
     </div>
   </SideDrawer>
 

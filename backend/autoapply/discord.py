@@ -83,7 +83,8 @@ def components(buttons: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Buttons as Discord's action rows (five to a row)."""
     rows = []
     for i in range(0, min(len(buttons), 25), 5):
-        rows.append({"type": 1, "components": [{"type": 2, "style": 1 if j == 0 and i == 0 else 2, "label": b["label"][:80], "custom_id": b["data"][:100]}
+        rows.append({"type": 1, "components": [{"type": 2, "style": 5, "label": b["label"][:80], "url": b["url"]} if b.get("url") else
+                                               {"type": 2, "style": 1 if j == 0 and i == 0 else 2, "label": b["label"][:80], "custom_id": b["data"][:100]}
                                                for j, b in enumerate(buttons[i:i + 5])]})
     return rows
 
