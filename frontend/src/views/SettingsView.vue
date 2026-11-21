@@ -313,6 +313,12 @@ onMounted(load)
             <label for="f-parallel">同时做几份申请</label>
             <div><input id="f-parallel" v-model.number="s['agent.parallel']" type="number" min="1" max="6" style="width: 90px" />
               <div class="hint">每份申请各用各的浏览器，最多 6 份。同一个网站上的申请一次只做一份，因为那里的账号和登录只有一份。</div></div>
+            <label for="f-mail-send">程序替你写的邮件</label>
+            <div><AaSelect id="f-mail-send" v-model="s['mail.send']" style="max-width: 320px">
+                <option value="review">我看一遍再发</option>
+                <option value="auto">没有要我填的内容就直接发</option>
+              </AaSelect>
+              <div class="hint">指用邮件投递的申请，和回复雇主来信的邮件。都从你自己的邮箱发出，发出后收不回来。有需要你本人回答的内容时，不管选哪个都会先给你看。</div></div>
             <label for="f-show-window">Agent 工作时的浏览器窗口</label>
             <div><label><input id="f-show-window" v-model="s['agent.show_window']" type="checkbox" /> 显示在屏幕上</label>
               <div class="hint">打开后，Agent 做申请时浏览器窗口在屏幕上：你可以看着它做，也可以叫停之后自己接着操作。不需要看就关着，它在后台做。最后一步交给你自己点的申请，窗口总是会显示。</div></div>

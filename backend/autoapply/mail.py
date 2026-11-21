@@ -22,7 +22,12 @@ from . import prompts
 from .models import RANK, SENT, UNKNOWN, Application, Job, MailEvent  # noqa: F401  (RANK: how far along; a mail never moves an application backwards by itself)
 
 log = logging.getLogger("autoapply.mail")
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# What the applicant is asked to grant. Reading was all there was; sending (an application by e-mail, a reply to an
+# employer) needs more, and they chose to grant drafts and changing a message's labels with it, for what comes later.
+# A mailbox authorized before keeps working for what it was granted: ``granted`` says what that is.
+READ = "https://www.googleapis.com/auth/gmail.readonly"
+SEND = "https://www.googleapis.com/auth/gmail.send"
+SCOPES = [READ, SEND, "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/gmail.modify"]
 
 
 class MailNotConfigured(RuntimeError):
@@ -55,8 +60,24 @@ def authorize() -> None:
     db.set_setting("mail.gmail_reconnect", False)
 
 
+def granted() -> set[str]:
+    """What the stored authorization allows."""
+    try:
+        scopes = json.loads(secrets.get(secrets.GMAIL_TOKEN) or "{}").get("scopes") or []
+    except ValueError:
+        return set()
+    return set(scopes.split() if isinstance(scopes, str) else scopes)
+
+
+def can_send() -> bool:
+    """Can a mail be sent from the applicant's mailbox as it is connected now?"""
+    from . import mailbox
+
+    return mailbox.kind() == "gmail_api" and SEND in granted() and not bool(db.get_setting("mail.gmail_reconnect"))
+
+
 def status() -> dict[str, bool]:
-    return {"client": secrets.has(secrets.GMAIL_CLIENT), "reconnect": bool(db.get_setting("mail.gmail_reconnect")), "authorized": secrets.has(secrets.GMAIL_TOKEN) and not bool(db.get_setting("mail.gmail_reconnect"))}
+    return {"can_send": can_send(), "client": secrets.has(secrets.GMAIL_CLIENT), "reconnect": bool(db.get_setting("mail.gmail_reconnect")), "authorized": secrets.has(secrets.GMAIL_TOKEN) and not bool(db.get_setting("mail.gmail_reconnect"))}
 
 
 def migrate_reconnect_waits() -> None:
@@ -92,7 +113,9 @@ def _service():
     tok = secrets.get(secrets.GMAIL_TOKEN)
     if not tok:
         raise MailNotConfigured("Gmail is not authorized (Settings > Gmail).")
-    creds = Credentials.from_authorized_user_info(json.loads(tok), SCOPES)
+    # (with the scopes the token was granted, not the ones asked for today: a refresh that names a scope the applicant
+    # never granted is refused, and reading their mail would stop until they authorized again)
+    creds = Credentials.from_authorized_user_info(json.loads(tok))
     if creds.expired and creds.refresh_token:
         from google.auth.exceptions import RefreshError
 
@@ -111,6 +134,56 @@ def _service():
             raise GmailReconnect("Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。") from exc
         secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
     return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20)), cache_discovery=False)
+
+
+# --- sending -------------------------------------------------------------------------
+def original(message_id: str) -> dict[str, str] | None:
+    """A mail in the mailbox, as far as answering it needs: who it is from, where an answer goes, what it says, and
+    what ties an answer to it. None when this mailbox cannot be asked for one mail."""
+    from . import mailbox
+
+    if mailbox.kind() != "gmail_api":
+        return None
+    msg = _service().users().messages().get(userId="me", id=message_id, format="full").execute()
+    refs = " ".join(x for x in (_hdr(msg, "References"), _hdr(msg, "Message-ID")) if x)
+    return {"from": _hdr(msg, "From"), "reply_to": _hdr(msg, "Reply-To"), "subject": _hdr(msg, "Subject"), "body": _body(msg["payload"]),
+            "message_id_header": _hdr(msg, "Message-ID"), "references": refs, "thread_id": msg.get("threadId", "")}
+
+
+def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments: list[dict[str, str]] | None = None, in_reply_to: str = "") -> dict[str, str]:
+    """Send one mail from the applicant's mailbox. ``in_reply_to``: the mailbox's id of the mail it answers - it then
+    goes into that conversation. Returns the mailbox's id of what was sent, its conversation, and the address it went
+    from. Called only by outbox.send, which has the mail on record first."""
+    import mimetypes
+    from email.message import EmailMessage
+    from pathlib import Path
+
+    if not can_send():
+        raise MailNotConfigured("程序还没有从你的邮箱发信的权限。请到设置 → 账号与连接 → 收件邮箱重新授权（授权页会多出“发送邮件”一项）。")
+    service = _service()
+    sender = service.users().getProfile(userId="me").execute().get("emailAddress", "")
+    m = EmailMessage()
+    m["To"], m["Subject"] = to, subject
+    if sender:
+        m["From"] = sender
+    if cc:
+        m["Cc"] = cc
+    thread = ""
+    if in_reply_to:
+        was = original(in_reply_to) or {}
+        if was.get("message_id_header"):
+            m["In-Reply-To"], m["References"] = was["message_id_header"], was.get("references") or was["message_id_header"]
+        thread = was.get("thread_id", "")
+    m.set_content(body)
+    for a in attachments or []:
+        kind, _ = mimetypes.guess_type(a["name"])
+        main, _, sub_ = (kind or "application/octet-stream").partition("/")
+        m.add_attachment(Path(a["path"]).read_bytes(), maintype=main, subtype=sub_, filename=a["name"])
+    raw = {"raw": base64.urlsafe_b64encode(m.as_bytes()).decode()}
+    if thread:
+        raw["threadId"] = thread
+    sent = service.users().messages().send(userId="me", body=raw).execute()
+    return {"id": sent.get("id", ""), "thread_id": sent.get("threadId", ""), "from": sender}
 
 
 # --- message helpers -----------------------------------------------------------------

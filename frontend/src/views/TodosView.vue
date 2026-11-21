@@ -50,6 +50,8 @@ const RESUME = {
   window: [(t) => `${t.title}：需要你在浏览器窗口里操作`, '打开窗口，我来处理', '这一步要你本人在浏览器窗口里完成（比如人机验证）。点下面的按钮：Agent 会在你看得见的窗口里重新做到那一步，然后等你。'],
 }
 // the employer took the posting down: nothing to do - unless the applicant knows better
+// a mail the program wrote for the applicant, waiting to be looked at and sent from their mailbox
+VIEW.mail_out = { icon: 'mail', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.gone = { icon: 'bell', tone: '', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
   what: () => '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
@@ -118,6 +120,7 @@ const giveCode = (t) => act(async () => {
   delete codes.value[t.id]
   if (!r.given) throw new Error('Agent 已经不在等这个验证码了（等待超过了 10 分钟）。它现在会重新开始并让网站再发一个，新的验证码卡片出现后再输入。')
 }, '已交给 Agent，它正在填')
+const writeReply = (t) => act(() => api.post(`/todos/${t.id}/reply`), '正在起草回复，写好后这张卡片上会出现“查看回复草稿”')
 const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 接着做了')
 const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 马上开始，到那一步时会在这里等你')
 const dismiss = (t) => act(() => api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }), '已关闭')
@@ -208,6 +211,10 @@ onMounted(load)
           <button class="ghost" @click="dismiss(t)">先不处理</button>
           <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
         </template>
+        <template v-else-if="t.kind === 'mail_out'">
+          <router-link :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看并发送</router-link>
+          <router-link v-if="t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请</router-link>
+        </template>
         <template v-else-if="t.kind === 'gone'">
           <button class="primary" @click="dismiss(t)"><Icon name="check" />知道了</button>
           <a v-if="t.job && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn"><Icon name="external" />打开岗位页面看看</a>
@@ -225,7 +232,9 @@ onMounted(load)
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
         <template v-else-if="t.kind === 'followup'">
-          <button class="primary" @click="done(t)"><Icon name="check" />已完成</button>
+          <router-link v-if="t.payload && t.payload.outgoing_id" :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看回复草稿</router-link>
+          <button v-else-if="t.payload && t.payload.category === 'info_request' && t.payload.message_id" @click="writeReply(t)"><Icon name="edit" />起草回复邮件</button>
+          <button :class="{ primary: !(t.payload && t.payload.outgoing_id) }" @click="done(t)"><Icon name="check" />已完成</button>
           <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? '改日期' : '加上日期' }}</button>
           <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请和原邮件</router-link>
           <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">打开人脉</router-link>

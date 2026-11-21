@@ -53,6 +53,14 @@ def _apply(t: Task) -> dict[str, Any]:
     return work.work(int(t.payload["job_id"]), task_id=t.id, instructions=str(t.payload.get("instructions") or ""))
 
 
+@handler("mail_reply")
+def _mail_reply(t: Task) -> dict[str, Any]:
+    """Write the reply to an employer's mail that asks the applicant something (outbox.draft_reply)."""
+    from . import outbox
+
+    return outbox.draft_reply(int(t.payload["todo_id"]))
+
+
 @handler("cover_letter")
 def _cover_letter(t: Task) -> dict[str, Any]:
     from . import materials

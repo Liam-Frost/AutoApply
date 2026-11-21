@@ -71,7 +71,12 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
         t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body, payload=payload, due_at=due)
         s.add(t)
         s.flush()
-        return t.id      # (no notice here: the mail itself was just announced)
+        tid = t.id      # (no notice here: the mail itself was just announced)
+    if category == "info_request" and message_id:      # something to answer by mail: the answer is written while the applicant reads the card
+        from . import tasks
+
+        tasks.enqueue("mail_reply", ref=f"todo:{tid}", payload={"todo_id": tid}, priority=40)
+    return tid
 
 
 def snooze(todo_id: int, until: datetime | None) -> None:

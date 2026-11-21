@@ -307,6 +307,30 @@ class Contact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class Outgoing(Base):
+    """A mail the program wrote for the applicant (outbox.py): an application sent by e-mail, a reply to an employer."""
+    __tablename__ = "outgoing"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String, default="application")  # application | reply
+    to: Mapped[str] = mapped_column(String, default="")
+    cc: Mapped[str] = mapped_column(String, default="")
+    subject: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # [{name, path}]
+    in_reply_to: Mapped[str] = mapped_column(String, default="")  # the mailbox's id of the mail this answers
+    status: Mapped[str] = mapped_column(String, default="draft")  # draft | sending | sent | failed | discarded
+    error: Mapped[str] = mapped_column(Text, default="")
+    todo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # the card that asked for it (a reply)
+    message_id: Mapped[str] = mapped_column(String, default="")  # the mailbox's id of the mail once sent: the evidence that it went
+    thread_id: Mapped[str] = mapped_column(String, default="")
+    sent_from: Mapped[str] = mapped_column(String, default="")
+    sent_by: Mapped[str] = mapped_column(String, default="")  # user | auto
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Todo(Base):
     __tablename__ = "todos"
 

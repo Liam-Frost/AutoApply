@@ -75,7 +75,9 @@ async function dropQuestion(a) {
 }
 // An answer belongs to this application. "Also from now on" writes it to the profile: offered ticked for a question
 // the agent said is about the applicant in general, unticked for one about this job.
-function startEdit(a) { typeOwn.value = false; editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : a.value; saveRule.value = ''; remember.value = isUnresolved(a) && a.about === 'applicant' }
+// (a question the agent asked with a suggestion of its own opens with that suggestion in the box: taken with one press, or changed)
+const takeSuggestion = (a) => { startEdit(a); return commitEdit(a) }
+function startEdit(a) { typeOwn.value = false; editing.value = a.id; editVal.value = Array.isArray(a.value) ? a.value.join(' || ') : a.value === true ? 'true' : a.value === false ? 'false' : (a.value === '' || a.value == null) && a.suggested ? a.suggested : a.value; saveRule.value = ''; remember.value = isUnresolved(a) && a.about === 'applicant' }
 async function commitEdit(a) {
   let v = editVal.value
   if (a.type === 'checkbox') v = String(v).toLowerCase() === 'true'
@@ -225,6 +227,10 @@ onUnmounted(() => clearInterval(timer))
               </template>
               <template v-else>
                 <span v-if="isUnresolved(a)" class="tag bad">还没有答案</span>
+                <template v-if="isUnresolved(a) && a.suggested">
+                  <span class="small muted" style="margin-left: 8px">Agent 的建议：{{ a.suggested }}</span>
+                  <button v-if="editable" class="sm" style="margin-left: 6px" @click="takeSuggestion(a)">就填这个</button>
+                </template>
                 <span v-else-if="a.dropped" class="tag">你说这一项不用填</span>
                 <pre v-else style="font-family: inherit; font-size: 14px">{{ show(a) }}</pre>
               </template>

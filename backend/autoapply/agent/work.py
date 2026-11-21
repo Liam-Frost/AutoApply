@@ -229,11 +229,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         mode = mode_for(app.status, draft, job.company)
         email_delivery = job.channel == "email" and mode != "verify"
         if email_delivery:
-            mode = "prepare"
-            instructions = ("This posting requires email delivery. Read the posting for recipient and requirements. "
-                            "Prepare the subject, body, and files in the review record, then report ready. "
-                            "The applicant sends the email. Do not open Gmail or another webmail site. "
-                            + instructions)
+            instructions = ("This posting is applied to by e-mail: write the mail and hand it over with email_application (see the manual). " + instructions)
         record, answers = record_of(draft), {}
         for earlier in app.drafts:      # what the applicant said on any version of the record stands, the latest word last
             answers.update(answers_of(earlier))
@@ -289,6 +285,26 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         head = {"code": f"{title}：请输入验证码", "confirm": f"{title}：等你确认"}[kind]
         return notify.add_todo(kind, head, body=why, ref=f"application:{app_id}:{kind}", payload={"application_id": app_id, "job_id": job_id, **more})
 
+    def mail_out(to: str, cc: str, subject: str, body: str, files: dict[str, str]) -> dict[str, Any]:
+        """The application's e-mail, on record - and sent, when the applicant has set that mails go by themselves and
+        this run is one that may send."""
+        from .. import mail as _mail
+        from .. import outbox
+
+        oid = outbox.compose(app_id, kind="application", to=to, cc=cc, subject=subject, body=body, attachments=[{"name": n, "path": p} for n, p in files.items()],
+                             title=f"{title}：邮件等你看一遍再发")
+        if mode not in ("auto", "send"):
+            return {"id": oid, "sent": False, "why": "this run prepares and does not send"}
+        if outbox.policy() != "auto":
+            return {"id": oid, "sent": False, "why": "they have set that they look at a mail before it goes"}
+        if not _mail.can_send():
+            return {"id": oid, "sent": False, "why": "the program has not been allowed to send from their mailbox yet"}
+        try:
+            outbox.send(oid, by="auto")
+        except Exception as e:  # noqa: BLE001 - the mail is on record: the applicant can send it
+            return {"id": oid, "sent": False, "why": f"sending did not work: {type(e).__name__}"}
+        return {"id": oid, "sent": True}
+
     def handed() -> None:       # the window is the applicant's: they are told, on a card and on their phone
         notify.add_todo("submit", f"{title}：请检查并点提交", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
                         body="Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口。")
@@ -300,7 +316,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         (folder / run.WINDOW).unlink(missing_ok=True)
         used = browser.in_use()[0]
         result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard, on_checkpoint=checkpoint, email_delivery=email_delivery,
-                           card=card, changed_browser=changed)
+                           card=card, changed_browser=changed, mail_out=mail_out)
         try:      # what the agent signed in to, or registered, is there for the next run on this site
             browser.save_state(site, page.context)
         except Exception as e:  # noqa: BLE001 - the window is gone (the applicant closed it): the run's outcome stands
@@ -459,10 +475,13 @@ def rows_of(record: dict[str, Any], files: dict[str, str]) -> tuple[list[dict[st
         return {"id": f"{'q' if source == 'unresolved' else 'a'}{n}", "label": label, "type": more.pop("type", "text"), "options": more.pop("options", []), "required": source == "unresolved",
                 "page": 0, "value": value, "basis": basis, "confidence": confidence, "source": source, "sensitive": "", "sensitive_confirmed": False, **more}
 
+    asked = {" ".join(str(q.get("question", "")).split()).lower() for q in record.get("asked") or []}
+    # (a question that was asked is on the page once, as the question: the same line among the answers, with nothing entered, is left out)
     answers = [row(n, str(a.get("question", ""))[:400], a.get("entered", ""), str(a.get("from", ""))[:400], SURE.get(str(a.get("sure") or "yes"), "high"), "agent")
-               for n, a in enumerate(record.get("answers") or [], 1) if str(a.get("question", "")).strip()]
+               for n, a in enumerate(record.get("answers") or [], 1) if str(a.get("question", "")).strip()
+               and not (a.get("entered") in ("", None, []) and " ".join(str(a.get("question", "")).split()).lower() in asked)]
     open_ = [row(n, q["question"][:400], "", q.get("why", "")[:400], "low", "unresolved", options=list(q.get("options") or []), type="select" if q.get("options") else "text",
-                 about=q.get("about", "applicant")) for n, q in enumerate(record.get("asked") or [], 1)]
+                 about=q.get("about", "applicant"), suggested=str(q.get("suggest") or "")) for n, q in enumerate(record.get("asked") or [], 1)]
     mats = [{"slot": str(f.get("field", ""))[:200], "label": str(f.get("field", ""))[:200], "name": str(f.get("file", "")), "path": files.get(str(f.get("file", "")), ""), "kind": "file"}
             for f in record.get("files") or []]
     return answers + open_, open_, mats
@@ -592,6 +611,19 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         # (the card names whose sign-in is missing: the site's, or - when the run stopped on a sign-in provider's own page - the provider's)
         waits = auth.ask_to_sign_in(site, title, why, url=url, job_url=url)
         raise NeedsHuman(why, kind="login", url=url, waits_for=waits)
+    if result.outcome == "mailed":
+        # The application is an e-mail, and it is on record (outbox.py). Sent already: the application is out, with the
+        # mailbox's id of the mail as its evidence (outbox.send did that). Not sent: it waits for the applicant, who
+        # looks at it and sends it - their card is the mail's own.
+        sent = bool((rec.get("mail") or {}).get("sent"))
+        if not sent:
+            with db.session() as s:
+                app = s.get(Application, app_id)
+                lifecycle.move(app, "needs_human", source="run")
+                app.last_event = "申请邮件已经写好，等你看一遍再发"
+            for kind in ("failed", "answer"):
+                notify.close_todos(kind, f"application:{app_id}")
+        return {"status": "submitted" if sent else "mail_ready", "outgoing_id": (rec.get("mail") or {}).get("id"), "steps": result.steps}
     if result.outcome == "gone":
         # The employer has taken the posting down. That is not a failure to try again: the posting goes off the list
         # (as when its own listing stops showing it), and the application is put away - taken up again only if the

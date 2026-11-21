@@ -941,7 +941,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from .. import browser_policy
     enabled = bool(db.get_setting("browser.nodriver_enabled"))
 
-    CAT = {"takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+    CAT = {"mail_out": "submit", "takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
            "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
@@ -1075,6 +1075,74 @@ def _take_up_now(job_id: int) -> int:
     except (KeyError, tasks.NotNow):      # (it is running already)
         pass
     return tid
+
+
+@app.get("/api/mail/out/{outgoing_id}")
+def mail_out_get(outgoing_id: int) -> dict[str, Any]:
+    from .. import outbox
+
+    return _404(outbox.get(outgoing_id))
+
+
+@app.patch("/api/mail/out/{outgoing_id}")
+def mail_out_edit(outgoing_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .. import outbox
+
+    try:
+        outbox.edit(outgoing_id, {k: body[k] for k in ("to", "cc", "subject", "body", "remove_attachment") if k in body})
+    except KeyError:
+        raise HTTPException(404, "not found") from None
+    except outbox.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    return _404(outbox.get(outgoing_id))
+
+
+@app.post("/api/mail/out/{outgoing_id}/send")
+def mail_out_send(outgoing_id: int) -> dict[str, Any]:
+    """The applicant sends a mail the program wrote for them, from their own mailbox."""
+    from .. import outbox
+
+    try:
+        outbox.send(outgoing_id, by="user")
+    except KeyError:
+        raise HTTPException(404, "not found") from None
+    except outbox.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    except Exception as e:  # noqa: BLE001 - said to the applicant as it is; the mail is still there
+        raise HTTPException(502, f"邮件没有发出去：{type(e).__name__}: {str(e)[:200]}") from e
+    return _404(outbox.get(outgoing_id))
+
+
+@app.post("/api/mail/out/{outgoing_id}/discard")
+def mail_out_discard(outgoing_id: int) -> dict[str, Any]:
+    from .. import outbox
+
+    outbox.discard(outgoing_id)
+    return {"ok": True}
+
+
+@app.get("/api/mail/out/{outgoing_id}/attachment/{name}")
+def mail_out_attachment(outgoing_id: int, name: str):  # noqa: ANN201
+    from fastapi.responses import FileResponse
+
+    from ..models import Outgoing
+
+    with db.session() as s:
+        o = _404(s.get(Outgoing, outgoing_id))
+        path = next((a.get("path") for a in (o.attachments or []) if a.get("name") == name), None)
+    if not path or not Path(path).is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, filename=name)
+
+
+@app.post("/api/todos/{todo_id}/reply")
+def todo_reply(todo_id: int) -> dict[str, Any]:
+    """Have the reply to the mail this card is about written (again)."""
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if not (t.payload or {}).get("message_id"):
+            raise HTTPException(409, "这张卡片不是关于一封邮件的")
+    return {"task_id": tasks.enqueue("mail_reply", ref=f"todo:{todo_id}", payload={"todo_id": todo_id}, priority=20)}
 
 
 @app.post("/api/todos/{todo_id}/code")

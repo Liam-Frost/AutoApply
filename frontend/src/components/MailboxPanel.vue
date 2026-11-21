@@ -96,11 +96,12 @@ onMounted(load)
     </div>
 
     <template v-if="pick === 'gmail_api'">
-      <p class="hint" style="margin: 12px 0">只申请“读取邮件”这一项权限。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；嫌麻烦可以在上面改选“Gmail（应用专用密码）”。</p>
+      <p class="hint" style="margin: 12px 0">授权时申请读取、发送、草稿和修改邮件标签这几项权限：读信用来跟踪申请的回信，发信用来替你发邮件投递的申请和回复雇主。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦），并在它的“数据访问”里加上这几项 Gmail 权限。只想让程序读信的话，可以在上面改选“Gmail（应用专用密码）”，那样不能发信。</p>
       <div class="row">
         <FileButton accept=".json" @change="gmailClient"><Icon name="inbox" />选择 JSON 文件</FileButton>
         <button :disabled="!d.client" @click="gmailAuth">授权</button>
         <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? '已授权' : d.reconnect ? '授权已失效，请重新授权' : d.client ? '文件已上传，还没授权' : '还没上传文件' }}</span>
+        <span v-if="d.authorized" class="badge" :class="d.can_send ? 'ok' : 'warn'">{{ d.can_send ? '可以发信' : '只能读信：重新授权一次才能发信' }}</span>
       </div>
       <details class="tech"><summary>怎么拿到这个文件</summary><pre>在 Google Cloud 创建“桌面应用”类型的 OAuth 客户端，启用 Gmail API，下载 JSON 文件后在这里上传，再点“授权”。</pre></details>
     </template>
