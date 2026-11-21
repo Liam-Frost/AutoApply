@@ -183,3 +183,40 @@ def test_a_shortcut_is_written_without_another_program_and_carries_the_identity(
     got = winshell.read_shortcut(str(lnk))
     assert got["target"].lower() == sys.executable.lower() and got["arguments"] == "-m autoapply.launcher"
     assert got["workdir"] == str(tmp_path) and got["app_id"] == winshell.APP_ID
+
+def test_staged_restart_preserves_queued_work_and_rolls_back_on_failed_health(app_env, monkeypatch):
+    from pathlib import Path
+    from autoapply import launcher, tasks
+
+    class Server:
+        owned = True
+
+        def staged_release(self, marker="next-release"):
+            return Path("candidate") if marker == "next-release" else None
+
+        def preflight(self, release):
+            calls.append(("check", release))
+
+        def get(self, path):
+            return {"stopped": True, "running": [], "next": [1]} if path == "/api/queue" else []
+
+        def stop(self):
+            calls.append(("stop", None))
+            self.owned = False
+
+        def start(self, release, *, standby=False):
+            calls.append(("start", release))
+            self.owned = release != Path("candidate")
+
+        def up(self):
+            return False
+
+    calls = []
+    monkeypatch.setattr(launcher, "Server", lambda port: Server())
+    tray = launcher.Launcher()
+    tasks.enqueue("mail", ref="preserved")
+    tray._restart_lock.acquire()
+    tray._restart_when_idle()
+    assert calls == [("check", Path("candidate")), ("stop", None), ("start", Path("candidate")),
+                     ("stop", None), ("start", launcher.config.ROOT)]
+    assert tasks.plan()["next_total"] == 1

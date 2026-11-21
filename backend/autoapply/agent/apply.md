@@ -97,3 +97,5 @@ the site's list of the applicant's applications. Only if it is not there do you 
   files you gave, what is still open, and - when the application went out - the confirmation: the page's own words,
   its address, and what ties it to this posting (the title, a reference number, the entry in the list of
   applications). A page that only says a profile was saved is not a confirmation.
+
+After uploading a required document, read its attachment row with verify_attachment once the site finishes processing. If the row shows a rejection or no row can be verified, report the attachment as unverified. On resume read the current row before repeating an upload. A local file hash identifies the local version only.

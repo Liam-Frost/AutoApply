@@ -377,16 +377,26 @@ def render_letter(letter: dict[str, Any], out_dir: Path, basename: str) -> dict[
     return {"docx": str(docx), "pdf": str(pdf), "pages": len(PdfReader(str(pdf)).pages)}
 
 
+def letter_request_key(job: Job, instructions: str) -> str:
+    import hashlib
+
+    inputs = [job.id, job.company, job.title, job.term, job.months, job.location, job.work_type,
+              job.jd_text or job.summary, resume_text(job), knowledge.read("profile"), instructions.strip(),
+              [(d.id, d.path) for kind in ("cl_template", "cl_example") for d in _docs(kind)],
+              [db.get_setting("cover_letter." + key) for key in ("links", "bold_terms", "replace")]]
+    return hashlib.sha256(json.dumps(inputs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
 def existing_cover_letter(job_id: int) -> dict[str, Any] | None:
     """The active letter already written for this job, if its file is still there."""
     with db.session() as s:
         d = s.query(Document).filter_by(kind="cover_letter", job_id=job_id, active=1).order_by(Document.id.desc()).first()
         if d is None or not Path(d.path).exists():
             return None
-        return {"id": d.id, "name": d.name, "path": d.path, "kind": d.kind, "problems": (d.meta or {}).get("problems", []), "letter": (d.meta or {}).get("letter")}
+        return {"id": d.id, "name": d.name, "path": d.path, "kind": d.kind, "request_key": (d.meta or {}).get("request_key"), "problems": (d.meta or {}).get("problems", []), "letter": (d.meta or {}).get("letter")}
 
 
-def make_cover_letter(job: Job, *, instructions: str = "") -> dict[str, Any]:
+def make_cover_letter(job: Job, *, instructions: str = "", request_key: str = "") -> dict[str, Any]:
     """Write -> check -> render -> (rewrite on failure). Stores a Document and returns its dict.
 
     The letter is rendered in a folder of its own (version_dir) and becomes the one in use once it is there as a PDF;
@@ -407,7 +417,7 @@ def make_cover_letter(job: Job, *, instructions: str = "") -> dict[str, Any]:
             if not problems or attempt == MAX_REWRITES:
                 break
             letter = write_letter(job, feedback="\n".join(problems), previous=letter)
-        doc_id = publish("cover_letter", job.id, rendered["pdf"], {"letter": letter, "docx": rendered["docx"], "pages": rendered["pages"], "problems": problems})
+        doc_id = publish("cover_letter", job.id, rendered["pdf"], {"letter": letter, "request_key": request_key, "docx": rendered["docx"], "pages": rendered["pages"], "problems": problems})
     return {"id": doc_id, "name": Path(rendered["pdf"]).name, "path": rendered["pdf"], "kind": "cover_letter", "problems": problems, "letter": letter}
 
 

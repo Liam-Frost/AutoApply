@@ -83,6 +83,14 @@ class Desk:
         self.answers = dict(answers or {})
         self.asked: list[dict[str, Any]] = []
         self.reported: dict[str, Any] | None = None
+        self.human_seconds = 0.0
+        self.upgrade_checkpoint = False
+        self.sending_started = False
+        self.on_checkpoint = None
+        self.email_delivery = False
+        self.mail_checked = False
+        self.mail_reconnect = False
+        self.material_task = 0
         self.waiting = ""                # what the run stopped for, when it handed the window to the applicant
         self.hidden: set[str] = set()    # the passwords of this site: never in what a tool answers or the journal holds (guard)
         # How much of what the applicant said is in this run's brief already (``heard``: counted when the brief's
@@ -94,6 +102,11 @@ class Desk:
     def write(self, kind: str, **what: Any) -> None:
         with open(self.folder / "journal.jsonl", "a", encoding="utf-8") as f:
             f.write(self._clean(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "kind": kind, **what}, ensure_ascii=False, default=str)) + "\n")
+            if kind == "sending":
+                import os
+
+                f.flush()
+                os.fsync(f.fileno())
 
     # --- what the program types for the applicant stays out of what the agent reads ----------------------------------
     # The agent has the whole page in its hands - a script, the list of controls, a picture. A password the program
@@ -179,6 +192,18 @@ class Desk:
 
         def kept(t: llm.Tool) -> llm.Tool:
             def run(**kw: Any) -> Any:
+                if self.email_delivery and t.name == "goto":
+                    from ..errors import url_host
+
+                    if url_host(str(kw.get("url") or "")) == "mail.google.com":
+                        return "This is an email application. Prepare the recipient, subject, body and attachments for the applicant's review."
+                if self.on_checkpoint is not None and not self.on_checkpoint(t.name):
+                    raise RuntimeError("This worker no longer owns the task")
+                if self.on_checkpoint is not None and not self.sending_started:
+                    from .. import db, tasks
+                    if tasks.retiring() or db.get_setting("runtime.upgrade_requested"):
+                        self.upgrade_checkpoint = True
+                        raise RuntimeError("Upgrade checkpoint reached; stop this run")
                 try:
                     out = self.clean(self._picture(lambda: t.fn(**kw)) if t.name == "look" else t.fn(**kw))
                     return out if t.name in ("report", "done") else self._with_words(out)
@@ -197,6 +222,9 @@ class Desk:
             self.write("log", text="(the conversation grew long" + (f", about {int(n):,} tokens" if n else "") + ": the model's program summarized its older part here. "
                                    "What the run was told at its start is unchanged; what pages showed earlier may need to be looked at again.)")
             return
+        if step.get("tool") in ("mail", "sign_in_by_hand"):
+            self.write("tool", tool=step.get("tool"), ok=step.get("ok"), ms=step.get("ms"))
+            return
         inp = {k: (v if len(str(v)) < 300 else str(v)[:300] + "…") for k, v in (step.get("input") or {}).items()}
         self.write("tool", tool=step.get("tool"), input=inp, ok=step.get("ok"), output=str(step.get("output") or "")[:600], ms=step.get("ms"))
 
@@ -208,14 +236,24 @@ class Desk:
         """Called immediately before the press that sends the application. If the run is cut off after this and
         before its report, the application may be out: the program then finds that out before anything is pressed
         again (work.py)."""
+        if self.material_task:
+            return "The required cover letter is pending. Do not submit."
         if self.mode in ("prepare", "hand_over", "verify"):
             return "This run does not send the application (see Mode). Do not press it."
+        self.sending_started = True
         self.write("sending", button=str(button)[:120], url=self.hands.page.url)
         return "noted. Press it now, then report what the site answers."
 
     def hand_window(self, minutes: float = 20) -> str:
         """The window is the applicant's: they look the application over and press the last button themselves. Waits
         until they close the window or the time is up, then gives it back."""
+        start = time.monotonic()
+        try:
+            return self._hand_window(minutes)
+        finally:
+            self.human_seconds += time.monotonic() - start
+
+    def _hand_window(self, minutes: float) -> str:
         self.write("handed", url=self.hands.page.url)
         if self.on_hand is not None:
             try:
@@ -343,16 +381,40 @@ class Desk:
 
         if not self.job_id:
             return "No cover letter can be written here (this application is not one of the program's postings)."
-        got = materials.existing_cover_letter(self.job_id) if not instructions.strip() else None
-        if got is None:
-            with db.session() as s:
-                job = s.get(Job, self.job_id)
-                s.expunge(job)
-            got = materials.make_cover_letter(job, instructions=str(instructions)[:1000])
+        from .. import tasks
+
+        got = materials.existing_cover_letter(self.job_id)
+        with db.session() as session:
+            key = materials.letter_request_key(session.get(Job, self.job_id), instructions[:1000])
+        if got is None or (got.get("request_key") and got["request_key"] != key):
+            self.material_task = tasks.enqueue("cover_letter", ref=f"letter:{self.job_id}:{key}", payload={"job_id": self.job_id, "request_key": key, "instructions": instructions[:1000]}, priority=20)
+            self.write("material_requested", task_id=self.material_task)
+            return f"Cover letter task {self.material_task} is queued. Finish other fields, then stop without sending. The application resumes when the PDF is ready."
         self.hands.files[got["name"]] = got["path"]
         self.write("cover_letter", name=got["name"], problems=got.get("problems") or [])
         return (f"The cover letter is the file {got['name']!r}: upload it by that name."
                 + (f" The program's checks still object to: {'; '.join(got['problems'])[:400]}. Say so in your report." if got.get("problems") else ""))
+
+    def verify_attachment(self, file: str, selector: str) -> str:
+        """Read a single visible attachment row on the current site after upload or recovery."""
+        from pathlib import Path
+        from urllib.parse import urlsplit
+        import hashlib
+
+        if file not in self.hands.files or not selector.strip():
+            raise ValueError("Choose an available file and its attachment row.")
+        row = self.hands.page.evaluate("""(selector) => {
+            const rows = [...document.querySelectorAll(selector)].filter(e => e.getClientRects().length);
+            if (rows.length !== 1 || rows[0].matches('html, body, input, textarea')) return '';
+            return (rows[0].innerText || '').trim();
+        }""", selector)
+        local = Path(self.hands.files[file])
+        if not row or len(row) > 500 or local.name.casefold() not in row.casefold():
+            return "Unverified: the named file was not read back in a single visible attachment row."
+        url = urlsplit(self.hands.page.url)
+        self.write("attachment_observed", file=file, local_sha256=hashlib.sha256(local.read_bytes()).hexdigest(),
+                   url=url._replace(query="", fragment="").geturl(), evidence=self._clean(row))
+        return "Recorded the filename shown in the site's attachment row. Check the site for pending uploads or errors."
 
     def tailor_resume(self, instructions: str = "") -> str:
         """Have the applicant's résumé rewritten for this posting (the program's own writer: within what the applicant's
@@ -395,11 +457,18 @@ class Desk:
         Only mail that names the site or the employer; the mailbox is read, never written to."""
         from datetime import timedelta, timezone
 
-        from .. import mailbox
+        from .. import mail, mailbox
 
+        self.mail_checked = True
+        self.write("mail_attempt")
         try:
             got = mailbox.fetch(datetime.now(timezone.utc) - timedelta(minutes=max(1, min(int(minutes or 15), 120))), limit=25)
+        except mail.GmailReconnect:
+            self.mail_reconnect = True
+            self.write("mail_unavailable", reason="reconnect")
+            return "Gmail authorization must be renewed in AutoApply settings. If a code is required, stop with needs_you. The employer account does not need registering again."
         except Exception as e:  # noqa: BLE001 - no mailbox connected: the applicant reads it
+            self.write("mail_unavailable", reason=type(e).__name__)
             return f"The applicant's mailbox cannot be read from here ({type(e).__name__}). If the site waits for a code or a link from a mail, hand over with sign_in_by_hand."
         host = self.hands.page.url.split("/")[2].lower() if "//" in self.hands.page.url else ""
         words = {w for w in [*host.replace("www.", "").split(".")[:-1], *self.site.split(":", 1)[-1].replace("www.", "").split(".")[:-1], *str(about).lower().split()] if len(w) > 2}
@@ -436,6 +505,11 @@ class Desk:
             sites.set_fact(self.site, "sign_in_hosts", sorted({*(sites.fact(self.site, "sign_in_hosts") or []), host}))
 
     def sign_in_by_hand(self, why: str) -> str:
+        reason = why.casefold()
+        email_code = ("email" in reason or "e-mail" in reason or any(word in reason for word in ("邮箱", "邮件")))
+        if email_code and not self.mail_checked and (self.site.endswith("amazon.jobs") or "code" in reason or "验证码" in reason):
+            return ("Email verification was requested. Try the configured read-only mailbox before handing off. "
+                    + self.mail(15))
         self.waiting = str(why)[:600]
         self.write("needs_applicant", why=self.waiting, url=self.hands.page.url)
         return "The window is the applicant's from here. This run is over: call report with outcome needs_you, saying what you had done up to here."
@@ -498,6 +572,7 @@ class Desk:
                      spec(["ref"], ref=s, then_click=s, new=b, length={"type": "number"}, symbols=s), self.type_password),
             llm.Tool("mail", "Read what this site has just sent to the applicant's mailbox: a verification code, a confirmation link (open the link with goto; type the code "
                              "into its box). `minutes`: how far back; `about`: the employer's or the system's name, to find the mail by.", spec(minutes={"type": "number"}, about=s), self.mail),
+            llm.Tool("verify_attachment", "Read back the filename from one visible employer attachment row. After upload, wait for completion and call this with the row selector. On resume check existing attachments before uploading again.", spec(["file", "selector"], file=s, selector=s), self.verify_attachment),
             llm.Tool("cover_letter", "Have a cover letter written for this posting, when the posting or the form asks for one and none is among the files. It becomes a file you can "
                                      "upload. `instructions`: anything the letter must take into account.", spec(instructions=s), self.cover_letter),
             llm.Tool("tailor_resume", "Have the applicant's résumé rewritten for this posting - reordered, and reworded where their settings allow, checked against the "
@@ -546,6 +621,8 @@ def journal_text(folder: Path) -> str:
         elif kind == "ended":
             ended = True
             out.append(f"{e['at']} RUN ENDED WITHOUT A REPORT ({e.get('why')}), after {e.get('steps')} tool calls")
+        elif kind == "attachment_observed":
+            out.append(f"{e['at']} The site showed attachment {e.get('file')!r} at {e.get('url')}. Check the current row before uploading again.")
         elif kind == "needs_applicant":
             out.append(f"{e['at']} WAITED FOR THE APPLICANT: {e.get('why')}")
         elif kind == "ask":
@@ -557,7 +634,7 @@ def journal_text(folder: Path) -> str:
 
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
-          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None) -> Result:
+          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None, on_checkpoint: Any = None, email_delivery: bool = False) -> Result:
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
@@ -566,6 +643,8 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     from urllib.parse import urlparse as _urlparse
 
     desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand, heard=heard)
+    desk.on_checkpoint = on_checkpoint
+    desk.email_delivery = email_delivery
     if record is None and (folder / "record.json").exists():
         try:
             record = json.loads((folder / "record.json").read_text(encoding="utf-8"))
@@ -583,10 +662,15 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     (folder / "brief.md").write_text(goal, encoding="utf-8")
     desk.write("run", mode=mode, url=posting.url)
     began, res = time.monotonic(), Result()
+    navigation_limit = min(60.0, budget.seconds)
     try:
-        page.goto(posting.url, wait_until="domcontentloaded")
+        page.goto(posting.url, wait_until="domcontentloaded", timeout=int(navigation_limit * 1000))
     except Exception as e:  # noqa: BLE001 - the agent sees what the window shows and decides
+        from ..errors import SiteDown, unreachable
+        if (unreachable(e) or type(e).__name__ == "TimeoutError") and str(page.url or "") in ("", "about:blank", "chrome-error://chromewebdata/"):
+            raise SiteDown(f"{posting.url}: {type(e).__name__}") from e
         desk.write("log", text=f"(the program could not open the posting's address by itself: {type(e).__name__})")
+    navigation = time.monotonic() - began
     try:
         out = llm.agent(goal, desk.guard(hands.tools() + desk.tools()), system=brief.manual(), kind="apply", on_step=desk.step, budget=budget)
         res.stopped, res.steps, res.said = out.stopped or "end_turn", len(out.steps), (out.final_text or "")[:2000]
@@ -599,10 +683,20 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
         res.outcome, res.record = "needs_you", {"outcome": "needs_you", "summary": desk.waiting, "asked": list(desk.asked)}
     else:
         desk.write("ended", why=res.stopped, steps=res.steps)
+    if desk.material_task and not desk.waiting and not desk.asked and res.outcome != "submitted":
+        res.outcome = "material_pending"
+        res.record["material_task"] = desk.material_task
+    if desk.mail_reconnect and res.outcome in ("needs_you", "cannot", ""):
+        res.outcome = "mail_reconnect"
+    if desk.upgrade_checkpoint and res.outcome not in ("submitted", "material_pending", "mail_reconnect", "needs_you", "ready"):
+        res.outcome = "upgrade_checkpoint"
     res.unheard = desk.words()
     for w in res.unheard:      # said too late for this run: on the journal all the same, for the applicant and for the next run
         desk.write("said", text=w, late=True)
-    res.seconds = round(time.monotonic() - began, 1)
+    elapsed = time.monotonic() - began
+    active = max(0, elapsed - desk.human_seconds - max(0, navigation - navigation_limit))
+    res.seconds = round(min(budget.seconds, active), 1)
+    res.usage.update(navigation_seconds=round(navigation, 1), human_seconds=round(desk.human_seconds, 1), elapsed_seconds=round(time.monotonic() - began, 1))
     return res
 
 

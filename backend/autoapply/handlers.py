@@ -53,6 +53,22 @@ def _apply(t: Task) -> dict[str, Any]:
     return work.work(int(t.payload["job_id"]), task_id=t.id, instructions=str(t.payload.get("instructions") or ""))
 
 
+@handler("cover_letter")
+def _cover_letter(t: Task) -> dict[str, Any]:
+    from . import materials
+    from .models import Job
+
+    job_id = int(t.payload["job_id"])
+    doc = materials.existing_cover_letter(job_id)
+    key = t.payload["request_key"]
+    if not doc or doc.get("request_key") != key:
+        with db.session() as session:
+            job = session.get(Job, job_id)
+            session.expunge(job)
+        doc = materials.make_cover_letter(job, instructions=t.payload.get("instructions", ""), request_key=key)
+    return {"document_id": doc["id"]}
+
+
 @handler("tailor")
 def _tailor(t: Task) -> dict[str, Any]:
     """Write (or rewrite) the tailored résumé for one job."""

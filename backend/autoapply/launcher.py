@@ -24,7 +24,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import config, db
 
 log = logging.getLogger("autoapply.launcher")
 NAME = "AutoApply"
@@ -162,6 +162,7 @@ class Server:
         local = "127.0.0.1" if c["host"] in ("0.0.0.0", "::", "localhost") else c["host"]  # noqa: S104
         self.url = f"http://{local}:{port}"
         self.proc: subprocess.Popen | None = None
+        self.worker = ""
         self.log_path = config.DATA / "launcher.log"
 
     def get(self, path: str, timeout: float = 4) -> Any:
@@ -189,14 +190,67 @@ class Server:
     def owned(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self) -> None:
+    def start(self, release: Path = config.ROOT, *, standby: bool = False, joining: bool = False) -> None:
         if self.owned or self.up():
             return
         config.DATA.mkdir(parents=True, exist_ok=True)
-        out = open(self.log_path, "ab")  # noqa: SIM115 - handed to the child for its lifetime
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        self.proc = subprocess.Popen([sys.executable, "-c", "from autoapply.cli import main; main()", "serve", "--port", str(self.port), "--host", self.host],
-                                     cwd=str(config.ROOT), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=flags)
+        from uuid import uuid4
+
+        python = self._runtime(release)
+        self.worker = uuid4().hex
+        with self.log_path.open("ab", buffering=0) as out:
+            self.proc = subprocess.Popen([str(python), "-c", "from autoapply.cli import main; main()", "serve",
+                                          "--port", str(self.port), "--host", self.host],
+                                         cwd=str(release), env={**self._environment(release), "AUTOAPPLY_MAINTENANCE_START": "1" if standby else "0",
+                                              "AUTOAPPLY_JOIN_WORKERS": "1" if joining else "0",
+                                              "AUTOAPPLY_WORKER_ID": self.worker},
+                                         stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=flags)
+
+    def _runtime(self, release: Path) -> Path:
+        if release == config.ROOT:
+            return Path(sys.executable)
+        runtime = release / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        if not runtime.is_file():
+            raise FileNotFoundError(f"Release runtime missing: {runtime}")
+        return runtime
+
+    @staticmethod
+    def _environment(release: Path) -> dict[str, str]:
+        return {**os.environ, "AUTOAPPLY_ROOT": str(release), "AUTOAPPLY_DATA": str(config.DATA.resolve()),
+                "AUTOAPPLY_KNOWLEDGE": str(config.KNOWLEDGE.resolve()), "PYTHONPATH": str(release / "backend")}
+
+    def staged_release(self, marker_name: str = "next-release") -> Path | None:
+        marker = config.DATA / "run" / marker_name
+        if not marker.is_file():
+            return None
+        name = marker.read_text(encoding="utf-8").strip()
+        if not name or Path(name).name != name or name in (".", ".."):
+            raise ValueError("Invalid release directory name")
+        release = (config.DATA / "releases" / name).resolve()
+        if release.parent != (config.DATA / "releases").resolve():
+            raise ValueError("Release must be in the release directory")
+        if not (release / "frontend/dist/index.html").is_file():
+            raise FileNotFoundError("Release frontend build is missing")
+        return release
+
+    def preflight(self, release: Path) -> None:
+        import sqlite3
+        from contextlib import closing
+        from datetime import datetime
+
+        backup_dir = config.DATA / "upgrade-backups"
+        backup_dir.mkdir(exist_ok=True)
+        backup = backup_dir / f"{datetime.now():%Y%m%d-%H%M%S-%f}.sqlite"
+        with closing(sqlite3.connect(config.DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)) as source:
+            with closing(sqlite3.connect(backup)) as target:
+                source.backup(target)
+                if target.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                    raise RuntimeError("Release preflight: database backup failed integrity check")
+        subprocess.run([str(self._runtime(release)), "-c",
+                        "import fastapi, sqlalchemy, uvicorn; from autoapply import tasks; import autoapply.agent.work"],
+                       cwd=str(release), env=self._environment(release), check=True, timeout=45,
+                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
     def stop(self) -> None:
         if not self.owned:
@@ -206,6 +260,7 @@ class Server:
             self.proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait(timeout=15)
         self.proc = None
 
 
@@ -259,6 +314,8 @@ class Launcher:
         self.icon = None
         self._stop = threading.Event()
         self._last_needs = 0
+        self._restart_lock = threading.Lock()
+        self.release = self.server.staged_release("active-release") or config.ROOT
 
     @property
     def t(self) -> dict[str, str]:
@@ -348,10 +405,152 @@ class Launcher:
             self.refresh()
 
     def restart(self, *_: Any) -> None:
-        self.server.stop()
-        self.attached = False
-        self.started_at = time.time()
-        self.server.start()
+        """Freeze claims, then replace the owned server when its work has finished."""
+        if self.attached and self.server.up():
+            return
+        if not self._restart_lock.acquire(blocking=False):
+            return
+        threading.Thread(target=self._restart_when_idle, name="autoapply-restart", daemon=True).start()
+
+    def _restart_when_idle(self) -> None:
+        from . import tasks
+
+        changed_drain = False
+        replaced = False
+        candidate = None
+        try:
+            candidate = self.server.staged_release()
+            if candidate is not None:
+                self.server.preflight(candidate)
+            if (candidate is not None and self.server.owned and getattr(self.server, "worker", "")
+                    and self.server.get("/api/queue").get("release", {}).get("rolling_protocol") == 1):
+                self._rolling_restart(candidate)
+                return
+            if self.server.owned:
+                previous_drain = bool(db.get_setting("schedule.draining"))
+                tasks.set_draining(True)
+                db.set_setting("runtime.upgrade_requested", True)
+                changed_drain = not previous_drain
+                while not self._stop.is_set():
+                    status = self.server.get("/api/queue")
+                    if status.get("stopped") and not status.get("running") and not self.server.get("/api/remote"):
+                        break
+                    self._stop.wait(2)
+                if self._stop.is_set():
+                    return
+                self.server.stop()
+                replaced = True
+            self.attached = False
+            self.started_at = time.time()
+            self.server.start(candidate or self.release, standby=candidate is not None)
+            deadline = time.monotonic() + 60
+            while not self.server.up():
+                if not self.server.owned or time.monotonic() >= deadline:
+                    raise RuntimeError("Updated AutoApply server did not become healthy")
+                time.sleep(1)
+            if candidate is not None:
+                marker = config.DATA / "run" / "active-release"
+                pending = marker.with_suffix(".tmp")
+                pending.write_text(candidate.name, encoding="utf-8")
+                pending.replace(marker)
+                self.release = candidate
+                db.set_setting("runtime.upgrade_requested", False)
+                tasks.set_draining(previous_drain if replaced else False)
+                (config.DATA / "run" / "next-release").unlink(missing_ok=True)
+        except Exception:
+            log.exception("could not restart AutoApply")
+            if replaced and candidate is not None and candidate != self.release:
+                self.server.stop()
+                self.server.start(self.release, standby=previous_drain)
+        finally:
+            db.set_setting("runtime.upgrade_requested", False)
+            if changed_drain and not replaced:
+                tasks.set_draining(False)
+            self._restart_lock.release()
+
+    def _rolling_restart(self, candidate: Path) -> None:
+        """Start a loopback worker before cutting the primary API over."""
+        import socket
+        from . import tasks
+
+        old = self.server
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            port = reservation.getsockname()[1]
+        bridge = Server(port)
+        bridge.host, bridge.url = "127.0.0.1", f"http://127.0.0.1:{port}"
+        activated = False
+        old_stopped = False
+        try:
+            bridge.start(candidate, joining=True)
+            self._wait_healthy(bridge)
+            db.set_setting("runtime.active_workers", [bridge.worker])
+            activated = True
+            db.set_setting("runtime.retiring_workers", [old.worker])
+            self._wait_released(old)
+            old.stop()
+            old_stopped = True
+            tasks.recover(old.worker)
+            old.start(candidate, joining=True)
+            self._wait_healthy(old)
+            db.set_setting("runtime.active_workers", [bridge.worker, old.worker])
+            db.set_setting("runtime.retiring_workers", [bridge.worker])
+            self._wait_released(bridge)
+            bridge.stop()
+            tasks.recover(bridge.worker)
+            # The new primary can now run its scheduler alongside its workers.
+            from urllib.request import Request
+            from . import access
+
+            request = Request(old.url + "/api/runtime/activate-scheduler", method="POST",
+                              headers={access.LOCAL_HEADER: access.local_token()})
+            with OPENER.open(request, timeout=5):
+                pass
+            marker = config.DATA / "run" / "active-release"
+            pending = marker.with_suffix(".tmp")
+            pending.write_text(candidate.name, encoding="utf-8")
+            pending.replace(marker)
+            self.release = candidate
+            (config.DATA / "run" / "next-release").unlink(missing_ok=True)
+        except Exception:
+            if activated:
+                db.set_setting("runtime.retiring_workers", [bridge.worker] + ([old.worker] if old_stopped else []))
+                self._wait_released(bridge)
+            bridge.stop()
+            if bridge.worker:
+                tasks.recover(bridge.worker)
+            if old_stopped:
+                if old.owned:
+                    self._wait_released(old)
+                old.stop()
+                tasks.recover(old.worker)
+                old.start(self.release, standby=bool(db.get_setting("schedule.draining")))
+            raise
+        finally:
+            db.set_setting("runtime.retiring_workers", [])
+            db.set_setting("runtime.active_workers", [old.worker] if old.owned else [])
+
+    def _wait_healthy(self, server: Server) -> None:
+        deadline = time.monotonic() + 60
+        while server.owned and time.monotonic() < deadline:
+            if server.up() and server.get("/api/queue")["release"]["worker"] == server.worker:
+                return
+            time.sleep(1)
+        raise RuntimeError("Candidate AutoApply service did not become healthy")
+
+    def _wait_released(self, server: Server) -> None:
+        while server.owned:
+            try:
+                plan = server.get("/api/queue")
+                remote_windows = server.get("/api/remote")
+            except (OSError, TimeoutError):
+                if not server.owned:
+                    return
+                raise
+            owned = any((task.get("execution") or {}).get("worker") == server.worker for task in plan["running"])
+            if not owned and not remote_windows:
+                return
+            time.sleep(2)
 
     def toggle_autostart(self, *_: Any) -> None:
         set_autostart(not autostart_enabled())
@@ -420,7 +619,7 @@ class Launcher:
         import pystray
 
         if not self.attached:
-            self.server.start()
+            self.server.start(self.release)
         self.icon = self._icon_class()(NAME, make_icon("starting"), f"{NAME} - {self.t['starting']}", self.menu())
         threading.Thread(target=self._loop, daemon=True, name="launcher-status").start()
         if open_page:

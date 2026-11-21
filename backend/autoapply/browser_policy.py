@@ -140,3 +140,11 @@ def session_browser(tenant: str) -> str:
         return "playwright"
     found = of_session(tenant)
     return found.backend if found else "playwright"
+
+
+def access_restricted(message: str) -> bool:
+    """An explicit access denial needs the site's normal sign-in or support path."""
+    import re
+
+    return bool(re.search(r"access forbidden|access denied|access.{0,18}restricted|\b403\b|禁止访问|拒绝访问|访问受限|captcha|cloudflare",
+                          message or "", re.IGNORECASE))

@@ -25,7 +25,7 @@ def agent(app_env, monkeypatch):
     seen: list[dict] = []
     ends: list = []
 
-    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None, heard=None):
+    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None, heard=None, on_checkpoint=None, email_delivery=False):
         seen.append({"mode": mode, "answers": answers, "record": record, "budget": budget, "files": dict(applicant.files)})
         folder.mkdir(parents=True, exist_ok=True)
         end = ends.pop(0)
@@ -591,3 +591,136 @@ def test_what_a_run_is_told_about_a_resume_for_the_posting(agent, monkeypatch):
     assert agent.work._resume(who, job, False) == ""
     monkeypatch.setattr(tailor, "existing", lambda job_id: {"id": 2, "name": "Alex_Resume_Acme.pdf", "path": "p.pdf"})
     assert "'Alex_Resume_Acme.pdf'" in agent.work._resume(who, job, False) and who.files == {"Alex_Resume_Acme.pdf": "p.pdf"}
+
+def test_budget_receipt_survives_restart_and_replay(agent):
+    from autoapply.agent import work
+    from autoapply.models import Application
+    with db.session() as session:
+        app = Application(job_id=agent.job, status="failed")
+        session.add(app)
+        session.flush()
+        folder = work.folder_of(app.id)
+        app_id = app.id
+    folder.mkdir(parents=True)
+    (folder / "spent.json").write_text(json.dumps({"steps": 0, "seconds": 51416, "runs": 6, "granted": 1}))
+    work.grant(app_id, "same-card")
+    db.reset_engine()
+    work.grant(app_id, "same-card")
+    assert work._left(folder)["seconds"] == work._budget()["seconds"]
+    assert work.spent(app_id)["runs"] == 6
+
+
+def test_finished_letter_wakes_only_its_waiting_application(app_env):
+    from autoapply import tasks
+    from autoapply.models import Task
+    with db.session() as s:
+        material = Task(kind="cover_letter", ref="letter:1:key", status="running")
+        s.add(material)
+        s.flush()
+        form = Task(kind="apply", ref="job:1", status="done", result={"material_task": material.id, "status": "waiting_material"})
+        s.add(form)
+        s.flush()
+        mid, fid = material.id, form.id
+    tasks.reconcile_materials()
+    with db.session() as s:
+        assert s.get(Task, fid).status == "done"
+        s.get(Task, mid).status = "done"
+    db.reset_engine()
+    tasks.recover()
+    tasks.reconcile_materials()
+    with db.session() as s:
+        assert s.get(Task, fid).status == "queued"
+        assert s.query(Task).count() == 2
+
+def test_restart_handoff_preserves_queue_and_recovers_uncertain_submission(agent):
+    from autoapply import tasks
+    from autoapply.models import Application, Task, UNKNOWN
+
+    with db.session() as session:
+        application = Application(job_id=agent.job, status="executing")
+        session.add(application)
+        session.flush()
+        app_id = application.id
+        folder = agent.work.folder_of(app_id)
+        folder.mkdir(parents=True)
+        (folder / "journal.jsonl").write_text('{"kind":"run"}\n{"kind":"sending"}\n', encoding="utf-8")
+        task = Task(kind="apply", ref=f"job:{agent.job}", status="running", attempts=2)
+        session.add(task)
+        session.flush()
+        task_id = task.id
+    tasks.set_draining(True)
+    preserved = tasks.enqueue("mail", ref="test")
+    assert tasks._claim() is None
+    tasks.recover()
+    with db.session() as session:
+        assert session.get(Application, app_id).status == UNKNOWN
+        assert session.get(Task, task_id).status == "queued"
+        assert session.get(Task, preserved).status == "queued"
+
+def test_nodriver_retry_is_per_task_and_refused_after_access_denial(agent):
+    from fastapi import HTTPException
+    from autoapply.api.main import make_draft
+    from autoapply.models import Application, Task
+
+    db.set_setting("browser.nodriver_enabled", True)
+    with db.session() as session:
+        application = Application(job_id=agent.job, status="failed", last_event="Browser closed")
+        session.add(application)
+        session.flush()
+        app_id = application.id
+    response = make_draft(agent.job, {"browser_backend": "nodriver"})
+    with db.session() as session:
+        assert session.get(Task, response["task_id"]).payload["browser_backend"] == "nodriver"
+        session.get(Application, app_id).last_event = "Access Forbidden"
+    with pytest.raises(HTTPException) as exc:
+        make_draft(agent.job, {"browser_backend": "nodriver"})
+    assert exc.value.status_code == 409
+
+def test_checkpoint_rejects_an_old_execution(agent):
+    from autoapply import tasks
+    from autoapply.models import Task
+
+    task_id = tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    old = tasks._claim()
+    assert tasks.checkpoint(task_id, old.attempts, {"tool": "read"})
+    with db.session() as session:
+        session.get(Task, task_id).status = "queued"
+    new = tasks._claim()
+    assert new.attempts > old.attempts
+    assert not tasks.checkpoint(task_id, old.attempts, {"tool": "click"})
+    assert tasks.checkpoint(task_id, new.attempts, {"tool": "read"})
+
+
+def test_email_job_is_prepared_for_review_even_under_auto_policy(agent):
+    from autoapply import tasks
+    from autoapply.models import Job
+
+    with db.session() as session:
+        session.get(Job, agent.job).channel = "email"
+    agent.ends.append(READY)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    assert agent.seen[-1]["mode"] == "prepare"
+    assert any("applicant sends the email" in line for line in agent.seen[-1]["answers"].values())
+
+def test_rolling_workers_preserve_ownership_and_can_claim_nonconflicting_work(agent, monkeypatch):
+    from autoapply import tasks
+
+    monkeypatch.setenv("AUTOAPPLY_WORKER_ID", "old")
+    first = tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    other = tasks.enqueue("mail", ref="rollover")
+    old = tasks._claim("forms")
+    assert old.id == first
+    db.set_setting("runtime.retiring_workers", ["old"])
+    assert tasks._claim("background") is None
+
+    monkeypatch.setenv("AUTOAPPLY_WORKER_ID", "next")
+    monkeypatch.setenv("AUTOAPPLY_JOIN_WORKERS", "1")
+    assert tasks._claim("background") is None
+    db.set_setting("runtime.active_workers", ["next"])
+    new = tasks._claim("background")
+    assert new.id == other
+    assert tasks.checkpoint(first, old.attempts)
+    tasks.recover("old")
+    assert not tasks.checkpoint(first, old.attempts)
+    assert tasks.checkpoint(other, new.attempts)

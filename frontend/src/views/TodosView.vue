@@ -111,8 +111,8 @@ async function againNotSubmitted(t) {
 }
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
-const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget`), '已追加一份预算，Agent 接着做')
-const tryAgainFor = async (t) => { await api.post(`/jobs/${t.job.id}/draft`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
+const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), '已追加一份预算，Agent 接着做')
+const tryAgainFor = async (t, backend) => { await api.post(`/jobs/${t.job.id}/draft`, backend ? { browser_backend: backend } : {}); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
 const tryAgain = (t) => act(() => tryAgainFor(t), 'Agent 已重新开始')
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
@@ -178,7 +178,7 @@ onMounted(load)
           <button class="ghost" @click="skipJob(t)">不投这个了</button>
         </template>
         <template v-else-if="t.kind === 'answer'">
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" />去回答</router-link>
+          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">查看申请材料</span><span v-else>去回答</span></router-link>
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
         <template v-else-if="t.kind === 'followup'">
@@ -195,7 +195,9 @@ onMounted(load)
           </template>
           <button v-else-if="t.kind === 'submit'" class="primary" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
           <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />再给一份预算，接着做</button>
+          <a v-else-if="t.access_restricted && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn">打开招聘网站检查访问权限</a>
           <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />让 Agent 再试一次</button>
+          <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), 'Agent 已重新开始')">使用 nodriver 重试</button>
           <router-link :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
           <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
           <button v-if="!unknown(t)" class="ghost" @click="dismiss(t)">不投了，关闭</button>

@@ -94,6 +94,7 @@ onMounted(load)
             <div v-else><b>运行中。</b> 表单的读取和填写一次做一个；扫描、评分、查邮件在另一条线上同时进行。</div>
             <div class="small muted" style="margin-top: 4px">等你处理的草案（正在生成或等你审批）：{{ plan.drafts.waiting }}<template v-if="plan.drafts.cap"> / 上限 {{ plan.drafts.cap }}<template v-if="plan.drafts.room === 0">，已到上限，程序暂时不再自己开始新的草案</template></template>。上限在<router-link to="/settings/automation/prepare">设置 → 自动准备草案</router-link>里改。</div>
           </div>
+          <div v-if="plan.release?.target" class="hint">{{ plan.release.active }} → {{ plan.release.target }}</div>
           <button v-if="!plan.draining" @click="drain(true)"><Icon name="pause" />做完手上的就停</button>
           <button v-else class="primary" @click="drain(false)"><Icon name="play" />继续做队列里的任务</button>
         </div>

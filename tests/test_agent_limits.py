@@ -267,3 +267,27 @@ def test_a_resume_for_the_posting_is_written_when_the_agent_asks_and_the_applica
     db.set_setting("tailor.review", True)             # the applicant looks at a new one first: this run does not send
     said = d.tailor_resume()
     assert "do not send it in this run" in said and d.mode == "prepare" and "does not send" in d.sending("Submit")
+
+def test_attachment_readback_survives_new_desk(desk, tmp_path):
+    import hashlib
+    path = tmp_path / "letter.pdf"
+    path.write_bytes(b"attachment fixture")
+    desk.hands.files[path.name] = str(path)
+    desk.page.set_content('<div id="attachment">letter.pdf</div>')
+    assert "Recorded" in desk.make().verify_attachment(path.name, "#attachment")
+    entry = json.loads((desk.folder / "journal.jsonl").read_text("utf8").splitlines()[-1])
+    assert entry["kind"] == "attachment_observed" and entry["local_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    desk.page.set_content('<input type="file" id="attachment">')
+    assert "Unverified" in desk.make().verify_attachment(path.name, "#attachment")
+
+def test_amazon_email_handoff_checks_the_mailbox_first(desk, monkeypatch):
+    from autoapply import mailbox
+    from autoapply.agent.run import Desk
+
+    calls = []
+    desk.page.set_content("<p>Verify your email</p>")
+    agent = Desk(desk.folder, desk.hands, site="generic:www.amazon.jobs", mode="prepare")
+    monkeypatch.setattr(mailbox, "fetch", lambda *a, **kw: calls.append(kw) or [])
+    assert "No mail" in agent.sign_in_by_hand("Amazon requests email verification")
+    assert len(calls) == 1
+    assert not agent.waiting
