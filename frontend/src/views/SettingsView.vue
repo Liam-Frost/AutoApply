@@ -310,6 +310,8 @@ onMounted(load)
             <label for="f-parallel">同时做几份申请</label>
             <div><input id="f-parallel" v-model.number="s['agent.parallel']" type="number" min="1" max="6" style="width: 90px" />
               <div class="hint">每份申请各用各的浏览器，最多 6 份。同一个网站上的申请一次只做一份，因为那里的账号和登录只有一份。</div></div>
+            <label for="f-keep">备好等批准时，窗口保留</label><div><input id="f-keep" v-model.number="s['agent.keep_window_minutes']" type="number" min="0" max="120" style="width: 90px" /> 分钟，最多同时 <input v-model.number="s['agent.keep_window_most']" type="number" min="1" max="6" style="width: 70px" aria-label="最多同时保留几个窗口" /> 个
+              <div class="hint">申请记录备好、等你批准时，浏览器先不关。这段时间里批准，Agent 直接在原页面上提交，不用重新打开网站、走到表单、再核对一遍。等待中的窗口不算在“同时做几份”里；同一个网站上有窗口在等时，这个网站的下一份申请排在它后面。填 0 关闭。</div></div>
             <label for="f-mail-send">程序替你写的邮件</label>
             <div><AaSelect id="f-mail-send" v-model="s['mail.send']" style="max-width: 320px">
                 <option value="review">我看一遍再发</option>

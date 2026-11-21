@@ -496,3 +496,14 @@ def test_the_agent_makes_one_file_out_of_the_applicants_files_and_it_stays_with_
     kept = run.made_files(desk.folder)
     assert set(kept) == {"Seaspan application.pdf", "Liu_Liam.pdf", "with transcript.pdf"} and "transcript.pdf (3 of 4 page(s))" in kept["Seaspan application.pdf"][1]
     assert "make_file" in {t.name for t in d.tools()}
+
+
+def test_where_a_run_stopped_is_in_the_next_runs_brief(desk):
+    """The run after an application's first found its way back to the form and looked at every field again."""
+    from autoapply.agent import run
+
+    d = desk.make()
+    run._keep_scene(desk.folder, desk.hands, d)
+    said = run.scene_text(desk.folder)
+    assert "WHERE THE LAST RUN STOPPED" in said and desk.page.url in said and "[" in said      # the address, and the controls as they were
+    assert run.scene_text(desk.folder.parent / "nowhere") == ""

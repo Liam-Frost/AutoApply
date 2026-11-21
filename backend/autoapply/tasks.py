@@ -161,6 +161,12 @@ def retiring() -> bool:
     return worker_id() in (db.get_setting("runtime.retiring_workers") or [])
 
 
+# Runs that have prepared a record and keep its window open while the applicant may approve it (agent/work.py): task
+# id -> the event that tells one to stop waiting. They do not count among the applications worked at once, and the
+# site they are on stays theirs.
+KEPT: dict[int, threading.Event] = {}
+
+
 def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
     with _claiming, db.session() as s:
         s.execute(text("BEGIN IMMEDIATE"))
@@ -191,7 +197,7 @@ def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
         if lane == "forms":
             # not the application another worker is on, and not another application on the site one is on
             busy = s.query(Task).filter(Task.status == "running", Task.kind.notin_(BACKGROUND + DESK)).all()
-            if len(busy) >= parallel():
+            if sum(1 for b in busy if b.id not in KEPT) >= parallel():
                 return None
             refs, on = {b.ref for b in busy}, {_site(s, b) for b in busy} - {""}
             t = next((x for x in due.limit(200) if (not only_by_hand or (x.payload or {}).get("_by_hand")) and x.ref not in refs and (_site(s, x) or None) not in on), None)
