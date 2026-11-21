@@ -358,6 +358,8 @@ class Notification(Base):
     sent: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str] = mapped_column(Text, default="")
     held: Mapped[int] = mapped_column(Integer, default=0)      # kept back for the quiet hours: goes out when they end
+    pushed: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)    # the chat message it went out as, per channel ({"telegram": "123"}): a reply to it is a reply to this
+    todo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)           # the card it is about, when it is about one
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 

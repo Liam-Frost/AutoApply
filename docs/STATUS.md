@@ -44,6 +44,7 @@ Last updated for 2.0.0 (November 2026). The author uses the program on Windows w
 | Mail tracking with Gmail | Used for real |
 | Mail tracking with Outlook and generic IMAP | Unit-tested only |
 | Telegram notifications | Chinese: used for real. English: checked for untranslated text, not sent |
+| Telegram / Discord buttons, replies, commands, the assistant | Covered by tests with the services' replies recorded by hand; not yet used against the real services |
 
 ## The server
 
