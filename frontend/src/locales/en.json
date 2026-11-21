@@ -187,6 +187,10 @@
     "rang": {
       "title": "Reminders",
       "openDay": "On the calendar"
+    },
+    "links": {
+      "fromMail": "Links in the mail - choose where this leads:",
+      "use": "Use this"
     }
   },
   "settings": {

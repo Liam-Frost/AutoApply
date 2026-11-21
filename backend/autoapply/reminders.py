@@ -58,19 +58,26 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
     body = "\n".join(x for x in (action, f"邮件里写的时间：{str(asks['due_text']).strip()[:200]}" if asks.get("due_text") else "", summary) if x)
     payload = {"application_id": application_id, "message_id": message_id, "category": category, "due_text": str(asks.get("due_text") or "")[:200],
                "date_only": bool(due) and "T" not in str(asks.get("due") or "") and " " not in str(asks.get("due") or "").strip()}
+    links = list(asks.get("links") or [])
+    if links:      # where it leads: one link is that; of several, the applicant chooses (the calendar lists them) - never guessed
+        payload["links"] = links
     with db.session() as s:
         t = s.query(Todo).filter_by(kind=KIND, ref=ref, status="open").first()
         if t is not None:
             if event == "reminder" and not due:
                 return t.id
-            t.body, t.payload = body or t.body, {**(t.payload or {}), **payload}
+            old = dict(t.payload or {})
+            t.body, t.payload = body or t.body, {**old, **payload}
+            if len(links) == 1 and old.get("link_by") != "user":
+                t.payload = {**t.payload, "link": links[0]["url"]}
             first_date = due is not None and t.due_at is None
             if due and due != t.due_at:
                 t.due_at, t.snoozed_until = due, None      # a new date from the employer: it is shown again (its reminders move with it)
             # (the same date said once more - a reminder - leaves a card that was put off where the applicant put it)
             tid, existing = t.id, True
         else:
-            t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body, payload=payload, due_at=due)
+            t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body,
+                     payload={**payload, "link": links[0]["url"]} if len(links) == 1 else payload, due_at=due)
             s.add(t)
             s.flush()
             tid, existing, first_date = t.id, False, due is not None      # (no notice here: the mail itself was just announced)

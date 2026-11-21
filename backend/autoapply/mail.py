@@ -448,6 +448,10 @@ TRIAGE_SCHEMA = llm.obj(
                                                  "2026-11-24T10:00. Use the year the e-mail implies. Empty when the e-mail states no date: never work one out from 'within a week' "
                                                  "or from when the e-mail was sent."},
         "due_text": {"type": "string", "description": "that date and time in the e-mail's own words, with the time zone if it names one ('Tuesday, Nov 24 at 10:00 AM PST'). Empty when none."},
+        "links": {"type": "array", "items": llm.obj({"url": {"type": "string"}, "what": {"type": "string"}}),
+                  "description": "the links in the e-mail the applicant would use for what it asks: the meeting to join, the assessment to start, the page to "
+                                 "choose a slot or to answer an offer. `url` copied exactly as it appears in the e-mail; `what` a few words saying what it is "
+                                 "(the meeting link, the assessment's start, rescheduling), in Simplified Chinese. Never an unsubscribe, privacy, social or home page link. Empty when there is none."},
         "received": {"type": "boolean", "description": "true only if the e-mail states that a COMPLETED application was received or submitted. false for an application "
                                                          "that was started, saved or is in progress, a reminder to finish it, an account or profile that was created, "
                                                          "an e-mail address to confirm, a sign-in or security code."},
@@ -470,6 +474,17 @@ Set `received` accordingly.
 The category is what the e-mail is about; `event` is what it says about it. An interview that is being cancelled, moved or
 recalled is still category 'interview' - with event 'cancelled', 'changed' or 'reminder'. Only the first announcement is 'new'.
 Read what the e-mail does, not the words it uses: "we need to cancel your interview" is a cancellation even though it says "interview"."""
+
+
+def mail_links(found: Any, body: str) -> list[dict[str, str]]:
+    """The links the model found for what the mail asks - only those that are in the mail as they are (a link is never
+    made up, or put together from pieces), web addresses only, each once."""
+    out: list[dict[str, str]] = []
+    for x in found or []:
+        url = str((x or {}).get("url") or "").strip()
+        if url.lower().startswith(("http://", "https://")) and url in body and url not in [o["url"] for o in out]:
+            out.append({"url": url[:500], "what": str(x.get("what") or "")[:60]})
+    return out[:6]
 
 
 def triage(subject: str, sender: str, body: str) -> dict[str, Any]:
@@ -781,7 +796,10 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             # The mail and what it does to its application are one write. Written apart, a failure in between left the
             # mail "read" for good and the application where it was: an interview invitation on file, the application
             # still "submitted". Now a failure leaves neither, and the next pass reads the mail again.
-            asks = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text") if t.get(k)}
+            asks: dict[str, Any] = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text") if t.get(k)}
+            links = mail_links(t.get("links"), body)
+            if links:
+                asks["links"] = links
             s.add(MailEvent(message_id=mid, sender=frm[:200], subject=subj[:300], received_at=received, category=t["category"], event=t.get("event") or "new",
                             application_id=app_id, company_guess=t["company"], summary=t["summary"], asks=asks or None,
                             thread_id=str(getattr(msg, "thread", "") or "")[:200], linked_by="thread" if by_thread is not None else ""))
