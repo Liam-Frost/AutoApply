@@ -145,3 +145,28 @@ def test_not_applying_after_all_takes_a_failed_application_out_of_what_is_under_
         assert lifecycle.not_applying(s.get(Job, agent.job)) is True
     chain.mend()
     assert _state(agent.job)[0] == "withdrawn" and _cards() == [] and chain.look() == []
+
+
+def test_a_run_in_which_the_model_never_worked_costs_the_application_nothing(agent):  # noqa: F811
+    """Nine runs that ended at once because the model's allowance was used up took twenty of an application's
+    forty-five minutes; when it could finally be worked, its time ran out half-way."""
+    from autoapply import tasks
+    from autoapply.agent import work
+    from autoapply.models import ApplicationBudget
+
+    agent.ends.append({"outcome": "", "stopped": "LLMUnavailable: the allowance is used up", "steps": 0, "seconds": 117.0})
+    agent.ends.append({**READY, "steps": 30, "seconds": 100.0})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    tasks.drain()
+    with db.session() as s:
+        s.query(__import__("autoapply.models", fromlist=["Task"]).Task).filter_by(status="queued").update({"due_at": None})
+    tasks.drain()
+    app_id = _app(agent.job)
+    used = work._spent_so_far(work.folder_of(app_id))
+    assert used["runs"] == 2 and used["seconds"] == 100.0 and used["steps"] == 30
+    # a ledger from before: the idle time is taken off, once
+    with db.session() as s:
+        row = s.get(ApplicationBudget, app_id)
+        row.ledger = {**row.ledger, "seconds": 217.0, "history": [{"seconds": 117.0, "steps": 0, "stopped": "LLMUnavailable: x"}, {"seconds": 100.0, "steps": 30, "stopped": "end_turn"}]}
+    assert work.give_back_idle_time() == 1 and work.give_back_idle_time() == 0
+    assert work._spent_so_far(work.folder_of(app_id))["seconds"] == 100.0

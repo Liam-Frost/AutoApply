@@ -200,17 +200,31 @@ def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments:
 
     if not can_send():
         raise MailNotConfigured("程序还没有从你的邮箱发信的权限。请到设置 → 账号与连接 → 收件邮箱重新授权（授权页会多出“发送邮件”一项）。")
-    service = _service()
-    sender = service.users().getProfile(userId="me").execute().get("emailAddress", "")
+    # A connection to the mailbox is dropped now and then (a proxy, a network that blinks). Reading is asked again.
+    # Sending is not simply sent again - the mail may have gone out before the answer was lost: it carries a Message-ID
+    # of its own, and after a failure the mailbox is asked whether it has a mail with that id before anything is resent.
+    from email.utils import make_msgid
+
+    def asked(what: Any, tries: int = 3) -> Any:
+        for n in range(tries):
+            try:
+                return what()
+            except Exception as e:  # noqa: BLE001
+                if n == tries - 1 or not _dropped(e):
+                    raise
+                time.sleep(1.5 * (n + 1))
+
+    sender = asked(lambda: _service().users().getProfile(userId="me").execute()).get("emailAddress", "")
     m = EmailMessage()
     m["To"], m["Subject"] = to, subject
     if sender:
         m["From"] = sender
     if cc:
         m["Cc"] = cc
+    m["Message-ID"] = make_msgid(domain=(sender.partition("@")[2] or "localhost"))
     thread = ""
     if in_reply_to:
-        was = original(in_reply_to) or {}
+        was = asked(lambda: original(in_reply_to)) or {}
         if was.get("message_id_header"):
             m["In-Reply-To"], m["References"] = was["message_id_header"], was.get("references") or was["message_id_header"]
         thread = was.get("thread_id", "")
@@ -222,8 +236,36 @@ def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments:
     raw = {"raw": base64.urlsafe_b64encode(m.as_bytes()).decode()}
     if thread:
         raw["threadId"] = thread
-    sent = service.users().messages().send(userId="me", body=raw).execute()
-    return {"id": sent.get("id", ""), "thread_id": sent.get("threadId", ""), "from": sender}
+
+    def there() -> dict[str, str] | None:
+        got = asked(lambda: _service().users().messages().list(userId="me", q=f"rfc822msgid:{m['Message-ID'].strip('<>')}", maxResults=1).execute())
+        hit = (got.get("messages") or [None])[0]
+        return {"id": hit.get("id", ""), "thread_id": hit.get("threadId", ""), "from": sender} if hit else None
+
+    for attempt in range(3):
+        try:
+            sent = _service().users().messages().send(userId="me", body=raw).execute()
+            return {"id": sent.get("id", ""), "thread_id": sent.get("threadId", ""), "from": sender}
+        except Exception as e:  # noqa: BLE001
+            if not _dropped(e):
+                raise
+            time.sleep(2.0 * (attempt + 1))
+            already = there()
+            if already:      # it went out; only the answer was lost
+                return already
+            if attempt == 2:
+                raise
+    raise RuntimeError("unreachable")
+
+
+def _dropped(e: BaseException) -> bool:
+    """Did this fail because the connection gave out on the way (not because the mailbox said no)?"""
+    import socket
+    import ssl
+
+    from .errors import unreachable
+
+    return isinstance(e, (ssl.SSLError, socket.timeout, TimeoutError, ConnectionError)) or unreachable(e)
 
 
 # --- message helpers -----------------------------------------------------------------

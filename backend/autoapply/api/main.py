@@ -144,6 +144,10 @@ async def lifespan(app: FastAPI):
         chain.mend()
     except Exception:  # noqa: BLE001
         logging.getLogger("autoapply").exception("the chain could not be checked at start-up")
+    if not db.get_setting("migrated.idle_time"):
+        from ..agent.work import give_back_idle_time
+        give_back_idle_time()
+        db.set_setting("migrated.idle_time", True)
     if not db.get_setting("migrated.one_record"):
         from ..agent.work import one_record_stands
         one_record_stands()

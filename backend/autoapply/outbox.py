@@ -160,9 +160,13 @@ def send(outgoing_id: int, *, by: str = "user") -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 - whatever stopped it, the mail is still here to be sent
         with db.session() as s:
             o = s.get(Outgoing, outgoing_id)
-            o.status, o.error = "failed", f"{type(e).__name__}: {str(e)[:300]}"
+            # (what the applicant is told is the program's own sentence; the error as it was is in the log)
+            o.status, o.error = "failed", (str(e)[:300] if isinstance(e, mail.MailNotConfigured)
+                                           else "连接邮箱服务器时网络中断了，试了三次都没有发出去。到“已发送”里确认过没有这封信，可以直接再发一次。" if mail._dropped(e)
+                                           else "邮箱没有接受这封邮件。详细原因记在程序的日志里。")
         if isinstance(e, mail.MailNotConfigured):
             raise NotNow(str(e)) from e
+        log.exception("mail %s could not be sent", outgoing_id)
         raise
     with db.session() as s:
         o = s.get(Outgoing, outgoing_id)
