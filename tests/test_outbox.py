@@ -274,3 +274,41 @@ def test_a_mail_goes_out_once_through_a_connection_that_drops(app_env, monkeypat
         outbox.send(oid)
     left = outbox.get(oid)
     assert left["status"] == "failed" and left["can_edit"] and "网络中断" in left["error"] and "SSL" not in left["error"] and box.sent == []
+
+
+def test_a_mail_in_the_conversation_of_an_applications_mail_is_about_that_application(app_env, monkeypatch):
+    """The employer's answer to a reply the program sent named nothing the matcher could use ("Re: three quick
+    questions", from a person, not from Acme's careers address): it asked which application it was about."""
+    from datetime import datetime, timedelta, timezone
+
+    from autoapply import mail, mailbox, notify
+    from autoapply.models import MailEvent, Outgoing
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: True)
+    app_id, _ = _application("submitted")
+    other, _ = _application("submitted")
+    with db.session() as s:
+        s.add(Outgoing(application_id=app_id, kind="reply", to="dana@acme.example", subject="Re: questions", body="b", status="sent", thread_id="t-ours"))
+    box: list = []
+    monkeypatch.setattr(mailbox, "fetch", lambda *a, **k: list(box))
+    monkeypatch.setattr(mail, "triage", lambda subj, frm, body: {"company": "", "job_title": "", "category": "interview", "event": "new", "summary": "an interview", "received": False})
+    now = datetime.now(timezone.utc)
+
+    def arrives(mid, thread, n):
+        box[:] = [mailbox.Message(id=mid, sender="Dana <dana@acme.example>", subject="Re: questions", body="Can you talk on Friday?", date=now + timedelta(minutes=n), thread=thread)]
+        mail.track()
+        with db.session() as s:
+            e = s.query(MailEvent).filter_by(message_id=mid).one()
+            return e.application_id, e.linked_by
+
+    assert arrives("m1", "t-ours", 1) == (app_id, "thread")        # the thread of the program's own reply
+    assert arrives("m2", "t-ours", 2) == (app_id, "thread")
+    assert arrives("m3", "t-new", 3) == (None, "")                  # a conversation of its own: asked, as before
+    assert arrives("m4", "t-new", 4) == (None, "")
+    mail.link("m3", [other])                                         # the applicant says which: the rest of that conversation follows
+    with db.session() as s:
+        assert {e.message_id: (e.application_id, e.linked_by) for e in s.query(MailEvent).filter_by(thread_id="t-new")} == {"m3": (other, "user"), "m4": (other, "thread")}
+    # a conversation that has been put on two applications says nothing
+    with db.session() as s:
+        s.query(MailEvent).filter_by(message_id="m4").update({"application_id": app_id})
+    assert mail.of_thread("t-new") is None and mail.of_thread("t-ours") == app_id and mail.of_thread("") is None
