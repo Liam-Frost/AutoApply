@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .say import say as T
+
 from typing import Any
 
 from . import db, discover, knowledge, lifecycle, mail, messages, notify, profile_init, scoring, tasks
@@ -49,7 +51,7 @@ def _apply(t: Task) -> dict[str, Any]:
         # Nothing is known about the applicant: every question of the form would come back unanswered, after minutes
         # at the employer's site. The task waits for the profile - which may be on its way (written from the résumé
         # just uploaded) - and goes on by itself when it is there (profile_init.arrived).
-        raise NeedsHuman("个人资料还是空的，申请表没法回答。个人资料有了之后会自动继续。", kind="profile", waits_for=profile_init.wanted())
+        raise NeedsHuman(T("server.handlers.yourProfileIsStill"), kind="profile", waits_for=profile_init.wanted())
     return work.work(int(t.payload["job_id"]), task_id=t.id, instructions=str(t.payload.get("instructions") or ""))
 
 

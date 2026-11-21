@@ -11,6 +11,8 @@ the calendar program reminds too.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import hmac
 import secrets as _random
 from datetime import date, datetime, timedelta, timezone
@@ -19,7 +21,7 @@ from typing import Any
 from . import agenda, alarms, db, i18n, secrets
 
 TOKEN = "calendar_feed_token"
-KIND_LABEL = {"deadline": "截止", "interview": "面试", "assessment": "测评", "offer": "Offer 答复", "info_request": "对方要补充信息", "contact": "联系", "own": "日程"}
+KIND_LABEL = {"deadline": T("server.ics.due"), "interview": T("server.ics.interview"), "assessment": T("server.ics.assessment"), "offer": T("server.ics.offerReply"), "info_request": T("server.ics.informationAsked"), "contact": T("server.ics.getBackTo"), "own": T("server.ics.calendar")}
 
 
 def _esc(text: str) -> str:
@@ -60,7 +62,7 @@ def build(items: list[dict[str, Any]], *, name: str = "AutoApply") -> str:
         if x.get("done"):
             continue
         start = datetime.fromisoformat(x["start"])
-        what = i18n.tr(KIND_LABEL.get(x["kind"], "日程"))
+        what = i18n.tr(KIND_LABEL.get(x["kind"], T("server.ics.calendar")))
         title = f"{what}：{x['subject'] or x['title']}" if x["kind"] == "deadline" else f"{what}：{x['title']}"
         lines += ["BEGIN:VEVENT", f"UID:{x['id']}@autoapply", f"DTSTAMP:{stamp}", f"SUMMARY:{_esc(title)}"]
         if x["all_day"]:

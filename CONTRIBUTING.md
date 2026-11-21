@@ -116,7 +116,19 @@ side until every page has moved.
   `npm run i18n:status` in `frontend/`, which writes how complete each language is. Below `beta_below` percent a
   language is offered as a test. `npm test` checks that every key used exists, has a note, and keeps its placeholders.
 
-**Older text** (pages not moved yet, and what the server sends):
+**What the program says** (a status, a reason, a notification, a refusal):
+
+- The server writes `T("server.<module>.<key>", name=value)` (`backend/autoapply/say.py`, imported as `T`). The
+  messages are in `frontend/src/locales/server/<lang>.json` with their notes in `notes.json` - the same languages and
+  the same rules as the interface's. Inside the program a message is the Chinese it always was; it is said in the page's
+  language where an API answer leaves (the page sends `X-Lang`) and in the program's language in notifications. What the
+  program keeps (a card's title, an application's latest event, JSON results) keeps its key and is read in the reader's
+  language.
+- `uv run python scripts/i18n_server.py backend/autoapply/<module>.py --write` moves a module's sentences to messages
+  (English from the dictionary); `tests/test_say.py` checks that every key used is there, noted, with its values.
+- What the AI or an employer wrote is kept as it was written.
+
+**Older text** (pages not moved yet, and what the server still writes by hand):
 
 - `uv run python scripts/i18n_extract.py` collects the Chinese interface text into `frontend/src/i18n/zh.json`.
 - `uv run python scripts/i18n_translate.py en` machine-translates what is missing into `frontend/src/i18n/en.json`.

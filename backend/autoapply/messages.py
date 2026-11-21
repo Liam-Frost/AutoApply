@@ -17,6 +17,8 @@ Cards never carry passwords, verification codes, or profile data.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import re
 from dataclasses import dataclass, field, replace
 from html import escape
@@ -35,7 +37,7 @@ class Card:
     detail: str = ""
     hint: str = ""
     path: str = ""  # app path, e.g. /drafts/12
-    link: str = "打开查看"
+    link: str = T("server.messages.open")
     open_url: str = ""  # where the thing itself is (an interview's meeting): a button of its own on the phone
 
     def _blocks(self, html: bool, base_url: str) -> str:
@@ -99,169 +101,169 @@ def _cut(s: str, n: int) -> str:
 # --- task started ------------------------------------------------------------------------
 
 def discover_started(sources: int) -> Card:
-    return Card("🔎", "开始扫描岗位", fields=[("来源", f"{sources} 个")])
+    return Card("🔎", T("server.messages.startScanningJobs"), fields=[(T("server.messages.source"), T("server.messages.text", p0=sources))])
 
 
 # --- task result -------------------------------------------------------------------------
 
 def discover_done(total: dict[str, int], new_by_source: dict[str, int], errors: dict[str, str]) -> Card:
-    c = Card("🔎", "岗位扫描完成", path="/jobs", link="查看岗位列表", inline=True)
-    c.fields = [("读到", str(total["read"]) if total.get("read") else ""), ("符合条件", str(total["seen"])), ("新增", str(total["new"])), ("重新上架", str(total["back"]) if total["back"] else ""), ("已下线", str(total["offline"]) if total["offline"] else "")]
+    c = Card("🔎", T("server.messages.jobScanComplete"), path="/jobs", link=T("server.messages.viewJobList"), inline=True)
+    c.fields = [(T("server.messages.read"), str(total["read"]) if total.get("read") else ""), (T("server.messages.eligible"), str(total["seen"])), (T("server.messages.add"), str(total["new"])), (T("server.messages.reposted"), str(total["back"]) if total["back"] else ""), (T("server.messages.takenDown"), str(total["offline"]) if total["offline"] else "")]
     c.items = [f"{name}　+{n}" for name, n in sorted(new_by_source.items(), key=lambda x: -x[1])[:8] if n]
     if errors:
         # sources that failed for the same reason are named together: eight boards of one service turned away by its
         # security check are one thing to know, not eight
         said: dict[str, list[str]] = {}
         for k, v in errors.items():
-            why = "需要你登录（见待办）" if v.startswith("needs login") else "网站拒绝自动访问（见待办）" if "blocked by the site" in v else _cut(v, 80)
+            why = T("server.messages.needsYouToSign") if v.startswith("needs login") else T("server.messages.theSiteRefusesAutomated") if "blocked by the site" in v else _cut(v, 80)
             said.setdefault(why, []).append(k)
         c.detail = "未能读取的来源：\n" + "\n".join(f"{'、'.join(names)}：{why}" for why, names in said.items())
         if any("安全检查拒绝" in why for why in said):
-            c.hint = "被安全检查拒绝的来源和登录无关：对方的防护不接受这台电脑当前的网络出口（常见于代理或 VPN）。几小时内不会再去请求它们。"
+            c.hint = T("server.messages.sourcesTurnedAwayBy")
     if not total["new"] and not errors:
-        c.hint = "没有新岗位。"
+        c.hint = T("server.messages.noNewPostings")
     return c
 
 
 def submitted(title: str, *, evidence: str, auto: bool = False, note: str = "") -> Card:
-    c = Card("✅", "申请已提交", title, path="/jobs", link="查看岗位")
-    c.fields = [("方式", "自动通过并提交" if auto else ""), ("备注", "网站显示此前已申请过" if note == "already applied" else "")]
+    c = Card("✅", T("server.messages.applicationSubmitted"), title, path="/jobs", link=T("server.messages.viewJob"))
+    c.fields = [(T("server.messages.method"), T("server.messages.autoApproveAndSubmit") if auto else ""), (T("server.messages.notes"), T("server.messages.siteSaysYouveAlready") if note == "already applied" else "")]
     if evidence:
-        c.detail = "确认页：" + _cut(evidence, 220)
+        c.detail = T("server.messages.confirmationPage") + _cut(evidence, 220)
     return c
 
 
 def submit_unknown(title: str, *, said: str = "") -> Card:
-    return Card("❓", "提交结果待确认", title, detail=_cut(said, 300), hint="点过提交，但没有看到提交成功的页面。不要重新填写：先等确认邮件，或在待办里现在就查。",
-                path="/todos", link="打开待办")
+    return Card("❓", T("server.messages.outcomeOfTheSubmission"), title, detail=_cut(said, 300), hint=T("server.messages.submitWasPressedAnd"),
+                path="/todos", link=T("server.messages.openToDo"))
 
 
 def failed(title: str, *, error: str) -> Card:
-    return Card("❌", "申请没有提交", title, detail=_cut(error, 400), hint="没有提交任何内容。原因和下一步见待办。", path="/todos", link="打开待办")
+    return Card("❌", T("server.messages.applicationNotSubmitted"), title, detail=_cut(error, 400), hint=T("server.messages.nothingWasSubmittedSee"), path="/todos", link=T("server.messages.openToDo"))
 
 
 def task_failed(kind: str, error: str) -> Card:
-    what = {"apply": "这份申请"}.get(kind, kind)
-    return Card("⚠️", f"{what}没有完成", detail=_cut(error, 400), hint="没有提交任何内容。", path="/runs", link="查看任务记录")
+    what = {"apply": T("server.messages.thisApplication")}.get(kind, kind)
+    return Card("⚠️", T("server.messages.notCompleted", p0=what), detail=_cut(error, 400), hint=T("server.messages.nothingWasSubmitted"), path="/runs", link=T("server.messages.viewTaskLog"))
 
 
 def second_factor(site: str, method: str) -> Card:
-    return Card("📱", f"请在手机上批准 {method}", site, hint=f"程序正在登录 {site}，账号密码已经输入；现在等你在手机上批准，最多等 3 分钟。不是你发起的登录也会出现在这里：那就不要批准。")
+    return Card("📱", T("server.messages.approveOnYourPhone", p0=method), site, hint=T("server.messages.theProgramIsSigning", p0=site))
 
 
 def reminder(title: str, which: str, due: Any = None, date_only: bool = False) -> Card:
     """A card with a date coming up ("day_before", "day"), or one the applicant put off until now ("again")."""
     when = "" if due is None else (due.strftime("%Y-%m-%d") if date_only else due.strftime("%Y-%m-%d %H:%M"))
-    heading = {"day_before": "明天到期", "day": "今天到期", "again": "到了你定的提醒时间"}[which]
-    return Card("⏰", heading, title, fields=[("时间", when)], path="/todos", link="打开待办")
+    heading = {"day_before": T("server.messages.dueTomorrow"), "day": T("server.messages.dueToday"), "again": T("server.messages.theTimeYouAsked")}[which]
+    return Card("⏰", heading, title, fields=[(T("server.messages.time"), when)], path="/todos", link=T("server.messages.openToDo"))
 
 
-ITEM_KINDS = {"deadline": "截止", "interview": "面试", "assessment": "测评", "offer": "Offer 答复", "info_request": "对方要补充信息", "contact": "要联系的人", "own": "你记的事"}
+ITEM_KINDS = {"deadline": T("server.messages.due"), "interview": T("server.messages.interview"), "assessment": T("server.messages.assessment"), "offer": T("server.messages.offerReply"), "info_request": T("server.messages.informationAsked"), "contact": T("server.messages.getBackTo"), "own": T("server.messages.yourItem")}
 
 
 def ahead(before: int, all_day: bool) -> str:
     """How long before, in words: "30 分钟前", "1 天前", "当天"."""
     if all_day or before % 1440 == 0:
         days = before // 1440 + (1 if before % 1440 else 0)
-        return "当天" if days == 0 else f"{days} 天前"
+        return T("server.messages.sameDay") if days == 0 else T("server.messages.daySBefore", p0=days)
     if before % 60 == 0:
-        return f"{before // 60} 小时前"
-    return f"{before} 分钟前" if before else "到时间了"
+        return T("server.messages.hrBefore", p0=before // 60)
+    return T("server.messages.minBefore", p0=before) if before else T("server.messages.now")
 
 
 def alarm(title: str, subject: str, start: Any, all_day: bool, kind: str, before: int, link: str = "") -> Card:
     """A reminder the applicant set (or the one of its kind): what, when, and the way to it."""
     when = start.strftime("%Y-%m-%d") if all_day else start.strftime("%Y-%m-%d %H:%M")
-    return Card("⏰", f"提醒：{ITEM_KINDS.get(kind, '日程')}", subject or title, fields=[("事项", title if subject else ""), ("时间", when), ("提前", ahead(before, all_day))],
-                path=f"/calendar?view=day&date={start.strftime('%Y-%m-%d')}", link="打开日程", open_url=link)
+    return Card("⏰", T("server.messages.reminder", p0=ITEM_KINDS.get(kind, '日程')), subject or title, fields=[(T("server.messages.item"), title if subject else ""), (T("server.messages.time"), when), (T("server.messages.ahead"), ahead(before, all_day))],
+                path=f"/calendar?view=day&date={start.strftime('%Y-%m-%d')}", link=T("server.messages.openTheCalendar"), open_url=link)
 
 
 def morning(waiting: list[str], today: list[tuple[str, str, str]], *, sent: int, replies: int) -> Card:
     """The summary each morning (chat.morning)."""
     items = [f"{t} {k}：{s}".strip() for t, k, s in today[:8]]
-    return Card("☀️", "早上好：今天的情况", fields=[("等你处理", f"{len(waiting)} 件"), ("昨天投出", f"{sent} 份"), ("昨天收到的回复", f"{replies} 封")],
-                inline=True, items_title="今天的日程：" if items else "", items=items,
-                detail="\n".join(f"• {w}" for w in waiting[:5]), path="/todos", link="打开待办")
+    return Card("☀️", T("server.messages.goodMorningToday"), fields=[(T("server.messages.needsYou"), T("server.messages.items2", p0=len(waiting))), (T("server.messages.sentYesterday"), T("server.messages.text2", p0=sent)), (T("server.messages.repliesYesterday"), T("server.messages.text3", p0=replies))],
+                inline=True, items_title=T("server.messages.today") if items else "", items=items,
+                detail="\n".join(f"• {w}" for w in waiting[:5]), path="/todos", link=T("server.messages.openToDo"))
 
 
 def drained() -> Card:
-    return Card("⏹️", "手上的任务都做完了，程序已停下", hint="不会再开始新的任务。现在可以放心关闭或重启程序；重新启动后队列会接着做。", path="/runs", link="查看工作计划")
+    return Card("⏹️", T("server.messages.whatWasBeingDone"), hint=T("server.messages.noNewTaskWill"), path="/runs", link=T("server.messages.openThePlan"))
 
 
 def session_saved(key: str, *, credentials: bool) -> Card:
-    return Card("🔑", "登录状态已保存", key, fields=[("密码", "已一并保存" if credentials else "")], path="/accounts", link="查看账号")
+    return Card("🔑", T("server.messages.signInSaved"), key, fields=[(T("server.messages.password"), T("server.messages.savedAsWell") if credentials else "")], path="/accounts", link=T("server.messages.viewAccount"))
 
 
 def tailored(title: str, *, focus: str, problems: list[str]) -> Card:
     if problems:
-        return Card("📄", "定制简历没有通过检查", title, hint="；".join(problems)[:300] + "。申请会用你上传的原版简历。", path="/files", link="打开材料库")
-    return Card("📄", "定制简历写好了", title, hint=focus[:300], path="/files", link="打开材料库")
+        return Card("📄", T("server.messages.tailoredRSumFailed"), title, hint="；".join(problems)[:300] + T("server.messages.applicationsWillUseThe"), path="/files", link=T("server.messages.openTheLibrary"))
+    return Card("📄", T("server.messages.tailoredRSumIs"), title, hint=focus[:300], path="/files", link=T("server.messages.openTheLibrary"))
 
 
 def gmail_authorized() -> Card:
     from . import mail
 
     if mail.can_send():
-        return Card("📧", "Gmail 授权完成：可以读信和发信", hint="之后会定时读取与申请有关的邮件；邮件投递的申请和给雇主的回复从这个邮箱发出，按你在设置里选的，先给你看一遍或直接发。")
-    return Card("📧", "Gmail 授权完成：只能读信", hint="之后会定时读取与申请有关的邮件。这次授权里没有“发送邮件”这一项，所以程序不能替你发信；需要的话重新授权一次，把那一项勾上。")
+        return Card("📧", T("server.messages.gmailAuthorizedReadingAnd"), hint=T("server.messages.mailAboutYourApplications2"))
+    return Card("📧", T("server.messages.gmailAuthorizedReadingOnly"), hint=T("server.messages.mailAboutYourApplications"))
 
 
 # --- status update -----------------------------------------------------------------------
 
 def high_scores(rows: list[dict[str, Any]]) -> Card:
     """rows: {score, company, title, deadline}"""
-    c = Card("⭐", f"{len(rows)} 个新的高分岗位", path="/jobs", link="查看岗位列表", hint="已排队，Agent 会去做这些申请。")
+    c = Card("⭐", T("server.messages.newHighScoringPostings", p0=len(rows)), path="/jobs", link=T("server.messages.viewJobList"), hint=T("server.messages.queuedTheAgentWill"))
     for r in rows[:12]:
         dl = f"　截止 {r['deadline']}" if r.get("deadline") else ""
         c.items.append(f"{r['score']:g}　{r['company']} · {_cut(r['title'], 60)}{dl}")
     if len(rows) > 12:
-        c.items.append(f"……另有 {len(rows) - 12} 个")
+        c.items.append(T("server.messages.andMore", p0=len(rows) - 12))
     return c
 
 
 MAIL = {
-    "confirmation": ("📬", "收到申请确认"),
-    "rejection": ("📭", "申请未通过"),
-    "interview": ("🎉", "面试邀请"),
-    "assessment": ("🧪", "在线测评"),
-    "offer": ("🏆", "录用通知"),
-    "info_request": ("❓", "对方需要补充信息"),
+    "confirmation": ("📬", T("server.messages.applicationConfirmationReceived")),
+    "rejection": ("📭", T("server.messages.applicationUnsuccessful")),
+    "interview": ("🎉", T("server.messages.interviewInvitation")),
+    "assessment": ("🧪", T("server.messages.onlineAssessment")),
+    "offer": ("🏆", T("server.messages.jobOffer")),
+    "info_request": ("❓", T("server.messages.employerNeedsMoreInformation")),
 }
 
 
 # What an e-mail says ABOUT an interview, an assessment or an offer when it does not announce one (mail.EVENTS).
 MAIL_EVENT = {
-    ("interview", "cancelled"): ("⚠️", "面试被取消"), ("interview", "changed"): ("🗓️", "面试安排有变化"), ("interview", "reminder"): ("⏰", "面试提醒"),
-    ("assessment", "cancelled"): ("⚠️", "在线测评被取消"), ("assessment", "changed"): ("🗓️", "在线测评有变化"), ("assessment", "reminder"): ("⏰", "在线测评提醒"),
-    ("offer", "cancelled"): ("⚠️", "录用被撤回"), ("offer", "changed"): ("📝", "录用条件有更新"), ("offer", "reminder"): ("⏰", "录用通知待回复"),
+    ("interview", "cancelled"): ("⚠️", T("server.messages.interviewCancelled")), ("interview", "changed"): ("🗓️", T("server.messages.interviewArrangementsChanged")), ("interview", "reminder"): ("⏰", T("server.messages.interviewReminder")),
+    ("assessment", "cancelled"): ("⚠️", T("server.messages.assessmentCancelled")), ("assessment", "changed"): ("🗓️", T("server.messages.assessmentChanged")), ("assessment", "reminder"): ("⏰", T("server.messages.assessmentReminder")),
+    ("offer", "cancelled"): ("⚠️", T("server.messages.offerWithdrawn")), ("offer", "changed"): ("📝", T("server.messages.offerUpdated")), ("offer", "reminder"): ("⏰", T("server.messages.offerWaitingForYour")),
 }
 
 
 def mail_label(category: str, event: str = "new") -> tuple[str, str]:
     """(icon, heading) for an e-mail: by what it is about and what it says about it."""
-    return MAIL_EVENT.get((category, event)) or MAIL.get(category, ("✉️", category or "收到新邮件"))
+    return MAIL_EVENT.get((category, event)) or MAIL.get(category, ("✉️", category or T("server.messages.newEmailReceived")))
 
 
 def mail_update(category: str, title: str, summary: str, *, new_status: str = "", event: str = "new") -> Card:
-    icon, heading = MAIL_EVENT.get((category, event)) or MAIL.get(category, ("✉️", "收到新邮件"))
-    hint = ("请查看原邮件，确认是否需要重新安排或回复。" if event == "cancelled" and (category, event) in MAIL_EVENT
-            else "请尽快查看原邮件并回复。" if category in ("interview", "assessment", "offer", "info_request") else "")
-    return Card(icon, heading, title, fields=[("状态更新为", new_status)], detail=_cut(summary, 300), hint=hint, path="/jobs", link="查看岗位")
+    icon, heading = MAIL_EVENT.get((category, event)) or MAIL.get(category, ("✉️", T("server.messages.newEmailReceived")))
+    hint = (T("server.messages.readTheEMail") if event == "cancelled" and (category, event) in MAIL_EVENT
+            else T("server.messages.checkTheOriginalEmail") if category in ("interview", "assessment", "offer", "info_request") else "")
+    return Card(icon, heading, title, fields=[(T("server.messages.statusChangedTo"), new_status)], detail=_cut(summary, 300), hint=hint, path="/jobs", link=T("server.messages.viewJob"))
 
 
 def quota_low(name: str, lines: list[tuple[str, str]], *, out: bool, backup: str, primary: bool) -> Card:
     if backup:
-        hint = (f"接下来会自动改用备用服务：{backup}。" if out else f"用完后会自动改用备用服务：{backup}。") if primary else "这是一个备用服务；轮到它时如果还没恢复，会跳到下一个。"
+        hint = (T("server.messages.willSwitchToThe", p0=backup) if out else T("server.messages.whenItRunsOut", p0=backup)) if primary else T("server.messages.thisIsABackup")
     else:
-        hint = "没有设置备用服务：用完后需要 AI 的任务会停下来，等额度恢复再继续。可以在“设置 → 账号与连接 → AI 服务”里加一个备用。"
-    return Card("⛔" if out else "⚠️", "AI 额度用完了" if out else "AI 额度快用完了", fields=[("服务", name), *lines], hint=hint, path="/settings/accounts/ai", link="打开设置")
+        hint = T("server.messages.noBackupServiceSet")
+    return Card("⛔" if out else "⚠️", T("server.messages.aiUsageLimitReached") if out else T("server.messages.aiUsageAlmostUsed"), fields=[(T("server.messages.service"), name), *lines], hint=hint, path="/settings/accounts/ai", link=T("server.messages.openSettings"))
 
 
 def llm_switched(frm: str, to: str, why: str, until: str) -> Card:
-    reason = ("用量额度用完了" if re.search(r"usage limit|limit reached|额度|quota|欠费|billing", why, re.I) else "请求太频繁，被限流了" if re.search(r"rate.?limit|429", why, re.I)
-              else "登录或 key 失效了" if re.search(r"login|key|authenticat|拒绝", why, re.I) else "暂时连不上或出错了")
-    return Card("🔁", "AI 服务已切换到备用", fields=[("原来用的", frm), ("现在用的", to), ("原因", reason)],
-                hint=(f"{until} 之后会再试原来的服务，" if until else "") + "恢复后自动切回；不需要你操作。", path="/settings/accounts/ai", link="打开设置")
+    reason = (T("server.messages.usageLimitReached") if re.search(r"usage limit|limit reached|额度|quota|欠费|billing", why, re.I) else T("server.messages.tooManyRequestsRate") if re.search(r"rate.?limit|429", why, re.I)
+              else T("server.messages.signInOrKey") if re.search(r"login|key|authenticat|拒绝", why, re.I) else T("server.messages.cantConnectRightNow"))
+    return Card("🔁", T("server.messages.switchedToBackupAi"), fields=[(T("server.messages.previouslyUsed"), frm), (T("server.messages.nowUsing"), to), (T("server.messages.reason"), reason)],
+                hint=(T("server.messages.willRetryTheOriginal", p0=until) if until else "") + T("server.messages.switchesBackAutomaticallyOnce"), path="/settings/accounts/ai", link=T("server.messages.openSettings"))
 
 
 
@@ -269,37 +271,37 @@ def llm_switched(frm: str, to: str, why: str, until: str) -> Card:
 
 # kind -> (icon, heading, hint)
 TODO = {
-    "answer": ("✍️", "有问题需要你回答", "这是表单需要、而你的资料里没有的信息。回答后 Agent 接着做。"),
-    "review": ("📝", "申请记录等你批准", "看一遍 Agent 填的内容，批准后它去提交。"),
-    "takeover": ("🔐", "需要你登录", "在待办里点“去登录”，在弹出的窗口里完成登录，登录状态会自动保存。"),
-    "blocked": ("🚧", "这个网站程序操作不了", "申请页在程序的浏览器里打不开或点不动。可以自己打开岗位页面投递，然后在待办里点“我已经提交了”。"),
-    "login": ("🔐", "需要你登录", "在待办里点“去登录”，在弹出的窗口里完成登录。"),
-    "captcha": ("🤖", "需要人工验证", "网站要求人机验证，这一步只能由你完成。"),
-    "code": ("🔢", "Agent 在等一个验证码", "网站把验证码发给了你。在待办里输入，Agent 正停在那一页等着，约 10 分钟。"),
-    "confirm": ("📲", "Agent 在等你确认", "完成后在待办里点“已完成”，Agent 立刻接着做；它会等约 10 分钟。"),
-    "resume": ("⏸️", "申请停在需要你的一步", "你方便的时候在待办里点继续，Agent 会马上重新做到那一步并等你。"),
-    "submit": ("👆", "已填到最后一步，等你提交", "请在弹出的浏览器窗口里检查一遍，然后点击提交。窗口会保留约 20 分钟。"),
-    "failed": ("❌", "申请没有提交", "没有提交任何内容。"),
-    "facts_changed": ("🔁", "个人资料改了，有申请还用着旧的", "这些申请已经先停下；在待办里选：按新的重新准备，或者照旧发。"),
-    "mail_out": ("✉️", "有一封邮件等你看一遍再发", "在待办里打开它：可以改收件人、主题和正文，然后从你的邮箱发出。"),
-    "gone": ("📭", "岗位已下架", "没有提交任何内容。这个岗位已从你的待投列表里拿掉；如果它其实还在，在待办里点“岗位还在，再试一次”。"),
-    "config": ("⚙️", "配置需要处理", ""),
-    "mail_unmatched": ("📨", "邮件没能关联到岗位", "程序会先到雇主网站上查是哪个申请；查不到的话，请在待办里指定。"),
+    "answer": ("✍️", T("server.messages.someQuestionsNeedYour"), T("server.messages.theFormNeedsThis")),
+    "review": ("📝", T("server.messages.theRecordOfThe"), T("server.messages.lookOverWhatThe")),
+    "takeover": ("🔐", T("server.messages.youNeedToSign"), T("server.messages.inYourToDos")),
+    "blocked": ("🚧", T("server.messages.thisSiteCantBe"), T("server.messages.theApplicationPageWont")),
+    "login": ("🔐", T("server.messages.youNeedToSign"), T("server.messages.inYourToDos2")),
+    "captcha": ("🤖", T("server.messages.manualVerificationNeeded"), T("server.messages.theSiteWantsA")),
+    "code": ("🔢", T("server.messages.theAgentIsWaiting"), T("server.messages.theSiteSentYou")),
+    "confirm": ("📲", T("server.messages.theAgentIsWaiting2"), T("server.messages.whenYouHaveDone")),
+    "resume": ("⏸️", T("server.messages.theApplicationStoppedAt"), T("server.messages.whenItSuitsYou")),
+    "submit": ("👆", T("server.messages.filledInUpTo"), T("server.messages.checkEverythingInThe")),
+    "failed": ("❌", T("server.messages.applicationNotSubmitted"), T("server.messages.nothingWasSubmitted")),
+    "facts_changed": ("🔁", T("server.messages.yourProfileChangedSome"), T("server.messages.theseApplicationsHaveBeen")),
+    "mail_out": ("✉️", T("server.messages.anEMailIs"), T("server.messages.openItInThe")),
+    "gone": ("📭", T("server.messages.thePostingHasBeen"), T("server.messages.nothingWasSubmittedThe")),
+    "config": ("⚙️", T("server.messages.settingsNeedAttention"), ""),
+    "mail_unmatched": ("📨", T("server.messages.couldntMatchEmailTo"), T("server.messages.theProgramFirstLooks")),
 }
 
 
 def todo(kind: str, title: str, body: str = "", *, payload: dict[str, Any] | None = None) -> Card:
-    icon, heading, hint = TODO.get(kind, ("🔔", "需要你处理", ""))
+    icon, heading, hint = TODO.get(kind, ("🔔", T("server.messages.needsYourAction"), ""))
     did = (payload or {}).get("draft_id")
-    path, link = (f"/drafts/{did}", "打开草案") if kind in ("answer", "review") and did else ("/todos", "打开待办")
+    path, link = (f"/drafts/{did}", T("server.messages.openDraft")) if kind in ("answer", "review") and did else ("/todos", T("server.messages.openToDo"))
     return Card(icon, heading, title, detail=_cut(body, 500) if body else "", hint=hint, path=path, link=link)
 
 
 def draft_ready(title: str, draft_id: int, *, answers: int, files: list[str]) -> Card:
     c = todo("review", title, payload={"draft_id": draft_id})
-    c.fields = [("填了", f"{answers} 项"), ("上传了", "、".join(files))]
+    c.fields = [(T("server.messages.entered"), T("server.messages.items", p0=answers)), (T("server.messages.uploaded"), "、".join(files))]
     return c
 
 
 def test() -> Card:
-    return Card("✅", "AutoApply 通知已接通", hint="之后的任务进度、待办和申请状态会发到这里。")
+    return Card("✅", T("server.messages.autoapplyNotificationsAreConnected"), hint=T("server.messages.taskProgressToDos"))

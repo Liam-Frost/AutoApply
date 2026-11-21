@@ -11,6 +11,8 @@ session is kept under ``pdportal:ubc``.
 
 from __future__ import annotations
 
+from ..say import say as T
+
 import re
 from datetime import datetime
 from typing import Any, Iterator
@@ -83,10 +85,10 @@ def firewall(page: Any) -> None:
         raise browser.RefusedHidden()
     if db.get_setting("browser.nodriver_enabled"):
         notify.add_todo("takeover", "PD Portal（CWL + Duo）", ref=f"account:{TENANT}", payload={"tenant_key": TENANT, "ats": "pdportal", "url": f"{BASE}/home.htm"},
-                        body="门户的防护没有放行这次访问，即使是在普通浏览器的窗口里。重新登录一次 PD Portal 就会重新通过它的验证。")
+                        body=T("server.sources.pdportal.thePortalsFirewallDid"))
         raise NeedsHuman("PD Portal's firewall did not let the browser in: signing in again renews its pass", kind="login", url=f"{BASE}/home.htm")
-    notify.add_todo("config", "PD Portal 拒绝了自动扫描", ref="config:pdportal-blocked",
-                    body="门户的防护挡住了这次用的浏览器，这不是登录问题。到“设置 → 系统与数据 → 浏览器兼容”打开 nodriver（PD Portal 的规则已经预置），再扫描一次。")
+    notify.add_todo("config", T("server.sources.pdportal.pdPortalRefusedThe"), ref="config:pdportal-blocked",
+                    body=T("server.sources.pdportal.thePortalsProtectionRefused"))
     raise RuntimeError("blocked by the site's firewall (Cloudflare): automated browsers are refused")
 
 

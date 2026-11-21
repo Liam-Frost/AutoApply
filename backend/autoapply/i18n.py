@@ -135,7 +135,12 @@ def lang() -> str:
 
 def tr(text: Any, to: str | None = None) -> Any:
     """``text`` in the interface language (unchanged for Chinese, for non-strings, and when no dictionary is there)."""
-    to = to or lang()
+    from .say import Msg, page_lang
+
+    to = to or page_lang()      # (answering a page: its language; a notification, a bot: the program's)
+
+    if isinstance(text, Msg):      # a message with its key (say.py): from the catalog, not the dictionary
+        return text.in_lang(to)
     if to == "zh" or not isinstance(text, str):
         return text
     d = _load(to)
@@ -144,4 +149,8 @@ def tr(text: Any, to: str | None = None) -> Any:
 
 def tr_lines(text: str, to: str | None = None) -> str:
     """Multi-line text (a list of reasons, a quoted detail): each line on its own, so one untranslatable line does not hold back the rest."""
+    from .say import Msg
+
+    if isinstance(text, Msg):      # a message with its key: whole, from the catalog
+        return tr(text, to)
     return "\n".join(tr(ln, to) for ln in text.split("\n"))

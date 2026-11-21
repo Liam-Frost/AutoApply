@@ -18,6 +18,8 @@ shown to the AI. The API refuses to serve a remote window to another device over
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import os
 import secrets as _random
@@ -234,7 +236,7 @@ def announce(win: Window) -> None:
     try:
         from . import notify
 
-        notify.send("todo", f"有一个窗口在等你操作：{win.title}", ref=f"remote:{win.id}", path=f"/remote/{win.id}", tag=f"remote:{win.id}")
+        notify.send("todo", T("server.remote.aWindowIsWaiting", p0=win.title), ref=f"remote:{win.id}", path=f"/remote/{win.id}", tag=f"remote:{win.id}")
     except Exception as e:  # noqa: BLE001 - a notification that fails must not stop the run
         log.info("could not announce the remote window (%s)", type(e).__name__)
 

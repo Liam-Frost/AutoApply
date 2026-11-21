@@ -9,6 +9,8 @@ Messages never contain passwords, verification codes, or full profile data.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 from typing import Any, Protocol
 
@@ -143,12 +145,12 @@ def flush_held(at: Any = None) -> int:
         rows = [(n.id, n.text) for n in s.query(Notification).filter_by(held=1).order_by(Notification.id)]
     if not rows:
         return 0
-    head = i18n.tr(f"静默时段里有 {len(rows)} 条通知：")
+    head = i18n.tr(T("server.notify.noticeSFromThe", p0=len(rows)))
     parts, size = [], len(head)
     for _, text in rows:
         piece = i18n.tr_lines(text)
         if size + len(piece) > 3300:
-            parts.append(i18n.tr(f"……还有 {len(rows) - len(parts)} 条，见活动记录里“通知与机器人”。"))
+            parts.append(i18n.tr(T("server.notify.andMoreSeeActivity", p0=len(rows) - len(parts))))
             break
         parts.append(piece)
         size += len(piece) + 2
@@ -180,7 +182,7 @@ def send(category: str, card: Card | str, *, ref: str = "", path: str = "", tag:
         card.path = path
     if ref.startswith("application:") and card.path == "/jobs" and ref[12:].split(":")[0].isdigit():
         # news about an application leads to the application - everything about it is on one page
-        card.path, card.link = f"/applications/{ref[12:].split(':')[0]}", "查看这份申请"
+        card.path, card.link = f"/applications/{ref[12:].split(':')[0]}", T("server.notify.openThisApplication")
     base = str(db.get_setting("app.base_url"))
     text = card.plain(base)       # the record kept in the program stays in the source language; the interface translates what it shows
     out = card.localized()        # what leaves the program follows the interface language
@@ -220,7 +222,7 @@ def send(category: str, card: Card | str, *, ref: str = "", path: str = "", tag:
 def test_message(only: str = "") -> None:
     chans = [c for c in _channels() if not only or c.name == only]
     if not chans:
-        raise RuntimeError("没有配置好的通知渠道（Telegram 要机器人令牌和聊天 ID；Discord 要机器人令牌并完成绑定，或者一个 Webhook）。")
+        raise RuntimeError(T("server.notify.noNotificationChannelIs"))
     base = str(db.get_setting("app.base_url"))
     for ch in chans:
         ch.send_card(messages.test().localized(), base)

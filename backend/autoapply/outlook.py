@@ -15,6 +15,8 @@ STATUS: written against Microsoft's documented endpoints; not run with a real ap
 
 from __future__ import annotations
 
+from .say import say as T
+
 import json
 import threading
 import time
@@ -47,14 +49,14 @@ def start() -> dict[str, Any]:
     """Begin the device-code sign-in. Returns the code and the page to enter it on; the rest happens in the background."""
     cid = client_id()
     if not cid:
-        raise NotReady("先填写应用（客户端）ID。")
+        raise NotReady(T("server.outlook.enterTheApplicationClient"))
     try:
         r = httpx.post(f"{AUTHORITY}/devicecode", data={"client_id": cid, "scope": SCOPE}, timeout=30)
     except httpx.HTTPError as e:
-        raise NotReady(f"连不上微软的登录服务（{type(e).__name__}）。") from e
+        raise NotReady(T("server.outlook.cantReachMicrosoftsSign", p0=type(e).__name__)) from e
     d = r.json()
     if r.status_code != 200:
-        raise NotReady(f"微软拒绝了这个应用 ID：{d.get('error_description', d.get('error', r.status_code))[:240]}")
+        raise NotReady(T("server.outlook.microsoftRejectedThisApp", p0=d.get('error_description', d.get('error', r.status_code))[:240]))
     _flow.update(state="waiting", code=d["user_code"], url=d.get("verification_uri") or d.get("verification_url", ""), error="")
 
     def poll() -> None:
@@ -74,7 +76,7 @@ def start() -> dict[str, Any]:
             elif t.get("error") != "authorization_pending":
                 _flow.update(state="failed", error=str(t.get("error_description") or t.get("error"))[:240])
                 return
-        _flow.update(state="failed", error="验证码过期了，请重新开始。")
+        _flow.update(state="failed", error=T("server.outlook.theVerificationCodeExpired"))
 
     threading.Thread(target=poll, daemon=True, name="outlook-oauth").start()
     return {"user_code": _flow["code"], "verification_uri": _flow["url"]}
@@ -89,19 +91,19 @@ def _save(t: dict[str, Any]) -> None:
 def access_token() -> str:
     raw = secrets.get(TOKEN)
     if not raw:
-        raise NotReady("Outlook 邮箱还没有授权（设置 → 账号与连接 → 收件邮箱）。")
+        raise NotReady(T("server.outlook.outlookIsntAuthorizedYet"))
     t = json.loads(raw)
     if t.get("expires_at", 0) > time.time():
         return t["access_token"]
     if not t.get("refresh_token"):
-        raise NotReady("Outlook 的授权过期了，请重新授权。")
+        raise NotReady(T("server.outlook.outlookAuthorizationExpiredPlease"))
     try:
         r = httpx.post(f"{AUTHORITY}/token", data={"grant_type": "refresh_token", "client_id": client_id(), "refresh_token": t["refresh_token"], "scope": SCOPE}, timeout=30)
     except httpx.HTTPError as e:
-        raise NotReady(f"连不上微软的登录服务（{type(e).__name__}）。") from e
+        raise NotReady(T("server.outlook.cantReachMicrosoftsSign", p0=type(e).__name__)) from e
     d = r.json()
     if "access_token" not in d:
-        raise NotReady(f"Outlook 的授权失效了，请重新授权：{str(d.get('error_description') or d.get('error'))[:200]}")
+        raise NotReady(T("server.outlook.outlookAccessHasExpired", p0=str(d.get('error_description') or d.get('error'))[:200]))
     _save(d)
     return d["access_token"]
 

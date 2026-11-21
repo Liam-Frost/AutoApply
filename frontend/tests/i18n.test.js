@@ -43,7 +43,8 @@ describe('the catalogs', () => {
   })
   it('are as complete as the manifest says (npm run i18n:status)', () => {
     for (const l of manifest.languages) {
-      expect(l.complete, l.id).toBe(l.id === manifest.source ? 100 : completeness(read('en.json'), read(l.id + '.json')))
+      const both = (id) => ({ ...read(id + '.json'), server: read('server/' + id + '.json') })
+      expect(l.complete, l.id).toBe(l.id === manifest.source ? 100 : completeness(both('en'), both(l.id)))
     }
     expect(isBeta('zh')).toBe(false)
     expect(placeholders('{n} day | {n} days, {time}')).toBe('n,time')

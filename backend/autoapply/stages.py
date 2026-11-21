@@ -7,29 +7,31 @@ single stage instead, so "not applied" never hides behind an internal word like 
 
 from __future__ import annotations
 
+from .say import say as T
+
 from datetime import datetime
 from typing import Any
 
 # key -> (label, group, tone)
 STAGES: dict[str, tuple[str, str, str]] = {
-    "not_applied": ("未投递", "todo", ""),
-    "drafting": ("草案生成中", "active", "info"),
-    "needs_input": ("草案待补充", "active", "warn"),
-    "draft_ready": ("草案待审", "active", "warn"),
-    "applying": ("投递中", "active", "info"),
-    "needs_you": ("等你处理", "active", "warn"),
-    "failed": ("投递失败", "active", "bad"),
-    "submitted": ("投递成功", "applied", "info"),
-    "confirmed": ("已确认投递", "applied", "ok"),
-    "assessment": ("笔试 / OA / VA", "progress", "ok"),
-    "interview": ("面试", "progress", "ok"),
-    "offer": ("收到 Offer", "progress", "ok"),
-    "rejected": ("已被拒", "rejected", "bad"),
-    "skipped": ("不投递", "skipped", ""),
-    "expired": ("已截止", "closed", ""),
-    "offline": ("已下线", "closed", ""),
+    "not_applied": (T("server.stages.notApplied"), "todo", ""),
+    "drafting": (T("server.stages.generatingDraft"), "active", "info"),
+    "needs_input": (T("server.stages.draftNeedsInfo"), "active", "warn"),
+    "draft_ready": (T("server.stages.draftAwaitingReview"), "active", "warn"),
+    "applying": (T("server.stages.applying"), "active", "info"),
+    "needs_you": (T("server.stages.needsYou"), "active", "warn"),
+    "failed": (T("server.stages.applicationFailed"), "active", "bad"),
+    "submitted": (T("server.stages.applicationSent"), "applied", "info"),
+    "confirmed": (T("server.stages.applicationConfirmed"), "applied", "ok"),
+    "assessment": (T("server.stages.writtenTestOaVa"), "progress", "ok"),
+    "interview": (T("server.stages.interview"), "progress", "ok"),
+    "offer": (T("server.stages.offerReceived"), "progress", "ok"),
+    "rejected": (T("server.stages.rejected"), "rejected", "bad"),
+    "skipped": (T("server.stages.dontApply"), "skipped", ""),
+    "expired": (T("server.stages.deadlinePassed"), "closed", ""),
+    "offline": (T("server.stages.takenDown"), "closed", ""),
 }
-GROUPS = [("todo", "未投递"), ("active", "进行中"), ("applied", "已投递"), ("progress", "有进展"), ("rejected", "已被拒"), ("skipped", "不投递"), ("closed", "已下线 / 已截止"), ("all", "全部")]
+GROUPS = [("todo", T("server.stages.notApplied")), ("active", T("server.stages.inProgress")), ("applied", T("server.stages.applied")), ("progress", T("server.stages.hasUpdates")), ("rejected", T("server.stages.rejected")), ("skipped", T("server.stages.dontApply")), ("closed", T("server.stages.takenDownClosed")), ("all", T("server.stages.all"))]
 
 _APP = {
     "recon": "drafting", "revising": "drafting",

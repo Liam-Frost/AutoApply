@@ -10,6 +10,8 @@ Passwords and verification codes are not returned, logged, or shown to a model.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import csv
 import io
 import json
@@ -344,7 +346,7 @@ def takeover(tenant_key: str, url: str, *, save_credentials: bool = True, timeou
     if ok and state is not None:
         browser.write_state(tenant_key, state)
     if not ok:
-        return {"ok": False, "reason": "窗口关闭前没有检测到登录成功" if closed else "等了 10 分钟没有检测到登录成功"}
+        return {"ok": False, "reason": T("server.auth.noSuccessfulSignIn") if closed else T("server.auth.noSuccessfulSignIn2")}
     if done is not None:
         notify.close_todos("takeover", f"account:{tenant_key}")      # the card that asked for this sign-in has its answer, as in the other browser
         return {"ok": True, "credentials_saved": False}

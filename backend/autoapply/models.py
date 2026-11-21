@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -28,6 +28,24 @@ RANK = {status: n for n, status in enumerate(SENT, 1)}       # how far along a s
 # (nothing shows it), and it is not one to fill in again either (that would be a second application if the first went
 # through). It waits for what settles it - the confirmation mail, or the applicant's word.
 UNKNOWN = "submit_unknown"
+class Said(TypeDecorator):
+    """Text the program wrote: a message keeps its key (say.py), so that it is read in whatever language it is shown in;
+    any other text is kept as it is."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:  # noqa: ARG002
+        from .say import keep
+
+        return keep(value)
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:  # noqa: ARG002
+        from .say import kept
+
+        return kept(value)
+
+
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String, primary_key=True)
@@ -88,7 +106,7 @@ class Application(Base):
     auto_approved: Mapped[int] = mapped_column(Integer, default=0)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {text, url, screenshot, mail_id}
-    last_event: Mapped[str] = mapped_column(Text, default="")
+    last_event: Mapped[str] = mapped_column(Said, default="")
     detail: Mapped[str] = mapped_column(Text, default="")  # human-readable history line
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
@@ -338,8 +356,8 @@ class Todo(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     kind: Mapped[str] = mapped_column(String)  # takeover|answer|submit|failed|blocked|config|mail_unmatched|followup (and, in the history, the kinds of earlier versions)
     ref: Mapped[str] = mapped_column(String, default="")
-    title: Mapped[str] = mapped_column(String, default="")
-    body: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(Said, default="")
+    body: Mapped[str] = mapped_column(Said, default="")
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String, default="open")  # open|done|dismissed
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)

@@ -10,6 +10,8 @@ card on the to-do page, ``d:<draft>:<what>`` for a record waiting for approval.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -35,24 +37,24 @@ def for_todo(todo_id: int) -> list[dict[str, str]]:
             return []
         kind, p = t.kind, dict(t.payload or {})
         if kind == "confirm":
-            return [{"label": _t("已完成，继续"), "data": f"t:{todo_id}:done"}]
+            return [{"label": _t(T("server.actions.doneGoOn")), "data": f"t:{todo_id}:done"}]
         if kind == "resume":
-            return [{"label": _t("我现在有空，继续"), "data": f"t:{todo_id}:done"}]
+            return [{"label": _t(T("server.actions.imHereNowGo")), "data": f"t:{todo_id}:done"}]
         if kind == "code":
-            return [{"label": _t("输入验证码"), "data": f"t:{todo_id}:code", "input": "code"}]
+            return [{"label": _t(T("server.actions.enterTheCode")), "data": f"t:{todo_id}:code", "input": "code"}]
         if kind == "failed" and p.get("job_id"):
-            return [{"label": _t("再试一次"), "data": f"t:{todo_id}:retry"}, {"label": _t("不投了"), "data": f"t:{todo_id}:skip"}]
+            return [{"label": _t(T("server.actions.tryAgain")), "data": f"t:{todo_id}:retry"}, {"label": _t(T("server.actions.skipIt")), "data": f"t:{todo_id}:skip"}]
         if kind == "gone":
-            return [{"label": _t("知道了"), "data": f"t:{todo_id}:ack"}]
+            return [{"label": _t(T("server.actions.gotIt")), "data": f"t:{todo_id}:ack"}]
         if kind == "followup":
-            return [{"label": _t("已完成"), "data": f"t:{todo_id}:done"}, {"label": _t("明天再提醒"), "data": f"t:{todo_id}:snooze"}]
+            return [{"label": _t(T("server.actions.done")), "data": f"t:{todo_id}:done"}, {"label": _t(T("server.actions.remindMeTomorrow")), "data": f"t:{todo_id}:snooze"}]
         if kind == "answer" and p.get("draft_id") and not p.get("review"):
             q = _open_question(s, int(p["draft_id"]))
             if q is None:
                 return []
             out = [{"label": str(o)[:60], "data": f"t:{todo_id}:opt:{i}"} for i, o in enumerate((q.get("options") or [])[:8])]
             if q.get("suggested"):
-                out.insert(0, {"label": _t(f"就按建议：{str(q['suggested'])[:40]}"), "data": f"t:{todo_id}:sug"})
+                out.insert(0, {"label": _t(T("server.actions.asSuggested", p0=str(q['suggested'])[:40])), "data": f"t:{todo_id}:sug"})
             return out
     return []
 
@@ -85,14 +87,14 @@ def for_record(draft_id: int) -> list[dict[str, str]]:
             return []
         if len(_unsure(d)) > SHOWN or len(_changed(s, d)) > SHOWN:
             return []
-    return [{"label": _t("批准并提交"), "data": f"d:{draft_id}:approve"}]
+    return [{"label": _t(T("server.actions.approveAndSend")), "data": f"d:{draft_id}:approve"}]
 
 
 def decorate(card: Card, ref: str, todo_id: int | None) -> list[dict[str, str]]:
     """The buttons for a card that is being sent, and what the card has to show for them to be pressed from a phone:
     under "approve and send", every answer the agent was not sure of, what changed since the version before, and every
     file that goes with it. A card about something that has a place of its own (an interview's meeting) leads there."""
-    go = [{"label": _t("打开"), "url": card.open_url}] if card.open_url else []
+    go = [{"label": _t(T("server.actions.open")), "url": card.open_url}] if card.open_url else []
     return go + _decorate(card, ref, todo_id)
 
 
@@ -104,7 +106,7 @@ def _decorate(card: Card, ref: str, todo_id: int | None) -> list[dict[str, str]]
             if t is not None and t.kind == "answer" and acts:
                 q = _open_question(s, int((t.payload or {}).get("draft_id") or 0))
                 if q is not None:
-                    card.fields = [*card.fields, (_t("这一问"), str(q.get("label") or "")[:300])]
+                    card.fields = [*card.fields, (_t(T("server.actions.theQuestion")), str(q.get("label") or "")[:300])]
         return acts
     if ref.startswith("draft:") and ref[6:].isdigit():
         acts = for_record(int(ref[6:]))
@@ -114,11 +116,11 @@ def _decorate(card: Card, ref: str, todo_id: int | None) -> list[dict[str, str]]
                 unsure, changed = _unsure(d), _changed(s, d)
                 files = [str(m.get("name") or "") for m in (d.materials or []) if m.get("name")]
             if unsure:
-                card.items_title, card.items = _t("Agent 没有把握的答案："), [x[:160] for x in unsure]
+                card.items_title, card.items = _t(T("server.actions.answersTheAgentWas")), [x[:160] for x in unsure]
             if changed:
-                card.detail = "\n".join([*([card.detail] if card.detail else []), _t("和上一版不同的："), *(f"• {x[:160]}" for x in changed)])
+                card.detail = "\n".join([*([card.detail] if card.detail else []), _t(T("server.actions.differentFromTheVersion")), *(f"• {x[:160]}" for x in changed)])
             # (the files as the record has them; the card's own line about what was uploaded gives way to it)
-            card.fields = [*(f for f in card.fields if f[0] != _t("上传了")), (_t("文件"), "、".join(files) or _t("没有"))]
+            card.fields = [*(f for f in card.fields if f[0] != _t("上传了")), (_t(T("server.actions.files")), "、".join(files) or _t(T("server.actions.none")))]
         return acts
     return []
 
@@ -155,28 +157,28 @@ def run(data: str, value: str = "", *, via: str = "") -> str:
             try:
                 drafts.approve(int(parts[1]))
             except ValueError as e:
-                raise Done(_t("这份记录已经不在等批准了。")) from e
-            return _t("已批准，正在提交")
+                raise Done(_t(T("server.actions.thisRecordIsNo"))) from e
+            return _t(T("server.actions.approvedSendingNow"))
         if parts[0] != "t" or len(parts) < 3:
-            raise Done(_t("这个按钮已经不能用了。"))
+            raise Done(_t(T("server.actions.thisButtonNoLonger")))
         todo_id, what = int(parts[1]), parts[2]
         with db.session() as s:
             t = s.get(Todo, todo_id)
             if t is None or t.status != "open":
-                raise Done(_t("这件事已经处理过了。"))
+                raise Done(_t(T("server.actions.thisHasBeenDealt")))
             kind, p = t.kind, dict(t.payload or {})
         if what == "done":
             api.todo_done(todo_id, {})
-            return _t("已继续") if kind in ("confirm", "resume") else _t("已完成")
+            return _t(T("server.actions.resumed")) if kind in ("confirm", "resume") else _t(T("server.actions.done"))
         if what == "code":
             if not value.strip():
-                raise Done(_t("回复这条消息，写上验证码。"))
+                raise Done(_t(T("server.actions.replyToThisMessage")))
             given = api.todo_code(todo_id, {"code": value})
-            return _t("已交给 Agent，它正在填") if given.get("given") else _t("Agent 已经不在等这个验证码了，它会重新开始并让网站再发一个。")
+            return _t(T("server.actions.givenToTheAgent")) if given.get("given") else _t(T("server.actions.theAgentIsNo"))
         if what == "retry":
             api.make_draft(int(p["job_id"]), {})
             api.todo_done(todo_id, {"status": "dismissed", "resume": False})
-            return _t("Agent 已重新开始")
+            return _t(T("server.actions.theAgentHasStarted"))
         if what == "skip":
             from . import lifecycle
 
@@ -185,21 +187,21 @@ def run(data: str, value: str = "", *, via: str = "") -> str:
                 if job is not None:
                     lifecycle.not_applying(job, source="user")
             api.todo_done(todo_id, {"status": "dismissed", "resume": False})
-            return _t("已标为不投递")
+            return _t(T("server.actions.markedAsNotApplying"))
         if what == "ack":
             api.todo_done(todo_id, {"status": "dismissed", "resume": False})
-            return _t("好的")
+            return _t(T("server.actions.allRight"))
         if what == "snooze":
             from . import reminders
 
             until = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
             reminders.snooze(todo_id, until)
-            return _t("好的，明天早上再提醒你")
+            return _t(T("server.actions.okIWillRemind"))
         if what in ("opt", "sug", "answer"):
             return answer(int(p["draft_id"]), value if what == "answer" else "", option=int(parts[3]) if what == "opt" and len(parts) > 3 else None, suggested=what == "sug")
     except HTTPException as e:
         raise Done(str(e.detail)) from e
-    raise Done(_t("这个按钮已经不能用了。"))
+    raise Done(_t(T("server.actions.thisButtonNoLonger")))
 
 
 def answer(draft_id: int, text: str, *, option: int | None = None, suggested: bool = False) -> str:
@@ -209,18 +211,18 @@ def answer(draft_id: int, text: str, *, option: int | None = None, suggested: bo
     with db.session() as s:
         q = _open_question(s, draft_id)
         if q is None:
-            raise Done(_t("这份申请现在没有要你回答的问题。"))
+            raise Done(_t(T("server.actions.thisApplicationHasNo")))
         qid, label, options, sug = q["id"], str(q.get("label") or ""), list(q.get("options") or []), q.get("suggested")
     value = options[option] if option is not None and 0 <= option < len(options) else sug if suggested else text.strip()
     if value in ("", None):
-        raise Done(_t("没有收到答案。"))
+        raise Done(_t(T("server.actions.noAnswerReceived")))
     if options and value not in options:
         hit = [o for o in options if str(o).strip().lower() == str(value).strip().lower()]
         if not hit:
-            raise Done(_t(f"这一问只能从这些里选：{' / '.join(map(str, options[:10]))}"))
+            raise Done(_t(T("server.actions.thisQuestionTakesOne", p0=' / '.join(map(str, options[:10])))))
         value = hit[0]
     drafts.edit_answer(draft_id, qid, value)
-    return _t(f"记下了：{label[:80]} = {value}")
+    return _t(T("server.actions.noted", p0=label[:80], p1=value))
 
 
 def speak(application_id: int, text: str) -> str:
@@ -228,7 +230,7 @@ def speak(application_id: int, text: str) -> str:
     from .api import main as api
 
     got = api.say_to_the_agent(application_id, {"text": text})
-    return _t("已经告诉正在做这份申请的 Agent") if got.get("heard") == "now" else _t("记下了，Agent 下一次做这份申请时会看到")
+    return _t(T("server.actions.toldTheAgentWorking")) if got.get("heard") == "now" else _t(T("server.actions.notedTheAgentWill"))
 
 
 def about(ref: str) -> tuple[str, int]:
@@ -267,4 +269,4 @@ def reply(ref: str, todo_id: int | None, text: str) -> str:
             app_id = j.application.id if j is not None and j.application is not None else 0
     if app_id:
         return speak(app_id, text)
-    raise Done(_t("这条通知不是关于某一份申请的；直接发消息给我就行。"))
+    raise Done(_t(T("server.actions.thisNotificationIsNot")))

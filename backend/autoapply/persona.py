@@ -13,6 +13,8 @@ persona never overwrites them again.
 
 from __future__ import annotations
 
+from .say import say as T
+
 from typing import Any
 
 import logging
@@ -20,40 +22,40 @@ import logging
 from . import db, knowledge, llm
 
 STAGES: dict[str, dict[str, Any]] = {
-    "student": {"name": "在校，找实习 / co-op", "kind_words": ["intern", "internship", "co-op", "coop", "student", "summer analyst", "placement"],
+    "student": {"name": T("server.persona.studentLookingForAn"), "kind_words": ["intern", "internship", "co-op", "coop", "student", "summer analyst", "placement"],
                 "exclude": ["senior", "staff", "principal", "manager", "director", "lead", "phd"], "pages": 1, "min_draft": 8.0, "auto_submit": True},
-    "new_grad": {"name": "应届 / 刚毕业", "kind_words": ["new grad", "graduate", "entry level", "entry-level", "junior", "associate", "analyst", "early career", "campus", "trainee"],
+    "new_grad": {"name": T("server.persona.newRecentGraduate"), "kind_words": ["new grad", "graduate", "entry level", "entry-level", "junior", "associate", "analyst", "early career", "campus", "trainee"],
                  "exclude": ["senior", "staff", "principal", "manager", "director", "lead", "intern", "internship"], "pages": 1, "min_draft": 8.0, "auto_submit": True},
-    "early": {"name": "工作 1–3 年", "kind_words": [], "exclude": ["senior", "staff", "principal", "director", "vp", "head of", "intern", "internship", "co-op"],
+    "early": {"name": T("server.persona.yearsOfExperience"), "kind_words": [], "exclude": ["senior", "staff", "principal", "director", "vp", "head of", "intern", "internship", "co-op"],
               "pages": 2, "min_draft": 7.5, "auto_submit": False},
-    "mid": {"name": "工作 3–8 年", "kind_words": [], "exclude": ["intern", "internship", "co-op", "junior", "entry level", "graduate", "director", "vp"],
+    "mid": {"name": T("server.persona.yearsOfExperience2"), "kind_words": [], "exclude": ["intern", "internship", "co-op", "junior", "entry level", "graduate", "director", "vp"],
             "pages": 2, "min_draft": 8.0, "auto_submit": False},
-    "senior": {"name": "8 年以上 / 管理岗", "kind_words": [], "exclude": ["intern", "internship", "co-op", "junior", "entry level", "graduate", "associate"],
+    "senior": {"name": T("server.persona.yearsManagement"), "kind_words": [], "exclude": ["intern", "internship", "co-op", "junior", "entry level", "graduate", "associate"],
                "pages": 0, "min_draft": 11.0, "auto_submit": False},  # 11 = never draft automatically: people at this level pick by hand
 }
 
 FIELDS: dict[str, dict[str, Any]] = {
-    "software": {"name": "软件与数据", "roles": ["software", "developer", "engineer", "engineering", "swe", "sde", "machine learning", "ml", "ai", "data", "backend", "frontend",
+    "software": {"name": T("server.persona.softwareData"), "roles": ["software", "developer", "engineer", "engineering", "swe", "sde", "machine learning", "ml", "ai", "data", "backend", "frontend",
                                              "full stack", "fullstack", "devops", "cloud", "security", "infrastructure"],
                  "not": ["sales", "marketing", "legal", "finance", "accounting", "recruiter", "retail", "mba"], "bigtech": True},
-    "engineering": {"name": "硬件与工程（电气、机械、土木…）", "roles": ["engineer", "engineering", "hardware", "electrical", "mechanical", "civil", "firmware", "embedded", "manufacturing",
+    "engineering": {"name": T("server.persona.hardwareAndEngineeringElectrical"), "roles": ["engineer", "engineering", "hardware", "electrical", "mechanical", "civil", "firmware", "embedded", "manufacturing",
                                                               "process", "design", "test", "quality"],
                     "not": ["sales", "marketing", "legal", "accounting", "recruiter", "retail"], "bigtech": True},
-    "business": {"name": "商科（金融、咨询、市场、运营）", "roles": ["analyst", "finance", "financial", "investment", "banking", "consulting", "consultant", "strategy", "marketing", "operations",
+    "business": {"name": T("server.persona.businessFinanceConsultingMarketing"), "roles": ["analyst", "finance", "financial", "investment", "banking", "consulting", "consultant", "strategy", "marketing", "operations",
                                                           "business", "product", "sales", "account", "audit", "tax", "risk", "supply chain", "project"],
                  "not": ["software engineer", "developer", "nurse", "technician"], "bigtech": False},
-    "design": {"name": "设计（UX、视觉、工业）", "roles": ["design", "designer", "ux", "ui", "product design", "visual", "graphic", "brand", "research", "creative", "motion"],
+    "design": {"name": T("server.persona.designUxVisualIndustrial"), "roles": ["design", "designer", "ux", "ui", "product design", "visual", "graphic", "brand", "research", "creative", "motion"],
                "not": ["engineer", "sales", "accounting"], "bigtech": True},
-    "hr": {"name": "人力资源", "roles": ["human resources", "hr", "people", "talent", "recruit", "recruiter", "recruiting", "compensation", "learning", "organizational"],
+    "hr": {"name": T("server.persona.hr"), "roles": ["human resources", "hr", "people", "talent", "recruit", "recruiter", "recruiting", "compensation", "learning", "organizational"],
            "not": ["engineer", "developer", "sales"], "bigtech": False},
-    "psych": {"name": "心理与社会科学", "roles": ["psychology", "psychologist", "counsel", "counselor", "counsellor", "therapist", "behavio", "mental health", "social work", "research assistant",
+    "psych": {"name": T("server.persona.psychologySocialSciences"), "roles": ["psychology", "psychologist", "counsel", "counselor", "counsellor", "therapist", "behavio", "mental health", "social work", "research assistant",
                                            "case manager", "clinical", "community"],
               "not": ["engineer", "developer", "sales"], "bigtech": False},
-    "academic": {"name": "科研与学术", "roles": ["research", "researcher", "scientist", "postdoc", "postdoctoral", "lecturer", "professor", "faculty", "fellow", "lab"],
+    "academic": {"name": T("server.persona.researchAcademia"), "roles": ["research", "researcher", "scientist", "postdoc", "postdoctoral", "lecturer", "professor", "faculty", "fellow", "lab"],
                  "not": ["sales", "marketing"], "bigtech": False},
-    "health": {"name": "医疗", "roles": ["nurse", "nursing", "clinical", "medical", "pharmac", "therapist", "physician", "health", "care"], "not": ["engineer", "developer"], "bigtech": False},
-    "education": {"name": "教育", "roles": ["teacher", "teaching", "tutor", "instructor", "education", "curriculum", "school", "learning"], "not": ["engineer", "developer"], "bigtech": False},
-    "other": {"name": "其他（由 AI 根据目标岗位生成）", "roles": [], "not": [], "bigtech": False},
+    "health": {"name": T("server.persona.healthcare"), "roles": ["nurse", "nursing", "clinical", "medical", "pharmac", "therapist", "physician", "health", "care"], "not": ["engineer", "developer"], "bigtech": False},
+    "education": {"name": T("server.persona.education"), "roles": ["teacher", "teaching", "tutor", "instructor", "education", "curriculum", "school", "learning"], "not": ["engineer", "developer"], "bigtech": False},
+    "other": {"name": T("server.persona.otherAiGeneratedFor"), "roles": [], "not": [], "bigtech": False},
 }
 
 # What the first user of this program had before personas existed. An install that already has postings keeps
@@ -132,8 +134,8 @@ def template(p: dict[str, Any]) -> dict[str, Any]:
 
 def describe(p: dict[str, Any]) -> str:
     st, fd = STAGES.get(p.get("stage") or "", {}), FIELDS.get(p.get("field") or "", {})
-    bits = [st.get("name", ""), fd.get("name", "").split("（")[0], ("目标：" + "、".join(p["targets"])) if p.get("targets") else "",
-            ("地区：" + "、".join(p["countries"])) if p.get("countries") else "", "需要工作签证担保" if p.get("sponsorship") else ""]
+    bits = [st.get("name", ""), fd.get("name", "").split("（")[0], (T("server.persona.goal") + "、".join(p["targets"])) if p.get("targets") else "",
+            (T("server.persona.region") + "、".join(p["countries"])) if p.get("countries") else "", T("server.persona.needsWorkVisaSponsorship") if p.get("sponsorship") else ""]
     return "；".join(b for b in bits if b)
 
 
@@ -228,7 +230,7 @@ def suggest(p: dict[str, Any]) -> dict[str, Any]:
         if md and not md.startswith("#"):
             md = "# Scoring rules\n\n" + md
         if len(roles) < 5 or "Fit" not in md:
-            out["note"] = "AI 给的建议不完整，先用了通用模板。可以点“重新生成建议”再试一次。"
+            out["note"] = T("server.persona.theAiSSuggestions")
         else:
             r["scoring_md"] = md
             out = {"settings": {**base, "intake.title_role_any": roles, "intake.title_none": list(dict.fromkeys([*base["intake.title_none"], *none]))},
@@ -236,7 +238,7 @@ def suggest(p: dict[str, Any]) -> dict[str, Any]:
     except llm.LLMError:
         # why is in the program's log; the page gets the fact, not the text of an internal error
         log.warning("persona suggestions fell back to the template", exc_info=True)
-        out["note"] = "AI 暂时用不了，先给了一份通用模板，可以直接改；AI 服务的状态在“设置 → 账号与连接 → AI 服务”里可以测试。"
+        out["note"] = T("server.persona.theAiIsNot")
     return out
 
 
@@ -299,5 +301,5 @@ def features(p: dict[str, Any] | None = None) -> dict[str, Any]:
         "referrals": st in ("mid", "senior") or p.get("strategy") == "targeted",
         "doc_kinds": kinds,
         "job_columns": (["source", "salary"] if experienced else ["source"]),
-        "resume_word": "CV" if fd == "academic" else "简历",
+        "resume_word": "CV" if fd == "academic" else T("server.persona.rSum"),
     }

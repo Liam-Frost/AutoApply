@@ -12,6 +12,8 @@ hold; ``mend`` puts it right and says what it did.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 from datetime import timedelta
 from typing import Any
@@ -124,7 +126,7 @@ def mend(settled: int | None = None) -> list[dict[str, Any]]:
                 with db.session() as s:
                     o = s.get(Outgoing, f["outgoing_id"])
                     if o is not None and o.status == "sending":
-                        o.status, o.error = "failed", "程序在发送途中被打断，不知道这封邮件有没有发出去。请先到邮箱的“已发送”里看一眼，没有再重发。"
+                        o.status, o.error = "failed", T("server.chain.theProgramWasInterrupted")
             elif what == "approved_and_not_queued":
                 tasks.enqueue("apply", ref=f"job:{f['job_id']}", payload={"job_id": f["job_id"]}, priority=30)
             elif what == "unknown_and_not_looked_into":
@@ -152,7 +154,7 @@ def mend(settled: int | None = None) -> list[dict[str, Any]]:
                         continue
                     if what == "question_without_card":
                         n = len(app.drafts[-1].unresolved or [])
-                        notify.add_todo("answer", title, body=f"{n} 个问题需要你回答", ref=f"draft:{f['draft_id']}", payload={"draft_id": f["draft_id"]}, push=False)
+                        notify.add_todo("answer", title, body=T("server.chain.questionSForYou", p0=n), ref=f"draft:{f['draft_id']}", payload={"draft_id": f["draft_id"]}, push=False)
                     elif what == "asks_nothing":
                         latest = app.drafts[-1] if app.drafts else None
                         lifecycle.move(app, "draft_ready" if latest is not None and latest.review_status == "pending" else "failed", source="recover")
@@ -162,12 +164,12 @@ def mend(settled: int | None = None) -> list[dict[str, Any]]:
                         ref = f"application:{app.id}:resume"
                         t = s.get(Task, f["task_id"])
                         t.payload = {**(t.payload or {}), "waits_for": ref}
-                        notify.add_todo("resume", title, body=why or "这份申请停在需要你的一步。", ref=ref, payload={"application_id": app.id, "job_id": app.job_id, "need": "confirm"}, push=False)
+                        notify.add_todo("resume", title, body=why or T("server.chain.thisApplicationStoppedAt"), ref=ref, payload={"application_id": app.id, "job_id": app.job_id, "need": "confirm"}, push=False)
                     else:      # worked_by_nothing, ready_without_record, nothing_to_press: it did not get done, and nothing will try again by itself
                         if app.status != "failed":
                             lifecycle.move(app, "failed", source="recover")
-                        app.last_event = (why or "这份申请做到一半停下了，之后没有再继续。")[:300]
-                        notify.add_todo("failed", f"{title}：没有做成", body=why or "这份申请做到一半停下了，之后没有再继续。可以让 Agent 再试一次。", ref=f"application:{app.id}",
+                        app.last_event = (why or T("server.chain.thisApplicationStoppedHalf"))[:300]
+                        notify.add_todo("failed", T("server.chain.couldNotBeDone", p0=title), body=why or T("server.chain.thisApplicationStoppedHalf2"), ref=f"application:{app.id}",
                                         payload={"application_id": app.id, "job_id": app.job_id}, push=False)
             done.append(f)
         except Exception:  # noqa: BLE001 - one application that cannot be put right does not stop the others

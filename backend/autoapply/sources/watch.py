@@ -8,6 +8,8 @@ and are not stored yet are then opened to read their description. Read-only: not
 
 from __future__ import annotations
 
+from ..say import say as T
+
 import hashlib
 import logging
 import re
@@ -82,7 +84,7 @@ def scan(employer: dict[str, Any], keep: Callable[..., bool] = lambda *a: True) 
             page.wait_for_timeout(700)
         found = links(page)
         if not found:
-            raise RuntimeError("这个招聘页上没有读到任何链接（可能需要登录，或页面不对程序显示内容）")
+            raise RuntimeError(T("server.sources.watch.noLinksCouldBe"))
         listing = "\n".join(f"{i}. {a['text']}" + (f"  [{a['near']}]" if a["near"] else "") + f"  <{urlparse(a['href']).path[:90]}>" for i, a in enumerate(found))
         picked = llm.json(f"Employer: {name}\nCareers page: {url}\n\nLinks:\n{listing}", PICK, system=SYSTEM, small=False)["postings"]
         fresh = 0

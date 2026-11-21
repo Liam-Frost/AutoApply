@@ -6,13 +6,15 @@
       "id": "zh",
       "tag": "zh-CN",
       "name": "中文",
-      "complete": 100
+      "complete": 100,
+      "english": "Simplified Chinese"
     },
     {
       "id": "en",
       "tag": "en",
       "name": "English",
-      "complete": 100
+      "complete": 100,
+      "english": "English"
     }
   ]
 }

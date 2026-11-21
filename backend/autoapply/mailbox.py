@@ -11,6 +11,8 @@ Both return the same thing: recent messages as ``Message``. Mail is never modifi
 
 from __future__ import annotations
 
+from .say import say as T
+
 import email
 import imaplib
 import re
@@ -26,19 +28,19 @@ IMAP_PASSWORD = "imap_password"
 
 # Outlook.com / Hotmail / Microsoft 365 are not here: Microsoft no longer accepts a password over IMAP, only OAuth.
 PRESETS: dict[str, dict[str, Any]] = {
-    "gmail": {"name": "Gmail（应用专用密码）", "host": "imap.gmail.com", "port": 993,
-              "how": "需要先开启两步验证，然后在 myaccount.google.com/apppasswords 生成一个 16 位的“应用专用密码”，填在下面。比 OAuth 方式省事，但这个密码能读全部邮件。"},
-    "qq": {"name": "QQ 邮箱", "host": "imap.qq.com", "port": 993, "how": "在 QQ 邮箱网页版：设置 → 账号 → 开启 IMAP/SMTP 服务，生成“授权码”，填在下面（不是 QQ 密码）。"},
-    "163": {"name": "网易 163 邮箱", "host": "imap.163.com", "port": 993, "how": "在 163 邮箱网页版：设置 → POP3/SMTP/IMAP → 开启 IMAP，生成“授权密码”，填在下面。"},
-    "126": {"name": "网易 126 邮箱", "host": "imap.126.com", "port": 993, "how": "在 126 邮箱网页版：设置 → POP3/SMTP/IMAP → 开启 IMAP，生成“授权密码”，填在下面。"},
-    "icloud": {"name": "iCloud 邮箱", "host": "imap.mail.me.com", "port": 993, "how": "在 account.apple.com → 登录与安全 → App 专用密码 里生成一个，填在下面。用户名是完整的邮箱地址。"},
-    "yahoo": {"name": "Yahoo 邮箱", "host": "imap.mail.yahoo.com", "port": 993, "how": "在 Yahoo 账户安全设置里生成“应用密码”，填在下面。"},
-    "fastmail": {"name": "Fastmail", "host": "imap.fastmail.com", "port": 993, "how": "在 Settings → Privacy & Security → App passwords 里生成一个只读（IMAP）的应用密码。"},
-    "zoho": {"name": "Zoho Mail", "host": "imap.zoho.com", "port": 993, "how": "在 Zoho 邮箱设置里开启 IMAP；开了两步验证的话需要生成应用专用密码。"},
-    "outlook": {"name": "Outlook / Hotmail / Microsoft 365（微软授权）", "host": "outlook.office365.com", "port": 993, "oauth": True,
+    "gmail": {"name": T("server.mailbox.gmailAppPassword"), "host": "imap.gmail.com", "port": 993,
+              "how": T("server.mailbox.turnOnStepVerification")},
+    "qq": {"name": T("server.mailbox.qqMail"), "host": "imap.qq.com", "port": 993, "how": T("server.mailbox.inQqMailOn")},
+    "163": {"name": T("server.mailbox.neteaseMail"), "host": "imap.163.com", "port": 993, "how": T("server.mailbox.inMailOnThe")},
+    "126": {"name": T("server.mailbox.neteaseMail2"), "host": "imap.126.com", "port": 993, "how": T("server.mailbox.inMailOnThe2")},
+    "icloud": {"name": T("server.mailbox.icloudMail"), "host": "imap.mail.me.com", "port": 993, "how": T("server.mailbox.generateOneAtAccount")},
+    "yahoo": {"name": T("server.mailbox.yahooMail"), "host": "imap.mail.yahoo.com", "port": 993, "how": T("server.mailbox.createAnAppPassword")},
+    "fastmail": {"name": "Fastmail", "host": "imap.fastmail.com", "port": 993, "how": T("server.mailbox.generateAReadOnly")},
+    "zoho": {"name": "Zoho Mail", "host": "imap.zoho.com", "port": 993, "how": T("server.mailbox.turnOnImapIn")},
+    "outlook": {"name": T("server.mailbox.outlookHotmailMicrosoftMicrosoft"), "host": "outlook.office365.com", "port": 993, "oauth": True,
                 "how": "微软不接受密码，需要授权。要先有一个“应用（客户端）ID”：在 entra.microsoft.com → 应用注册 新建一个应用（账户类型选“任何组织目录和个人 Microsoft 帐户”），"
                        "在“身份验证”里把“允许公共客户端流”设为“是”，在“API 权限”里添加委托权限 IMAP.AccessAsUser.All。把应用 ID 填在下面，再点“授权”。"},
-    "custom": {"name": "其他邮箱（自己填服务器）", "host": "", "port": 993, "how": "填邮箱服务商提供的 IMAP 服务器地址和端口（一般是 993，SSL）。学校和公司邮箱是否允许 IMAP 取决于管理员。"},
+    "custom": {"name": T("server.mailbox.otherEmailEnterServer"), "host": "", "port": 993, "how": T("server.mailbox.enterTheImapServer")},
 }
 
 JOB_WORDS = re.compile(r"application|applying|applied|interview|assessment|candidate|position|thank you for your interest|unfortunately|offer|recruit|hiring|"
@@ -135,7 +137,7 @@ def _connect(cfg: dict[str, Any] | None = None, password: str | None = None) -> 
         from . import outlook
 
         if not c["user"]:
-            raise NotConfigured("请填写 Outlook 邮箱地址。")
+            raise NotConfigured(T("server.mailbox.enterYourOutlookEmail"))
         try:
             token = outlook.access_token()
         except outlook.NotReady as e:
@@ -144,21 +146,21 @@ def _connect(cfg: dict[str, Any] | None = None, password: str | None = None) -> 
             m = imaplib.IMAP4_SSL(outlook.HOST, outlook.PORT, timeout=30)
             m.authenticate("XOAUTH2", lambda _challenge: outlook.xoauth2(c["user"], token))
         except imaplib.IMAP4.error as e:
-            raise NotConfigured(f"Outlook 拒绝了这次登录：{str(e)[:160]}。检查邮箱地址和应用的 IMAP 权限。") from e
+            raise NotConfigured(T("server.mailbox.outlookRejectedThisSign", p0=str(e)[:160])) from e
         except Exception as e:  # noqa: BLE001
-            raise NotConfigured(f"连不上 Outlook 的邮件服务器（{type(e).__name__}）。") from e
+            raise NotConfigured(T("server.mailbox.cantConnectToOutlooks", p0=type(e).__name__)) from e
         return m
     pw = password or secrets.get(IMAP_PASSWORD)
     if not (c["host"] and c["user"] and pw):
-        raise NotConfigured("邮箱还没有设置（设置 → 账号与连接 → 收件邮箱）。")
+        raise NotConfigured(T("server.mailbox.emailIsntSetUp"))
     try:
         m = imaplib.IMAP4_SSL(c["host"], c["port"], timeout=30)
     except Exception as e:  # noqa: BLE001
-        raise NotConfigured(f"连不上邮箱服务器 {c['host']}:{c['port']}（{type(e).__name__}）。") from e
+        raise NotConfigured(T("server.mailbox.cantConnectToMail", p0=c['host'], p1=c['port'], p2=type(e).__name__)) from e
     try:
         m.login(c["user"], pw)
     except imaplib.IMAP4.error as e:
-        raise NotConfigured(f"邮箱拒绝登录：{str(e)[:120]}。检查用户名，以及填的是不是授权码 / 应用专用密码。") from e
+        raise NotConfigured(T("server.mailbox.theMailServerRejected", p0=str(e)[:120])) from e
     if re.search(r"\.(163|126|yeah)\.(com|net)$", c["host"]):  # NetEase refuses SELECT ("Unsafe Login") until the client identifies itself
         imaplib.Commands["ID"] = ("AUTH",)
         try:
@@ -173,7 +175,7 @@ def _imap_fetch(since: datetime, limit: int, cfg: dict[str, Any] | None = None, 
     try:
         typ, _ = m.select("INBOX", readonly=True)
         if typ != "OK":
-            raise NotConfigured("邮箱不允许读取收件箱。")
+            raise NotConfigured(T("server.mailbox.thisMailboxDoesntAllow"))
         typ, data = m.search(None, "SINCE", since.strftime("%d-%b-%Y"))
         ids = (data[0] or b"").split()[-limit:] if typ == "OK" else []
         out: list[Message] = []

@@ -12,6 +12,8 @@ that is shown and is not affected costs a press.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import difflib
 import logging
 import re
@@ -91,8 +93,8 @@ def affected(found: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[di
 
 
 def _say(change: list[dict[str, str]]) -> str:
-    lines = "；".join(f"“{c['old_line']}”改成了“{c['new_line']}”" if c["new_line"] else f"删掉了“{c['old_line']}”" for c in change[:8])
-    return (f"我刚改了个人资料：{lines}。这份申请里依据这些的答案，请在表单上改成新的；其他已经填好的保持不变，不要重填。")
+    lines = "；".join(T("server.facts.became", p0=c['old_line'], p1=c['new_line']) if c["new_line"] else T("server.facts.removed", p0=c['old_line']) for c in change[:8])
+    return (T("server.facts.iHaveJustChanged", p0=lines))
 
 
 def profile_saved(old: str, new: str) -> int | None:
@@ -124,9 +126,9 @@ def profile_saved(old: str, new: str) -> int | None:
                 t.status = "held"
                 ids.append(t.id)
             held[row["application_id"]] = ids
-    titles = "\n".join(f"· {r['title']}（{len(r['answers'])} 项）" for r in open_[:8])
-    body = f"你改了个人资料里的 {len(found)} 处。下面 {len(open_)} 份还没发出的申请里有答案用的是旧的，已经先停下来等你决定：\n{titles}"
-    tid = notify.add_todo(KIND, "个人资料改了，有申请还用着旧的", body=body, ref=f"facts:{now().strftime('%Y%m%d%H%M%S')}",
+    titles = "\n".join(T("server.facts.answers", p0=r['title'], p1=len(r['answers'])) for r in open_[:8])
+    body = T("server.facts.youChangedLineS", p0=len(found), p1=len(open_), p2=titles)
+    tid = notify.add_todo(KIND, T("server.facts.yourProfileChangedSome"), body=body, ref=f"facts:{now().strftime('%Y%m%d%H%M%S')}",
                           payload={"changes": found, "applications": open_, "sent": sent, "held": {str(k): v for k, v in held.items()}})
     log.info("profile change: %d application(s) stopped, %d sent ones use the old value", len(open_), len(sent))
     return tid
@@ -142,7 +144,7 @@ def decide(todo_id: int, action: str, application_ids: list[int]) -> dict[str, i
     with db.session() as s:
         t = s.get(Todo, todo_id)
         if t is None or t.kind != KIND or t.status != "open":
-            raise ValueError("这张卡片已经处理过了")
+            raise ValueError(T("server.facts.thisCardHasAlready"))
         p = dict(t.payload or {})
     rows = {r["application_id"]: r for r in p.get("applications") or []}
     done = set(p.get("decided") or [])

@@ -13,6 +13,8 @@ draft at a lower score than the rest.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import hashlib
 import re
 from typing import Any, Callable, Iterator
@@ -26,8 +28,8 @@ BUILTIN_HOSTS = {  # host suffix -> reader in sources/bigtech.py
     "nvidia.eightfold.ai": "nvidia", "nvidia.com": "nvidia", "careers.amd.com": "amd", "amd.com": "amd", "jobs.intel.com": "intel", "intel.com": "intel",
 }
 BUILTIN_NAMES = {"amazon": "Amazon", "apple": "Apple", "google": "Google", "microsoft": "Microsoft", "meta": "Meta", "nvidia": "NVIDIA", "amd": "AMD", "intel": "Intel"}
-KIND_LABEL = {"builtin": "官网（已专门适配）", "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "smartrecruiters": "SmartRecruiters", "workday": "Workday",
-              "page": "招聘页（由 AI 读取）", "feed": "职位站订阅源（RSS）"}
+KIND_LABEL = {"builtin": T("server.employers.companyWebsiteFullySupported"), "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "smartrecruiters": "SmartRecruiters", "workday": "Workday",
+              "page": T("server.employers.careersPageReadBy"), "feed": T("server.employers.jobSiteFeedRss")}
 FEED_URL = re.compile(r"(/jobsrss/?|/rss/?|/feed/?|\.rss|\.atom|[?&](format|display)=rss|rss--|job-?feed|rssfeed)([?#]|$)", re.I)
 
 
@@ -102,7 +104,7 @@ def add(name: str, url: str, *, priority: bool = True) -> dict[str, Any]:
     if url and "//" not in url:
         url = "https://" + url
     if not url or not urlparse(url).netloc:
-        raise ValueError("请填写这家公司招聘页的网址")
+        raise ValueError(T("server.employers.enterTheUrlOf"))
     d = detect(url)
     if not name:
         name = BUILTIN_NAMES.get(d["ref"].get("key", ""), "") or next(iter(d["ref"].values()), "") if d["kind"] != "page" else ""
@@ -110,7 +112,7 @@ def add(name: str, url: str, *, priority: bool = True) -> dict[str, Any]:
     rows = listing()
     for r in rows:
         if r["kind"] == d["kind"] and (r["ref"].get("url") == d["ref"].get("url") if d["kind"] == "feed" else r["ref"] == d["ref"]) and (d["kind"] != "page" or r["url"] == url):
-            raise ValueError(f"「{r['name']}」已经在清单里了")
+            raise ValueError(T("server.employers.isAlreadyOnThe", p0=r['name']))
     if d["kind"] == "feed":   # how this board writes its titles, when the catalog knows it
         d["ref"]["style"] = next((r.get("style", "employer: title") for r in _catalog_rows() if r["url"] == url), "employer: title")
     row = {"id": _id(name, url), "name": name, "url": url, "kind": d["kind"], "ref": d["ref"], "priority": bool(priority), "enabled": True}

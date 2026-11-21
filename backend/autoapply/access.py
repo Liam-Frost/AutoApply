@@ -18,6 +18,8 @@ visit from this computer sets a new one. Being able to run that already means be
 
 from __future__ import annotations
 
+from .say import say as T
+
 import hashlib
 import hmac
 import ipaddress
@@ -85,15 +87,15 @@ def clean(patch: dict[str, Any]) -> dict[str, Any]:
                 try:
                     ipaddress.ip_address(v)
                 except ValueError:
-                    raise ValueError("监听地址要填 IP 地址：127.0.0.1（只有这台电脑）、这台电脑的某个地址，或 0.0.0.0（所有网络）") from None
+                    raise ValueError(T("server.access.theAddressMustBe")) from None
         elif k == "port":
             v = int(v)
             if not 1 <= v <= 65535:
-                raise ValueError("端口要在 1 到 65535 之间")
+                raise ValueError(T("server.access.thePortMustBe"))
         elif k == "root_path":
             v = "/" + str(v).strip().strip("/") if str(v).strip().strip("/") else ""
             if any(c in v for c in " ?#\\\"'<>") or "//" in v or ".." in v:
-                raise ValueError("路径前缀只能是像 /autoapply 这样的路径")
+                raise ValueError(T("server.access.thePathPrefixMust"))
         elif k in ("trusted_proxies", "allowed_hosts"):
             v = [str(x).strip().lower() for x in (v or []) if str(x).strip()]
             if k == "trusted_proxies":
@@ -101,15 +103,15 @@ def clean(patch: dict[str, Any]) -> dict[str, Any]:
                     try:
                         ipaddress.ip_address(x)
                     except ValueError:
-                        raise ValueError(f"反向代理的地址要填 IP 地址：{x}") from None
+                        raise ValueError(T("server.access.aProxyAddressMust", p0=x)) from None
             elif any(not all(c.isalnum() or c in "-." for c in x) for x in v):
-                raise ValueError("访问用的域名只填主机名，例如 jobs.example.com")
+                raise ValueError(T("server.access.aHostNameOnly"))
         elif k == "https_by_proxy":
             v = bool(v)
         elif k == "session_days":
             v = int(v)
             if not 1 <= v <= 365:
-                raise ValueError("登录保持天数要在 1 到 365 之间")
+                raise ValueError(T("server.access.daysToStaySigned"))
         out[k] = v
     return out
 
@@ -145,16 +147,16 @@ def has_admin() -> bool:
 
 def password_problem(password: str) -> str:
     if len(password) < 8:
-        return "密码至少 8 个字符"
+        return T("server.access.thePasswordNeedsAt")
     if len(password) > 200:
-        return "密码太长了"
+        return T("server.access.thePasswordIsToo")
     return ""
 
 
 def set_admin(user: str, password: str) -> None:
     user = user.strip()
     if not user or len(user) > 60:
-        raise ValueError("请填用户名")
+        raise ValueError(T("server.access.enterAUserName"))
     why = password_problem(password)
     if why:
         raise ValueError(why)

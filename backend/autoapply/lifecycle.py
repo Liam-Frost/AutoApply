@@ -8,6 +8,8 @@ application's status changes to a sent one, so no road can forget it.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import re
 from datetime import datetime
@@ -18,7 +20,7 @@ from .models import RANK, SENT, UNKNOWN, Application, Draft, Task, Todo, now
 
 log = logging.getLogger("autoapply.lifecycle")
 
-LABEL = {"submitted": "已提交", "confirmed": "已确认收到", "assessment": "测评中", "interview": "面试中", "offer": "已拿到 offer", "rejected": "已被拒"}
+LABEL = {"submitted": T("server.lifecycle.submitted"), "confirmed": T("server.lifecycle.receiptConfirmed"), "assessment": T("server.lifecycle.assessment"), "interview": T("server.lifecycle.interviewing"), "offer": T("server.lifecycle.offerReceived"), "rejected": T("server.lifecycle.rejected")}
 # cards that ask the applicant to do something for this application; a card about a driver, a setting or a mail is not one
 CARDS = ("failed", "submit", "answer", "takeover", "login", "blocked", "captcha")
 WORK = ("apply", "tailor", "recon", "scout", "execute", "revise", "reanswer")     # tasks that work an application (the last five: the kinds of earlier versions, in the history)
@@ -86,11 +88,11 @@ def closed_to_work(app: Application | None) -> str:
     if app is None:
         return ""
     if app.status in SENT:
-        return f"这份申请已经是“{LABEL.get(app.status, app.status)}”，没有可以重做的了"
+        return T("server.lifecycle.thisApplicationIsAlready", p0=LABEL.get(app.status, app.status))
     if app.status == UNKNOWN:
-        return "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功，再从这份申请的卡片上选“没有提交成功，重新填写”。"
+        return T("server.lifecycle.submitWasPressedOn")
     if app.status == "withdrawn":
-        return "你已经决定不投这个岗位了。想重新投的话，在岗位页重新生成草案。"
+        return T("server.lifecycle.youDecidedNotTo")
     return ""
 
 
@@ -125,7 +127,7 @@ def not_applying(job: Any, *, source: str = "user") -> bool:
     job.status = "skipped"
     if a is not None and a.status != "withdrawn":
         move(a, "withdrawn", source=source)
-        a.last_event = "你把这个岗位标成了不投"
+        a.last_event = T("server.lifecycle.youMarkedThisPosting")
     return True
 
 
@@ -183,7 +185,7 @@ def settle(application_id: int) -> dict[str, int]:
     return closed
 
 
-APPLIED_BEFORE = "雇主网站显示这个岗位已经申请过了，没有再提交一次"
+APPLIED_BEFORE = T("server.lifecycle.theEmployersSiteShows")
 _MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))}
 
 
@@ -250,7 +252,7 @@ def outcome_unknown(application_id: int, title: str, said: str, *, draft_id: int
         # "sign in and go on", "answer this") and the work that waited in the queue are closed, as for one that went out.
         # The drafts stay - if it turns out not to have been sent, they are what is filled in again.
         _close_waiting(s, a)
-    notify.add_todo("submit", f"{title}：提交结果待确认", body=f"{said}。如果已经提交成功，雇主的确认邮件会把它记为已投出；程序会继续留意邮箱，你也可以现在就查。"[:500],
+    notify.add_todo("submit", T("server.lifecycle.outcomeOfTheSubmission", p0=title), body=T("server.lifecycle.ifItWentThrough", p0=said)[:500],
                     ref=f"application:{application_id}", payload={"draft_id": draft_id, "application_id": application_id},
                     push=not db.get_setting("notify.task_result"))
     from . import mail as _mail
@@ -278,11 +280,11 @@ def unknown_from_before() -> list[int]:
             found[a.id] = (t.id, d.id if d is not None else None, f"{job.company} · {job.title}" if job is not None else "")
             t.status, t.done_at = "done", now()
             if move(a, UNKNOWN, source="recover"):
-                a.last_event = "点过提交，但没有看到提交成功的页面；等确认邮件核实"
+                a.last_event = T("server.lifecycle.submitWasPressedAnd")
                 _close_waiting(s, a)
     for app_id, (_, draft_id, title) in found.items():
-        notify.add_todo("submit", f"{title}：提交结果待确认", ref=f"application:{app_id}", payload={"draft_id": draft_id, "application_id": app_id},
-                        body="点过提交，但没有看到提交成功的页面。如果已经提交成功，雇主的确认邮件会把它记为已投出；你也可以现在就查。", push=False)
+        notify.add_todo("submit", T("server.lifecycle.outcomeOfTheSubmission", p0=title), ref=f"application:{app_id}", payload={"draft_id": draft_id, "application_id": app_id},
+                        body=T("server.lifecycle.submitWasPressedAnd2"), push=False)
     return sorted(found)
 
 

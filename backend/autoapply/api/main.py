@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..say import say as T
+
 import logging
 import os
 import mimetypes
@@ -13,6 +15,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.responses import JSONResponse
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -180,7 +184,45 @@ async def lifespan(app: FastAPI):
 
 log = logging.getLogger("autoapply.api")
 
-app = FastAPI(title="AutoApply", lifespan=lifespan)
+class _Said(JSONResponse):
+    """An answer of the API: every message in it (say.py) in the language of the page that asked."""
+
+    def render(self, content: Any) -> bytes:
+        from .. import say as _say
+
+        return super().render(_say.render(content))
+
+
+app = FastAPI(title="AutoApply", lifespan=lifespan, default_response_class=_Said)
+
+
+def _render_first() -> None:
+    """An answer whose function says what it returns ("-> dict[str, Any]") is turned into plain values by FastAPI before
+    it reaches _Said: its messages are rendered first, in the page's language (still in the request)."""
+    import fastapi.routing as _routing
+
+    if getattr(_routing.serialize_response, "_said", False):
+        return
+    plain = _routing.serialize_response
+
+    async def serialize_response(*args: Any, **kw: Any) -> Any:
+        from .. import say as _say
+
+        if "response_content" in kw:
+            kw["response_content"] = _say.render(kw["response_content"])
+        return await plain(*args, **kw)
+
+    serialize_response._said = True  # type: ignore[attr-defined]
+    _routing.serialize_response = serialize_response
+
+
+_render_first()
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _said_error(request: Any, exc: StarletteHTTPException) -> Any:  # noqa: ARG001
+    """A refusal says why in the page's language too."""
+    return _Said({"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
 
 
 # PD Portal import runs in the user's own browser on the portal's page and posts to this local server.
@@ -307,6 +349,9 @@ async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
         # called with the prefix it is served under (a proxy that does not strip it, or the page opened directly)
         request.scope["path"] = request.scope["path"][len(root):] or "/"
         request.scope["raw_path"] = request.scope["path"].encode()
+    from .. import say as _say
+
+    _say.set_page_lang(request.headers.get("x-lang", ""))      # (the page's language: what the program says is said in it)
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         # the applicant is doing something on the page: a task queued while this request is answered is one they asked for
         tasks.by_hand.set(True)
@@ -316,7 +361,7 @@ async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
         path = request.scope["path"]
         portal = path.startswith("/api/import/pdportal") and request.headers.get("origin") == PORTAL_ORIGIN and who["local"]
         if request.method != "OPTIONS" and not portal and not access.allowed(path, request.cookies.get(access.COOKIE), who, request.headers.get(access.LOCAL_HEADER)):
-            return JSONResponse({"detail": "请先登录。", "login": True}, status_code=401)
+            return JSONResponse({"detail": T("server.api.main.pleaseSignInFirst"), "login": True}, status_code=401)
     if why:
         log.warning("refused a request that did not come from this program's own pages (%s): %s %s", why, request.method, request.url.path)
         return JSONResponse({"detail": "This request did not come from AutoApply's own page and was refused."}, status_code=403)
@@ -341,9 +386,9 @@ def _404(x: Any, what: str = "not found") -> Any:
 # --- jobs ------------------------------------------------------------------------------
 
 
-SOURCE_LABEL = {"pdportal": "UBC PD Portal", "manual": "你手动添加的", "feed": "职位站订阅源", "greenhouse": "Greenhouse 看板", "ashby": "Ashby 看板", "lever": "Lever 看板", "workday": "Workday",
-                "amazon": "Amazon 官网", "apple": "Apple 官网", "google": "Google 官网", "microsoft": "Microsoft 官网", "meta": "Meta 官网", "nvidia": "NVIDIA 官网",
-                "amd": "AMD 官网", "intel": "Intel 官网", "smartrecruiters": "SmartRecruiters", "page": "雇主招聘页"}
+SOURCE_LABEL = {"pdportal": "UBC PD Portal", "manual": T("server.api.main.addedByYou"), "feed": T("server.api.main.jobBoardFeed"), "greenhouse": T("server.api.main.greenhouseBoard"), "ashby": T("server.api.main.ashbyBoard"), "lever": T("server.api.main.leverBoard"), "workday": "Workday",
+                "amazon": T("server.api.main.amazonWebsite"), "apple": T("server.api.main.appleCareersSite"), "google": T("server.api.main.googleWebsite"), "microsoft": T("server.api.main.microsoftWebsite"), "meta": T("server.api.main.metaWebsite"), "nvidia": T("server.api.main.nvidiaWebsite"),
+                "amd": T("server.api.main.amdWebsite"), "intel": T("server.api.main.intelCareersSite"), "smartrecruiters": "SmartRecruiters", "page": T("server.api.main.employerCareersPage")}
 
 
 def _job_row(j: Job, a: Application | None) -> dict[str, Any]:
@@ -354,7 +399,7 @@ def _job_row(j: Job, a: Application | None) -> dict[str, Any]:
         "location": j.location, "has_brief": bool(j.brief), "has_jd": len(j.jd_text or "") >= 200, "source": j.source, "source_label": SOURCE_LABEL.get(j.source, j.source),
         "posted": j.posted, "first_seen": j.first_seen.date().isoformat() if j.first_seen else "",
         "summary": j.summary, "note": j.note, "apply_url": j.apply_url, "ats": j.ats, "ats_label": humanize.ats_name(j.ats),
-        "channel_label": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
+        "channel_label": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else T("server.api.main.employerWebsite")),
         "app_id": a.id if a else None, "app_status": a.status if a else None, "app_detail": (humanize.explain(a.last_event)["message"] if a.last_event else "") if a else "", "auto_approved": bool(a.auto_approved) if a else False,
         "submitted_at": a.submitted_at.isoformat() if a and a.submitted_at else None,
         **stages.describe(stages.stage(j.status, bool(j.online), j.deadline or "", a.status if a else None)),
@@ -471,7 +516,7 @@ def patch_job(job_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 continue
             if k == "status" and v == "skipped":
                 if not lifecycle.not_applying(j):
-                    raise HTTPException(409, "这个岗位的申请已经投出（或者提交结果待确认），不能标成不投。")
+                    raise HTTPException(409, T("server.api.main.theApplicationForThis"))
                 continue
             setattr(j, k, v)
     return {"ok": True}
@@ -516,9 +561,9 @@ def tailor_job(job_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
     with db.session() as s:
         j = _404(s.get(Job, job_id))
         if len(j.jd_text or "") < 200:
-            raise HTTPException(400, "这个岗位没有岗位说明全文，没法按它调整简历")
+            raise HTTPException(400, T("server.api.main.thisPostingHasNo"))
     if tailor.base_doc() is None:
-        raise HTTPException(400, "还没有上传 Word 版简历。请在材料库里上传，用途选“简历 Word 原稿”")
+        raise HTTPException(400, T("server.api.main.noWordRSum"))
     return {"task_id": tasks.enqueue("tailor", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": body.get("instructions", "")}, priority=30)}
 
 
@@ -529,7 +574,7 @@ def _already_sent(a: Application) -> HTTPException:
 
     label = lifecycle.LABEL.get(a.status, a.status)
     lifecycle.settle(a.id)      # its own session; the caller has only read so far
-    return HTTPException(409, f"这份申请已经是“{label}”了，不需要再处理；相关的待办已经关掉")
+    return HTTPException(409, T("server.api.main.thisApplicationIsAlready", p0=label))
 
 
 @app.post("/api/jobs/{job_id}/mark-submitted")
@@ -545,7 +590,7 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
         elif a.status in SENT and a.status != "submitted":
             raise _already_sent(a)
         lifecycle.move(a, "submitted", source="user", at=now())
-        a.last_event = "你确认已自己在官网提交；等确认邮件核实"
+        a.last_event = T("server.api.main.youConfirmedYouSubmitted")
         a.detail = f"submitted {now().date().isoformat()} (by the user on the employer's site)"
         j.status = "applied"
         s.flush()
@@ -573,7 +618,7 @@ def job_brief(job_id: int) -> dict[str, Any]:
     try:
         return {"brief": scoring.brief_job(job_id)}
     except llm.LLMError as e:
-        raise HTTPException(503, f"AI 现在不可用：{str(e)[:200]}") from e
+        raise HTTPException(503, T("server.api.main.theAiIsNot", p0=str(e)[:200])) from e
 
 
 @app.post("/api/jobs/{job_id}/score")
@@ -707,9 +752,9 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
         if app.status == "executing":
             raise HTTPException(400, "a run is in progress")
         if app.status == UNKNOWN and not body.get("not_submitted"):
-            raise HTTPException(409, "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。")
+            raise HTTPException(409, T("server.api.main.submitWasPressedFor"))
         job_id, deadline = app.job_id, app.job.deadline
-        lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN, note="你确认上一次没有提交成功" if app.status == UNKNOWN else "")
+        lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN, note=T("server.api.main.youConfirmedThatThe") if app.status == UNKNOWN else "")
     return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
 
@@ -799,9 +844,9 @@ def not_submitted(application_id: int) -> dict[str, Any]:
     with db.session() as s:
         a = _404(s.get(Application, application_id))
         if a.status != UNKNOWN:
-            raise _already_sent(a) if a.status in SENT else HTTPException(409, "这份申请现在不是“结果待确认”")
+            raise _already_sent(a) if a.status in SENT else HTTPException(409, T("server.api.main.thisApplicationIsNot"))
         job_id, deadline = a.job_id, a.job.deadline
-        lifecycle.move(a, "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon", source="user", not_sent=True, note="你确认上一次没有提交成功")
+        lifecycle.move(a, "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon", source="user", not_sent=True, note=T("server.api.main.youConfirmedThatThe"))
     notify.close_todos("failed", f"application:{application_id}")
     return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
@@ -818,7 +863,7 @@ def correct_application(application_id: int, body: dict[str, Any] = Body(...)) -
         try:
             when = _dt.fromisoformat(str(body["submitted_at"])[:19])
         except ValueError as e:
-            raise HTTPException(400, "日期的格式不对") from e
+            raise HTTPException(400, T("server.api.main.theDateIsNot")) from e
     try:
         out = applications.correct(application_id, status=str(body.get("status") or ""), submitted_at=when, note=str(body.get("note") or ""))
     except KeyError as e:
@@ -842,7 +887,7 @@ def unlink_application_mail(application_id: int, body: dict[str, Any] = Body(...
     from .. import applications
 
     if not applications.unlink_mail(application_id, str(body["message_id"])):
-        raise HTTPException(404, "这封邮件没有关联到这份申请")
+        raise HTTPException(404, T("server.api.main.thisEMailIs"))
     return {"ok": True}
 
 
@@ -872,7 +917,7 @@ def mark_submitted(application_id: int) -> dict[str, Any]:
         if a.status in SENT and a.status != "submitted":
             raise _already_sent(a)
         lifecycle.move(a, "submitted", source="user", at=now())
-        a.last_event = "你确认已手动提交；没有保存到确认页，等确认邮件核实"
+        a.last_event = T("server.api.main.youConfirmedYouSubmitted2")
         a.detail = f"submitted {now().date().isoformat()} (confirmed by the user, no confirmation page captured)"
     for kind in ("failed", "submit"):
         notify.close_todos(kind, f"application:{application_id}")
@@ -891,7 +936,7 @@ def draft_resume(draft_id: int, body: dict[str, Any] = Body(...)) -> dict[str, A
         job_id = d.application.job_id
     which = "tailored" if body.get("which") == "tailored" else "base"
     if which == "tailored" and tailor.existing(job_id) is None:
-        raise HTTPException(400, "这个岗位还没有定制简历")
+        raise HTTPException(400, T("server.api.main.noTailoredRSum"))
     try:
         drafts.use_resume(draft_id, which)
     except drafts.Locked as e:
@@ -924,7 +969,7 @@ def drafts_batch(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             with db.session() as s:
                 d = _404(s.get(Draft, int(i)))
                 if d.review_status != "pending":
-                    raise ValueError("这份草案已经处理过")
+                    raise ValueError(T("server.api.main.thisDraftHasAlready"))
                 job_id, deadline = d.application.job_id, d.application.job.deadline
             if action == "withdraw":
                 drafts.reject(int(i), withdraw=True)
@@ -1060,7 +1105,7 @@ def _when(text: Any) -> Any:
     try:
         d = _dt.fromisoformat(str(text)[:19])
     except ValueError as e:
-        raise HTTPException(400, "日期的格式不对") from e
+        raise HTTPException(400, T("server.api.main.theDateIsNot")) from e
     return d.replace(tzinfo=None)
 
 
@@ -1076,9 +1121,9 @@ def calendar_items(start: str, end: str, kinds: str = "", states: str = "", comp
     try:
         lo, hi = _date.fromisoformat(start), _date.fromisoformat(end)
     except ValueError as e:
-        raise HTTPException(400, "日期的格式不对") from e
+        raise HTTPException(400, T("server.api.main.theDateIsNot")) from e
     if not lo < hi or (hi - lo).days > 120:
-        raise HTTPException(400, "一次最多看 120 天")
+        raise HTTPException(400, T("server.api.main.atMostDaysAt"))
     ks = tuple(k for k in kinds.split(",") if k in agenda.KINDS) or agenda.SHOWN
     ss = tuple(x for x in states.split(",") if x in agenda.STATES)
     return {"items": agenda.items(lo, hi, kinds=ks, states=ss, company=company, priority=priority, min_score=min_score, all_deadlines=all_deadlines),
@@ -1094,7 +1139,7 @@ def calendar_add(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
     title = " ".join(str(body.get("title") or "").split())
     if not title:
-        raise HTTPException(400, "写一句是什么事。")
+        raise HTTPException(400, T("server.api.main.writeWhatItIs"))
     time_ = str(body.get("time") or "").strip()
     try:
         when = _dt.fromisoformat(f"{str(body.get('day') or '')[:10]}T{time_ or '00:00'}")
@@ -1102,11 +1147,11 @@ def calendar_add(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         if link and not link.lower().startswith(("http://", "https://")):
             raise ValueError
     except ValueError as e:
-        raise HTTPException(400, "日期、时间或链接的格式不对") from e
+        raise HTTPException(400, T("server.api.main.theDateTimeOr")) from e
     try:
         tid = agenda.add_own(title, when, all_day=not time_, link=link, application_id=body.get("application_id") or None, note=str(body.get("note") or ""))
     except KeyError as e:
-        raise HTTPException(404, "没有这份申请") from e
+        raise HTTPException(404, T("server.api.main.noSuchApplication")) from e
     return {"id": tid}
 
 
@@ -1167,11 +1212,11 @@ def calendar_alarm_add(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
     item = str(body.get("item") or "")
     if not item.split(":")[0] in ("todo", "job") or not item.split(":")[-1].isdigit():
-        raise HTTPException(400, "这件事不能加提醒。")
+        raise HTTPException(400, T("server.api.main.thisItemCannotHave"))
     try:
         before = int(body.get("before"))
     except (TypeError, ValueError) as e:
-        raise HTTPException(400, "提前多久要是一个数字（分钟）。") from e
+        raise HTTPException(400, T("server.api.main.howLongBeforeHas")) from e
     return {"id": alarms.add(item, before), "alarms": alarms.of(item)}
 
 
@@ -1272,7 +1317,7 @@ def mail_out_send(outgoing_id: int) -> dict[str, Any]:
         raise HTTPException(409, str(e)) from e
     except Exception as e:  # noqa: BLE001 - the mail is still there; what went wrong is on the mail itself (outbox.send) and in the log
         logging.getLogger("autoapply").exception("an e-mail could not be sent")
-        raise HTTPException(502, "邮件没有发出去。原因记在这封邮件上，修好后可以再发一次。") from e
+        raise HTTPException(502, T("server.api.main.theEMailWas")) from e
     return _404(outbox.get(outgoing_id))
 
 
@@ -1304,7 +1349,7 @@ def todo_reply(todo_id: int) -> dict[str, Any]:
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
         if not (t.payload or {}).get("message_id"):
-            raise HTTPException(409, "这张卡片不是关于一封邮件的")
+            raise HTTPException(409, T("server.api.main.thisCardIsNot"))
     return {"task_id": tasks.enqueue("mail_reply", ref=f"todo:{todo_id}", payload={"todo_id": todo_id}, priority=20)}
 
 
@@ -1342,11 +1387,11 @@ def todo_code(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
     code = "".join(str(body.get("code") or "").split())[:40]
     if not code:
-        raise HTTPException(400, "请输入验证码")
+        raise HTTPException(400, T("server.api.main.pleaseEnterTheCode"))
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
         if t.kind != "code" or t.status != "open":
-            raise HTTPException(409, "这张卡片已经处理过了")
+            raise HTTPException(409, T("server.api.main.thisCardHasAlready"))
         job_id = int((t.payload or {}).get("job_id") or 0)
         waiting = bool(job_id and _work.being_worked(job_id))
         t.status, t.done_at = ("done" if waiting else "dismissed"), now()
@@ -1489,10 +1534,10 @@ def stop_task(task_id: int) -> dict[str, Any]:
     with db.session() as s:
         t = _404(s.get(Task, task_id))
         if t.status != "running" or t.kind != "apply":
-            raise HTTPException(409, "这个任务现在不在运行，或者不是一份申请的运行")
+            raise HTTPException(409, T("server.api.main.thisTaskIsNot"))
         a = tasks.application_of(s, t.ref)
         if a is None:
-            raise HTTPException(409, "还没有可以叫停的申请运行")
+            raise HTTPException(409, T("server.api.main.thereIsNoRun"))
         app_id = a.id
     _work.stop(app_id)
     return {"ok": True}
@@ -1588,7 +1633,7 @@ def _closing_soon(s: Any, limit: int = 6) -> list[dict[str, Any]]:
         if stages.stage(j.status, True, j.deadline or "", j.application.status if j.application else None) != "not_applied":
             continue
         rows.append({"id": j.id, "company": j.company, "title": j.title, "deadline": j.deadline, "score": j.score, "has_link": bool(j.apply_url),
-                     "channel_label": "UBC PD Portal" if j.ats == "pdportal" else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网")})
+                     "channel_label": "UBC PD Portal" if j.ats == "pdportal" else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else T("server.api.main.employerWebsite"))})
     rows.sort(key=lambda r: (r["deadline"], -(r["score"] or 0)))
     return rows[:limit]
 
@@ -1627,7 +1672,7 @@ def persona_apply(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Finish the guide: save the persona and the defaults the user confirmed."""
     p = {**persona.EMPTY, **(body.get("persona") or {})}
     if p["stage"] not in persona.STAGES or p["field"] not in persona.FIELDS:
-        raise HTTPException(400, "请先选择求职阶段和领域")
+        raise HTTPException(400, T("server.api.main.chooseYourCareerStage"))
     st = {k: v for k, v in (body.get("settings") or {}).items() if k in config.DEFAULT_SETTINGS and (k.startswith(("intake.", "sources.")) or k in ("queue.min_score_for_draft", "policy.default"))}
     persona.apply(p, st, str(body.get("scoring_md") or ""))
     if body.get("scan"):
@@ -1711,7 +1756,7 @@ def system_export_download(name: str) -> FileResponse:
     try:
         return FileResponse(backup.path_of(name), filename=name, media_type="application/zip")
     except FileNotFoundError as e:
-        raise HTTPException(404, "没有这个导出文件") from e
+        raise HTTPException(404, T("server.api.main.exportFileNotFound")) from e
 
 
 @app.get("/api/system/update")
@@ -1764,9 +1809,9 @@ def auth_state(request: Request) -> dict[str, Any]:
 def auth_setup(request: Request, response: Response, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """The first visit, on the computer itself: the user chooses the administrator's name and password."""
     if access.has_admin():
-        raise HTTPException(409, "管理员账号已经设置过了。忘记密码的话，在这台电脑的托盘图标里选“重置管理员密码”。")
+        raise HTTPException(409, T("server.api.main.theAdministratorAccountIs"))
     if not _who(request)["local"]:
-        raise HTTPException(403, "第一次设置管理员账号要在运行 AutoApply 的那台电脑上打开页面完成。")
+        raise HTTPException(403, T("server.api.main.theAdministratorAccountIs2"))
     try:
         access.set_admin(str(body.get("user") or ""), str(body.get("password") or ""))
     except ValueError as e:
@@ -1779,12 +1824,12 @@ def auth_setup(request: Request, response: Response, body: dict[str, Any] = Body
 def auth_login(request: Request, response: Response, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     wait = access.locked_for()
     if wait:
-        raise HTTPException(429, f"输错的次数太多了，请 {wait // 60 + 1} 分钟后再试。")
+        raise HTTPException(429, T("server.api.main.tooManyWrongAttempts", p0=wait // 60 + 1))
     ok = access.verify(str(body.get("user") or ""), str(body.get("password") or ""))
     access.note_login(ok)
     if not ok:
         log.warning("a login to this program was refused (from %s)", _who(request)["ip"])
-        raise HTTPException(401, "用户名或密码不对。")
+        raise HTTPException(401, T("server.api.main.wrongUserNameOr"))
     _start_session(request, response)
     return {"ok": True}
 
@@ -1803,9 +1848,9 @@ def auth_logout(request: Request, response: Response, body: dict[str, Any] = Bod
 def auth_password(request: Request, response: Response, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """A new password (and, if wanted, a new name). Every other device is signed out; this one stays in."""
     if not _signed_in(request):
-        raise HTTPException(401, "请先登录。")
+        raise HTTPException(401, T("server.api.main.pleaseSignInFirst"))
     if not access.verify(access.admin_name(), str(body.get("current") or "")):
-        raise HTTPException(400, "现在的密码不对。")
+        raise HTTPException(400, T("server.api.main.theCurrentPasswordIs"))
     try:
         access.set_admin(str(body.get("user") or access.admin_name()), str(body.get("password") or ""))
     except ValueError as e:
@@ -1849,10 +1894,10 @@ def identity_login(provider: str) -> dict[str, Any]:
             res = auth.identity_login(provider)
         except Exception as e:  # noqa: BLE001
             res = {"ok": False, "reason": type(e).__name__}
-        _IDP_STATE[provider] = "" if res.get("ok") else res.get("reason", "没有成功")
+        _IDP_STATE[provider] = "" if res.get("ok") else res.get("reason", T("server.api.main.didntWork"))
         if res.get("ok"):
             handlers.resume_waiting(f"account:idp:{provider}")
-            notify.send("task_result", messages.session_saved(f"{name} 账号", credentials=False), ref=f"account:idp:{provider}")
+            notify.send("task_result", messages.session_saved(T("server.api.main.account", p0=name), credentials=False), ref=f"account:idp:{provider}")
 
     _IDP_STATE[provider] = "trying"
     threading.Thread(target=context.carried(run), daemon=True, name="identity").start()
@@ -1971,10 +2016,10 @@ def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         try:
             res = auth.takeover(key, url, save_credentials=bool(body.get("save_credentials", True)))
         except Exception as e:  # noqa: BLE001
-            res = {"ok": False, "reason": f"登录窗口出错了：{type(e).__name__}"}
+            res = {"ok": False, "reason": T("server.api.main.signInWindowError", p0=type(e).__name__)}
         with db.session() as s:  # tell the user on the card what happened to the window they opened
             for td in s.query(Todo).filter_by(ref=f"account:{key}", status="open"):
-                td.payload = {**(td.payload or {}), "last_try": "" if res.get("ok") else res.get("reason", "没有成功"), "trying": False}
+                td.payload = {**(td.payload or {}), "last_try": "" if res.get("ok") else res.get("reason", T("server.api.main.didntWork")), "trying": False}
         if res.get("ok"):
             handlers.resume_waiting(f"account:{key}", f"account:{auth.key_for(key)}")
             notify.send("task_result", messages.session_saved(key, credentials=bool(res.get("credentials_saved"))), ref=f"account:{key}")
@@ -2200,9 +2245,9 @@ def document_preview(doc_id: int):
     from ..materials import _doc_text
 
     try:
-        return PlainTextResponse(_doc_text(str(path))[:200000] or "（这个文件没有可以显示的文字内容）")
+        return PlainTextResponse(_doc_text(str(path))[:200000] or T("server.api.main.thisFileHasNo"))
     except Exception:  # noqa: BLE001
-        raise HTTPException(415, "这种文件不能在网页里预览，请下载后查看") from None
+        raise HTTPException(415, T("server.api.main.thisFileTypeCant")) from None
 
 
 @app.get("/api/documents/{doc_id}/bytes")
@@ -2328,8 +2373,8 @@ def pdportal_import(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         with db.session() as s:
             total_new = s.query(func.count(Job.id)).filter(Job.source == "pdportal", Job.status == "new").scalar()
         out.update(duplicates=dups, new=total_new)
-        notify.send("task_result", messages.Card("📥", "PD Portal 岗位已导入", fields=[("门户上", f"{len(ids)} 个"), ("待评分的新岗位", f"{total_new} 个"), ("下线", str(out.get("offline", 0)))],
-                                                 path="/jobs", link="查看岗位"), ref="discover")
+        notify.send("task_result", messages.Card("📥", T("server.api.main.pdPortalPostingsImported"), fields=[(T("server.api.main.onThePortal"), T("server.api.main.text", p0=len(ids))), (T("server.api.main.newPostingsToScore"), T("server.api.main.text", p0=total_new)), (T("server.api.main.takenDown"), str(out.get("offline", 0)))],
+                                                 path="/jobs", link=T("server.api.main.viewJob")), ref="discover")
     return out
 
 
@@ -2407,7 +2452,7 @@ def remember_answer(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     question = " ".join(str(body.get("question") or "").split())[:200]
     answer = " ".join(str(body.get("answer") or "").split())[:300]
     if not question or not answer:
-        raise HTTPException(400, "要有问题和答案。")
+        raise HTTPException(400, T("server.api.main.aQuestionAndAn"))
     knowledge.append_rule(f'Form question "{question}": answer "{answer}".', source="user", section="Standard answers")
     return {"ok": True}
 
@@ -2479,9 +2524,9 @@ def analytics_ai_prices(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 if p.get(k) not in (None, ""):
                     row[k] = float(p[k])
         except (KeyError, TypeError, ValueError) as e:
-            raise HTTPException(400, f"「{model or '?'}」的价格不完整：输入和输出价格都要填数字") from e
+            raise HTTPException(400, T("server.api.main.thePriceForIs", p0=model or '?')) from e
         if not model or min(v for k, v in row.items() if k not in ("model", "provider")) < 0:
-            raise HTTPException(400, "模型名不能为空，价格不能是负数")
+            raise HTTPException(400, T("server.api.main.aModelNameIs"))
         out.append(row)
     db.set_setting("llm.prices", out)
     return {"ok": True, "repriced": metering.reprice()}
@@ -2659,9 +2704,9 @@ def llm_providers() -> dict[str, Any]:
     from .. import llm_codex, llm_openai
 
     saved = db.get_setting("llm.providers") or {}
-    rows = [{"key": "claude_subscription", "name": "Claude 订阅（Pro / Max）", "kind": "login"},
+    rows = [{"key": "claude_subscription", "name": T("server.api.main.claudeSubscriptionProMax"), "kind": "login"},
             {"key": "anthropic", "name": "Claude API key", "kind": "anthropic", "has_key": secrets.has(secrets.ANTHROPIC_KEY), "keys": "https://console.anthropic.com/settings/keys"},
-            {"key": "chatgpt", "name": "ChatGPT 订阅（Plus / Pro）", "kind": "codex", **llm_codex.status(), **{k: (saved.get("chatgpt") or {}).get(k, "") for k in ("model", "small_model", "effort")}}]
+            {"key": "chatgpt", "name": T("server.api.main.chatgptSubscriptionPlusPro"), "kind": "codex", **llm_codex.status(), **{k: (saved.get("chatgpt") or {}).get(k, "") for k in ("model", "small_model", "effort")}}]
     for k, p in llm_openai.PRESETS.items():
         c = saved.get(k) or {}
         rows.append({"key": k, "name": p["name"], "kind": "openai", "default_base_url": p["base_url"], "keys": p["keys"], "base_url": c.get("base_url", ""),
@@ -2683,7 +2728,7 @@ def llm_failover_save(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     for e in body.get("entries") or []:
         p = str(e.get("provider") or "")
         if not (p in ("claude_subscription", "anthropic", "chatgpt") or p in llm_openai.PRESETS):
-            raise HTTPException(400, f"不认识的 AI 服务：{p}")
+            raise HTTPException(400, T("server.api.main.unknownAiService", p0=p))
         rows.append({"provider": p, "model": str(e.get("model") or "").strip(), "small_model": str(e.get("small_model") or "").strip()})
     db.set_setting("llm.failover", rows)
     llm.reset_failover()
@@ -2704,7 +2749,7 @@ def llm_failover_test(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
     e = {"provider": str(body.get("provider") or ""), "model": str(body.get("model") or ""), "small_model": str(body.get("small_model") or "")}
     if not e["provider"]:
-        raise HTTPException(400, "没有指定 AI 服务")
+        raise HTTPException(400, T("server.api.main.noAiServiceSpecified"))
     out = llm.try_entry(e)
     for kind in ("main", "small"):   # what to show: one plain sentence; the service's own words go under "technical details"
         r = out[kind]
@@ -2755,7 +2800,7 @@ def llm_provider_save(key: str, body: dict[str, Any] = Body(...)) -> dict[str, A
     if key in llm_openai.PRESETS or key == "chatgpt":
         base = str(body.get("base_url", "")).strip()
         if base and not re.match(r"^https?://", base):
-            raise HTTPException(400, "接口地址要以 http:// 或 https:// 开头")
+            raise HTTPException(400, T("server.api.main.theEndpointUrlMust"))
         allp = dict(db.get_setting("llm.providers") or {})
         effort = str(body.get("effort", "")).strip()
         allp[key] = {"base_url": base, "model": str(body.get("model", "")).strip(), "small_model": str(body.get("small_model", "")).strip(),
@@ -2786,7 +2831,7 @@ def llm_provider_models(key: str, body: dict[str, Any] = Body(default={})) -> di
                 if r.status_code == 200:
                     return {"models": [m["id"] for m in r.json().get("data", [])] or known}
                 if r.status_code in (401, 403):
-                    raise HTTPException(400, "Anthropic 拒绝了这个 API key。")
+                    raise HTTPException(400, T("server.api.main.anthropicRejectedThisApi"))
             except HTTPException:
                 raise
             except Exception:  # noqa: BLE001 - unreachable: the built-in list still lets the user choose
@@ -2846,7 +2891,7 @@ def discord_bind() -> dict[str, Any]:
     from .. import bots, discord
 
     if not discord.configured():
-        raise HTTPException(400, "先保存 Discord 机器人令牌。")
+        raise HTTPException(400, T("server.api.main.saveTheDiscordBot"))
     return {"code": bots.bind_code()}
 
 
@@ -2909,7 +2954,7 @@ def mailbox_test(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     except (mailbox.NotConfigured, mail.MailNotConfigured) as e:
         raise HTTPException(400, str(e)) from None
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, f"读取邮箱时出错：{type(e).__name__}: {str(e)[:160]}") from None
+        raise HTTPException(400, T("server.api.main.errorReadingTheMailbox", p0=type(e).__name__, p1=str(e)[:160])) from None
 
 
 # --- people the user knows at employers -----------------------------------------------------
@@ -2942,7 +2987,7 @@ def list_contacts() -> list[dict[str, Any]]:
 @app.post("/api/contacts")
 def add_contact(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if not str(body.get("name", "")).strip():
-        raise HTTPException(400, "请填写姓名")
+        raise HTTPException(400, T("server.api.main.pleaseEnterYourName"))
     with db.session() as s:
         c = Contact(**{f: str(body.get(f, "") or "").strip()[:2000] for f in CONTACT_FIELDS})
         s.add(c)
@@ -3047,7 +3092,7 @@ def gmail_authorize() -> dict[str, Any]:
             handlers.resume_waiting("config:gmail")
             notify.send("task_result", messages.gmail_authorized(), ref="config:gmail")
         except Exception as e:  # noqa: BLE001
-            notify.add_todo("config", "Gmail 授权失败", body=str(e)[:300], ref="config:gmail")
+            notify.add_todo("config", T("server.api.main.gmailAuthorizationFailed"), body=str(e)[:300], ref="config:gmail")
 
     threading.Thread(target=context.carried(run), daemon=True, name="gmail-oauth").start()
     return {"started": True}
@@ -3065,10 +3110,10 @@ def _remote(request: Request, window_id: str):
 
     who = access.caller(request.client.host if request.client else "", request.headers)
     if not who["local"] and not who["https"] and not who.get("near"):
-        raise HTTPException(403, "远程窗口里可能要输入密码：从其他设备访问时必须通过 HTTPS。请在前面放一个负责 HTTPS 的反向代理，并在“设置 → 系统与数据 → 远程访问”里打开对应的开关。")
+        raise HTTPException(403, T("server.api.main.aRemoteWindowMay"))
     win = remote.get(window_id)
     if win is None:
-        raise HTTPException(404, "这个窗口已经关闭了。")
+        raise HTTPException(404, T("server.api.main.thisWindowHasBeen"))
     return win
 
 
@@ -3090,7 +3135,7 @@ def remote_screen(request: Request, window_id: str):
     is about to connect to it. Given to a signed-in caller only (the login has been checked before this runs)."""
     win = _remote(request, window_id)
     if not win.vnc:
-        raise HTTPException(409, "这个窗口不是虚拟屏幕上的窗口。")
+        raise HTTPException(409, T("server.api.main.thisWindowIsNot"))
     return {"password": win.vnc["password"]}
 
 
@@ -3181,7 +3226,7 @@ def remote_frame(request: Request, window_id: str, after: int = 0):
 
     win = _remote(request, window_id)
     if win.vnc:
-        raise HTTPException(409, "这个窗口是虚拟屏幕上的窗口，通过屏幕连接查看。")
+        raise HTTPException(409, T("server.api.main.thisWindowIsOn"))
     seq, frame = win.next_frame(after)
     headers = {"X-Seq": str(seq), "Cache-Control": "no-store", "X-State": json.dumps(win.state, ensure_ascii=True)}
     if frame is None:

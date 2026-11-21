@@ -10,6 +10,8 @@ not given says so in the text, between ``MISSING`` marks, and is not sent while 
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import re
 from pathlib import Path
@@ -99,7 +101,7 @@ def compose(application_id: int | None, *, kind: str, to: Any, subject: str, bod
             if t is not None:
                 t.payload = {**(t.payload or {}), "outgoing_id": oid}
     if not todo_id:
-        notify.add_todo(KIND, title or subject, body=f"收件人：{to}\n主题：{subject}", ref=f"mail:{oid}", payload={"outgoing_id": oid, "application_id": application_id})
+        notify.add_todo(KIND, title or subject, body=T("server.outbox.toSubject", p0=to, p1=subject), ref=f"mail:{oid}", payload={"outgoing_id": oid, "application_id": application_id})
     return oid
 
 
@@ -109,7 +111,7 @@ def edit(outgoing_id: int, changes: dict[str, Any]) -> dict[str, Any]:
         if o is None:
             raise KeyError(outgoing_id)
         if o.status not in OPEN:
-            raise NotNow("这封邮件已经发出或已经作废，不能再改。")
+            raise NotNow(T("server.outbox.thisEMailHas"))
         if "to" in changes:
             o.to = _addresses(changes["to"])
         if "cc" in changes:
@@ -144,14 +146,14 @@ def send(outgoing_id: int, *, by: str = "user") -> dict[str, Any]:
         if o.status == "sent":
             return as_dict(o)
         if o.status not in OPEN:
-            raise NotNow("这封邮件已经作废。")
+            raise NotNow(T("server.outbox.thisEMailWas"))
         if "@" not in o.to or not o.subject or not o.body:
-            raise NotNow("邮件还缺收件人、主题或正文。")
+            raise NotNow(T("server.outbox.theEMailStill"))
         if missing(o.body) or missing(o.subject):
-            raise NotNow("正文里还有需要你填写的内容（[[ ]] 标出来的部分），填好再发。")
+            raise NotNow(T("server.outbox.theTextStillHas"))
         gone = [a["name"] for a in (o.attachments or []) if not Path(str(a.get("path") or "")).is_file()]
         if gone:
-            raise NotNow(f"附件不在了：{'、'.join(gone)}")
+            raise NotNow(T("server.outbox.theAttachmentIsGone", p0='、'.join(gone)))
         o.status = "sending"      # (set before the mailbox is asked: a mail is not sent twice by two presses)
         what = {"to": o.to, "cc": o.cc, "subject": o.subject, "body": o.body, "attachments": list(o.attachments or []), "in_reply_to": o.in_reply_to}
         kind, app_id, todo_id = o.kind, o.application_id, o.todo_id
@@ -162,8 +164,8 @@ def send(outgoing_id: int, *, by: str = "user") -> dict[str, Any]:
             o = s.get(Outgoing, outgoing_id)
             # (what the applicant is told is the program's own sentence; the error as it was is in the log)
             o.status, o.error = "failed", (str(e)[:300] if isinstance(e, mail.MailNotConfigured)
-                                           else "连接邮箱服务器时网络中断了，试了三次都没有发出去。到“已发送”里确认过没有这封信，可以直接再发一次。" if mail._dropped(e)
-                                           else "邮箱没有接受这封邮件。详细原因记在程序的日志里。")
+                                           else T("server.outbox.theConnectionToThe") if mail._dropped(e)
+                                           else T("server.outbox.theMailboxDidNot"))
         if isinstance(e, mail.MailNotConfigured):
             raise NotNow(str(e)) from e
         log.exception("mail %s could not be sent", outgoing_id)

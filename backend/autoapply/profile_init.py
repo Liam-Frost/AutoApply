@@ -9,6 +9,8 @@ cannot be answered from nothing. That work goes on by itself once something is i
 
 from __future__ import annotations
 
+from .say import say as T
+
 import re
 from pathlib import Path
 from typing import Any
@@ -22,7 +24,7 @@ KIND = "profile_init"
 REF = "profile"                 # one profile, one task at a time
 CARD = "config:profile"         # the card that says the profile is empty - and what a task that needs it waits for
 RESUMES = ("resume_site", "resume_docx", "resume_portal", "source")       # an upload of these starts the writing when there is no profile
-NOTE = "从上传资料初始化"
+NOTE = T("server.profile_init.setUpFromUploaded")
 
 SYSTEM = """You set up an applicant profile used to fill job application forms.
 Write Markdown with exactly these level-2 sections, in this order:
@@ -69,7 +71,7 @@ def documents_for_init() -> list[Document]:
     return out
 
 
-NOTHING_TO_READ = "请先上传一份简历，或者写几句补充说明。"
+NOTHING_TO_READ = T("server.profile_init.uploadARSum")
 
 
 def in_flight() -> int | None:
@@ -111,7 +113,7 @@ def run(notes: str = "") -> dict[str, Any]:
     the task's result until the applicant has adopted or discarded it."""
     md = draft_profile(notes)
     if knowledge.blank(md):
-        raise ValueError("AI 没有从这些资料里整理出内容。可以换一份文件，或者在“个人资料”页自己填写。")
+        raise ValueError(T("server.profile_init.theAiDidNot"))
     todos = len(re.findall(r"TODO:", md))
     if knowledge.blank():
         knowledge.write("profile", md, source="init", note=NOTE)
@@ -122,8 +124,8 @@ def run(notes: str = "") -> dict[str, Any]:
 def _card() -> None:
     from . import notify
 
-    body = "给岗位评分、回答申请表都要用到个人资料，现在里面还没有内容，所以这两件事先等着。上传一份简历，程序会自动整理出个人资料；也可以在“个人资料”页自己填写。资料有了之后，等着的事会自动继续，不需要再操作。"
-    notify.add_todo("config", "个人资料还是空的", ref=CARD, body=body)
+    body = T("server.profile_init.scoringPostingsAndAnswering")
+    notify.add_todo("config", T("server.profile_init.yourProfileIsStill"), ref=CARD, body=body)
 
 
 def wanted() -> str:
@@ -211,7 +213,7 @@ def settle(task_id: int, how: str, markdown: str | None = None) -> dict[str, Any
             raise KeyError(task_id)
         r = dict(t.result or {})
         if t.status != "done" or r.get("settled") or not r.get("draft"):
-            raise ValueError("这份草稿已经处理过了。")
+            raise ValueError(T("server.profile_init.thisDraftHasAlready"))
         md = (markdown if markdown is not None and markdown.strip() else r["draft"]) if how == "adopt" else ""
         r.pop("draft")
         t.result = {**r, "settled": "adopted" if how == "adopt" else "discarded"}
@@ -262,7 +264,7 @@ def _pdf_text(path: str) -> str:
 
     text = "\n".join((pg.extract_text() or "") for pg in PdfReader(path).pages).strip()
     if not text:
-        raise ValueError(f"「{Path(path).name}」里读不出文字（可能是扫描件）。请上传文字版的 PDF 或 Word 文件。")
+        raise ValueError(T("server.profile_init.noTextCouldBe", p0=Path(path).name))
     return text[:60000]
 
 

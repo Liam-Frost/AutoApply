@@ -12,6 +12,8 @@ carries a button, and nothing happens until it is pressed.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import json
 import logging
 import secrets as _random
@@ -206,9 +208,9 @@ def confirm(token: str) -> str:
     if not p or p.get("until", "") < datetime.now().isoformat():
         from .actions import Done
 
-        raise Done(_t("这个按钮已经过期了；再说一遍要做什么。"))
+        raise Done(_t(T("server.chat.thisButtonHasExpired")))
     perform(p["what"], list(p.get("ids") or []))
-    return _t("已照办")
+    return _t(T("server.chat.done"))
 
 
 def _propose(what: str, ids: list[int], said: str) -> dict[str, str]:
@@ -216,7 +218,7 @@ def _propose(what: str, ids: list[int], said: str) -> dict[str, str]:
     pending = {k: v for k, v in (db.get_setting(PENDING) or {}).items() if v.get("until", "") > datetime.now().isoformat()}
     pending[token] = {"what": what, "ids": ids, "said": said, "until": (datetime.now() + timedelta(hours=2)).isoformat()}
     db.set_setting(PENDING, pending)
-    return {"label": _t(f"确认：{said[:50]}"), "data": f"c:{token}"}
+    return {"label": _t(T("server.chat.confirm", p0=said[:50])), "data": f"c:{token}"}
 
 
 # --- the conversation ----------------------------------------------------------------------------------------------------
@@ -330,7 +332,7 @@ def reply(text: str) -> tuple[str, list[dict[str, str]]]:
     past = _said_before(_history())
     goal = (f"The conversation so far:\n{past}\n\n" if past else "") + f"The applicant now says:\n{text}\n\nToday is {datetime.now():%Y-%m-%d %H:%M}."
     res = llm.agent(goal, tools, system=SYSTEM, kind="chat")
-    said = (res.final_text or "").strip() or _t("我没能给出回答，换个说法再试一次？")
+    said = (res.final_text or "").strip() or _t(T("server.chat.iCouldNotCome"))
     _remember("me", text)
     _remember("bot", said, list(about.values()))
     return said, buttons

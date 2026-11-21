@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..say import say as T
+
 import html
 import re
 from typing import Any, Iterator
@@ -264,7 +266,7 @@ def feed(url: str, board: str, scope: str, style: str = "employer: title") -> It
         r.raise_for_status()
     body = r.text.lstrip()
     if not re.match(r"<\?xml|<rss|<feed|<rdf", body[:300], re.I):
-        raise RuntimeError("这个地址返回的不是职位订阅源（RSS / Atom）")
+        raise RuntimeError(T("server.sources.public.thisAddressDoesNot"))
     host = urlparse(url).netloc.removeprefix("www.")
     for it in parse_feed(body):
         emp, job = split_title(it["title"], style)

@@ -1,13 +1,15 @@
 // Where the program is served: "" at the root, "/autoapply" behind a proxy that puts it under that path. The server
 // writes it into the page as <base href>.
 import { asDate, dateTimeOf } from './i18n/format'
+import { lang } from './i18n/catalog'
 
 export const ROOT = new URL(document.baseURI).pathname.replace(/\/$/, '')
 // A request the server answers with "sign in first": the page shows the login again (App.vue listens).
 export const auth = { onLogin: () => {} }
 
 async function req(method, path, body, isForm) {
-  const opt = { method, headers: {} }
+  // (the page's language: what the server says - a reason, a label, a refusal - comes in it)
+  const opt = { method, headers: { 'X-Lang': lang.value } }
   if (body !== undefined) {
     if (isForm) opt.body = body
     else { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body) }

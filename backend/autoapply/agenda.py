@@ -11,6 +11,8 @@ said it; moments the program recorded (in UTC) are turned into local time.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -180,7 +182,7 @@ def set_link(todo_id: int, link: str) -> None:
     """Where an item leads: the meeting of an interview, the start of an assessment, the page to answer an offer on."""
     link = link.strip()[:500]
     if link and not link.lower().startswith(("http://", "https://")):
-        raise ValueError("只能是 http(s) 地址")
+        raise ValueError(T("server.agenda.onlyAnHttpS"))
     with db.session() as s:
         t = s.get(Todo, todo_id)
         if t is None:

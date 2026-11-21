@@ -12,6 +12,8 @@ when they say so ("also from now on"): then it is written to their profile as a 
 
 from __future__ import annotations
 
+from .say import say as T
+
 from typing import Any
 
 from . import db, knowledge, lifecycle, materials, notify
@@ -33,13 +35,13 @@ def locked(d: Draft) -> str:
     longer do what the applicant means: it is an old version, the application was sent (the record is then what was
     sent), or the agent is working from it this moment."""
     if d.review_status not in ("pending", "approved"):
-        return "这是草案的旧版本，不能再改。请打开最新的那一版。"
+        return T("server.drafts.thisIsAnOld")
     status = d.application.status
     if status in SENT:
-        return "这份申请已经发出去了，草案保留作记录，不能再改。"
+        return T("server.drafts.thisApplicationHasBeen")
     if status == "executing" or _being_worked(d.application.job_id):
         # the run read the record when it began: a change made now would not reach it, and it may send what it read
-        return "Agent 正在处理这份申请，等这一次结束后再改；有话可以直接对它说，想马上改就先把它叫停。"
+        return T("server.drafts.theAgentIsWorking")
     return ""
 
 
@@ -133,7 +135,7 @@ def edit_answer(draft_id: int, qid: str, value: Any, *, save_rule: str = "", rem
         label = next((a.get("label", "") for a in d.answers if a["id"] == qid), "")
         if d.review_status == "approved":      # after the approval: kept where the applicant's other words on this record are
             before = next((a.get("value") for a in d.answers if a["id"] == qid), None)
-            s.add(DraftComment(draft_id=draft_id, comment=f"批准之后修改了“{label.strip()[:120]}”", result=f"{_shown(before)} → {_shown(value)}"))
+            s.add(DraftComment(draft_id=draft_id, comment=T("server.drafts.changedAfterTheApproval", p0=label.strip()[:120]), result=f"{_shown(before)} → {_shown(value)}"))
         d.answers = [{**a, "value": value, "basis": "edited by user", "confidence": "high", "source": "profile", "dropped": False} if a["id"] == qid else a for a in d.answers]
         d.unresolved = [u for u in d.unresolved if u["id"] != qid or value in ("", None, [])]
         after = _settled(s, d, draft_id)
@@ -156,10 +158,10 @@ def drop_question(draft_id: int, qid: str) -> None:
             raise Locked(why)
         row = next((a for a in d.answers if a["id"] == qid), None)
         if row is None or row.get("source") != "unresolved" or row.get("value") not in ("", None, []):
-            raise Locked("只有还没有答案的问题可以去掉。")
+            raise Locked(T("server.drafts.onlyAQuestionThat"))
         d.answers = [{**a, "dropped": True, "basis": "edited by user", "source": "profile", "required": False} if a["id"] == qid else a for a in d.answers]
         d.unresolved = [u for u in d.unresolved if u["id"] != qid]
-        d.notes = [*(d.notes or []), f"你去掉了一个问题：“{str(row.get('label') or '')[:120]}”"]
+        d.notes = [*(d.notes or []), T("server.drafts.youTookAQuestion", p0=str(row.get('label') or '')[:120])]
         after = _settled(s, d, draft_id)
     _after(draft_id, *after)
 
@@ -230,7 +232,7 @@ def reject(draft_id: int, *, withdraw: bool = False) -> None:
             lifecycle.move(app, "needs_input" if left[-1].unresolved else "draft_ready", source="user")
         elif lifecycle.move(app, "returned", source="user"):
             # No record is waiting any more: the posting reads "not applied" again, and says what was done and what there is to do.
-            app.last_event = "你退回了草案。想投这个岗位时，在岗位页重新开始。"
+            app.last_event = T("server.drafts.youSentTheDraft")
 
 
 def undo(app_id: int) -> None:

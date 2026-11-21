@@ -8,6 +8,8 @@ with the raw text kept as collapsible "technical details" for debugging.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import re
 from collections import Counter
 from typing import Any
@@ -17,15 +19,15 @@ from .models import Application, Draft, Job
 
 ATS = {
     "workday": "Workday", "greenhouse": "Greenhouse", "ashby": "Ashby", "lever": "Lever", "pdportal": "UBC PD Portal",
-    "generic": "公司官网", "oracle": "Oracle", "eightfold": "Eightfold", "workable": "Workable", "smartrecruiters": "SmartRecruiters",
+    "generic": T("server.humanize.companyWebsite"), "oracle": "Oracle", "eightfold": "Eightfold", "workable": "Workable", "smartrecruiters": "SmartRecruiters",
     "icims": "iCIMS", "successfactors": "SAP SuccessFactors", "jazzhr": "JazzHR", "": "",
 }
 TASK = {
-    "discover": "扫描新岗位", "score": "给岗位评分", "apply": "做这份申请", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
-    "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检", "site_status": "到雇主网站查申请状态", "profile_init": "从简历生成个人资料", "mail_reply": "起草回复邮件", "cover_letter": "写求职信",
+    "discover": T("server.humanize.scanForNewJobs"), "score": T("server.humanize.scoreJobs"), "apply": T("server.humanize.workingThisApplication"), "recon": T("server.humanize.readApplicationFormsCreate"), "scout": T("server.humanize.readingTheLaterSteps"), "tailor": T("server.humanize.tailorRSumTo"), "revise": T("server.humanize.reviseDraftWithYour"), "reanswer": T("server.humanize.reAnswerTheDrafts"),
+    "execute": T("server.humanize.fillInAndSubmit"), "mail": T("server.humanize.checkYourEmail"), "canary": T("server.humanize.selfCheck"), "site_status": T("server.humanize.checkApplicationStatusOn"), "profile_init": T("server.humanize.createProfileFromR"), "mail_reply": T("server.humanize.writeAReply"), "cover_letter": T("server.humanize.writeCoverLetter"),
 }
-TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn"),
-               "held": ("暂缓", ""), "cancelled": ("已取消", "")}
+TASK_STATUS = {"queued": (T("server.humanize.queued"), ""), "running": (T("server.humanize.inProgress"), "info"), "done": (T("server.humanize.done"), "ok"), "failed": (T("server.humanize.unfinished"), "bad"), "waiting_human": (T("server.humanize.needsYou"), "warn"),
+               "held": (T("server.humanize.setAside"), ""), "cancelled": (T("server.humanize.cancelled"), "")}
 
 
 def ats_name(ats: str) -> str:
@@ -55,37 +57,37 @@ def site(tenant_key: str) -> dict[str, str]:
 
 _CJK = re.compile(r"[一-鿿]")
 _RULES: list[tuple[str, str]] = [
-    (r"ChatGPT.*(usage limit|额度已用完)|hit your usage limit", "ChatGPT 订阅的额度用完了，要等它重置。"),
-    (r"Claude subscription usage limit", "Claude 订阅的额度用完了，要等它重置。"),
-    (r"usage limit", "这家 AI 服务的额度用完了，要等它重置。"),
-    (r"还没有安装 ChatGPT 接入组件", "ChatGPT 的接入组件还没有安装。"),
-    (r"AI 服务的额度用完了或账户欠费", "这家 AI 服务的余额用完了或账户欠费。"),
-    (r"拒绝了这个 API key|API key is missing or invalid", "API key 没填、填错了，或者没有权限。"),
-    (r"连不上 AI 服务|cannot reach the Claude API", "连不上这家 AI 服务。检查网络和“设置 → 系统与数据 → 网络连接”。"),
-    (r"还没有选模型", "这家服务还没有选模型。"),
-    (r"subscription login is not usable|not logged in", "登录失效了，需要重新登录这家服务。"),
+    (r"ChatGPT.*(usage limit|额度已用完)|hit your usage limit", T("server.humanize.yourChatgptSubscriptionHit")),
+    (r"Claude subscription usage limit", T("server.humanize.yourClaudeSubscriptionHit")),
+    (r"usage limit", T("server.humanize.thisAiServiceHit")),
+    (T("server.humanize.chatgptConnectorNotInstalled"), T("server.humanize.theChatgptConnectorIsnt")),
+    (T("server.humanize.aiServiceLimitReached"), T("server.humanize.thisAiServiceIs")),
+    (r"拒绝了这个 API key|API key is missing or invalid", T("server.humanize.theApiKeyIs")),
+    (r"连不上 AI 服务|cannot reach the Claude API", T("server.humanize.cantReachThisAi")),
+    (T("server.humanize.noModelSelectedYet"), T("server.humanize.noModelSelectedFor")),
+    (r"subscription login is not usable|not logged in", T("server.humanize.signInExpiredPlease")),
     (r"网站暂时打不开|SiteDown|HTTP 5\d\d|Server error '5\d\d|error page|empty page|could not open the posting|net::ERR|Page\.goto: Timeout|Site Maintenance|ConnectTimeout|ReadTimeout|ConnectError|ReadError|RemoteProtocolError|timed out|getaddrinfo failed|Name or service not known|Connection (reset|refused|aborted)",
-     "网站暂时打不开，可能正在维护。稍后会自动重试，不需要你操作。"),
-    (r"窗口已关闭或超时", "窗口关闭前没有看到“提交成功”的页面，所以不确定有没有提交。如果你已经点了提交，点“我已经提交了”。"),
-    (r"岗位.{0,12}已关闭|找不到这个岗位|posting not found|no longer (open|accepting|available)|job_unavailable|not found on Ashby", "这个岗位在雇主官网上已经关闭或下线了。"),
-    (r"captcha|human verification|人机验证", "网站要求做人机验证，这一步需要你本人完成。"),
-    (r"already exists|already registered|已经注册过", "这个邮箱在该网站上已经注册过。请登录一次，之后程序会记住。"),
-    (r"应该已经有账号", "你之前投过这家公司，应该已经有账号。请登录一次，登录状态和密码会保存下来。"),
-    (r"Registration did not complete|registration failed|Registered, but signing in failed", "自动注册没有完成。你可以让它再试一次，或者自己登录。"),
-    (r"verification e-?mail did not arrive|没有等到这封邮件|no verification e-mail", "没有收到网站发来的验证邮件。"),
-    (r"没有接受邮件验证码", "网站没有接受邮件里的验证码。"),
-    (r"Automatic login failed|Login did not succeed|Login failed twice|sign-in rejected", "用保存的密码自动登录没有成功，需要你登录一次。"),
-    (r"session has expired|session expired", "登录已过期，需要你重新登录一次。"),
-    (r"login required|No stored login|needs you to sign in|sign in yourself|This account needs", "这个网站需要先登录才能继续。"),
-    (r"differ from the draft|mismatch", "填完后逐项核对，发现页面上有内容和草案不一致，所以没有提交。"),
-    (r"form changed|drift", "申请表和生成草案时不一样了，已重新读取。"),
-    (r"no confirmation after submit", "点了提交，但没有看到“提交成功”的页面。请到邮箱确认是否收到确认信。"),
-    (r"could not determine the form structure", "没能读懂这个网站的申请表。"),
-    (r"no résumé|No résumé", "还没有上传简历。"),
-    (r"cover-letter|cover letter", "求职信没有生成成功。"),
-    (r"interrupted|superseded", "这次运行被中断了（通常是因为重启）。"),
-    (r"Locator\.|waiting for locator|TimeoutError|Timeout \d+ms|strict mode violation|is not an? <", "页面上没有出现程序预期的内容。可能是网站还没加载完，也可能是页面改版了。"),
-    (r"KeyError|TypeError|AttributeError|ValueError|AssertionError|Traceback", "程序内部出错了，这次没有完成。"),
+     T("server.humanize.theSiteCantBe")),
+    (T("server.humanize.windowClosedOrTimed"), T("server.humanize.theWindowClosedBefore")),
+    (r"岗位.{0,12}已关闭|找不到这个岗位|posting not found|no longer (open|accepting|available)|job_unavailable|not found on Ashby", T("server.humanize.thisPostingHasBeen")),
+    (r"captcha|human verification|人机验证", T("server.humanize.theSiteWantsA")),
+    (r"already exists|already registered|已经注册过", T("server.humanize.thisEmailIsAlready")),
+    (T("server.humanize.shouldAlreadyHaveAn"), T("server.humanize.youVeAppliedTo")),
+    (r"Registration did not complete|registration failed|Registered, but signing in failed", T("server.humanize.automaticSignUpDidnt")),
+    (r"verification e-?mail did not arrive|没有等到这封邮件|no verification e-mail", T("server.humanize.noVerificationEmailArrived")),
+    (T("server.humanize.noEmailVerificationCode"), T("server.humanize.theSiteDidntAccept")),
+    (r"Automatic login failed|Login did not succeed|Login failed twice|sign-in rejected", T("server.humanize.couldntSignInAutomatically")),
+    (r"session has expired|session expired", T("server.humanize.yourSignInExpired")),
+    (r"login required|No stored login|needs you to sign in|sign in yourself|This account needs", T("server.humanize.thisSiteNeedsYou")),
+    (r"differ from the draft|mismatch", T("server.humanize.afterFillingItIn")),
+    (r"form changed|drift", T("server.humanize.theApplicationFormChanged")),
+    (r"no confirmation after submit", T("server.humanize.submitWasClickedBut")),
+    (r"could not determine the form structure", T("server.humanize.couldntUnderstandThisSites")),
+    (r"no résumé|No résumé", T("server.humanize.noRSumUploaded")),
+    (r"cover-letter|cover letter", T("server.humanize.theCoverLetterCouldnt")),
+    (r"interrupted|superseded", T("server.humanize.thisRunWasInterrupted")),
+    (r"Locator\.|waiting for locator|TimeoutError|Timeout \d+ms|strict mode violation|is not an? <", T("server.humanize.thePageDidnT")),
+    (r"KeyError|TypeError|AttributeError|ValueError|AssertionError|Traceback", T("server.humanize.somethingWentWrongInside")),
 ]
 
 
@@ -100,7 +102,7 @@ def explain(text: str | None) -> dict[str, str]:
 
         return {"message": f"{MAIL[m.group(1)][1]}：{m.group(2)}", "detail": ""}
     if re.search(r"not on the last step of the form|could not tell which button submits", raw):
-        return {"message": "表单已经填好，但程序没能确认提交按钮，所以没有提交。点“重新填写并提交”，这次会把窗口交给你点提交。", "detail": raw}
+        return {"message": T("server.humanize.theFormIsFilled"), "detail": raw}
     for pat, msg in _RULES:
         if re.search(pat, raw, re.I):
             return {"message": msg, "detail": "" if raw == msg else raw}
@@ -109,38 +111,38 @@ def explain(text: str | None) -> dict[str, str]:
         return {"message": raw, "detail": ""}
     if not re.search(r"Error|Exception|Traceback|Timeout|failed|Locator|refused|invalid", raw, re.I):
         return {"message": raw, "detail": ""}  # a plain status note, not a failure
-    return {"message": "这一步没有完成。", "detail": raw}
+    return {"message": T("server.humanize.thisStepDidntFinish"), "detail": raw}
 
 
 _NOTES: list[tuple[str, str]] = [
     (r"^This form was read up to its step \"(.*?)\"; that step did not let the program go on \(the form said: (.*?)\)\. Not read yet: (.*?)\. Answer the open questions and the reading goes on from there by itself\.$",
-     r"这张表读到了「\1」这一步，这一步没能通过（表单的提示：\2）。还没读到的步骤：\3。回答完没有答案的问题后，程序会自己从这里接着读。"),
-    (r"^While reading the form, the field \"(.*?)\" could not be filled in \((.*)\)\.$", r"读表时「\1」这一栏没能填上（\2）。"),
-    (r"^Proposed rule \(confirm to save to profile\): (.*)$", r"建议记住这条规则（你确认后会存进个人资料）：\1"),
+     T("server.humanize.thisFormWasRead")),
+    (r"^While reading the form, the field \"(.*?)\" could not be filled in \((.*)\)\.$", T("server.humanize.whileReadingTheForm")),
+    (r"^Proposed rule \(confirm to save to profile\): (.*)$", T("server.humanize.suggestedRuleToRemember")),
     (r"^Form changed since the approved draft v(\d+): (\d+) new or changed question\(s\) need review; the other answers are carried over\.$",
-     r"申请表和你批准第 \1 版草案时不一样了：有 \2 个新增或变化的问题需要你看，其余答案沿用。"),
-    (r"^(?:Required file|File) '(.+?)' has no matching document\.( No résumé has been uploaded yet.*)?$", r"「\1」这一栏没有可以上传的文件。"),
-    (r"^The form has no transcript field; the transcript goes in the Cover Letter slot\.$", "表单上没有成绩单栏，成绩单会放在求职信那一栏上传。"),
-    (r"^Cover letter still has open issues: (.*)$", r"求职信还有没解决的问题：\1"),
+     T("server.humanize.theApplicationFormHas")),
+    (r"^(?:Required file|File) '(.+?)' has no matching document\.( No résumé has been uploaded yet.*)?$", T("server.humanize.theresNoFileTo")),
+    (r"^The form has no transcript field; the transcript goes in the Cover Letter slot\.$", T("server.humanize.theFormHasNo")),
+    (r"^Cover letter still has open issues: (.*)$", T("server.humanize.theCoverLetterStill")),
     (r"^The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted\. (\d+) answer\(s\) were added from your profile; "
      r"(\d+) answer\(s\) the employer's site already holds were read into the draft; (\d+) question\(s\) need your answer\.$",
-     r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，读回了雇主网站上已经存着的 \2 个答案，有 \3 个问题需要你回答。"),
+     T("server.humanize.theLaterStepsHave")),
     (r"^The later steps of this form were read by filling in this draft's answers step by step, up to the review page; nothing was submitted\. (\d+) answer\(s\) were added from your profile; (\d+) question\(s\) need your answer\.$",
-     r"后面的步骤已经读完：程序带着这份草案的答案一步步填到了确认页，没有提交。按你的资料补了 \1 个答案，有 \2 个问题需要你回答。"),
+     T("server.humanize.theLaterStepsHave2")),
     (r"^Reading the later steps stopped at \"(.*)\": (\d+) question\(s\) there need your answer\. Answer them and the reading goes on from there; nothing was submitted\.$",
-     r"读后面的步骤时停在了「\1」：那里有 \2 个问题需要你回答。回答之后会从那里接着读；没有提交。"),
-    (r"^Still open: (.*)$", r"还没定：\1"),
-    (r"^Reading the later steps did not work this time; .*$", r"这次没能读到后面的步骤；填表时会读到，问到的新问题会加进这份草案。"),
+     T("server.humanize.readingTheLaterSteps2")),
+    (r"^Still open: (.*)$", T("server.humanize.stillOpen")),
+    (r"^Reading the later steps did not work this time; .*$", T("server.humanize.theLaterStepsCould")),
     (r"^Steps of this form that could not be read yet: (.*?)\. The form shows them only after the earlier steps are filled; .*$",
-     r"这张表有几步在生成草案时还读不到：\1。要先填完前面的步骤，表单才显示它们；第一次填表时会读到，问到的新问题会加进这份草案，需要你回答的会退回给你。"),
+     T("server.humanize.someStepsOfThis")),
 ]
 _BASIS: list[tuple[str, str]] = [
-    (r"^carried over from approved draft v(\d+)$", r"沿用你批准过的第 \1 版草案"),
-    (r"^revised per comment: (.*)$", r"按你的修改意见：\1"),
-    (r"^materials list$", "从你上传的材料里选的"),
-    (r"^no document for this slot$", "没有对应的文件"),
-    (r"^edited by the user$|^user edit$", "你手动填写的"),
-    (r"^answer cache.*$|^cache.*$", "以前回答过同样的问题"),
+    (r"^carried over from approved draft v(\d+)$", T("server.humanize.usingDraftVersionYou")),
+    (r"^revised per comment: (.*)$", T("server.humanize.basedOnYourFeedback")),
+    (r"^materials list$", T("server.humanize.pickedFromYourUploaded")),
+    (r"^no document for this slot$", T("server.humanize.noMatchingFile")),
+    (r"^edited by the user$|^user edit$", T("server.humanize.enteredByYou")),
+    (r"^answer cache.*$|^cache.*$", T("server.humanize.youveAnsweredThisQuestion")),
 ]
 
 
@@ -149,7 +151,7 @@ def _map(text: str, table: list[tuple[str, str]]) -> str:
         if re.search(pat, text or "", re.S):
             out = re.sub(pat, rep, text, flags=re.S)
             if "No résumé has been uploaded" in (text or ""):
-                out += "还没有上传简历，请到“个人资料 → 材料清单”上传。"
+                out += T("server.humanize.noRSumUploaded2")
             return out
     return text or ""
 
@@ -164,12 +166,12 @@ def basis(text: str) -> str:
 
 
 APP_STATUS = {
-    "recon": "正在读取申请表", "revising": "正在按你的意见修改", "needs_input": "有问题等你回答", "draft_ready": "等你审批",
-    "approved": "已批准，排队填写", "executing": "正在填写", "drifted": "申请表有变化，重新读取中", "ready_to_submit": "填好了，还没有提交",
-    "submit_unknown": "提交结果待确认", "needs_human": "需要你处理", "failed": "没有提交成功", "submitted": "已提交", "confirmed": "已收到确认信", "assessment": "笔试 / OA / VA",
-    "interview": "面试", "offer": "收到 Offer", "rejected": "已被拒", "withdrawn": "不投了", "returned": "草案已退回",
+    "recon": T("server.humanize.readingTheApplicationForm"), "revising": T("server.humanize.revisingWithYourFeedback"), "needs_input": T("server.humanize.questionsWaitingForYour"), "draft_ready": T("server.humanize.awaitingYourApproval"),
+    "approved": T("server.humanize.approvedQueuedForFilling"), "executing": T("server.humanize.fillingIn"), "drifted": T("server.humanize.applicationFormChangedRe"), "ready_to_submit": T("server.humanize.filledInNotSubmitted"),
+    "submit_unknown": T("server.humanize.outcomeOfTheSubmission"), "needs_human": T("server.humanize.needsYourAction"), "failed": T("server.humanize.submissionFailed"), "submitted": T("server.humanize.submitted"), "confirmed": T("server.humanize.confirmationEmailReceived"), "assessment": T("server.humanize.writtenTestOaVa"),
+    "interview": T("server.humanize.interview"), "offer": T("server.humanize.offerReceived"), "rejected": T("server.humanize.rejected"), "withdrawn": T("server.humanize.skipIt"), "returned": T("server.humanize.draftSentBack"),
 }
-REVIEW = {"pending": "等你审批", "approved": "已批准", "superseded": "已被新版本替代", "rejected": "已退回", "closed": "已关闭（申请已经提交）"}
+REVIEW = {"pending": T("server.humanize.awaitingYourApproval"), "approved": T("server.humanize.approved"), "superseded": T("server.humanize.replacedByANewer"), "rejected": T("server.humanize.sentBack"), "closed": T("server.humanize.closedTheApplicationHas")}
 
 
 def subject(ref: str) -> str:
@@ -177,12 +179,12 @@ def subject(ref: str) -> str:
     kind, _, rest = (ref or "").partition(":")
     ident = rest.split(":")[0]
     if kind in ("schedule", "manual", "unscored", ""):
-        return {"schedule": "定时运行", "manual": "手动触发", "unscored": "新入库的岗位"}.get(kind, "")
+        return {"schedule": T("server.humanize.scheduledRuns"), "manual": T("server.humanize.runManually"), "unscored": T("server.humanize.newlyAddedPostings")}.get(kind, "")
     if kind == "account":
         st = site(rest)
-        return f"{st['name']} 的账号"
+        return T("server.humanize.account", p0=st['name'])
     if kind == "config":
-        return "设置"
+        return T("server.humanize.settings")
     if not ident.isdigit():
         return ""
     with db.session() as s:
@@ -205,51 +207,51 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
     if kind == "discover":
         t = r.get("total") or {}
         errs = r.get("errors") or {}
-        base = (f"读到 {t['read']} 个，" if t.get("read") else "") + f"符合条件 {t.get('seen', 0)} 个，新增 {t.get('new', 0)} 个" + (f"，下线 {t['offline']} 个" if t.get("offline") else "")
-        return base + (f"；{len(errs)} 个来源没读到" if errs else "")
+        base = (T("server.humanize.found", p0=t['read']) if t.get("read") else "") + T("server.humanize.matchedNew", p0=t.get('seen', 0), p1=t.get('new', 0)) + (T("server.humanize.takenDown", p0=t['offline']) if t.get("offline") else "")
+        return base + (T("server.humanize.couldntReadSources", p0=len(errs)) if errs else "")
     if kind == "mail":
         if r.get("skipped"):
-            return "Gmail 还没有授权，已跳过"
-        return f"新邮件 {r.get('new_mail', 0)} 封，更新了 {r.get('status_updates', 0)} 个申请的状态" + (f"，{r['unmatched']} 封没对上岗位" if r.get("unmatched") else "")
+            return T("server.humanize.gmailIsntAuthorizedYet")
+        return T("server.humanize.newEmailsApplicationsUpdated", p0=r.get('new_mail', 0), p1=r.get('status_updates', 0)) + (T("server.humanize.emailsDidntMatchA", p0=r['unmatched']) if r.get("unmatched") else "")
     if kind == "profile_init":
         n = int(r.get("todos") or 0)
         if r.get("applied"):
-            return f"已生成并保存为个人资料，有 {n} 处需要你补充" if n else "已生成并保存为个人资料"
+            return T("server.humanize.generatedAndSavedAs", p0=n) if n else T("server.humanize.generatedAndSavedAs2")
         if r.get("settled"):
-            return "生成的草稿已采用" if r["settled"] == "adopted" else "生成的草稿没有采用"
-        return f"草稿已生成，有 {n} 处需要你补充，等你在“个人资料”页查看" if n else "草稿已生成，等你在“个人资料”页查看"
+            return T("server.humanize.theGeneratedDraftWas") if r["settled"] == "adopted" else T("server.humanize.theGeneratedDraftWas2")
+        return T("server.humanize.draftGeneratedWithItem", p0=n) if n else T("server.humanize.draftGeneratedItIs")
     if kind == "score" and r.get("waits_for_profile"):
-        return "个人资料还是空的，等资料有了再评分"
+        return T("server.humanize.yourProfileIsStill")
     if kind == "score":
-        return (f"评了 {r.get('scored', 0)} 个岗位" + (f"，{r['queued_for_draft']} 个高分岗位排队等 Agent 去申请" if r.get("queued_for_draft") else "")
-                + (f"；还有 {r['remaining']} 个没评，几分钟后接着评" if r.get("remaining") else "")) if "scored" in r else "已评分"
+        return (T("server.humanize.scoredPostings", p0=r.get('scored', 0)) + (T("server.humanize.highScoringPostingsQueued", p0=r['queued_for_draft']) if r.get("queued_for_draft") else "")
+                + (T("server.humanize.stillUnscoredScoringResumes", p0=r['remaining']) if r.get("remaining") else "")) if "scored" in r else T("server.humanize.scored")
     if kind == "apply":
         if r.get("already_applied"):
-            return "这份申请已经发出去了，没有再做"
+            return T("server.humanize.thisApplicationHasAlready")
         if r.get("skipped"):
-            return "没有做：你已经决定不投这个岗位"
-        return {"submitted": "已提交，确认凭据已保存", "ready": "已填到最后一步，申请记录等你批准", "needs_input": "有问题需要你回答，其余已经填好", "submit_unknown": "点了提交，结果待确认",
-                "not_sent": "到网站上核实过：上一次没有发出，接着做", "goes_on": "这一次的预算用完了，下一次接着做", "cannot": "没有做成，原因见待办", "gone": "岗位已经下架，没有投", "mail_ready": "申请邮件已写好，等你看一遍再发", "stuck": "连续几次停在同一个地方，等你看一下",
-                "budget_used": "这份申请的预算用完了，等你决定是否继续", "stopped": "已按你的要求停下"}.get(str(r.get("status")), "")
+            return T("server.humanize.notWorkedYouDecided")
+        return {"submitted": T("server.humanize.sentTheConfirmationIs"), "ready": T("server.humanize.filledInUpTo"), "needs_input": T("server.humanize.aQuestionNeedsYour"), "submit_unknown": T("server.humanize.submitWasPressedThe"),
+                "not_sent": T("server.humanize.checkedOnTheSite"), "goes_on": T("server.humanize.thisRunsShareOf"), "cannot": T("server.humanize.itDidNotGet"), "gone": T("server.humanize.thePostingWasTaken"), "mail_ready": T("server.humanize.theApplicationEMail"), "stuck": T("server.humanize.itStoppedAtThe"),
+                "budget_used": T("server.humanize.thisApplicationsBudgetIs"), "stopped": T("server.humanize.stoppedAsYouAsked")}.get(str(r.get("status")), "")
     if kind == "recon":      # (and below: what earlier versions ran, in the history)
         if r.get("status") == "submit_unknown":
-            return "没有生成草案：这份申请点过提交，结果待确认"
-        return "草案已生成，等你审批" if r.get("draft_id") else ""
+            return T("server.humanize.noDraftWasMade")
+        return T("server.humanize.draftCreatedAwaitingYour") if r.get("draft_id") else ""
     if kind == "revise":
-        return "已按你的意见生成新版本"
+        return T("server.humanize.newVersionCreatedFrom")
     if kind == "execute":
-        return {"submitted": "已提交", "ready_to_submit": "已填好，还没有提交", "submit_unknown": "点了提交，结果待确认", "drifted": "申请表有变化，已重新读取", "failed": "没有提交",
-                "needs_human": "需要你处理", "approved": "改为在可见窗口里重跑"}.get(str(r.get("status")), "")
+        return {"submitted": T("server.humanize.submitted"), "ready_to_submit": T("server.humanize.filledInNotSubmitted2"), "submit_unknown": T("server.humanize.submitWasPressedThe"), "drifted": T("server.humanize.applicationFormChangedRe2"), "failed": T("server.humanize.notSubmitted"),
+                "needs_human": T("server.humanize.needsYourAction"), "approved": T("server.humanize.rerunInAVisible")}.get(str(r.get("status")), "")
     if kind == "site_status":
         r = result or {}
         if r.get("linked"):
-            return f"在雇主网站上查到了，邮件已关联到 {len(r['linked'])} 个申请"
-        return {"already linked": "邮件已经关联过了", "no saved sign-in for this employer's site": "这个雇主的网站没有保存的登录，没法查",
-                "no address of the employer's site": "不知道这个雇主的网站地址，没法查"}.get(
-            r.get("skipped", ""), f"读到网站上的 {r.get('read', 0)} 个申请，但没能确定邮件属于哪一个，留给你指定")
+            return T("server.humanize.foundOnTheEmployers", p0=len(r['linked']))
+        return {"already linked": T("server.humanize.theEmailWasAlready"), "no saved sign-in for this employer's site": T("server.humanize.noSavedSignIn"),
+                "no address of the employer's site": T("server.humanize.theAddressOfThis")}.get(
+            r.get("skipped", ""), T("server.humanize.readApplicationSOn", p0=r.get('read', 0)))
     if kind == "canary":
         n = int(((result or {}).get("fixtures") or {}).get("failed") or 0)
-        return f"自检完成；有 {n} 个保存的表单页面和现在读到的不一致，已保留并记下，不需要你处理" if n else "自检完成"
+        return T("server.humanize.selfCheckDoneSaved", p0=n) if n else T("server.humanize.selfCheckComplete")
     return ""
 
 
@@ -267,20 +269,20 @@ def browser_stage(stage: str) -> str:
     backend, why = m.group(1), m.group(2)
     if backend == "playwright" and why == "default":
         return ""
-    name = "普通浏览器" if backend == "nodriver" else "程序自带的浏览器"
+    name = T("server.humanize.theOrdinaryBrowser") if backend == "nodriver" else T("server.humanize.theProgramsOwnBrowser")
     if why == "task override":
-        return f"这一次改用{name}（你点的“换浏览器重试”）"
+        return T("server.humanize.thisTimeInYou", p0=name)
     if why == "default":
-        return f"用{name}"
+        return T("server.humanize.in", p0=name)
     if why.startswith("tenant: "):
-        return f"用{name}：这个网站的账号规则是这样定的（{why[8:]}）"
+        return T("server.humanize.inThisSitesAccount", p0=name, p1=why[8:])
     if why.startswith("domain: "):
-        return f"用{name}：站点规则是这样定的（{why[8:]}）"
+        return T("server.humanize.inASiteRule", p0=name, p1=why[8:])
     if why.startswith("where the sign-in for "):
-        return f"用{name}：这个网站的登录是在它里面做的"
+        return T("server.humanize.inThisSitesSign", p0=name)
     if why.startswith("signs in through "):
-        return f"用{name}：这个网站通过第三方账号登录，那个账号的登录在它里面"
-    return f"用{name}"
+        return T("server.humanize.inThisSiteIs", p0=name)
+    return T("server.humanize.in", p0=name)
 
 
 def reused(r: dict[str, Any] | None, ats: str = "") -> str:
@@ -292,11 +294,11 @@ def reused(r: dict[str, Any] | None, ats: str = "") -> str:
     day = str(r.get("at") or "")[:10]
     if r.get("own"):
         if r.get("confirmed"):
-            return f"你在这家雇主的表单上确认过这个答案（{day}）" if day else "你在这家雇主的表单上确认过这个答案"
-        return f"这家雇主的表单上次填的就是这个答案（{day}），你还没有确认过" if day else "这家雇主的表单上次填的就是这个答案，你还没有确认过"
+            return T("server.humanize.youConfirmedThisAnswer", p0=day) if day else T("server.humanize.youConfirmedThisAnswer2")
+        return T("server.humanize.thisIsTheAnswer", p0=day) if day else T("server.humanize.thisIsTheAnswer2")
     who = site(f"{ats}:{r['employer']}")["name"] if r.get("employer") and ats else str(r.get("employer") or "")
     if who:
-        return (f"这个答案上次用在 {who} 的表单上（{day}）；在这家雇主这里你还没有确认过" if day
-                else f"这个答案上次用在 {who} 的表单上；在这家雇主这里你还没有确认过")
-    return (f"这个答案来自同一个招聘系统上另一家雇主的表单（{day}）；在这家雇主这里你还没有确认过" if day
-            else "这个答案来自同一个招聘系统上另一家雇主的表单；在这家雇主这里你还没有确认过")
+        return (T("server.humanize.thisAnswerWasLast", p0=who, p1=day) if day
+                else T("server.humanize.thisAnswerWasLast2", p0=who))
+    return (T("server.humanize.thisAnswerComesFrom", p0=day) if day
+            else T("server.humanize.thisAnswerComesFrom2"))
