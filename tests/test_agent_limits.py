@@ -366,6 +366,38 @@ def test_the_run_waits_for_what_the_applicant_does_on_their_phone_or_in_the_wind
     assert "did not answer" in agent.wait_for_applicant("人机验证", window=True) and agent.need["kind"] == "window"
 
 
+def test_nobody_is_asked_for_a_page_that_goes_on_by_itself_and_a_wait_ends_when_the_page_does(desk, tmp_path, monkeypatch):
+    """Signing in at the university went through the second factor's page every time; only sometimes did that page
+    want an approval. The agent asked for one whenever it found itself there."""
+    from autoapply import browser
+    from autoapply.agent import run
+    from autoapply.models import Todo
+
+    monkeypatch.setattr(browser, "in_use", lambda: ("playwright", False))
+    after = tmp_path / "portal.html"
+    after.write_text("<title>The portal</title><p>Signed in.</p>", encoding="utf-8")
+
+    def second_factor(passes_after_ms):
+        _show(desk.page, tmp_path, f"<title>Second factor</title><p>Checking...</p><script>setTimeout(() => location.href = {after.as_uri()!r}, {passes_after_ms})</script>")
+
+    agent = _carded(desk.make())
+    # it only passes through: no card, no notice, and the agent is told where the window is now
+    monkeypatch.setattr(run, "STAYS_SECONDS", 4)
+    second_factor(600)
+    said = agent.wait_for_applicant("approve the sign-in on your phone")
+    assert "Nothing was asked" in said and "portal.html" in said and not agent.waiting
+    with db.session() as s:
+        assert s.query(Todo).count() == 0
+    # it stays, so the applicant is asked - and when it goes on (they approved on the phone), the wait is over without
+    # anybody pressing the card
+    monkeypatch.setattr(run, "STAYS_SECONDS", 0.5)
+    second_factor(2500)
+    said = agent.wait_for_applicant("approve the sign-in on your phone")
+    assert "has gone on" in said and "portal.html" in said and not agent.waiting
+    with db.session() as s:
+        assert [t.status for t in s.query(Todo).filter_by(kind="confirm")] == ["dismissed"]
+
+
 def test_the_agent_takes_an_application_to_the_other_browser_once(desk, monkeypatch):
     from autoapply import browser
 

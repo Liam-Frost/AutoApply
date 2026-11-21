@@ -28,6 +28,7 @@ STOP = "stop"       # a file of this name in the application's folder: the appli
 SAID = "said.jsonl"
 WINDOW = "window"            # in an application's folder: its next run opens in a window the applicant can see
 WAIT_MINUTES = 10            # how long a run waits for the applicant's code or confirmation before it ends
+STAYS_SECONDS = 8            # a page that asks something of the applicant is still there after this long; one that only passes through is not
 BROWSERS = {"playwright": "the automated browser (a Chromium this program starts and drives; some sites recognise and refuse it)",
             "nodriver": "the applicant's ordinary browser (a plain Chrome window driven from outside; a site sees an ordinary visitor)"}     # what the applicant said to the agent about this application, a line each (work.say)
 
@@ -570,9 +571,20 @@ class Desk:
     # A code runs out in minutes and an approved sign-in not much later: a run that ends there and is taken up again
     # tomorrow finds neither. So the run stays where it is, in the same window and session, the applicant is asked on
     # their to-do page (and on their phone), and what they give comes back to the agent as the tool's answer.
-    def _wait_for_card(self, todo_id: int) -> dict[str, Any] | None:
+    def _place_now(self) -> str:
+        """Where the window is, without what changes while a page stays the same page (its query, its fragment)."""
+        from urllib.parse import urlsplit
+
+        try:      # (asked of the page itself: what the browser's driver last heard may be a moment old)
+            u = urlsplit(str(self.hands.page.evaluate("() => location.href")))
+            return f"{u.netloc}{u.path}"
+        except Exception:  # noqa: BLE001 - a window on its way somewhere is not where it was
+            return ""
+
+    def _wait_for_card(self, todo_id: int, left: Any = None) -> dict[str, Any] | None:
         """The card's payload once the applicant has dealt with it; None when they closed it, stopped the run, or the
-        time is up. The time waited is theirs, not the run's."""
+        time is up. ``left``: says whether the page has gone on by itself - then what was waited for has happened,
+        whether or not anybody pressed the card ({"went_on": True}). The time waited is theirs, not the run's."""
         from .. import db
         from ..models import Todo
 
@@ -589,6 +601,8 @@ class Desk:
                         got = dict(t.payload or {})
                         t.payload = {k: v for k, v in got.items() if k != "code"}      # (a code is used once: not kept)
                         return got
+                if left is not None and left():
+                    return {"went_on": True}
                 self._idle(2)
             return None
         finally:
@@ -630,6 +644,16 @@ class Desk:
         from .. import browser
 
         why = " ".join(str(why).split())[:400]
+        # A page that stands between a sign-in and the site - a second factor's, a "checking your browser" - asks
+        # something of the applicant only some of the time: a device it remembers passes in a second or two. Whether
+        # this one asks is seen by whether it stays; nobody is rung up for a page that goes on by itself.
+        was, until = self._place_now(), time.monotonic() + STAYS_SECONDS
+        while time.monotonic() < until:
+            if self._place_now() != was:
+                self.write("went_on", url=self.hands.page.url)
+                return ("Nothing was asked of the applicant: the page went on by itself within a few seconds. The window is on "
+                        f"{self.hands.page.url} now. Look at it and go on.")
+            self._idle(0.5)
         self.write("needs_applicant", need="window" if window else "confirm", why=why, url=self.hands.page.url)
         if window and not browser.in_use()[1]:
             self._stops_for("window", why)
@@ -639,7 +663,11 @@ class Desk:
             self._stops_for("window" if window else "confirm", why)
             return "The applicant cannot be asked from here. This run is over: call report with outcome needs_you."
         todo = self.card("confirm", why, {"window": bool(window)})
-        got = self._wait_for_card(todo)
+        got = self._wait_for_card(todo, left=lambda: self._place_now() != was)
+        if got is not None and got.get("went_on"):
+            self._close_card(todo)      # (they did it; the card has nothing left to ask)
+            self.write("applicant_done", went_on=True)
+            return f"The page has gone on: the window is on {self.hands.page.url} now. Look at it and go on."
         if got is not None:
             self.write("applicant_done")
             return "The applicant says it is done. The window is yours again: look at what it shows now and go on."
@@ -743,8 +771,11 @@ class Desk:
                                  "applicant's language (six digits, to the phone ending in 42).", spec(["what"], what=s), self.ask_code),
             llm.Tool("wait_for_applicant", "Wait while the applicant does something only they can do, then go on in the same window and session. `window` false: it happens "
                                            "away from this window - they approve a sign-in on their phone, tap a number in an authenticator app. `window` true: they must "
-                                           "act in this browser window - a CAPTCHA, a puzzle, a passkey prompt. `why`: what they are to do, in their language. Comes back "
-                                           f"when they say they are done (up to {WAIT_MINUTES} minutes).", spec(["why"], why=s, window=b), self.wait_for_applicant),
+                                           "act in this browser window - a CAPTCHA, a puzzle, a passkey prompt. `why`: what they are to do, in their language. Read "
+                                           "the page first: call this for what the page says it is waiting for, not for where the window happens to be - the "
+                                           "page of a second factor often only passes through. The applicant is asked only if the page is still there after a few "
+                                           f"seconds; the tool comes back when the page goes on or they say they are done (up to {WAIT_MINUTES} minutes).",
+                     spec(["why"], why=s, window=b), self.wait_for_applicant),
             llm.Tool("change_browser", "Take this application up again in the other of the program's two browsers (the brief says which one this run is in). For a site "
                                        "that refuses or breaks in this one: a page that says access is forbidden or restricted, an endless check, a form that will not "
                                        "load - while nothing says the posting itself is gone. Ends this run; the next begins at once.", spec(["why"], why=s), self.change_browser),

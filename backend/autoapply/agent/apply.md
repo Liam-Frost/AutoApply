@@ -30,6 +30,9 @@ a value that did not take, a list that opened somewhere else, an error under a f
      ask them for: `ask_code`. They type it on their to-do page and you get it back while you wait in the same window.
    - an approval **on their phone** (a prompt to accept, a number to tap): `wait_for_applicant`. They do it and say so;
      you go on at once, before the approval runs out.
+   Ask for what the page says it is waiting for - read it first. A sign-in often passes through a second factor's page
+   that asks nothing this time (the device is remembered) and goes on within a second or two: being on that page is
+   not being asked.
    - a **CAPTCHA** or a puzzle is theirs to do in the window: `wait_for_applicant` with `window` true. Never work
      around one.
 4. **The budget of this application** is in the brief. Before it runs out, write down where you are (`log`), so that
