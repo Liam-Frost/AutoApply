@@ -207,6 +207,9 @@ def _claude_command_line(monkeypatch, state):
     async def query(prompt, options):
         handlers = options.mcp_servers["autoapply"]
         state["system"] = options.system_prompt
+        if isinstance(options.system_prompt, dict):      # too long for a command line: it is in a file the command line reads
+            state["system_file"] = options.system_prompt["path"]
+            state["system"] = open(options.system_prompt["path"], encoding="utf-8").read()
         async for first in prompt:
             state["first"] = first["message"]["content"]
         if state.get("summarizes"):      # the command line shortened a long conversation
@@ -282,6 +285,25 @@ def test_what_an_agent_is_told_stands_with_its_instructions_and_a_summarized_con
     lines = [json.loads(ln) for ln in (tmp_path / "journal.jsonl").read_text(encoding="utf-8").splitlines()]
     said = [e["text"] for e in lines if e["kind"] == "log"]
     assert len(said) == 1 and "summarized" in said[0] and "150,000" in said[0]      # whoever follows the run can see that it happened
+
+
+def test_a_system_text_too_long_for_a_command_line_is_given_in_a_file(app_env, monkeypatch):
+    """Windows takes 32,767 characters for a whole command line and answers "file not found" to more: an application
+    with a long brief could not be started at all, and the applicant was told Claude was not installed."""
+    import os
+
+    from autoapply import agentbudget, llm
+
+    state: dict = {}
+    _claude_command_line(monkeypatch, state)
+    brief = "THE BRIEF " + "a long posting, a full profile, the journal of four runs. " * 800
+    assert len(brief) > 32767
+    llm.agent(brief, _look([]), system="the manual", budget=agentbudget.Budget(1, 60))
+    assert state["system"].startswith("the manual") and brief in state["system"]      # all of it, unchanged
+    assert state["system_file"] and not os.path.exists(state["system_file"])           # and not left behind
+    state.clear()
+    llm.agent("short", _look([]), system="the manual", budget=agentbudget.Budget(1, 60))
+    assert "system_file" not in state and "short" in state["system"]
 
 
 def test_a_backup_service_goes_on_with_what_is_left_of_the_budget(app_env, monkeypatch):
