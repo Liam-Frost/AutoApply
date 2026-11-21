@@ -437,7 +437,32 @@ def _spent(folder: Path, result: run.Result) -> None:
         used = row.ledger
         history = [*used.get("history", []), {"at": now().isoformat(), "seconds": result.seconds, "steps": result.steps,
                                               "stopped": result.stopped, "usage": result.usage}]
-        row.ledger = {**used, "history": history, "steps": used["steps"] + result.steps, "seconds": used["seconds"] + result.seconds, "runs": used["runs"] + 1}
+        # A run in which the model never worked - it could not be reached, its allowance was used up - is on the
+        # record and costs the application nothing: its time went into starting a browser and waiting for an answer
+        # that did not come. (Nine such runs took twenty of an application's forty-five minutes.)
+        charged = 0.0 if _never_worked(result.steps, result.stopped) else result.seconds
+        row.ledger = {**used, "history": history, "steps": used["steps"] + result.steps, "seconds": used["seconds"] + charged, "runs": used["runs"] + 1}
+
+
+def _never_worked(steps: Any, stopped: Any) -> bool:
+    return not int(steps or 0) and str(stopped or "").startswith(("LLMUnavailable", "LLMError"))
+
+
+def give_back_idle_time() -> int:
+    """Ledgers from before runs without any work stopped being charged: their time is taken off again. Returns how
+    many applications got time back."""
+    from ..models import ApplicationBudget
+
+    n = 0
+    with db.session() as session:
+        for row in session.query(ApplicationBudget):
+            used = dict(row.ledger or {})
+            idle = sum(float(h.get("seconds") or 0) for h in used.get("history", []) if _never_worked(h.get("steps"), h.get("stopped")) and not h.get("given_back"))
+            if idle > 0:
+                history = [{**h, "given_back": True} if _never_worked(h.get("steps"), h.get("stopped")) else h for h in used.get("history", [])]
+                row.ledger = {**used, "history": history, "seconds": max(0.0, float(used.get("seconds") or 0) - idle)}
+                n += 1
+    return n
 
 
 def grant(application_id: int, request_id: str = "") -> bool:

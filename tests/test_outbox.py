@@ -207,3 +207,70 @@ def test_a_confirmation_is_looked_for_only_where_and_while_it_is_needed(app_env,
     monkeypatch.setattr(mail, "track", lambda **kw: read.append(kw) or {"status_updates": 0})
     tasks.enqueue("mail", ref=f"confirm:{app_id}", dedupe=False)
     assert tasks.drain() == 1 and read == []
+
+
+class _Mailbox:
+    """Gmail's service, as far as sending uses it: it can drop the connection before, or after, it took the mail."""
+
+    def __init__(self, drops):
+        self.drops, self.sent, self.calls = list(drops), [], []
+
+    def users(self):
+        return self
+
+    def messages(self):
+        return self
+
+    def getProfile(self, **kw):  # noqa: N802
+        return self._call("profile", lambda: {"emailAddress": "alex@example.com"})
+
+    def list(self, **kw):
+        want = kw["q"].partition(":")[2]
+        return self._call("list", lambda: {"messages": [{"id": f"g{i}", "threadId": f"t{i}"} for i, mid in enumerate(self.sent) if mid == want]})
+
+    def send(self, **kw):
+        import base64
+        import email
+
+        mid = email.message_from_bytes(base64.urlsafe_b64decode(kw["body"]["raw"]))["Message-ID"].strip("<>")
+
+        def go():
+            how = self.drops.pop(0) if self.drops else ""
+            if how != "before":
+                self.sent.append(mid)
+            if how:
+                import ssl
+
+                raise ssl.SSLEOFError("EOF occurred in violation of protocol")
+            return {"id": f"g{len(self.sent) - 1}", "threadId": "t"}
+
+        return self._call("send", go)
+
+    def _call(self, name, fn):
+        self.calls.append(name)
+        return type("R", (), {"execute": staticmethod(fn)})()
+
+
+def test_a_mail_goes_out_once_through_a_connection_that_drops(app_env, monkeypatch):
+    """A reply was not sent: the connection to the mailbox was cut once, and nothing tried again. Trying again blindly
+    would send a mail twice when only the answer was lost."""
+    import ssl
+
+    from autoapply import mail, outbox
+
+    monkeypatch.setattr(mail, "can_send", lambda: True)
+    monkeypatch.setattr(mail.time, "sleep", lambda s: None)
+    for drops, tries in ((["before"], 2), (["after"], 1), ([], 1)):
+        box = _Mailbox(drops)
+        monkeypatch.setattr(mail, "_service", lambda box=box: box)
+        got = mail.send_message(to="jobs@acme.example", subject="s", body="b")
+        assert len(box.sent) == 1 and box.calls.count("send") == tries and got["id"] == "g0", drops      # one mail, whatever was lost on the way
+    # a connection that stays down: said in the program's words, and the mail is still there to send
+    box = _Mailbox(["before"] * 5)
+    monkeypatch.setattr(mail, "_service", lambda: box)
+    app_id, _ = _application()
+    oid = outbox.compose(app_id, kind="application", to="jobs@acme.example", subject="s", body="b")
+    with pytest.raises(ssl.SSLError):
+        outbox.send(oid)
+    left = outbox.get(oid)
+    assert left["status"] == "failed" and left["can_edit"] and "网络中断" in left["error"] and "SSL" not in left["error"] and box.sent == []
