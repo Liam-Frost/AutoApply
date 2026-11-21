@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // First-run guide. Asks who is using the program, then proposes what to look for; nothing is saved until the last step.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -11,7 +12,7 @@ import { useProfileInit } from '../profileInit'
 import { loadPersona, toast } from '../ui'
 
 const router = useRouter()
-const STEPS = ['开始', '连接 AI', '你的情况', '简历', '找什么岗位', '从哪里找', '完成', '试一次']
+const STEPS = [T('welcome.start'), T('welcome.connectAi'), T('welcome.yourSituation'), T('welcome.rSum'), T('welcome.whatJobsToLook'), T('welcome.whereToLook'), T('welcome.done'), T('welcome.tryOnce')]
 const step = ref(0)
 const meta = ref(null)
 const p = ref({ stage: '', field: '', targets: [], countries: ['CA'], sponsorship: false, portal: '', strategy: 'volume' })
@@ -38,7 +39,7 @@ const piTask = computed(() => (piSt.value && piSt.value.task) || {})
 const bigtech = ref({})
 const trial = ref({ url: '', state: '', message: '', draft: 0, job: 0 })
 let trialTimer
-const COUNTRIES = [['CA', '加拿大'], ['US', '美国'], ['GB', '英国'], ['AU', '澳大利亚'], ['DE', '德国'], ['SG', '新加坡'], ['CN', '中国'], ['HK', '中国香港']]
+const COUNTRIES = [['CA', T('welcome.canada')], ['US', T('welcome.unitedStates')], ['GB', T('welcome.unitedKingdom')], ['AU', T('welcome.australia')], ['DE', T('welcome.germany')], ['SG', T('welcome.singapore')], ['CN', T('welcome.china')], ['HK', T('welcome.hongKongChina')]]
 const BIG = [['amazon', 'Amazon'], ['apple', 'Apple'], ['google', 'Google'], ['microsoft', 'Microsoft'], ['meta', 'Meta'], ['nvidia', 'NVIDIA'], ['amd', 'AMD'], ['intel', 'Intel']]
 const list = (t) => t.split(/[,，\n]/).map((x) => x.trim().toLowerCase()).filter(Boolean)
 const ready = computed(() => p.value.stage && p.value.field && (p.value.field !== 'other' || targetsText.value.trim()))
@@ -102,14 +103,14 @@ async function finish(scan) {
   try {
     await api.post('/persona/apply', { persona: p.value, settings: chosen(), scoring_md: scoring.value, scan })
     await loadPersona()
-    toast(scan ? '设置已保存，正在后台扫描岗位' : '设置已保存')
+    toast(scan ? T('welcome.settingsSavedScanningPostings') : T('welcome.settingsSaved'))
     step.value = 7
   } catch (e) { toast(e.message, 'bad') }
   busy.value = ''
 }
 async function tryOne() {
   const t = trial.value
-  t.state = 'running'; t.message = '正在打开这个岗位的申请页、读取申请表…（一般需要 2–5 分钟）'; t.draft = 0
+  t.state = 'running'; t.message = T('welcome.openingThisPostingsApplication'); t.draft = 0
   try {
     t.job = (await api.post('/jobs', { url: t.url.trim() })).id
     const task = (await api.post(`/jobs/${t.job}/draft`)).task_id
@@ -118,9 +119,9 @@ async function tryOne() {
       const row = (await api.get('/tasks?limit=40')).find((x) => x.id === task)
       if (!row || ['queued', 'running'].includes(row.status)) return
       clearInterval(trialTimer)
-      if (row.status === 'done' && row.result && row.result.draft_id) { t.state = 'done'; t.draft = row.result.draft_id; t.message = '草案准备好了。' }
-      else if (row.status === 'waiting_human') { t.state = 'needs'; t.message = '这个网站需要你先登录或处理一下，已经放进“需要我处理”。处理完程序会自动继续。' }
-      else { t.state = 'failed'; t.message = (row.explained && row.explained.message) || '没有成功，可以换一个岗位再试。' }
+      if (row.status === 'done' && row.result && row.result.draft_id) { t.state = 'done'; t.draft = row.result.draft_id; t.message = T('welcome.yourDraftIsReady') }
+      else if (row.status === 'waiting_human') { t.state = 'needs'; t.message = T('welcome.thisSiteNeedsYou') }
+      else { t.state = 'failed'; t.message = (row.explained && row.explained.message) || T('welcome.thatDidntWorkTry') }
     }, 5000)
   } catch (e) { t.state = 'failed'; t.message = e.message }
 }
@@ -135,140 +136,139 @@ onMounted(load)
     </ol>
 
     <div v-if="step === 0" class="card wiz-card">
-      <h2>欢迎使用 AutoApply</h2>
-      <p>它帮你找岗位、给岗位打分、把申请表填好，你来决定投不投。用几分钟告诉它你的情况，它就按你的专业和阶段来工作。</p>
+      <h2>{{ $t('welcome.welcomeToAutoapply') }}</h2>
+      <p>{{ $t('welcome.itFindsPostingsScores') }}</p>
       <ul class="wiz-list">
-        <li><Icon name="check" /><span><b>不替你编造。</b>申请表和求职信里关于你的内容，只来自你的简历和你确认过的资料。</span></li>
-        <li><Icon name="check" /><span><b>先给你看，再投。</b>每份申请先生成草案，你批准后才会填写；最后一下“提交”由谁点，可以设置。</span></li>
-        <li><Icon name="check" /><span><b>数据只在这台电脑上。</b>简历、密码、登录状态都存在本机；除了你选的 AI 服务和招聘网站本身，不发给任何人。</span></li>
-        <li><Icon name="check" /><span><b>不绕过网站的限制。</b>遇到人机验证或不让程序访问的网站，会停下来请你自己处理。</span></li>
+        <li><Icon name="check" /><span><b>{{ $t('welcome.wontMakeAnythingUp') }}</b>{{ $t('welcome.anythingAboutYouIn') }}</span></li>
+        <li><Icon name="check" /><span><b>{{ $t('welcome.showMeFirstThen') }}</b>{{ $t('welcome.eachApplicationStartsAs') }}</span></li>
+        <li><Icon name="check" /><span><b>{{ $t('welcome.yourDataStaysOn') }}</b>{{ $t('welcome.yourRSumPasswords') }}</span></li>
+        <li><Icon name="check" /><span><b>{{ $t('welcome.itDoesntGetAround') }}</b>{{ $t('welcome.ifASiteShows') }}</span></li>
       </ul>
-      <div class="row" style="margin-top: 20px"><button class="primary" @click="go(1)">开始设置</button><button class="ghost" @click="skip">先跳过，直接进去看看</button></div>
+      <div class="row" style="margin-top: 20px"><button class="primary" @click="go(1)">{{ $t('welcome.getStarted') }}</button><button class="ghost" @click="skip">{{ $t('welcome.skipForNowAnd') }}</button></div>
     </div>
 
     <div v-else-if="step === 1">
-      <div class="card"><div class="card-title">连接 AI</div><p class="muted" style="margin-bottom: 0">读岗位、回答申请表、写求职信都要用 AI。选一种你已经有的；没有的话，Claude 订阅或任意一家的 API key 都可以。这一步可以先跳过，但没有 AI 时后面的建议只能用通用模板。</p></div>
+      <div class="card"><div class="card-title">{{ $t('welcome.connectAi') }}</div><p class="muted" style="margin-bottom: 0">{{ $t('welcome.aiIsNeededTo') }}</p></div>
       <AiPanel :s="s" :sec="sec" :secrets="info.secrets" @changed="load" />
       <div class="card">
-        <div class="row"><button :disabled="busy === 'ai'" @click="testAi"><Icon name="refresh" />{{ busy === 'ai' ? '正在测试…' : '测试一下能不能用' }}</button>
-          <span v-if="aiOk === true" class="badge ok">可以用</span><span v-else-if="aiOk" class="small" style="color: var(--bad)">{{ aiOk }}</span></div>
+        <div class="row"><button :disabled="busy === 'ai'" @click="testAi"><Icon name="refresh" />{{ busy === 'ai' ? $t('welcome.testing') : $t('welcome.testIt') }}</button>
+          <span v-if="aiOk === true" class="badge ok">{{ $t('welcome.usable') }}</span><span v-else-if="aiOk" class="small" style="color: var(--bad)">{{ aiOk }}</span></div>
       </div>
-      <div class="row"><button @click="go(0)">上一步</button><button class="primary" @click="go(2)">{{ aiOk === true ? '下一步' : '下一步（先不连接也可以）' }}</button></div>
+      <div class="row"><button @click="go(0)">{{ $t('welcome.back') }}</button><button class="primary" @click="go(2)">{{ aiOk === true ? $t('welcome.next') : $t('welcome.nextYouCanConnect') }}</button></div>
     </div>
 
     <div v-else-if="step === 2" class="card wiz-card">
-      <h2>你的情况</h2>
-      <p class="muted">这些决定程序默认找什么岗位、界面上显示什么、求职信用什么口吻。之后都能改。</p>
-      <div class="field"><label>你现在处于哪个阶段</label>
+      <h2>{{ $t('welcome.yourSituation') }}</h2>
+      <p class="muted">{{ $t('welcome.theseDecideWhatPostings') }}</p>
+      <div class="field"><label>{{ $t('welcome.whereAreYouIn') }}</label>
         <div class="wiz-opts"><button v-for="x in meta.stages" :key="x.key" :class="{ on: p.stage === x.key }" @click="p.stage = x.key">{{ x.name }}</button></div></div>
-      <div class="field"><label>哪个领域</label>
+      <div class="field"><label>{{ $t('welcome.whichField') }}</label>
         <div class="wiz-opts"><button v-for="x in meta.fields" :key="x.key" :class="{ on: p.field === x.key }" @click="p.field = x.key">{{ x.name }}</button></div></div>
-      <div class="field"><label>想找的岗位{{ p.field === 'other' ? '（必填）' : '（可选，写了更准）' }}</label>
-        <input v-model="targetsText" placeholder="用逗号分开，例如：Financial Analyst, Strategy Consultant" /></div>
-      <div class="field"><label>想在哪些国家或地区工作</label>
+      <div class="field"><label>{{ $t('welcome.jobsYouWant', { p0: p.field === 'other' ? $t('welcome.required') : $t('welcome.optionalMoreAccurateIf') }) }}</label>
+        <input v-model="targetsText" :placeholder="$t('welcome.separateWithCommasE')" /></div>
+      <div class="field"><label>{{ $t('welcome.countriesOrRegionsYou') }}</label>
         <div class="row"><label v-for="[c, n] in COUNTRIES" :key="c" class="nowrap"><input type="checkbox" :checked="p.countries.includes(c)" @change="toggleCountry(c)" /> {{ n }}</label></div>
-        <div class="hint">都不选表示不限。</div></div>
-      <div class="field"><label><input v-model="p.sponsorship" type="checkbox" /> 我在这些地方工作需要雇主提供签证担保</label></div>
-      <div class="field"><label>你更倾向哪种投法</label>
+        <div class="hint">{{ $t('welcome.leaveAllUnselectedFor') }}</div></div>
+      <div class="field"><label><input v-model="p.sponsorship" type="checkbox" /> {{ $t('welcome.iNeedEmployerVisa') }}</label></div>
+      <div class="field"><label>{{ $t('welcome.howDoYouPrefer') }}</label>
         <div class="choice" style="margin-top: 4px">
-          <label :class="{ on: p.strategy === 'volume' }"><input v-model="p.strategy" type="radio" value="volume" /><div><b>多投</b><span>合适的岗位自动准备好草案，我批准就投。适合实习和校招。</span></div></label>
-          <label :class="{ on: p.strategy === 'targeted' }"><input v-model="p.strategy" type="radio" value="targeted" /><div><b>精投</b><span>程序只负责找岗位和评分，我自己挑出要投的再让它准备；最后一步提交都由我来点。适合有经验的人。</span></div></label>
+          <label :class="{ on: p.strategy === 'volume' }"><input v-model="p.strategy" type="radio" value="volume" /><div><b>{{ $t('welcome.applyBroadly') }}</b><span>{{ $t('welcome.draftsArePreparedAutomatically') }}</span></div></label>
+          <label :class="{ on: p.strategy === 'targeted' }"><input v-model="p.strategy" type="radio" value="targeted" /><div><b>{{ $t('welcome.targeted') }}</b><span>{{ $t('welcome.theAppOnlyFinds') }}</span></div></label>
         </div></div>
-      <div class="row"><button @click="go(1)">上一步</button><button class="primary" :disabled="!ready" @click="go(3)">下一步</button></div>
+      <div class="row"><button @click="go(1)">{{ $t('welcome.back') }}</button><button class="primary" :disabled="!ready" @click="go(3)">{{ $t('welcome.next') }}</button></div>
     </div>
 
     <div v-else-if="step === 3" class="card wiz-card">
-      <h2>上传简历</h2>
-      <p class="muted">程序会读你的简历，整理成一份“个人资料”，之后给岗位评分、填申请表都从这里取内容。上传后马上开始整理，不用再点别的。PDF 或 Word 都可以；如果有 Word 版，以后还能按岗位调整简历的顺序。</p>
+      <h2>{{ $t('welcome.uploadRSum') }}</h2>
+      <p class="muted">{{ $t('welcome.theProgramReadsYour') }}</p>
       <div class="row">
-        <FileButton :class="{ primary: !resume.uploaded }" accept=".pdf,.docx,.doc" :disabled="busy === 'up'" @change="upload"><Icon name="inbox" />{{ busy === 'up' ? '正在上传…' : resume.uploaded ? '再传一份' : '选择简历文件' }}</FileButton>
-        <span v-if="resume.uploaded" class="badge ok">已上传{{ resume.name ? '：' + resume.name : '' }}</span>
+        <FileButton :class="{ primary: !resume.uploaded }" accept=".pdf,.docx,.doc" :disabled="busy === 'up'" @change="upload"><Icon name="inbox" />{{ busy === 'up' ? $t('welcome.uploading') : resume.uploaded ? $t('welcome.uploadAnother') : $t('welcome.chooseRSumFile') }}</FileButton>
+        <span v-if="resume.uploaded" class="badge ok">{{ $t('welcome.uploaded', { p0: resume.name ? '：' + resume.name : '' }) }}</span>
       </div>
       <div v-if="resume.uploaded || hasProfile" style="margin-top: 16px">
-        <p v-if="piWorking" class="callout"><Icon name="clock" /><span>AI 正在读你的简历、整理个人资料，一般需要一两分钟。不用等在这一页：点“下一步”继续设置，它会在后台做完。</span></p>
+        <p v-if="piWorking" class="callout"><Icon name="clock" /><span>{{ $t('welcome.theAiIsReading') }}</span></p>
         <template v-else>
-          <p v-if="piPhase === 'failed'" class="callout warn"><Icon name="alert" /><span>个人资料没有生成：{{ piTask.error }}</span></p>
-          <p v-else-if="piPhase === 'proposal'" class="callout"><Icon name="check" /><span>按上传的资料又整理了一版，没有直接覆盖现有的个人资料。设置完成后到“个人资料 → 从简历生成”里对比，再决定是否采用。</span></p>
-          <p v-else-if="hasProfile && piSt && piSt.todos" class="callout"><Icon name="check" /><span>个人资料已生成，里面有 {{ piSt.todos }} 处简历上没有、需要你补充的信息（比如工作许可、称呼）。设置完成后到“个人资料”页看一遍、补全即可。</span></p>
-          <p v-else-if="hasProfile" class="callout"><Icon name="check" /><span>个人资料已生成。设置完成后到“个人资料”页看一遍即可。</span></p>
-          <button v-if="resume.uploaded" :class="{ primary: !hasProfile }" :disabled="busy === 'profile'" @click="makeProfile"><Icon name="edit" />{{ piPhase === 'failed' ? '再试一次' : hasProfile ? '按上传的资料重新整理一版' : '生成个人资料' }}</button>
+          <p v-if="piPhase === 'failed'" class="callout warn"><Icon name="alert" /><span>{{ $t('welcome.yourProfileWasNot', { p0: piTask.error }) }}</span></p>
+          <p v-else-if="piPhase === 'proposal'" class="callout"><Icon name="check" /><span>{{ $t('welcome.aNewVersionWas') }}</span></p>
+          <p v-else-if="hasProfile && piSt && piSt.todos" class="callout"><Icon name="check" /><span>{{ $t('welcome.yourProfileHasBeen', { p0: piSt.todos }) }}</span></p>
+          <p v-else-if="hasProfile" class="callout"><Icon name="check" /><span>{{ $t('welcome.yourProfileHasBeen2') }}</span></p>
+          <button v-if="resume.uploaded" :class="{ primary: !hasProfile }" :disabled="busy === 'profile'" @click="makeProfile"><Icon name="edit" />{{ piPhase === 'failed' ? $t('welcome.tryAgain') : hasProfile ? $t('welcome.writeANewVersion') : $t('welcome.generateProfile') }}</button>
         </template>
       </div>
-      <p class="hint" style="margin-top: 14px">没有连接 AI 的话这一步做不了，可以跳过，之后在“个人资料”页手动填写或生成。</p>
-      <div class="row" style="margin-top: 8px"><button @click="go(2)">上一步</button><button class="primary" @click="go(4)">{{ resume.uploaded || hasProfile ? '下一步' : '跳过，下一步' }}</button></div>
+      <p class="hint" style="margin-top: 14px">{{ $t('welcome.thisStepNeedsAn') }}</p>
+      <div class="row" style="margin-top: 8px"><button @click="go(2)">{{ $t('welcome.back') }}</button><button class="primary" @click="go(4)">{{ resume.uploaded || hasProfile ? $t('welcome.next') : $t('welcome.skipNext') }}</button></div>
     </div>
 
     <div v-else-if="step === 4" class="card wiz-card">
-      <h2>找什么岗位</h2>
-      <p v-if="busy === 'sug'" class="muted">正在根据你的情况准备建议…</p>
+      <h2>{{ $t('welcome.whatJobsToLook') }}</h2>
+      <p v-if="busy === 'sug'" class="muted">{{ $t('welcome.preparingSuggestionsForYou') }}</p>
       <template v-else-if="sug">
-        <p class="muted">招聘网站上的岗位绝大多数和你无关。程序先看标题和地点筛一遍，留下的再让 AI 读全文打分。下面是{{ sug.by === 'ai' ? ' AI 根据你的情况' : '按通用模板' }}给的建议，可以直接改。</p>
+        <p class="muted">{{ sug.by === 'ai' ? $t('welcome.suggestionsByAi') : $t('welcome.suggestionsGeneric') }}</p>
         <p v-if="sug.note" class="callout warn"><Icon name="alert" /><span>{{ sug.note }}</span></p>
-        <div class="field"><label>标题里要有这些词之一（岗位性质）</label><input v-model="kinds" @change="tryRules" /><div class="hint">留空表示不限。</div></div>
-        <div class="field"><label>并且有这些词之一（方向）</label><textarea v-model="roles" rows="3" style="font-family: inherit" @change="tryRules"></textarea></div>
-        <div class="field"><label>标题里不能有这些词</label><textarea v-model="none" rows="2" style="font-family: inherit" @change="tryRules"></textarea></div>
-        <div v-if="tried.length" class="field"><label>按上面的条件，这些岗位会怎么处理</label>
-          <div class="list"><div v-for="t in tried" :key="t.title" class="item"><span class="badge" :class="t.kept ? 'ok' : ''">{{ t.kept ? '留下' : '丢掉' }}</span><div><div class="main">{{ t.title }}</div><div class="sub">{{ t.location }}{{ t.why ? ' · ' + t.why : '' }}</div></div></div></div></div>
-        <details class="tech"><summary>评分规则（AI 读全文打分时用的标准，可以之后在“个人资料 → 评分规则”里改）</summary><textarea v-model="scoring" rows="14"></textarea></details>
-        <div class="row" style="margin-top: 14px"><button @click="go(3)">上一步</button><button :disabled="busy === 'sug'" @click="suggest"><Icon name="refresh" />重新生成建议</button><button class="primary" @click="go(5)">下一步</button></div>
+        <div class="field"><label>{{ $t('welcome.titleMustIncludeOne') }}</label><input v-model="kinds" @change="tryRules" /><div class="hint">{{ $t('welcome.leaveBlankForNo') }}</div></div>
+        <div class="field"><label>{{ $t('welcome.andHasOneOf') }}</label><textarea v-model="roles" rows="3" style="font-family: inherit" @change="tryRules"></textarea></div>
+        <div class="field"><label>{{ $t('welcome.titlesCantContainThese') }}</label><textarea v-model="none" rows="2" style="font-family: inherit" @change="tryRules"></textarea></div>
+        <div v-if="tried.length" class="field"><label>{{ $t('welcome.howThesePostingsWould') }}</label>
+          <div class="list"><div v-for="t in tried" :key="t.title" class="item"><span class="badge" :class="t.kept ? 'ok' : ''">{{ t.kept ? $t('welcome.keep') : $t('welcome.discard') }}</span><div><div class="main">{{ t.title }}</div><div class="sub">{{ t.location }}{{ t.why ? ' · ' + t.why : '' }}</div></div></div></div></div>
+        <details class="tech"><summary>{{ $t('welcome.scoringRulesWhatThe') }}</summary><textarea v-model="scoring" rows="14"></textarea></details>
+        <div class="row" style="margin-top: 14px"><button @click="go(3)">{{ $t('welcome.back') }}</button><button :disabled="busy === 'sug'" @click="suggest"><Icon name="refresh" />{{ $t('welcome.regenerateSuggestions') }}</button><button class="primary" @click="go(5)">{{ $t('welcome.next') }}</button></div>
       </template>
     </div>
 
     <div v-else-if="step === 5" class="card wiz-card">
-      <h2>从哪里找</h2>
-      <p class="muted">先选几个开始，之后可以在“岗位 → 来源与关注公司”里随时增减，也可以在岗位页粘贴任何岗位的网址手动添加。</p>
-      <div class="field"><label>大型科技公司的官网</label>
+      <h2>{{ $t('welcome.whereToLook') }}</h2>
+      <p class="muted">{{ $t('welcome.pickAFewTo') }}</p>
+      <div class="field"><label>{{ $t('welcome.bigTechCompanyWebsites') }}</label>
         <div class="row"><label v-for="[k, n] in BIG" :key="k" class="nowrap"><input type="checkbox" :checked="!!bigtech[k]" @change="bigtech = { ...bigtech, [k]: !bigtech[k] }" /> {{ n }}</label></div>
-        <div class="hint">这些公司各种职能的岗位都有，按上一步的条件筛选。{{ ['software', 'engineering', 'design'].includes(p.field) ? '' : '你的领域默认没有勾选，需要的话自己勾。' }}</div></div>
-      <div class="field"><label>学校的就业门户</label>
+        <div class="hint">{{ $t('welcome.theseCompaniesHavePostings', { p0: ['software', 'engineering', 'design'].includes(p.field) ? '' : $t('welcome.yourFieldIsntChecked') }) }}</div></div>
+      <div class="field"><label>{{ $t('welcome.schoolCareerPortal') }}</label>
         <AaSelect v-model="p.portal">
-          <option value="">没有，或暂时不用</option>
+          <option value="">{{ $t('welcome.noneOrNotFor') }}</option>
           <option v-for="x in portals.filter((x) => x.status === 'supported')" :key="x.key" :value="x.key">{{ x.school }} · {{ x.name }}</option>
-          <option v-for="x in portals.filter((x) => x.status !== 'supported')" :key="x.key" :value="'other:' + x.key" disabled>{{ x.school ? x.school + ' · ' : '' }}{{ x.name }}（{{ x.status === 'same_system' ? '同一套系统，还没适配' : '还没有导入器' }}）</option>
+          <option v-for="x in portals.filter((x) => x.status !== 'supported')" :key="x.key" :value="'other:' + x.key" disabled>{{ x.school ? x.school + ' · ' : '' }}{{ x.name }}（{{ x.status === 'same_system' ? $t('welcome.sameSystemNotSupported') : $t('welcome.noImporterYet') }}）</option>
         </AaSelect>
-        <div class="hint">学校门户要用你的学校账号登录：在“岗位 → 来源与关注公司”里登录一次，程序扫描时就会自己读；也可以在你自己的浏览器里点一个书签导入。目前实际用过的只有 UBC。
-          列表里灰色的是已知但还没适配的门户：可以在门户里打开岗位，把网址粘贴到岗位页的“手动添加”；想帮忙适配，见仓库里的 CONTRIBUTING.md。</div></div>
-      <div class="field"><label>你自己想盯住的公司</label>
-        <div class="hint">把这家公司招聘页的网址贴进来。这里添加的会马上保存，之后在“岗位 → 来源与关注公司”里管理。</div></div>
+        <div class="hint">{{ $t('welcome.aSchoolPortalUses') }}</div></div>
+      <div class="field"><label>{{ $t('welcome.companiesYouWantTo') }}</label>
+        <div class="hint">{{ $t('welcome.pasteTheUrlOf') }}</div></div>
       <EmployersPanel :s="s" />
-      <div class="row"><button @click="go(4)">上一步</button><button class="primary" @click="go(6)">下一步</button></div>
+      <div class="row"><button @click="go(4)">{{ $t('welcome.back') }}</button><button class="primary" @click="go(6)">{{ $t('welcome.next') }}</button></div>
     </div>
 
     <div v-else-if="step === 7" class="card wiz-card">
-      <h2>试一次</h2>
-      <p class="muted">设置已经生效。想马上看看它是怎么工作的，可以贴一个你想投的岗位的网址，程序会去读它的申请表、按你的资料准备一份草案给你看。<b>这一步不会提交任何东西</b>，草案要你批准后才会填写。</p>
+      <h2>{{ $t('welcome.tryOnce') }}</h2>
+      <p class="muted">{{ $t('welcome.yourSettingsAreNow') }}<b>{{ $t('welcome.nothingIsSubmittedAt') }}</b>{{ $t('welcome.andDraftsAreFilled') }}</p>
       <div class="row" style="margin-top: 14px">
-        <input v-model="trial.url" class="grow" placeholder="岗位页面的网址，例如 https://job-boards.greenhouse.io/…/jobs/…" :disabled="trial.state === 'running'" />
-        <button class="primary" :disabled="!trial.url.trim() || trial.state === 'running' || !hasProfile" @click="tryOne"><Icon name="draft" />{{ trial.state === 'running' ? '正在准备…' : '准备一份草案' }}</button>
+        <input v-model="trial.url" class="grow" :placeholder="$t('welcome.postingUrlEG')" :disabled="trial.state === 'running'" />
+        <button class="primary" :disabled="!trial.url.trim() || trial.state === 'running' || !hasProfile" @click="tryOne"><Icon name="draft" />{{ trial.state === 'running' ? $t('welcome.preparing') : $t('welcome.prepareADraft') }}</button>
       </div>
       <p v-if="trial.message" class="callout" :class="trial.state === 'failed' ? 'warn' : ''" style="margin-top: 12px"><Icon :name="trial.state === 'done' ? 'check' : trial.state === 'failed' ? 'alert' : 'clock'" /><span>{{ trial.message }}</span></p>
-      <p v-if="piWorking" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>个人资料还在生成，一两分钟后这里就可以试了。</span></p>
-      <p v-else-if="!hasProfile" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>个人资料还是空的，申请表没法回答，所以现在不能准备草案。先到“个人资料”页生成或填写，再回来试。</span></p>
+      <p v-if="piWorking" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>{{ $t('welcome.yourProfileIsStill') }}</span></p>
+      <p v-else-if="!hasProfile" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>{{ $t('welcome.yourProfileIsStill2') }}</span></p>
       <div class="row" style="margin-top: 16px">
-        <router-link v-if="trial.draft" :to="'/drafts/' + trial.draft" class="btn primary"><Icon name="draft" />看这份草案</router-link>
-        <router-link v-if="trial.state === 'needs'" to="/todos" class="btn primary">去“需要我处理”</router-link>
-        <router-link v-if="!hasProfile && !piWorking" to="/profile?tab=init" class="btn primary">去“个人资料”页</router-link>
-        <router-link to="/home" class="btn">{{ trial.state ? '进入概览' : '先不试，进入概览' }}</router-link>
+        <router-link v-if="trial.draft" :to="'/drafts/' + trial.draft" class="btn primary"><Icon name="draft" />{{ $t('welcome.viewThisDraft') }}</router-link>
+        <router-link v-if="trial.state === 'needs'" to="/todos" class="btn primary">{{ $t('welcome.goToNeedsYou') }}</router-link>
+        <router-link v-if="!hasProfile && !piWorking" to="/profile?tab=init" class="btn primary">{{ $t('welcome.goToProfile') }}</router-link>
+        <router-link to="/home" class="btn">{{ trial.state ? $t('welcome.goToOverview') : $t('welcome.skipForNowGo') }}</router-link>
       </div>
     </div>
 
     <div v-else class="card wiz-card">
-      <h2>设置好了</h2>
-      <p class="muted">确认一下，点完成后生效。这些之后都可以在设置里改。</p>
+      <h2>{{ $t('welcome.allSet') }}</h2>
+      <p class="muted">{{ $t('welcome.takeALookThen') }}</p>
       <div class="facts" style="margin: 12px 0 18px">
-        <div><div class="k">阶段</div><div class="v">{{ (meta.stages.find((x) => x.key === p.stage) || {}).name }}</div></div>
-        <div><div class="k">领域</div><div class="v">{{ (meta.fields.find((x) => x.key === p.field) || {}).name }}</div></div>
-        <div><div class="k">地区</div><div class="v">{{ p.countries.join('、') || '不限' }}</div></div>
-        <div><div class="k">投法</div><div class="v">{{ p.strategy === 'targeted' ? '精投：我自己挑，自己点提交' : '多投：自动准备草案，我批准后投' }}</div></div>
-        <div><div class="k">岗位来源</div><div class="v">{{ BIG.filter(([k]) => bigtech[k]).map(([, n]) => n).join('、') || '还没选（之后在“岗位 → 来源与关注公司”里加）' }}{{ p.portal ? '、学校门户' : '' }}</div></div>
-        <div><div class="k">个人资料</div><div class="v">{{ hasProfile ? '已生成' : piWorking ? '正在生成，会在后台做完' : '还没有，之后在“个人资料”页填' }}</div></div>
+        <div><div class="k">{{ $t('welcome.stage') }}</div><div class="v">{{ (meta.stages.find((x) => x.key === p.stage) || {}).name }}</div></div>
+        <div><div class="k">{{ $t('welcome.field') }}</div><div class="v">{{ (meta.fields.find((x) => x.key === p.field) || {}).name }}</div></div>
+        <div><div class="k">{{ $t('welcome.region') }}</div><div class="v">{{ p.countries.join('、') || $t('welcome.any') }}</div></div>
+        <div><div class="k">{{ $t('welcome.approach') }}</div><div class="v">{{ p.strategy === 'targeted' ? $t('welcome.targetedIPickAnd') : $t('welcome.moreApplicationsDraftsPrepared') }}</div></div>
+        <div><div class="k">{{ $t('welcome.jobSource') }}</div><div class="v">{{ BIG.filter(([k]) => bigtech[k]).map(([, n]) => n).join('、') || $t('welcome.noneChosenAddLater') }}{{ p.portal ? $t('welcome.schoolPortals') : '' }}</div></div>
+        <div><div class="k">{{ $t('welcome.profile') }}</div><div class="v">{{ hasProfile ? $t('welcome.generated') : piWorking ? $t('welcome.beingGeneratedItFinishes') : $t('welcome.notYetFillIt') }}</div></div>
       </div>
-      <p v-if="piWorking" class="callout"><Icon name="clock" /><span>个人资料还在生成。岗位评分和申请草案都要用到它，会等它生成好之后自动开始；扫描岗位不受影响。</span></p>
-      <p v-else-if="!hasProfile" class="callout warn"><Icon name="alert" /><span>个人资料还是空的。扫描到的岗位会先放着，等你生成或填写个人资料之后，才开始评分和准备草案。</span></p>
-      <p class="hint">还可以之后设置：Telegram 通知（设置 → 通知与提醒）、邮箱跟踪（设置 → 账号与连接 → 收件邮箱）、网络代理（设置 → 系统与数据 → 网络连接）。</p>
+      <p v-if="piWorking" class="callout"><Icon name="clock" /><span>{{ $t('welcome.yourProfileIsStill3') }}</span></p>
+      <p v-else-if="!hasProfile" class="callout warn"><Icon name="alert" /><span>{{ $t('welcome.yourProfileIsStill4') }}</span></p>
+      <p class="hint">{{ $t('welcome.youCanAlsoSet') }}</p>
       <div class="row" style="margin-top: 12px">
-        <button @click="go(5)">上一步</button>
-        <button class="primary" :disabled="busy === 'done'" @click="finish(BIG.some(([k]) => bigtech[k]))"><Icon name="check" />{{ BIG.some(([k]) => bigtech[k]) ? '完成，并马上扫描一次岗位' : '完成' }}</button>
+        <button @click="go(5)">{{ $t('welcome.back') }}</button>
+        <button class="primary" :disabled="busy === 'done'" @click="finish(BIG.some(([k]) => bigtech[k]))"><Icon name="check" />{{ BIG.some(([k]) => bigtech[k]) ? $t('welcome.doneAndScanFor') : $t('welcome.done') }}</button>
       </div>
     </div>
   </div>

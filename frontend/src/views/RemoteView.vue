@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // A browser page on the computer AutoApply runs on, used from here. Two ways, chosen by the server:
 //   "frames"  the page is in the hidden browser: pictures of it come in, clicks and keys go out (backend remote.py)
 //   "screen"  it is a real window on a virtual screen: that screen is shown through its VNC server (backend vscreen.py)
@@ -26,7 +27,7 @@ let flushing = null
 let composing = false
 let lastMove = 0
 
-const PURPOSE = { login: '登录', apply: '申请表', scan: '读取网站' }
+const PURPOSE = { login: T('remote.signIn'), apply: T('remote.applicationForm'), scan: T('remote.readingASite') }
 const SPECIAL = new Set(['Enter', 'Tab', 'Backspace', 'Delete', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'F5', 'Insert'])
 
 const send = (e) => {
@@ -108,9 +109,9 @@ const pasted = (ev) => {
 const nav = (a) => send({ t: 'nav', a })
 const tab = (i) => send({ t: 'tab', i })
 const finish = async () => {
-  if (!(await ask('关闭这个窗口？程序会把它当作“你做完了”：如果是登录，现在的登录状态会被保存；如果这一步还没做完，之后可以重新打开。', { ok: '做完了，关闭', danger: false }))) return
+  if (!(await ask(T('remote.closeThisWindowThe'), { ok: T('remote.doneCloseIt'), danger: false }))) return
   send({ t: 'close' })
-  toast('已关闭')
+  toast(T('remote.closed'))
 }
 
 // The virtual screen, through the VNC client library (noVNC), loaded only when a window needs it.
@@ -128,7 +129,7 @@ const connectScreen = async () => {
       // the window closed, or only the connection dropped? ask, and connect again if it is still there
       try { await api.get(`/remote/${props.id}`); setTimeout(() => alive && connectScreen(), 1500) } catch (e) { st.state = 'closed' }
     })
-    rfb.addEventListener('securityfailure', () => { st.state = 'refused'; st.why = '虚拟屏幕拒绝了这次连接。重新打开这个窗口再试。' })
+    rfb.addEventListener('securityfailure', () => { st.state = 'refused'; st.why = T('remote.theVirtualScreenRefused') })
   } catch (e) {
     st.state = e.status === 404 ? 'closed' : 'refused'
     st.why = e.message
@@ -147,25 +148,25 @@ onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src); 
 </script>
 
 <template>
-  <PageHead :title="win ? `${PURPOSE[win.purpose] || '窗口'}：${win.title}` : '远程窗口'" sub="这是运行 AutoApply 的那台电脑上的浏览器页面。在画面上点击和输入，就像在那台电脑上操作一样。">
-    <button class="sm" @click="router.back()"><Icon name="back" />返回</button>
-    <button v-if="st.state === 'live' && win && win.mode === 'frames'" class="sm primary" @click="finish"><Icon name="check" />做完了，关闭窗口</button>
+  <PageHead :title="win ? `${PURPOSE[win.purpose] || $t('remote.window')}：${win.title}` : $t('remote.remoteWindow')" :sub="$t('remote.thisIsABrowser')">
+    <button class="sm" @click="router.back()"><Icon name="back" />{{ $t('remote.back') }}</button>
+    <button v-if="st.state === 'live' && win && win.mode === 'frames'" class="sm primary" @click="finish"><Icon name="check" />{{ $t('remote.doneCloseTheWindow') }}</button>
   </PageHead>
 
   <div v-if="st.state === 'closed'" class="callout">
-    <Icon name="info" /><div>这个窗口已经关闭了。如果你刚完成登录或提交，程序已经接着往下做；结果会出现在“需要我处理”和“活动记录”里。</div>
+    <Icon name="info" /><div>{{ $t('remote.thisWindowHasBeen') }}</div>
   </div>
   <div v-else-if="st.state === 'refused'" class="callout warn"><Icon name="alert" /><div>{{ st.why }}</div></div>
 
   <template v-else-if="win && win.mode === 'screen'">
-    <div class="rw-frame"><div ref="screen" class="rw-screen"></div><div v-if="st.state === 'opening'" class="rw-wait rw-over">正在连接虚拟屏幕…</div></div>
-    <p class="rw-note">这是一个真实的浏览器窗口，开在服务器的虚拟屏幕上。点一下画面再输入；做完后直接关掉里面的浏览器窗口，或者等程序检测到你已完成。你输入的内容（包括密码）只发给这个窗口，不会写进日志，也不会给 AI 看。</p>
+    <div class="rw-frame"><div ref="screen" class="rw-screen"></div><div v-if="st.state === 'opening'" class="rw-wait rw-over">{{ $t('remote.connectingToTheVirtual') }}</div></div>
+    <p class="rw-note">{{ $t('remote.thisIsAReal') }}</p>
   </template>
 
   <template v-else>
     <div class="rw-bar">
-      <button class="sm ghost" title="后退" @click="nav('back')"><Icon name="back" /></button>
-      <button class="sm ghost" title="重新加载" @click="nav('reload')"><Icon name="refresh" /></button>
+      <button class="sm ghost" :title="$t('remote.back2')" @click="nav('back')"><Icon name="back" /></button>
+      <button class="sm ghost" :title="$t('remote.reload')" @click="nav('reload')"><Icon name="refresh" /></button>
       <span class="rw-url" data-notr>{{ st.page.url }}</span>
       <span v-if="st.page.tabs.length > 1" class="rw-tabs">
         <button v-for="t in st.page.tabs" :key="t.i" class="sm" :class="{ primary: t.on }" data-notr @click="tab(t.i)">{{ t.title }}</button>
@@ -174,10 +175,10 @@ onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src); 
     <div class="rw-frame">
       <img v-if="st.src" ref="stage" class="rw-stage" :src="st.src" alt="" draggable="false"
            @pointerdown.prevent="down" @pointerup.prevent="up" @pointermove="move" @dblclick.prevent="dbl" @contextmenu.prevent="menu" @wheel.prevent="wheel" />
-      <div v-else class="rw-wait">正在打开窗口…</div>
-      <textarea ref="keys" class="rw-keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="键盘输入"
+      <div v-else class="rw-wait">{{ $t('remote.openingTheWindow') }}</div>
+      <textarea ref="keys" class="rw-keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" :aria-label="$t('remote.keyboardInput')"
                 @keydown="keydown" @input="typed" @compositionstart="composing = true" @compositionend="composed" @paste="pasted"></textarea>
     </div>
-    <p class="rw-note">点一下画面再输入。你在这里输入的内容（包括密码）只发给这个页面，不会写进日志，也不会给 AI 看。画面每秒刷新几次，操作后会有短暂的延迟。</p>
+    <p class="rw-note">{{ $t('remote.clickThePictureThen') }}</p>
   </template>
 </template>

@@ -90,3 +90,36 @@ describe('in Chinese (the default)', () => {
     expect(duration({ minutes: 12, seconds: 5 })).toMatch(/12.*分.*5.*秒/)
   })
 })
+
+// The pages moved to keys (C2): no Chinese is written in them any more, outside comments. A page is added here when
+// it moves; the on-screen dictionary has nothing left to do on it.
+const MIGRATED = ['views/TodosView.vue', 'views/CalendarView.vue', 'views/AnalyticsView.vue', 'views/analytics/CostPanel.vue', 'views/analytics/AutoPanel.vue',
+  'views/analytics/AppsPanel.vue', 'views/analytics/RunDetail.vue', 'views/analytics/SitesPanel.vue', 'views/SettingsView.vue', 'components/AiPanel.vue',
+  'components/MailboxPanel.vue', 'components/AccessPanel.vue', 'components/NetworkPanel.vue', 'components/BrowserPanel.vue', 'components/PromptsPanel.vue',
+  'components/EmployersPanel.vue', 'views/ProfileView.vue', 'views/WelcomeView.vue', 'views/RunsView.vue', 'views/AccountsView.vue', 'views/FilesView.vue',
+  'views/HomeView.vue', 'views/SourcesView.vue', 'App.vue', 'views/MailOut.vue', 'views/ContactsView.vue', 'views/RemoteView.vue', 'views/LoginView.vue']
+// HTML and block comments cut out by position (not by a pattern a nested or broken one could slip through)
+function withoutComments(text) {
+  let out = ''
+  let at = 0
+  for (;;) {
+    const html = text.indexOf('<!--', at)
+    const block = text.indexOf('/*', at)
+    const start = [html, block].filter((x) => x >= 0).sort((a, b) => a - b)[0]
+    if (start === undefined) return out + text.slice(at)
+    const close = start === html ? '-->' : '*/'
+    const stop = text.indexOf(close, start + 2)
+    out += text.slice(at, start)
+    at = stop < 0 ? text.length : stop + close.length
+  }
+}
+describe('pages moved to keys', () => {
+  it('have no text of their own in Chinese', () => {
+    for (const f of MIGRATED) {
+      const src = withoutComments(readFileSync(new URL('../src/' + f, import.meta.url), 'utf-8'))
+        .replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '')
+      const lines = src.split('\n').filter((l) => /[一-鿿]/.test(l))
+      expect(lines, f).toEqual([])
+    }
+  })
+})

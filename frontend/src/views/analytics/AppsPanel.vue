@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../../i18n/catalog'
 // Applications: what came of them. Every figure here is about the applications SENT in the chosen range (a cohort);
 // the one exception - replies by the month they arrived - says so where it is shown.
 import { computed, ref, watch } from 'vue'
@@ -17,14 +18,14 @@ const STATE_COLOR = { silent: 'var(--chart-other)', receipt: 'var(--chart-soft)'
 const states = computed(() => props.d.states.map((s) => ({ ...s, color: STATE_COLOR[s.key] })))
 // how many were sent along the stretch of time the page is set to: by day, week or month (the server picks by the
 // length of the stretch unless one is chosen here)
-const SENT_TITLE = { hour: '今天每个小时投了多少', day: '每天投了多少', week: '每周投了多少', month: '每个月投了多少' }
-const SENT_SUB = { hour: '按投出的钟点（本地时间）', day: '按投出的日期（本地时间）', week: '按投出的那一周（周一起算，本地时间）', month: '按投出的月份（本地时间）' }
-const STEP_HEAD = { hour: '钟点', day: '日期', week: '哪一周（周一）', month: '月份' }
+const SENT_TITLE = { hour: T('analytics.apps.applicationsPerHourToday'), day: T('analytics.apps.applicationsPerDay'), week: T('analytics.apps.applicationsPerWeek'), month: T('analytics.apps.applicationsPerMonth') }
+const SENT_SUB = { hour: T('analytics.apps.byTheHourThey'), day: T('analytics.apps.byTheDayThey'), week: T('analytics.apps.byTheWeekThey'), month: T('analytics.apps.byTheMonthSent') }
+const STEP_HEAD = { hour: T('analytics.apps.hour'), day: T('analytics.apps.date'), week: T('analytics.apps.weekItsMonday'), month: T('analytics.apps.month') }
 const steps = computed(() => (props.d.by_time ? props.d.by_time.rows : []))
 const size = computed(() => (props.d.by_time ? props.d.by_time.bucket : 'month'))
 // (every step has its label; the chart shows as many of them as it has room for)
-const monthly = computed(() => steps.value.map((m) => ({ label: m.label, value: m.n, tip: m.key + ' 投出' })))
-const wait = computed(() => (props.d.median_wait_days == null ? '—' : props.d.median_wait_days ? props.d.median_wait_days + ' 天' : '当天'))
+const monthly = computed(() => steps.value.map((m) => ({ label: m.label, value: m.n, tip: T('analytics.apps.sentIn', { p0: m.key }) })))
+const wait = computed(() => (props.d.median_wait_days == null ? '—' : props.d.median_wait_days ? T('analytics.apps.nDays', { n: props.d.median_wait_days }, props.d.median_wait_days) : T('analytics.apps.sameDay')))
 const rateOf = (r) => (r.thin ? '—' : pct(r.decided, r.n) + '%')
 
 // the months as a chart or as a table: one or the other in the same card, never one under the other
@@ -38,39 +39,39 @@ watch(() => props.d.by_time, () => { page.value = 0 })
 <template>
   <template v-if="t.n">
     <div class="kpis">
-      <div class="kpi"><div class="n">{{ t.n }}</div><div class="l">个申请已投出</div><div v-if="d.previous" class="d">{{ change(t.n, d.previous.n) || '上一段没有投出，无从比较' }}</div></div>
+      <div class="kpi"><div class="n">{{ t.n }}</div><div class="l">{{ $t('analytics.apps.applicationsSubmitted') }}</div><div v-if="d.previous" class="d">{{ change(t.n, d.previous.n) || $t('analytics.apps.nothingSentInThe') }}</div></div>
       <div class="kpi">
-        <div class="n">{{ pct(t.replied, t.n) }}%</div><div class="l">收到回执</div><div class="d">{{ t.replied }} / {{ t.n }} 个</div>
-        <Explain>收到回执 = 对方有过任何回应，包括自动发的确认信。分母是这段时间投出的申请。</Explain></div>
+        <div class="n">{{ pct(t.replied, t.n) }}%</div><div class="l">{{ $t('analytics.apps.acknowledged') }}</div><div class="d">{{ $t('analytics.apps.of', { p0: t.replied, p1: t.n }) }}</div>
+        <Explain>{{ $t('analytics.apps.acknowledgedAnythingCameBack') }}</Explain></div>
       <div class="kpi">
-        <div class="n">{{ pct(t.decided, t.n) }}%</div><div class="l">有实质结果</div><div class="d">{{ t.decided }} / {{ t.n }} 个</div>
-        <Explain>有实质结果 = 进入过笔试或面试，或者被拒。自动确认信不算。分母是这段时间投出的申请。</Explain></div>
+        <div class="n">{{ pct(t.decided, t.n) }}%</div><div class="l">{{ $t('analytics.apps.cameToSomething') }}</div><div class="d">{{ $t('analytics.apps.of', { p0: t.decided, p1: t.n }) }}</div>
+        <Explain>{{ $t('analytics.apps.cameToSomethingIt') }}</Explain></div>
       <div class="kpi">
-        <div class="n" :class="{ ok: t.progressed }">{{ pct(t.progressed, t.n) }}%</div><div class="l">进入笔试 / 面试</div><div class="d">{{ t.progressed }} / {{ t.n }} 个</div>
-        <Explain>进入过笔试、测评或面试的申请占多少。后来被拒的也算进入过。</Explain></div>
+        <div class="n" :class="{ ok: t.progressed }">{{ pct(t.progressed, t.n) }}%</div><div class="l">{{ $t('analytics.apps.reachedAnAssessmentInterview') }}</div><div class="d">{{ $t('analytics.apps.of', { p0: t.progressed, p1: t.n }) }}</div>
+        <Explain>{{ $t('analytics.apps.theShareOfApplications') }}</Explain></div>
       <div class="kpi">
-        <div class="n" :class="{ na: d.median_wait_days == null }">{{ wait }}</div><div class="l">通常多久等到结果</div><div class="d">{{ d.waited ? d.waited + ' 个申请有记录' : '还没有可以计算的记录' }}</div>
-        <Explain>从投出到第一封有实质内容的回复（不算自动确认信）隔了多少天，取中位数。</Explain></div>
+        <div class="n" :class="{ na: d.median_wait_days == null }">{{ wait }}</div><div class="l">{{ $t('analytics.apps.typicalWaitForA') }}</div><div class="d">{{ d.waited ? $t('analytics.apps.withARecord', { n: d.waited }, d.waited) : $t('analytics.apps.noRecordsToCompute') }}</div>
+        <Explain>{{ $t('analytics.apps.daysFromSendingTo') }}</Explain></div>
     </div>
-    <p v-if="d.coverage" class="small muted" style="margin: -4px 0 14px">全部已投出 {{ d.coverage.sent }} 份（概览页上的数字），其中 {{ d.coverage.dated }} 份有投递日期，计入这一页按时间的统计<template v-if="d.coverage.undated">；另外 {{ d.coverage.undated }} 份知道投出了、但没有记下是哪一天（从邮件或雇主网站上认出来的，或你手动记的），不在这一页的数字里，<router-link to="/applications">在“我的申请”里</router-link>可以补上日期</template>。</p>
+    <p v-if="d.coverage" class="small muted" style="margin: -4px 0 14px">{{ $t('analytics.apps.applicationsHaveBeenSent', { p0: d.coverage.sent, p1: d.coverage.dated }) }}<template v-if="d.coverage.undated">{{ $t('analytics.apps.anotherAreKnownTo', { p0: d.coverage.undated }) }}<router-link to="/applications">{{ $t('analytics.apps.underMyApplications') }}</router-link>{{ $t('analytics.apps.theDateCanBe') }}</template>。</p>
 
     <div class="an-row c32">
       <div class="card">
-        <div class="card-title">申请漏斗</div>
-        <p class="card-sub">每一步都是上一步的一部分：投出的里有多少收到了回执，收到回执的里有多少有了实质结果，依此类推。</p>
+        <div class="card-title">{{ $t('analytics.apps.applicationFunnel') }}</div>
+        <p class="card-sub">{{ $t('analytics.apps.eachStepIsA') }}</p>
         <div class="hbars tight even" style="--lab: 13em">
           <template v-for="r in d.funnel" :key="r.key">
             <span class="lab" :title="r.label">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：${r.value} 个，占投出的 ${pct(r.value, t.n)}%`"><div class="fill" :class="{ zero: !r.value }" :style="{ width: pct(r.value, t.n) + '%' }"></div></div>
+            <div class="track rate" :title="$t('analytics.apps.ofThoseSent', { p0: r.label, p1: r.value, p2: pct(r.value, t.n) })"><div class="fill" :class="{ zero: !r.value }" :style="{ width: pct(r.value, t.n) + '%' }"></div></div>
             <span class="num">{{ r.value }} <span class="muted small" style="font-weight: 400">{{ pct(r.value, t.n) }}%</span></span>
           </template>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">现在各在什么状态</div>
-        <p class="card-sub">每个申请只算在一处，加起来就是投出的总数。</p>
+        <div class="card-title">{{ $t('analytics.apps.whereTheyStandNow') }}</div>
+        <p class="card-sub">{{ $t('analytics.apps.eachApplicationIsCounted') }}</p>
         <SplitBar :parts="states" rows />
-        <div v-if="d.rejected_after_progress" class="card-foot"><span class="hint">被拒的里有 {{ d.rejected_after_progress }} 个进入过笔试或面试。</span></div>
+        <div v-if="d.rejected_after_progress" class="card-foot"><span class="hint">{{ $t('analytics.apps.ofTheRejectedHad', { p0: d.rejected_after_progress }) }}</span></div>
       </div>
     </div>
 
@@ -78,63 +79,63 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       <div class="card">
         <div class="card-head">
           <span class="card-title">{{ SENT_TITLE[size] }}</span>
-          <div v-if="size !== 'hour'" class="seg" aria-label="按多长的时间看"><button v-for="[k, l] in [['', '自动'], ['day', '按天'], ['week', '按周'], ['month', '按月']]" :key="k" :class="{ on: params.bucket === k }" @click="params.bucket = k">{{ l }}</button></div>
-          <div class="seg" role="tablist" aria-label="怎么看">
-            <button role="tab" :aria-selected="!asTable" :class="{ on: !asTable }" @click="asTable = false"><Icon name="chart" />图表</button>
-            <button role="tab" :aria-selected="asTable" :class="{ on: asTable }" @click="asTable = true"><Icon name="table" />表格</button>
+          <div v-if="size !== 'hour'" class="seg" :aria-label="$t('analytics.apps.byWhichLengthOf')"><button v-for="[k, l] in [['', $t('analytics.apps.auto')], ['day', $t('analytics.apps.day')], ['week', $t('analytics.apps.week')], ['month', $t('analytics.apps.month2')]]" :key="k" :class="{ on: params.bucket === k }" @click="params.bucket = k">{{ l }}</button></div>
+          <div class="seg" role="tablist" :aria-label="$t('analytics.apps.viewAs')">
+            <button role="tab" :aria-selected="!asTable" :class="{ on: !asTable }" @click="asTable = false"><Icon name="chart" />{{ $t('analytics.apps.chart') }}</button>
+            <button role="tab" :aria-selected="asTable" :class="{ on: asTable }" @click="asTable = true"><Icon name="table" />{{ $t('analytics.apps.table') }}</button>
           </div>
         </div>
         <p class="card-sub">{{ SENT_SUB[size] }}</p>
-        <ColumnChart v-if="!asTable" :data="monthly" unit=" 个" :table="false" />
+        <ColumnChart v-if="!asTable" :data="monthly" :unit="$t('analytics.apps.items')" :table="false" />
         <template v-else>
           <table class="an-table">
-            <thead><tr><th>{{ STEP_HEAD[size] }}</th><th class="num">投出</th><th class="num">其中已有实质结果</th><th class="num">这段时间收到的回复</th></tr></thead>
+            <thead><tr><th>{{ STEP_HEAD[size] }}</th><th class="num">{{ $t('analytics.apps.sent') }}</th><th class="num">{{ $t('analytics.apps.ofWhichCameTo') }}</th><th class="num">{{ $t('analytics.apps.repliesReceivedInIt') }}</th></tr></thead>
             <tbody><tr v-for="m in months.slice(page * SIZE, (page + 1) * SIZE)" :key="m.key"><td>{{ m.key }}</td><td class="num">{{ m.n }}</td><td class="num">{{ m.decided }}</td><td class="num">{{ m.replies }}</td></tr></tbody>
           </table>
           <Pager v-model:page="page" :size="SIZE" :total="months.length" />
-          <div class="card-foot"><span class="hint">前两列按投出的时间算（这段时间投的后来怎么样）；最后一列按回复到达的时间算，不看是什么时候投的。</span></div>
+          <div class="card-foot"><span class="hint">{{ $t('analytics.apps.theFirstTwoColumns') }}</span></div>
         </template>
       </div>
       <div class="card">
-        <div class="card-title">评分高的岗位更容易有实质结果吗</div>
-        <p class="card-sub">各评分段里，有实质结果的申请占多少。用来检验评分规则准不准，不能说明因果。</p>
+        <div class="card-title">{{ $t('analytics.apps.doHigherScoredPostings') }}</div>
+        <p class="card-sub">{{ $t('analytics.apps.theShareOfApplications2') }}</p>
         <div class="hbars tight even" style="--lab: 5.5em">
           <template v-for="r in d.by_score" :key="r.label">
-            <span class="lab">{{ r.label === '没评分' ? r.label : r.label + ' 分' }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有实质结果，其中 ${r.progressed} 个进入过笔试或面试`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <span class="lab">{{ /\d/.test(r.label) ? $t('analytics.apps.scoreBand', { p0: r.label }) : r.label }}</span>
+            <div class="track rate" :title="$t('analytics.apps.sentCameToSomething', { p0: r.label, p1: r.n, p2: r.decided, p3: r.progressed })"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="muted small" style="font-weight: 400">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>
-        <div class="card-foot"><span class="hint">少于 {{ d.min_sample }} 个申请的分组只列数量、不算比例：样本太少。</span></div>
+        <div class="card-foot"><span class="hint">{{ $t('analytics.apps.groupsWithFewerThan', { p0: d.min_sample }) }}</span></div>
       </div>
     </div>
 
     <div class="an-row c11">
       <div class="card">
-        <div class="card-title">在哪里投的更容易有实质结果</div>
-        <p class="card-sub">按投递渠道，有实质结果的占比</p>
+        <div class="card-title">{{ $t('analytics.apps.whereApplyingComesTo') }}</div>
+        <p class="card-sub">{{ $t('analytics.apps.byChannelTheShare') }}</p>
         <div class="hbars tight even">
           <template v-for="r in d.by_channel" :key="r.label">
             <span class="lab" :title="r.label">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有实质结果`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <div class="track rate" :title="$t('analytics.apps.sentCameToSomething2', { p0: r.label, p1: r.n, p2: r.decided })"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="muted small" style="font-weight: 400">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">哪个方向更容易有实质结果</div>
-        <p class="card-sub">按岗位方向，有实质结果的占比</p>
+        <div class="card-title">{{ $t('analytics.apps.whichDirectionComesTo') }}</div>
+        <p class="card-sub">{{ $t('analytics.apps.byDirectionTheShare') }}</p>
         <div class="hbars tight even">
           <template v-for="r in d.by_direction" :key="r.label">
             <span class="lab" :title="r.label">{{ r.label }}</span>
-            <div class="track rate" :title="`${r.label}：投 ${r.n} 个，${r.decided} 个有实质结果`"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <div class="track rate" :title="$t('analytics.apps.sentCameToSomething2', { p0: r.label, p1: r.n, p2: r.decided })"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="muted small" style="font-weight: 400">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>
       </div>
     </div>
   </template>
-  <div v-else class="card"><EmptyState icon="activity" title="这段时间没有投出申请" text="换一个时间范围看看。" /></div>
+  <div v-else class="card"><EmptyState icon="activity" :title="$t('analytics.apps.noApplicationsSentIn')" :text="$t('analytics.apps.tryADifferentTime')" /></div>
 
   <div v-if="d.first_record || d.backlog" class="an-row c11">
     <div v-if="d.first_record" class="card">
@@ -164,8 +165,8 @@ watch(() => props.d.by_time, () => { page.value = 0 })
   </div>
 
   <div class="card">
-    <div class="card-head"><span class="card-title">错过的好岗位</span><span class="badge" :class="d.missed_total ? 'warn' : 'ok'">{{ d.missed_total }} 个</span></div>
-    <p class="card-sub">评分 7.5 以上、截止或下线时还没投的，按评分从高到低。这段时间里第一次看到的岗位才算。</p>
+    <div class="card-head"><span class="card-title">{{ $t('analytics.apps.goodPostingsYouMissed') }}</span><span class="badge" :class="d.missed_total ? 'warn' : 'ok'">{{ $t('analytics.apps.text', { p0: d.missed_total }) }}</span></div>
+    <p class="card-sub">{{ $t('analytics.apps.scoredOrHigherAnd') }}</p>
     <div v-if="(d.missed_reasons || []).length" class="row" style="flex-wrap: wrap; gap: 6px; margin-bottom: 10px">
       <span class="small muted">{{ $t('analytics.missed.why') }}</span>
       <span v-for="r in d.missed_reasons" :key="r.key" class="tag">{{ $t('analytics.missed.reason.' + r.key) }} {{ r.n }}</span>
@@ -174,10 +175,10 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       <router-link v-for="m in d.missed" :key="m.id" :to="{ path: '/jobs', query: { open: m.id } }">
         <span class="score hi">{{ m.score.toFixed(1) }}</span>
         <div style="min-width: 0"><div class="main">{{ m.company }}</div><div class="sub">{{ m.title }}<template v-if="m.reason"> · {{ $t('analytics.missed.reason.' + m.reason) }}</template></div></div>
-        <span class="right"><span class="badge" :class="m.stage === 'expired' ? 'warn' : ''">{{ m.stage === 'expired' ? '已截止' : '已下线' }}</span><div v-if="m.deadline" class="small muted" style="margin-top: 2px">{{ $t('analytics.missed.due', { day: dayText(m.deadline) }) }}</div></span>
+        <span class="right"><span class="badge" :class="m.stage === 'expired' ? 'warn' : ''">{{ m.stage === 'expired' ? $t('analytics.apps.deadlinePassed') : $t('analytics.apps.takenDown') }}</span><div v-if="m.deadline" class="small muted" style="margin-top: 2px">{{ $t('analytics.missed.due', { day: dayText(m.deadline) }) }}</div></span>
       </router-link>
     </div>
-    <EmptyState v-else icon="check" title="没有错过高分岗位" />
-    <p v-if="d.missed_total > d.missed.length" class="hint" style="margin-top: 10px">只列出评分最高的 {{ d.missed.length }} 个。</p>
+    <EmptyState v-else icon="check" :title="$t('analytics.apps.noHighScoringPostings')" />
+    <p v-if="d.missed_total > d.missed.length" class="hint" style="margin-top: 10px">{{ $t('analytics.apps.onlyTheBestScored', { p0: d.missed.length }) }}</p>
   </div>
 </template>

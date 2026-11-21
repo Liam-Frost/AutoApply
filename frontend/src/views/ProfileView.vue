@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../api'
 import { renderMarkdown } from '../md'
@@ -15,7 +16,7 @@ const route = useRoute()
 const tab = ref(['sections', 'pay', 'stories', 'init', 'scoring', 'markdown', 'history'].includes(route.query.tab) ? route.query.tab : 'sections')
 // salary, notice period, referees: a form that keeps two sections of the profile up to date
 const st = ref({ compensation: {}, referees: [], suggested: {} })
-const CONTACT = [['ask_first', '给出前先问我'], ['after_offer', '拿到录用通知后才能联系'], ['anytime', '随时可以联系']]
+const CONTACT = [['ask_first', T('profile.askMeBeforeSharing')], ['after_offer', T('profile.contactOnlyAfterAn')], ['anytime', T('profile.canBeContactedAnytime')]]
 const loadSt = async () => {
   const d = await api.get('/profile/structured')
   take('st', st, { ...d, compensation: { period: 'year', policy: 'state', ...d.compensation }, referees: d.referees.length ? d.referees : [] })
@@ -26,7 +27,7 @@ const base = reactive({ md: '', stories: '', scoring: '', st: { compensation: {}
 const take = (k, r, fresh) => { if (same(r.value, base[k])) r.value = clone(fresh); base[k] = clone(fresh) }
 const regions = ref({ packs: [] })
 const addRef = () => st.value.referees.push({ name: '', title: '', org: '', relation: '', email: '', phone: '', contact: 'ask_first' })
-const saveSt = () => run(async () => { await api.put('/profile/structured', { compensation: st.value.compensation, referees: st.value.referees }); base.st = clone(st.value) }, '已保存，并写进了个人资料')
+const saveSt = () => run(async () => { await api.put('/profile/structured', { compensation: st.value.compensation, referees: st.value.referees }); base.st = clone(st.value) }, T('profile.savedAndAddedTo'))
 const p = ref({ markdown: '', sections: [], versions: [], agent_added: [] })
 const scoring = ref('')
 const stories = ref('')
@@ -39,8 +40,8 @@ const notes = ref('')
 // after another page - and what was written is kept there until it is adopted or discarded. What is edited here is
 // the proposal's text.
 const { st: gen, phase: genPhase, working: genWorking, load: loadGen, start: startGen } = useProfileInit((now) => {
-  if (now === 'applied') { toast('个人资料已生成并保存'); load() }
-  else if (now === 'proposal') toast('个人资料草稿已生成，等你查看')
+  if (now === 'applied') { toast(T('profile.yourProfileHasBeen')); load() }
+  else if (now === 'proposal') toast(T('profile.aDraftOfYour'))
 })
 const genTask = computed(() => (gen.value && gen.value.task) || {})
 const draftOf = ref(0)        // the task whose proposal is being edited here
@@ -59,8 +60,8 @@ const stDirty = computed(() => !same(st.value, base.st))
 const sectionDirty = computed(() => editIdx.value >= 0 && !!p.value.sections[editIdx.value] && editBody.value !== p.value.sections[editIdx.value].body)
 
 const KINDS = {
-  resume_site: '简历（雇主官网用）', resume_portal: '简历（PD Portal 用）', transcript: '成绩单', cl_template: '求职信模板（Word）',
-  cl_example: '求职信范例', source: '其他初始化资料', cover_letter: '生成的求职信', other: '其他', resume_docx: '简历（Word，定制简历用）',
+  resume_site: T('profile.rSumForEmployer'), resume_portal: T('profile.rSumForPd'), transcript: T('profile.transcript'), cl_template: T('profile.coverLetterTemplateWord'),
+  cl_example: T('profile.sampleCoverLetter'), source: T('profile.otherSetupFiles'), cover_letter: T('profile.generatedCoverLetter'), other: T('profile.other'), resume_docx: T('profile.rSumWordFor'),
 }
 const UPLOADABLE = ['resume_site', 'resume_portal', 'transcript', 'cl_template', 'cl_example', 'source']
 
@@ -83,20 +84,20 @@ const todoCount = computed(() => (p.value.markdown.match(/TODO:/g) || []).length
 async function startEdit(i) { if (!(await mayLeave(['profile-section']))) return; editIdx.value = i; editBody.value = p.value.sections[i].body }
 const saveSection = () => run(async () => {
   const secs = p.value.sections.map((s, i) => (i === editIdx.value ? { ...s, body: editBody.value } : s))
-  await api.put('/profile', { sections: secs, note: '编辑：' + p.value.sections[editIdx.value].title })
+  await api.put('/profile', { sections: secs, note: T('profile.edit2') + p.value.sections[editIdx.value].title })
   editIdx.value = -1
-}, '已保存')
-const saveMd = () => run(async () => { await api.put('/profile', { markdown: md.value, note: '直接编辑全文' }); base.md = md.value }, '已保存')
-const saveStories = () => run(async () => { await api.put('/profile', { doc: 'stories', markdown: stories.value }); base.stories = stories.value }, '已保存')
-const saveScoring = () => run(async () => { await api.put('/profile', { doc: 'scoring', markdown: scoring.value }); base.scoring = scoring.value }, '评分规则已保存')
-const restore = async (v) => (await ask('回退到这一版？现在的内容会先存成一个历史版本。')) && run(() => api.post('/profile/restore/' + v.id), '已回退')
-const undo = (a) => run(() => api.post('/profile/remove-line', { fragment: a.note.slice(0, 40) }), '已撤销这条规则')
+}, T('profile.saved'))
+const saveMd = () => run(async () => { await api.put('/profile', { markdown: md.value, note: T('profile.editTheFullText') }); base.md = md.value }, T('profile.saved'))
+const saveStories = () => run(async () => { await api.put('/profile', { doc: 'stories', markdown: stories.value }); base.stories = stories.value }, T('profile.saved'))
+const saveScoring = () => run(async () => { await api.put('/profile', { doc: 'scoring', markdown: scoring.value }); base.scoring = scoring.value }, T('profile.scoreRulesSaved'))
+const restore = async (v) => (await ask(T('profile.rollBackToThis'))) && run(() => api.post('/profile/restore/' + v.id), T('profile.reverted'))
+const undo = (a) => run(() => api.post('/profile/remove-line', { fragment: a.note.slice(0, 40) }), T('profile.ruleUndone'))
 
 function upload(ev) {
   const f = ev.target.files[0]
   if (!f) return
   const fd = new FormData(); fd.append('kind', upKind.value); fd.append('file', f)
-  run(async () => { const r = await api.upload('/documents', fd); pickAfter = r.id }, `已上传：${f.name}`).then(() => { if (pickAfter) { cur.value = docs.value.find((d) => d.id === pickAfter) || cur.value; docFilter.value = 'active'; pickAfter = null } })
+  run(async () => { const r = await api.upload('/documents', fd); pickAfter = r.id }, T('profile.uploaded', { p0: f.name })).then(() => { if (pickAfter) { cur.value = docs.value.find((d) => d.id === pickAfter) || cur.value; docFilter.value = 'active'; pickAfter = null } })
   ev.target.value = ''
 }
 let pickAfter = null
@@ -108,26 +109,26 @@ const shownDocs = computed(() => docs.value.filter((d) => (docFilter.value === '
 const sizeText = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB')
 function pick(d) { cur.value = d; renaming.value = false }
 async function docAct(fn, ok) { const id = cur.value && cur.value.id; await run(fn, ok); cur.value = docs.value.find((d) => d.id === id) || null }
-const rename = () => docAct(async () => { await api.patch('/documents/' + cur.value.id, { name: newName.value }); renaming.value = false }, '已改名')
-const setKind = (k) => docAct(() => api.patch('/documents/' + cur.value.id, { kind: k }), '已更改用途')
-const setActive = (on) => docAct(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? '已启用；同类的其他文件已停用' : '已停用，草案不会再用它')
-const destroy = async () => (await ask(`彻底删除「${cur.value.name}」？文件会从磁盘上删掉，不能恢复。`)) && docAct(() => api.del('/documents/' + cur.value.id + '?permanent=true'), '已删除')
+const rename = () => docAct(async () => { await api.patch('/documents/' + cur.value.id, { name: newName.value }); renaming.value = false }, T('profile.renamed'))
+const setKind = (k) => docAct(() => api.patch('/documents/' + cur.value.id, { kind: k }), T('profile.purposeChanged'))
+const setActive = (on) => docAct(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? T('profile.turnedOnOtherFiles') : T('profile.disabledDraftsWontUse'))
+const destroy = async () => (await ask(T('profile.permanentlyDeleteTheFile', { p0: cur.value.name }))) && docAct(() => api.del('/documents/' + cur.value.id + '?permanent=true'), T('profile.deleted'))
 async function init() {
   try { await startGen(notes.value) } catch (e) { toast(e.message, 'bad') }
 }
-const adopt = () => run(async () => { await api.post(`/profile/init/${draftOf.value}/adopt`, { markdown: draftText.value }); await loadGen() }, '已采用起草的个人资料')
-const dropDraft = async () => (await ask('不采用这份草稿？草稿会被丢掉，现在的个人资料不变。')) && run(async () => { await api.post(`/profile/init/${draftOf.value}/discard`); await loadGen() }, '草稿已丢掉')
+const adopt = () => run(async () => { await api.post(`/profile/init/${draftOf.value}/adopt`, { markdown: draftText.value }); await loadGen() }, T('profile.draftedProfileApplied'))
+const dropDraft = async () => (await ask(T('profile.notAdoptThisDraft'))) && run(async () => { await api.post(`/profile/init/${draftOf.value}/discard`); await loadGen() }, T('profile.draftDiscarded'))
 
 // What is edited on each tab, and is asked about before it is left: another tab, another section, another page.
-const TAB_LABELS = { sections: '我的资料', pay: '薪资与推荐人', stories: '我的经历故事', init: '从简历生成', scoring: '岗位评分规则', markdown: '原文编辑', history: '历史版本' }
+const TAB_LABELS = { sections: T('profile.myInfo'), pay: T('profile.salaryReferences'), stories: T('profile.myExperienceStories'), init: T('profile.generateFromRSum'), scoring: T('profile.postingScoreRules'), markdown: T('profile.editSource'), history: T('profile.versionHistory') }
 const EDITED_ON = { sections: ['profile-section'], pay: ['profile-pay'], stories: ['profile-stories'], init: ['profile-draft'], scoring: ['profile-scoring'], markdown: ['profile-md'] }
-useUnsaved({ id: 'profile-section', get label() { const s = p.value.sections[editIdx.value]; return s ? `资料“${s.title === 'preamble' ? '说明' : s.title}”` : '我的资料' }, dirty: () => sectionDirty.value, save: () => saveSection(), discard: () => { editIdx.value = -1 } })
-useUnsaved({ id: 'profile-pay', label: '薪资与推荐人', dirty: () => stDirty.value, save: () => saveSt(), discard: () => { st.value = clone(base.st) } })
-useUnsaved({ id: 'profile-stories', label: '我的经历故事', dirty: () => stories.value !== base.stories, save: () => saveStories(), discard: () => { stories.value = base.stories } })
-useUnsaved({ id: 'profile-scoring', label: '岗位评分规则', dirty: () => scoring.value !== base.scoring, save: () => saveScoring(), discard: () => { scoring.value = base.scoring } })
-useUnsaved({ id: 'profile-md', label: '原文编辑', dirty: () => mdDirty.value, save: () => saveMd(), discard: () => { md.value = base.md } })
+useUnsaved({ id: 'profile-section', get label() { const s = p.value.sections[editIdx.value]; return s ? T('profile.profileSection', { p0: s.title === 'preamble' ? T('profile.notes') : s.title }) : T('profile.myInfo') }, dirty: () => sectionDirty.value, save: () => saveSection(), discard: () => { editIdx.value = -1 } })
+useUnsaved({ id: 'profile-pay', label: T('profile.salaryReferences'), dirty: () => stDirty.value, save: () => saveSt(), discard: () => { st.value = clone(base.st) } })
+useUnsaved({ id: 'profile-stories', label: T('profile.myExperienceStories'), dirty: () => stories.value !== base.stories, save: () => saveStories(), discard: () => { stories.value = base.stories } })
+useUnsaved({ id: 'profile-scoring', label: T('profile.postingScoreRules'), dirty: () => scoring.value !== base.scoring, save: () => saveScoring(), discard: () => { scoring.value = base.scoring } })
+useUnsaved({ id: 'profile-md', label: T('profile.editSource'), dirty: () => mdDirty.value, save: () => saveMd(), discard: () => { md.value = base.md } })
 // (the proposal itself is kept on the server; what would be lost by leaving is only what was changed in it here)
-useUnsaved({ id: 'profile-draft', label: '对生成草稿的改动', dirty: () => draftDirty.value, save: () => adopt(), discard: () => { draftText.value = genTask.value.draft || '' } })
+useUnsaved({ id: 'profile-draft', label: T('profile.yourChangesToThe'), dirty: () => draftDirty.value, save: () => adopt(), discard: () => { draftText.value = genTask.value.draft || '' } })
 const marked = (k) => (EDITED_ON[k] || []).some((id) => ({ 'profile-section': sectionDirty.value, 'profile-pay': stDirty.value, 'profile-stories': stories.value !== base.stories,
   'profile-scoring': scoring.value !== base.scoring, 'profile-md': mdDirty.value, 'profile-draft': draftDirty.value })[id])
 async function go(k) { if (k !== tab.value && (await mayLeave(EDITED_ON[tab.value] || []))) tab.value = k }
@@ -135,117 +136,117 @@ onMounted(load)
 </script>
 
 <template>
-  <PageHead title="个人资料" sub="填申请表、写求职信用的全部依据。这里没有写的事，程序不会替你编。">
-    <span v-if="genWorking" class="badge info">正在从简历生成</span>
-    <button v-else-if="genPhase === 'proposal' && tab !== 'init'" class="sm" @click="go('init')">有一份生成的草稿等你查看</button>
-    <span v-if="todoCount" class="badge warn">还有 {{ todoCount }} 处没填</span>
+  <PageHead :title="$t('profile.profile')" :sub="$t('profile.everythingUsedToFill')">
+    <span v-if="genWorking" class="badge info">{{ $t('profile.generatingFromYourR') }}</span>
+    <button v-else-if="genPhase === 'proposal' && tab !== 'init'" class="sm" @click="go('init')">{{ $t('profile.aGeneratedDraftIs') }}</button>
+    <span v-if="todoCount" class="badge warn">{{ $t('profile.fieldsStillEmpty', { p0: todoCount }) }}</span>
   </PageHead>
   <div class="seg" style="margin-bottom: 16px">
-    <router-link to="/files" class="btn ghost sm" style="order: 9; margin-left: 6px">简历和材料在“材料库” →</router-link>
-    <button v-for="(l, k) in TAB_LABELS" :key="k" :class="{ on: tab === k }" @click="go(k)">{{ l }}<span v-if="marked(k)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></button>
+    <router-link to="/files" class="btn ghost sm" style="order: 9; margin-left: 6px">{{ $t('profile.rSumSAnd') }}</router-link>
+    <button v-for="(l, k) in TAB_LABELS" :key="k" :class="{ on: tab === k }" @click="go(k)">{{ l }}<span v-if="marked(k)" class="unsaved-dot" :title="$t('profile.unsavedChanges')" :aria-label="$t('profile.unsavedChanges')"></span></button>
   </div>
 
   <template v-if="tab === 'sections'">
     <div v-if="p.agent_added.length" class="panel" style="border-color: var(--info)">
-      <h3 style="margin-top: 0">程序最近帮你记下的内容</h3>
+      <h3 style="margin-top: 0">{{ $t('profile.whatTheAppNoted') }}</h3>
       <div v-for="a in p.agent_added" :key="a.id" class="row small" style="margin-bottom: 4px">
-        <span class="grow">{{ a.note }}</span><span class="muted">{{ fmt(a.created_at) }}</span><button @click="undo(a)">撤销</button>
+        <span class="grow">{{ a.note }}</span><span class="muted">{{ fmt(a.created_at) }}</span><button @click="undo(a)">{{ $t('profile.revoke') }}</button>
       </div>
     </div>
     <details v-if="regions.packs.length" class="panel">
-      <summary><b>你投递的地区，申请表通常还会问这些</b> <span class="muted small">（{{ regions.packs.map((r) => r.name).join('、') }}；资料里写清楚，程序才答得上来）</span></summary>
+      <summary><b>{{ $t('profile.applicationFormsInThe') }}</b> <span class="muted small">{{ $t('profile.regionsNote', { regions: regions.packs.map((r) => r.name).join(', ') }) }}</span></summary>
       <div v-for="r in regions.packs" :key="r.code" style="margin-top: 10px">
         <b>{{ r.name }}</b>
         <ul style="margin: 4px 0 4px 18px"><li v-for="x in r.profile" :key="x" class="small">{{ x }}</li></ul>
-        <div v-if="r.diversity" class="small muted">多元化 / 平等就业调查：{{ r.diversity }}</div>
-        <div v-if="r.consents" class="small muted">同意项：{{ r.consents }}</div>
-        <div v-if="r.never" class="small muted">程序不会替你填：{{ r.never }}</div>
+        <div v-if="r.diversity" class="small muted">{{ $t('profile.diversityEqualOpportunitySurvey', { p0: r.diversity }) }}</div>
+        <div v-if="r.consents" class="small muted">{{ $t('profile.consent', { p0: r.consents }) }}</div>
+        <div v-if="r.never" class="small muted">{{ $t('profile.theAppWontFill', { p0: r.never }) }}</div>
       </div>
     </details>
     <div v-for="(s, i) in p.sections" :key="i" class="panel">
-      <div class="row"><h3 class="grow" style="margin: 0">{{ s.title === 'preamble' ? '说明' : s.title }}</h3><button v-if="editIdx !== i" @click="startEdit(i)">编辑</button></div>
+      <div class="row"><h3 class="grow" style="margin: 0">{{ s.title === 'preamble' ? $t('profile.notes') : s.title }}</h3><button v-if="editIdx !== i" @click="startEdit(i)">{{ $t('profile.edit') }}</button></div>
       <template v-if="editIdx === i">
         <textarea v-model="editBody" :rows="Math.min(30, Math.max(6, editBody.split('\n').length + 1))" style="margin-top: 8px"></textarea>
-        <div class="row" style="margin-top: 8px"><button class="primary" @click="saveSection">保存</button><button @click="editIdx = -1">取消</button><span v-if="sectionDirty" class="badge warn">有改动还没保存</span></div>
+        <div class="row" style="margin-top: 8px"><button class="primary" @click="saveSection">{{ $t('profile.save') }}</button><button @click="editIdx = -1">{{ $t('profile.cancel') }}</button><span v-if="sectionDirty" class="badge warn">{{ $t('profile.unsavedChanges') }}</span></div>
       </template>
       <div v-else-if="s.body" class="md" style="margin-top: 8px" v-html="renderMarkdown(s.body)"></div>
-      <p v-else class="muted">（空）</p>
+      <p v-else class="muted">{{ $t('profile.empty') }}</p>
     </div>
   </template>
 
   <template v-if="tab === 'pay'">
     <div class="panel">
-      <h3 style="margin-top: 0">期望薪资</h3>
-      <p class="muted small">申请表问到薪资时用这里的内容。薪资题属于敏感问题：每种问法第一次出现时，草案都会停下来等你确认。</p>
+      <h3 style="margin-top: 0">{{ $t('profile.expectedSalary') }}</h3>
+      <p class="muted small">{{ $t('profile.usedWhenAnApplication') }}</p>
       <div class="row" style="gap: 16px; flex-wrap: wrap; margin-bottom: 10px">
-        <label><input v-model="st.compensation.policy" type="radio" value="state" /> 按下面的范围回答</label>
-        <label><input v-model="st.compensation.policy" type="radio" value="ask" /> 不要替我填数字，每次都留给我自己答</label>
+        <label><input v-model="st.compensation.policy" type="radio" value="state" /> {{ $t('profile.answerWithinTheRange') }}</label>
+        <label><input v-model="st.compensation.policy" type="radio" value="ask" /> {{ $t('profile.dontFillInNumbers') }}</label>
       </div>
       <div v-if="st.compensation.policy !== 'ask'" class="row" style="gap: 8px; flex-wrap: wrap; align-items: end">
-        <label class="small">最低<input v-model="st.compensation.min" placeholder="70000" style="width: 110px; display: block" /></label>
-        <label class="small">最高<input v-model="st.compensation.max" placeholder="85000" style="width: 110px; display: block" /></label>
-        <label class="small">货币<input v-model="st.compensation.currency" placeholder="CAD" style="width: 80px; display: block" /></label>
-        <label class="small">按
-          <AaSelect v-model="st.compensation.period" style="display: flex"><option value="year">年</option><option value="month">月</option><option value="hour">小时</option></AaSelect>
+        <label class="small">{{ $t('profile.min') }}<input v-model="st.compensation.min" placeholder="70000" style="width: 110px; display: block" /></label>
+        <label class="small">{{ $t('profile.max') }}<input v-model="st.compensation.max" placeholder="85000" style="width: 110px; display: block" /></label>
+        <label class="small">{{ $t('profile.currency') }}<input v-model="st.compensation.currency" placeholder="CAD" style="width: 80px; display: block" /></label>
+        <label class="small">{{ $t('profile.per') }}
+          <AaSelect v-model="st.compensation.period" style="display: flex"><option value="year">{{ $t('profile.year') }}</option><option value="month">{{ $t('profile.month') }}</option><option value="hour">{{ $t('profile.hour') }}</option></AaSelect>
         </label>
-        <label class="small"><input v-model="st.compensation.negotiable" type="checkbox" /> 可以商量</label>
+        <label class="small"><input v-model="st.compensation.negotiable" type="checkbox" /> {{ $t('profile.negotiable') }}</label>
       </div>
       <div class="row" style="gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 12px">
-        <label class="small">目前薪资（可不填）<input v-model="st.compensation.current" placeholder="例如 62000 CAD / 年" style="width: 220px; display: block" /></label>
-        <label class="small"><input v-model="st.compensation.share_current" type="checkbox" /> 表单要求时可以填写目前薪资</label>
+        <label class="small">{{ $t('profile.currentSalaryOptional') }}<input v-model="st.compensation.current" :placeholder="$t('profile.eGCadYear')" style="width: 220px; display: block" /></label>
+        <label class="small"><input v-model="st.compensation.share_current" type="checkbox" /> {{ $t('profile.shareCurrentSalaryWhen') }}</label>
       </div>
-      <h3>离职通知期与到岗时间</h3>
+      <h3>{{ $t('profile.noticePeriodStartDate') }}</h3>
       <div class="row" style="gap: 8px; flex-wrap: wrap">
-        <label class="small">通知期<input v-model="st.compensation.notice" placeholder="例如 2 weeks / 一个月 / 不适用" style="width: 240px; display: block" /></label>
-        <label class="small">最早到岗<input v-model="st.compensation.start" placeholder="例如 2027-01-05 / 录用后两周" style="width: 240px; display: block" /></label>
+        <label class="small">{{ $t('profile.noticePeriod') }}<input v-model="st.compensation.notice" :placeholder="$t('profile.eGWeeksOne')" style="width: 240px; display: block" /></label>
+        <label class="small">{{ $t('profile.earliestStartDate') }}<input v-model="st.compensation.start" :placeholder="$t('profile.eGTwoWeeks')" style="width: 240px; display: block" /></label>
       </div>
-      <label class="small" style="display: block; margin-top: 12px">补充说明（可不填）<input v-model="st.compensation.notes" placeholder="例如：时薪制岗位按 35–40 CAD 每小时" style="display: block; width: 100%" /></label>
+      <label class="small" style="display: block; margin-top: 12px">{{ $t('profile.notesOptional') }}<input v-model="st.compensation.notes" :placeholder="$t('profile.eGCadPer')" style="display: block; width: 100%" /></label>
     </div>
     <div class="panel">
-      <div class="row"><h3 class="grow" style="margin: 0">推荐人</h3><button @click="addRef"><Icon name="plus" />添加一位</button></div>
-      <p class="muted small">只有表单里有专门的“推荐人”栏时才会填写，而且只填这里列出的人。推荐人的联系方式是别人的个人信息：每种问法第一次出现时，草案都会停下来等你确认。</p>
-      <p v-if="!st.referees.length" class="muted">还没有添加推荐人。{{ st.suggested.referees ? '你这类岗位的申请表经常要求提供推荐人。' : '' }}</p>
+      <div class="row"><h3 class="grow" style="margin: 0">{{ $t('profile.references') }}</h3><button @click="addRef"><Icon name="plus" />{{ $t('profile.addOne') }}</button></div>
+      <p class="muted small">{{ $t('profile.onlyFilledInWhen') }}</p>
+      <p v-if="!st.referees.length" class="muted">{{ $t('profile.noReferencesAddedYet', { p0: st.suggested.referees ? $t('profile.applicationsForJobsLike') : '' }) }}</p>
       <div v-for="(r, i) in st.referees" :key="i" class="panel" style="background: var(--bg2)">
         <div class="row" style="gap: 8px; flex-wrap: wrap; align-items: end">
-          <label class="small">姓名<input v-model="r.name" style="width: 170px; display: block" /></label>
-          <label class="small">职位<input v-model="r.title" style="width: 170px; display: block" /></label>
-          <label class="small">单位<input v-model="r.org" style="width: 190px; display: block" /></label>
-          <label class="small">和你的关系<input v-model="r.relation" placeholder="例如 直属上司 / 导师" style="width: 170px; display: block" /></label>
-          <label class="small">邮箱<input v-model="r.email" style="width: 210px; display: block" /></label>
-          <label class="small">电话<input v-model="r.phone" style="width: 150px; display: block" /></label>
-          <label class="small">什么时候可以联系
+          <label class="small">{{ $t('profile.name') }}<input v-model="r.name" style="width: 170px; display: block" /></label>
+          <label class="small">{{ $t('profile.job') }}<input v-model="r.title" style="width: 170px; display: block" /></label>
+          <label class="small">{{ $t('profile.unit') }}<input v-model="r.org" style="width: 190px; display: block" /></label>
+          <label class="small">{{ $t('profile.relationshipToYou') }}<input v-model="r.relation" :placeholder="$t('profile.eGDirectManager')" style="width: 170px; display: block" /></label>
+          <label class="small">{{ $t('profile.email') }}<input v-model="r.email" style="width: 210px; display: block" /></label>
+          <label class="small">{{ $t('profile.phone') }}<input v-model="r.phone" style="width: 150px; display: block" /></label>
+          <label class="small">{{ $t('profile.whenTheyCanBe') }}
             <AaSelect v-model="r.contact" style="display: flex"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></AaSelect>
           </label>
-          <button class="ghost" @click="st.referees.splice(i, 1)">删除</button>
+          <button class="ghost" @click="st.referees.splice(i, 1)">{{ $t('profile.delete') }}</button>
         </div>
       </div>
     </div>
-    <div class="row"><button class="primary" :disabled="!stDirty" @click="saveSt">保存</button><span v-if="stDirty" class="badge warn">有改动还没保存</span><span class="muted small">保存后会写进个人资料的“Compensation and notice period”和“Referees”两节，这两节由这里管理，手动改动会在下次保存时被覆盖。</span></div>
+    <div class="row"><button class="primary" :disabled="!stDirty" @click="saveSt">{{ $t('profile.save') }}</button><span v-if="stDirty" class="badge warn">{{ $t('profile.unsavedChanges') }}</span><span class="muted small">{{ $t('profile.savingWritesThisTo') }}</span></div>
   </template>
 
   <template v-if="tab === 'init'">
     <div class="card">
-      <h3 style="margin-top: 0">1. 上传资料</h3>
+      <h3 style="margin-top: 0">{{ $t('profile.uploadYourFiles') }}</h3>
       <div class="row">
         <AaSelect v-model="upKind"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
-        <FileButton @change="upload"><Icon name="inbox" />选择文件</FileButton>
+        <FileButton @change="upload"><Icon name="inbox" />{{ $t('profile.chooseFile') }}</FileButton>
       </div>
       <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] || KINDS.other }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
-      <p v-if="!active.length" class="muted small">还没有上传过资料。</p>
-      <p class="muted small">这里只列你自己上传的资料；程序为某个岗位写的定制简历和求职信不在这里。 <router-link to="/files">打开材料库</router-link></p>
-      <h3>2. 补充说明（可选）</h3>
-      <textarea v-model="notes" style="font-family: inherit" placeholder="简历上没有但申请表常问的信息：法定姓名和常用名、工作许可、是否需要签证担保、可工作时间、GPA、地址……"></textarea>
-      <div class="row" style="margin-top: 8px"><button class="primary" :disabled="genWorking" @click="init">{{ genWorking ? '正在生成…' : '3. 生成个人资料草稿' }}</button></div>
-      <p v-if="genPhase === 'queued'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>已经排进队列，马上开始。不用等在这一页：去别的页面再回来，结果还在这里。</span></p>
-      <p v-else-if="genPhase === 'running'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>AI 正在阅读你的资料，一般需要一两分钟。不用等在这一页：去别的页面再回来，结果还在这里。</span></p>
-      <p v-else-if="genPhase === 'failed'" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>上一次没有生成：{{ genTask.error }}</span></p>
-      <p v-else-if="genPhase === 'applied'" class="callout ok" style="margin-top: 12px"><Icon name="check" /><span>{{ fmtTime(genTask.finished_at) }} 生成的内容已经保存为个人资料（当时个人资料还是空的）。可以在“我的资料”里查看和补全。</span></p>
-      <p class="muted small">程序只照抄资料里写明的事实；资料里没有而申请表需要的信息会标成“待填” 让你填，不会猜。已经有个人资料时，生成的是一份草稿，你对比之后决定是否采用。</p>
+      <p v-if="!active.length" class="muted small">{{ $t('profile.nothingHasBeenUploaded') }}</p>
+      <p class="muted small">{{ $t('profile.onlyWhatYouUploaded') }} <router-link to="/files">{{ $t('profile.openTheLibrary') }}</router-link></p>
+      <h3>{{ $t('profile.additionalNotesOptional') }}</h3>
+      <textarea v-model="notes" style="font-family: inherit" :placeholder="$t('profile.thingsApplicationFormsOften')"></textarea>
+      <div class="row" style="margin-top: 8px"><button class="primary" :disabled="genWorking" @click="init">{{ genWorking ? $t('profile.generating') : $t('profile.generateProfileDraft') }}</button></div>
+      <p v-if="genPhase === 'queued'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>{{ $t('profile.queuedItStartsIn') }}</span></p>
+      <p v-else-if="genPhase === 'running'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>{{ $t('profile.theAiIsReading') }}</span></p>
+      <p v-else-if="genPhase === 'failed'" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>{{ $t('profile.theLastAttemptDid', { p0: genTask.error }) }}</span></p>
+      <p v-else-if="genPhase === 'applied'" class="callout ok" style="margin-top: 12px"><Icon name="check" /><span>{{ $t('profile.whatWasGeneratedAt', { p0: fmtTime(genTask.finished_at) }) }}</span></p>
+      <p class="muted small">{{ $t('profile.theProgramOnlyCopies') }}</p>
     </div>
     <div v-if="genPhase === 'proposal'" class="cols">
-      <div class="panel"><h3 style="margin-top: 0">当前个人资料</h3><pre>{{ gen.current }}</pre></div>
+      <div class="panel"><h3 style="margin-top: 0">{{ $t('profile.currentProfile') }}</h3><pre>{{ gen.current }}</pre></div>
       <div class="panel" style="border-color: var(--ok)">
-        <div class="row"><h3 class="grow" style="margin: 0">生成的草稿</h3><span class="muted small">{{ fmtTime(genTask.finished_at) }}</span><button @click="dropDraft">不采用</button><button class="primary" @click="adopt">采用</button></div>
+        <div class="row"><h3 class="grow" style="margin: 0">{{ $t('profile.generatedDraft') }}</h3><span class="muted small">{{ fmtTime(genTask.finished_at) }}</span><button @click="dropDraft">{{ $t('profile.doNotUse') }}</button><button class="primary" @click="adopt">{{ $t('profile.use') }}</button></div>
         <textarea v-model="draftText" rows="40" style="margin-top: 8px"></textarea>
       </div>
     </div>
@@ -254,11 +255,11 @@ onMounted(load)
   <template v-if="tab === 'markdown'">
     <div class="card">
       <div class="row">
-        <div class="grow"><div class="card-title">直接编辑全文</div><div class="muted small">用 Markdown 写。一般在“我的资料”里按段落改就够了，这里适合大段调整。</div></div>
-        <label class="small muted"><input v-model="mdPreview" type="checkbox" /> 同时预览</label>
-        <span v-if="mdDirty" class="badge warn">有改动还没保存</span>
-        <button :disabled="!mdDirty" @click="md = base.md">放弃改动</button>
-        <button class="primary" :disabled="!mdDirty" @click="saveMd"><Icon name="check" />保存</button>
+        <div class="grow"><div class="card-title">{{ $t('profile.editTheFullText') }}</div><div class="muted small">{{ $t('profile.writtenInMarkdownEditing') }}</div></div>
+        <label class="small muted"><input v-model="mdPreview" type="checkbox" /> {{ $t('profile.previewAlongside') }}</label>
+        <span v-if="mdDirty" class="badge warn">{{ $t('profile.unsavedChanges') }}</span>
+        <button :disabled="!mdDirty" @click="md = base.md">{{ $t('profile.discardChanges') }}</button>
+        <button class="primary" :disabled="!mdDirty" @click="saveMd"><Icon name="check" />{{ $t('profile.save') }}</button>
       </div>
       <div :class="mdPreview ? 'cols' : ''" style="margin-top: 14px">
         <textarea v-model="md" style="height: 68vh; resize: vertical"></textarea>
@@ -270,21 +271,21 @@ onMounted(load)
   <template v-if="tab === 'stories'">
     <div class="card">
       <div class="row">
-        <div class="grow"><div class="card-title">我的经历故事</div><div class="muted small">申请表上常有开放题：“讲一次你解决冲突的经历”“说一个你引以为傲的项目”。把你真实的经历写在这里，每个故事一个“## 标题”，写清楚当时的情况、你做了什么、结果如何。程序回答这类问题时只会从这里（和你的经历）取材、改写和压缩；这里没有合适的故事，它会把问题留给你，不会替你编。</div></div>
-        <span v-if="stories !== base.stories" class="badge warn">有改动还没保存</span>
-        <button class="primary" :disabled="stories === base.stories" @click="saveStories"><Icon name="check" />保存</button>
+        <div class="grow"><div class="card-title">{{ $t('profile.myExperienceStories') }}</div><div class="muted small">{{ $t('profile.applicationFormsOftenHave') }}</div></div>
+        <span v-if="stories !== base.stories" class="badge warn">{{ $t('profile.unsavedChanges') }}</span>
+        <button class="primary" :disabled="stories === base.stories" @click="saveStories"><Icon name="check" />{{ $t('profile.save') }}</button>
       </div>
       <textarea v-model="stories" style="height: 60vh; margin-top: 14px; resize: vertical; font-family: inherit; font-size: 14px"></textarea>
-      <p class="hint" style="margin-top: 8px">用中文或英文写都可以，程序会按申请表的语言来回答。写 4–6 个覆盖不同主题的故事（团队合作、解决难题、领导、失败与学习、主动性）基本够用。</p>
+      <p class="hint" style="margin-top: 8px">{{ $t('profile.writeInChineseOr') }}</p>
     </div>
   </template>
 
   <template v-if="tab === 'scoring'">
     <div class="card">
       <div class="row">
-        <div class="grow"><div class="card-title">岗位评分规则</div><div class="muted small">用平常的话写：什么样的岗位该高分、什么情况直接排除。程序读完岗位说明全文后按这些规则评分；没有岗位说明的不评分。</div></div>
-        <span v-if="scoring !== base.scoring" class="badge warn">有改动还没保存</span>
-        <button class="primary" :disabled="scoring === base.scoring" @click="saveScoring"><Icon name="check" />保存</button>
+        <div class="grow"><div class="card-title">{{ $t('profile.postingScoreRules') }}</div><div class="muted small">{{ $t('profile.writeInPlainLanguage') }}</div></div>
+        <span v-if="scoring !== base.scoring" class="badge warn">{{ $t('profile.unsavedChanges') }}</span>
+        <button class="primary" :disabled="scoring === base.scoring" @click="saveScoring"><Icon name="check" />{{ $t('profile.save') }}</button>
       </div>
       <textarea v-model="scoring" style="height: 60vh; margin-top: 14px; resize: vertical"></textarea>
     </div>
@@ -292,16 +293,16 @@ onMounted(load)
 
   <template v-if="tab === 'history'">
     <div class="card">
-      <div class="card-title">历史版本</div>
-      <p class="muted">每次保存都会留一份。回退不会丢东西：当前内容也会先存成一个版本。</p>
+      <div class="card-title">{{ $t('profile.versionHistory') }}</div>
+      <p class="muted">{{ $t('profile.everySaveKeepsA') }}</p>
       <div class="list">
         <div v-for="(v, i) in p.versions" :key="v.id" class="item">
-          <span class="badge" :class="v.source === 'agent' ? 'info' : ''" style="min-width: 76px; justify-content: center">{{ { user: '你改的', agent: '程序记的', init: '从简历生成' }[v.source] || v.source }}</span>
-          <div><div class="main">{{ v.note || '保存' }}</div><div class="sub">{{ fmtTime(v.created_at) }} · {{ v.size }} 字</div></div>
-          <div><span v-if="i === 0" class="small muted">最近一次</span><button class="sm" style="margin-left: 8px" @click="restore(v)">回退到这一版</button></div>
+          <span class="badge" :class="v.source === 'agent' ? 'info' : ''" style="min-width: 76px; justify-content: center">{{ { user: $t('profile.yourEdit'), agent: $t('profile.recordedByTheApp'), init: $t('profile.generateFromRSum') }[v.source] || v.source }}</span>
+          <div><div class="main">{{ v.note || $t('profile.save') }}</div><div class="sub">{{ $t('profile.characters', { p0: fmtTime(v.created_at), p1: v.size }) }}</div></div>
+          <div><span v-if="i === 0" class="small muted">{{ $t('profile.mostRecent') }}</span><button class="sm" style="margin-left: 8px" @click="restore(v)">{{ $t('profile.revertToThisVersion') }}</button></div>
         </div>
       </div>
-      <EmptyState v-if="!p.versions.length" icon="clock" title="还没有历史版本" text="保存过一次之后，这里会开始记录。" />
+      <EmptyState v-if="!p.versions.length" icon="clock" :title="$t('profile.noPastVersionsYet')" :text="$t('profile.recordsWillStartAppearing')" />
     </div>
   </template>
 </template>
