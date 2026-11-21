@@ -507,3 +507,21 @@ def test_where_a_run_stopped_is_in_the_next_runs_brief(desk):
     said = run.scene_text(desk.folder)
     assert "WHERE THE LAST RUN STOPPED" in said and desk.page.url in said and "[" in said      # the address, and the controls as they were
     assert run.scene_text(desk.folder.parent / "nowhere") == ""
+
+
+def test_after_waiting_or_opening_an_address_the_agent_is_told_what_the_page_says(app_env, tmp_path):
+    """(A3) After a wait or a goto the agent almost always looked at the page: the answer brings the start of it."""
+    from autoapply import browser
+    from autoapply.agent.hands import Hands
+
+    page_file = tmp_path / "p.html"
+    page_file.write_text("<html><head><title>Apply</title></head><body><h1>Step 2 of 4</h1><p>Your experience</p>" + "<p>x</p>" * 2000 + "</body></html>", encoding="utf-8")
+    with browser.open_page(None) as page:
+        hands = Hands(page)
+        opened = hands.goto(page_file.as_uri())
+        assert "The page says" in opened and "Step 2 of 4" in opened and "Your experience" in opened
+        assert len(opened) < Hands.GLANCE + 800                                      # the start of it, not the whole page
+        waited = hands.wait(0.2)
+        assert waited.startswith("waited. Now on") and "Step 2 of 4" in waited
+        # inside several actions in a row, a wait says only where it is (what changed is told once, at the end)
+        assert "The page says" not in hands.steps([{"do": "wait", "seconds": 0.2}]).split("\n")[0]

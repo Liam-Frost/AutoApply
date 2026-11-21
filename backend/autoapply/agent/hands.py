@@ -354,10 +354,24 @@ class Hands:
         self.page.evaluate("(dy) => { (document.scrollingElement || document.documentElement).scrollBy(0, dy); }", int(down))
         return "scrolled."
 
+    # What the page says, at the end of the answer of the actions after which the agent almost always looks: in the
+    # runs of 2.0 (6,214 calls), 79% of the calls after "wait" and 51% of those after "goto" were a look at the page
+    # (read 44% / 31%, controls 25% / 20%). Each look is a whole turn of the model; the start of the text is cheaper.
+    GLANCE = 1500
+
+    def _glance(self) -> str:
+        if self._quiet:
+            return ""
+        try:
+            text = self.read(max_chars=self.GLANCE).split("\n\n", 1)[-1]
+        except Exception:  # noqa: BLE001 - a page that cannot be read now: the answer says where it is, as before
+            return ""
+        return "\nThe page says (its start; read for more):\n" + text if text.strip() else ""
+
     def goto(self, url: str) -> str:
         """Open an address in the current tab."""
         self.page.goto(str(url), wait_until="domcontentloaded")
-        return "opened." + self._settle(self._pages(), 1.0)
+        return "opened." + self._settle(self._pages(), 1.0) + self._glance()
 
     def back(self) -> str:
         self.page.evaluate("() => history.back()")
@@ -394,7 +408,9 @@ class Hands:
 
     def wait(self, seconds: float = 2) -> str:
         time.sleep(max(0.2, min(float(seconds), 30)))
-        return f"waited. Now on {self._where_am_i()}."
+        if self._quiet:
+            return f"waited. Now on {self._where_am_i()}."
+        return f"waited. Now on {self._where_am_i()}." + self._changes() + self._glance()
 
     def steps(self, actions: list[dict[str, Any]]) -> str:
         """Several actions in one call, in order: [{"do": "click", "ref": "12"}, {"do": "type", "ref": "13", "text": "..."}, ...].
@@ -442,12 +458,12 @@ class Hands:
             tool("upload", "Give one of the applicant's files (by the name you were told) to a file field, or to the button that opens the file window.",
                  {**spec(file=s, ref=s, selector=s), "required": ["file"]}, self.upload),
             tool("scroll", "Scroll the page by `down` pixels (negative: up), or bring the control `ref` into view.", spec(down=n, ref=s), self.scroll),
-            tool("goto", "Open an address in the current tab.", {**spec(url=s), "required": ["url"]}, self.goto),
+            tool("goto", "Open an address in the current tab. The answer has the start of what the page says.", {**spec(url=s), "required": ["url"]}, self.goto),
             tool("back", "Go back one page.", spec(), self.back),
             tool("tabs", "List the tabs of this window; `switch_to` or `close` one by its number.", spec(switch_to=n, close=n), self.tabs),
             tool("script", "Run JavaScript in the page and get its result. For what the other tools do not reach: reading something exactly, a control that does not answer to a click.",
                  {**spec(code=s), "required": ["code"]}, self.script),
-            tool("wait", "Wait some seconds (a page that is loading, a list that is filling).", spec(seconds=n), self.wait),
+            tool("wait", "Wait some seconds (a page that is loading, a list that is filling). The answer has what changed and the start of what the page says.", spec(seconds=n), self.wait),
             tool("steps", "Several actions in one call, in order - for a run of plain fields, or a click followed by its typing. Each is {\"do\": click | type | press | choose | upload | "
                           "scroll | wait, ...the arguments of that tool}. Stops at the first that fails; what changed on the page is told once, at the end.",
                  {"type": "object", "properties": {"actions": {"type": "array", "items": {"type": "object", "properties": {"do": s}, "required": ["do"]}}}, "required": ["actions"]}, self.steps),
