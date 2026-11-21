@@ -7,7 +7,9 @@
 import Explain from '../../components/Explain.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../../api'
-import { change, compact, dur, money, pct, rangeQuery } from '../../analytics'
+import { change, compact, dur, hours, money, pct, rangeQuery } from '../../analytics'
+import { i18n } from '../../i18n/catalog'
+import { run as runAction } from '../../ui'
 import DetailPanel from '../../components/DetailPanel.vue'
 import EmptyState from '../../components/EmptyState.vue'
 import Icon from '../../components/Icon.vue'
@@ -26,6 +28,9 @@ const trend = computed(() => props.d.trend.map((b) => ({ key: b.key, label: b.la
 const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color: 'var(--ok)' }, { key: 'unfinished', label: '没做完', value: k.unfinished, color: 'var(--warn)' },
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
+// a question asked in several applications, written into the profile with its answer (the agent answers it from then on)
+const remembered = reactive(new Set())
+const remember = (r) => runAction(() => api.post('/analytics/asked-again/remember', { question: r.question, answer: String(r.answer) }), i18n.global.t('analytics.asked.done'), () => remembered.add(r.question))
 const maxEnd = computed(() => Math.max(1, ...((props.d.agent_runs && props.d.agent_runs.ends) || []).map((e) => e.n)))
 // by recruiting system: what the short figures stand for, in whole sentences
 const count = (v) => String(Math.round(v))
@@ -184,6 +189,36 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
               <td class="num">{{ r.median_steps ?? '—' }}</td><td class="num">{{ r.median_seconds == null ? '—' : dur(r.median_seconds) }}</td></tr></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <div v-if="d.asked_again && d.asked_again.total" class="card">
+      <div class="card-head"><span class="card-title">{{ $t('analytics.asked.title') }}<Explain>{{ $t('analytics.asked.explain') }}</Explain></span>
+        <span class="badge warn">{{ d.asked_again.total }}</span></div>
+      <p class="card-sub">{{ $t('analytics.asked.sub') }}</p>
+      <table class="an-table">
+        <thead><tr><th>{{ $t('analytics.asked.question') }}</th><th class="num">{{ $t('analytics.asked.times') }}</th><th>{{ $t('analytics.asked.answer') }}</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="r in d.asked_again.rows" :key="r.question">
+            <td :title="r.applications.map((a) => a.company).join(', ')">{{ r.question }}</td>
+            <td class="num">{{ r.times }}</td>
+            <td>{{ r.answer ?? '—' }}</td>
+            <td class="nowrap">
+              <span v-if="r.in_profile || remembered.has(r.question)" class="tag ok">{{ $t('analytics.asked.inProfile') }}</span>
+              <button v-else-if="r.answer != null && r.answer !== ''" class="sm" @click="remember(r)">{{ $t('analytics.asked.remember') }}</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="d.unknown_settled && (d.unknown_settled.settled || d.unknown_settled.open_total)" class="card">
+      <div class="card-title">{{ $t('analytics.unknown.title') }}<Explain>{{ $t('analytics.unknown.explain') }}</Explain></div>
+      <div class="kpis">
+        <div class="kpi"><div class="n" :class="{ na: d.unknown_settled.median_hours == null }">{{ hours(d.unknown_settled.median_hours) }}</div><div class="l">{{ $t('analytics.unknown.median') }}</div>
+          <div class="d">{{ $t('analytics.unknown.settled', { n: d.unknown_settled.settled, out: d.unknown_settled.went_out, mail: d.unknown_settled.by_mail }) }}</div></div>
+        <div class="kpi"><div class="n">{{ d.unknown_settled.open_total }}</div><div class="l">{{ $t('analytics.unknown.open') }}</div>
+          <div v-for="o in d.unknown_settled.open" :key="o.id" class="d"><router-link :to="`/applications/${o.id}`">{{ o.company }}</router-link> · {{ hours(o.hours) }}</div></div>
       </div>
     </div>
 

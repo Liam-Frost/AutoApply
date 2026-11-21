@@ -29,6 +29,53 @@
     "change": {
       "same": "Same as the period before",
       "diff": "{change} on the period before"
+    },
+    "first": {
+      "title": "How long until the first record is ready",
+      "explain": "From when the posting was found, and from when its application was begun, to the first record ready to send. Counted for the applications whose first record was made in this period. A long wait from finding often means postings wait in the queue or are not started automatically.",
+      "sub": "{n} application | {n} applications",
+      "fromFound": "from finding the posting (median)",
+      "fromBegun": "from beginning the application (median)",
+      "slow": "{n} waited more than 3 days"
+    },
+    "backlog": {
+      "title": "What waits for you",
+      "explain": "How long the cards on the to-do page waited from appearing to being dealt with, for those dealt with in this period; and the oldest of the ones still open.",
+      "sub": "{handled} dealt with in this period · {open} open now",
+      "kind": "Kind",
+      "handled": "Dealt with",
+      "median": "Waited (median)",
+      "oldest": "Waiting longest"
+    },
+    "missed": {
+      "why": "Why:",
+      "due": "Closed {day}",
+      "reason": {
+        "no_link": "no link to apply",
+        "not_started": "never started (queued, or not started automatically)",
+        "waited_for_you": "stopped at a step that waited for you",
+        "failed": "tried, did not get through",
+        "under_way": "still under way when it closed",
+        "withdrawn": "you withdrew it"
+      }
+    },
+    "asked": {
+      "title": "Questions asked again and again",
+      "explain": "Questions the agent had to ask you, or answers you corrected, in more than one application. Each is one your profile could answer by itself: write it into the profile and the agent answers it from then on.",
+      "sub": "Counted once per application, for the applications begun in this period.",
+      "question": "Question",
+      "times": "Times",
+      "answer": "Your latest answer",
+      "remember": "Write into my profile",
+      "inProfile": "in your profile",
+      "done": "Written into your profile; the agent answers it by itself from now on"
+    },
+    "unknown": {
+      "title": "Submissions whose outcome was not known",
+      "explain": "Submit was pressed but the page that says it went out was not seen. Such an application is settled by the employer's confirmation mail, or by you saying whether it went out. This is how long that took, and which are not settled yet.",
+      "median": "until it was known (median)",
+      "settled": "{n} settled: {out} went out, {mail} known from a mail",
+      "open": "not known yet"
     }
   },
   "calendar": {

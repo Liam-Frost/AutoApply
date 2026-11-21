@@ -2,7 +2,8 @@
 // Applications: what came of them. Every figure here is about the applications SENT in the chosen range (a cohort);
 // the one exception - replies by the month they arrived - says so where it is shown.
 import { computed, ref, watch } from 'vue'
-import { change, pct } from '../../analytics'
+import { change, hours, pct } from '../../analytics'
+import { dayText } from '../../i18n/format'
 import ColumnChart from '../../components/ColumnChart.vue'
 import EmptyState from '../../components/EmptyState.vue'
 import Explain from '../../components/Explain.vue'
@@ -135,14 +136,45 @@ watch(() => props.d.by_time, () => { page.value = 0 })
   </template>
   <div v-else class="card"><EmptyState icon="activity" title="这段时间没有投出申请" text="换一个时间范围看看。" /></div>
 
+  <div v-if="d.first_record || d.backlog" class="an-row c11">
+    <div v-if="d.first_record" class="card">
+      <div class="card-title">{{ $t('analytics.first.title') }}<Explain>{{ $t('analytics.first.explain') }}</Explain></div>
+      <p class="card-sub">{{ $t('analytics.first.sub', { n: d.first_record.n }, d.first_record.n) }}</p>
+      <div class="kpis">
+        <div class="kpi"><div class="n" :class="{ na: d.first_record.from_found_hours == null }">{{ hours(d.first_record.from_found_hours) }}</div><div class="l">{{ $t('analytics.first.fromFound') }}</div>
+          <div v-if="d.first_record.slow" class="d">{{ $t('analytics.first.slow', { n: d.first_record.slow }, d.first_record.slow) }}</div></div>
+        <div class="kpi"><div class="n" :class="{ na: d.first_record.from_begun_hours == null }">{{ hours(d.first_record.from_begun_hours) }}</div><div class="l">{{ $t('analytics.first.fromBegun') }}</div></div>
+      </div>
+    </div>
+    <div v-if="d.backlog" class="card">
+      <div class="card-title">{{ $t('analytics.backlog.title') }}<Explain>{{ $t('analytics.backlog.explain') }}</Explain></div>
+      <p class="card-sub">{{ $t('analytics.backlog.sub', { handled: d.backlog.handled, open: d.backlog.open }) }}</p>
+      <div class="an-row c11 tight" style="margin: 0">
+        <table v-if="d.backlog.by_kind.length" class="an-table">
+          <thead><tr><th>{{ $t('analytics.backlog.kind') }}</th><th class="num">{{ $t('analytics.backlog.handled') }}</th><th class="num">{{ $t('analytics.backlog.median') }}</th></tr></thead>
+          <tbody><tr v-for="r in d.backlog.by_kind" :key="r.kind"><td>{{ r.label }}</td><td class="num">{{ r.n }}</td><td class="num">{{ hours(r.median_hours) }}</td></tr></tbody>
+        </table>
+        <div v-if="d.backlog.oldest.length">
+          <div class="small muted" style="margin-bottom: 6px">{{ $t('analytics.backlog.oldest') }}</div>
+          <router-link v-for="o in d.backlog.oldest" :key="o.id" to="/todos" class="small" style="display: flex; gap: 8px; padding: 3px 0">
+            <span class="grow clamp2">{{ o.title }}</span><span class="muted nowrap">{{ hours(o.hours) }}</span></router-link>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-head"><span class="card-title">错过的好岗位</span><span class="badge" :class="d.missed_total ? 'warn' : 'ok'">{{ d.missed_total }} 个</span></div>
     <p class="card-sub">评分 7.5 以上、截止或下线时还没投的，按评分从高到低。这段时间里第一次看到的岗位才算。</p>
+    <div v-if="(d.missed_reasons || []).length" class="row" style="flex-wrap: wrap; gap: 6px; margin-bottom: 10px">
+      <span class="small muted">{{ $t('analytics.missed.why') }}</span>
+      <span v-for="r in d.missed_reasons" :key="r.key" class="tag">{{ $t('analytics.missed.reason.' + r.key) }} {{ r.n }}</span>
+    </div>
     <div v-if="d.missed.length" class="missed">
       <router-link v-for="m in d.missed" :key="m.id" :to="{ path: '/jobs', query: { open: m.id } }">
         <span class="score hi">{{ m.score.toFixed(1) }}</span>
-        <div style="min-width: 0"><div class="main">{{ m.company }}</div><div class="sub">{{ m.title }}</div></div>
-        <span class="right"><span class="badge" :class="m.stage === 'expired' ? 'warn' : ''">{{ m.stage === 'expired' ? '已截止' : '已下线' }}</span><div v-if="m.deadline" class="small muted" style="margin-top: 2px">截止 {{ m.deadline }}</div></span>
+        <div style="min-width: 0"><div class="main">{{ m.company }}</div><div class="sub">{{ m.title }}<template v-if="m.reason"> · {{ $t('analytics.missed.reason.' + m.reason) }}</template></div></div>
+        <span class="right"><span class="badge" :class="m.stage === 'expired' ? 'warn' : ''">{{ m.stage === 'expired' ? '已截止' : '已下线' }}</span><div v-if="m.deadline" class="small muted" style="margin-top: 2px">{{ $t('analytics.missed.due', { day: dayText(m.deadline) }) }}</div></span>
       </router-link>
     </div>
     <EmptyState v-else icon="check" title="没有错过高分岗位" />

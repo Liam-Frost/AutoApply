@@ -3188,5 +3188,18 @@
 "写一句是什么事。": "Write what it is in a few words.",
 "一次最多看 120 天": "At most 120 days at a time",
 "日期、时间或链接的格式不对": "The date, time or link is not in a form the program can read",
-"只能是 http(s) 地址": "Only an http(s) address"
+"只能是 http(s) 地址": "Only an http(s) address",
+"确认": "Confirm",
+"没做成": "Did not get through",
+"人工验证": "Human check",
+"岗位下架": "Posting taken down",
+"批准记录": "Approve a record",
+"自己提交": "Submit yourself",
+"资料改了": "Profile changed",
+"邮件归属": "Which application a mail is about",
+"看邮件再发": "Read a mail before it goes",
+"继续一份申请": "Continue an application",
+"网站操作不了": "Site the program cannot work",
+"面试 / 测评": "Interview / assessment",
+"要有问题和答案。": "A question and an answer are needed."
 }
