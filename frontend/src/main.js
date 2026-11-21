@@ -26,6 +26,7 @@ import RunsView from './views/RunsView.vue'
 import SettingsView from './views/SettingsView.vue'
 import SourcesView from './views/SourcesView.vue'
 import RemoteView from './views/RemoteView.vue'
+import CalendarView from './views/CalendarView.vue'
 
 // Back and Forward return to where the page was scrolled to - once the page has what it shows (a list that is still
 // being read is too short to scroll to the place). Going to another page starts at its top; a change of the query
@@ -54,6 +55,7 @@ const router = createRouter({
     { path: '/drafts', component: DraftsView },
     { path: '/drafts/:id', component: DraftDetail, props: true },
     { path: '/todos', component: TodosView },
+    { path: '/calendar', component: CalendarView },
     { path: '/mail/:id', component: MailOut, props: true },
     { path: '/accounts', component: AccountsView },
     { path: '/profile', component: ProfileView },

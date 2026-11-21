@@ -40,6 +40,8 @@ const VIEW = {
   mail_unmatched: { icon: 'mail', tone: 'info', title: () => '有一封邮件没对上岗位', what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
   // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
+  // the applicant's own item with a date (added on the calendar page)
+  note: { icon: 'clock', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
 }
 // The agent is waiting, in the site's own page, for something only the applicant has: these are answered here.
 VIEW.code = { icon: 'login', tone: 'warn', title: (t) => t.title, what: (t) => t.body || '' }
@@ -265,7 +267,8 @@ onMounted(load)
           <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">查看申请材料</span><span v-else>去回答</span></router-link>
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
-        <template v-else-if="t.kind === 'followup'">
+        <template v-else-if="t.kind === 'followup' || t.kind === 'note'">
+          <a v-if="t.payload && t.payload.link" :href="t.payload.link" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
           <router-link v-if="t.payload && t.payload.outgoing_id" :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看回复草稿</router-link>
           <button v-else-if="t.payload && t.payload.category === 'info_request' && t.payload.message_id" @click="writeReply(t)"><Icon name="edit" />起草回复邮件</button>
           <button :class="{ primary: !(t.payload && t.payload.outgoing_id) }" @click="done(t)"><Icon name="check" />已完成</button>
