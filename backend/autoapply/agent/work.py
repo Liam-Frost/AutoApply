@@ -664,8 +664,9 @@ def _sent(app_id: int, title: str, conf: dict[str, Any], was_auto: bool) -> None
 
     for kind in ("failed", "submit", "answer"):
         notify.close_todos(kind, f"application:{app_id}")
-    for m in db.get_setting("mail.confirm_check_minutes") or []:      # the confirmation e-mail turns "submitted" into "confirmed"
-        tasks.enqueue_later("mail", ref=f"confirm:{app_id}", minutes=float(m), priority=40)
+    from .. import mail as _mail
+
+    _mail.watch_for_confirmation(app_id)      # (the confirmation e-mail turns "submitted" into "confirmed")
     notify.send("task_result", messages.submitted(title, evidence=str(conf.get("words") or ""), auto=was_auto, note=""), ref=f"application:{app_id}")
 
 

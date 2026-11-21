@@ -184,3 +184,26 @@ def test_the_agent_hands_an_applications_mail_over_and_the_applicants_setting_de
     with db.session() as s:
         a = s.get(Application, app2)
         assert a.status == "submitted" and a.auto_approved == 1
+
+
+def test_a_confirmation_is_looked_for_only_where_and_while_it_is_needed(app_env, monkeypatch):
+    """Looks for one application's confirmation stood in the queue for applications confirmed long before, on a
+    mailbox that is asked every two minutes what is new anyway."""
+    from autoapply import chain, handlers, lifecycle, mail, mailbox, tasks  # noqa: F401
+    from autoapply.models import Application, Task
+
+    app_id, _ = _application("submitted")
+    monkeypatch.setattr(mailbox, "incremental", lambda: True)
+    assert mail.watches_new_mail() and mail.watch_for_confirmation(app_id) == 0        # the check every few minutes finds it
+    db.set_setting("schedule.mail_new_minutes", 0)
+    assert not mail.watches_new_mail() and mail.watch_for_confirmation(app_id) == 2    # switched off: this application is looked for
+    with db.session() as s:
+        lifecycle.move(s.get(Application, app_id), "confirmed", source="mail")
+    chain.mend()
+    with db.session() as s:
+        assert [t.status for t in s.query(Task).filter(Task.ref == f"confirm:{app_id}")] == ["cancelled", "cancelled"]
+    # one that comes due for an application confirmed meanwhile reads nothing
+    read = []
+    monkeypatch.setattr(mail, "track", lambda **kw: read.append(kw) or {"status_updates": 0})
+    tasks.enqueue("mail", ref=f"confirm:{app_id}", dedupe=False)
+    assert tasks.drain() == 1 and read == []

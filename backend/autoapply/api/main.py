@@ -542,8 +542,7 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
         for td in s.query(Todo).filter_by(status="open"):
             if url and (td.payload or {}).get("job_url") == url:
                 td.status, td.done_at = "done", now()
-    for m in db.get_setting("mail.confirm_check_minutes") or []:
-        tasks.enqueue_later("mail", ref=f"confirm:{aid}", minutes=float(m), priority=40)
+    mail.watch_for_confirmation(aid)
     return {"ok": True}
 
 
@@ -860,8 +859,7 @@ def mark_submitted(application_id: int) -> dict[str, Any]:
         a.detail = f"submitted {now().date().isoformat()} (confirmed by the user, no confirmation page captured)"
     for kind in ("failed", "submit"):
         notify.close_todos(kind, f"application:{application_id}")
-    for m in db.get_setting("mail.confirm_check_minutes") or []:
-        tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+    mail.watch_for_confirmation(application_id)
     return {"ok": True}
 
 

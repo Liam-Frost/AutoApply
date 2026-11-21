@@ -185,7 +185,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
 
 <template>
   <PageHead title="岗位" sub="所有找到的岗位，以及每个申请进行到哪一步。点一行看详情，勾选多行可以批量操作。">
-    <router-link to="/jobs/sources" class="btn ghost">来源与关注公司</router-link>
+    <router-link to="/jobs/sources" class="btn"><Icon name="search" />来源与关注公司</router-link>
     <button @click="mail"><Icon name="mail" />检查邮箱</button>
     <button @click="scan"><Icon name="search" />扫描新岗位</button>
   </PageHead>

@@ -136,6 +136,46 @@ def _service():
     return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20)), cache_discovery=False)
 
 
+# --- looking for the confirmation of an application that was just sent ------------------------------------------------
+def watches_new_mail() -> bool:
+    """Is the mailbox asked every few minutes what has arrived (Gmail through the API, with that check switched on)?"""
+    from . import mailbox
+
+    return mailbox.incremental() and int(db.get_setting("schedule.mail_new_minutes") or 0) > 0 and not db.get_setting("schedule.paused")
+
+
+def watch_for_confirmation(application_id: int) -> int:
+    """After an application went out: look for the employer's confirmation. Where the mailbox is asked every few
+    minutes what is new, that check is the one that finds it - nothing more is queued. Elsewhere (a mailbox read over
+    IMAP, or the check switched off) the mailbox is read at the delays set, for this application. Returns how many
+    looks were queued."""
+    from . import tasks
+
+    if watches_new_mail():
+        return 0
+    n = 0
+    for m in db.get_setting("mail.confirm_check_minutes") or []:
+        tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+        n += 1
+    return n
+
+
+def drop_needless_looks() -> int:
+    """Queued looks for a confirmation that nothing waits for any more: the application is confirmed (or further, or
+    withdrawn), or the mailbox is being asked every few minutes anyway. Returns how many were taken out."""
+    from .models import SENT, UNKNOWN, Task, now
+
+    n, covered = 0, watches_new_mail()
+    with db.session() as s:
+        for t in s.query(Task).filter(Task.kind == "mail", Task.status == "queued", Task.ref.like("confirm:%")):
+            num = t.ref.partition(":")[2]
+            app = s.get(Application, int(num)) if num.isdigit() else None
+            if covered or app is None or app.status not in ("submitted", UNKNOWN):
+                t.status, t.finished_at, t.result = "cancelled", now(), {"skipped": "nothing waits for this look any more"}
+                n += 1
+    return n
+
+
 # --- sending -------------------------------------------------------------------------
 def original(message_id: str) -> dict[str, str] | None:
     """A mail in the mailbox, as far as answering it needs: who it is from, where an answer goes, what it says, and
