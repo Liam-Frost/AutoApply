@@ -17,6 +17,7 @@ import FormError from '../components/FormError.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fmtTime, persona, run as runAction, toast } from '../ui'
 import { absorb, changed, clone, unsaved, useUnsaved } from '../dirty'
+import { t } from '../i18n/catalog'
 
 const s = ref(null)
 const info = ref({ secrets: {}, gmail: {} })
@@ -58,7 +59,7 @@ const GROUPS = [
   ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动开始申请'], ['submit', '怎么提交'], ['limits', 'Agent 怎么工作'], ['schedule', '工作计划']]],
   ['materials', '材料', '简历怎么调、求职信怎么写。', [['resume', '简历'], ['cover', '求职信']]],
   ['accounts', '账号与连接', '招聘网站的登录、收信的邮箱、用哪家 AI。', [['logins', '招聘网站的登录'], ['mailbox', '收件邮箱'], ['ai', 'AI 服务']]],
-  ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['bots', '在手机上直接处理'], ['events', '通知什么、什么时候']]],
+  ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['bots', '在手机上直接处理'], ['events', '通知什么、什么时候'], ['reminders', '日程提醒']]],
   ['system', '系统与数据', '网络、浏览器、远程访问、备份，和平时用不到的专家工具。', [['network', '网络连接（出站）'], ['browser', '浏览器兼容'], ['remote', '远程访问（入站）'], ['security', '账号安全'], ['retention', '数据保留'], ['backup', '备份与更新'], ['diagnose', '诊断'], ['expert', '专家工具']]],
 ]
 const group = computed(() => (GROUPS.some((g) => g[0] === route.params.group) ? route.params.group : 'overview'))
@@ -167,6 +168,18 @@ const dcState = computed(() => {
   if (dc.value.webhook) return { cls: 'ok', text: '只发通知（Webhook）' }
   return { cls: 'warn', text: '还没配置' }
 })
+// the reminders each kind of calendar item gets by itself (alarms.py): minutes before, written as "1440, 30"
+const REMINDER_KINDS = ['interview', 'assessment', 'offer', 'info_request', 'contact', 'own', 'deadline']
+const minutesText = (k) => ((s.value['calendar.reminders'] || {})[k] || []).join(', ')
+function setMinutes(k, text) {
+  const v = String(text).split(/[,，\s]+/).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n >= 0)
+  s.value['calendar.reminders'] = { ...(s.value['calendar.reminders'] || {}), [k]: [...new Set(v)].sort((a, b) => b - a) }
+}
+const remindText = (k) => {
+  const v = (s.value['calendar.reminders'] || {})[k] || []
+  if (!v.length) return t('settings.reminders.none')
+  return v.map((n) => (n % 1440 === 0 ? (n ? t('calendar.alarm.days', { n: n / 1440 }, n / 1440) : t('calendar.alarm.sameDay')) : n % 60 === 0 ? t('calendar.alarm.hours', { n: n / 60 }, n / 60) : t('calendar.alarm.minutes', { n }, n))).join(' · ')
+}
 // which notifications go to which channel (a channel not named takes every kind that is switched on)
 const CATS = [['todo', '需要我处理的事'], ['task_result', '结果（投出、没成功）'], ['status_update', '申请进展'], ['task_started', '开始做某件事']]
 const channelsOn = computed(() => [
@@ -537,6 +550,23 @@ onMounted(() => { load(); loadDiscord() })
             </div>
           </div>
           <p class="hint" style="margin-top: 12px">面试和测评邀请不受开关影响，一定会发。待办卡上的“稍后提醒”和到期提醒在<router-link to="/todos">需要你处理</router-link>里逐条设。</p>
+        </div>
+      </SetSection>
+
+      <SetSection id="reminders" :title="$t('settings.reminders.title')">
+        <div class="card">
+          <p class="muted" style="margin-top: 0">{{ $t('settings.reminders.intro') }}</p>
+          <div v-if="s['calendar.reminders']" class="kv">
+            <template v-for="k in REMINDER_KINDS" :key="k">
+              <label :for="'rem-' + k">{{ $t('calendar.kind.' + k) }}</label>
+              <div><input :id="'rem-' + k" :value="minutesText(k)" style="width: 220px" :placeholder="$t('settings.reminders.none')" @change="setMinutes(k, $event.target.value)" />
+                <span class="hint" style="margin-left: 8px">{{ remindText(k) }}</span></div>
+            </template>
+            <label for="rem-morning">{{ $t('settings.reminders.morning') }}</label><input id="rem-morning" v-model="s['calendar.allday_at']" type="time" style="width: 120px" />
+            <label for="rem-quiet">{{ $t('settings.reminders.quietLabel') }}</label>
+            <label><input id="rem-quiet" v-model="s['calendar.reminders_quiet']" type="checkbox" /> {{ $t('settings.reminders.quiet') }}</label>
+          </div>
+          <p class="hint" style="margin: 10px 0 0">{{ $t('settings.reminders.hint') }}</p>
         </div>
       </SetSection>
     </template>

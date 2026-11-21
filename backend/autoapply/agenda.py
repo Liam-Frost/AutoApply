@@ -168,7 +168,11 @@ def add_own(title: str, when: datetime, *, all_day: bool, link: str = "", applic
         s.add(t)
         s.flush()
         t.ref = f"note:{t.id}"
-        return t.id
+        tid = t.id
+    from . import alarms
+
+    alarms.give_defaults(f"todo:{tid}", "own", when, all_day)
+    return tid
 
 
 def set_link(todo_id: int, link: str) -> None:

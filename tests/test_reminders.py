@@ -91,7 +91,8 @@ def test_a_date_is_only_what_the_mail_states(app_env):
     assert "ONLY if the e-mail states one" in said and "never work one out" in said
 
 
-def test_what_is_due_is_said_the_day_before_and_on_the_day_once_and_not_in_the_small_hours(app_env, monkeypatch):
+def test_a_contacts_day_makes_a_card_once(app_env, monkeypatch):
+    """(What is coming up is said by its reminders: test_alarms.py.)"""
     from autoapply import notify, reminders
     from autoapply.models import Contact, Todo
 
@@ -99,27 +100,16 @@ def test_what_is_due_is_said_the_day_before_and_on_the_day_once_and_not_in_the_s
     monkeypatch.setattr(notify, "send", lambda category, card, **k: told.append((card.heading, card.subject)) or True)
     monkeypatch.setattr(notify, "flush_held", lambda at=None: 0)
     with db.session() as s:
-        s.add(Todo(kind="followup", ref="followup:1:interview", title="Acme：面试邀请", due_at=datetime(2026, 11, 26, 10, 0), payload={}))
-        s.add(Todo(kind="followup", ref="followup:1:assessment", title="Acme：测评", due_at=datetime(2026, 11, 26), payload={"date_only": True}))
         s.add(Contact(name="Dana", company="Acme", follow_up="2026-11-26", note="ask about the team"))
-    assert reminders.check(datetime(2026, 11, 24, 9, 0)) == {"day_before": 0, "day": 0, "shown_again": 0, "contacts": 0}
-    assert reminders.check(datetime(2026, 11, 25, 3, 0))["day_before"] == 0                    # three in the morning: not now
-    assert reminders.check(datetime(2026, 11, 25, 9, 0))["day_before"] == 2
-    assert reminders.check(datetime(2026, 11, 25, 15, 0))["day_before"] == 0                   # once
-    out = reminders.check(datetime(2026, 11, 26, 8, 30))
-    assert out["day"] == 2 and out["contacts"] == 1
-    assert reminders.check(datetime(2026, 11, 26, 12, 0)) == {"day_before": 0, "day": 0, "shown_again": 0, "contacts": 0}
-    assert told == [("明天到期", "Acme：面试邀请"), ("明天到期", "Acme：测评"), ("今天到期", "Acme：面试邀请"), ("今天到期", "Acme：测评"), ("今天到期", "跟进 Dana（Acme）")]
+    assert reminders.check(datetime(2026, 11, 25, 9, 0)) == {"shown_again": 0, "contacts": 0}
+    assert reminders.check(datetime(2026, 11, 26, 8, 30))["contacts"] == 1
+    assert reminders.check(datetime(2026, 11, 26, 12, 0))["contacts"] == 0
+    assert told == [("今天到期", "跟进 Dana（Acme）")]
     with db.session() as s:      # the contact's day made a card, once - also after it is dealt with
         card = s.query(Todo).filter_by(ref="contact:1:2026-11-26").one()
         assert card.payload["contact_id"] == 1 and "ask about the team" in card.body
         card.status = "done"
     assert reminders.check(datetime(2026, 11, 27, 9, 0))["contacts"] == 0
-    # the applicant corrects a date: it is said again for the new one
-    with db.session() as s:
-        tid = s.query(Todo).filter_by(ref="followup:1:interview").one().id
-    reminders.set_due(tid, datetime(2026, 12, 2, 16, 0))
-    assert reminders.check(datetime(2026, 12, 1, 9, 0))["day_before"] == 1
 
 
 def test_a_card_can_be_put_off_and_comes_back(app_env, monkeypatch):

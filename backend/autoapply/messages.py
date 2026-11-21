@@ -36,6 +36,7 @@ class Card:
     hint: str = ""
     path: str = ""  # app path, e.g. /drafts/12
     link: str = "打开查看"
+    open_url: str = ""  # where the thing itself is (an interview's meeting): a button of its own on the phone
 
     def _blocks(self, html: bool, base_url: str) -> str:
         e = escape if html else (lambda x: x)
@@ -153,6 +154,26 @@ def reminder(title: str, which: str, due: Any = None, date_only: bool = False) -
     when = "" if due is None else (due.strftime("%Y-%m-%d") if date_only else due.strftime("%Y-%m-%d %H:%M"))
     heading = {"day_before": "明天到期", "day": "今天到期", "again": "到了你定的提醒时间"}[which]
     return Card("⏰", heading, title, fields=[("时间", when)], path="/todos", link="打开待办")
+
+
+ITEM_KINDS = {"deadline": "截止", "interview": "面试", "assessment": "测评", "offer": "Offer 答复", "info_request": "对方要补充信息", "contact": "要联系的人", "own": "你记的事"}
+
+
+def ahead(before: int, all_day: bool) -> str:
+    """How long before, in words: "30 分钟前", "1 天前", "当天"."""
+    if all_day or before % 1440 == 0:
+        days = before // 1440 + (1 if before % 1440 else 0)
+        return "当天" if days == 0 else f"{days} 天前"
+    if before % 60 == 0:
+        return f"{before // 60} 小时前"
+    return f"{before} 分钟前" if before else "到时间了"
+
+
+def alarm(title: str, subject: str, start: Any, all_day: bool, kind: str, before: int, link: str = "") -> Card:
+    """A reminder the applicant set (or the one of its kind): what, when, and the way to it."""
+    when = start.strftime("%Y-%m-%d") if all_day else start.strftime("%Y-%m-%d %H:%M")
+    return Card("⏰", f"提醒：{ITEM_KINDS.get(kind, '日程')}", subject or title, fields=[("事项", title if subject else ""), ("时间", when), ("提前", ahead(before, all_day))],
+                path=f"/calendar?view=day&date={start.strftime('%Y-%m-%d')}", link="打开日程", open_url=link)
 
 
 def drained() -> Card:

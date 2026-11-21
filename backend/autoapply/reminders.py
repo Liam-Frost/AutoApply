@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import db, messages, notify
+from . import alarms, db, messages, notify
 from .models import Application, Contact, Todo, now
 
 log = logging.getLogger("autoapply.reminders")
@@ -63,15 +63,21 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
         if t is not None:
             if event == "reminder" and not due:
                 return t.id
-            t.body, t.payload = body or t.body, {**(t.payload or {}), **payload, "_reminded": [] if due and due != t.due_at else (t.payload or {}).get("_reminded", [])}
+            t.body, t.payload = body or t.body, {**(t.payload or {}), **payload}
+            first_date = due is not None and t.due_at is None
             if due and due != t.due_at:
-                t.due_at, t.snoozed_until = due, None      # a new date from the employer: it is shown again
+                t.due_at, t.snoozed_until = due, None      # a new date from the employer: it is shown again (its reminders move with it)
             # (the same date said once more - a reminder - leaves a card that was put off where the applicant put it)
-            return t.id
-        t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body, payload=payload, due_at=due)
-        s.add(t)
-        s.flush()
-        tid = t.id      # (no notice here: the mail itself was just announced)
+            tid, existing = t.id, True
+        else:
+            t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body, payload=payload, due_at=due)
+            s.add(t)
+            s.flush()
+            tid, existing, first_date = t.id, False, due is not None      # (no notice here: the mail itself was just announced)
+    if first_date:      # a date for the first time: the reminders of its kind (a moved date keeps the ones it has, and they move with it)
+        alarms.give_defaults(f"todo:{tid}", category, due, bool(payload["date_only"]))
+    if existing:
+        return tid
     if category == "info_request" and message_id:      # something to answer by mail: the answer is written while the applicant reads the card
         from . import tasks
 
@@ -96,8 +102,13 @@ def set_due(todo_id: int, due: datetime | None) -> None:
         t = s.get(Todo, todo_id)
         if t is None:
             raise KeyError(todo_id)
+        first_date = due is not None and t.due_at is None
         t.due_at = due
-        t.payload = {**(t.payload or {}), "_reminded": [], "date_only": bool(due) and due.hour == 0 and due.minute == 0, "date_by": "user"}
+        t.payload = {**(t.payload or {}), "date_only": bool(due) and due.hour == 0 and due.minute == 0, "date_by": "user"}
+        kind = "own" if t.kind == "note" else "contact" if (t.payload or {}).get("contact_id") else str((t.payload or {}).get("category") or "")
+        all_day = t.payload["date_only"]
+    if first_date and kind:      # a date for the first time: the reminders of its kind (a moved date keeps the ones it has)
+        alarms.give_defaults(f"todo:{todo_id}", kind, due, all_day)
 
 
 def snoozed(t: Todo, at: datetime | None = None) -> bool:
@@ -106,10 +117,10 @@ def snoozed(t: Todo, at: datetime | None = None) -> bool:
 
 
 def check(at: datetime | None = None) -> dict[str, int]:
-    """Every few minutes: say what is due tomorrow and today (once each, in the daytime), show again what was put off
-    until now, and make a card for a contact whose follow-up day has come."""
+    """Every few minutes: show again what was put off until now, and make a card for a contact whose follow-up day has
+    come. (What is coming up is said by its reminders - alarms.py, every minute.)"""
     at = at or datetime.now()
-    out = {"day_before": 0, "day": 0, "shown_again": 0, "contacts": 0}
+    out = {"shown_again": 0, "contacts": 0}
     tell: list[tuple[str, Any, str]] = []
     with db.session() as s:
         for t in s.query(Todo).filter_by(status="open"):
@@ -118,15 +129,6 @@ def check(at: datetime | None = None) -> dict[str, int]:
                 t.snoozed_until = None
                 out["shown_again"] += 1
                 tell.append(("todo", messages.reminder(t.title, "again", t.due_at, bool(p.get("date_only"))), f"todo:{t.id}"))
-            if t.due_at is None or snoozed(t, at) or at.hour < 8:      # (not in the small hours: "today" is said in the morning)
-                continue
-            told = list(p.get("_reminded") or [])
-            days = (t.due_at.date() - at.date()).days
-            which = "day" if days == 0 else "day_before" if days == 1 else ""
-            if which and which not in told and (which == "day_before" or t.due_at > at or p.get("date_only")):
-                t.payload = {**p, "_reminded": [*told, which]}
-                out[which] += 1
-                tell.append(("todo", messages.reminder(t.title, which, t.due_at, bool(p.get("date_only"))), f"todo:{t.id}"))
         # a contact to get back to: on the day (or the first look after it), a card - once per contact and date
         today = at.date().isoformat()
         for c in s.query(Contact).filter(Contact.follow_up != "", Contact.follow_up <= today):
@@ -138,7 +140,7 @@ def check(at: datetime | None = None) -> dict[str, int]:
             except ValueError:
                 continue
             s.add(Todo(kind=KIND, ref=ref, title=f"跟进 {c.name}" + (f"（{c.company}）" if c.company else ""), body=(c.note or "")[:400],
-                       payload={"contact_id": c.id, "date_only": True, "_reminded": ["day"]}, due_at=when))
+                       payload={"contact_id": c.id, "date_only": True}, due_at=when))
             out["contacts"] += 1
             tell.append(("todo", messages.reminder(f"跟进 {c.name}" + (f"（{c.company}）" if c.company else ""), "day", when, True), ref))
     for category, card, ref in tell:

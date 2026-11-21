@@ -728,6 +728,16 @@ def _schedule_jobs() -> None:
 
     _sched.add_job(upkeep, "interval", minutes=10, id="upkeep", replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=90))
 
+    def alarm_tick() -> None:      # the calendar's reminders: "30 minutes before" has to be on time (alarms.py)
+        try:
+            from . import alarms
+
+            alarms.tick()
+        except Exception:  # noqa: BLE001
+            log.exception("calendar reminders failed")
+
+    _sched.add_job(alarm_tick, "interval", minutes=1, id="alarms", replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=60))
+
     def unscored() -> None:  # safety net: nothing that can be scored stays unscored for long, whatever interrupted the last run
         from . import scoring
 

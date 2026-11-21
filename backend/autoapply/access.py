@@ -323,6 +323,8 @@ def allowed(path: str, cookie: str | None, who: dict[str, Any], local_header: st
         return True
     if path.startswith("/api/auth/") or path.startswith("/mcp/run/"):      # the login itself; an agent run's one-off token
         return True
+    if path.startswith("/api/calendar/feed/") and path.endswith(".ics"):      # a subscribed calendar: its own read-only token (ics.py)
+        return True
     if who["local"] and local_header and hmac.compare_digest(local_header, local_token()):
         return True
     return session_ok(cookie)

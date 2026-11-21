@@ -159,6 +159,15 @@ async def lifespan(app: FastAPI):
         from ..agent.work import recover_email_delivery_cards
         recover_email_delivery_cards()
         db.set_setting("migrated.email_delivery_review", True)
+    if not db.get_setting("migrated.alarms"):
+        # the dated cards already open get the reminders of their kind (the fixed "day before and on the day" is gone)
+        try:
+            from .. import alarms as _alarms
+
+            _alarms.migrate()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("the reminders of the dated cards could not be set")
+        db.set_setting("migrated.alarms", True)
     net.apply()
     tasks.start()
     from .. import bots as _bots
@@ -1099,6 +1108,87 @@ def calendar_add(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     except KeyError as e:
         raise HTTPException(404, "没有这份申请") from e
     return {"id": tid}
+
+
+@app.get("/api/calendar/export.ics")
+def calendar_export(start: str, end: str, kinds: str = "", states: str = "", company: str = "", priority: bool = False, min_score: float = 0,
+                    all_deadlines: bool = False) -> Any:
+    """What the calendar page shows, as a calendar file to import (with each item's reminders)."""
+    from fastapi.responses import Response
+
+    from .. import ics
+
+    got = calendar_items(start, end, kinds, states, company, priority, min_score, all_deadlines)["items"]
+    return Response(ics.build(got), media_type="text/calendar; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="autoapply-{start}.ics"'})
+
+
+@app.get("/api/calendar/feed")
+def calendar_feed_address() -> dict[str, Any]:
+    """The address a calendar program subscribes to, and whether it works only on this computer."""
+    from .. import ics
+
+    return ics.address()
+
+
+@app.post("/api/calendar/feed/renew")
+def calendar_feed_renew() -> dict[str, Any]:
+    """A new address: the old one stops working (a calendar subscribed to it has to be given the new one)."""
+    from .. import ics
+
+    ics.token(new=True)
+    return ics.address()
+
+
+@app.get("/api/calendar/feed/{token}.ics")
+def calendar_feed(token: str) -> Any:
+    """The subscribed calendar. Outside the login (a calendar program cannot sign in): the token in the address is
+    what lets it in, and it reads this and nothing else."""
+    from fastapi.responses import Response
+
+    from .. import ics
+
+    if not ics.token_ok(token):
+        raise HTTPException(404, "not found")
+    return Response(ics.feed(), media_type="text/calendar; charset=utf-8")
+
+
+@app.get("/api/calendar/alarms")
+def calendar_alarms(item: str) -> dict[str, Any]:
+    """The reminders of one item ("todo:12", "job:5"), and what the page offers to add."""
+    from .. import alarms
+
+    return {"alarms": alarms.of(item), "choices": list(alarms.CHOICES)}
+
+
+@app.post("/api/calendar/alarms")
+def calendar_alarm_add(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """A reminder of an item: {item: "todo:12", before: 30} (minutes; for a whole-day item, 1440 per day before)."""
+    from .. import alarms
+
+    item = str(body.get("item") or "")
+    if not item.split(":")[0] in ("todo", "job") or not item.split(":")[-1].isdigit():
+        raise HTTPException(400, "这件事不能加提醒。")
+    try:
+        before = int(body.get("before"))
+    except (TypeError, ValueError) as e:
+        raise HTTPException(400, "提前多久要是一个数字（分钟）。") from e
+    return {"id": alarms.add(item, before), "alarms": alarms.of(item)}
+
+
+@app.delete("/api/calendar/alarms/{alarm_id}")
+def calendar_alarm_remove(alarm_id: int) -> dict[str, Any]:
+    from .. import alarms
+
+    alarms.remove(alarm_id)
+    return {"ok": True}
+
+
+@app.get("/api/calendar/alarms/recent")
+def calendar_alarms_recent() -> list[dict[str, Any]]:
+    """The reminders that went off in the last hours: shown at the top of the to-do page."""
+    from .. import alarms
+
+    return alarms.recent()
 
 
 @app.post("/api/calendar/items/{todo_id}/link")

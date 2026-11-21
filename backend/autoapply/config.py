@@ -119,6 +119,11 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "notify.telegram_chat_id": "",
     "notify.discord_user_id": "",       # the applicant's Discord user, bound with a code from the settings page
     "notify.channel_categories": {},    # per channel, which kinds of notification it takes (a channel not named takes all)
+    # the calendar's reminders (alarms.py): what each kind of item gets when it appears - minutes before it; for a whole
+    # day, days before (1440 = 1 day) at the morning hour below
+    "calendar.reminders": {"interview": [1440, 30], "assessment": [1440, 120], "offer": [1440], "info_request": [1440], "contact": [0], "own": [0], "deadline": []},
+    "calendar.allday_at": "09:00",
+    "calendar.reminders_quiet": False,     # True: a reminder that falls in the quiet hours waits for them to end
     "bot.listen": True,                 # the bots take presses, replies and commands (off: they only send)
     "bot.chat": True,                   # what is said to a bot that is not a command or a reply goes to the assistant
     # Hours in which nothing is pushed to the phone ({"on", "from", "to"}, local time; "to" may be on the next day).

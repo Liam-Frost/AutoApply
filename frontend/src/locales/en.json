@@ -150,6 +150,54 @@
       "timeHint": "Leave empty for the whole day.",
       "link": "Link",
       "note": "Note"
+    },
+    "alarm": {
+      "title": "Reminders",
+      "none": "No reminder.",
+      "sameDay": "the morning of the day",
+      "days": "{n} day before | {n} days before",
+      "hours": "{n} hour before | {n} hours before",
+      "minutes": "{n} minute before | {n} minutes before",
+      "add": "Add",
+      "added": "Reminder added",
+      "removed": "Reminder removed",
+      "remove": "Remove this reminder",
+      "customLabel": "Minutes before",
+      "customUnit": "minutes before",
+      "hint": "Reminders go to your Telegram or Discord and appear at the top of the to-do page. When the date moves, they move with it.",
+      "hintAllDay": "This item is for a whole day: its reminders come in the morning (the hour is in the settings)."
+    },
+    "share": {
+      "button": "Export / subscribe",
+      "title": "The calendar in your calendar app",
+      "exportTitle": "Download once",
+      "exportText": "What the page shows now (this view, these filters) as a calendar file, with each item's reminders. Open it with your calendar app to import it.",
+      "export": "Download .ics",
+      "subscribeTitle": "Subscribe",
+      "subscribeText": "Give this address to your calendar app (\"add calendar from URL\"): it reads it again by itself and stays up to date. It contains titles, times, links and a line about each item - never your answers or the text of mails.",
+      "copy": "Copy",
+      "copied": "Address copied",
+      "copyFailed": "Could not copy: select the address and copy it",
+      "localOnly": "This address works only on this computer: a calendar app here can subscribe, one on your phone cannot. To subscribe on the phone, make the program reachable from it first (Settings → Remote access).",
+      "reachable": "This address works wherever the program can be reached from - the same as the links in notifications.",
+      "renew": "Make a new address",
+      "renewAsk": "The old address stops working. A calendar app subscribed to it has to be given the new one. Make a new address?",
+      "renewed": "New address made; the old one no longer works"
+    },
+    "rang": {
+      "title": "Reminders",
+      "openDay": "On the calendar"
+    }
+  },
+  "settings": {
+    "reminders": {
+      "title": "Calendar reminders",
+      "intro": "What each kind of item gets by itself when it appears - in minutes before it (1440 = one day, 60 = one hour), several separated by commas. Each item's own reminders are changed in its panel on the calendar.",
+      "none": "none",
+      "morning": "Whole-day items in the morning at",
+      "quietLabel": "Quiet hours",
+      "quiet": "A reminder in the quiet hours waits for them to end",
+      "hint": "Without the box ticked, a reminder goes out at its time even in the quiet hours: you set the time yourself."
     }
   }
 }
