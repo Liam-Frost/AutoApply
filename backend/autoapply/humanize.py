@@ -229,7 +229,7 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
         if r.get("skipped"):
             return "没有做：你已经决定不投这个岗位"
         return {"submitted": "已提交，确认凭据已保存", "ready": "已填到最后一步，申请记录等你批准", "needs_input": "有问题需要你回答，其余已经填好", "submit_unknown": "点了提交，结果待确认",
-                "not_sent": "到网站上核实过：上一次没有发出，接着做", "goes_on": "这一次的预算用完了，下一次接着做", "cannot": "没有做成，原因见待办", "stuck": "连续几次停在同一个地方，等你看一下",
+                "not_sent": "到网站上核实过：上一次没有发出，接着做", "goes_on": "这一次的预算用完了，下一次接着做", "cannot": "没有做成，原因见待办", "gone": "岗位已经下架，没有投", "stuck": "连续几次停在同一个地方，等你看一下",
                 "budget_used": "这份申请的预算用完了，等你决定是否继续", "stopped": "已按你的要求停下"}.get(str(r.get("status")), "")
     if kind == "recon":      # (and below: what earlier versions ran, in the history)
         if r.get("status") == "submit_unknown":

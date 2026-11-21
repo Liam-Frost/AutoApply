@@ -774,3 +774,35 @@ def test_rolling_workers_preserve_ownership_and_can_claim_nonconflicting_work(ag
     tasks.recover("old")
     assert not tasks.checkpoint(first, old.attempts)
     assert tasks.checkpoint(other, new.attempts)
+
+
+def test_a_posting_the_agent_found_gone_goes_off_the_list_and_is_not_tried_again_by_itself(agent):
+    """A posting the employer had taken down ended as "did not work - try again?", and stayed on the list to apply to."""
+    from autoapply import tasks
+    from autoapply.api.main import list_todos, make_draft
+    from autoapply.models import Job, Task
+
+    gone = {"outcome": "gone", "record": {"summary": "The page says: The page you are looking for doesn't exist. The site's search has no such role.", "asked": []}}
+    agent.ends.append(gone)
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    status, _, cards, _ = _state(agent.job)
+    assert status == "withdrawn" and cards == [("gone", f"application:{_app(agent.job)}:gone")]
+    with db.session() as s:
+        job = s.get(Job, agent.job)
+        assert (job.online, job.status) == (0, "offline") and "gone at the employer's site" in job.note
+    card = next(c for c in list_todos() if c["kind"] == "gone")
+    assert card["category"] == "info" and card["job"]["id"] == agent.job          # a notice, not something to do
+    # the program does not take it up again by itself ...
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+    assert tasks.drain() == 1 and len(agent.seen) == 1
+    # ... the applicant, who knows it is still there, can
+    agent.ends.append(READY)
+    asked = tasks.by_hand.set(True)
+    try:
+        make_draft(agent.job, {})
+    finally:
+        tasks.by_hand.reset(asked)
+    assert tasks.drain() == 1 and len(agent.seen) == 2 and _state(agent.job)[0] == "draft_ready"
+    with db.session() as s:
+        assert s.query(Task).filter_by(status="failed").count() == 0

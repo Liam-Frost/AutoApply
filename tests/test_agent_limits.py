@@ -366,6 +366,38 @@ def test_the_run_waits_for_what_the_applicant_does_on_their_phone_or_in_the_wind
     assert "did not answer" in agent.wait_for_applicant("人机验证", window=True) and agent.need["kind"] == "window"
 
 
+def test_nobody_is_asked_for_a_page_that_goes_on_by_itself_and_a_wait_ends_when_the_page_does(desk, tmp_path, monkeypatch):
+    """Signing in at the university went through the second factor's page every time; only sometimes did that page
+    want an approval. The agent asked for one whenever it found itself there."""
+    from autoapply import browser
+    from autoapply.agent import run
+    from autoapply.models import Todo
+
+    monkeypatch.setattr(browser, "in_use", lambda: ("playwright", False))
+    after = tmp_path / "portal.html"
+    after.write_text("<title>The portal</title><p>Signed in.</p>", encoding="utf-8")
+
+    def second_factor(passes_after_ms):
+        _show(desk.page, tmp_path, f"<title>Second factor</title><p>Checking...</p><script>setTimeout(() => location.href = {after.as_uri()!r}, {passes_after_ms})</script>")
+
+    agent = _carded(desk.make())
+    # it only passes through: no card, no notice, and the agent is told where the window is now
+    monkeypatch.setattr(run, "STAYS_SECONDS", 4)
+    second_factor(600)
+    said = agent.wait_for_applicant("approve the sign-in on your phone")
+    assert "Nothing was asked" in said and "portal.html" in said and not agent.waiting
+    with db.session() as s:
+        assert s.query(Todo).count() == 0
+    # it stays, so the applicant is asked - and when it goes on (they approved on the phone), the wait is over without
+    # anybody pressing the card
+    monkeypatch.setattr(run, "STAYS_SECONDS", 0.5)
+    second_factor(2500)
+    said = agent.wait_for_applicant("approve the sign-in on your phone")
+    assert "has gone on" in said and "portal.html" in said and not agent.waiting
+    with db.session() as s:
+        assert [t.status for t in s.query(Todo).filter_by(kind="confirm")] == ["dismissed"]
+
+
 def test_the_agent_takes_an_application_to_the_other_browser_once(desk, monkeypatch):
     from autoapply import browser
 
@@ -415,3 +447,52 @@ def test_a_sign_in_whose_button_did_nothing_is_seen_through_by_the_program_and_n
     pw, go = _ref(desk.hands, 'password "Password"'), _ref(desk.hands, 'button "Login"')
     said = d.type_password(pw, then_click=go)
     assert "NOT sent" in said and "emptied" in said and desk.page.evaluate("() => document.getElementById('pw').value") == ""
+
+
+def test_the_agent_makes_one_file_out_of_the_applicants_files_and_it_stays_with_the_application(desk, tmp_path):
+    """A posting asked for résumé, cover letter and transcript in one PDF; the form had a box for two of them. The
+    agent had no way to do anything with a file but upload it, and asked the applicant to merge them."""
+    from PIL import Image
+    from pypdf import PdfReader, PdfWriter
+
+    from autoapply.agent import run
+
+    def pdf(name, pages, width):
+        w = PdfWriter()
+        for _ in range(pages):
+            w.add_blank_page(width=width, height=800)
+        w.write(str(tmp_path / name))
+        return str(tmp_path / name)
+
+    Image.new("RGB", (300, 200), "white").save(tmp_path / "permit.png")
+    d = desk.make()
+    d.hands.files.update({"resume.pdf": pdf("resume.pdf", 1, 501), "letter.pdf": pdf("letter.pdf", 1, 502), "transcript.pdf": pdf("transcript.pdf", 4, 503),
+                          "permit.png": str(tmp_path / "permit.png"), "notes.txt": str(tmp_path / "notes.txt")})
+    said = d.make_file("Seaspan application", [{"file": "resume.pdf"}, {"file": "letter.pdf"}, {"file": "transcript.pdf", "pages": "1-2,4"}, {"file": "permit.png"}])
+    assert "'Seaspan application.pdf': 6 page(s)" in said and "3 of 4 page(s)" in said
+    made = PdfReader(d.hands.files["Seaspan application.pdf"])
+    assert [int(pg.mediabox.width) for pg in made.pages][:5] == [501, 502, 503, 503, 503]      # in the order given
+    assert len(PdfReader(str(tmp_path / "transcript.pdf")).pages) == 4                            # the applicant's own file is as it was
+    # one file under the name a form prescribes
+    assert "1 page(s)" in d.make_file("Liu_Liam.pdf", [{"file": "resume.pdf"}])
+    for bad, why in (([{"file": "nothing.pdf"}], "not one of the files"), ([{"file": "transcript.pdf", "pages": "5"}], "4 page"), ([{"file": "notes.txt"}], "made of PDFs")):
+        with pytest.raises(ValueError, match=why):
+            d.make_file("x", bad)
+    with pytest.raises(ValueError, match="own files"):
+        d.make_file("resume.pdf", [{"file": "letter.pdf"}])
+    # a file that opens for anyone but carries restrictions (a school's transcript) goes in like any other; one that
+    # needs a password to be opened does not
+    for name, user in (("restricted.pdf", ""), ("closed.pdf", "secret")):
+        w = PdfWriter()
+        w.add_blank_page(width=504, height=800)
+        w.encrypt(user_password=user, owner_password="the-school")
+        w.write(str(tmp_path / name))
+        d.hands.files[name] = str(tmp_path / name)
+    assert "2 page(s)" in d.make_file("with transcript", [{"file": "resume.pdf"}, {"file": "restricted.pdf"}])
+    assert not PdfReader(d.hands.files["with transcript.pdf"]).is_encrypted
+    with pytest.raises(ValueError, match="without a password"):
+        d.make_file("x", [{"file": "closed.pdf"}])
+    # the next run of this application has them, with what each holds
+    kept = run.made_files(desk.folder)
+    assert set(kept) == {"Seaspan application.pdf", "Liu_Liam.pdf", "with transcript.pdf"} and "transcript.pdf (3 of 4 page(s))" in kept["Seaspan application.pdf"][1]
+    assert "make_file" in {t.name for t in d.tools()}

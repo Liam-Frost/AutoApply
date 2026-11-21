@@ -70,6 +70,24 @@ def cli_path() -> str | None:
     return shutil.which("claude")
 
 
+# The system text is given to the command line as an argument, and Windows takes 32,767 characters for a whole command
+# line. An application's system text is the manual and the brief of the run (so that neither is lost when the
+# conversation is summarized): with a long posting, a full profile and a journal of several runs that is more. Windows
+# then refuses to start the process with "file not found" - which read, to the applicant, as "Claude is not installed".
+# A long text goes in a file the command line reads instead.
+ARGUMENT_LIMIT = 6000
+
+
+def _as_file(system: str) -> str:
+    """The path of a file holding ``system`` when it is too long to be an argument, else ''. The caller removes it."""
+    if len(system) <= ARGUMENT_LIMIT:
+        return ""
+    fd, path = tempfile.mkstemp(prefix="autoapply-system-", suffix=".md")
+    with os.fdopen(fd, "w", encoding="utf-8", newline=chr(10)) as f:
+        f.write(system)
+    return path
+
+
 def _env(token: str | None) -> dict[str, str]:
     env: dict[str, str] = {}
     if token:
@@ -250,7 +268,14 @@ async def _run(content: Any, *, system: str | None, model: str, effort: str | No
                     low = detail.lower()
                     raise SDKError(detail, status=st, unavailable=st in (401, 403) or "login" in low or "authenticat" in low)
 
-    await asyncio.wait_for(consume(), timeout)
+    system_file = _as_file(system or "")
+    if system_file:
+        opts.system_prompt = {"type": "file", "path": system_file}
+    try:
+        await asyncio.wait_for(consume(), timeout)
+    finally:
+        if system_file:
+            Path(system_file).unlink(missing_ok=True)
     return res
 
 
@@ -321,6 +346,9 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
     except SDKError as e:
         raise failed(e)
     except CLINotFoundError as e:
+        if cli_path() and Path(cli_path() or "").exists():
+            # (the SDK says "not found" for any refusal to start the process; the file is there)
+            raise failed(SDKError(f"the Claude command line is installed but could not be started ({str(e.__cause__ or e)[:200]})")) from e
         raise failed(SDKError(f"Claude Code CLI not found: {e}", unavailable=True)) from e
     except (asyncio.TimeoutError, TimeoutError) as e:
         raise failed(SDKError(f"no answer from Claude within {int(timeout)}s")) from e

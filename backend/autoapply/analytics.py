@@ -268,7 +268,7 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
         if st == "stopped":
             return "cancelled"
         return {"submitted": "success", "not_sent": "success", "ready": "handed", "needs_input": "handed", "submit_unknown": "unknown", "goes_on": "rerun",
-                "cannot": "failed", "stuck": "failed", "budget_used": "failed"}.get(st, "success")
+                "cannot": "failed", "gone": "skipped", "stuck": "failed", "budget_used": "failed"}.get(st, "success")
     if kind == "execute":      # (the kinds of earlier versions, for the history)
         # A filling task counts as a success when THIS run got the application submitted - not when the task ended
         # without an error. A task that found the application already sent (a retry, a task that was still queued)
