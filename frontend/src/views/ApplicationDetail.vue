@@ -10,6 +10,7 @@ import PageHead from '../components/PageHead.vue'
 import AaSelect from '../components/Select.vue'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run, toast } from '../ui'
+import { stampDay } from '../i18n/format'
 
 const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
@@ -89,7 +90,7 @@ onMounted(load)
     <div class="card" :class="{ 'callout-card': a.unknown }">
       <div class="row" style="align-items: baseline; flex-wrap: wrap">
         <span class="tag" :class="a.unknown || a.status === 'ready_to_submit' ? 'warn' : a.tone" style="font-size: 14px">{{ a.status_label }}</span>
-        <span v-if="a.submitted_at" class="muted">投出于 {{ a.submitted_at.slice(0, 10) }}</span>
+        <span v-if="a.submitted_at" class="muted">投出于 {{ stampDay(a.submitted_at) }}</span>
         <span v-if="a.auto_approved" class="muted">· 自动批准</span>
       </div>
       <p style="margin: 10px 0 0"><b>接下来：</b>{{ a.next }}</p>

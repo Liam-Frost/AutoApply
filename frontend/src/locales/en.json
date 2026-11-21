@@ -1,0 +1,34 @@
+{
+  "time": {
+    "today": "Today {time}",
+    "yesterday": "Yesterday {time}",
+    "dayAt": "{day} {time}",
+    "range": "{from} – {to}"
+  },
+  "deadline": {
+    "over": "Closed",
+    "todayAt": "Due today {time}",
+    "tomorrow": "Due tomorrow",
+    "daysLeft": "{n} day left | {n} days left"
+  },
+  "todos": {
+    "deadline": {
+      "past": "Past the deadline",
+      "today": "Due today",
+      "left": "{n} day left | {n} days left"
+    },
+    "due": {
+      "past": "overdue",
+      "today": "today"
+    }
+  },
+  "language": {
+    "beta": "{name} (beta)"
+  },
+  "analytics": {
+    "change": {
+      "same": "Same as the period before",
+      "diff": "{change} on the period before"
+    }
+  }
+}

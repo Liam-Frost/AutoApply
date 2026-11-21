@@ -5,6 +5,7 @@ import AaSelect from './components/Select.vue'
 import './style.css'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
+import { i18n } from './i18n/catalog'
 import { installGuards } from './dirty'
 import { pairSoon } from './labels'
 import AnalyticsView from './views/AnalyticsView.vue'
@@ -86,5 +87,5 @@ router.beforeEach(async (to) => {
 })
 
 // (labels.js: a label of a form grid is tied to the control it names - after the page was drawn or drawn again)
-createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).mixin({ mounted: pairSoon, updated: pairSoon }).use(router).mount('#app')
+createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).mixin({ mounted: pairSoon, updated: pairSoon }).use(router).use(i18n).mount('#app')
 initI18n().then(followServerLang)

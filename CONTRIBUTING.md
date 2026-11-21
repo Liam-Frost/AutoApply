@@ -100,10 +100,27 @@ app password. Mail must stay read-only: folders are opened read-only and bodies 
 
 ## Add or fix a translation
 
+The interface is moving from Chinese templates translated on the screen to text written with keys. Both work side by
+side until every page has moved.
+
+**Text with keys** (new and rewritten pages, dates and numbers):
+
+- `frontend/src/locales/en.json` is the source: every key, in English. `notes.json` says for each key where it is
+  shown and what its placeholders are - read it before translating a key.
+- Every other language is one file next to it (`zh.json`). A key a language does not have is shown in English.
+- `{name}` placeholders are filled in at run time; a translation keeps exactly the same ones. Plural forms are
+  separated by `|`, in the order of the language's plural categories (English: `one | other`; Chinese: one form).
+- Dates, times, numbers and amounts are never written into a message by hand: they come formatted from
+  `frontend/src/i18n/format.js` (Intl).
+- A new language: add it to `frontend/src/locales/languages.json` (its id and its BCP 47 tag) with its file, then run
+  `npm run i18n:status` in `frontend/`, which writes how complete each language is. Below `beta_below` percent a
+  language is offered as a test. `npm test` checks that every key used exists, has a note, and keeps its placeholders.
+
+**Older text** (pages not moved yet, and what the server sends):
+
 - `uv run python scripts/i18n_extract.py` collects the Chinese interface text into `frontend/src/i18n/zh.json`.
 - `uv run python scripts/i18n_translate.py en` machine-translates what is missing into `frontend/src/i18n/en.json`.
   Entries already there are never overwritten, so **corrections are made by editing `en.json` by hand**.
-- A new language: add it to `LANGS` in the translate script and to `LANGS` / `LOADERS` in `frontend/src/i18n/index.js`.
 - `{0}`, `{1}` are values filled in at run time; a translation must keep exactly the same ones.
 
 ## Add a field of work or a career stage

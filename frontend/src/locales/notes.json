@@ -1,0 +1,18 @@
+{
+  "time.today": "A moment earlier today, in lists of what happened. {time} is the time of day, already formatted for the language (15:25).",
+  "time.yesterday": "A moment yesterday. {time} as in time.today.",
+  "time.dayAt": "A moment on an earlier day. {day} is the day and month, already formatted for the language (Nov 20); {time} the time of day.",
+  "time.range": "A span of days, as on a chart of weeks. {from} and {to} are days formatted as in time.dayAt.",
+  "deadline.over": "A posting's application deadline has passed. Shown in a small badge next to the posting.",
+  "deadline.todayAt": "The deadline is later today. {time} is when (23:59). Small badge.",
+  "deadline.tomorrow": "The deadline is tomorrow (by the calendar, however few hours away). Small badge.",
+  "deadline.daysLeft": "Days until the deadline, by the calendar; {n} is 2 or more. Plural forms separated by |, in the order of the language's plural categories (one | other for English). Small badge.",
+  "todos.deadline.past": "On a to-do card about something with a deadline (an assessment, a reply): its deadline has passed.",
+  "todos.deadline.today": "On a to-do card: its deadline is today.",
+  "todos.deadline.left": "On a to-do card: days until its deadline; {n} is 1 or more. Plural forms as in deadline.daysLeft.",
+  "language.beta": "In the language picker, next to a language whose translation is not complete yet. {name} is the language's own name.",
+  "analytics.change.same": "Under a figure on the analytics page: it is the same as in the period of the same length before.",
+  "analytics.change.diff": "Under a figure on the analytics page: how it changed against the period of the same length before. {change} is a signed percentage, already formatted (+20%, -15%).",
+  "todos.due.past": "On a to-do card, after its due date (an interview, an assessment): the date has passed. Lower case: it follows the date after a dot (Nov 20 · overdue).",
+  "todos.due.today": "On a to-do card, after its due date: it is today. Lower case, as todos.due.past."
+}

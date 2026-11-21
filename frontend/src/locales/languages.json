@@ -1,0 +1,18 @@
+{
+  "source": "en",
+  "beta_below": 95,
+  "languages": [
+    {
+      "id": "zh",
+      "tag": "zh-CN",
+      "name": "中文",
+      "complete": 100
+    },
+    {
+      "id": "en",
+      "tag": "en",
+      "name": "English",
+      "complete": 100
+    }
+  ]
+}

@@ -8,6 +8,9 @@
 
 // "2026-11-18 23:59" / "2026-11-18" / "2026-11-18T23:59" -> a Date in local time (a day without a time ends at 23:59),
 // or null for what is not a date.
+import { t } from './i18n/catalog'
+import { clockOf } from './i18n/format'
+
 export function parseDeadline(dl) {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(String(dl || '').trim())
   if (!m) return null
@@ -29,16 +32,15 @@ export function isPast(dl, now = new Date()) {
   return !!d && d.getTime() < now.getTime()
 }
 
-// { text, tone }: 已截止 / 今天 23:59 截止 / 明天截止 / 还有 N 天. tone: 'past' | 'soon' (today, tomorrow) | ''.
+// { text, tone }: closed / due today 23:59 / due tomorrow / N days left. tone: 'past' | 'soon' (today, tomorrow) | ''.
 export function deadlineLabel(dl, now = new Date()) {
   const d = parseDeadline(dl)
   if (!d) return { text: '', tone: '' }
-  if (d.getTime() < now.getTime()) return { text: '已截止', tone: 'past' }
+  if (d.getTime() < now.getTime()) return { text: t('deadline.over'), tone: 'past' }
   const days = daysUntil(dl, now)
-  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  if (days === 0) return { text: `今天 ${hm} 截止`, tone: 'soon' }
-  if (days === 1) return { text: '明天截止', tone: 'soon' }
-  return { text: `还有 ${days} 天`, tone: '' }
+  if (days === 0) return { text: t('deadline.todayAt', { time: clockOf(d) }), tone: 'soon' }
+  if (days === 1) return { text: t('deadline.tomorrow'), tone: 'soon' }
+  return { text: t('deadline.daysLeft', { n: days }, days), tone: '' }
 }
 
 // --- what is ticked in a list -----------------------------------------------------------------------------------------

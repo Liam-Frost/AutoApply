@@ -10,6 +10,7 @@ import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import { deadlineLabel } from '../dates'
 import { fmtTime, run } from '../ui'
+import { dayRange, shortDayOf, shortDayText } from '../i18n/format'
 
 const ov = inject('overview')
 const reload = inject('reloadOverview')
@@ -38,7 +39,7 @@ const share = (k) => (sent.value.sent ? Math.round((k / sent.value.sent) * 100) 
 const weekly = computed(() => (ov.value.weekly || []).map((w) => {
   const d = new Date(w.week + 'T00:00:00')
   const e = new Date(d.getTime() + 6 * 86400000)
-  return { label: `${d.getMonth() + 1}/${d.getDate()}`, value: w.n, tip: `${d.getMonth() + 1}月${d.getDate()}日 – ${e.getMonth() + 1}月${e.getDate()}日` }
+  return { label: shortDayOf(d), value: w.n, tip: dayRange(d, e) }
 }))
 const weekTotal = computed(() => weekly.value.reduce((a, w) => a + w.value, 0))
 const thisWeek = computed(() => (weekly.value.length ? weekly.value[weekly.value.length - 1].value : 0))
@@ -87,7 +88,7 @@ onMounted(load)
         <router-link v-for="d in pending.slice(0, 4)" :key="'d' + d.id" :to="'/drafts/' + d.id" class="item" style="color: inherit; text-decoration: none">
           <Icon name="draft" style="width: 18px; height: 18px; color: var(--primary); margin-top: 2px" />
           <div><div class="main">{{ d.company }} · {{ d.title }}</div><div class="sub">{{ d.unresolved ? `有 ${d.unresolved} 个问题需要你回答` : '草案已备好，等你审批' }}</div></div>
-          <span class="small muted nowrap">截止 {{ (d.deadline || '').slice(5, 10) || '—' }}</span>
+          <span class="small muted nowrap">截止 {{ shortDayText(d.deadline) || '—' }}</span>
         </router-link>
       </div>
       <EmptyState v-if="!todos.length && !pending.length" icon="check" title="没有需要你处理的事" text="有新的草案或需要登录时，会出现在这里，也会发到 Telegram。" />

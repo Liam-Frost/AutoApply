@@ -12,6 +12,7 @@
 // `dataState(read)` wraps the page's own function that reads (and puts what it read where the page keeps it).
 import { inject, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { dialog } from './ui'
+import { clockOf } from './i18n/format'
 
 // What the state is after a read ended: `ok`, or not with `error`. (Pure: tests/data.test.js.)
 export function after(st, ok, error, now) {
@@ -36,7 +37,7 @@ export function dataState(read) {
 }
 
 // "14:05" of a moment given in milliseconds.
-export const clock = (ms) => (ms ? new Date(ms).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '')
+export const clock = (ms) => (ms ? clockOf(new Date(ms)) : '')
 
 // --- reading a list again when there is reason to -----------------------------------------------------------------------
 // A list was read when its page was opened, and after an action of that page. What changed meanwhile - a draft that

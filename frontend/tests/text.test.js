@@ -41,8 +41,8 @@ describe('figures of the analytics page', () => {
   })
   it('says durations and sizes in the unit that fits', () => {
     expect(ms(null)).toBe('—')
-    expect(ms(950)).toBe('950 ms')
-    expect(ms(1500)).toBe('1.5 s')
+    expect(ms(950)).toBe('950毫秒')            // (in the interface language, by Intl: 950 ms in English)
+    expect(ms(1500)).toBe('1.5秒')
     expect(typeof dur(75)).toBe('string')
     expect(compact(950)).toBe('950')
     expect(compact(12500)).not.toBe('12500')
@@ -54,7 +54,7 @@ describe('figures of the analytics page', () => {
     expect(change(10, 0)).toBe('')
     expect(change(null, 5)).toBe('')
     expect(change(12, 10)).toBe('比上一段 +20%')
-    expect(change(8, 10)).toBe('比上一段 −20%')
+    expect(change(8, 10)).toBe('比上一段 -20%')
     expect(change(10.01, 10)).toBe('和上一段持平')
   })
   it('turns a range into a query', () => {

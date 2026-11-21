@@ -1,18 +1,14 @@
-// Interface language. The source language of the templates is Chinese; other languages are a dictionary
-// ({"中文": "English"}, built by scripts/i18n_extract.py + i18n_translate.py) applied to what is on screen.
+// Interface language - the older half of it. Text written with a key is catalog.js's. The pages that are not moved to
+// keys yet have their Chinese templates translated on the screen by a dictionary ({"中文": "English"}, built by
+// scripts/i18n_extract.py + i18n_translate.py) - also the wording that comes from the server, until it sends codes.
 //
-// Why at the DOM and not with keys in every template: one dictionary covers the templates, the script strings and
-// the wording that comes from the server, and a new language is a new JSON file. The cost: text that is assembled
-// in ways the dictionary has no pattern for stays in Chinese until an entry is added - never garbled, just untranslated.
-import { reactive } from 'vue'
+// The cost of a dictionary at the DOM: text that is assembled in ways it has no pattern for stays in Chinese until an
+// entry is added - never garbled, just untranslated. That is why new text is written with keys.
+import { LANGS, chosen, lang, tag, useLanguage } from './catalog'
 
-export const LANGS = { zh: '中文', en: 'English' }
+export { LANGS, lang }
 // one entry per dictionary, so each language is its own file that is only downloaded when chosen
 const LOADERS = { en: () => import('./en.json') }
-let saved = 'zh'
-let chosenHere = false     // has this browser made a choice of its own?
-try { const v = localStorage.getItem('lang'); chosenHere = !!v; saved = v || 'zh' } catch (e) { /* private window */ }
-export const lang = reactive({ value: LANGS[saved] ? saved : 'zh' })
 
 const CJK = /[一-鿿]/
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -94,8 +90,9 @@ function visit(node) {
 }
 
 export async function initI18n() {
-  document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : lang.value
-  if (lang.value === 'zh') return
+  document.documentElement.lang = tag()
+  await useLanguage(lang.value)
+  if (lang.value === 'zh' || !LOADERS[lang.value]) return
   try {
     build((await LOADERS[lang.value]()).default)
   } catch (e) { return }   // no dictionary for this language yet: stay in Chinese
@@ -111,7 +108,7 @@ export async function initI18n() {
 
 // A browser that has not chosen yet follows what the program was set up with (the installer's language, or the system's).
 export async function followServerLang() {
-  if (chosenHere) return
+  if (chosen()) return
   try {
     const r = await fetch(new URL('api/settings', document.baseURI))
     const v = (await r.json()).settings['ui.lang']

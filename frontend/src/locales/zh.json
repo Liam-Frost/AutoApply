@@ -1,0 +1,34 @@
+{
+  "time": {
+    "today": "今天 {time}",
+    "yesterday": "昨天 {time}",
+    "dayAt": "{day} {time}",
+    "range": "{from} – {to}"
+  },
+  "deadline": {
+    "over": "已截止",
+    "todayAt": "今天 {time} 截止",
+    "tomorrow": "明天截止",
+    "daysLeft": "还有 {n} 天"
+  },
+  "todos": {
+    "deadline": {
+      "past": "已过截止时间",
+      "today": "今天截止",
+      "left": "还剩 {n} 天"
+    },
+    "due": {
+      "past": "已过时间",
+      "today": "今天"
+    }
+  },
+  "language": {
+    "beta": "{name}（测试中）"
+  },
+  "analytics": {
+    "change": {
+      "same": "和上一段持平",
+      "diff": "比上一段 {change}"
+    }
+  }
+}
