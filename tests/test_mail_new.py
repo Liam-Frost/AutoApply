@@ -288,3 +288,18 @@ def test_what_the_applicant_said_a_mail_is_about_is_not_changed_by_what_the_prog
     with db.session() as s:
         me = s.query(MailEvent).filter_by(message_id="m1").one()
         assert (me.application_id, me.linked_by) == (ids[1], "user")
+
+def test_rejected_refresh_grant_requires_new_consent(app_env, monkeypatch):
+    from types import SimpleNamespace
+    from google.auth.exceptions import RefreshError
+    from google.oauth2.credentials import Credentials
+    from autoapply import mail, secrets
+
+    def rejected(request):
+        raise RefreshError("invalid_grant", {"error": "invalid_grant"})
+    secrets.put(secrets.GMAIL_TOKEN, "{}")
+    fake = SimpleNamespace(expired=True, refresh_token="test", refresh=rejected)
+    monkeypatch.setattr(Credentials, "from_authorized_user_info", lambda *args: fake)
+    with pytest.raises(mail.GmailReconnect):
+        mail._service()
+    assert mail.status()["reconnect"] and not mail.status()["authorized"]

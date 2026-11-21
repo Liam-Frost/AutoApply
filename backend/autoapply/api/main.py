@@ -35,6 +35,13 @@ from ..models import SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    if os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1":
+        tasks.start()
+        try:
+            yield
+        finally:
+            tasks.stop()
+        return
     persona.migrate()
     from .. import i18n as _i18n
     from ..sources import watch as _watch
@@ -127,6 +134,17 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not carry the queue over to the one task for an application")
         db.set_setting("migrated.one_agent", True)
+    if not db.get_setting("migrated.material_reviews"):
+        from ..agent.work import recover_material_reviews
+        recover_material_reviews()
+        db.set_setting("migrated.material_reviews", True)
+    if not db.get_setting("migrated.gmail_waits"):
+        mail.migrate_reconnect_waits()
+        db.set_setting("migrated.gmail_waits", True)
+    if not db.get_setting("migrated.email_delivery_review"):
+        from ..agent.work import recover_email_delivery_cards
+        recover_email_delivery_cards()
+        db.set_setting("migrated.email_delivery_review", True)
     net.apply()
     tasks.start()
     yield
@@ -441,12 +459,25 @@ def add_job(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.post("/api/jobs/{job_id}/draft")
 def make_draft(job_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from .. import browser_policy
+
+    backend = body.get("browser_backend")
+    payload = {"job_id": job_id, "instructions": body.get("instructions", "")}
     with db.session() as s:
         j = _404(s.get(Job, job_id))
         if not j.apply_url:
             raise HTTPException(400, "job has no application URL")
+        if backend:
+            try:
+                browser_policy.select(None, override=backend)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            a = j.application
+            if not a or a.status != "failed":
+                raise HTTPException(409, "Browser retry requires a failed application before submission")
+            payload["browser_backend"] = backend
         prio = tasks.deadline_priority(j.deadline)
-    tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": body.get("instructions", "")}, priority=prio)
+    tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload=payload, priority=prio)
     return {"task_id": tid}
 
 
@@ -721,7 +752,7 @@ def confirmation_picture(application_id: int) -> FileResponse:
 
 
 @app.post("/api/applications/{application_id}/budget")
-def more_budget(application_id: int) -> dict[str, Any]:
+def more_budget(application_id: int, request_id: str = "") -> dict[str, Any]:
     """The applicant gives an application whose budget is used up another one, and the agent goes on."""
     from ..agent import work as _work
 
@@ -730,7 +761,8 @@ def more_budget(application_id: int) -> dict[str, Any]:
         if a.status in SENT:
             raise _already_sent(a)
         job_id, deadline = a.job_id, a.job.deadline
-    _work.grant(application_id)
+    if not _work.grant(application_id, request_id):
+        return {"already_granted": True}
     return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
 
@@ -902,7 +934,10 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from datetime import datetime
     from ..models import Draft
 
-    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+    from .. import browser_policy
+    enabled = bool(db.get_setting("browser.nodriver_enabled"))
+
+    CAT = {"takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
            "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
@@ -920,6 +955,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             about = j.application if j is not None else None
             if about is not None and (p.get("draft_id") or p.get("application_id") or r["ref"].startswith("application:") or r["kind"] in ("failed", "submit")):
                 r["application"] = {"id": about.id, "status": about.status}
+                r["can_retry_nodriver"] = bool(enabled and r["kind"] == "failed" and about.status == "failed" and not p.get("budget"))
             if r["kind"] == "mail_unmatched":      # the applications the applicant can say it belongs to
                 from ..models import MailEvent
 
@@ -941,7 +977,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             r["category"] = CAT.get(r["kind"], "info")
             days = None
             if j is not None:
-                r["job"] = {"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline}
+                r["job"] = {"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline, "url": j.apply_url}
                 try:
                     days = (datetime.fromisoformat(j.deadline.replace(" ", "T")) - datetime.now()).days if j.deadline else None
                 except ValueError:
@@ -953,7 +989,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                     pass
             r["days_left"] = days
             # 0 = now (a window is open and waiting), 1 = soon (deadline close), 2 = when you can, 3 = just so you know
-            r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
+            r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] in ("submit", "code", "confirm") else 1 if days is not None and days <= 3 else 2
     for r in rows:  # what the page shows: the employer's name and one plain sentence; raw text stays available as detail
         key = (r["payload"] or {}).get("tenant_key") or (r["ref"][8:] if r["ref"].startswith("account:") else "")
         if r["kind"] in ("takeover", "login") and key:      # is "remember the password I type" something this card's window can do?
@@ -1027,13 +1063,52 @@ def todo_due(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str,
     return {"ok": True}
 
 
+def _take_up_now(job_id: int) -> int:
+    """The applicant is here for this application: its run is the next thing done, ahead of what is queued."""
+    tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=20)
+    try:
+        tasks.first(tid)
+    except (KeyError, tasks.NotNow):      # (it is running already)
+        pass
+    return tid
+
+
+@app.post("/api/todos/{todo_id}/code")
+def todo_code(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The code a site sent the applicant, for the run that is waiting for it. A run that is no longer waiting cannot
+    use it (a code is for the session it was sent to): the application is taken up again and asks for a fresh one."""
+    from ..agent import work as _work
+
+    code = "".join(str(body.get("code") or "").split())[:40]
+    if not code:
+        raise HTTPException(400, "请输入验证码")
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.kind != "code" or t.status != "open":
+            raise HTTPException(409, "这张卡片已经处理过了")
+        job_id = int((t.payload or {}).get("job_id") or 0)
+        waiting = bool(job_id and _work.being_worked(job_id))
+        t.status, t.done_at = ("done" if waiting else "dismissed"), now()
+        if waiting:
+            t.payload = {**(t.payload or {}), "code": code}
+    if not waiting and job_id:
+        _take_up_now(job_id)
+    return {"given": waiting}
+
+
 @app.post("/api/todos/{todo_id}/done")
 def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from ..agent import work as _work
+
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
         t.status, t.done_at = body.get("status", "done"), now()
-        handled = t.ref
-    return {"resumed": handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0}
+        handled, kind, job_id = t.ref, t.kind, int((t.payload or {}).get("job_id") or 0)
+    resumed = handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0
+    if body.get("status", "done") == "done" and job_id and (kind == "resume" or (kind == "confirm" and not _work.being_worked(job_id))):
+        # "I am ready" / "done" for an application whose run is not waiting any more: it is taken up again now, not in its turn
+        _take_up_now(job_id)
+    return {"resumed": resumed}
 
 
 @app.get("/api/tasks")
@@ -1080,7 +1155,26 @@ def queue_plan() -> dict[str, Any]:
     """What is being done, what comes next, what waits for the applicant, what was set aside, what is for later."""
     from .. import scoring
 
-    return {**tasks.plan(), "drafts": scoring.draft_room()}
+    plan = tasks.plan()
+    marker = config.DATA / "run" / "next-release"
+    return {**plan, "drafts": scoring.draft_room(), "release": {
+        "worker": tasks.worker_id(),
+        "rolling_protocol": 1,
+
+        "active": config.ROOT.name,
+        "target": marker.read_text(encoding="utf-8").strip() if marker.is_file() else None,
+        "draining": plan["draining"],
+    }}
+
+
+@app.post("/api/runtime/activate-scheduler")
+def activate_scheduler(request: Request) -> dict[str, bool]:
+    import secrets as compare
+
+    if not compare.compare_digest(request.headers.get(access.LOCAL_HEADER, ""), access.local_token()):
+        raise HTTPException(403, "Local launcher authorization required")
+    tasks.activate_scheduler()
+    return {"ok": True}
 
 
 @app.post("/api/queue/drain")
@@ -2588,6 +2682,8 @@ def gmail_authorize() -> dict[str, Any]:
     def run() -> None:
         try:
             mail.authorize()
+            notify.close_todos("config", "config:gmail")
+            handlers.resume_waiting("config:gmail")
             notify.send("task_result", messages.gmail_authorized(), ref="config:gmail")
         except Exception as e:  # noqa: BLE001
             notify.add_todo("config", "Gmail 授权失败", body=str(e)[:300], ref="config:gmail")

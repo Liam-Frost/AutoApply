@@ -110,7 +110,7 @@ def about(name: str) -> str:
 
 
 def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str = "", systems: list[str] | None = None, journal: str = "",
-         record: dict[str, Any] | None = None, answers: dict[str, str] | None = None, account: str = "", budget: str = "") -> str:
+         record: dict[str, Any] | None = None, answers: dict[str, str] | None = None, account: str = "", budget: str = "", browser: str = "") -> str:
     """The whole context of this run, as the first thing the agent reads."""
     import json
 
@@ -147,6 +147,8 @@ def goal(posting: Posting, applicant: Applicant, *, mode: str, site_notes: str =
         parts += ["# Earlier runs on this application",
                   "What was written down then, oldest first. The site may not have kept everything: read back what is there before you go on.",
                   f"<journal>\n{journal.strip()[-60000:]}\n</journal>"]
+    if browser:
+        parts += ["# The browser", browser]
     if budget:
         parts += ["# Budget", budget]
     parts += ["# Language", reads()]

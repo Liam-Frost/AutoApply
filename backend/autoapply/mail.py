@@ -29,6 +29,10 @@ class MailNotConfigured(RuntimeError):
     pass
 
 
+class GmailReconnect(MailNotConfigured):
+    """Google explicitly rejected the stored refresh grant."""
+
+
 # --- OAuth -------------------------------------------------------------------------
 
 
@@ -48,25 +52,65 @@ def authorize() -> None:
     flow = InstalledAppFlow.from_client_config(json.loads(cfg), SCOPES)
     creds = flow.run_local_server(port=0, prompt="consent")
     secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
+    db.set_setting("mail.gmail_reconnect", False)
 
 
 def status() -> dict[str, bool]:
-    return {"client": secrets.has(secrets.GMAIL_CLIENT), "authorized": secrets.has(secrets.GMAIL_TOKEN)}
+    return {"client": secrets.has(secrets.GMAIL_CLIENT), "reconnect": bool(db.get_setting("mail.gmail_reconnect")), "authorized": secrets.has(secrets.GMAIL_TOKEN) and not bool(db.get_setting("mail.gmail_reconnect"))}
+
+
+def migrate_reconnect_waits() -> None:
+    """Move an old employer card only when the linked task and the Google error agree."""
+    from .models import Task, Todo
+    from .mailbox import kind
+
+    if kind() != "gmail_api":
+        return
+    with db.session() as session:
+        last = session.query(Task).filter_by(kind="mail").order_by(Task.id.desc()).first()
+        if not last or last.status != "failed" or "invalid_grant" not in last.error:
+            return
+        for task in session.query(Task).filter_by(kind="apply", status="waiting_human"):
+            ref = (task.payload or {}).get("waits_for", "")
+            if not ref.startswith("account:"):
+                continue
+            card = session.query(Todo).filter_by(ref=ref, kind="takeover", status="open").first()
+            if not card or "RefreshError" not in card.body or "邮箱" not in card.body:
+                continue
+            task.payload = {**task.payload, "waits_for": "config:gmail"}
+            card.kind, card.title, card.ref = "config", "重新授权 Gmail 邮箱", "config:gmail"
+            card.payload, card.body = {}, "Google 已拒绝旧授权。请到设置 → 账号与连接 → 收件邮箱重新授权，随后重试原岗位。"
 
 
 def _service():
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
+    from google_auth_httplib2 import AuthorizedHttp
+    import httplib2
 
     tok = secrets.get(secrets.GMAIL_TOKEN)
     if not tok:
         raise MailNotConfigured("Gmail is not authorized (Settings > Gmail).")
     creds = Credentials.from_authorized_user_info(json.loads(tok), SCOPES)
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        from google.auth.exceptions import RefreshError
+
+        try:
+            transport = Request()
+
+            def request_with_deadline(*args, **kwargs):
+                kwargs["timeout"] = 20
+                return transport(*args, **kwargs)
+
+            creds.refresh(request_with_deadline)
+        except RefreshError as exc:
+            if not any(isinstance(arg, dict) and arg.get("error") == "invalid_grant" for arg in exc.args):
+                raise
+            db.set_setting("mail.gmail_reconnect", True)
+            raise GmailReconnect("Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。") from exc
         secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
-    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20)), cache_discovery=False)
 
 
 # --- message helpers -----------------------------------------------------------------

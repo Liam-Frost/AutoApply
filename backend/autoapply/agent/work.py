@@ -120,10 +120,10 @@ def expected(job_id: int) -> bool:
 
 def spent(application_id: int) -> dict[str, Any]:
     """What this application has used of its budget, over all its runs."""
-    used, total = _spent_so_far(folder_of(application_id)), _budget()
-    grants = max(1, int(used.get("granted") or 1))
+    used = _spent_so_far(folder_of(application_id))
+    total = _limits(used)
     return {"steps": int(used["steps"]), "minutes": round(used["seconds"] / 60, 1), "runs": int(used.get("runs") or 0),
-            "of_steps": int(total["steps"] * grants), "of_minutes": round(total["seconds"] * grants / 60)}
+            "of_steps": int(total["steps"]), "of_minutes": round(total["seconds"] / 60)}
 
 
 # --- what a run is given ---------------------------------------------------------------------------------------------
@@ -227,6 +227,13 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
             return {"skipped": "the applicant is not applying for this one"}
         draft = app.drafts[-1] if app.drafts else None
         mode = mode_for(app.status, draft, job.company)
+        email_delivery = job.channel == "email" and mode != "verify"
+        if email_delivery:
+            mode = "prepare"
+            instructions = ("This posting requires email delivery. Read the posting for recipient and requirements. "
+                            "Prepare the subject, body, and files in the review record, then report ready. "
+                            "The applicant sends the email. Do not open Gmail or another webmail site. "
+                            + instructions)
         record, answers = record_of(draft), {}
         for earlier in app.drafts:      # what the applicant said on any version of the record stands, the latest word last
             answers.update(answers_of(earlier))
@@ -258,20 +265,57 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         told = _resume(applicant, about_job, base)
         if told:
             answers["(the résumé for this application)"] = told
+    checkpoint = None
+    if task_id is not None:
+        from ..models import Task
+
+        with db.session() as session:
+            generation = session.get(Task, task_id).attempts
+        checkpoint = lambda tool: tasks.checkpoint(task_id, generation, {"tool": tool, "application_id": app_id,
+                                                                          "job_id": job_id, "mode": mode,
+                                                                          "draft_id": draft.id if draft else None})
     began = now()
+    changed = False
+    if task_id is not None:
+        from ..models import Task as _Task
+
+        with db.session() as session:
+            changed = bool((session.get(_Task, task_id).payload or {}).get("_changed_browser"))
+
+    def card(kind: str, why: str, more: dict[str, Any]) -> int:      # the agent waits for the applicant: a code, a confirmation
+        head = {"code": f"{title}：请输入验证码", "confirm": f"{title}：等你确认"}[kind]
+        return notify.add_todo(kind, head, body=why, ref=f"application:{app_id}:{kind}", payload={"application_id": app_id, "job_id": job_id, **more})
+
     def handed() -> None:       # the window is the applicant's: they are told, on a card and on their phone
         notify.add_todo("submit", f"{title}：请检查并点提交", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
                         body="Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口。")
 
     # (the window: the applicant's when the last press is theirs; otherwise hidden, or shown while the agent works if they set so)
-    with browser.open_page(site, headless=mode != "hand_over" and not db.get_setting("agent.show_window"), url=posting.url) as page:
-        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard)
+    # ... or because the last run stopped at something the applicant has to do in the window (a CAPTCHA)
+    wanted = (folder / run.WINDOW).exists()
+    with browser.open_page(site, headless=mode != "hand_over" and not wanted and not db.get_setting("agent.show_window"), url=posting.url) as page:
+        (folder / run.WINDOW).unlink(missing_ok=True)
+        used = browser.in_use()[0]
+        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard, on_checkpoint=checkpoint, email_delivery=email_delivery,
+                           card=card, changed_browser=changed)
         try:      # what the agent signed in to, or registered, is there for the next run on this site
             browser.save_state(site, page.context)
         except Exception as e:  # noqa: BLE001 - the window is gone (the applicant closed it): the run's outcome stands
             log.info("the session of %s was not kept after the run (%s)", site, type(e).__name__)
     notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
     _spent(folder, result)
+    for kind in ("code", "confirm"):      # (a card the run was still waiting on when it ended has nothing left to answer)
+        notify.close_todos(kind, f"application:{app_id}:{kind}")
+    if result.outcome == "other_browser":
+        # the agent found this browser refused: the application is taken up again in the other one, now
+        to = str(result.record.get("browser") or "")
+        tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "browser_backend": to, "_changed_browser": True}, priority=20, dedupe=False)
+        return {"status": "other_browser", "browser": to}
+    if changed and result.outcome in ("ready", "submitted", "needs_you"):
+        # it got further here than where it was refused: the next application on this site begins in this browser
+        from .. import browser_policy
+
+        browser_policy.remember(site, used)
     if result.unheard and result.outcome != "submitted" and result.stopped != "stopped":
         # the applicant said something after the run's last action: it is in the brief of the next run, which is this one
         tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "said": now().isoformat()}, priority=20)
@@ -335,33 +379,62 @@ def _budget() -> dict[str, float]:
 
 
 def _spent_so_far(folder: Path) -> dict[str, float]:
-    try:
-        return json.loads((folder / "spent.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"steps": 0, "seconds": 0, "runs": 0, "granted": 1}
+    with db.session() as session:
+        return dict(_ledger(session, folder).ledger)
+
+
+def _ledger(session, folder: Path):
+    from sqlalchemy import text
+    from ..models import ApplicationBudget
+
+    session.execute(text("BEGIN IMMEDIATE"))
+    app_id = int(folder.name.removeprefix("app_"))
+    row = session.get(ApplicationBudget, app_id)
+    if row is None:
+        path = folder / "spent.json"
+        old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"steps": 0, "seconds": 0, "runs": 0, "granted": 1}
+        # Earlier releases added grants below the amount already spent. Honour the
+        # last unused authorization once, while keeping the original usage intact.
+        total = _budget()
+        if old.get("granted", 1) > 1 and any(old[k] >= total[k] * old["granted"] for k in total):
+            old["limits"] = {k: old[k] + total[k] for k in total}
+        row = ApplicationBudget(application_id=app_id, ledger=old)
+        session.add(row)
+    return row
+
+
+def _limits(used):
+    return used.get("limits") or {key: value * max(1, used.get("granted", 1)) for key, value in _budget().items()}
 
 
 def _left(folder: Path) -> dict[str, float]:
-    total, spent = _budget(), _spent_so_far(folder)
-    grants = max(1, int(spent.get("granted") or 1))
-    return {"steps": total["steps"] * grants - spent["steps"], "seconds": total["seconds"] * grants - spent["seconds"]}
+    used = _spent_so_far(folder)
+    return {key: value - used[key] for key, value in _limits(used).items()}
 
 
 def _spent(folder: Path, result: run.Result) -> None:
-    spent = _spent_so_far(folder)
-    spent.update(steps=spent["steps"] + result.steps, seconds=spent["seconds"] + result.seconds, runs=int(spent.get("runs") or 0) + 1)
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "spent.json").write_text(json.dumps(spent), encoding="utf-8")
+    with db.session() as session:
+        row = _ledger(session, folder)
+        used = row.ledger
+        history = [*used.get("history", []), {"at": now().isoformat(), "seconds": result.seconds, "steps": result.steps,
+                                              "stopped": result.stopped, "usage": result.usage}]
+        row.ledger = {**used, "history": history, "steps": used["steps"] + result.steps, "seconds": used["seconds"] + result.seconds, "runs": used["runs"] + 1}
 
 
-def grant(application_id: int) -> None:
-    """The applicant gives this application another budget."""
-    folder = folder_of(application_id)
-    spent = _spent_so_far(folder)
-    spent["granted"] = int(spent.get("granted") or 1) + 1
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "spent.json").write_text(json.dumps(spent), encoding="utf-8")
+def grant(application_id: int, request_id: str = "") -> bool:
+    with db.session() as session:
+        row = _ledger(session, folder_of(application_id))
+        used = row.ledger
+        grants = dict(used.get("authorizations", {}))
+        if request_id and request_id in grants:
+            return False
+        limits = _limits(used)
+        amount = _budget()
+        limits = {key: max(limits[key], used[key]) + value for key, value in amount.items()}
+        grants[request_id or now().isoformat()] = {"at": now().isoformat(), "amount": amount}
+        row.ledger = {**used, "granted": used.get("granted", 1) + 1, "limits": limits, "authorizations": grants}
     notify.close_todos("failed", f"application:{application_id}")
+    return True
 
 
 def _budget_used(app_id: int, title: str, folder: Path) -> dict[str, Any]:
@@ -423,7 +496,11 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
 
     rec, files = result.record or {}, {}
     try:
-        files = brief.applicant_on_file().files
+        files = dict(brief.applicant_on_file().files)
+        from .. import materials, tailor
+        for item in (materials.existing_cover_letter(job_id), tailor.existing(job_id)):
+            if item:
+                files[item["name"]] = item["path"]
     except Exception:  # noqa: BLE001
         pass
     if result.outcome == "submitted":
@@ -444,8 +521,47 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
 
         tasks.enqueue_later("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=3, priority=30)
         return {"status": UNKNOWN, "steps": result.steps}
+    if result.outcome == "upgrade_checkpoint":
+        return {"status": "upgrade_checkpoint"}
     if mode == "verify":
         return _verified(app_id, job_id, title, result)
+    if result.outcome == "mail_reconnect":
+        why = "Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。"
+        with db.session() as session:
+            app = session.get(Application, app_id)
+            lifecycle.move(app, "needs_human", source="run")
+            app.last_event = why
+        notify.add_todo("config", "重新授权 Gmail 邮箱", body=why, ref="config:gmail")
+        raise NeedsHuman(why, kind="mailbox", waits_for="config:gmail")
+    if result.outcome == "material_pending":
+        return {"status": "waiting_material", "material_task": int(rec["material_task"])}
+    if result.outcome == "needs_you" and result.need.get("kind") == "window":
+        (folder / run.WINDOW).write_text("1", encoding="utf-8")      # the next run of this application opens where the applicant can see it
+    if result.outcome == "needs_you" and result.need and not rec.get("asked"):
+        # The run waited for the applicant - a code, a confirmation, something to do in the window - and they were not
+        # there. Nothing of that keeps: the card says what is wanted, and pressing it takes the application up again
+        # at once, with them present this time.
+        need, why = result.need["kind"], str(result.need.get("why") or rec.get("summary") or "")[:600]
+        with db.session() as s:
+            app = s.get(Application, app_id)
+            lifecycle.move(app, "needs_human", source="run")
+            app.last_event = why[:300]
+        ref = f"application:{app_id}:resume"
+        notify.add_todo("resume", title, body=why, ref=ref, payload={"application_id": app_id, "job_id": job_id, "need": need})
+        raise NeedsHuman(why, kind="applicant", url=_last_url(folder), waits_for=ref)
+    with db.session() as session:
+        email_delivery = session.get(Job, job_id).channel == "email"
+    if result.outcome == "needs_you" and not rec.get("asked") and (not _last_url(folder) or
+            (email_delivery and urlparse(_last_url(folder)).hostname in ("mail.google.com", "accounts.google.com"))):
+        why = ("该岗位要求通过邮件投递，请检查申请材料和邮件内容。" if email_delivery
+               else str(rec.get("summary") or "请检查当前申请记录"))
+        draft_id = keep_record(app_id, rec, files, rec.get("url") or "")
+        with db.session() as session:
+            app = session.get(Application, app_id)
+            lifecycle.move(app, "needs_input", source="run")
+            app.last_event = why
+        notify.add_todo("answer", title, body=why, ref=f"draft:{draft_id}", payload={"draft_id": draft_id, "review": True})
+        return {"status": "needs_input", "draft_id": draft_id}
     if result.outcome == "ready" or (result.outcome == "needs_you" and rec.get("asked")):
         draft_id = keep_record(app_id, rec, files, rec.get("url") or "")
         open_n = len(rec.get("asked") or [])
@@ -501,7 +617,7 @@ def _sent(app_id: int, title: str, conf: dict[str, Any], was_auto: bool) -> None
     notify.send("task_result", messages.submitted(title, evidence=str(conf.get("words") or ""), auto=was_auto, note=""), ref=f"application:{app_id}")
 
 
-def _was_sending(folder: Path, began: Any) -> bool:
+def _was_sending(folder: Path, began: Any, *, recovering: bool = False) -> bool:
     """Did this run write that it was about to send the application, and nothing after it that settles whether it
     went out? A report settles it when it brings the confirmation, or says what shows that nothing was sent
     (``not_sent``). Any other report - "I could not find a confirmation", a question, a sign-in - does not: the press
@@ -519,7 +635,7 @@ def _was_sending(folder: Path, began: Any) -> bool:
             sending = False
         elif e.get("kind") == "sending":
             sending = True
-        elif e.get("kind") == "report" and (e.get("outcome") == "submitted" or str(e.get("not_sent") or "").strip()):
+        elif e.get("kind") == "report" and ((e.get("outcome") == "submitted" and not recovering) or str(e.get("not_sent") or "").strip()):
             sending = False
     return sending
 
@@ -528,6 +644,8 @@ def _last_url(folder: Path) -> str:
     try:
         for ln in reversed((folder / "journal.jsonl").read_text(encoding="utf-8").splitlines()):
             e = json.loads(ln)
+            if e.get("kind") == "run":
+                break
             if e.get("kind") == "needs_applicant" and e.get("url"):
                 return str(e["url"])
     except (OSError, ValueError):
@@ -640,3 +758,83 @@ def tasks_from_before() -> int:
                 t.kind, t.ref, t.payload = "apply", f"job:{int(job_id)}", {**keep, "job_id": int(job_id)}
             n += 1
     return n
+
+
+def recover_material_reviews() -> None:
+    """Recover old stopped forms where a letter arrived after the agent reported.
+    Recreate a review only; an applicant decides when the form continues.
+    """
+    from .. import materials, tailor
+    from ..models import Task, Todo
+
+    with db.session() as session:
+        candidates = [(app.id, app.job_id, app.channel) for app in session.query(Application)
+                      .filter(Application.status.in_(("failed", "needs_human")))]
+    for app_id, job_id, channel in candidates:
+        folder = folder_of(app_id)
+        path = folder / "record.json"
+        if not path.is_file() or _last_url(folder):
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        letter = materials.existing_cover_letter(job_id)
+        if not letter or record.get("sent") or record.get("outcome") not in ("needs_you", "cannot"):
+            continue
+        # A legacy report has no typed blocker. Require affirmative evidence the
+        # missing attachment was the obstacle before changing an existing card.
+        summary = str(record.get("summary", ""))
+        if "求职信" not in summary or not any(word in summary for word in ("未上传", "尚未上传", "未取得")):
+            continue
+        with db.session() as session:
+            waiting = session.query(Task).filter_by(kind="apply", ref=f"job:{job_id}", status="waiting_human").all()
+            refs = [f"application:{app_id}", *((t.payload or {}).get("waits_for", "") for t in waiting)]
+            cards = session.query(Todo).filter(Todo.ref.in_(refs), Todo.status=="open", Todo.body==summary).all()
+            if not cards:
+                continue
+            title = session.get(Job, job_id).company
+            card_ids = [card.id for card in cards]
+        files = dict(brief.applicant_on_file(channel).files)
+        resume = tailor.existing(job_id)
+        if resume:
+            files[resume["name"]] = resume["path"]
+        files[letter["name"]] = letter["path"]
+        record["files"] = [*record.get("files", []), {"field": "求职信（已生成，待核对上传）", "file": letter["name"]}]
+        draft_id = keep_record(app_id, record, files, record.get("url", ""))
+        with db.session() as session:
+            app = session.get(Application, app_id)
+            lifecycle.move(app, "needs_input", source="recover")
+            app.last_event = "求职信已生成，请审阅申请材料"
+            for card_id in card_ids:
+                card = session.get(Todo, card_id)
+                card.kind, card.ref, card.title = "answer", f"draft:{draft_id}", title
+                card.payload = {"draft_id": draft_id, "review": True}
+                card.body = app.last_event
+            for task in session.query(Task).filter_by(kind="apply", ref=f"job:{job_id}", status="waiting_human"):
+                task.status, task.finished_at = "done", now()
+                task.result = {"draft_id": draft_id, "status": "needs_input"}
+
+
+def recover_email_delivery_cards() -> None:
+    """Replace browser sign-in requests generated for email-only delivery."""
+    from ..models import Task, Todo
+
+    with db.session() as session:
+        for task in session.query(Task).filter_by(kind="apply", status="waiting_human"):
+            if task.payload.get("waits_for") != "account:idp:google":
+                continue
+            job = session.get(Job, task.payload.get("job_id"))
+            if job is None or job.channel != "email" or job.application is None:
+                continue
+            app = job.application
+            url = _last_url(folder_of(app.id))
+            if urlparse(url).hostname not in ("mail.google.com", "accounts.google.com"):
+                continue
+            task.status, task.error = "queued", ""
+            lifecycle.move(app, "recon", source="recover")
+            app.last_event = "将整理邮件投递材料供你审阅。"
+        session.flush()
+        still_waiting = any((task.payload or {}).get("waits_for") == "account:idp:google"
+                            for task in session.query(Task).filter_by(status="waiting_human"))
+        if not still_waiting:
+            for card in session.query(Todo).filter_by(ref="account:idp:google", status="open"):
+                if "Gmail" in card.body:
+                    card.status, card.done_at = "done", now()

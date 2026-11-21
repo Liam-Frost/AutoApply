@@ -430,3 +430,20 @@ def _direct_write(target: Any, old: str, value: Any) -> None:
 from sqlalchemy import event as _event  # noqa: E402
 
 _event.listen(Application.status, "set", _guard_status, retval=True, active_history=True)
+
+
+class ApplicationBudget(Base):
+    __tablename__ = "application_budgets"
+    application_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger: Mapped[dict] = mapped_column(JSON)
+
+
+class TaskExecution(Base):
+    """Durable ownership and last known progress of a claimed task."""
+    __tablename__ = "task_executions"
+
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    worker: Mapped[str] = mapped_column(String)
+    heartbeat: Mapped[datetime] = mapped_column(DateTime)
+    checkpoint: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

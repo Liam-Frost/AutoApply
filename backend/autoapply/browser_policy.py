@@ -140,3 +140,17 @@ def session_browser(tenant: str) -> str:
         return "playwright"
     found = of_session(tenant)
     return found.backend if found else "playwright"
+
+
+def remember(tenant: str, backend: str) -> bool:
+    """A site that an application got further on in ``backend``: the next task there starts in it. Only where the
+    applicant has no rule of their own for the site. Returns whether a rule was written."""
+    from . import db
+
+    if backend not in BACKENDS or not tenant:
+        return False
+    rules = list(db.get_setting("browser.rules") or [])
+    if any(r.get("tenant") == tenant for r in rules):
+        return False
+    db.set_setting("browser.rules", [*rules, {"tenant": tenant, "backend": backend, "operations": []}])
+    return True

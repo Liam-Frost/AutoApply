@@ -39,11 +39,21 @@ const VIEW = {
   // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
 }
+// The agent is waiting, in the site's own page, for something only the applicant has: these are answered here.
+VIEW.code = { icon: 'login', tone: 'warn', title: (t) => t.title, what: (t) => t.body || '' }
+VIEW.confirm = { icon: 'login', tone: 'warn', title: (t) => t.title, what: (t) => t.body || '' }
+// ... and when it waited and the applicant was not there: said again, and taken up at once when they are
+VIEW.resume = { icon: 'login', tone: 'warn', title: (t) => (RESUME[t.payload.need] || RESUME.confirm)[0](t), what: (t) => t.body || '' }
+const RESUME = {
+  code: [(t) => `${t.title}：需要你输入一个验证码`, '我现在有空，重新发验证码', 'Agent 等了 10 分钟没有等到验证码，那个验证码已经过期。你有空时点下面的按钮：它会马上回到那一步，让网站重新发一个，再在这里等你输入。'],
+  confirm: [(t) => `${t.title}：需要你确认一下`, '我现在有空，继续', 'Agent 等了 10 分钟没有等到你的确认。你有空时点下面的按钮：它会马上重新做到那一步并等你。'],
+  window: [(t) => `${t.title}：需要你在浏览器窗口里操作`, '打开窗口，我来处理', '这一步要你本人在浏览器窗口里完成（比如人机验证）。点下面的按钮：Agent 会在你看得见的窗口里重新做到那一步，然后等你。'],
+}
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
   what: () => '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
 
 // Sorting and filtering. Urgency comes from the server: 0 a window is waiting for you now, 1 the deadline is within 3 days, 2 when you can, 3 just so you know.
-const CATS = [['all', '全部'], ['dated', '有日期的'], ['login', '要登录'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
+const CATS = [['all', '全部'], ['dated', '有日期的'], ['login', '要登录或验证'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
 const URGENCY = ['现在处理', '快截止了', '有空时处理', '仅通知，不需要操作']
 const SORTS = { urgency: '按轻重缓急', newest: '最新的在前', deadline: '按截止时间', score: '按岗位评分' }
 const cat = ref('all')
@@ -100,6 +110,14 @@ const act = (fn, ok) => runAction(fn, ok, load)
 const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: !!t.remembers && saveCred.value }),
   '已打开一个浏览器窗口，请在里面登录。登录好之后直接关掉窗口，程序会保存登录状态并继续。')
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), '已继续')
+const codes = ref({})        // what is being typed into each code card
+const giveCode = (t) => act(async () => {
+  const r = await api.post(`/todos/${t.id}/code`, { code: codes.value[t.id] })
+  delete codes.value[t.id]
+  if (!r.given) throw new Error('Agent 已经不在等这个验证码了（等待超过了 10 分钟）。它现在会重新开始并让网站再发一个，新的验证码卡片出现后再输入。')
+}, '已交给 Agent，它正在填')
+const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 接着做了')
+const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 马上开始，到那一步时会在这里等你')
 const dismiss = (t) => act(() => api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }), '已关闭')
 // What a card about an application offers follows from where the application stands, not from the card.
 // Submit was pressed and the outcome is not known: filling it in again would be a second application if the first went through.
@@ -111,8 +129,8 @@ async function againNotSubmitted(t) {
 }
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
-const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget`), '已追加一份预算，Agent 接着做')
-const tryAgainFor = async (t) => { await api.post(`/jobs/${t.job.id}/draft`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
+const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), '已追加一份预算，Agent 接着做')
+const tryAgainFor = async (t, backend) => { await api.post(`/jobs/${t.job.id}/draft`, backend ? { browser_backend: backend } : {}); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
 const tryAgain = (t) => act(() => tryAgainFor(t), 'Agent 已重新开始')
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
@@ -171,6 +189,23 @@ onMounted(load)
           <span v-else-if="t.payload.tenant_key.startsWith('idp:')" class="small muted" style="margin-left: 8px">只保存登录状态，不保存这个账号的密码</span>
           <span v-else class="small muted" style="margin-left: 8px">这个登录窗口里程序看不到你输入的内容。想让程序以后自己登录，到“账号”页给这个网站保存登录名和密码。</span>
         </template>
+        <template v-else-if="t.kind === 'code'">
+          <input v-model="codes[t.id]" placeholder="在这里输入验证码" inputmode="numeric" autocomplete="one-time-code" style="width: 180px" @keyup.enter="codes[t.id] && giveCode(t)" />
+          <button class="primary" :disabled="!codes[t.id]" @click="giveCode(t)"><Icon name="check" />交给 Agent</button>
+          <button class="ghost" @click="dismiss(t)">现在没法处理</button>
+          <span class="small muted" style="margin-left: 8px">Agent 正停在网站的那一页等着，大约等 10 分钟。</span>
+        </template>
+        <template v-else-if="t.kind === 'confirm'">
+          <button class="primary" @click="confirmed(t)"><Icon name="check" />已完成，继续</button>
+          <button class="ghost" @click="dismiss(t)">现在没法处理</button>
+          <span v-if="t.payload && t.payload.window" class="small muted" style="margin-left: 8px">浏览器窗口已经打开：在窗口里完成这一步，不要关窗口，然后点“已完成”。</span>
+          <span v-else class="small muted" style="margin-left: 8px">在手机上完成后点“已完成”，Agent 立刻接着做；它大约等 10 分钟。</span>
+        </template>
+        <template v-else-if="t.kind === 'resume'">
+          <button class="primary" @click="resumeNow(t)"><Icon name="refresh" />{{ (RESUME[t.payload.need] || RESUME.confirm)[1] }}</button>
+          <button class="ghost" @click="dismiss(t)">先不处理</button>
+          <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
+        </template>
         <template v-else-if="t.kind === 'blocked'">
           <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开岗位页面，自己投</a>
           <button @click="appliedMyself(t)"><Icon name="check" />我已经提交了</button>
@@ -178,7 +213,7 @@ onMounted(load)
           <button class="ghost" @click="skipJob(t)">不投这个了</button>
         </template>
         <template v-else-if="t.kind === 'answer'">
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" />去回答</router-link>
+          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">查看申请材料</span><span v-else>去回答</span></router-link>
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
         <template v-else-if="t.kind === 'followup'">
@@ -196,6 +231,7 @@ onMounted(load)
           <button v-else-if="t.kind === 'submit'" class="primary" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
           <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />再给一份预算，接着做</button>
           <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />让 Agent 再试一次</button>
+          <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), 'Agent 已重新开始')">使用 nodriver 重试</button>
           <router-link :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
           <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
           <button v-if="!unknown(t)" class="ghost" @click="dismiss(t)">不投了，关闭</button>

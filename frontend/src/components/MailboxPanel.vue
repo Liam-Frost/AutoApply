@@ -100,7 +100,7 @@ onMounted(load)
       <div class="row">
         <FileButton accept=".json" @change="gmailClient"><Icon name="inbox" />选择 JSON 文件</FileButton>
         <button :disabled="!d.client" @click="gmailAuth">授权</button>
-        <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? '已授权' : d.client ? '文件已上传，还没授权' : '还没上传文件' }}</span>
+        <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? '已授权' : d.reconnect ? '授权已失效，请重新授权' : d.client ? '文件已上传，还没授权' : '还没上传文件' }}</span>
       </div>
       <details class="tech"><summary>怎么拿到这个文件</summary><pre>在 Google Cloud 创建“桌面应用”类型的 OAuth 客户端，启用 Gmail API，下载 JSON 文件后在这里上传，再点“授权”。</pre></details>
     </template>
