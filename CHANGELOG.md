@@ -4,7 +4,7 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-11-19
+## [2.0.0] - 2026-11-21
 
 2.0 changes how an application is worked. One AI agent takes it from the posting to the confirmation, with everything the program knows in front of it and ordinary browser tools in its hands. The pipeline around the model that 1.x had grown - a driver per recruiting system, a form read into a structure before anything was filled, an AI "take-over" for pages that would not fill, a gate on what it could press, recipes and plugins learned from runs, a self-check replaying saved pages - is removed, not kept as a fallback. The README says why.
 
