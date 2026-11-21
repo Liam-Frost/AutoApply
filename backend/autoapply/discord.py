@@ -46,16 +46,24 @@ def configured() -> bool:
     return bool(secrets.get(TOKEN))
 
 
+class Refused(RuntimeError):
+    """Discord answered with an error status (401: the token is wrong; 403: the bot may not write to that user)."""
+
+    def __init__(self, status: int, text: str) -> None:
+        super().__init__(f"discord {status}: {text[:200]}")
+        self.status = status
+
+
 def _call(method: str, path: str, body: Any = None) -> Any:
-    for attempt in range(3):
+    for _ in range(3):
         r = httpx.request(method, API + path, headers=_headers(), json=body, timeout=20)
         if r.status_code == 429:      # rate limited: wait as told
             time.sleep(min(10.0, float((r.json() or {}).get("retry_after") or 1)))
             continue
         if r.status_code >= 400:
-            raise RuntimeError(f"discord {r.status_code}: {r.text[:200]}")
+            raise Refused(r.status_code, r.text)
         return r.json() if r.content else None
-    raise RuntimeError("discord: rate limited")
+    raise Refused(429, "rate limited")
 
 
 def dm_channel() -> str:

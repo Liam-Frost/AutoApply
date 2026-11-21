@@ -2643,8 +2643,9 @@ def discord_state() -> dict[str, Any]:
     if out["token"]:
         try:
             out["bot"] = discord.about_bot()
-        except Exception as e:  # noqa: BLE001 - a wrong token: said on the page
-            out["error"] = str(e)[:200]
+        except Exception as e:  # noqa: BLE001 - a wrong token, no network: the page says which, in a word
+            log.info("discord: %s", e)
+            out["error"] = f"HTTP {e.status}" if isinstance(e, discord.Refused) else type(e).__name__
     return out
 
 
