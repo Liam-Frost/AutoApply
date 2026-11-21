@@ -3046,5 +3046,6 @@
 "看有没有新邮件": "Look for new mail",
 "把最近几天的邮件整个再看一遍": "Read the last few days' mail over again",
 "填 0 关闭。上面那一项的兜底：程序关着的时候到的、当时没认出来的邮件，靠这一遍补上。其他邮箱（IMAP）只有这一项。读哪个邮箱在“账号与连接”里设。": "0 switches it off. The safety net under the one above: mail that arrived while the program was closed, or was not recognised then, is caught by this pass. Other mailboxes (IMAP) have only this one. Which mailbox is read is set under Accounts & connections.",
-"填 0 关闭。只问邮箱“上次之后来了什么”，通常是没有；来了才读。确认信、面试邀请、验证码靠的是这一项。只有 Gmail 的 Google 授权方式支持。": "0 switches it off. It only asks the mailbox what has arrived since the last look - usually nothing - and reads when something has. Confirmations, invitations and codes come in through this. Only with Gmail's Google authorization."
+"填 0 关闭。只问邮箱“上次之后来了什么”，通常是没有；来了才读。确认信、面试邀请、验证码靠的是这一项。只有 Gmail 的 Google 授权方式支持。": "0 switches it off. It only asks the mailbox what has arrived since the last look - usually nothing - and reads when something has. Confirmations, invitations and codes come in through this. Only with Gmail's Google authorization.",
+"邮件没有发出去。原因记在这封邮件上，修好后可以再发一次。": "The e-mail was not sent. Why is on the e-mail itself; it can be sent again once that is put right."
 }

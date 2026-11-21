@@ -37,7 +37,7 @@ SAME_PLACE = 3          # runs in a row that ended at the same place without a r
 
 
 def folder_of(application_id: int) -> Path:
-    return config.DATA / "agent" / f"app_{application_id}"
+    return config.DATA / "agent" / f"app_{int(application_id)}"      # (a number, whatever was passed: never a piece of a path)
 
 
 def journal(application_id: int, limit: int = 200) -> list[dict[str, Any]]:
