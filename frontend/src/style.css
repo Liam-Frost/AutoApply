@@ -100,12 +100,12 @@ nav.side { background: var(--surface); border-right: 1px solid var(--border); pa
   display: flex; flex-direction: column; gap: 2px; overflow: auto; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; color: var(--brand-navy); font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
 .brand img { width: 30px; height: 30px; background: var(--logo-tile); border-radius: 8px; padding: 2px; }
-/* the whole logo (BrandLogo.vue): the mark is its "A", the name follows it; both in the page's own colours, light or dark */
-.logo { display: inline-flex; align-items: flex-end; color: var(--brand-navy); font-weight: 800; font-size: 25px; line-height: 1; letter-spacing: -0.035em; }
-.logo-mark { display: inline-flex; height: 1.02em; margin-right: 0.01em; }
-.logo-mark svg { height: 100%; width: auto; display: block; }
-.logo-name { padding-bottom: 0.02em; }
-.door-brand.full .logo { font-size: 30px; }
+/* the whole logo (BrandLogo.vue): the picture as drawn, its dark part filled with the page's text colour, light or dark */
+.logo { position: relative; display: inline-block; height: 30px; aspect-ratio: 1159 / 206; color: var(--brand-navy); }
+/* (which picture masks it is said on the element: an address there is found from the page's <base>, wherever the program is served) */
+.logo-ink { position: absolute; inset: 0; background: currentColor; -webkit-mask: center / 100% 100% no-repeat; mask: center / 100% 100% no-repeat; }
+.logo-accent { position: absolute; inset: 0; width: 100% !important; height: 100% !important; padding: 0 !important; background: none !important; border-radius: 0 !important; }
+.door-brand.full .logo { height: 36px; }
 .brand:hover { text-decoration: none; }
 .nav-label { font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: 0.06em; padding: 14px 10px 4px; }
 nav.side a.nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text-2); font-weight: 500; }
