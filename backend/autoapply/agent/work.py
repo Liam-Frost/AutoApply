@@ -203,7 +203,7 @@ def _shown(v: Any) -> str:
 
 
 # --- one application, once ---------------------------------------------------------------------------------------------
-def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> dict[str, Any]:
+def work(job_id: int, *, task_id: int | None = None, instructions: str = "", page: Any = None) -> dict[str, Any]:
     """Run the agent on the application for this posting, and settle what came of it. Returns the task's result.
     ``instructions``: what the applicant said when they asked for this application; kept for every run of it."""
     from .. import browser
@@ -312,8 +312,13 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
     # (the window: the applicant's when the last press is theirs; otherwise hidden, or shown while the agent works if they set so)
     # ... or because the last run stopped at something the applicant has to do in the window (a CAPTCHA)
     wanted = (folder / run.WINDOW).exists()
-    with browser.open_page(site, headless=mode != "hand_over" and not wanted and not db.get_setting("agent.show_window"), url=posting.url) as page:
-        (folder / run.WINDOW).unlink(missing_ok=True)
+    kept = page is not None      # (the window of the run before this one, kept open for the approval: it goes on in it)
+    import contextlib
+
+    opened = contextlib.nullcontext(page) if kept else browser.open_page(site, headless=mode != "hand_over" and not wanted and not db.get_setting("agent.show_window"), url=posting.url)
+    with opened as page:
+        if not kept:
+            (folder / run.WINDOW).unlink(missing_ok=True)
         used = browser.in_use()[0]
         result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard, on_checkpoint=checkpoint, email_delivery=email_delivery,
                            card=card, changed_browser=changed, mail_out=mail_out)
@@ -321,7 +326,20 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
             browser.save_state(site, page.context)
         except Exception as e:  # noqa: BLE001 - the window is gone (the applicant closed it): the run's outcome stands
             log.info("the session of %s was not kept after the run (%s)", site, type(e).__name__)
-    notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
+        settled = _after(app_id, job_id, title, site, mode, result, folder, began, changed, used)
+        if not kept and task_id is not None and mode == "prepare" and result.outcome == "ready" and settled.get("status") == "ready":
+            # The record waits for the applicant's approval. The window stays open a while: approved in that time, the
+            # record is sent from where it is - no new browser, no way back to the form, no second look at every field.
+            if _keep_for_approval(task_id, app_id, int(settled.get("draft_id") or 0), page, folder):
+                return work(job_id, task_id=task_id, page=page)
+        return settled
+
+
+def _after(app_id: int, job_id: int, title: str, site: str, mode: str, result: run.Result, folder: Path, began: Any, changed: bool, used: str) -> dict[str, Any]:
+    """What follows from a run, once its window has done its part."""
+    from .. import tasks
+
+    notify.close_todos("submit", f"application:{app_id}")      # the window is done with: the card that pointed at it has nothing left to point at
     _spent(folder, result)
     for kind in ("code", "confirm"):      # (a card the run was still waiting on when it ended has nothing left to answer)
         notify.close_todos(kind, f"application:{app_id}:{kind}")
@@ -339,6 +357,51 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         # the applicant said something after the run's last action: it is in the brief of the next run, which is this one
         tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "said": now().isoformat()}, priority=20)
     return settle(app_id, job_id, title, site, mode, result, folder, began=began)
+
+
+def _keep_for_approval(task_id: int, app_id: int, draft_id: int, page: Any, folder: Path) -> bool:
+    """Keep the window of a record that waits for approval, for ``agent.keep_window_minutes``. True when it was
+    approved in that time (the run that sends it goes on in this window); False when the time is up, the record was
+    changed or put aside, the applicant stopped it, the program is to stop, or a newer one needed the place."""
+    import threading
+    import time
+
+    from .. import browser, tasks
+    from ..models import Draft, Task
+
+    minutes = float(db.get_setting("agent.keep_window_minutes") or 0)
+    if minutes <= 0 or not draft_id:
+        return False
+    most = max(1, int(db.get_setting("agent.keep_window_most") or 3))
+    while len(tasks.KEPT) >= most:      # the oldest one gives its place up
+        oldest = next(iter(tasks.KEPT))
+        tasks.KEPT.pop(oldest).set()
+    done = threading.Event()
+    tasks.KEPT[task_id] = done
+    with open(folder / "journal.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": __import__("datetime").datetime.now().isoformat(timespec="seconds"), "kind": "log",
+                            "text": f"申请记录已经备好，浏览器窗口保留 {int(minutes)} 分钟：这段时间里批准，就直接在这个窗口里提交。"}, ensure_ascii=False) + "\n")
+    until = time.monotonic() + minutes * 60
+    try:
+        while time.monotonic() < until and not done.is_set():
+            if (folder / run.STOP).exists() or tasks.retiring() or db.get_setting("runtime.upgrade_requested") or db.get_setting("schedule.draining"):
+                return False
+            with db.session() as s:
+                d = s.get(Draft, draft_id)
+                if d is None or d.review_status in ("rejected", "superseded", "closed"):
+                    return False
+                if d.review_status == "approved":
+                    # the approval queued a run to send it; this window is that run now
+                    for t in s.query(Task).filter(Task.kind == "apply", Task.ref == f"job:{d.application.job_id}", Task.status == "queued"):
+                        t.status, t.finished_at, t.result = "cancelled", now(), {"skipped": "sent from the window that was kept for the approval"}
+                    return True
+            try:
+                browser.idle(page, 2)
+            except Exception:  # noqa: BLE001 - the window is gone (the applicant closed it)
+                return False
+        return False
+    finally:
+        tasks.KEPT.pop(task_id, None)
 
 
 def _instructions(folder: Path, new: str = "") -> list[str]:

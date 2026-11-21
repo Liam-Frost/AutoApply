@@ -28,6 +28,7 @@ OUTCOMES = ("ready", "submitted", "needs_you", "cannot", "gone")
 STOP = "stop"       # a file of this name in the application's folder: the applicant says "stop" (work.stop)
 SAID = "said.jsonl"
 WINDOW = "window"            # in an application's folder: its next run opens in a window the applicant can see
+SCENE = "scene.json"         # ... and where its last run stopped: the address, the page, what the page showed
 MADE = "made"                # ... and the files its runs made out of the applicant's files (make_file), with what each holds
 WAIT_MINUTES = 10            # how long a run waits for the applicant's code or confirmation before it ends
 STAYS_SECONDS = 8            # a page that asks something of the applicant is still there after this long; one that only passes through is not
@@ -938,6 +939,28 @@ class Desk:
         ]
 
 
+def _keep_scene(folder: Path, hands: Any, desk: Any) -> None:
+    """Where the run stopped, for the next one: every run after an application's first used to find its way back to
+    the form and look at what was filled before doing anything (most of the work of an application, on the record)."""
+    try:
+        url, title = str(hands.page.url), str(hands.page.title())
+        shown = desk.clean(hands.controls())
+    except Exception:  # noqa: BLE001 - the window is gone: nothing to say about where it was
+        return
+    (folder / SCENE).write_text(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "url": url, "title": title[:200], "controls": str(shown)[:4000]},
+                                           ensure_ascii=False), encoding="utf-8")
+
+
+def scene_text(folder: Path) -> str:
+    try:
+        sc = json.loads((folder / SCENE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return (f"WHERE THE LAST RUN STOPPED ({sc.get('at')}): {sc.get('title')!r} at {sc.get('url')}. That address may open straight at that step of the form "
+            "(or it may have to be reached again from the posting). What the page showed then - check it against what it shows now rather than "
+            f"going over every field again:\n{sc.get('controls')}")
+
+
 def journal_text(folder: Path) -> str:
     """What earlier runs wrote down, for the next one: the agent's own lines, what it asked, how each run ended."""
     p = folder / "journal.jsonl"
@@ -1016,7 +1039,8 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     where = (f"This run works in {BROWSERS.get(used or 'playwright', used)}. Its window is "
              + ("on the applicant's screen." if seen else "hidden from the applicant.")
              + (" The application was moved here from the other browser by the run before this one." if changed_browser else ""))
-    goal = brief.goal(posting, applicant, mode=mode, site_notes=known, systems=systems, journal=journal_text(folder), record=record, answers=answers, browser=where,
+    goal = brief.goal(posting, applicant, mode=mode, site_notes=known, systems=systems, journal="\n\n".join(x for x in (journal_text(folder), scene_text(folder)) if x),
+                      record=record, answers=answers, browser=where,
                       account=desk.account(), budget=f"About {budget.steps} tool calls and {int(budget.seconds // 60)} minutes for this run. Log where you are before it runs out.")
     (folder / "brief.md").write_text(goal, encoding="utf-8")
     desk.write("run", mode=mode, url=posting.url)
@@ -1036,6 +1060,8 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
         res.usage = dict(out.budget or {})
     except llm.LLMError as e:
         res.stopped = f"{type(e).__name__}: {str(e)[:300]}"
+    if res.steps:
+        _keep_scene(folder, hands, desk)
     res.need = dict(desk.need)
     if desk.mailed:
         res.outcome, res.record = "mailed", {"outcome": "mailed", "mail": dict(desk.mailed), "asked": []}

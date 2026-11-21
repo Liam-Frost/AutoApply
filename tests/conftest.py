@@ -87,6 +87,8 @@ def app_env(tmp_path, monkeypatch):
     monkeypatch.setattr(llm_sdk, "call", lambda *a, **k: (_ for _ in ()).throw(llm_sdk.SDKError("no model in tests", unavailable=True)))
     monkeypatch.setattr(llm, "_create", no_model)
     monkeypatch.setitem(sys.modules, "openai_codex", None)  # the ChatGPT runtime may be installed and signed in on this machine
+    # a record that waits for approval does not keep a window open in the tests (the one test about it sets it)
+    db.set_setting("agent.keep_window_minutes", 0)
     from autoapply import persona
 
     for k, v in persona.LEGACY.items():

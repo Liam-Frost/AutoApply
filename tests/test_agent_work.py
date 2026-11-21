@@ -857,3 +857,53 @@ def test_a_question_is_one_line_with_the_forms_choices_and_the_agents_suggestion
     assert [r["label"] for r in rows] == ["First name", "Years of experience: C# and .NET", "Skill level: C# and .NET"]      # each once
     years = rows[1]
     assert years["type"] == "select" and years["options"] == ["None Yet", "<1", "1-2", "2-5"] and years["suggested"] == "<1" and years["source"] == "unresolved"
+
+
+def test_a_record_waiting_for_approval_keeps_its_window_and_an_approval_meanwhile_is_sent_from_it(agent, monkeypatch):
+    """Every approval opened a new browser, found its way back to the form and looked at every field again: thirty
+    calls, on the record, for each application sent after it was approved."""
+    import threading
+    import time
+
+    from autoapply import browser, drafts, tasks
+    from autoapply.models import Job, Task
+
+    db.set_setting("submit.policy", "approve")
+    db.set_setting("agent.keep_window_minutes", 0.1)
+    opened = []
+    monkeypatch.setattr(browser, "open_page", lambda *a, **k: opened.append(1) or contextlib.nullcontext(object()))
+    monkeypatch.setattr(browser, "idle", lambda page, s: time.sleep(0.05))
+    seen_kept = []
+
+    def approve_when_ready():
+        for _ in range(200):
+            with db.session() as s:
+                d = s.get(Job, agent.job).application
+                draft = d.drafts[-1] if d is not None and d.drafts else None
+                if draft is not None and draft.review_status == "pending" and tasks.KEPT:      # (approved while the window waits)
+                    seen_kept.append(len(tasks.KEPT))
+                    did = draft.id
+                    break
+            time.sleep(0.02)
+        drafts.approve(did)
+
+    agent.ends.extend([READY, SENT])
+    threading.Thread(target=approve_when_ready, daemon=True).start()
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    assert [x["mode"] for x in agent.seen] == ["prepare", "send"] and len(opened) == 1      # one window, two runs
+    assert seen_kept == [1] and not tasks.KEPT
+    assert _state(agent.job)[0] == "submitted"
+    with db.session() as s:      # the run the approval queued was this one
+        assert s.query(Task).filter_by(kind="apply", status="queued").count() == 0
+    # not approved in time: the window closes and the record waits as before
+    agent.ends.append(READY)
+    with db.session() as s:
+        j = Job(source="manual", source_id="a2", company="Globex", title="Intern", apply_url="https://globex.example/jobs/1", jd_text="x" * 300, status="queued", online=1)
+        s.add(j)
+        s.flush()
+        other = j.id
+    tasks.enqueue("apply", ref=f"job:{other}", payload={"job_id": other})
+    began = time.monotonic()
+    assert tasks.drain() == 1 and 5 <= time.monotonic() - began < 30
+    assert _state(other)[0] == "draft_ready" and len(opened) == 2 and not tasks.KEPT

@@ -3088,5 +3088,10 @@
 "这些申请已经先停下；在待办里选：按新的重新准备，或者照旧发。": "These applications have been stopped; in the to-dos, choose to prepare them again with the new facts, or to send them as they are.",
 "我刚改了个人资料：{0}。这份申请里依据这些的答案，请在表单上改成新的；其他已经填好的保持不变，不要重填。": "I have just changed my profile: {0}. Change the answers of this application that rest on these to the new ones on the form; leave everything else as it is filled in, do not fill it in again.",
 "你改了个人资料里的 {0} 处。下面 {1} 份还没发出的申请里有答案用的是旧的，已经先停下来等你决定： {2}": "You changed {0} line(s) of your profile. The {1} applications below, not sent yet, have answers that use the old facts; they have been stopped until you decide: {2}",
-"已经发出的 {0} 份也用了旧的：{1}。它们不会改动。": "{0} already sent also used the old facts: {1}. They are not changed."
+"已经发出的 {0} 份也用了旧的：{1}。它们不会改动。": "{0} already sent also used the old facts: {1}. They are not changed.",
+"分钟，最多同时": "minutes, at most",
+"最多同时保留几个窗口": "At most how many windows kept at once",
+"备好等批准时，窗口保留": "When a record waits for approval, keep its window",
+"申请记录已经备好，浏览器窗口保留 {0} 分钟：这段时间里批准，就直接在这个窗口里提交。": "The record is ready; the browser window is kept for {0} minutes: approved in that time, it is sent from this window.",
+"申请记录备好、等你批准时，浏览器先不关。这段时间里批准，Agent 直接在原页面上提交，不用重新打开网站、走到表单、再核对一遍。等待中的窗口不算在“同时做几份”里；同一个网站上有窗口在等时，这个网站的下一份申请排在它后面。填 0 关闭。": "When a record is ready and waits for your approval, the browser stays open. Approved in that time, the agent sends it from that page, without opening the site again, finding the form and checking it all over. Waiting windows do not count among the applications worked at once; while one waits on a site, the next application on that site waits behind it. 0 switches it off."
 }

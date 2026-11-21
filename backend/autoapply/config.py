@@ -68,6 +68,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "submit.policy": "auto",
     "agent.parallel": 3,          # how many applications are worked at the same time (1-6); never two on one site
     "mail.send": "review",        # a mail the program wrote for the applicant: "review" - they look at it and send it; "auto" - sent when nothing is missing from it
+    "agent.keep_window_minutes": 10,  # a record waiting for approval keeps its window this long: approved meanwhile, it is sent from it (0: off)
+    "agent.keep_window_most": 3,      # at most this many such windows at once (they do not count among the applications worked at once)
     "agent.show_window": False,   # show the browser window while the agent works an application (to watch, to take over); hidden otherwise
     # An e-mail that does not say which application it is about: read the applicant page of the employer's site (with
     # the sign-in already saved for it) to find out, before asking the applicant.
