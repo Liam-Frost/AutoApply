@@ -4,10 +4,6 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
-### Changed
-
-- **A mail in the conversation of an application is about that application.** A reply to a mail the program sent for an application, or a mail in a conversation already placed, goes to that application whatever its wording - it is no longer guessed from the company's name. When you say which application a mail is about, the other mails of its conversation that nobody could place go with it.
-
 ## [2.0.0] - 2026-11-21
 
 2.0 changes how an application is worked. One AI agent takes it from the posting to the confirmation, with everything the program knows in front of it and ordinary browser tools in its hands. The pipeline around the model that 1.x had grown - a driver per recruiting system, a form read into a structure before anything was filled, an AI "take-over" for pages that would not fill, a gate on what it could press, recipes and plugins learned from runs, a self-check replaying saved pages - is removed, not kept as a fallback. The README says why.
