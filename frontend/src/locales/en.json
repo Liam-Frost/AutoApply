@@ -203,5 +203,42 @@
       "quiet": "A reminder in the quiet hours waits for them to end",
       "hint": "Without the box ticked, a reminder goes out at its time even in the quiet hours: you set the time yourself."
     }
+  },
+  "files": {
+    "kind": {
+      "made": "Put-together file"
+    },
+    "purpose": {
+      "label": "What it is:",
+      "mine": "a file of yours, for any application",
+      "forJob": "written for one posting",
+      "made": "put together from your files for one application"
+    },
+    "madeFrom": "Made of:",
+    "belongs": "For:",
+    "ended": "over",
+    "went": "Where it went:",
+    "wentNowhere": "not used in any application yet",
+    "how": {
+      "sent": "sent with",
+      "record": "in the record of",
+      "mail": "attached to a mail"
+    },
+    "filter": {
+      "sent": "Only what went out",
+      "inUse": "Only what an application in progress uses",
+      "archived": "Show archived ({n})"
+    },
+    "archivedBadge": "Archived",
+    "sentBadge": "Went out",
+    "archive": "Archive",
+    "unarchive": "Unarchive",
+    "archived": "{n} file archived | {n} files archived",
+    "unarchived": "Back in the list",
+    "clean": "Archive {n} old file | Archive {n} old files",
+    "cleanAsk": "Archive {n} file made for applications that are over (or a version no longer used)? They are kept - archived files can be shown again - and nothing being prepared uses them. | Archive {n} files made for applications that are over (or versions no longer used)? They are kept - archived files can be shown again - and nothing being prepared uses them.",
+    "nothingToClean": "Nothing to archive",
+    "deleteAsk": "Delete the {n} selected file for good? It cannot be undone. A file that went out with an application is archived instead: it is what was sent. | Delete the {n} selected files for good? It cannot be undone. Files that went out with an application are archived instead: they are what was sent.",
+    "deletedKept": "{n} deleted; {kept} that went out with an application archived instead"
   }
 }

@@ -2095,11 +2095,18 @@ def list_documents() -> list[dict[str, Any]]:
     from .. import materials
 
     nth, held = materials.versions(), materials.held_by_drafts()
+    by_id, by_path = materials.whereabouts()
     with db.session() as s:
         rows = []
-        for d in s.query(Document).order_by(Document.id.desc()).limit(300):
+        for d in s.query(Document).order_by(Document.id.desc()).limit(500):
             p = Path(d.path)
             job = s.get(Job, d.job_id) if d.job_id else None
+            app = job.application if job else None
+            went = {(w["application_id"], w["how"], w["field"]): w for w in by_id.get(d.id, []) + by_path.get(materials._key(d.path), [])}
+            went_l = list(went.values())[:12]
+            purpose = "made" if d.kind == "made" else "for_job" if d.kind in materials.GENERATED else "mine"
+            in_use = any(not w["sent"] and w["status"] not in materials.ENDED for w in went_l)
+            over = materials.ended(app)
             jstage = stages.describe(stages.stage(job.status, bool(job.online), job.deadline or "", job.application.status if job.application else None)) if job else {}
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
@@ -2115,7 +2122,13 @@ def list_documents() -> list[dict[str, Any]]:
                          # which writing of this file for this posting it is; and, for the records from before each
                          # writing kept its own file, whether a later one was written over it
                          "version": nth.get(d.id), "overwritten": bool((d.meta or {}).get("overwritten_by")),
-                         "in_draft": d.id in held})      # the latest draft of an application names it: not one to tidy away
+                         "in_draft": d.id in held,      # the latest draft of an application names it: not one to tidy away
+                         # what it is for, whose it is, where it went (the library's three questions)
+                         "purpose": purpose, "made_from": (d.meta or {}).get("made_from") or [],
+                         "application": {"id": app.id, "status": app.status, "label": humanize.APP_STATUS.get(app.status, app.status), "ended": over} if app else None,
+                         "went": went_l, "sent": any(w["sent"] for w in went_l), "in_use": in_use, "archived": bool((d.meta or {}).get("archived")),
+                         # a file made for an application that is over, that nothing still being prepared uses: one to put away
+                         "cleanable": purpose != "mine" and not (d.meta or {}).get("archived") and (over or (not d.active and d.id not in held)) and not in_use})
         return rows
 
 
@@ -2207,16 +2220,32 @@ def document_bytes(doc_id: int):
 
 @app.post("/api/documents/bulk")
 def bulk_documents(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """stop | delete several files at once."""
-    action, ids = body.get("action"), [int(i) for i in body.get("ids", [])][:300]
-    if action not in ("stop", "delete"):
+    """stop | delete | archive | unarchive several files at once. A file that went out with an application is not
+    deleted - it is what was sent - only archived."""
+    from .. import materials
+
+    action, ids = body.get("action"), [int(i) for i in body.get("ids", [])][:500]
+    if action not in ("stop", "delete", "archive", "unarchive"):
         raise HTTPException(400, "unsupported action")
+    by_id, by_path = materials.whereabouts()
+    done, kept = 0, 0
     for i in ids:
+        with db.session() as s:
+            d = s.get(Document, i)
+            if d is None:
+                continue
+            sent = any(w["sent"] for w in by_id.get(d.id, []) + by_path.get(materials._key(d.path), []))
+            if action in ("archive", "unarchive") or (action == "delete" and sent):
+                d.meta = {**(d.meta or {}), "archived": action != "unarchive"}
+                kept += action == "delete"
+                done += 1
+                continue
         try:
             delete_document(i, permanent=action == "delete")
+            done += 1
         except HTTPException:
             pass
-    return {"done": len(ids)}
+    return {"done": done, "archived_instead": kept}
 
 
 @app.patch("/api/documents/{doc_id}")

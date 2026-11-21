@@ -109,6 +109,75 @@ def held_by_drafts() -> set[int]:
     return {int(m["document_id"]) for mats in latest.values() for m in mats if m.get("document_id")}
 
 
+GENERATED = ("cover_letter", "tailored_resume", "made")      # written or put together for one posting
+ENDED = ("rejected", "withdrawn")
+STALE_DAYS = 30        # an application sent this long ago, with nothing heard, is over as far as its files are concerned
+
+
+def _key(path: str) -> str:
+    return str(Path(path)).lower()
+
+
+def whereabouts() -> tuple[dict[int, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    """Where the files went: the applications whose records name them (by the file's record or its path) - with the
+    form field they were for, and whether the application went out - and the mails sent with them. By document id and
+    by path."""
+    from collections import defaultdict
+
+    from .models import SENT, Application, Draft, Outgoing
+
+    by_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    by_path: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    seen: set[tuple[Any, ...]] = set()
+    with db.session() as s:
+        apps = {a.id: a for a in s.query(Application)}
+        for d in s.query(Draft).order_by(Draft.id.desc()):
+            a = apps.get(d.application_id)
+            if a is None:
+                continue
+            for m in d.materials or []:
+                doc, path = m.get("document_id"), str(m.get("path") or "")
+                key = (a.id, doc, _key(path) if path else "")
+                if key in seen or not (doc or path):
+                    continue
+                seen.add(key)
+                row = {"application_id": a.id, "company": a.job.company, "title": a.job.title, "status": a.status, "how": "record",
+                       "field": str(m.get("label") or m.get("slot") or "")[:120], "sent": a.status in SENT or a.submitted_at is not None}
+                (by_id[int(doc)] if doc else by_path[_key(path)]).append(row)
+        for o in s.query(Outgoing).filter(Outgoing.status == "sent"):
+            a = apps.get(o.application_id) if o.application_id else None
+            for att in o.attachments or []:
+                if att.get("path"):
+                    by_path[_key(att["path"])].append({"application_id": a.id if a else None, "company": a.job.company if a else "", "title": a.job.title if a else "",
+                                                       "status": a.status if a else "", "how": "mail", "field": o.subject[:120], "sent": True})
+    return by_id, by_path
+
+
+def ended(a: Any) -> bool:
+    """Is the application a file was made for over (as far as the file is concerned)?"""
+    from datetime import datetime, timedelta, timezone
+
+    if a is None:
+        return False
+    if a.status in ENDED or a.job.archived_at is not None or not a.job.online:
+        return True
+    sent = a.submitted_at
+    return sent is not None and a.status in ("submitted", "confirmed") and sent < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=STALE_DAYS)
+
+
+def register_made(path: Path, name: str, job_id: int | None, made_from: list[str]) -> int:
+    """A file the agent put together from the applicant's own (make_file) - in the library, saying what it holds."""
+    with db.session() as s:
+        d = s.query(Document).filter(Document.path == str(path)).first()
+        if d is None:
+            d = Document(kind="made", name=name, path=str(path), job_id=job_id, meta={})
+            s.add(d)
+        d.meta = {**(d.meta or {}), "made_from": list(made_from)[:20]}
+        d.active = 1
+        s.flush()
+        return d.id
+
+
 def mark_overwritten() -> int:
     """The records from before each writing had a folder of its own: those of one posting share one file, and it holds
     what was written last. The earlier ones are marked - "overwritten_by": the record whose content the file has -

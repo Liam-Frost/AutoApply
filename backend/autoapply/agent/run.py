@@ -593,6 +593,14 @@ class Desk:
         (out_dir / "made.json").write_text(json.dumps(notes, ensure_ascii=False, indent=1), encoding="utf-8")
         self.hands.files[name] = str(target)
         self.write("file_made", name=name, of=held, pages=len(writer.pages), bytes=target.stat().st_size)
+        try:      # in the library too: what it is, for which posting, made of what
+            from .. import materials
+
+            materials.register_made(target, name, self.job_id, held)
+        except Exception:  # noqa: BLE001 - the file is made and in the run's hands whatever the library says
+            import logging
+
+            logging.getLogger("autoapply.agent").exception("a made file could not be put in the library")
         return (f"Made {name!r}: {len(writer.pages)} page(s), {max(1, target.stat().st_size // 1024)} KB - {'; '.join(held)}. Upload it by that name, and say in your "
                 "report what it holds.")
 
