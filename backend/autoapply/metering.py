@@ -51,11 +51,11 @@ _asking: ContextVar[dict[str, Any] | None] = ContextVar("metering", default=None
 CALLERS: dict[tuple[str, str], str] = {
     ("scoring", ""): "scoring", ("agent.run", ""): "apply", ("agent.scan", ""): "scan", ("sitestatus", ""): "site_status", ("mail", ""): "mail_triage",
     ("materials", ""): "cover_letter", ("tailor", ""): "tailor_resume", ("persona", ""): "intake_rules", ("profile_init", ""): "profile_setup",
-    ("sources.watch", ""): "careers_page", ("api.main", ""): "connection_test",
+    ("sources.watch", ""): "careers_page", ("api.main", ""): "connection_test", ("chat", ""): "assistant",
 }
 FEATURES: dict[str, str] = {
     "scoring": "给岗位评分", "apply": "做一份申请", "scan": "读取要登录的岗位来源", "site_status": "到雇主网站查申请状态", "mail_triage": "邮件分类", "cover_letter": "写求职信",
-    "tailor_resume": "定制简历", "intake_rules": "生成筛选规则", "profile_setup": "建立个人资料", "careers_page": "读取招聘页面", "connection_test": "连接测试", "": "未区分功能",
+    "tailor_resume": "定制简历", "intake_rules": "生成筛选规则", "profile_setup": "建立个人资料", "careers_page": "读取招聘页面", "connection_test": "连接测试", "assistant": "在 Telegram / Discord 里对话", "": "未区分功能",
     # (what earlier versions asked the model for: in the history)
     "answers": "回答申请表的问题", "explore_form": "探索申请表", "sign_in": "登录或注册网站", "take_over": "接手填表", "navigate": "表单翻页", "revise_draft": "按意见修改草案",
 }

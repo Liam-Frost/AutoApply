@@ -61,7 +61,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
                       # reading the postings of a source that needs a sign-in - a school's portal (agent/scan.py)
                       "scan": {"steps": 150, "minutes": 30},
                       # reading the applicant's list of applications on an employer's site (sitestatus.py)
-                      "site_status": {"steps": 60, "minutes": 15}},
+                      "site_status": {"steps": 60, "minutes": 15},
+                      # what the applicant says to the Telegram or Discord bot (chat.py)
+                      "chat": {"steps": 12, "minutes": 3}},
     # How an application is sent (the application agent): "auto" - when nothing is open, without asking; "approve" -
     # once the applicant has approved its record; "hand_over" - the agent stops at the last step and gives the window
     # to the applicant (an instruction to the agent, not a lock: see agent/apply.md).
@@ -115,6 +117,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "notify.status_update": True,
     "notify.task_result": True,
     "notify.telegram_chat_id": "",
+    "notify.discord_user_id": "",       # the applicant's Discord user, bound with a code from the settings page
+    "notify.channel_categories": {},    # per channel, which kinds of notification it takes (a channel not named takes all)
+    "bot.listen": True,                 # the bots take presses, replies and commands (off: they only send)
+    "bot.chat": True,                   # what is said to a bot that is not a command or a reply goes to the assistant
     # Hours in which nothing is pushed to the phone ({"on", "from", "to"}, local time; "to" may be on the next day).
     # What comes in then is kept and goes out as one message when the hours end. Off by default.
     "notify.quiet": {"on": False, "from": "22:00", "to": "08:00"},

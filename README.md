@@ -102,7 +102,7 @@ An icon appears in the tray (menu bar on macOS) and the page opens at `http://12
 4. **How applications are sent**: by itself, after your approval, or by you (*Settings → Automation → How it is sent*). To watch first, choose approval.
 5. **Try one**: paste a posting's address and watch the agent work it.
 
-After that it works on a schedule: scan, score, apply, and tell you when something needs you (in the page, and on Telegram if you set it up).
+After that it works on a schedule: scan, score, apply, and tell you when something needs you (in the page, and on Telegram or Discord if you set one up - where the buttons under a card, a reply to it, or a few words to the bot deal with it from your phone).
 
 ## On a server
 

@@ -1,7 +1,7 @@
 <script setup>
 // The settings, in six groups by what they are about. Every section has an address (/settings/<group>/<section>), so
 // a card, a notice or another page can lead to the very thing that needs changing.
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import AiPanel from '../components/AiPanel.vue'
 import MailboxPanel from '../components/MailboxPanel.vue'
@@ -20,7 +20,8 @@ import { absorb, changed, clone, unsaved, useUnsaved } from '../dirty'
 
 const s = ref(null)
 const info = ref({ secrets: {}, gmail: {} })
-const sec = ref({ anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' })
+const blankSecrets = () => ({ anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '', discord_bot_token: '', discord_webhook: '' })
+const sec = ref(blankSecrets())
 const netPanel = ref(null)
 const route = useRoute()
 const router = useRouter()
@@ -57,7 +58,7 @@ const GROUPS = [
   ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动开始申请'], ['submit', '怎么提交'], ['limits', 'Agent 怎么工作'], ['schedule', '工作计划']]],
   ['materials', '材料', '简历怎么调、求职信怎么写。', [['resume', '简历'], ['cover', '求职信']]],
   ['accounts', '账号与连接', '招聘网站的登录、收信的邮箱、用哪家 AI。', [['logins', '招聘网站的登录'], ['mailbox', '收件邮箱'], ['ai', 'AI 服务']]],
-  ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['events', '通知什么、什么时候']]],
+  ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['bots', '在手机上直接处理'], ['events', '通知什么、什么时候']]],
   ['system', '系统与数据', '网络、浏览器、远程访问、备份，和平时用不到的专家工具。', [['network', '网络连接（出站）'], ['browser', '浏览器兼容'], ['remote', '远程访问（入站）'], ['security', '账号安全'], ['retention', '数据保留'], ['backup', '备份与更新'], ['diagnose', '诊断'], ['expert', '专家工具']]],
 ]
 const group = computed(() => (GROUPS.some((g) => g[0] === route.params.group) ? route.params.group : 'overview'))
@@ -127,30 +128,64 @@ async function save() {
       for (const k in sec.value) if (sec.value[k]) secrets[k] = sec.value[k]
       await api.put('/settings', { settings: st, secrets })
       for (const k of keys) saved.value[k] = clone(s.value[k])
-      sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
+      sec.value = blankSecrets()
     }, `已保存 ${n} 项改动`, async () => {
       await load()
       if (group.value === 'overview') loadRules()
       if (netPanel.value) netPanel.value.load()
+      loadDiscord()
     }, { form: 'settings' })
     return done !== false
   } finally { saving.value = false }
 }
 function discard() {
   for (const k of dirtyKeys.value) s.value[k] = clone(saved.value[k])
-  sec.value = { anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' }
+  sec.value = blankSecrets()
 }
 useUnsaved({ id: 'settings', label: '设置', dirty: () => pending.value > 0, save, discard, scope: '/settings' })
 // (after an action of this page - a test message, a part saved by its own button - the settings are read afresh;
 // load takes what is new and leaves what is being edited)
 const act = (fn, ok) => runAction(fn, ok, load)
 const tgTest = () => act(() => api.post('/settings/telegram-test'), '测试消息已发送，请查看 Telegram')
+// Discord: the bot behind the saved token, and the applicant it is bound to (a code they send it in a direct message)
+const dc = ref(null)
+let dcTimer = null
+async function loadDiscord() {
+  clearTimeout(dcTimer)
+  try { dc.value = await api.get('/settings/discord') } catch { dc.value = null }
+  if (dc.value && dc.value.code && !dc.value.bound) dcTimer = setTimeout(loadDiscord, 3000)      // waiting for the code to be sent: the page sees it arrive
+}
+const dcBind = () => runAction(() => api.post('/settings/discord/bind'), '绑定码已生成：私信发给机器人', loadDiscord)
+const dcUnbind = () => runAction(() => api.post('/settings/discord/unbind'), '已解除绑定', loadDiscord)
+const dcTest = () => act(() => api.post('/settings/discord-test'), '测试消息已发送，请查看 Discord')
+onUnmounted(() => clearTimeout(dcTimer))
+const dcState = computed(() => {
+  if (!dc.value) return { cls: 'warn', text: '还没配置' }
+  if (dc.value.error) return { cls: 'bad', text: '令牌不能用' }
+  if (dc.value.token && dc.value.bound) return { cls: 'ok', text: '已接通' }
+  if (dc.value.token) return { cls: 'warn', text: '还没绑定' }
+  if (dc.value.webhook) return { cls: 'ok', text: '只发通知（Webhook）' }
+  return { cls: 'warn', text: '还没配置' }
+})
+// which notifications go to which channel (a channel not named takes every kind that is switched on)
+const CATS = [['todo', '需要我处理的事'], ['task_result', '结果（投出、没成功）'], ['status_update', '申请进展'], ['task_started', '开始做某件事']]
+const channelsOn = computed(() => [
+  info.value.secrets.telegram_bot_token && s.value['notify.telegram_chat_id'] ? ['telegram', 'Telegram'] : null,
+  dc.value && ((dc.value.token && dc.value.bound) || dc.value.webhook) ? ['discord', 'Discord'] : null,
+].filter(Boolean))
+const takes = (ch, cat) => { const c = (s.value['notify.channel_categories'] || {})[ch]; return !c || c.includes(cat) }
+function setTakes(ch, cat, on) {
+  const all = { ...(s.value['notify.channel_categories'] || {}) }
+  const cur = all[ch] || CATS.map((c) => c[0])
+  all[ch] = on ? [...new Set([...cur, cat])] : cur.filter((x) => x !== cat)
+  s.value['notify.channel_categories'] = all
+}
 const hasWord = computed(() => docs.value.some((d) => d.kind === 'resume_docx' && d.active))
 const template = computed(() => docs.value.find((d) => d.kind === 'cl_template' && d.active))
 // the conventions of the applicant's own letter template, one per line
 const pairs = (key, a, b) => (s.value[key] || []).map((x) => `${x[a]} | ${x[b]}`).join('\n')
 const setPairs = (key, a, b, text) => { s.value[key] = text.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((p) => p.length >= 2 && p[0] && p[1]).map((p) => ({ [a]: p[0], [b]: p.slice(1).join('|').trim() })) }
-onMounted(load)
+onMounted(() => { load(); loadDiscord() })
 </script>
 
 <template>
@@ -421,13 +456,51 @@ onMounted(load)
       <SetSection id="channel" title="发到哪里">
         <div class="card">
           <div class="row"><span class="card-title grow">Telegram</span><span class="badge" :class="info.secrets.telegram_bot_token && s['notify.telegram_chat_id'] ? 'ok' : 'warn'">{{ info.secrets.telegram_bot_token && s['notify.telegram_chat_id'] ? '已接通' : '还没配置' }}</span></div>
-          <p class="muted">进展、需要你处理的事和结果，都会发到你的 Telegram。不接也可以：所有通知在页面上都看得到（<router-link :to="{ path: '/runs', query: { tab: 'notes' } }">活动记录 → 发出的通知</router-link>）。</p>
+          <p class="muted">进展、需要你处理的事和结果，都会发到你的 Telegram。不接也可以：所有通知在页面上都看得到（<router-link :to="{ path: '/runs', query: { tab: 'notes' } }">活动记录 → 通知与机器人</router-link>）。</p>
           <div class="kv">
             <label for="f-tg">机器人令牌</label><input id="f-tg" v-model="sec.telegram_bot_token" type="password" autocomplete="off" :placeholder="info.secrets.telegram_bot_token ? '已保存；要更换时在这里填新的' : '从 @BotFather 创建机器人后得到'" />
             <label for="f-chat">聊天 ID</label><input id="f-chat" v-model="s['notify.telegram_chat_id']" placeholder="给机器人发一条消息后可以查到" />
             <label for="f-base">通知里的链接指向</label><div><input id="f-base" v-model="s['app.base_url']" style="width: 100%" /><div class="hint">手机上点通知里的链接时打开的地址。要从别的设备打开，这里得是那台设备够得着的地址（见<router-link to="/settings/system/remote">远程访问</router-link>）。</div></div>
           </div>
           <div class="row" style="margin-top: 12px"><button @click="tgTest"><Icon name="send" />发一条测试消息</button><span class="hint">先保存再测试。</span></div>
+        </div>
+        <div class="card" style="margin-top: 12px">
+          <div class="row"><span class="card-title grow">Discord</span><span class="badge" :class="dcState.cls">{{ dcState.text }}</span></div>
+          <p class="muted">和 Telegram 一样：通知发到你和机器人的私信里，卡片下面带按钮，也可以回复卡片、发命令。只想收通知、不需要按钮的话，填一个频道的 Webhook 就够了。</p>
+          <div class="kv">
+            <label for="f-dc">机器人令牌</label><input id="f-dc" v-model="sec.discord_bot_token" type="password" autocomplete="off" :placeholder="info.secrets.discord_bot_token ? '已保存；要更换时在这里填新的' : '在 Discord 开发者后台新建应用，Bot 页里得到'" />
+            <template v-if="dc && dc.token">
+              <label>机器人</label>
+              <div>
+                <template v-if="dc.error"><div>这个令牌连不上 Discord：令牌不对，或者网络到不了 Discord。</div><div class="hint">{{ dc.error }}</div></template>
+                <template v-else-if="dc.bot">
+                  <div>{{ dc.bot.name }}　<a :href="dc.bot.invite" target="_blank" rel="noopener">把机器人加到你的服务器</a></div>
+                  <div class="hint">机器人只能私信和它在同一个服务器里的人：把它加到你自己的一个服务器（新建一个只有你自己的也行）。</div>
+                </template>
+              </div>
+              <label>你的账号</label>
+              <div>
+                <div v-if="dc.bound" class="row">已绑定<button class="ghost" @click="dcUnbind">解除绑定</button></div>
+                <div v-else-if="dc.code">
+                  <div>在 Discord 里私信机器人这串字：<code style="font-size: 1.2em; letter-spacing: 2px">{{ dc.code }}</code></div>
+                  <div class="hint">15 分钟内有效。发出后这里会自动变成“已绑定”；机器人只听绑定的这个账号。</div>
+                </div>
+                <button v-else :disabled="!!dc.error" @click="dcBind">绑定我的 Discord 账号</button>
+              </div>
+            </template>
+            <label for="f-dch">Webhook（可选）</label><input id="f-dch" v-model="sec.discord_webhook" type="password" autocomplete="off" :placeholder="info.secrets.discord_webhook ? '已保存；要更换时在这里填新的' : '频道设置 → 整合 → Webhook，复制链接'" />
+          </div>
+          <div class="row" style="margin-top: 12px"><button @click="dcTest"><Icon name="send" />发一条测试消息</button><span class="hint">先保存再测试。机器人绑定后就不再用 Webhook。</span></div>
+        </div>
+      </SetSection>
+
+      <SetSection id="bots" title="在手机上直接处理">
+        <div class="card">
+          <label><input v-model="s['bot.listen']" type="checkbox" /> 机器人接收卡片上的按钮、对卡片的回复和命令</label>
+          <p class="hint">按钮做的和页面上的按钮一样：继续、输入验证码、再试一次、不投了、回答问题、批准并提交（卡片上会列出 Agent 没有把握的答案和要交的文件）。回复一张卡片，就是回答它问的、给它验证码，或者对这份申请的 Agent 说一句话。机器人不能发邮件、不能改个人资料，也不会向你要密码。</p>
+          <p class="hint">命令：/status 现在在做什么，/todo 等你处理的事，/pause 暂停，/resume 恢复，/scan 扫描新岗位，/app 公司名 查一份申请。</p>
+          <label style="display: block; margin-top: 8px"><input v-model="s['bot.chat']" type="checkbox" :disabled="!s['bot.listen']" /> 其他的话交给助手回答（会用一点 AI 额度）</label>
+          <p class="hint">可以问它进展，让它投某个岗位、再试一次、停下、标成不投、暂停或恢复，也可以直接告诉它申请在等的问题的答案。一次要做好几件事时，它会先在回答下面放一个确认按钮。</p>
         </div>
       </SetSection>
 
@@ -441,6 +514,18 @@ onMounted(load)
               <label><input v-model="s['notify.status_update']" type="checkbox" /> 申请进展</label>
               <label><input v-model="s['notify.task_started']" type="checkbox" /> 开始做某件事</label>
             </div>
+            <template v-if="channelsOn.length > 1">
+              <label>分渠道</label>
+              <table style="width: auto">
+                <thead><tr><th></th><th v-for="c in channelsOn" :key="c[0]">{{ c[1] }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="[k, label] in CATS" :key="k">
+                    <td>{{ label }}</td>
+                    <td v-for="c in channelsOn" :key="c[0]"><input type="checkbox" :checked="takes(c[0], k)" :disabled="!s['notify.' + k]" :aria-label="`${c[1]}：${label}`" @change="setTakes(c[0], k, $event.target.checked)" /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
             <label for="quiet-on">静默时段</label>
             <div v-if="s['notify.quiet']">
               <div class="row" style="flex-wrap: wrap">

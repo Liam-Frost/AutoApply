@@ -53,7 +53,7 @@ const tech = (t) => [t.explained.detail, (t.browser_detail || []).join('\n'), t.
 const line = (t) => t.summary || t.explained.message || (t.status === 'running' ? '正在进行…' : t.status === 'queued' ? (t.due_at ? `定在 ${fmtTime(t.due_at)} 之后再做` : '等前面的任务完成') : '')
 const retry = (t) => run(() => api.post(`/tasks/${t.id}/retry`), '已重新排队', load)
 const retryNative = (t) => run(() => api.post(`/tasks/${t.id}/retry`, { browser_backend: 'nodriver' }), '已重新排队，这一次用普通浏览器', load)
-const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果' }
+const CAT = { task_started: '开始', todo: '待办', status_update: '进展', task_result: '结果', heard: '你从手机上说的' }
 
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
@@ -73,7 +73,7 @@ onMounted(load)
       <button :class="{ on: tab === 'plan' }" @click="tab = 'plan'">工作计划</button>
       <button :class="{ on: tab === 'activity' }" @click="tab = 'activity'">做过的事</button>
       <button :class="{ on: tab === 'sched' }" @click="tab = 'sched'">定时任务</button>
-      <button :class="{ on: tab === 'notes' }" @click="tab = 'notes'">发出的通知</button>
+      <button :class="{ on: tab === 'notes' }" @click="tab = 'notes'">通知与机器人</button>
     </div>
     <span class="grow"></span>
     <div v-if="tab === 'activity'" class="seg">
@@ -211,12 +211,13 @@ onMounted(load)
   <div v-if="tab === 'notes'" class="card">
     <div class="list">
       <div v-for="n in notes" :key="n.id" class="item">
-        <span class="badge" :class="n.sent ? 'ok' : ''">{{ n.sent ? '已发送' : '未发送' }}</span>
+        <span v-if="n.category === 'heard'" class="badge info">收到</span>
+        <span v-else class="badge" :class="n.sent ? 'ok' : ''">{{ n.sent ? '已发送' : '未发送' }}</span>
         <div><div class="sub" style="white-space: pre-line; color: var(--text)">{{ n.text }}</div><div v-if="n.error" class="err small">{{ n.error }}</div></div>
         <span class="small muted nowrap">{{ CAT[n.category] || '' }} · {{ fmtTime(n.created_at) }}</span>
       </div>
     </div>
-    <EmptyState v-if="!notes.length" icon="bell" title="还没有发出过通知" text="在设置里配置 Telegram 后，进展和待办会推送给你。" />
+    <EmptyState v-if="!notes.length" icon="bell" title="还没有发出过通知" text="在设置里接上 Telegram 或 Discord 后，进展和待办会发给你，你也可以在手机上直接处理。" />
   </div>
 
   </template>
