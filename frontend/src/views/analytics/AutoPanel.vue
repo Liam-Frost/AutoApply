@@ -26,6 +26,7 @@ const trend = computed(() => props.d.trend.map((b) => ({ key: b.key, label: b.la
 const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color: 'var(--ok)' }, { key: 'unfinished', label: '没做完', value: k.unfinished, color: 'var(--warn)' },
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
+const maxEnd = computed(() => Math.max(1, ...((props.d.agent_runs && props.d.agent_runs.ends) || []).map((e) => e.n)))
 // by recruiting system: what the short figures stand for, in whole sentences
 const count = (v) => String(Math.round(v))
 const TONE = { success: 'ok', handed: 'warn', unknown: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '', skipped: '' }
@@ -150,6 +151,39 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
         <div class="kpi"><div class="n" :class="{ na: d.applications.median_s == null }">{{ dur(d.applications.median_s) }}</div><div class="l">一份申请用时（中位数）</div>
           <div class="d">{{ d.applications.median_tokens ? `AI 用量约 ${compact(d.applications.median_tokens)} tokens` : '没有记录到 AI 用量' }}</div>
           <Explain>一份申请的所有运行加在一起；只算准备成功的。</Explain></div>
+      </div>
+    </div>
+
+    <div v-if="d.agent_runs && d.agent_runs.applications" class="card">
+      <div class="card-title">一份申请是怎么做完的
+        <Explain>从每份申请自己的运行记录算。一份申请常常要好几轮：等你回答、等你登录、批准后再提交、中途断了接着做。第二轮以后的每一轮都要从头打开浏览器、重新走到表单、核对上一轮填了什么，这部分是“重来”。</Explain></div>
+      <p class="card-sub">这段时间里有运行的 {{ d.agent_runs.applications }} 份申请，共 {{ d.agent_runs.runs }} 轮<template v-if="d.agent_runs.idle_runs">；另有 {{ d.agent_runs.idle_runs }} 轮因为模型不可用没有开始，不算时间</template>。</p>
+      <div class="kpis">
+        <div class="kpi"><div class="n">{{ d.agent_runs.runs_per_application.median ?? '—' }}</div><div class="l">一份申请要几轮（中位数）</div>
+          <div class="d">平均 {{ d.agent_runs.runs_per_application.mean }}，最多 {{ d.agent_runs.runs_per_application.max }}</div></div>
+        <div class="kpi"><div class="n" :class="{ na: d.agent_runs.again.rate == null }">{{ rate(d.agent_runs.again.rate) }}</div><div class="l">花在重来上的步数</div>
+          <div class="d">{{ d.agent_runs.again.steps }} / {{ d.agent_runs.again.of }} 步</div>
+          <Explain>第二轮及以后各轮的工具调用 ÷ 全部工具调用。越低越好：说明一份申请大多一轮就做完，或者接着做时没有从头来。</Explain></div>
+      </div>
+      <div class="an-row c11 tight" style="margin: 0">
+        <div>
+          <div class="small muted" style="margin-bottom: 6px">每一轮是怎么结束的</div>
+          <div class="hbars tight" style="--lab: 9em">
+            <template v-for="e in d.agent_runs.ends" :key="e.key">
+              <span class="lab">{{ e.label }}</span>
+              <div class="track"><div class="fill" :style="{ width: pct(e.n, maxEnd) + '%' }"></div></div>
+              <span class="num">{{ e.n }}</span>
+            </template>
+          </div>
+        </div>
+        <div>
+          <div class="small muted" style="margin-bottom: 6px">做到能提交为止，按招聘系统</div>
+          <table class="an-table">
+            <thead><tr><th>招聘系统</th><th class="num">申请</th><th class="num">做完</th><th class="num">步数（中位数）</th><th class="num">用时（中位数）</th></tr></thead>
+            <tbody><tr v-for="r in d.agent_runs.by_system" :key="r.key"><td>{{ r.label }}</td><td class="num">{{ r.apps }}</td><td class="num">{{ r.done }}</td>
+              <td class="num">{{ r.median_steps ?? '—' }}</td><td class="num">{{ r.median_seconds == null ? '—' : dur(r.median_seconds) }}</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 

@@ -22,6 +22,7 @@ import statistics
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from . import db, humanize, llm, metering, stages
@@ -506,6 +507,95 @@ def _applications(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, An
             "median_s": _median(sorted(took)), "median_tokens": _median(sorted(used))}
 
 
+# How each run of an application ended, as its journal says it (agent/run.py writes the journal).
+RUN_ENDS = {"submitted": "提交了", "ready": "备好了，等你批准", "mailed": "申请邮件写好了", "needs_you": "停下来等你", "cannot": "做不成", "gone": "岗位已下架",
+            "other_browser": "换了一个浏览器", "cut_off": "没有报告就停了", "model": "模型不可用，没有开始"}
+
+
+def _journal_runs(folder: Path) -> list[dict[str, Any]]:
+    """The runs of one application, from its journal: when each began and ended, how many tool calls it made, how it
+    ended. A run that made no call because the model could not be reached is one of them ("model")."""
+    import json
+
+    f = folder / "journal.jsonl"
+    if not f.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+    for line in f.read_text(encoding="utf-8").splitlines():
+        try:
+            e = json.loads(line)
+            at = datetime.fromisoformat(str(e.get("at")))
+        except (ValueError, TypeError):
+            continue
+        k = e.get("kind")
+        if k == "run":
+            cur = {"start": at, "end": at, "steps": 0, "end_kind": "", "mode": str(e.get("mode") or "")}
+            out.append(cur)
+            continue
+        if cur is None:
+            continue
+        cur["end"] = at
+        if k == "tool":
+            cur["steps"] += 1
+        elif k == "report" and e.get("outcome"):
+            cur["end_kind"] = str(e["outcome"])
+        elif k == "mailed":
+            cur["end_kind"] = "mailed"
+        elif k == "browser" and not cur["end_kind"]:
+            cur["end_kind"] = "other_browser"
+        elif k == "ended" and not cur["end_kind"] and not cur["steps"] and str(e.get("why") or "").startswith(("LLMUnavailable", "LLMError")):
+            cur["end_kind"] = "model"
+    for r in out:
+        r["end_kind"] = r["end_kind"] if r["end_kind"] in RUN_ENDS else "cut_off"
+        r["seconds"] = max(0.0, (r["end"] - r["start"]).total_seconds())
+    return out
+
+
+def agent_runs(w: Window) -> dict[str, Any]:
+    """How applications get done, from their journals: for the applications with a run that began in the window -
+    how many runs one takes, how the runs ended, how much of the work was going over an application again (every run
+    after its first that did anything starts over: the browser, the way to the form, the check of what was filled),
+    and by recruiting system, the calls and minutes it took to get one to the point of sending."""
+    from .agent import brief, work
+
+    with db.session() as s:
+        apps = [(a.id, a.job.apply_url if a.job is not None else "") for a in s.query(Application)]
+    per_app, ends, systems = [], defaultdict(int), defaultdict(lambda: {"apps": 0, "done": 0, "steps": [], "seconds": []})
+    first_steps = later_steps = idle = 0
+    for app_id, url in apps:
+        runs_ = _journal_runs(work.folder_of(app_id))
+        if not any(w.has(_utc(r["start"])) for r in runs_):
+            continue
+        worked = [r for r in runs_ if r["steps"]]
+        idle += len(runs_) - len(worked)
+        for r in runs_:
+            if w.has(_utc(r["start"])):
+                ends[r["end_kind"]] += 1
+        if not worked:
+            continue
+        per_app.append(len(worked))
+        first_steps += worked[0]["steps"]
+        later_steps += sum(r["steps"] for r in worked[1:])
+        name = brief.playbook_for(url or "")[0]
+        sysd = systems[name or "other"]
+        sysd["apps"] += 1
+        upto = next((i for i, r in enumerate(worked) if r["end_kind"] in ("ready", "submitted", "mailed")), None)
+        if upto is not None:
+            sysd["done"] += 1
+            sysd["steps"].append(sum(r["steps"] for r in worked[: upto + 1]))
+            sysd["seconds"].append(sum(r["seconds"] for r in worked[: upto + 1]))
+    total = first_steps + later_steps
+    by_system = [{"key": k, "label": humanize.ats_name(k) if k != "other" else "其他雇主官网", "apps": v["apps"], "done": v["done"],
+                  "median_steps": _median(v["steps"]), "median_seconds": _median(v["seconds"])}
+                 for k, v in sorted(systems.items(), key=lambda kv: -kv[1]["apps"])]
+    return {"applications": len(per_app), "runs": sum(per_app), "idle_runs": idle,
+            "runs_per_application": {"median": _median(per_app), "mean": round(sum(per_app) / len(per_app), 1) if per_app else None, "max": max(per_app) if per_app else None},
+            "again": {"steps": later_steps, "of": total, "rate": round(later_steps / total, 4) if total else None},
+            "ends": [{"key": k, "label": RUN_ENDS[k], "n": ends[k]} for k in RUN_ENDS if ends.get(k)],
+            "by_system": by_system}
+
+
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     """What the program's tasks did in the window (by the day a task started)."""
     with db.session() as s:
@@ -577,6 +667,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         "outcomes": OUTCOMES,
         "recent": [_run_row(r, ai, subjects.get(r["id"], "")) for r in recent], "recent_total": len(shown),
         "applications": applications,      # (by application, whatever ``kind`` narrows the rest to)
+        "agent_runs": agent_runs(w),
     }
 
 
