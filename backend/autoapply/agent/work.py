@@ -275,19 +275,47 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
                                                                           "job_id": job_id, "mode": mode,
                                                                           "draft_id": draft.id if draft else None})
     began = now()
+    changed = False
+    if task_id is not None:
+        from ..models import Task as _Task
+
+        with db.session() as session:
+            changed = bool((session.get(_Task, task_id).payload or {}).get("_changed_browser"))
+
+    def card(kind: str, why: str, more: dict[str, Any]) -> int:      # the agent waits for the applicant: a code, a confirmation
+        head = {"code": f"{title}：请输入验证码", "confirm": f"{title}：等你确认"}[kind]
+        return notify.add_todo(kind, head, body=why, ref=f"application:{app_id}:{kind}", payload={"application_id": app_id, "job_id": job_id, **more})
+
     def handed() -> None:       # the window is the applicant's: they are told, on a card and on their phone
         notify.add_todo("submit", f"{title}：请检查并点提交", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
                         body="Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口。")
 
     # (the window: the applicant's when the last press is theirs; otherwise hidden, or shown while the agent works if they set so)
-    with browser.open_page(site, headless=mode != "hand_over" and not db.get_setting("agent.show_window"), url=posting.url) as page:
-        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard, on_checkpoint=checkpoint, email_delivery=email_delivery)
+    # ... or because the last run stopped at something the applicant has to do in the window (a CAPTCHA)
+    wanted = (folder / run.WINDOW).exists()
+    with browser.open_page(site, headless=mode != "hand_over" and not wanted and not db.get_setting("agent.show_window"), url=posting.url) as page:
+        (folder / run.WINDOW).unlink(missing_ok=True)
+        used = browser.in_use()[0]
+        result = run.apply(page, posting, applicant, folder, mode=mode, answers=answers or None, job_id=job_id, record=record, budget=left, on_hand=handed, heard=heard, on_checkpoint=checkpoint, email_delivery=email_delivery,
+                           card=card, changed_browser=changed)
         try:      # what the agent signed in to, or registered, is there for the next run on this site
             browser.save_state(site, page.context)
         except Exception as e:  # noqa: BLE001 - the window is gone (the applicant closed it): the run's outcome stands
             log.info("the session of %s was not kept after the run (%s)", site, type(e).__name__)
     notify.close_todos("submit", f"application:{app_id}")      # the window is closed: the card that pointed at it has nothing left to point at
     _spent(folder, result)
+    for kind in ("code", "confirm"):      # (a card the run was still waiting on when it ended has nothing left to answer)
+        notify.close_todos(kind, f"application:{app_id}:{kind}")
+    if result.outcome == "other_browser":
+        # the agent found this browser refused: the application is taken up again in the other one, now
+        to = str(result.record.get("browser") or "")
+        tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "browser_backend": to, "_changed_browser": True}, priority=20, dedupe=False)
+        return {"status": "other_browser", "browser": to}
+    if changed and result.outcome in ("ready", "submitted", "needs_you"):
+        # it got further here than where it was refused: the next application on this site begins in this browser
+        from .. import browser_policy
+
+        browser_policy.remember(site, used)
     if result.unheard and result.outcome != "submitted" and result.stopped != "stopped":
         # the applicant said something after the run's last action: it is in the brief of the next run, which is this one
         tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "said": now().isoformat()}, priority=20)
@@ -507,6 +535,20 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         raise NeedsHuman(why, kind="mailbox", waits_for="config:gmail")
     if result.outcome == "material_pending":
         return {"status": "waiting_material", "material_task": int(rec["material_task"])}
+    if result.outcome == "needs_you" and result.need.get("kind") == "window":
+        (folder / run.WINDOW).write_text("1", encoding="utf-8")      # the next run of this application opens where the applicant can see it
+    if result.outcome == "needs_you" and result.need and not rec.get("asked"):
+        # The run waited for the applicant - a code, a confirmation, something to do in the window - and they were not
+        # there. Nothing of that keeps: the card says what is wanted, and pressing it takes the application up again
+        # at once, with them present this time.
+        need, why = result.need["kind"], str(result.need.get("why") or rec.get("summary") or "")[:600]
+        with db.session() as s:
+            app = s.get(Application, app_id)
+            lifecycle.move(app, "needs_human", source="run")
+            app.last_event = why[:300]
+        ref = f"application:{app_id}:resume"
+        notify.add_todo("resume", title, body=why, ref=ref, payload={"application_id": app_id, "job_id": job_id, "need": need})
+        raise NeedsHuman(why, kind="applicant", url=_last_url(folder), waits_for=ref)
     with db.session() as session:
         email_delivery = session.get(Job, job_id).channel == "email"
     if result.outcome == "needs_you" and not rec.get("asked") and (not _last_url(folder) or

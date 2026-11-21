@@ -475,8 +475,6 @@ def make_draft(job_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
             a = j.application
             if not a or a.status != "failed":
                 raise HTTPException(409, "Browser retry requires a failed application before submission")
-            if backend == "nodriver" and browser_policy.access_restricted(a.last_event):
-                raise HTTPException(409, "This site explicitly restricted access. Open it and check sign-in or eligibility.")
             payload["browser_backend"] = backend
         prio = tasks.deadline_priority(j.deadline)
     tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload=payload, priority=prio)
@@ -939,7 +937,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from .. import browser_policy
     enabled = bool(db.get_setting("browser.nodriver_enabled"))
 
-    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+    CAT = {"takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
            "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
@@ -957,9 +955,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             about = j.application if j is not None else None
             if about is not None and (p.get("draft_id") or p.get("application_id") or r["ref"].startswith("application:") or r["kind"] in ("failed", "submit")):
                 r["application"] = {"id": about.id, "status": about.status}
-                r["access_restricted"] = browser_policy.access_restricted(r["body"]) or browser_policy.access_restricted(about.last_event)
-                r["can_retry_nodriver"] = bool(enabled and r["kind"] == "failed" and about.status == "failed"
-                                                and not p.get("budget") and not r["access_restricted"])
+                r["can_retry_nodriver"] = bool(enabled and r["kind"] == "failed" and about.status == "failed" and not p.get("budget"))
             if r["kind"] == "mail_unmatched":      # the applications the applicant can say it belongs to
                 from ..models import MailEvent
 
@@ -993,7 +989,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                     pass
             r["days_left"] = days
             # 0 = now (a window is open and waiting), 1 = soon (deadline close), 2 = when you can, 3 = just so you know
-            r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
+            r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] in ("submit", "code", "confirm") else 1 if days is not None and days <= 3 else 2
     for r in rows:  # what the page shows: the employer's name and one plain sentence; raw text stays available as detail
         key = (r["payload"] or {}).get("tenant_key") or (r["ref"][8:] if r["ref"].startswith("account:") else "")
         if r["kind"] in ("takeover", "login") and key:      # is "remember the password I type" something this card's window can do?
@@ -1067,13 +1063,52 @@ def todo_due(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str,
     return {"ok": True}
 
 
+def _take_up_now(job_id: int) -> int:
+    """The applicant is here for this application: its run is the next thing done, ahead of what is queued."""
+    tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=20)
+    try:
+        tasks.first(tid)
+    except (KeyError, tasks.NotNow):      # (it is running already)
+        pass
+    return tid
+
+
+@app.post("/api/todos/{todo_id}/code")
+def todo_code(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The code a site sent the applicant, for the run that is waiting for it. A run that is no longer waiting cannot
+    use it (a code is for the session it was sent to): the application is taken up again and asks for a fresh one."""
+    from ..agent import work as _work
+
+    code = "".join(str(body.get("code") or "").split())[:40]
+    if not code:
+        raise HTTPException(400, "请输入验证码")
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.kind != "code" or t.status != "open":
+            raise HTTPException(409, "这张卡片已经处理过了")
+        job_id = int((t.payload or {}).get("job_id") or 0)
+        waiting = bool(job_id and _work.being_worked(job_id))
+        t.status, t.done_at = ("done" if waiting else "dismissed"), now()
+        if waiting:
+            t.payload = {**(t.payload or {}), "code": code}
+    if not waiting and job_id:
+        _take_up_now(job_id)
+    return {"given": waiting}
+
+
 @app.post("/api/todos/{todo_id}/done")
 def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from ..agent import work as _work
+
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
         t.status, t.done_at = body.get("status", "done"), now()
-        handled = t.ref
-    return {"resumed": handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0}
+        handled, kind, job_id = t.ref, t.kind, int((t.payload or {}).get("job_id") or 0)
+    resumed = handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0
+    if body.get("status", "done") == "done" and job_id and (kind == "resume" or (kind == "confirm" and not _work.being_worked(job_id))):
+        # "I am ready" / "done" for an application whose run is not waiting any more: it is taken up again now, not in its turn
+        _take_up_now(job_id)
+    return {"resumed": resumed}
 
 
 @app.get("/api/tasks")
@@ -1167,10 +1202,6 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
                 tasks.may_retry(s, task)
             except tasks.NothingToRetry as exc:
                 raise HTTPException(409, str(exc)) from exc
-            application = tasks.application_of(s, task.ref)
-            if backend == "nodriver" and (browser_policy.access_restricted(task.error)
-                                          or (application and browser_policy.access_restricted(application.last_event))):
-                raise HTTPException(409, "This site explicitly restricted access")
             task.payload = {**task.payload, "browser_backend": backend}
             task.status, task.error = "queued", ""
         return {"ok": True}

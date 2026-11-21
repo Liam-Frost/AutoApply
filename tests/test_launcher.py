@@ -220,3 +220,16 @@ def test_staged_restart_preserves_queued_work_and_rolls_back_on_failed_health(ap
     assert calls == [("check", Path("candidate")), ("stop", None), ("start", Path("candidate")),
                      ("stop", None), ("start", launcher.config.ROOT)]
     assert tasks.plan()["next_total"] == 1
+
+
+def test_a_restart_can_be_asked_for_from_outside_the_menu(app_env, monkeypatch):
+    from autoapply import config, launcher
+
+    tray = launcher.Launcher(1)
+    calls = []
+    monkeypatch.setattr(tray, "restart", lambda *a: calls.append(1))
+    assert tray.asked_to_restart() is False and not calls
+    asked = config.DATA / "run" / "restart-request"
+    asked.parent.mkdir(parents=True, exist_ok=True)
+    asked.write_text("x", encoding="utf-8")
+    assert tray.asked_to_restart() is True and calls == [1] and not asked.exists()

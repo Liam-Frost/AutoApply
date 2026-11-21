@@ -402,6 +402,12 @@ def _environment(extra: dict[str, str]) -> Iterator[None]:
                     os.environ[k] = v
 
 
+def in_use() -> tuple[str, bool]:
+    """The browser this thread's page was opened in ("playwright", "nodriver", or "" outside ``open_page``), and
+    whether its window is one a person can see and use (on the screen, or shown in the web page)."""
+    return str(getattr(_now, "backend", None) or ""), bool(getattr(_now, "visible", False))
+
+
 def idle(page: Any, seconds: float) -> None:
     """Wait on a page for a person: through the page, so that a remote window is served while waiting."""
     from . import remote
@@ -457,10 +463,11 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
                     opened = nodriver_backend.open_page(state, headless=headless and place.headless, executable=executable, args=net.chrome_args() + place.args, profile=profile)
                     page = opened.__enter__()
                 before, _now.backend = getattr(_now, "backend", None), "nodriver"
+                seen, _now.visible = getattr(_now, "visible", False), not (headless and place.headless)
                 try:
                     yield page
                 finally:
-                    _now.backend = before
+                    _now.backend, _now.visible = before, seen
                     opened.__exit__(None, None, None)
         return
     with sync_playwright() as p:
@@ -494,10 +501,11 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
                 window = remote.attach(page, title=place.title, purpose=operation, tenant=str(tenant_key or ""))
                 remote.announce(window)
             before, _now.backend = getattr(_now, "backend", None), "playwright"
+            seen, _now.visible = getattr(_now, "visible", False), not headless or bool(shown_remotely)
             try:
                 yield page
             finally:
-                _now.backend = before
+                _now.backend, _now.visible = before, seen
                 remote.detach(window)
                 try:
                     ctx.close()

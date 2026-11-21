@@ -337,6 +337,7 @@ class Launcher:
 
     def _loop(self) -> None:
         while not self._stop.wait(5):
+            self.asked_to_restart()
             before = (self.view["state"], self.view["line"], tuple(self.view["extra"]))
             self.refresh()
             if self.icon is None:
@@ -351,6 +352,16 @@ class Launcher:
                 except Exception:  # noqa: BLE001 - notifications are optional on some desktops
                     pass
             self._last_needs = self.view["needs"]
+
+    def asked_to_restart(self) -> bool:
+        """A restart asked for from outside the menu (``scripts/stage_local_release.py --restart``, a script on this
+        computer): the same restart as the menu's, begun by a file in the data folder."""
+        asked = config.DATA / "run" / "restart-request"
+        if not asked.is_file():
+            return False
+        asked.unlink(missing_ok=True)
+        self.restart()
+        return True
 
     # menu actions
     def open_page(self, *_: Any, path: str = "") -> None:

@@ -193,8 +193,18 @@ def test_a_scan_does_not_hold_an_application_up(app_env):
         for kind, prio in (("discover", 10), ("score", 20), ("execute", 50), ("recon", 60), ("mail", 70)):
             s.add(Task(kind=kind, ref=f"x:{kind}", payload={}, priority=prio))
     assert tasks._claim("forms").kind == "execute" and tasks._claim("background").kind == "discover"
-    assert tasks._claim("forms").kind == "recon" and tasks._claim("background").kind == "score"
-    assert tasks._claim("forms") is None and tasks._claim("background").kind == "mail" and tasks._claim() is None
+    # the forms go on while the scan runs; the background work itself is one at a time, whichever process asks
+    # (two generations of the service share the queue while one hands over to the other)
+    assert tasks._claim("forms").kind == "recon" and tasks._claim("background") is None
+
+    def finish(kind):
+        with db.session() as s:
+            s.query(Task).filter_by(kind=kind, status="running").one().status = "done"
+
+    finish("discover")
+    assert tasks._claim("background").kind == "score" and tasks._claim("forms") is None
+    finish("score")
+    assert tasks._claim("background").kind == "mail" and tasks._claim() is None
 
 
 def test_several_applications_are_worked_at_once_but_not_two_on_one_application_or_one_site(app_env):

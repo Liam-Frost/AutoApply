@@ -25,7 +25,11 @@ from .hands import Hands
 
 OUTCOMES = ("ready", "submitted", "needs_you", "cannot")
 STOP = "stop"       # a file of this name in the application's folder: the applicant says "stop" (work.stop)
-SAID = "said.jsonl"     # what the applicant said to the agent about this application, a line each (work.say)
+SAID = "said.jsonl"
+WINDOW = "window"            # in an application's folder: its next run opens in a window the applicant can see
+WAIT_MINUTES = 10            # how long a run waits for the applicant's code or confirmation before it ends
+BROWSERS = {"playwright": "the automated browser (a Chromium this program starts and drives; some sites recognise and refuse it)",
+            "nodriver": "the applicant's ordinary browser (a plain Chrome window driven from outside; a site sees an ordinary visitor)"}     # what the applicant said to the agent about this application, a line each (work.say)
 
 
 def said_so_far(folder: Path) -> int:
@@ -70,6 +74,7 @@ class Result:
     said: str = ""
     usage: dict[str, Any] = field(default_factory=dict)
     unheard: list[str] = field(default_factory=list)      # what the applicant said too late for this run to hear
+    need: dict[str, str] = field(default_factory=dict)    # what the applicant is needed for, when not a sign-in (Desk.need)
 
 
 class Desk:
@@ -92,6 +97,11 @@ class Desk:
         self.mail_reconnect = False
         self.material_task = 0
         self.waiting = ""                # what the run stopped for, when it handed the window to the applicant
+        self.need: dict[str, str] = {}   # ... and which kind of thing it is, when not a sign-in: code | confirm | window
+        self.card: Any = None            # (kind, why, payload) -> the id of a card on the applicant's to-do page (work.py)
+        self.budget: Any = None          # this run's budget: time spent waiting for the applicant is given back to it
+        self.other_browser = ""          # the browser the application is to be taken up in again (change_browser)
+        self.changed_browser = False     # this run is itself the result of such a change
         self.hidden: set[str] = set()    # the passwords of this site: never in what a tool answers or the journal holds (guard)
         # How much of what the applicant said is in this run's brief already (``heard``: counted when the brief's
         # words were read - what comes after that, while the browser starts, is heard with the first action).
@@ -222,7 +232,7 @@ class Desk:
             self.write("log", text="(the conversation grew long" + (f", about {int(n):,} tokens" if n else "") + ": the model's program summarized its older part here. "
                                    "What the run was told at its start is unchanged; what pages showed earlier may need to be looked at again.)")
             return
-        if step.get("tool") in ("mail", "sign_in_by_hand"):
+        if step.get("tool") in ("mail", "sign_in_by_hand", "ask_code"):      # (what these answer is a code, or a mail)
             self.write("tool", tool=step.get("tool"), ok=step.get("ok"), ms=step.get("ms"))
             return
         inp = {k: (v if len(str(v)) < 300 else str(v)[:300] + "…") for k, v in (step.get("input") or {}).items()}
@@ -363,15 +373,65 @@ class Desk:
         if not then_click:
             return ("typed (hidden). If the form wants it a second time (verify password), call this again for that box - without new, so that it is the same password - "
                     "and give then_click there, so that the boxes do not stay filled.")
+        # The press is the program's to see through. The box is emptied before control goes back, so a press that did
+        # nothing cannot be left to the agent: whatever it sent afterwards would go out with an empty password and
+        # count, at the site, as a wrong one. (An ordinary browser that knows a password for the page opens its own
+        # list over the form when the box is clicked; the first click after that closes the list and presses nothing.)
+        before = self._face(page)
         said = self.hands.click(ref=then_click)
-        time.sleep(1.5)
+        went = self._moved(page, before)
+        how = ""
+        if not went:
+            try:
+                page.keyboard.press("Escape")
+                self.hands._at(then_click)
+                page.evaluate("() => { if (window.__aaAt) window.__aaAt.click(); }")
+                how = " The press did nothing at first; pressed again through the page."
+            except Exception:  # noqa: BLE001 - the control is gone: the page did move
+                went = True
+            went = went or self._moved(page, before)
+        if not went:
+            try:
+                page.evaluate("""() => { const b = document.querySelector('input[data-aa-secret]'); const f = b && b.form; if (!f) return;
+                    const s = window.__aaAt && window.__aaAt.form === f && /^(submit|image)$/.test(window.__aaAt.type || '') ? window.__aaAt : undefined;
+                    f.requestSubmit(s); }""")
+                how = " Pressing the button did nothing, also through the page; the form was sent directly."
+            except Exception:  # noqa: BLE001
+                pass
+            went = self._moved(page, before)
+        left = False
         try:        # a sign-in that did not go through leaves the box filled: emptied, so that nothing on the page holds the password
-            page.evaluate("""() => { for (const e of document.querySelectorAll('input[type=password]')) { if (e.value) {
-                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, ''); e.dispatchEvent(new Event('input', {bubbles: true})); } } }""")
+            left = bool(page.evaluate("""() => { let n = 0; for (const e of document.querySelectorAll('input[type=password], input[data-aa-secret]')) { if (e.value) { n++;
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, ''); e.dispatchEvent(new Event('input', {bubbles: true})); } } return n; }"""))
         except Exception:  # noqa: BLE001 - the page moved on: there is no box left
             pass
-        self.write("password", new=bool(new))
-        return "typed (hidden) and " + said
+        self.write("password", new=bool(new), sent=bool(went))
+        if not went:
+            return ("typed (hidden), but the form was NOT sent: pressing [" + str(then_click).strip("[]") + "] did nothing, in three ways. The password box has been emptied again. Do not send the "
+                    "form yourself - it would go out with an empty password, and the site would count a failed sign-in. Look at the page (`look`) for what is in the way, "
+                    "or hand the sign-in to the applicant.")
+        return ("typed (hidden) and " + said + how
+                + (" The password box was still filled and has been emptied again: if the page shows an error, that is the site's answer to the password that was sent - "
+                   "do not send the form again yourself." if left else ""))
+
+    @staticmethod
+    def _face(page: Any) -> tuple[str, str]:
+        try:
+            return str(page.url), str(page.evaluate("() => document.title + '|' + (document.body ? document.body.innerText.length + '|' + document.body.innerText.slice(-400) : '')"))
+        except Exception:  # noqa: BLE001
+            return "", ""
+
+    def _moved(self, page: Any, before: tuple[str, str], seconds: float = 4.0) -> bool:
+        """Did anything at all happen after the press - another address, other words on the page, the box gone?"""
+        until = time.monotonic() + seconds
+        while time.monotonic() < until:
+            time.sleep(0.3)
+            try:
+                if self._face(page) != before or not page.evaluate("() => [...document.querySelectorAll('input[data-aa-secret]')].some(e => e.isConnected)"):
+                    return True
+            except Exception:  # noqa: BLE001 - the page is on its way somewhere else
+                return True
+        return False
 
     def cover_letter(self, instructions: str = "") -> str:
         """Write a cover letter for this posting from the applicant's profile and résumé (the program's own letter
@@ -466,10 +526,12 @@ class Desk:
         except mail.GmailReconnect:
             self.mail_reconnect = True
             self.write("mail_unavailable", reason="reconnect")
-            return "Gmail authorization must be renewed in AutoApply settings. If a code is required, stop with needs_you. The employer account does not need registering again."
+            return ("The mailbox's authorization has run out; the applicant is told to renew it in the settings. For a code the site waits for now: ask_code. "
+                    "For a link to open in a mail: tell them which mail and wait (wait_for_applicant). The employer account does not need registering again.")
         except Exception as e:  # noqa: BLE001 - no mailbox connected: the applicant reads it
             self.write("mail_unavailable", reason=type(e).__name__)
-            return f"The applicant's mailbox cannot be read from here ({type(e).__name__}). If the site waits for a code or a link from a mail, hand over with sign_in_by_hand."
+            return (f"The applicant's mailbox cannot be read right now ({type(e).__name__}). It may be a moment's trouble: try once more. If it still cannot be read and "
+                    "the site waits for a code from a mail: ask_code. For a link in a mail: tell them which mail to open and wait (wait_for_applicant).")
         host = self.hands.page.url.split("/")[2].lower() if "//" in self.hands.page.url else ""
         words = {w for w in [*host.replace("www.", "").split(".")[:-1], *self.site.split(":", 1)[-1].replace("www.", "").split(".")[:-1], *str(about).lower().split()] if len(w) > 2}
         hits = [m for m in got if any(w in f"{m.sender} {m.subject} {m.body[:3000]}".lower() for w in words)]
@@ -504,12 +566,106 @@ class Desk:
         if not self._is_home(host):
             sites.set_fact(self.site, "sign_in_hosts", sorted({*(sites.fact(self.site, "sign_in_hosts") or []), host}))
 
+    # --- what only the applicant can give, asked for while the run waits -------------------------------------------
+    # A code runs out in minutes and an approved sign-in not much later: a run that ends there and is taken up again
+    # tomorrow finds neither. So the run stays where it is, in the same window and session, the applicant is asked on
+    # their to-do page (and on their phone), and what they give comes back to the agent as the tool's answer.
+    def _wait_for_card(self, todo_id: int) -> dict[str, Any] | None:
+        """The card's payload once the applicant has dealt with it; None when they closed it, stopped the run, or the
+        time is up. The time waited is theirs, not the run's."""
+        from .. import db
+        from ..models import Todo
+
+        start = time.monotonic()
+        try:
+            while time.monotonic() - start < WAIT_MINUTES * 60:
+                if (self.folder / STOP).exists():
+                    return None
+                with db.session() as s:
+                    t = s.get(Todo, todo_id)
+                    if t is None or t.status == "dismissed":
+                        return None
+                    if t.status == "done":
+                        got = dict(t.payload or {})
+                        t.payload = {k: v for k, v in got.items() if k != "code"}      # (a code is used once: not kept)
+                        return got
+                self._idle(2)
+            return None
+        finally:
+            waited = time.monotonic() - start
+            self.human_seconds += waited
+            if self.budget is not None:
+                self.budget.deadline += waited
+
+    def _close_card(self, todo_id: int) -> None:
+        from .. import db
+        from ..models import Todo, now
+
+        with db.session() as s:
+            t = s.get(Todo, todo_id)
+            if t is not None and t.status == "open":
+                t.status, t.done_at = "dismissed", now()
+
+    def _stops_for(self, kind: str, why: str) -> None:
+        self.need, self.waiting = {"kind": kind, "why": str(why)[:600]}, str(why)[:600]
+
+    def ask_code(self, what: str) -> str:
+        what = " ".join(str(what).split())[:400]
+        self.write("needs_applicant", need="code", why=what, url=self.hands.page.url)
+        if self.card is None:
+            self._stops_for("code", what)
+            return "The applicant cannot be asked from here. This run is over: call report with outcome needs_you."
+        todo = self.card("code", what, {})
+        got = self._wait_for_card(todo)
+        code = "".join(str((got or {}).get("code") or "").split())
+        if code:
+            self.write("code_given")
+            return f"The applicant gives the code: {code}\nType it into the site now - a code runs out within minutes."
+        self._close_card(todo)
+        self._stops_for("code", what)
+        return (f"No code came from the applicant in {WAIT_MINUTES} minutes. This run is over: call report with outcome needs_you, saying what you had done up to "
+                "here. When they are back, the application is taken up again at once; have the site send a fresh code then and ask again.")
+
+    def wait_for_applicant(self, why: str, window: bool = False) -> str:
+        from .. import browser
+
+        why = " ".join(str(why).split())[:400]
+        self.write("needs_applicant", need="window" if window else "confirm", why=why, url=self.hands.page.url)
+        if window and not browser.in_use()[1]:
+            self._stops_for("window", why)
+            return ("The applicant cannot see this window: it is hidden. This run is over: call report with outcome needs_you. When they are ready, the application is "
+                    "taken up again in a window they can see; get back to this point and call wait_for_applicant again.")
+        if self.card is None:
+            self._stops_for("window" if window else "confirm", why)
+            return "The applicant cannot be asked from here. This run is over: call report with outcome needs_you."
+        todo = self.card("confirm", why, {"window": bool(window)})
+        got = self._wait_for_card(todo)
+        if got is not None:
+            self.write("applicant_done")
+            return "The applicant says it is done. The window is yours again: look at what it shows now and go on."
+        self._close_card(todo)
+        self._stops_for("window" if window else "confirm", why)
+        return (f"The applicant did not answer in {WAIT_MINUTES} minutes. This run is over: call report with outcome needs_you, saying what you had done up to here. "
+                "When they are back, the application is taken up again at once" + (", in a window they can see." if window else "."))
+
+    # --- the browser -----------------------------------------------------------------------------------------------
+    def change_browser(self, why: str) -> str:
+        from .. import browser, db
+
+        now = browser.in_use()[0] or "playwright"
+        other = "playwright" if now == "nodriver" else "nodriver"
+        if self.changed_browser:
+            return ("This application has been tried in both browsers already (this run began after such a change). If the site refuses this one too, "
+                    "report cannot and say what each of them showed.")
+        if other == "nodriver" and not db.get_setting("browser.nodriver_enabled"):
+            return ("The ordinary browser is switched off in the applicant's settings. Report cannot: say that the site refuses the automated browser and that "
+                    "switching the ordinary browser on (Settings, browser) would let the application be tried in it.")
+        self.other_browser = other
+        self.write("browser", was=now, to=other, why=str(why)[:400])
+        return (f"This run ends here. The application is taken up again at once in {BROWSERS[other].split(' (')[0]}; what you wrote down is in that run's "
+                "brief. Stop now: no report is needed.")
+
     def sign_in_by_hand(self, why: str) -> str:
-        reason = why.casefold()
-        email_code = ("email" in reason or "e-mail" in reason or any(word in reason for word in ("邮箱", "邮件")))
-        if email_code and not self.mail_checked and (self.site.endswith("amazon.jobs") or "code" in reason or "验证码" in reason):
-            return ("Email verification was requested. Try the configured read-only mailbox before handing off. "
-                    + self.mail(15))
         self.waiting = str(why)[:600]
         self.write("needs_applicant", why=self.waiting, url=self.hands.page.url)
         return "The window is the applicant's from here. This run is over: call report with outcome needs_you, saying what you had done up to here."
@@ -567,7 +723,10 @@ class Desk:
             llm.Tool("account", "What the program has on record for this site: the login name, whether a password is stored.", spec(), self.account),
             llm.Tool("type_password", "Have the applicant's password for this site typed into the password box `ref` (you do not see it), then press `then_click` (the sign-in or "
                                       "create-account button). `new`: make up and store a password first - for registering an account; a second box that wants the same "
-                                      "password again is filled by a second call without `new`. Read the site's password rules first and pass them on: `length` "
+                                      "password again is filled by a second call without `new`. The press is seen through for you: the answer says whether the "
+                                      "form was sent, and the box is emptied afterwards - never send a sign-in form yourself after this tool. In the ordinary "
+                                      "browser a sign-in form may already be filled in by the browser itself (the box shows 'filled (hidden)'): pressing its "
+                                      "button sends what the browser has saved, which is another way in. Read the site's password rules first and pass them on: `length` "
                                       "(default 20) and `symbols`, the punctuation the site allows (default !@#$%^&*; empty for none).",
                      spec(["ref"], ref=s, then_click=s, new=b, length={"type": "number"}, symbols=s), self.type_password),
             llm.Tool("mail", "Read what this site has just sent to the applicant's mailbox: a verification code, a confirmation link (open the link with goto; type the code "
@@ -578,8 +737,20 @@ class Desk:
             llm.Tool("tailor_resume", "Have the applicant's résumé rewritten for this posting - reordered, and reworded where their settings allow, checked against the "
                                       "original. It becomes a file you can upload. Whether this application is better with one is yours to judge, from the posting and from "
                                       "what the brief says the applicant wants. `instructions`: anything the rewriting must take into account.", spec(instructions=s), self.tailor_resume),
-            llm.Tool("sign_in_by_hand", "Hand the window to the applicant for something only they can do: a sign-in without a stored password, a code on their phone, a CAPTCHA. "
-                                        "Ends this run; the next one goes on from here.", spec(["why"], why=s), self.sign_in_by_hand),
+            llm.Tool("ask_code", "Ask the applicant for a one-time code that the site sent them and that you cannot read yourself: it went to their phone, or `mail` could "
+                                 "not read the mailbox. They type it on their to-do page; you get it back as this tool's answer and type it into the site. Waits up to "
+                                 f"{WAIT_MINUTES} minutes, in this window and session. `what`: where the site says it sent the code and what it looks like, in the "
+                                 "applicant's language (six digits, to the phone ending in 42).", spec(["what"], what=s), self.ask_code),
+            llm.Tool("wait_for_applicant", "Wait while the applicant does something only they can do, then go on in the same window and session. `window` false: it happens "
+                                           "away from this window - they approve a sign-in on their phone, tap a number in an authenticator app. `window` true: they must "
+                                           "act in this browser window - a CAPTCHA, a puzzle, a passkey prompt. `why`: what they are to do, in their language. Comes back "
+                                           f"when they say they are done (up to {WAIT_MINUTES} minutes).", spec(["why"], why=s, window=b), self.wait_for_applicant),
+            llm.Tool("change_browser", "Take this application up again in the other of the program's two browsers (the brief says which one this run is in). For a site "
+                                       "that refuses or breaks in this one: a page that says access is forbidden or restricted, an endless check, a form that will not "
+                                       "load - while nothing says the posting itself is gone. Ends this run; the next begins at once.", spec(["why"], why=s), self.change_browser),
+            llm.Tool("sign_in_by_hand", "Hand the sign-in to the applicant: a site whose password is not stored and that you cannot register on, a sign-in that is another "
+                                        "service's own. They sign in once in a window of their own and the session is kept. Ends this run; the next one goes on from "
+                                        "here. (A code, a CAPTCHA, a confirmation on their phone are not this: ask_code, wait_for_applicant.)", spec(["why"], why=s), self.sign_in_by_hand),
             llm.Tool("report", "End the run. outcome: ready (everything is in, one press from sending, not sent) | submitted (it went out: give the confirmation) | "
                                "needs_you (only the applicant can go on) | cannot (say why, and what the page shows). `not_sent`: if you called `sending` in this run and the "
                                "application did not go out, what shows that it did not.",
@@ -634,7 +805,8 @@ def journal_text(folder: Path) -> str:
 
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
-          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None, on_checkpoint: Any = None, email_delivery: bool = False) -> Result:
+          job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None, on_checkpoint: Any = None, email_delivery: bool = False, card: Any = None,
+          changed_browser: bool = False) -> Result:      # noqa: PLR0913
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
@@ -644,6 +816,7 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
 
     desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand, heard=heard)
     desk.on_checkpoint = on_checkpoint
+    desk.card, desk.changed_browser = card, changed_browser
     desk.email_delivery = email_delivery
     if record is None and (folder / "record.json").exists():
         try:
@@ -654,10 +827,17 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     left = budget or {"steps": per_run.steps, "seconds": per_run.seconds}      # what this application has left over all its runs, when that is less than a run's share
     (folder / STOP).unlink(missing_ok=True)       # (a word of "stop" is for the run it was said to)
     budget = _Budget(int(max(1, min(per_run.steps, left["steps"]))), max(60.0, min(per_run.seconds, left["seconds"])), folder)
+    desk.budget = budget
     system, book = brief.playbook_for(posting.url)
     systems = sorted({*brief.playbooks(), *(k.split(":", 1)[1] for k in _keys_with_notes() if k.startswith("system:"))} - {system})
     known = "\n\n".join(x for x in ((f"About {system} (the system this site runs on):\n" + brief.about(system)) if system else "", sites.notes(site)) if x)
-    goal = brief.goal(posting, applicant, mode=mode, site_notes=known, systems=systems, journal=journal_text(folder), record=record, answers=answers,
+    from .. import browser as _browser
+
+    used, seen = _browser.in_use()
+    where = (f"This run works in {BROWSERS.get(used or 'playwright', used)}. Its window is "
+             + ("on the applicant's screen." if seen else "hidden from the applicant.")
+             + (" The application was moved here from the other browser by the run before this one." if changed_browser else ""))
+    goal = brief.goal(posting, applicant, mode=mode, site_notes=known, systems=systems, journal=journal_text(folder), record=record, answers=answers, browser=where,
                       account=desk.account(), budget=f"About {budget.steps} tool calls and {int(budget.seconds // 60)} minutes for this run. Log where you are before it runs out.")
     (folder / "brief.md").write_text(goal, encoding="utf-8")
     desk.write("run", mode=mode, url=posting.url)
@@ -677,7 +857,10 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
         res.usage = dict(out.budget or {})
     except llm.LLMError as e:
         res.stopped = f"{type(e).__name__}: {str(e)[:300]}"
-    if desk.reported is not None:
+    res.need = dict(desk.need)
+    if desk.other_browser and (desk.reported is None or desk.reported["outcome"] != "submitted"):
+        res.outcome, res.record = "other_browser", {"outcome": "other_browser", "browser": desk.other_browser, "asked": list(desk.asked)}
+    elif desk.reported is not None:
         res.outcome, res.record = desk.reported["outcome"], desk.reported
     elif desk.waiting:
         res.outcome, res.record = "needs_you", {"outcome": "needs_you", "summary": desk.waiting, "asked": list(desk.asked)}

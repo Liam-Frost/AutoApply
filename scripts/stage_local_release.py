@@ -11,6 +11,7 @@ from pathlib import Path
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version_directory")
+    parser.add_argument("--restart", action="store_true", help="ask the running tray to restart the service into this release now")
     args = parser.parse_args()
     name = args.version_directory
     if not name or name in (".", "..") or Path(name).name != name:
@@ -44,6 +45,9 @@ def main() -> None:
         pending.write(name)
     marker.with_suffix(".pending").replace(marker)
     print(f"Staged {release}")
+    if args.restart:      # (the tray looks for this every few seconds: the same restart as its menu's)
+        (marker.parent / "restart-request").write_text(name, encoding="utf-8")
+        print("Asked the tray to restart the service")
 
 
 if __name__ == "__main__":

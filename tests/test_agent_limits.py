@@ -38,6 +38,15 @@ def desk(app_env, tmp_path):
         yield type("D", (), {"page": page, "hands": hands, "make": staticmethod(make), "folder": tmp_path / "app"})()
 
 
+def _show(page, tmp_path, html):
+    """Put a page in the window (by a file: both browsers can open one)."""
+    import uuid
+
+    f = tmp_path / f"{uuid.uuid4().hex}.html"
+    f.write_text(html, encoding="utf-8")
+    page.goto(f.as_uri())
+
+
 def _ref(hands, pattern):
     import re
 
@@ -273,21 +282,136 @@ def test_attachment_readback_survives_new_desk(desk, tmp_path):
     path = tmp_path / "letter.pdf"
     path.write_bytes(b"attachment fixture")
     desk.hands.files[path.name] = str(path)
-    desk.page.set_content('<div id="attachment">letter.pdf</div>')
+    _show(desk.page, tmp_path, '<div id="attachment">letter.pdf</div>')
     assert "Recorded" in desk.make().verify_attachment(path.name, "#attachment")
     entry = json.loads((desk.folder / "journal.jsonl").read_text("utf8").splitlines()[-1])
     assert entry["kind"] == "attachment_observed" and entry["local_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
-    desk.page.set_content('<input type="file" id="attachment">')
+    _show(desk.page, tmp_path, '<input type="file" id="attachment">')
     assert "Unverified" in desk.make().verify_attachment(path.name, "#attachment")
 
-def test_amazon_email_handoff_checks_the_mailbox_first(desk, monkeypatch):
-    from autoapply import mailbox
-    from autoapply.agent.run import Desk
+def _answer_card(kind, **gives):
+    """The applicant deals with the open card of this kind a moment from now, as they would on the to-do page."""
+    import threading
+    import time
 
-    calls = []
-    desk.page.set_content("<p>Verify your email</p>")
-    agent = Desk(desk.folder, desk.hands, site="generic:www.amazon.jobs", mode="prepare")
-    monkeypatch.setattr(mailbox, "fetch", lambda *a, **kw: calls.append(kw) or [])
-    assert "No mail" in agent.sign_in_by_hand("Amazon requests email verification")
-    assert len(calls) == 1
-    assert not agent.waiting
+    from autoapply.models import Todo, now
+
+    def later():
+        for _ in range(200):
+            with db.session() as s:
+                t = s.query(Todo).filter_by(kind=kind, status="open").first()
+                if t is not None:
+                    t.status, t.done_at, t.payload = gives.pop("status", "done"), now(), {**(t.payload or {}), **gives}
+                    return
+            time.sleep(0.05)
+
+    threading.Thread(target=later, daemon=True).start()
+
+
+def _carded(agent):
+    from autoapply import notify
+
+    agent.card = lambda kind, why, more: notify.add_todo(kind, "Acme", body=why, ref=f"application:1:{kind}", payload={"application_id": 1, "job_id": 1, **more})
+    agent._idle = lambda seconds: __import__("time").sleep(0.05)
+    return agent
+
+
+def test_a_code_only_the_applicant_has_is_asked_for_while_the_run_waits_and_comes_back_to_the_agent(desk, monkeypatch):
+    from autoapply import mailbox
+    from autoapply.agent import run
+    from autoapply.models import Todo
+
+    agent = _carded(desk.make())
+    # a mailbox that cannot be read does not end the run and does not send the applicant to a sign-in window
+    monkeypatch.setattr(mailbox, "fetch", lambda *a, **kw: (_ for _ in ()).throw(TimeoutError("timed out")))
+    told = agent.mail(15)
+    assert "ask_code" in told and "sign_in_by_hand" not in told and not agent.waiting
+    # whatever words the agent finds for it, handing a sign-in over is not turned into something else
+    names = {t.name for t in agent.tools()}
+    assert {"ask_code", "wait_for_applicant", "change_browser", "sign_in_by_hand"} <= names
+
+    _answer_card("code", code=" 482 913 ")
+    got = agent.ask_code("六位数字，发到邮箱")
+    assert "482913" in got and not agent.waiting and not agent.need
+    with db.session() as s:
+        card = s.query(Todo).filter_by(kind="code").one()
+        assert card.status == "done" and "code" not in card.payload       # used once, not kept
+    assert "482913" not in (desk.folder / "journal.jsonl").read_text(encoding="utf-8")
+    agent.step({"tool": "ask_code", "input": {"what": "x"}, "ok": True, "output": got, "ms": 1})
+    assert "482913" not in (desk.folder / "journal.jsonl").read_text(encoding="utf-8")
+
+    # nobody there: the card is closed, and the run ends saying what kind of thing it stopped for
+    monkeypatch.setattr(run, "WAIT_MINUTES", 0.004)
+    assert "No code came" in agent.ask_code("发到手机") and agent.need == {"kind": "code", "why": "发到手机"}
+    with db.session() as s:
+        assert not s.query(Todo).filter_by(status="open").count()
+
+
+def test_the_run_waits_for_what_the_applicant_does_on_their_phone_or_in_the_window(desk, monkeypatch):
+    from autoapply import browser
+    from autoapply.models import Todo
+
+    agent = _carded(desk.make())
+    _answer_card("confirm")
+    assert "is done" in agent.wait_for_applicant("在手机上批准这次登录") and not agent.waiting
+    with db.session() as s:
+        assert s.query(Todo).filter_by(kind="confirm").one().payload["window"] is False
+    # something to do in the window, and the window is hidden: nothing is waited for - the next run opens where they can see it
+    monkeypatch.setattr(browser, "in_use", lambda: ("playwright", False))
+    assert "hidden" in agent.wait_for_applicant("人机验证", window=True) and agent.need["kind"] == "window"
+    # in a window they can see, the run waits there; a card they close ends the wait
+    agent.need, agent.waiting = {}, ""
+    monkeypatch.setattr(browser, "in_use", lambda: ("playwright", True))
+    _answer_card("confirm", status="dismissed")
+    assert "did not answer" in agent.wait_for_applicant("人机验证", window=True) and agent.need["kind"] == "window"
+
+
+def test_the_agent_takes_an_application_to_the_other_browser_once(desk, monkeypatch):
+    from autoapply import browser
+
+    monkeypatch.setattr(browser, "in_use", lambda: ("playwright", False))
+    agent = desk.make()
+    db.set_setting("browser.nodriver_enabled", False)
+    assert "switched off" in agent.change_browser("Access Forbidden") and not agent.other_browser
+    db.set_setting("browser.nodriver_enabled", True)
+    assert "ends here" in agent.change_browser("Access Forbidden") and agent.other_browser == "nodriver"
+    again = desk.make()
+    again.changed_browser = True          # the run that began after the change
+    monkeypatch.setattr(browser, "in_use", lambda: ("nodriver", True))
+    assert "both browsers" in again.change_browser("still forbidden") and not again.other_browser
+
+
+SWALLOWED = """<!doctype html><title>Sign in</title>
+<form id="f" onsubmit="window.sent = (window.sent || []).concat([[user.value, pw.value]]); document.title = 'Signed in'; return false">
+<input id="user" type="text" aria-label="Login name" value="alex"><input id="pw" type="password" aria-label="Password">
+<button id="go" type="submit">Login</button></form>
+<script>/* the first two presses of the button are lost, as under a list the browser opened over the form */
+let lost = %d; go.addEventListener('click', (e) => { if (lost-- > 0) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);</script>"""
+
+
+def test_a_sign_in_whose_button_did_nothing_is_seen_through_by_the_program_and_never_sent_empty(desk, tmp_path):
+    from autoapply import auth
+
+    auth.upsert_account("generic:careers.acme.example", host="careers.acme.example", email="alex@example.com", password="s3cret-Pa55word", status="ok", created_by="user")
+    d = desk.make()
+    d._is_home = lambda host: True
+
+    def page_with(lost):
+        form = tmp_path / f"swallowed{lost}.html"
+        form.write_text(SWALLOWED % lost, encoding="utf-8")
+        desk.page.goto(form.as_uri())
+        return _ref(desk.hands, 'password "Password"'), _ref(desk.hands, 'button "Login"')
+
+    # the press was lost once: the program presses again, and the form goes out once, with the password in it
+    pw, go = page_with(1)
+    said = d.type_password(pw, then_click=go)
+    assert "pressed again through the page" in said and desk.page.evaluate("() => window.sent") == [["alex", "s3cret-Pa55word"]]
+    # lost every time the button is pressed: the form is sent directly - still once, still with the password
+    pw, go = page_with(5)
+    said = d.type_password(pw, then_click=go)
+    assert "sent directly" in said and desk.page.evaluate("() => window.sent") == [["alex", "s3cret-Pa55word"]]
+    # a page on which nothing sends it: the agent is told the box is empty again and that the form is not to be sent
+    _show(desk.page, tmp_path, '<title>Sign in</title><input id="pw" type="password" aria-label="Password"><button id="go" type="button">Login</button>')
+    pw, go = _ref(desk.hands, 'password "Password"'), _ref(desk.hands, 'button "Login"')
+    said = d.type_password(pw, then_click=go)
+    assert "NOT sent" in said and "emptied" in said and desk.page.evaluate("() => document.getElementById('pw').value") == ""

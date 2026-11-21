@@ -142,9 +142,15 @@ def session_browser(tenant: str) -> str:
     return found.backend if found else "playwright"
 
 
-def access_restricted(message: str) -> bool:
-    """An explicit access denial needs the site's normal sign-in or support path."""
-    import re
+def remember(tenant: str, backend: str) -> bool:
+    """A site that an application got further on in ``backend``: the next task there starts in it. Only where the
+    applicant has no rule of their own for the site. Returns whether a rule was written."""
+    from . import db
 
-    return bool(re.search(r"access forbidden|access denied|access.{0,18}restricted|\b403\b|禁止访问|拒绝访问|访问受限|captcha|cloudflare",
-                          message or "", re.IGNORECASE))
+    if backend not in BACKENDS or not tenant:
+        return False
+    rules = list(db.get_setting("browser.rules") or [])
+    if any(r.get("tenant") == tenant for r in rules):
+        return False
+    db.set_setting("browser.rules", [*rules, {"tenant": tenant, "backend": backend, "operations": []}])
+    return True
