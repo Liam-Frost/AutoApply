@@ -60,7 +60,7 @@ const sectionDirty = computed(() => editIdx.value >= 0 && !!p.value.sections[edi
 
 const KINDS = {
   resume_site: '简历（雇主官网用）', resume_portal: '简历（PD Portal 用）', transcript: '成绩单', cl_template: '求职信模板（Word）',
-  cl_example: '求职信范例', source: '其他初始化资料', cover_letter: '生成的求职信', other: '其他',
+  cl_example: '求职信范例', source: '其他初始化资料', cover_letter: '生成的求职信', other: '其他', resume_docx: '简历（Word，定制简历用）',
 }
 const UPLOADABLE = ['resume_site', 'resume_portal', 'transcript', 'cl_template', 'cl_example', 'source']
 
@@ -75,7 +75,9 @@ async function load() {
   await loadGen().catch(() => {})
 }
 const run = (fn, ok) => runAction(fn, ok, load)
-const active = computed(() => docs.value.filter((d) => d.active && d.kind !== 'cover_letter'))
+// what the applicant put here themselves: not what the program wrote for one posting (a résumé rewritten for it, its cover
+// letter) - those are the posting's, and are in the library
+const active = computed(() => docs.value.filter((d) => d.active && !d.job_id && d.kind !== 'cover_letter' && d.kind !== 'tailored_resume'))
 const todoCount = computed(() => (p.value.markdown.match(/TODO:/g) || []).length)
 
 async function startEdit(i) { if (!(await mayLeave(['profile-section']))) return; editIdx.value = i; editBody.value = p.value.sections[i].body }
@@ -228,7 +230,9 @@ onMounted(load)
         <AaSelect v-model="upKind"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
         <FileButton @change="upload"><Icon name="inbox" />选择文件</FileButton>
       </div>
-      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
+      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] || KINDS.other }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
+      <p v-if="!active.length" class="muted small">还没有上传过资料。</p>
+      <p class="muted small">这里只列你自己上传的资料；程序为某个岗位写的定制简历和求职信不在这里。 <router-link to="/files">打开材料库</router-link></p>
       <h3>2. 补充说明（可选）</h3>
       <textarea v-model="notes" style="font-family: inherit" placeholder="简历上没有但申请表常问的信息：法定姓名和常用名、工作许可、是否需要签证担保、可工作时间、GPA、地址……"></textarea>
       <div class="row" style="margin-top: 8px"><button class="primary" :disabled="genWorking" @click="init">{{ genWorking ? '正在生成…' : '3. 生成个人资料草稿' }}</button></div>

@@ -653,7 +653,7 @@
 "录用被撤回": "Offer withdrawn",
 "怎么认识的": "How you met",
 "截止{0}": "Due {0}",
-"打开材料库": "Open Files",
+"打开材料库": "Open the library",
 "打开申请表": "Opening the form",
 "扫描新岗位": "Scan for new jobs",
 "找什么岗位": "What jobs to look for",
@@ -3039,5 +3039,8 @@
 "之后会定时读取与申请有关的邮件。这次授权里没有“发送邮件”这一项，所以程序不能替你发信；需要的话重新授权一次，把那一项勾上。": "Mail about your applications will be read at intervals. This authorization does not include \"send e-mail\", so the program cannot send for you; authorize once more and tick it if you want that.",
 "只管主要模型，作为 reasoning_effort 发给这家服务。不是会思考的模型、或这家服务不认识这个参数时会报错，那就选“不指定”。": "For the main model only; sent to the service as reasoning_effort. A model that does not reason, or a service that does not know the parameter, answers with an error - choose \"Not set\" then.",
 "读信：读取网站发来的验证码和激活链接，以及确认信、面试邀请、拒信，自动更新岗位状态；不会删除、移动邮件，也不会把邮件标为已读。发信（只有 Gmail 的 Google 授权方式可以）：邮件投递的申请和给雇主的回复从这个邮箱发出，每一封都先记在程序里，发不发、先不先给你看由你在“自动化”里定。请填你投简历时用的那个邮箱。": "Reading: codes and activation links that sites send, and confirmations, invitations and rejections, which update the postings; nothing is deleted, moved or marked as read. Sending (only with Gmail's Google authorization): applications that go by e-mail and replies to employers go out from this mailbox, each on record in the program first; whether they go by themselves or after you looked is yours to set under Automation. Use the mailbox you apply with.",
-"授权时申请读取、发送、草稿和修改邮件标签这几项权限：读信用来跟踪申请的回信，发信用来替你发邮件投递的申请和回复雇主。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；处于测试状态的客户端不用另外配置权限，授权页上把列出的几项都勾上就行。授权过只读的，重新点一次“授权”。只想让程序读信的话，可以在上面改选“Gmail（应用专用密码）”，那样不能发信。": "Authorizing asks for reading, sending, drafts and changing a message's labels: reading follows the answers to your applications, sending is for applications that go by e-mail and replies to employers. You need an OAuth client of your own in Google Cloud (once, a little tedious); a client in testing needs no permissions configured there - tick everything the consent page lists. If you authorized for reading only before, press \"Authorize\" once more. To let the program read only, choose \"Gmail (app password)\" above; that cannot send."
+"授权时申请读取、发送、草稿和修改邮件标签这几项权限：读信用来跟踪申请的回信，发信用来替你发邮件投递的申请和回复雇主。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；处于测试状态的客户端不用另外配置权限，授权页上把列出的几项都勾上就行。授权过只读的，重新点一次“授权”。只想让程序读信的话，可以在上面改选“Gmail（应用专用密码）”，那样不能发信。": "Authorizing asks for reading, sending, drafts and changing a message's labels: reading follows the answers to your applications, sending is for applications that go by e-mail and replies to employers. You need an OAuth client of your own in Google Cloud (once, a little tedious); a client in testing needs no permissions configured there - tick everything the consent page lists. If you authorized for reading only before, press \"Authorize\" once more. To let the program read only, choose \"Gmail (app password)\" above; that cannot send.",
+"还没有上传过资料。": "Nothing has been uploaded yet.",
+"简历（Word，定制简历用）": "Résumé (Word, for rewriting)",
+"这里只列你自己上传的资料；程序为某个岗位写的定制简历和求职信不在这里。": "Only what you uploaded yourself is listed here; résumés and cover letters the program wrote for a posting are not."
 }

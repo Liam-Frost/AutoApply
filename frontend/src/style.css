@@ -100,6 +100,8 @@ nav.side { background: var(--surface); border-right: 1px solid var(--border); pa
   display: flex; flex-direction: column; gap: 2px; overflow: auto; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; color: var(--brand-navy); font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
 .brand img { width: 30px; height: 30px; background: var(--logo-tile); border-radius: 8px; padding: 2px; }
+/* the whole logo - mark and name as drawn - where there is room for it; on a dark page it stands on the light tile it was drawn for */
+.brand.full img, .door-brand.full img { width: auto; height: 34px; max-width: 100%; padding: 4px 8px; }
 .brand:hover { text-decoration: none; }
 .nav-label { font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: 0.06em; padding: 14px 10px 4px; }
 nav.side a.nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text-2); font-weight: 500; }

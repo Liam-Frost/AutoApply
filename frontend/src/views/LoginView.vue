@@ -30,7 +30,7 @@ async function submit() {
 <template>
   <div class="door">
     <form class="card door-card" @submit.prevent="submit">
-      <div class="door-brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></div>
+      <div class="door-brand full"><img :src="'logo-full.svg'" alt="AutoApply" /></div>
 
       <template v-if="setup && !session.canSetup">
         <div class="card-title">还没有设置管理员账号</div>

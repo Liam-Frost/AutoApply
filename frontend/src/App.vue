@@ -77,7 +77,7 @@ onUnmounted(() => clearInterval(timer))
     </header>
     <div v-if="menu" class="overlay menu-overlay" @click="menu = false"></div>
     <nav id="side-nav" ref="side" class="side" :class="{ guide: !persona.done, open: menu }" aria-label="导航" @keydown.esc="menu = false">
-      <router-link to="/" class="brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></router-link>
+      <router-link to="/" class="brand full"><img :src="'logo-full.svg'" alt="AutoApply" /></router-link>
 
       <router-link to="/home" class="nav"><Icon name="home" />概览</router-link>
       <router-link to="/todos" class="nav"><Icon name="bell" />需要我处理 <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
