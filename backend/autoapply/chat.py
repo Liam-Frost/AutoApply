@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets as _random
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from . import db, i18n, llm
@@ -24,7 +24,8 @@ log = logging.getLogger("autoapply.chat")
 
 HISTORY = "bot.chat_history"      # the last exchanges ({who, text, at}); forgotten after two quiet hours
 PENDING = "bot.pending"           # actions waiting for the applicant's press: {token: {what, ids, until, said}}
-KEEP = 8
+KEEP = 16
+QUIET_HOURS = 12      # a conversation that has been quiet this long starts afresh
 ACTIONS = ("apply", "retry", "stop", "not_applying", "pause", "resume", "scan", "snooze", "done")
 
 SYSTEM = """You are the assistant of AutoApply, a program that applies to jobs for one person (the applicant). They are
@@ -60,25 +61,46 @@ def _questions(s: Any, draft_id: int) -> list[dict[str, Any]]:
             for a in d.answers or [] if a.get("source") == "unresolved" and a.get("value") in ("", None, [])]
 
 
-def look(query: str = "") -> list[dict[str, Any]]:
-    """Postings and their applications whose company or title has these words (all of them, when no words)."""
+def look(query: str = "", *, state: str = "", due_within_days: int = 0, min_score: float = 0, limit: int = 12) -> list[dict[str, Any]]:
+    """Postings and their applications whose company or title has these words (all of them, when no words) - narrowed
+    to where the application stands (agenda.STATES), a deadline within so many days, a score at least so high."""
+    from . import agenda
     from .models import Job
 
     words = [w for w in query.lower().split() if w]
+    soon = date.today() + timedelta(days=int(due_within_days)) if due_within_days else None
     out = []
     with db.session() as s:
-        q = s.query(Job).filter(Job.archived_at.is_(None)).order_by(Job.id.desc())
-        for j in q.limit(3000):
+        q = s.query(Job).filter(Job.archived_at.is_(None), Job.duplicate_of.is_(None)).order_by(Job.id.desc())
+        for j in q.limit(5000):
             hay = f"{j.company} {j.title}".lower()
             if words and not all(w in hay for w in words):
                 continue
             a = j.application
-            out.append({"job_id": j.id, "company": j.company, "title": j.title, "posting": j.status, "deadline": j.deadline or None,
+            if state and agenda.state_of(a) != state:
+                continue
+            if min_score and (j.score or 0) < min_score:
+                continue
+            if soon is not None:
+                at, _ = agenda._deadline(j.deadline or "")
+                if at is None or not (date.today() <= at.date() <= soon):
+                    continue
+            out.append({"job_id": j.id, "company": j.company, "title": j.title, "score": j.score, "posting": j.status, "deadline": j.deadline or None,
                         "application_id": a.id if a else None, "application": a.status if a else None,
                         "last": (a.last_event or "")[:240] if a else None})
-            if len(out) >= 12:
+            if len(out) >= max(1, min(int(limit), 40)):
                 break
     return out
+
+
+def upcoming(days: int = 7) -> list[dict[str, Any]]:
+    """What has a time in the next days (the calendar): interviews, assessments, deadlines, people to get back to."""
+    from . import agenda
+
+    today = date.today()
+    return [{"kind": x["kind"], "when": x["start"] if not x["all_day"] else x["start"][:10], "title": x["title"], "subject": x["subject"],
+             "application_id": x["about"]["application_id"], "job_id": x["about"]["job_id"], "done": x["done"]}
+            for x in agenda.items(today, today + timedelta(days=max(1, min(int(days), 60))))][:40]
 
 
 def cards() -> list[dict[str, Any]]:
@@ -198,16 +220,29 @@ def _propose(what: str, ids: list[int], said: str) -> dict[str, str]:
 
 
 # --- the conversation ----------------------------------------------------------------------------------------------------
-def _history() -> list[dict[str, str]]:
+def _history() -> list[dict[str, Any]]:
     h = list(db.get_setting(HISTORY) or [])
-    if h and h[-1].get("at", "") < (datetime.now() - timedelta(hours=2)).isoformat():
+    if h and h[-1].get("at", "") < (datetime.now() - timedelta(hours=QUIET_HOURS)).isoformat():
         return []
     return h[-KEEP:]
 
 
-def _remember(who: str, text: str) -> None:
-    h = _history() + [{"who": who, "text": text[:1500], "at": datetime.now().isoformat(timespec="seconds")}]
-    db.set_setting(HISTORY, h[-KEEP:])
+def _remember(who: str, text: str, about: list[dict[str, Any]] | None = None) -> None:
+    row: dict[str, Any] = {"who": who, "text": text[:1500], "at": datetime.now().isoformat(timespec="seconds")}
+    if about:
+        row["about"] = about[:8]
+    db.set_setting(HISTORY, (_history() + [row])[-KEEP:])
+
+
+def _said_before(h: list[dict[str, Any]]) -> str:
+    """The conversation so far, with what each answer was about - "and the other one?" refers to one of them."""
+    lines = []
+    for x in h:
+        lines.append(f"{'Applicant' if x['who'] == 'me' else 'You'}: {x['text']}")
+        if x.get("about"):
+            lines.append("  (that answer was about: " + "; ".join(f"{a.get('company', '')} · {a.get('title', '')} (job {a.get('job_id')}"
+                                                                 + (f", application {a['application_id']}" if a.get("application_id") else "") + ")" for a in x["about"]) + ")")
+    return "\n".join(lines)
 
 
 def reply(text: str) -> tuple[str, list[dict[str, str]]]:
@@ -216,6 +251,12 @@ def reply(text: str) -> tuple[str, list[dict[str, str]]]:
 
     buttons: list[dict[str, str]] = []
     acted = {"n": 0}
+    about: dict[int, dict[str, Any]] = {}      # the postings this answer looked at: what "the other one" can mean next time
+
+    def seen(rows: list[dict[str, Any]]) -> None:
+        for r in rows[:6]:
+            if r.get("job_id") and r["job_id"] not in about:
+                about[r["job_id"]] = {k: r.get(k) for k in ("job_id", "application_id", "company", "title")}
 
     def t_status() -> str:
         return bots.status()
@@ -223,11 +264,19 @@ def reply(text: str) -> tuple[str, list[dict[str, str]]]:
     def t_cards() -> str:
         return json.dumps(cards(), ensure_ascii=False, default=str)
 
-    def t_look(query: str = "") -> str:
-        return json.dumps(look(query), ensure_ascii=False, default=str)
+    def t_look(query: str = "", state: str = "", due_within_days: int = 0, min_score: float = 0) -> str:
+        rows = look(query, state=state, due_within_days=due_within_days, min_score=min_score)
+        seen(rows)
+        return json.dumps(rows, ensure_ascii=False, default=str)
+
+    def t_upcoming(days: int = 7) -> str:
+        return json.dumps(upcoming(days), ensure_ascii=False, default=str)
 
     def t_application(application_id: int) -> str:
-        return json.dumps(application(int(application_id)), ensure_ascii=False, default=str)
+        got = application(int(application_id))
+        if got.get("job_id"):
+            seen([got])
+        return json.dumps(got, ensure_ascii=False, default=str)
 
     def t_act(action: str, ids: list[int] | None = None, summary: str = "") -> str:
         if action not in ACTIONS:
@@ -263,7 +312,13 @@ def reply(text: str) -> tuple[str, list[dict[str, str]]]:
     tools = [
         llm.Tool("status", "What the program is doing now: paused or running, the applications being worked, how much is queued and waiting.", llm.obj({}), t_status),
         llm.Tool("cards", "What is waiting for the applicant (the to-do page), with the open questions of each card that asks some.", llm.obj({}), t_cards),
-        llm.Tool("look", "Postings and their applications whose company or title contains all these words (empty: the newest).", llm.obj({"query": S}), t_look),
+        llm.Tool("look", "Postings and their applications whose company or title contains all these words (empty: the newest), narrowed when asked: "
+                 "state (where the application stands: unapplied, in_progress, sent, progressed), due_within_days (deadline from today to that many days), "
+                 "min_score (the posting's score, 0-10). Leave a filter empty or 0 for no filter.",
+                 llm.obj({"query": S, "state": {"type": "string", "enum": ["", "unapplied", "in_progress", "sent", "progressed"]}, "due_within_days": I,
+                          "min_score": {"type": "number"}}), t_look),
+        llm.Tool("upcoming", "What has a time in the next days (the calendar): interviews, assessments, offers to answer, deadlines, people to get back to, "
+                 "the applicant's own items.", llm.obj({"days": I}), t_upcoming),
         llm.Tool("application", "One application: its state, what happened last, its record and the questions open on it.", llm.obj({"application_id": I}, ["application_id"]), t_application),
         llm.Tool("act", "Do something: apply (job_ids: let the agent apply), retry (application_ids: work it again now), stop (application_ids: stop the "
                  "run working it), not_applying (job_ids), pause, resume, scan (look for new postings), snooze (todo_ids: remind tomorrow), done "
@@ -272,10 +327,42 @@ def reply(text: str) -> tuple[str, list[dict[str, str]]]:
         llm.Tool("answer", "Enter the applicant's answer to an open question of an application's record (draft_id and question_id from cards or "
                  "application). Only what they said.", llm.obj({"draft_id": I, "question_id": S, "value": S}, ["draft_id", "question_id", "value"]), t_answer),
     ]
-    past = "\n".join(f"{'Applicant' if h['who'] == 'me' else 'You'}: {h['text']}" for h in _history())
+    past = _said_before(_history())
     goal = (f"The conversation so far:\n{past}\n\n" if past else "") + f"The applicant now says:\n{text}\n\nToday is {datetime.now():%Y-%m-%d %H:%M}."
     res = llm.agent(goal, tools, system=SYSTEM, kind="chat")
     said = (res.final_text or "").strip() or _t("我没能给出回答，换个说法再试一次？")
     _remember("me", text)
-    _remember("bot", said)
+    _remember("bot", said, list(about.values()))
     return said, buttons
+
+
+# --- a summary each morning -------------------------------------------------------------------------------------------
+def morning(at: datetime | None = None) -> bool:
+    """Once a day, at the hour set (bot.daily_summary): what waits for the applicant, what is on today, what went out
+    and what came back yesterday. Put together by the program - no model is asked. Returns whether it went out."""
+    from . import agenda, bots, messages, notify
+    from .models import Application, MailEvent
+
+    cfg = db.get_setting("bot.daily_summary") or {}
+    at = at or datetime.now()
+    if not cfg.get("on") or db.get_setting("bot.summary_sent") == at.date().isoformat():
+        return False
+    try:
+        h, m = map(int, str(cfg.get("at") or "08:30").split(":"))
+    except ValueError:
+        h, m = 8, 30
+    if (at.hour, at.minute) < (h, m):
+        return False
+    db.set_setting("bot.summary_sent", at.date().isoformat())
+    today, yesterday = at.date(), at.date() - timedelta(days=1)
+    waiting = [c[0].split("\n")[0] for c in bots.open_cards(limit=50)]
+    on_today = [x for x in agenda.items(today, today + timedelta(days=1)) if not x["done"]]
+    lo = datetime.combine(yesterday, datetime.min.time()).astimezone().astimezone(timezone.utc).replace(tzinfo=None)
+    hi = lo + timedelta(days=1)
+    with db.session() as s:
+        sent = s.query(Application).filter(Application.submitted_at >= lo, Application.submitted_at < hi).count()
+        replies = s.query(MailEvent).filter(MailEvent.received_at >= lo, MailEvent.received_at < hi, MailEvent.category.in_(("interview", "assessment", "offer", "rejection", "info_request"))).count()
+    card = messages.morning(waiting, [(x["start"][11:16] if not x["all_day"] else "", messages.ITEM_KINDS.get(x["kind"], ""), x["subject"] or x["title"]) for x in on_today],
+                            sent=sent, replies=replies)
+    notify.send("status_update", card, tag="summary", ref="summary:" + today.isoformat())
+    return True

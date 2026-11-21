@@ -514,6 +514,11 @@ onMounted(() => { load(); loadDiscord() })
           <p class="hint">命令：/status 现在在做什么，/todo 等你处理的事，/pause 暂停，/resume 恢复，/scan 扫描新岗位，/app 公司名 查一份申请。</p>
           <label style="display: block; margin-top: 8px"><input v-model="s['bot.chat']" type="checkbox" :disabled="!s['bot.listen']" /> 其他的话交给助手回答（会用一点 AI 额度）</label>
           <p class="hint">可以问它进展，让它投某个岗位、再试一次、停下、标成不投、暂停或恢复，也可以直接告诉它申请在等的问题的答案。一次要做好几件事时，它会先在回答下面放一个确认按钮。</p>
+          <div v-if="s['bot.daily_summary']" class="row" style="margin-top: 8px; flex-wrap: wrap; gap: 8px">
+            <label><input v-model="s['bot.daily_summary'].on" type="checkbox" /> {{ $t('settings.summary.on') }}</label>
+            <input v-model="s['bot.daily_summary'].at" type="time" :disabled="!s['bot.daily_summary'].on" :aria-label="$t('settings.summary.at')" style="width: 120px" />
+          </div>
+          <p class="hint">{{ $t('settings.summary.hint') }}</p>
         </div>
       </SetSection>
 

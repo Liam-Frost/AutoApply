@@ -735,6 +735,12 @@ def _schedule_jobs() -> None:
             alarms.tick()
         except Exception:  # noqa: BLE001
             log.exception("calendar reminders failed")
+        try:      # the summary each morning, at its hour (chat.morning)
+            from . import chat
+
+            chat.morning()
+        except Exception:  # noqa: BLE001
+            log.exception("the morning summary failed")
 
     _sched.add_job(alarm_tick, "interval", minutes=1, id="alarms", replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=60))
 

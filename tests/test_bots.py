@@ -311,3 +311,52 @@ def test_what_the_applicant_told_a_bot_is_in_the_activity_record_without_the_cod
         said = [n.text for n in s.query(Notification).filter_by(category="heard").order_by(Notification.id)]
     assert said[0].startswith("Telegram：回复了验证码") and said[1].startswith("Discord：Acme：请输入验证码") and said[2].startswith("Telegram：/pause")
     assert not any(c in " ".join(said) for c in ("553311", "778899"))
+
+
+def test_the_assistant_narrows_looks_ahead_and_remembers_what_it_talked_about(app_env, monkeypatch):
+    from datetime import date, timedelta
+
+    from autoapply import chat, llm
+
+    soon = (date.today() + timedelta(days=3)).isoformat()
+    later = (date.today() + timedelta(days=30)).isoformat()
+    j1, _, _ = _posting("draft_ready")
+    from autoapply.models import Job
+
+    with db.session() as s:
+        s.get(Job, j1).deadline, s.get(Job, j1).score = soon, 8.0
+        s.add(Job(source="manual", source_id="b2", company="Globex", title="Data Intern", apply_url="https://x/2", jd_text="x" * 300, status="scored", online=1, score=6.0, deadline=later))
+    assert [r["company"] for r in chat.look(due_within_days=7)] == ["Acme"]
+    assert [r["company"] for r in chat.look(state="unapplied")] == ["Globex"]
+    assert [r["company"] for r in chat.look(min_score=7)] == ["Acme"]
+    assert [(x["kind"], x["subject"]) for x in chat.upcoming(7)] == [("deadline", "Acme · Backend Intern")]
+    goals = []
+
+    def agent(goal, tools, *, system, kind=""):
+        goals.append(goal)
+        by = {t.name: t.fn for t in tools}
+        if len(goals) == 1:
+            by["look"](query="acme")
+        return llm.AgentResult(final_text="Acme is waiting for your approval.")
+
+    monkeypatch.setattr(llm, "agent", agent)
+    chat.reply("how is Acme?")
+    chat.reply("and the other one?")
+    assert "that answer was about: Acme · Backend Intern (job" in goals[1]          # "the other one" can be worked out
+
+
+def test_a_summary_each_morning_once_when_asked_for(app_env, monkeypatch):
+    from datetime import datetime
+
+    from autoapply import chat, notify
+
+    sent = []
+    monkeypatch.setattr(notify, "send", lambda category, card, **k: sent.append((category, card.heading, k.get("tag"))) or True)
+    _posting("needs_input")
+    assert chat.morning(datetime(2026, 11, 24, 9, 0)) is False                         # off unless switched on
+    db.set_setting("bot.daily_summary", {"on": True, "at": "08:30"})
+    assert chat.morning(datetime(2026, 11, 24, 8, 0)) is False                         # not before its hour
+    assert chat.morning(datetime(2026, 11, 24, 8, 31)) is True
+    assert chat.morning(datetime(2026, 11, 24, 12, 0)) is False                        # once a day
+    assert chat.morning(datetime(2026, 11, 25, 8, 30)) is True
+    assert sent[0] == ("status_update", "早上好：今天的情况", "summary")

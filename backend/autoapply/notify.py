@@ -21,7 +21,7 @@ from .models import Notification, Todo
 log = logging.getLogger("autoapply.notify")
 
 CATEGORIES = ("task_started", "todo", "status_update", "task_result")
-ALWAYS = {"interview", "assessment", "quota", "reminder"}  # ("reminder": one the applicant set on the calendar)  # event tags that bypass the per-category switch (quota has its own switch: llm.quota_notify)
+ALWAYS = {"interview", "assessment", "quota", "reminder", "summary"}  # ("reminder": one the applicant set on the calendar)  # event tags that bypass the per-category switch (quota has its own switch: llm.quota_notify)
 
 
 class Channel(Protocol):
