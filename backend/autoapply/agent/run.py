@@ -12,6 +12,7 @@ followed by another that knows what this one did - whatever became of the browse
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,6 +28,7 @@ OUTCOMES = ("ready", "submitted", "needs_you", "cannot")
 STOP = "stop"       # a file of this name in the application's folder: the applicant says "stop" (work.stop)
 SAID = "said.jsonl"
 WINDOW = "window"            # in an application's folder: its next run opens in a window the applicant can see
+MADE = "made"                # ... and the files its runs made out of the applicant's files (make_file), with what each holds
 WAIT_MINUTES = 10            # how long a run waits for the applicant's code or confirmation before it ends
 STAYS_SECONDS = 8            # a page that asks something of the applicant is still there after this long; one that only passes through is not
 BROWSERS = {"playwright": "the automated browser (a Chromium this program starts and drives; some sites recognise and refuse it)",
@@ -63,6 +65,31 @@ class _Budget:
                 super().spend()
 
         return Stoppable(steps, seconds, "apply")
+
+
+def made_files(folder: Path) -> dict[str, tuple[str, str]]:
+    """The files earlier runs of this application made (``make_file``): name -> (path, what it holds). They are the
+    application's from then on: the run that sends what another run prepared uploads the same file."""
+    try:
+        notes = json.loads((folder / MADE / "made.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {name: (str(folder / MADE / name), str(note)) for name, note in notes.items() if (folder / MADE / name).is_file()}
+
+
+def _pages(spec: str, n: int) -> list[int]:
+    """"1-2,4" of a document of ``n`` pages, as indexes; all of them for nothing said."""
+    spec = "".join(str(spec or "").split())
+    if not spec:
+        return list(range(n))
+    out: list[int] = []
+    for piece in spec.split(","):
+        a, _, b = piece.partition("-")
+        first, last = int(a), int(b or a)
+        if not 1 <= first <= last <= n:
+            raise ValueError(f"pages {piece!r}: the document has {n} page(s)")
+        out += range(first - 1, last)
+    return out
 
 
 @dataclass
@@ -477,6 +504,74 @@ class Desk:
                    url=url._replace(query="", fragment="").geturl(), evidence=self._clean(row))
         return "Recorded the filename shown in the site's attachment row. Check the site for pending uploads or errors."
 
+    def make_file(self, name: str, parts: list[dict[str, Any]]) -> str:
+        """One PDF out of the applicant's files: several in a row, some pages of one, or one under another name. Only
+        what is in the files already goes in - nothing is written or changed in them."""
+        import io
+
+        from pypdf import PdfReader, PdfWriter
+
+        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(name or "").strip()).strip(". ")[:120]
+        if not name:
+            raise ValueError("give the file a name")
+        if not name.lower().endswith(".pdf"):
+            name += ".pdf"
+        if not parts:
+            raise ValueError("say which files go in: parts = [{file, pages}]")
+        mine = made_files(self.folder)
+        if name in self.hands.files and name not in mine:
+            raise ValueError(f"{name!r} is the name of one of the applicant's own files: choose another")
+        out_dir = self.folder / MADE
+        out_dir.mkdir(parents=True, exist_ok=True)
+        writer, held = PdfWriter(), []
+        for part in parts:
+            file = str((part or {}).get("file") or "")
+            if file not in self.hands.files:
+                raise ValueError(f"{file!r} is not one of the files ({', '.join(repr(f) for f in self.hands.files) or 'there are none'})")
+            path = Path(self.hands.files[file])
+            kind = path.suffix.lower()
+            if kind == ".pdf":
+                source: Any = str(path)
+            elif kind in (".docx", ".doc"):
+                import shutil
+
+                from .. import convert
+
+                copy = out_dir / ("_from_" + path.name)      # (converted beside a copy: nothing appears next to the applicant's own file)
+                shutil.copyfile(path, copy)
+                try:
+                    source = io.BytesIO(convert.docx_to_pdf(copy).read_bytes())
+                finally:
+                    copy.unlink(missing_ok=True)
+                    copy.with_suffix(".pdf").unlink(missing_ok=True)
+            elif kind in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"):
+                from PIL import Image
+
+                source = io.BytesIO()
+                with Image.open(path) as im:
+                    im.convert("RGB").save(source, "PDF", resolution=150.0)
+                source.seek(0)
+            else:
+                raise ValueError(f"{file!r} is a {kind or 'file without a type'}: a PDF is made of PDFs, Word documents and pictures")
+            reader = PdfReader(source)
+            if reader.is_encrypted:
+                raise ValueError(f"{file!r} is locked with a password: it cannot be put into another file")
+            take = _pages((part or {}).get("pages") or "", len(reader.pages))
+            for i in take:
+                writer.add_page(reader.pages[i])
+            held.append(f"{file} (" + ("all" if len(take) == len(reader.pages) else f"{len(take)} of") + f" {len(reader.pages)} page(s))")
+        target = out_dir / name
+        with open(target, "wb") as f:
+            writer.write(f)
+        note = "made for this application from: " + "; ".join(held)
+        notes = {n: v[1] for n, v in mine.items()}
+        notes[name] = note
+        (out_dir / "made.json").write_text(json.dumps(notes, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.hands.files[name] = str(target)
+        self.write("file_made", name=name, of=held, pages=len(writer.pages), bytes=target.stat().st_size)
+        return (f"Made {name!r}: {len(writer.pages)} page(s), {max(1, target.stat().st_size // 1024)} KB - {'; '.join(held)}. Upload it by that name, and say in your "
+                "report what it holds.")
+
     def tailor_resume(self, instructions: str = "") -> str:
         """Have the applicant's résumé rewritten for this posting (the program's own writer: within what the applicant's
         settings allow, checked against the original) and add it to the files that may be uploaded."""
@@ -762,6 +857,13 @@ class Desk:
             llm.Tool("verify_attachment", "Read back the filename from one visible employer attachment row. After upload, wait for completion and call this with the row selector. On resume check existing attachments before uploading again.", spec(["file", "selector"], file=s, selector=s), self.verify_attachment),
             llm.Tool("cover_letter", "Have a cover letter written for this posting, when the posting or the form asks for one and none is among the files. It becomes a file you can "
                                      "upload. `instructions`: anything the letter must take into account.", spec(instructions=s), self.cover_letter),
+            llm.Tool("make_file", "Make one PDF out of the applicant's files, when a posting or a form wants them in another shape than you were given them: several "
+                                  "put together in the order you give (\"résumé, cover letter and transcript as one document\"), some pages of one, or one under "
+                                  "another file name (\"name the file Lastname_Firstname.pdf\"). `parts`: the files in order, each {file, pages} - `pages` like "
+                                  "\"1-2,4\", all of them when left out; PDFs, Word documents and pictures go in. The result is a file you can upload, kept with "
+                                  "this application. Nothing in the files is changed.",
+                     spec(["name", "parts"], name=s, parts={"type": "array", "items": {"type": "object", "properties": {"file": s, "pages": s}, "required": ["file"],
+                                                                                           "additionalProperties": False}}), self.make_file),
             llm.Tool("tailor_resume", "Have the applicant's résumé rewritten for this posting - reordered, and reworded where their settings allow, checked against the "
                                       "original. It becomes a file you can upload. Whether this application is better with one is yours to judge, from the posting and from "
                                       "what the brief says the applicant wants. `instructions`: anything the rewriting must take into account.", spec(instructions=s), self.tailor_resume),

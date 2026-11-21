@@ -2939,5 +2939,6 @@
 "Agent 等了 10 分钟没有等到你的确认。你有空时点下面的按钮：它会马上重新做到那一步并等你。": "The agent waited 10 minutes for your confirmation. When you are free, press the button below: it will get back to that step at once and wait for you.",
 "这一步要你本人在浏览器窗口里完成（比如人机验证）。点下面的按钮：Agent 会在你看得见的窗口里重新做到那一步，然后等你。": "This step is yours to do in the browser window (a CAPTCHA, for instance). Press the button below: the agent will get back to that step in a window you can see, then wait for you.",
 "Agent 已经不在等这个验证码了（等待超过了 10 分钟）。它现在会重新开始并让网站再发一个，新的验证码卡片出现后再输入。": "The agent is no longer waiting for this code (it waited more than 10 minutes). It is starting again now and will have the site send a new one; enter that when the new code card appears.",
-"Agent 等了 10 分钟没有等到验证码，那个验证码已经过期。你有空时点下面的按钮：它会马上回到那一步，让网站重新发一个，再在这里等你输入。": "The agent waited 10 minutes for the code, which has expired by now. When you are free, press the button below: it will get back to that step at once, have the site send a new one, and wait here for you to enter it."
+"Agent 等了 10 分钟没有等到验证码，那个验证码已经过期。你有空时点下面的按钮：它会马上回到那一步，让网站重新发一个，再在这里等你输入。": "The agent waited 10 minutes for the code, which has expired by now. When you are free, press the button below: it will get back to that step at once, have the site send a new one, and wait here for you to enter it.",
+"不处理，关闭": "Leave it, close"
 }

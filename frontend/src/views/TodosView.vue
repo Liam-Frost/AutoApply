@@ -221,6 +221,7 @@ onMounted(load)
           <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? '改日期' : '加上日期' }}</button>
           <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请和原邮件</router-link>
           <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">打开人脉</router-link>
+          <button class="ghost" @click="dismiss(t)">不处理，关闭</button>
         </template>
         <template v-else-if="['failed', 'submit'].includes(t.kind) && t.application && t.job">
           <template v-if="unknown(t)">

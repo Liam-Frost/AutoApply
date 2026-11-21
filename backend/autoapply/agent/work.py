@@ -261,6 +261,9 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "") -> 
         return _budget_used(app_id, title, folder)
     applicant = brief.applicant_on_file(channel)
     _own_letter(applicant, job_id)
+    for name, (path, note) in run.made_files(folder).items():      # what earlier runs of this application put together
+        applicant.files.setdefault(name, path)
+        applicant.file_notes.setdefault(name, note)
     if mode != "verify":
         told = _resume(applicant, about_job, base)
         if told:

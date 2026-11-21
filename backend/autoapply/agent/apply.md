@@ -68,6 +68,11 @@ conclude a posting cannot be applied to; "cannot" is for a site that refuses bot
   `tailor_resume` has one written. It is worth it where the résumé is read against the posting; decide before you
   upload a résumé, so that the right file goes in the first time.
 - Upload the right file the first time. Check the name the form shows after an upload.
+- The files are yours to put into the shape that is asked for. A posting that wants "résumé, cover letter and
+  transcript in one PDF", a form with one upload box for three documents, a file name it prescribes, only the first
+  page of a transcript: `make_file` makes that file out of the ones you have. A form that has a box for one document
+  and none for another the posting asks for: put the other into the same file (the cover letter and the transcript in
+  one PDF for the cover-letter box), and say so in the report. This is not a question for the applicant.
 - Cookie banners and consent notices that stand in the way: as the applicant's rules in the profile say; without a
   rule, decline what is optional and accept what the application cannot go on without.
 - An offer on the way that is not the application (job alerts, text messages, a talent community, a newsletter):

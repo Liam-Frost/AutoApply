@@ -447,3 +447,40 @@ def test_a_sign_in_whose_button_did_nothing_is_seen_through_by_the_program_and_n
     pw, go = _ref(desk.hands, 'password "Password"'), _ref(desk.hands, 'button "Login"')
     said = d.type_password(pw, then_click=go)
     assert "NOT sent" in said and "emptied" in said and desk.page.evaluate("() => document.getElementById('pw').value") == ""
+
+
+def test_the_agent_makes_one_file_out_of_the_applicants_files_and_it_stays_with_the_application(desk, tmp_path):
+    """A posting asked for résumé, cover letter and transcript in one PDF; the form had a box for two of them. The
+    agent had no way to do anything with a file but upload it, and asked the applicant to merge them."""
+    from PIL import Image
+    from pypdf import PdfReader, PdfWriter
+
+    from autoapply.agent import run
+
+    def pdf(name, pages, width):
+        w = PdfWriter()
+        for _ in range(pages):
+            w.add_blank_page(width=width, height=800)
+        w.write(str(tmp_path / name))
+        return str(tmp_path / name)
+
+    Image.new("RGB", (300, 200), "white").save(tmp_path / "permit.png")
+    d = desk.make()
+    d.hands.files.update({"resume.pdf": pdf("resume.pdf", 1, 501), "letter.pdf": pdf("letter.pdf", 1, 502), "transcript.pdf": pdf("transcript.pdf", 4, 503),
+                          "permit.png": str(tmp_path / "permit.png"), "notes.txt": str(tmp_path / "notes.txt")})
+    said = d.make_file("Seaspan application", [{"file": "resume.pdf"}, {"file": "letter.pdf"}, {"file": "transcript.pdf", "pages": "1-2,4"}, {"file": "permit.png"}])
+    assert "'Seaspan application.pdf': 6 page(s)" in said and "3 of 4 page(s)" in said
+    made = PdfReader(d.hands.files["Seaspan application.pdf"])
+    assert [int(pg.mediabox.width) for pg in made.pages][:5] == [501, 502, 503, 503, 503]      # in the order given
+    assert len(PdfReader(str(tmp_path / "transcript.pdf")).pages) == 4                            # the applicant's own file is as it was
+    # one file under the name a form prescribes
+    assert "1 page(s)" in d.make_file("Liu_Liam.pdf", [{"file": "resume.pdf"}])
+    for bad, why in (([{"file": "nothing.pdf"}], "not one of the files"), ([{"file": "transcript.pdf", "pages": "5"}], "4 page"), ([{"file": "notes.txt"}], "made of PDFs")):
+        with pytest.raises(ValueError, match=why):
+            d.make_file("x", bad)
+    with pytest.raises(ValueError, match="own files"):
+        d.make_file("resume.pdf", [{"file": "letter.pdf"}])
+    # the next run of this application has them, with what each holds
+    kept = run.made_files(desk.folder)
+    assert set(kept) == {"Seaspan application.pdf", "Liu_Liam.pdf"} and "transcript.pdf (3 of 4 page(s))" in kept["Seaspan application.pdf"][1]
+    assert "make_file" in {t.name for t in d.tools()}
