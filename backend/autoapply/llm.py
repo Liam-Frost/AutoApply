@@ -350,6 +350,7 @@ def _oa(fn: Callable[[llm_openai.Client, str], Any], *, small: bool = False) -> 
     cfg, model = _other(small)
     try:
         c = llm_openai.Client(str(cfg.get("base_url") or llm_openai.PRESETS[p]["base_url"]), secrets.get(key_name(p)))
+        c.effort = "" if small else str(cfg.get("effort") or "")      # (how hard the main model thinks: the applicant's choice for this service; the small one is left as it is)
         try:
             return fn(c, model)
         finally:
@@ -367,7 +368,7 @@ def _oa(fn: Callable[[llm_openai.Client, str], Any], *, small: bool = False) -> 
 
 def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, Any] | None = None, tools: list[Any] | None = None,
            on_step: Callable[[dict[str, Any]], None] | None = None, budget: agentbudget.Budget | None = None) -> tuple[str, list[dict[str, Any]], str]:
-    _, model = _other(small)
+    cfg, model = _other(small)
     if not isinstance(prompt, str):
         prompt = llm_openai._content(prompt)
         if not isinstance(prompt, str):
@@ -375,6 +376,7 @@ def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, An
     t0 = time.time()
     try:
         out, steps, used, stopped = llm_codex.run(prompt, system=system, model=model, schema=schema, tools=tools, on_step=on_step, budget=budget,
+                                                  effort="" if small else str(cfg.get("effort") or ""),
                                                   base_url=str(db.get_setting("app.base_url") or "http://127.0.0.1:8000"))
     except (llm_codex.Unavailable, llm_codex.Failed) as e:
         err = (LLMUnavailable if isinstance(e, llm_codex.Unavailable) else LLMError)(str(e))

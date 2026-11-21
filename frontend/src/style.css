@@ -501,7 +501,8 @@ button.chip { border-radius: var(--r-pill); font-weight: 500; background: var(--
 .an-bar { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin-bottom: var(--s4); }
 .an-bar input[type=date] { padding: 5px 8px; font-size: var(--fs-sm); }
 /* KPI tiles: the figure, what it is, and - only when there is something to compare with - the change */
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
+/* as many in a row as there are, while each keeps room for its figure: five figures are one row, not four and one */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
 .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s3) var(--s4); box-shadow: var(--shadow-sm); min-width: 0; }
 .kpi .n { font-size: var(--fs-2xl); font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .kpi .n.ok { color: var(--ok); } .kpi .n.na { color: var(--text-3); }

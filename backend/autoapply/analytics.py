@@ -154,6 +154,13 @@ def _through_time(w: Window, sent: list[tuple[datetime, bool]], replies: list[da
     window unless ``bucket`` says which. Every step of the stretch is there, also those in which nothing was sent: a
     week without an application is part of the picture."""
     size, key = _bucket_fn(w, [t for t, _ in sent] + replies, bucket)
+    one_day = w.lo is not None and w.hi is not None and w.hi - w.lo <= timedelta(days=1)
+    if one_day:      # a single day is looked at by the hour - and only a single day is
+        size = "hour"
+
+        def key(dt: datetime) -> tuple[str, str]:  # noqa: F811
+            d = _local(dt)
+            return d.strftime("%Y-%m-%d %H:00"), d.strftime("%H:00")
     rows: dict[str, dict[str, Any]] = {}
 
     def at(t: datetime) -> dict[str, Any]:
@@ -172,7 +179,7 @@ def _through_time(w: Window, sent: list[tuple[datetime, bool]], replies: list[da
     step = lo
     while step is not None and step <= hi and len(rows) < 800:      # the steps in which nothing happened
         at(step)
-        step += timedelta(days=1 if size == "day" else 7 if size == "week" else 28)
+        step += timedelta(hours=1) if size == "hour" else timedelta(days=1 if size == "day" else 7 if size == "week" else 28)
     if lo is not None:
         at(hi)
     return {"bucket": size, "rows": [rows[k] for k in sorted(rows)]}

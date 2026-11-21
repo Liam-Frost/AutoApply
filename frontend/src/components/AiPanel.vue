@@ -12,7 +12,7 @@ const props = defineProps({ s: { type: Object, required: true }, sec: { type: Ob
 const emit = defineEmits(['changed'])
 const d = ref(null)
 const pick = ref('')
-const form = ref({ base_url: '', model: '', small_model: '', api_key: '' })
+const form = ref({ base_url: '', model: '', small_model: '', effort: '', api_key: '' })
 const models = ref([])
 const claude = ref(null)
 const busy = ref(false)
@@ -26,7 +26,7 @@ const byKey = (k) => d.value.providers.find((p) => p.key === k)
 
 function fill() {
   const p = cur.value
-  form.value = { base_url: p.base_url || '', model: p.model || '', small_model: p.small_model || '', api_key: '' }
+  form.value = { base_url: p.base_url || '', model: p.model || '', small_model: p.small_model || '', effort: p.effort || '', api_key: '' }
   models.value = []
 }
 async function load(keep) {
@@ -40,7 +40,7 @@ async function load(keep) {
 async function choose(k) { if (k === pick.value || !(await mayLeave(['ai-provider']))) return; pick.value = k; fill(); autoModels() }
 const formDirty = computed(() => {
   const p = cur.value
-  return !!p && (!!form.value.api_key || form.value.base_url !== (p.base_url || '') || form.value.model !== (p.model || '') || form.value.small_model !== (p.small_model || ''))
+  return !!p && (!!form.value.api_key || form.value.base_url !== (p.base_url || '') || form.value.model !== (p.model || '') || form.value.small_model !== (p.small_model || '') || form.value.effort !== (p.effort || ''))
 })
 let keyTimer
 function keyTyped() { clearTimeout(keyTimer); keyTimer = setTimeout(autoModels, 700) }
@@ -219,6 +219,8 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
         <div class="kv" style="margin-top: 14px">
           <label>主要模型</label><ModelPick v-model="form.model" :models="models" :loading="loadingModels" allow-empty="用账号的默认模型" />
           <label>简单任务用的模型</label><ModelPick v-model="form.small_model" :models="models" :loading="loadingModels" allow-empty="和主要模型一样" />
+          <label>思考深度</label><div><AaSelect v-model="form.effort"><option value="">按账号的默认</option><option value="low">低（快，省额度）</option><option value="medium">中</option><option value="high">高</option><option value="xhigh">最高（慢，费额度）</option></AaSelect>
+            <div class="hint">只管主要模型。思考得越深，同一份申请用掉的额度越多。</div></div>
         </div>
       </template>
 
@@ -236,6 +238,8 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
           <label>简单任务用的模型</label>
           <div><ModelPick v-model="form.small_model" :models="models" :loading="loadingModels" allow-empty="和主要模型一样" />
             <div class="hint">给邮件分类、读验证码这类小事用，可以选便宜的。</div></div>
+          <label>思考深度</label><div><AaSelect v-model="form.effort"><option value="">不指定（这家服务的默认）</option><option value="low">低（快，便宜）</option><option value="medium">中</option><option value="high">高</option><option value="xhigh">最高（慢，贵）</option></AaSelect>
+            <div class="hint">只管主要模型，作为 reasoning_effort 发给这家服务。不是会思考的模型、或这家服务不认识这个参数时会报错，那就选“不指定”。</div></div>
         </div>
       </template>
 

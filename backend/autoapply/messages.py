@@ -170,7 +170,11 @@ def tailored(title: str, *, focus: str, problems: list[str]) -> Card:
 
 
 def gmail_authorized() -> Card:
-    return Card("📧", "Gmail 只读授权完成", hint="之后会定时读取与申请有关的邮件，不会发送或修改任何邮件。")
+    from . import mail
+
+    if mail.can_send():
+        return Card("📧", "Gmail 授权完成：可以读信和发信", hint="之后会定时读取与申请有关的邮件；邮件投递的申请和给雇主的回复从这个邮箱发出，按你在设置里选的，先给你看一遍或直接发。")
+    return Card("📧", "Gmail 授权完成：只能读信", hint="之后会定时读取与申请有关的邮件。这次授权里没有“发送邮件”这一项，所以程序不能替你发信；需要的话重新授权一次，把那一项勾上。")
 
 
 # --- status update -----------------------------------------------------------------------

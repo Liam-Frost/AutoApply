@@ -16,14 +16,13 @@ const STATE_COLOR = { silent: 'var(--chart-other)', receipt: 'var(--chart-soft)'
 const states = computed(() => props.d.states.map((s) => ({ ...s, color: STATE_COLOR[s.key] })))
 // how many were sent along the stretch of time the page is set to: by day, week or month (the server picks by the
 // length of the stretch unless one is chosen here)
-const SENT_TITLE = { day: '每天投了多少', week: '每周投了多少', month: '每个月投了多少' }
-const SENT_SUB = { day: '按投出的日期（本地时间）', week: '按投出的那一周（周一起算，本地时间）', month: '按投出的月份（本地时间）' }
-const STEP_HEAD = { day: '日期', week: '哪一周（周一）', month: '月份' }
+const SENT_TITLE = { hour: '今天每个小时投了多少', day: '每天投了多少', week: '每周投了多少', month: '每个月投了多少' }
+const SENT_SUB = { hour: '按投出的钟点（本地时间）', day: '按投出的日期（本地时间）', week: '按投出的那一周（周一起算，本地时间）', month: '按投出的月份（本地时间）' }
+const STEP_HEAD = { hour: '钟点', day: '日期', week: '哪一周（周一）', month: '月份' }
 const steps = computed(() => (props.d.by_time ? props.d.by_time.rows : []))
 const size = computed(() => (props.d.by_time ? props.d.by_time.bucket : 'month'))
-// (a long stretch by day has more steps than there is room for labels: every few of them are named)
-const every = computed(() => Math.max(1, Math.ceil(steps.value.length / 16)))
-const monthly = computed(() => steps.value.map((m, i) => ({ label: i % every.value === 0 ? m.label : '', value: m.n, tip: m.key + ' 投出' })))
+// (every step has its label; the chart shows as many of them as it has room for)
+const monthly = computed(() => steps.value.map((m) => ({ label: m.label, value: m.n, tip: m.key + ' 投出' })))
 const wait = computed(() => (props.d.median_wait_days == null ? '—' : props.d.median_wait_days ? props.d.median_wait_days + ' 天' : '当天'))
 const rateOf = (r) => (r.thin ? '—' : pct(r.decided, r.n) + '%')
 
@@ -78,7 +77,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       <div class="card">
         <div class="card-head">
           <span class="card-title">{{ SENT_TITLE[size] }}</span>
-          <div class="seg" aria-label="按多长的时间看"><button v-for="[k, l] in [['', '自动'], ['day', '按天'], ['week', '按周'], ['month', '按月']]" :key="k" :class="{ on: params.bucket === k }" @click="params.bucket = k">{{ l }}</button></div>
+          <div v-if="size !== 'hour'" class="seg" aria-label="按多长的时间看"><button v-for="[k, l] in [['', '自动'], ['day', '按天'], ['week', '按周'], ['month', '按月']]" :key="k" :class="{ on: params.bucket === k }" @click="params.bucket = k">{{ l }}</button></div>
           <div class="seg" role="tablist" aria-label="怎么看">
             <button role="tab" :aria-selected="!asTable" :class="{ on: !asTable }" @click="asTable = false"><Icon name="chart" />图表</button>
             <button role="tab" :aria-selected="asTable" :class="{ on: asTable }" @click="asTable = true"><Icon name="table" />表格</button>

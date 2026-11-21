@@ -2451,11 +2451,11 @@ def llm_providers() -> dict[str, Any]:
     saved = db.get_setting("llm.providers") or {}
     rows = [{"key": "claude_subscription", "name": "Claude 订阅（Pro / Max）", "kind": "login"},
             {"key": "anthropic", "name": "Claude API key", "kind": "anthropic", "has_key": secrets.has(secrets.ANTHROPIC_KEY), "keys": "https://console.anthropic.com/settings/keys"},
-            {"key": "chatgpt", "name": "ChatGPT 订阅（Plus / Pro）", "kind": "codex", **llm_codex.status(), **{k: (saved.get("chatgpt") or {}).get(k, "") for k in ("model", "small_model")}}]
+            {"key": "chatgpt", "name": "ChatGPT 订阅（Plus / Pro）", "kind": "codex", **llm_codex.status(), **{k: (saved.get("chatgpt") or {}).get(k, "") for k in ("model", "small_model", "effort")}}]
     for k, p in llm_openai.PRESETS.items():
         c = saved.get(k) or {}
         rows.append({"key": k, "name": p["name"], "kind": "openai", "default_base_url": p["base_url"], "keys": p["keys"], "base_url": c.get("base_url", ""),
-                     "model": c.get("model", ""), "small_model": c.get("small_model", ""), "has_key": secrets.has(llm.key_name(k))})
+                     "model": c.get("model", ""), "small_model": c.get("small_model", ""), "effort": c.get("effort", ""), "has_key": secrets.has(llm.key_name(k))})
     return {"current": llm.provider(), "providers": rows}
 
 
@@ -2547,7 +2547,9 @@ def llm_provider_save(key: str, body: dict[str, Any] = Body(...)) -> dict[str, A
         if base and not re.match(r"^https?://", base):
             raise HTTPException(400, "接口地址要以 http:// 或 https:// 开头")
         allp = dict(db.get_setting("llm.providers") or {})
-        allp[key] = {"base_url": base, "model": str(body.get("model", "")).strip(), "small_model": str(body.get("small_model", "")).strip()}
+        effort = str(body.get("effort", "")).strip()
+        allp[key] = {"base_url": base, "model": str(body.get("model", "")).strip(), "small_model": str(body.get("small_model", "")).strip(),
+                     "effort": effort if effort in ("minimal", "low", "medium", "high", "xhigh") else ""}
         db.set_setting("llm.providers", allp)
     if body.get("api_key"):
         secrets.put(secrets.ANTHROPIC_KEY if key == "anthropic" else llm.key_name(key), str(body["api_key"]).strip())

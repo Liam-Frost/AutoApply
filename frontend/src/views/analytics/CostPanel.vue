@@ -87,11 +87,6 @@ async function savePrices() {
 </script>
 
 <template>
-  <div v-if="t.legacy" class="callout">
-    <Icon name="info" />
-    <div>这段时间里有 {{ t.legacy.tasks }} 个任务是在“逐次记录模型请求”之前跑的：共 {{ t.legacy.calls }} 次调用，输入 {{ compact(t.legacy.input) }}、输出 {{ compact(t.legacy.output) }} Token。
-      当时没有记录用的是哪个模型、多少来自缓存，所以算不出费用；下面的数字都不包含它们。</div>
-  </div>
   <div v-if="t.unpriced_requests" class="callout warn">
     <Icon name="alert" />
     <div>有 {{ t.unpriced_requests }} 次请求的模型没有价格，Token 计入了，费用没有计入<template v-if="d.pricing.missing.length">：<span data-notr>{{ d.pricing.missing.join('、') }}</span></template>。
