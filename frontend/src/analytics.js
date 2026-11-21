@@ -27,6 +27,13 @@ export function dur(s) {
   return duration({ hours: Math.floor(m / 60), minutes: m % 60 })
 }
 
+// a span given in hours, in the unit that fits: "35 min", "6 hr, 20 min", "3 days, 4 hr"
+export function hours(h) {
+  if (h == null) return '—'
+  if (h < 48) return dur(h * 3600)
+  return duration({ days: Math.floor(h / 24), hours: Math.round(h % 24) })
+}
+
 // a share of a whole (0..1) in words: never "0%" for something that is there
 const percent = (v) => num(v, { style: 'percent', maximumFractionDigits: 0 })
 export const share = (v) => (v == null ? '—' : v > 0 && v < 0.005 ? '<' + percent(0.01) : percent(v))

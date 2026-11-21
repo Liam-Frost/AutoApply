@@ -18,6 +18,7 @@ Rules that hold everywhere:
 
 from __future__ import annotations
 
+import re
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
@@ -220,11 +221,17 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
                     reply_times.append(t)
         missed = []
         for j in s.query(Job).filter(Job.duplicate_of.is_(None), Job.score >= 7.5):
-            st = stages.stage(j.status, bool(j.online), j.deadline or "", j.application.status if j.application else None)
-            if st in ("expired", "offline") and w.has(_naive(j.first_seen)):
+            a_ = j.application
+            # closed without an application sent - also one that was begun and stopped short of sending
+            st = "offline" if not j.online or j.status == "offline" else "expired" if stages._past(j.deadline or "") else ""
+            gone_out = a_ is not None and (a_.status in SENT or a_.status == "submit_unknown")
+            if st and not gone_out and j.status != "skipped" and w.has(_naive(j.first_seen)):
                 missed.append({"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": (j.deadline or "")[:10], "stage": st,
-                               "why": "没有申请链接" if not j.apply_url else "已截止，没有投" if st == "expired" else "已下线，没有投"})
+                               "why": "没有申请链接" if not j.apply_url else "已截止，没有投" if st == "expired" else "已下线，没有投",
+                               "reason": _missed_reason(j, a_)})
         missed.sort(key=lambda r: (-(r["score"] or 0), r["deadline"] or "9999"))
+        first = _first_records(s, w)
+        backlog = _backlog(s, w)
 
     def rate(rows: list[dict[str, Any]]) -> dict[str, int]:
         return {"n": len(rows), "replied": sum(1 for r in rows if r["heard"]), "decided": sum(1 for r in rows if r["decided"]),
@@ -268,7 +275,66 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
         "by_month": [{"label": m, **(per_month.get(m) or {**rate([]), "thin": True}), "replies": reply_months.get(m, 0)} for m in months],
         "auto": {"auto": sum(1 for r in apps if r["auto"]), "manual": sum(1 for r in apps if not r["auto"])},
         "missed": missed[:12], "missed_total": len(missed),
+        "missed_reasons": [{"key": k, "n": sum(1 for r in missed if r["reason"] == k)} for k in MISSED if any(r["reason"] == k for r in missed)],
+        "first_record": first, "backlog": backlog,
     }
+
+
+# Why a posting good enough to apply for went past its deadline (or offline) without an application sent (the page
+# says each in words: analytics.missed.reason.<key>).
+MISSED = ("no_link", "not_started", "waited_for_you", "failed", "under_way", "withdrawn")
+
+
+def _missed_reason(j: Job, a: Application | None) -> str:
+    if not j.apply_url and a is None:
+        return "no_link"
+    if a is None:
+        return "not_started"
+    if a.status in ("needs_input", "draft_ready", "needs_human", "returned"):
+        return "waited_for_you"
+    if a.status == "failed":
+        return "failed"
+    if a.status == "withdrawn":
+        return "withdrawn"
+    return "under_way"
+
+
+def _first_records(s: Any, w: Window) -> dict[str, Any]:
+    """How long a posting waited for its first record ready to be sent: from when it was found, and from when its
+    application was begun. For the applications whose first record was made in the window."""
+    found, begun = [], []
+    for a in s.query(Application):
+        d = min(a.drafts, key=lambda d: d.id) if a.drafts else None
+        if d is None or not w.has(_naive(d.created_at)):
+            continue
+        if a.job.first_seen:
+            found.append((d.created_at - a.job.first_seen).total_seconds() / 3600)
+        begun.append((d.created_at - a.created_at).total_seconds() / 3600)
+    found, begun = sorted(x for x in found if x >= 0), sorted(x for x in begun if x >= 0)
+    return {"n": len(begun), "from_found_hours": _median(found), "from_begun_hours": _median(begun), "slow": sum(1 for x in found if x > 72)}
+
+
+def _backlog(s: Any, w: Window) -> dict[str, Any]:
+    """What waits for the applicant: how long the cards dealt with in the window had waited, by kind; and the oldest
+    of the ones still open."""
+    from .models import Todo
+
+    now_ = datetime.now(timezone.utc).replace(tzinfo=None)
+    by_kind: dict[str, list[float]] = defaultdict(list)
+    for t in s.query(Todo).filter(Todo.status != "open", Todo.done_at.isnot(None)):
+        if w.has(_naive(t.done_at)):
+            by_kind[t.kind].append((t.done_at - t.created_at).total_seconds() / 3600)
+    open_ = [t for t in s.query(Todo).filter_by(status="open")]
+    oldest = sorted(open_, key=lambda t: t.created_at)[:5]
+    every = sorted(x for xs in by_kind.values() for x in xs)
+    return {"handled": len(every), "median_hours": _median(every),
+            "by_kind": sorted(({"kind": k, "label": TODO_KINDS.get(k, k), "n": len(v), "median_hours": _median(sorted(v))} for k, v in by_kind.items()), key=lambda r: -r["n"]),
+            "open": len(open_), "oldest": [{"id": t.id, "title": t.title, "kind": TODO_KINDS.get(t.kind, t.kind), "hours": (now_ - t.created_at).total_seconds() / 3600} for t in oldest]}
+
+
+TODO_KINDS = {"answer": "回答问题", "review": "批准记录", "confirm": "确认", "code": "验证码", "resume": "继续一份申请", "submit": "自己提交", "failed": "没做成",
+              "config": "设置", "mail_unmatched": "邮件归属", "followup": "面试 / 测评", "gone": "岗位下架", "login": "登录", "facts_changed": "资料改了",
+              "mail_out": "看邮件再发", "takeover": "登录", "blocked": "网站操作不了", "captcha": "人工验证"}
 
 
 # --- tasks: what a workflow execution came to ----------------------------------------------------
@@ -596,6 +662,73 @@ def agent_runs(w: Window) -> dict[str, Any]:
             "by_system": by_system}
 
 
+def _question_key(text: str) -> str:
+    """A question as it is compared with others: lower case, without the marks and filler a form adds around it."""
+    t = re.sub(r"\((optional|required)\)|\*", " ", str(text).lower())
+    t = re.sub(r"[^\w\s]", " ", t)
+    return " ".join(w_ for w_ in t.split() if w_ not in ("please", "the", "a", "an", "your", "you"))
+
+
+def asked_again(w: Window) -> dict[str, Any]:
+    """The questions that had to be put to the applicant - or that they corrected - in more than one application: each
+    is one the profile could answer by itself. Counted once per application (its versions are one application), for
+    applications begun in the window."""
+    from . import knowledge
+
+    groups: dict[str, dict[str, Any]] = {}
+    with db.session() as s:
+        for a in s.query(Application):
+            if not w.has(_naive(a.created_at)):
+                continue
+            seen: set[str] = set()
+            for d in sorted(a.drafts, key=lambda d: d.id, reverse=True):        # the newest version's answer first
+                for row in d.answers or []:
+                    put = row.get("about") is not None or str(row.get("id", "")).startswith("q")      # a question the agent asked
+                    mine = row.get("basis") == "edited by user"                                       # an entry the applicant gave or corrected
+                    key = _question_key(row.get("label") or "")
+                    if not (put or mine) or not key or key in seen or row.get("dropped"):
+                        continue
+                    seen.add(key)
+                    g = groups.setdefault(key, {"question": str(row.get("label") or "")[:200], "times": 0, "answer": None, "applications": []})
+                    g["times"] += 1
+                    if g["answer"] in (None, "", []) and row.get("value") not in (None, "", []):
+                        g["answer"] = row.get("value")
+                    g["applications"].append({"id": a.id, "company": a.job.company, "title": a.job.title})
+    profile = knowledge.read("profile").lower()
+    rows = sorted((g for g in groups.values() if g["times"] >= 2), key=lambda g: (-g["times"], g["question"]))
+    for g in rows:
+        g["in_profile"] = f'form question "{g["question"].strip()[:200].lower()}"' in profile
+        g["applications"] = g["applications"][:6]
+        g["answer"] = g["answer"] if isinstance(g["answer"], (str, int, float)) or g["answer"] is None else ", ".join(map(str, g["answer"]))
+    return {"rows": rows[:20], "total": len(rows), "asked": sum(g["times"] for g in groups.values())}
+
+
+def _settled_after(s: Any, w: Window) -> dict[str, Any]:
+    """How long a submission whose outcome was not known stayed that way, until a confirmation said it went out or the
+    applicant said it did not; and the ones not known still."""
+    spans, open_ = [], []
+    by_app: dict[int, list[Any]] = defaultdict(list)
+    for e in s.query(ApplicationEvent).order_by(ApplicationEvent.application_id, ApplicationEvent.at, ApplicationEvent.id):
+        by_app[e.application_id].append(e)
+    now_ = datetime.now(timezone.utc).replace(tzinfo=None)
+    for app_id, evs in by_app.items():
+        began = None
+        for e in evs:
+            if e.new == "submit_unknown" and began is None:
+                began = e.at
+            elif began is not None and e.new != "submit_unknown":
+                if w.has(_naive(e.at)):
+                    spans.append({"hours": (e.at - began).total_seconds() / 3600, "went_out": e.new in ("submitted", "confirmed", "assessment", "interview", "offer", "rejected"), "by": e.source})
+                began = None
+        if began is not None:
+            a = s.get(Application, app_id)
+            if a is not None and a.status == "submit_unknown":
+                open_.append({"id": app_id, "company": a.job.company, "title": a.job.title, "hours": (now_ - began).total_seconds() / 3600})
+    hours = sorted(x["hours"] for x in spans)
+    return {"settled": len(spans), "went_out": sum(1 for x in spans if x["went_out"]), "by_mail": sum(1 for x in spans if x["by"] == "mail"),
+            "median_hours": _median(hours), "open": sorted(open_, key=lambda x: -x["hours"])[:5], "open_total": len(open_)}
+
+
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     """What the program's tasks did in the window (by the day a task started)."""
     with db.session() as s:
@@ -603,6 +736,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         prev_n = sum(1 for t in s.query(Task.started_at, Task.created_at) if w.had(_naive(t[0] or t[1]))) if w.prev_lo is not None else None
         ai = _ai_by_task(s, [r["id"] for r in rows])
         applications = _applications(s, rows, ai)
+        unknown = _settled_after(s, w)
         kinds = sorted({r["kind"] for r in rows}, key=lambda k: -sum(1 for r in rows if r["kind"] == k))
         shown = [r for r in rows if not kind or r["kind"] == kind]
         recent = sorted(shown, key=lambda r: (r["at"], r["id"]), reverse=True)[:8]
@@ -668,6 +802,8 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         "recent": [_run_row(r, ai, subjects.get(r["id"], "")) for r in recent], "recent_total": len(shown),
         "applications": applications,      # (by application, whatever ``kind`` narrows the rest to)
         "agent_runs": agent_runs(w),
+        "asked_again": asked_again(w),
+        "unknown_settled": unknown,
     }
 
 
