@@ -25,7 +25,7 @@ def agent(app_env, monkeypatch):
     seen: list[dict] = []
     ends: list = []
 
-    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None, heard=None, on_checkpoint=None, email_delivery=False, card=None, changed_browser=False):
+    def apply(page, posting, applicant, folder, *, mode="prepare", answers=None, job_id=None, record=None, budget=None, on_hand=None, heard=None, on_checkpoint=None, email_delivery=False, card=None, changed_browser=False, mail_out=None):
         seen.append({"mode": mode, "changed_browser": changed_browser, "answers": answers, "record": record, "budget": budget, "files": dict(applicant.files)})
         folder.mkdir(parents=True, exist_ok=True)
         end = ends.pop(0)
@@ -741,7 +741,9 @@ def test_checkpoint_rejects_an_old_execution(agent):
     assert tasks.checkpoint(task_id, new.attempts, {"tool": "read"})
 
 
-def test_email_job_is_prepared_for_review_even_under_auto_policy(agent):
+def test_a_posting_applied_to_by_email_is_the_agents_like_any_other(agent):
+    """It is told how the mail goes out; what the run may do is the applicant's policy, as for a form. Whether a mail
+    goes by itself is their setting about mails (tests/test_outbox.py)."""
     from autoapply import tasks
     from autoapply.models import Job
 
@@ -750,8 +752,9 @@ def test_email_job_is_prepared_for_review_even_under_auto_policy(agent):
     agent.ends.append(READY)
     tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
     assert tasks.drain() == 1
-    assert agent.seen[-1]["mode"] == "prepare"
-    assert any("applicant sends the email" in line for line in agent.seen[-1]["answers"].values())
+    assert agent.seen[-1]["mode"] == "auto"
+    assert any("email_application" in line for line in agent.seen[-1]["answers"].values())
+
 
 def test_rolling_workers_preserve_ownership_and_can_claim_nonconflicting_work(agent, monkeypatch):
     from autoapply import tasks
@@ -806,3 +809,51 @@ def test_a_posting_the_agent_found_gone_goes_off_the_list_and_is_not_tried_again
     assert tasks.drain() == 1 and len(agent.seen) == 2 and _state(agent.job)[0] == "draft_ready"
     with db.session() as s:
         assert s.query(Task).filter_by(status="failed").count() == 0
+
+
+def test_an_application_has_one_record_that_stands(agent):
+    """Approved, worked again, approved again: every version stayed "approved", and the application was in the list of
+    records once for each."""
+    from autoapply import drafts, tasks
+    from autoapply.agent import work
+    from autoapply.models import Draft, Job
+
+    db.set_setting("submit.policy", "approve")
+    for _ in range(3):
+        agent.ends.append(READY)
+        tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+        assert tasks.drain() == 1
+        with db.session() as s:
+            latest = s.get(Job, agent.job).application.drafts[-1].id
+            s.get(Draft, latest).review_status = "approved"      # (approved, and then the applicant has it worked again)
+    assert [r[0] for r in _state(agent.job)[1]] == ["superseded", "superseded", "approved"]
+    with db.session() as s:      # as an installation from before has them
+        for d in s.get(Job, agent.job).application.drafts:
+            d.review_status = "approved"
+    assert work.one_record_stands() == 2 and work.one_record_stands() == 0
+    assert [r[0] for r in _state(agent.job)[1]] == ["superseded", "superseded", "approved"]
+
+
+def test_a_question_is_one_line_with_the_forms_choices_and_the_agents_suggestion_and_is_on_the_page_once(agent, tmp_path):
+    """Ten lists of a form's section were asked as one question to be answered in a text box, and the same section
+    stood among the answers a second time, empty."""
+    from autoapply import tasks
+    from autoapply.agent.run import Desk
+    from autoapply.models import Job
+
+    desk = Desk(tmp_path / "app", None, site="generic:acme.example", mode="auto")
+    desk.ask("Years of experience: C# and .NET", about="job", options=["None Yet", "<1", "1-2", "2-5"], why="Skills & Experience; Lenovo since Sept 2026", suggest="<1")
+    assert desk.asked[0]["options"] == ["None Yet", "<1", "1-2", "2-5"] and desk.asked[0]["suggest"] == "<1"
+    assert "one question that describes the section" in next(t.description for t in desk.tools() if t.name == "ask")
+
+    agent.ends.append({"outcome": "needs_you", "record": {"summary": "Filled; two lists are the applicant's to choose.", "url": "https://careers.acme.example/apply",
+                                                           "answers": [{"question": "First name", "entered": "Alex", "from": "profile", "sure": "yes"},
+                                                                       {"question": "Years of experience: C# and .NET", "entered": "", "from": "asked", "sure": "no"}],
+                                                           "files": [], "open": [], "asked": desk.asked + [{"question": "Skill level: C# and .NET", "about": "job", "options": ["Basic", "Good"], "why": "", "suggest": ""}]}})
+    tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
+    assert tasks.drain() == 1
+    with db.session() as s:
+        rows = s.get(Job, agent.job).application.drafts[-1].answers
+    assert [r["label"] for r in rows] == ["First name", "Years of experience: C# and .NET", "Skill level: C# and .NET"]      # each once
+    years = rows[1]
+    assert years["type"] == "select" and years["options"] == ["None Yet", "<1", "1-2", "2-5"] and years["suggested"] == "<1" and years["source"] == "unresolved"

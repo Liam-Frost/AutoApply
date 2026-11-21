@@ -67,6 +67,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # to the applicant (an instruction to the agent, not a lock: see agent/apply.md).
     "submit.policy": "auto",
     "agent.parallel": 3,          # how many applications are worked at the same time (1-6); never two on one site
+    "mail.send": "review",        # a mail the program wrote for the applicant: "review" - they look at it and send it; "auto" - sent when nothing is missing from it
     "agent.show_window": False,   # show the browser window while the agent works an application (to watch, to take over); hidden otherwise
     # An e-mail that does not say which application it is about: read the applicant page of the employer's site (with
     # the sign-in already saved for it) to find out, before asking the applicant.

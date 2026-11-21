@@ -121,6 +121,8 @@ class Desk:
         self.sending_started = False
         self.on_checkpoint = None
         self.email_delivery = False
+        self.mail_out: Any = None        # (to, cc, subject, body, files) -> {"id", "sent", "why"}: the program's outbox, for this application (work.py)
+        self.mailed: dict[str, Any] = {}   # what it answered, once the application's e-mail was handed over
         self.mail_checked = False
         self.mail_reconnect = False
         self.material_task = 0
@@ -230,11 +232,6 @@ class Desk:
 
         def kept(t: llm.Tool) -> llm.Tool:
             def run(**kw: Any) -> Any:
-                if self.email_delivery and t.name == "goto":
-                    from ..errors import url_host
-
-                    if url_host(str(kw.get("url") or "")) == "mail.google.com":
-                        return "This is an email application. Prepare the recipient, subject, body and attachments for the applicant's review."
                 if self.on_checkpoint is not None and not self.on_checkpoint(t.name):
                     raise RuntimeError("This worker no longer owns the task")
                 if self.on_checkpoint is not None and not self.sending_started:
@@ -333,12 +330,13 @@ class Desk:
         return brief.about(about) or f"nothing is written down about {about!r}."
 
     # --- the applicant ---------------------------------------------------------------------------------------------
-    def ask(self, question: str, about: str = "applicant", options: list[str] | None = None, why: str = "") -> str:
+    def ask(self, question: str, about: str = "applicant", options: list[str] | None = None, why: str = "", suggest: str = "") -> str:
         q = " ".join(str(question).split())
         for known, answer in self.answers.items():
             if " ".join(known.split()).lower() == q.lower():
                 return f"The applicant answered this before: {answer}"
-        self.asked.append({"question": q, "about": "job" if str(about).lower().startswith("job") else "applicant", "options": list(options or []), "why": str(why)[:400]})
+        self.asked.append({"question": q, "about": "job" if str(about).lower().startswith("job") else "applicant", "options": [str(o) for o in (options or [])], "why": str(why)[:400],
+                           "suggest": " ".join(str(suggest).split())[:400]})
         (self.folder / "questions.json").write_text(json.dumps(self.asked, ensure_ascii=False, indent=1), encoding="utf-8")
         self.write("ask", question=q, about=about)
         return ("The question is on the record for the applicant; there is no answer yet. Leave what it is for as it is (empty, or the form's own default), "
@@ -503,6 +501,28 @@ class Desk:
         self.write("attachment_observed", file=file, local_sha256=hashlib.sha256(local.read_bytes()).hexdigest(),
                    url=url._replace(query="", fragment="").geturl(), evidence=self._clean(row))
         return "Recorded the filename shown in the site's attachment row. Check the site for pending uploads or errors."
+
+    def email_application(self, to: str, subject: str, body: str, files: list[str] | None = None, cc: str = "") -> str:
+        """The application, as an e-mail: handed to the program, which sends it from the applicant's own mailbox - at
+        once or after they have looked at it, as they have set. Nothing about them is in it that was not given."""
+        if self.mode in ("verify",):
+            return "This run only looks whether the application went out (see Mode). It writes no mail."
+        if self.asked:
+            return ("There are questions to the applicant that are not answered (" + "; ".join(str(q.get("question"))[:80] for q in self.asked[:4]) + "). A mail that goes to "
+                    "an employer is not written around them: report needs_you, and write the mail when they have answered.")
+        if self.mail_out is None:
+            return "No mail can be handed over from here. Report ready and say in the summary who the mail goes to, its subject, its text and what is attached."
+        files = [str(f) for f in (files or [])]
+        unknown = [f for f in files if f not in self.hands.files]
+        if unknown:
+            raise ValueError(f"not among the files: {', '.join(repr(f) for f in unknown)} (there are: {', '.join(repr(f) for f in self.hands.files) or 'none'})")
+        got = self.mail_out(str(to), str(cc), str(subject), str(body), {f: self.hands.files[f] for f in files})
+        self.mailed = dict(got)
+        self.write("mailed", id=got.get("id"), to=str(to)[:300], subject=str(subject)[:300], files=files, sent=bool(got.get("sent")))
+        if got.get("sent"):
+            return "The e-mail has been sent from the applicant's mailbox and is on record with the application. This run is over: stop here, no report is needed."
+        return ("The e-mail is on record and with the applicant, who looks at it and sends it" + (f" ({got['why']})" if got.get("why") else "")
+                + ". This run is over: stop here, no report is needed.")
 
     def make_file(self, name: str, parts: list[dict[str, Any]]) -> str:
         """One PDF out of the applicant's files: several in a row, some pages of one, or one under another name. Only
@@ -826,7 +846,7 @@ class Desk:
         s, b = {"type": "string"}, {"type": "boolean"}
         arr = {"type": "array", "items": s}
         answer = {"type": "object", "properties": {"question": s, "entered": s, "from": {"type": "string", "description": "where the answer comes from: the profile's own line, the résumé, "
-                  "an answer the applicant gave, or 'the form's default, left as it was'"}, "sure": {"type": "string", "enum": ["yes", "fairly", "no"]}}, "required": ["question", "entered", "from"]}
+                  "an answer the applicant gave, or 'the form's default, left as it was'. What you asked the applicant with `ask` is not listed here again: it is on the record already"}, "sure": {"type": "string", "enum": ["yes", "fairly", "no"]}}, "required": ["question", "entered", "from"]}
         gave = {"type": "object", "properties": {"field": s, "file": s}, "required": ["field", "file"]}
         conf = {"type": "object", "properties": {"words": s, "url": s, "ties_to_posting": s}}
 
@@ -842,8 +862,15 @@ class Desk:
             llm.Tool("note", "Write down something that is true of this site for whoever applies here next. `about`: a recruiting system's name (workday, greenhouse ...) when it is "
                              "true of that system on every employer's site; empty for this site.", spec(["text"], text=s, about=s), self.note),
             llm.Tool("notes", "Read what is written down about a recruiting system.", spec(["about"], about=s), self.notes),
-            llm.Tool("ask", "Put a question to the applicant: something the form needs and you were not given. `about`: 'applicant' when it is about them in general, 'job' when it "
-                            "is about this job only. `options`: the form's choices, when it has them. `why`: where the form asks it.", spec(["question"], question=s, about=s, options=arr, why=s), self.ask),
+            llm.Tool("ask", "Put a question to the applicant: something the form needs and you were not given. One call for each thing the form asks - each box, each "
+                            "list, each row of a grid: it becomes one line on their page that they answer with one choice or one entry, and an answer is kept under its "
+                            "question for the applications after this one. A section with five skills, each with a list for years and a list for level, is ten calls, "
+                            "not one question that describes the section. `question`: what that one control asks, with what it belongs to (\"Years of experience: C# "
+                            "and .NET\"), in the applicant's language. `options`: that control's own choices, exactly as the form has them - they get a list to pick "
+                            "from. `suggest`: what you would enter from what you know of them, when you have a basis (one of the options, where there are options); "
+                            "they see it as your suggestion and can take it with one press. `why`: where the form asks it, and what your suggestion rests on. "
+                            "`about`: 'applicant' when it is about them in general, 'job' when it is about this job only.",
+                     spec(["question"], question=s, about=s, options=arr, why=s, suggest=s), self.ask),
             llm.Tool("answered", "The applicant answered a question you asked in this run by speaking to you while you worked: close it. `question`: as you asked it; "
                                  "`answer`: what they said.", spec(["question", "answer"], question=s, answer=s), self.answered),
             llm.Tool("account", "What the program has on record for this site: the login name, whether a password is stored.", spec(), self.account),
@@ -860,6 +887,12 @@ class Desk:
             llm.Tool("verify_attachment", "Read back the filename from one visible employer attachment row. After upload, wait for completion and call this with the row selector. On resume check existing attachments before uploading again.", spec(["file", "selector"], file=s, selector=s), self.verify_attachment),
             llm.Tool("cover_letter", "Have a cover letter written for this posting, when the posting or the form asks for one and none is among the files. It becomes a file you can "
                                      "upload. `instructions`: anything the letter must take into account.", spec(instructions=s), self.cover_letter),
+            llm.Tool("email_application", "For a posting that is applied to by e-mail (\"send your résumé to ...\"): hand the mail to the program, which sends it from the "
+                                          "applicant's own mailbox - at once, or after they have looked at it, as they have set. `to`: the address the posting gives; "
+                                          "`subject`: as the posting asks, else the role and the applicant's name; `body`: the mail's text, plain, in the posting's "
+                                          "language, signed with their name; `files`: what to attach, by the names of the files (make_file first when the posting wants "
+                                          "one document or a file name of its own). Ends this run. You never open a webmail site for this.",
+                     spec(["to", "subject", "body"], to=s, subject=s, body=s, files=arr, cc=s), self.email_application),
             llm.Tool("make_file", "Make one PDF out of the applicant's files, when a posting or a form wants them in another shape than you were given them: several "
                                   "put together in the order you give (\"résumé, cover letter and transcript as one document\"), some pages of one, or one under "
                                   "another file name (\"name the file Lastname_Firstname.pdf\"). `parts`: the files in order, each {file, pages} - `pages` like "
@@ -944,7 +977,7 @@ def journal_text(folder: Path) -> str:
 
 def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder: Path, *, mode: str = "prepare", answers: dict[str, str] | None = None,
           job_id: int | None = None, record: dict[str, Any] | None = None, budget: dict[str, float] | None = None, on_hand: Any = None, heard: int | None = None, on_checkpoint: Any = None, email_delivery: bool = False, card: Any = None,
-          changed_browser: bool = False) -> Result:      # noqa: PLR0913
+          changed_browser: bool = False, mail_out: Any = None) -> Result:      # noqa: PLR0913
     """Run the agent on one application, on ``page``. Everything it leaves behind is in ``folder``."""
     from .. import agentbudget, sites
 
@@ -954,7 +987,7 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
 
     desk = Desk(folder, hands, site=site, mode=mode, login=applicant.login, answers=answers, job_id=job_id, home=_urlparse(posting.url).hostname or "", on_hand=on_hand, heard=heard)
     desk.on_checkpoint = on_checkpoint
-    desk.card, desk.changed_browser = card, changed_browser
+    desk.card, desk.changed_browser, desk.mail_out = card, changed_browser, mail_out
     desk.email_delivery = email_delivery
     if record is None and (folder / "record.json").exists():
         try:
@@ -996,7 +1029,9 @@ def apply(page: Any, posting: brief.Posting, applicant: brief.Applicant, folder:
     except llm.LLMError as e:
         res.stopped = f"{type(e).__name__}: {str(e)[:300]}"
     res.need = dict(desk.need)
-    if desk.other_browser and (desk.reported is None or desk.reported["outcome"] != "submitted"):
+    if desk.mailed:
+        res.outcome, res.record = "mailed", {"outcome": "mailed", "mail": dict(desk.mailed), "asked": []}
+    elif desk.other_browser and (desk.reported is None or desk.reported["outcome"] != "submitted"):
         res.outcome, res.record = "other_browser", {"outcome": "other_browser", "browser": desk.other_browser, "asked": list(desk.asked)}
     elif desk.reported is not None:
         res.outcome, res.record = desk.reported["outcome"], desk.reported

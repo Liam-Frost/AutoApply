@@ -22,7 +22,7 @@ ATS = {
 }
 TASK = {
     "discover": "扫描新岗位", "score": "给岗位评分", "apply": "做这份申请", "recon": "读取申请表、生成草案", "scout": "带着草案的答案读完后面的步骤", "tailor": "按岗位调整简历", "revise": "按你的意见修改草案", "reanswer": "重新回答草案里没答上的问题",
-    "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检", "site_status": "到雇主网站查申请状态", "profile_init": "从简历生成个人资料",
+    "execute": "填写并提交申请", "mail": "检查邮箱", "canary": "自检", "site_status": "到雇主网站查申请状态", "profile_init": "从简历生成个人资料", "mail_reply": "起草回复邮件", "cover_letter": "写求职信",
 }
 TASK_STATUS = {"queued": ("排队中", ""), "running": ("进行中", "info"), "done": ("完成", "ok"), "failed": ("没完成", "bad"), "waiting_human": ("等你处理", "warn"),
                "held": ("暂缓", ""), "cancelled": ("已取消", "")}
@@ -229,7 +229,7 @@ def result_summary(kind: str, status: str, result: dict[str, Any] | None) -> str
         if r.get("skipped"):
             return "没有做：你已经决定不投这个岗位"
         return {"submitted": "已提交，确认凭据已保存", "ready": "已填到最后一步，申请记录等你批准", "needs_input": "有问题需要你回答，其余已经填好", "submit_unknown": "点了提交，结果待确认",
-                "not_sent": "到网站上核实过：上一次没有发出，接着做", "goes_on": "这一次的预算用完了，下一次接着做", "cannot": "没有做成，原因见待办", "gone": "岗位已经下架，没有投", "stuck": "连续几次停在同一个地方，等你看一下",
+                "not_sent": "到网站上核实过：上一次没有发出，接着做", "goes_on": "这一次的预算用完了，下一次接着做", "cannot": "没有做成，原因见待办", "gone": "岗位已经下架，没有投", "mail_ready": "申请邮件已写好，等你看一遍再发", "stuck": "连续几次停在同一个地方，等你看一下",
                 "budget_used": "这份申请的预算用完了，等你决定是否继续", "stopped": "已按你的要求停下"}.get(str(r.get("status")), "")
     if kind == "recon":      # (and below: what earlier versions ran, in the history)
         if r.get("status") == "submit_unknown":

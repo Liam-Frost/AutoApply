@@ -123,7 +123,7 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
 # do not wait for each other. The third is the desk: writing the applicant asked for at a page and is waiting to see -
 # their profile, from the résumé they just uploaded. The last two: one task at a time.
 BACKGROUND = ("discover", "score", "mail")
-DESK = ("profile_init", "cover_letter")
+DESK = ("profile_init", "cover_letter", "mail_reply")
 LANES = ("forms", "background", "desk")
 MOST = 6       # the most applications that can be worked at once, whatever is set
 _claiming = threading.Lock()      # (several workers look at the same queue: one takes a task at a time)

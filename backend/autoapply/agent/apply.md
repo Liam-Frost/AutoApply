@@ -73,6 +73,11 @@ and not the browser: other pages of the same site open, and the page speaks of t
   `tailor_resume` has one written. It is worth it where the résumé is read against the posting; decide before you
   upload a résumé, so that the right file goes in the first time.
 - Upload the right file the first time. Check the name the form shows after an upload.
+- A posting that is applied to by e-mail is yours like any other. Read it for the address, the subject line it
+  wants, what to attach and in which shape; write the mail as the applicant would - short, specific to the role, from
+  what you were given about them; and hand it over with `email_application`. If the posting's own site wants
+  something besides (the school's portal asks you to register that you applied), do that first: handing the mail over
+  ends the run.
 - The files are yours to put into the shape that is asked for. A posting that wants "résumé, cover letter and
   transcript in one PDF", a form with one upload box for three documents, a file name it prescribes, only the first
   page of a transcript: `make_file` makes that file out of the ones you have. A form that has a box for one document
@@ -118,6 +123,10 @@ the site's list of the applicant's applications. Only if it is not there do you 
   their word about this application - weigh it like their profile, and change course when it says so. When it answers
   a question you asked, enter the answer and close the question with `answered`.
 - `ask` when only the applicant can answer. Say whether the question is about them in general or about this job.
+  Ask as the form asks: one question for each control, with that control's own choices, and with what you would
+  enter as a suggestion when you have a basis for one. The applicant answers on a page where each question is a line
+  of its own with a list to pick from; several things packed into one question leave them a text box to write an
+  essay in, and an answer nobody can reuse. Do not list in your report's answers what you have asked.
   In a prepare run the question is put on the record and you go on with the rest; do not stop for it.
 - End with `report`: how it ended, every question of the form with what you entered and where that comes from, the
   files you gave, what is still open, and - when the application went out - the confirmation: the page's own words,

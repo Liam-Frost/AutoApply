@@ -18,6 +18,7 @@ import ApplicationDetail from './views/ApplicationDetail.vue'
 import DraftsView from './views/DraftsView.vue'
 import DraftDetail from './views/DraftDetail.vue'
 import TodosView from './views/TodosView.vue'
+import MailOut from './views/MailOut.vue'
 import AccountsView from './views/AccountsView.vue'
 import ProfileView from './views/ProfileView.vue'
 import RunsView from './views/RunsView.vue'
@@ -52,6 +53,7 @@ const router = createRouter({
     { path: '/drafts', component: DraftsView },
     { path: '/drafts/:id', component: DraftDetail, props: true },
     { path: '/todos', component: TodosView },
+    { path: '/mail/:id', component: MailOut, props: true },
     { path: '/accounts', component: AccountsView },
     { path: '/profile', component: ProfileView },
     { path: '/runs', component: RunsView },
