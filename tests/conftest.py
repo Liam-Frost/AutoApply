@@ -89,6 +89,11 @@ def app_env(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "openai_codex", None)  # the ChatGPT runtime may be installed and signed in on this machine
     # a record that waits for approval does not keep a window open in the tests (the one test about it sets it)
     db.set_setting("agent.keep_window_minutes", 0)
+    # the bots do not listen in the tests: a test that saves a token would otherwise have them poll the real services
+    # (test_bots.py hands them what they would have received)
+    from autoapply import bots
+
+    monkeypatch.setattr(bots, "start", lambda: None)
     from autoapply import persona
 
     for k, v in persona.LEGACY.items():

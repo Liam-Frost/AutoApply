@@ -36,6 +36,7 @@ dependencies = [
   "claude-agent-sdk>=0.2.181",
   "pystray>=0.19",
   "pillow>=10",
+  "websockets>=13",  # the Discord bot's gateway connection
 ]
 
 

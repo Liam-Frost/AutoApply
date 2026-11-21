@@ -161,7 +161,11 @@ async def lifespan(app: FastAPI):
         db.set_setting("migrated.email_delivery_review", True)
     net.apply()
     tasks.start()
+    from .. import bots as _bots
+
+    _bots.start()       # the Telegram and Discord bots: presses, replies and commands from the applicant's phone
     yield
+    _bots.stop()
     tasks.stop()
 
 
@@ -2115,6 +2119,7 @@ def delete_document(doc_id: int, permanent: bool = False) -> dict[str, Any]:
 # --- settings ------------------------------------------------------------------------------
 
 SECRET_FIELDS = {"anthropic_api_key": secrets.ANTHROPIC_KEY, "telegram_bot_token": secrets.TELEGRAM_TOKEN,
+                 "discord_bot_token": "discord_bot_token", "discord_webhook": "discord_webhook",
                  "claude_oauth_token": secrets.CLAUDE_OAUTH_TOKEN, "proxy_password": net.PROXY_PASSWORD, "imap_password": "imap_password"}
 
 
@@ -2616,7 +2621,55 @@ def llm_provider_models(key: str, body: dict[str, Any] = Body(default={})) -> di
 @app.post("/api/settings/telegram-test")
 def telegram_test() -> dict[str, Any]:
     try:
-        notify.test_message()
+        notify.test_message("telegram")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e)) from None
+    return {"ok": True}
+
+
+@app.get("/api/settings/discord")
+def discord_state() -> dict[str, Any]:
+    """The Discord bot as far as the settings page needs it: is a token saved, which bot it is and the link that adds it
+    to a server, who it is bound to, a binding code that is waiting."""
+    from datetime import datetime as _dt
+
+    from .. import discord
+
+    out: dict[str, Any] = {"token": discord.configured(), "webhook": secrets.has(discord.WEBHOOK), "bound": bool(db.get_setting("notify.discord_user_id")),
+                           "bot": None, "error": "", "code": ""}
+    bind = db.get_setting("notify.discord_bind") or {}
+    if bind.get("code") and _dt.now() < _dt.fromisoformat(bind["until"]):
+        out["code"] = bind["code"]
+    if out["token"]:
+        try:
+            out["bot"] = discord.about_bot()
+        except Exception as e:  # noqa: BLE001 - a wrong token, no network: the page says which, in a word
+            log.info("discord: %s", e)
+            out["error"] = f"HTTP {e.status}" if isinstance(e, discord.Refused) else type(e).__name__
+    return out
+
+
+@app.post("/api/settings/discord/bind")
+def discord_bind() -> dict[str, Any]:
+    """A short code to send the bot in a direct message: whoever sends it is the applicant the bot listens to."""
+    from .. import bots, discord
+
+    if not discord.configured():
+        raise HTTPException(400, "先保存 Discord 机器人令牌。")
+    return {"code": bots.bind_code()}
+
+
+@app.post("/api/settings/discord/unbind")
+def discord_unbind() -> dict[str, Any]:
+    db.set_setting("notify.discord_user_id", "")
+    db.set_setting("notify.discord_dm", {})
+    return {"ok": True}
+
+
+@app.post("/api/settings/discord-test")
+def discord_test() -> dict[str, Any]:
+    try:
+        notify.test_message("discord")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e)) from None
     return {"ok": True}
