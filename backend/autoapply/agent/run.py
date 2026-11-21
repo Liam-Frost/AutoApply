@@ -24,7 +24,7 @@ from ..errors import tolerated
 from . import brief
 from .hands import Hands
 
-OUTCOMES = ("ready", "submitted", "needs_you", "cannot")
+OUTCOMES = ("ready", "submitted", "needs_you", "cannot", "gone")
 STOP = "stop"       # a file of this name in the application's folder: the applicant says "stop" (work.stop)
 SAID = "said.jsonl"
 WINDOW = "window"            # in an application's folder: its next run opens in a window the applicant can see
@@ -888,7 +888,9 @@ class Desk:
                                         "service's own. They sign in once in a window of their own and the session is kept. Ends this run; the next one goes on from "
                                         "here. (A code, a CAPTCHA, a confirmation on their phone are not this: ask_code, wait_for_applicant.)", spec(["why"], why=s), self.sign_in_by_hand),
             llm.Tool("report", "End the run. outcome: ready (everything is in, one press from sending, not sent) | submitted (it went out: give the confirmation) | "
-                               "needs_you (only the applicant can go on) | cannot (say why, and what the page shows). `not_sent`: if you called `sending` in this run and the "
+                               "needs_you (only the applicant can go on) | cannot (say why, and what the page shows) | gone (the posting itself is no longer there: the "
+                               "employer has taken it down or closed it - say what the page says and where else on their site you looked; the program takes it "
+                               "off the applicant's list. Not for a site that turns the browser away, and not for a deadline you only suspect). `not_sent`: if you called `sending` in this run and the "
                                "application did not go out, what shows that it did not.",
                      spec(["outcome", "summary"], outcome={"type": "string", "enum": list(OUTCOMES)}, summary=s, answers={"type": "array", "items": answer},
                           files={"type": "array", "items": gave}, open=arr, confirmation=conf, sent=b, not_sent=s), self.report),

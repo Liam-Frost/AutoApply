@@ -49,6 +49,8 @@ const RESUME = {
   confirm: [(t) => `${t.title}：需要你确认一下`, '我现在有空，继续', 'Agent 等了 10 分钟没有等到你的确认。你有空时点下面的按钮：它会马上重新做到那一步并等你。'],
   window: [(t) => `${t.title}：需要你在浏览器窗口里操作`, '打开窗口，我来处理', '这一步要你本人在浏览器窗口里完成（比如人机验证）。点下面的按钮：Agent 会在你看得见的窗口里重新做到那一步，然后等你。'],
 }
+// the employer took the posting down: nothing to do - unless the applicant knows better
+VIEW.gone = { icon: 'bell', tone: '', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
   what: () => '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
 
@@ -205,6 +207,12 @@ onMounted(load)
           <button class="primary" @click="resumeNow(t)"><Icon name="refresh" />{{ (RESUME[t.payload.need] || RESUME.confirm)[1] }}</button>
           <button class="ghost" @click="dismiss(t)">先不处理</button>
           <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
+        </template>
+        <template v-else-if="t.kind === 'gone'">
+          <button class="primary" @click="dismiss(t)"><Icon name="check" />知道了</button>
+          <a v-if="t.job && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn"><Icon name="external" />打开岗位页面看看</a>
+          <button v-if="t.job" @click="tryAgain(t)"><Icon name="refresh" />岗位还在，再试一次</button>
+          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
         </template>
         <template v-else-if="t.kind === 'blocked'">
           <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开岗位页面，自己投</a>

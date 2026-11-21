@@ -590,6 +590,21 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         # (the card names whose sign-in is missing: the site's, or - when the run stopped on a sign-in provider's own page - the provider's)
         waits = auth.ask_to_sign_in(site, title, why, url=url, job_url=url)
         raise NeedsHuman(why, kind="login", url=url, waits_for=waits)
+    if result.outcome == "gone":
+        # The employer has taken the posting down. That is not a failure to try again: the posting goes off the list
+        # (as when its own listing stops showing it), and the application is put away - taken up again only if the
+        # applicant says the posting is still there.
+        why = str(rec.get("summary") or "")[:800]
+        with db.session() as s:
+            app = s.get(Application, app_id)
+            job = s.get(Job, job_id)
+            lifecycle.move(app, "withdrawn", source="run")
+            app.last_event = ("招聘网站上已经没有这个岗位。" + why)[:300]
+            job.online, job.status = 0, "offline"
+            job.note = (f"gone at the employer's site {now().date().isoformat()}: {why[:300]}; " + (job.note or ""))[:2000]
+        notify.close_todos("failed", f"application:{app_id}")
+        notify.add_todo("gone", f"{title}：岗位已下架", body=why, ref=f"application:{app_id}:gone", payload={"application_id": app_id, "job_id": job_id})
+        return {"status": "gone", "steps": result.steps}
     if result.outcome == "cannot":
         why = str(rec.get("summary") or "")[:800]
         with db.session() as s:
