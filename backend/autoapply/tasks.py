@@ -274,6 +274,10 @@ def _run_one(t: Task) -> None:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
             notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")
+            # (not the application's failure either: it is taken up again when the model can be reached - a few times,
+            # and then the application says that it did not get done)
+            if t.kind == "apply" and int(t.payload.get("_model_retries", 0)) < 4:
+                enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_model_retries": int(t.payload.get("_model_retries", 0)) + 1}, minutes=30, priority=t.priority)
     except Exception as e:  # noqa: BLE001
         if unreachable(e):
             # The employer's site is not answering - an error page, or no answer at all from its address (a connection
@@ -288,7 +292,13 @@ def _run_one(t: Task) -> None:
         else:
             status, error = "failed", f"{type(e).__name__}: {e}"
             log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
-            if t.kind == "apply":  # an application the applicant waits for: say why it failed
+            # An error nobody foresaw is, more often than not, not the application's: a browser that was busy, a file
+            # that was locked, a model that could not be reached. It is tried again twice, later, before anybody is
+            # told that the application failed (chain.py then makes the card that says so).
+            n = int(t.payload.get("_error_retries", 0))
+            if t.kind == "apply" and n < 2:
+                enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_error_retries": n + 1}, minutes=10 if n == 0 else 60, priority=t.priority)
+            elif t.kind == "apply":  # an application the applicant waits for: say why it failed
                 from . import messages
 
                 notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
@@ -311,6 +321,13 @@ def _run_one(t: Task) -> None:
         _wake.set()
     if t.kind == "cover_letter" or result.get("material_task"):
         reconcile_materials()
+    if t.kind in ("apply", "cover_letter"):      # however it ended: the application has work in the queue or a card with the applicant
+        try:
+            from . import chain
+
+            chain.mend(int(t.ref[4:]) if t.kind == "apply" and t.ref.startswith("job:") and t.ref[4:].isdigit() else None)
+        except Exception:  # noqa: BLE001
+            log.exception("the chain could not be checked")
     if waits_for or result.get("waits_for_profile"):       # (what it waits for may have come while it was finding it missing)
         from . import profile_init
 
@@ -690,6 +707,12 @@ def _schedule_jobs() -> None:
             scoring.queue_qualifying()
         except Exception:  # noqa: BLE001
             log.exception("upkeep failed")
+        try:
+            from . import chain
+
+            chain.mend()
+        except Exception:  # noqa: BLE001
+            log.exception("the chain could not be checked")
         try:      # what is due tomorrow and today, cards put off until now, contacts to get back to, notices held for the night
             from . import reminders
 

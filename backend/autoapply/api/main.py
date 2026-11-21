@@ -138,6 +138,12 @@ async def lifespan(app: FastAPI):
         from ..agent.work import recover_material_reviews
         recover_material_reviews()
         db.set_setting("migrated.material_reviews", True)
+    try:      # every unfinished application has work in the queue or a card with the applicant - also what was left standing before this was checked
+        from .. import chain
+
+        chain.mend()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("autoapply").exception("the chain could not be checked at start-up")
     if not db.get_setting("migrated.one_record"):
         from ..agent.work import one_record_stands
         one_record_stands()
@@ -1145,6 +1151,21 @@ def todo_reply(todo_id: int) -> dict[str, Any]:
     return {"task_id": tasks.enqueue("mail_reply", ref=f"todo:{todo_id}", payload={"todo_id": todo_id}, priority=20)}
 
 
+@app.get("/api/chain")
+def chain_look() -> dict[str, Any]:
+    """What has nothing to move it right now (chain.py). Empty when everything is as it should be."""
+    from .. import chain
+
+    return {"broken": chain.look()}
+
+
+@app.post("/api/chain/mend")
+def chain_mend() -> dict[str, Any]:
+    from .. import chain
+
+    return {"mended": chain.mend()}
+
+
 @app.post("/api/todos/{todo_id}/code")
 def todo_code(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """The code a site sent the applicant, for the run that is waiting for it. A run that is no longer waiting cannot
@@ -1174,6 +1195,14 @@ def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str
 
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
+        if body.get("status") == "dismissed" and t.ref and any((x.payload or {}).get("waits_for") == t.ref for x in s.query(Task).filter_by(status="waiting_human")):
+            # Work is waiting for this card. "Not now" puts the card off until tomorrow morning; closing it would leave
+            # that work waiting for something nobody can see any more.
+            from datetime import datetime, timedelta
+
+            until = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            t.snoozed_until = until
+            return {"resumed": 0, "snoozed_until": until.isoformat(timespec="minutes")}
         t.status, t.done_at = body.get("status", "done"), now()
         handled, kind, job_id = t.ref, t.kind, int((t.payload or {}).get("job_id") or 0)
     resumed = handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0
@@ -2157,12 +2186,12 @@ def pdportal_bookmarklet() -> dict[str, Any]:
 
 
 @app.get("/api/analytics")
-def analytics(days: int = 0, start: str = "", end: str = "") -> dict[str, Any]:
+def analytics(days: int = 0, start: str = "", end: str = "", bucket: str = "") -> dict[str, Any]:
     """What came of the applications sent in the window: the last ``days`` days, or local dates ``start``..``end``
     (inclusive), or everything. The other two views of the analysis page are below."""
     from .. import analytics as an
 
-    return an.applications(an.window(days, start, end))
+    return an.applications(an.window(days, start, end), bucket=bucket)
 
 
 @app.get("/api/analytics/automation")

@@ -149,7 +149,36 @@ def sent_summary() -> dict[str, int]:
     return out
 
 
-def applications(w: Window) -> dict[str, Any]:
+def _through_time(w: Window, sent: list[tuple[datetime, bool]], replies: list[datetime], bucket: str) -> dict[str, Any]:
+    """Applications sent, and replies that arrived, along the window: by day, week or month - by the length of the
+    window unless ``bucket`` says which. Every step of the stretch is there, also those in which nothing was sent: a
+    week without an application is part of the picture."""
+    size, key = _bucket_fn(w, [t for t, _ in sent] + replies, bucket)
+    rows: dict[str, dict[str, Any]] = {}
+
+    def at(t: datetime) -> dict[str, Any]:
+        k, label = key(t)
+        return rows.setdefault(k, {"key": k, "label": label, "n": 0, "decided": 0, "replies": 0})
+
+    for t, decided in sent:
+        r = at(t)
+        r["n"] += 1
+        r["decided"] += int(decided)
+    for t in replies:
+        at(t)["replies"] += 1
+    times = [t for t, _ in sent] + replies
+    lo = w.lo or (min(times) if times else None)
+    hi = min(w.hi or datetime.now(timezone.utc).replace(tzinfo=None), datetime.now(timezone.utc).replace(tzinfo=None))
+    step = lo
+    while step is not None and step <= hi and len(rows) < 800:      # the steps in which nothing happened
+        at(step)
+        step += timedelta(days=1 if size == "day" else 7 if size == "week" else 28)
+    if lo is not None:
+        at(hi)
+    return {"bucket": size, "rows": [rows[k] for k in sorted(rows)]}
+
+
+def applications(w: Window, bucket: str = "") -> dict[str, Any]:
     """What came of the applications sent in the window (a cohort by the day of sending). Archived jobs are included:
     this is about what happened, not about what is still open."""
     coverage = sent_summary()
@@ -171,14 +200,16 @@ def applications(w: Window) -> dict[str, Any]:
                 "status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or "未标注",
                 "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
                 "auto": bool(a.auto_approved), "wait": (decisions[0] - sub_at).days if decisions else None,
-                "lead": (sub_at - _naive(j.first_seen)).days if j.first_seen else None, "month": _local(sub_at).strftime("%Y-%m"),
+                "lead": (sub_at - _naive(j.first_seen)).days if j.first_seen else None, "month": _local(sub_at).strftime("%Y-%m"), "at": sub_at,
                 "progressed": progressed, "decided": decided, "heard": heard, "offer": a.status == "offer" or "offer" in been[a.id]})
         # replies by the day they arrived (not by the day the application was sent)
         reply_months: dict[str, int] = defaultdict(int)
+        reply_times: list[datetime] = []
         for aid, lst in mails.items():
             for c, t in lst:
                 if c in DECISION_MAIL and w.has(t):
                     reply_months[_local(t).strftime("%Y-%m")] += 1
+                    reply_times.append(t)
         missed = []
         for j in s.query(Job).filter(Job.duplicate_of.is_(None), Job.score >= 7.5):
             st = stages.stage(j.status, bool(j.online), j.deadline or "", j.application.status if j.application else None)
@@ -225,6 +256,7 @@ def applications(w: Window) -> dict[str, Any]:
         "rejected_after_progress": sum(1 for r in apps if r["status"] == "rejected" and r["progressed"]),
         "median_wait_days": waits[len(waits) // 2] if waits else None, "waited": len(waits), "median_lead_days": leads[len(leads) // 2] if leads else None,
         "by_score": by(band, ["9–10", "8–8.5", "7–7.5", "6–6.5", "6 以下", "没评分"]), "by_channel": by(lambda r: r["channel"]), "by_direction": by(lambda r: r["direction"])[:8],
+        "by_time": _through_time(w, [(r["at"], bool(r["decided"])) for r in apps], reply_times, bucket),
         "by_month": [{"label": m, **(per_month.get(m) or {**rate([]), "thin": True}), "replies": reply_months.get(m, 0)} for m in months],
         "auto": {"auto": sum(1 for r in apps if r["auto"]), "manual": sum(1 for r in apps if not r["auto"])},
         "missed": missed[:12], "missed_total": len(missed),
