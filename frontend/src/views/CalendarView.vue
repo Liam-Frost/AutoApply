@@ -124,10 +124,10 @@ const saveNew = () => run(() => api.post('/calendar/items', draft.value), t('cal
     <div class="cal-kinds">
       <button v-for="k in KINDS" :key="k" class="chip" :class="{ on: kinds.includes(k) }" :aria-pressed="kinds.includes(k)" @click="toggleKind(k)">{{ $t('calendar.kind.' + k) }}</button>
     </div>
-    <select v-model="f.state" :aria-label="$t('calendar.state.label')">
+    <AaSelect v-model="f.state" :aria-label="$t('calendar.state.label')">
       <option value="">{{ $t('calendar.state.any') }}</option>
       <option v-for="s in STATES" :key="s" :value="s">{{ $t('calendar.state.' + s) }}</option>
-    </select>
+    </AaSelect>
     <input v-model.lazy="f.company" :placeholder="$t('calendar.company')" style="width: 160px" />
     <label class="muted nowrap"><input v-model="f.prio" type="checkbox" /> {{ $t('calendar.priority') }}</label>
     <label class="muted nowrap">{{ $t('calendar.minScore') }} <input v-model.number="f.min" type="number" min="0" max="10" step="0.5" style="width: 64px" /></label>
