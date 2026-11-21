@@ -954,7 +954,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     enabled = bool(db.get_setting("browser.nodriver_enabled"))
 
     CAT = {"facts_changed": "answer", "mail_out": "submit", "takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
-           "mail_unmatched": "answer", "followup": "dated"}
+           "mail_unmatched": "answer", "followup": "dated", "note": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
         for r in rows:
@@ -1053,6 +1053,66 @@ def _when(text: Any) -> Any:
     except ValueError as e:
         raise HTTPException(400, "日期的格式不对") from e
     return d.replace(tzinfo=None)
+
+
+@app.get("/api/calendar")
+def calendar_items(start: str, end: str, kinds: str = "", states: str = "", company: str = "", priority: bool = False, min_score: float = 0,
+                   all_deadlines: bool = False) -> dict[str, Any]:
+    """Everything with a time between two local days (``end`` exclusive), in one shape (agenda.py). ``kinds`` and
+    ``states``: comma-separated; no kinds - the ones shown unless asked otherwise."""
+    from datetime import date as _date
+
+    from .. import agenda
+
+    try:
+        lo, hi = _date.fromisoformat(start), _date.fromisoformat(end)
+    except ValueError as e:
+        raise HTTPException(400, "日期的格式不对") from e
+    if not lo < hi or (hi - lo).days > 120:
+        raise HTTPException(400, "一次最多看 120 天")
+    ks = tuple(k for k in kinds.split(",") if k in agenda.KINDS) or agenda.SHOWN
+    ss = tuple(x for x in states.split(",") if x in agenda.STATES)
+    return {"items": agenda.items(lo, hi, kinds=ks, states=ss, company=company, priority=priority, min_score=min_score, all_deadlines=all_deadlines),
+            "kinds": list(agenda.KINDS), "shown": list(agenda.SHOWN)}
+
+
+@app.post("/api/calendar/items")
+def calendar_add(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant's own item on a day: {title, day: "2026-11-25", time?: "14:30", link?, application_id?, note?}."""
+    from datetime import datetime as _dt
+
+    from .. import agenda
+
+    title = " ".join(str(body.get("title") or "").split())
+    if not title:
+        raise HTTPException(400, "写一句是什么事。")
+    time_ = str(body.get("time") or "").strip()
+    try:
+        when = _dt.fromisoformat(f"{str(body.get('day') or '')[:10]}T{time_ or '00:00'}")
+        link = str(body.get("link") or "").strip()
+        if link and not link.lower().startswith(("http://", "https://")):
+            raise ValueError
+    except ValueError as e:
+        raise HTTPException(400, "日期、时间或链接的格式不对") from e
+    try:
+        tid = agenda.add_own(title, when, all_day=not time_, link=link, application_id=body.get("application_id") or None, note=str(body.get("note") or ""))
+    except KeyError as e:
+        raise HTTPException(404, "没有这份申请") from e
+    return {"id": tid}
+
+
+@app.post("/api/calendar/items/{todo_id}/link")
+def calendar_link(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Where an item leads (an interview's meeting, an assessment's start): {"link": "https://..."} or "" to remove it."""
+    from .. import agenda
+
+    try:
+        agenda.set_link(todo_id, str(body.get("link") or ""))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True}
 
 
 @app.post("/api/todos/{todo_id}/snooze")
