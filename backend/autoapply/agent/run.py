@@ -699,6 +699,14 @@ class Desk:
         except Exception:  # noqa: BLE001 - a window on its way somewhere is not where it was
             return ""
 
+    def _address_now(self) -> str:
+        """The window's address as the page itself gives it (what the browser's driver last heard may be a moment old:
+        a page that has just gone on was still reported at the address it left)."""
+        try:
+            return str(self.hands.page.evaluate("() => location.href"))
+        except Exception:  # noqa: BLE001
+            return str(self.hands.page.url)
+
     def _wait_for_card(self, todo_id: int, left: Any = None) -> dict[str, Any] | None:
         """The card's payload once the applicant has dealt with it; None when they closed it, stopped the run, or the
         time is up. ``left``: says whether the page has gone on by itself - then what was waited for has happened,
@@ -768,9 +776,9 @@ class Desk:
         was, until = self._place_now(), time.monotonic() + STAYS_SECONDS
         while time.monotonic() < until:
             if self._place_now() != was:
-                self.write("went_on", url=self.hands.page.url)
-                return ("Nothing was asked of the applicant: the page went on by itself within a few seconds. The window is on "
-                        f"{self.hands.page.url} now. Look at it and go on.")
+                at = self._address_now()
+                self.write("went_on", url=at)
+                return f"Nothing was asked of the applicant: the page went on by itself within a few seconds. The window is on {at} now. Look at it and go on."
             self._idle(0.5)
         self.write("needs_applicant", need="window" if window else "confirm", why=why, url=self.hands.page.url)
         if window and not browser.in_use()[1]:
@@ -785,7 +793,7 @@ class Desk:
         if got is not None and got.get("went_on"):
             self._close_card(todo)      # (they did it; the card has nothing left to ask)
             self.write("applicant_done", went_on=True)
-            return f"The page has gone on: the window is on {self.hands.page.url} now. Look at it and go on."
+            return f"The page has gone on: the window is on {self._address_now()} now. Look at it and go on."
         if got is not None:
             self.write("applicant_done")
             return "The applicant says it is done. The window is yours again: look at what it shows now and go on."

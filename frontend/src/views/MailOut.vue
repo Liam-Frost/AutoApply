@@ -71,7 +71,7 @@ const removeFile = (name) => run(async () => { m.value = await api.patch(`/mail/
         <div>
           <span v-if="!m.attachments.length" class="muted">没有附件</span>
           <div v-for="a in m.attachments" :key="a.name" class="row" style="margin-bottom: 4px">
-            <a v-if="a.there" :href="`/api/mail/out/${m.id}/attachment/${encodeURIComponent(a.name)}`" target="_blank" rel="noopener"><Icon name="file" />{{ a.name }}</a>
+            <a v-if="a.there" :href="`/api/mail/out/${m.id}/attachment/${encodeURIComponent(a.name)}`" target="_blank" rel="noopener">{{ a.name }}</a>
             <span v-else class="muted">{{ a.name }}（文件不在了）</span>
             <button v-if="m.can_edit" class="sm ghost" @click="removeFile(a.name)">去掉</button>
           </div>

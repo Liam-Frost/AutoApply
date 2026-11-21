@@ -46,6 +46,7 @@ class Client:
         self.base = base_url.rstrip("/")
         self.http = httpx.Client(timeout=httpx.Timeout(300, connect=30), headers={"Authorization": f"Bearer {api_key}"} if api_key else {}, transport=transport)
         self.calls = self.input_tokens = self.output_tokens = 0
+        self.effort = ""        # "low" ... "xhigh": sent as reasoning_effort when the applicant chose one for this service
         self.log: list[dict[str, Any]] = []     # one entry per request: when, how long, how it ended, the usage as reported
 
     # --- plumbing ---
@@ -53,6 +54,8 @@ class Client:
         """``timeout`` (seconds): the most this one request may take - for a caller that has a deadline of its own."""
         import time
 
+        if self.effort:
+            body = {**body, "reasoning_effort": self.effort}
         t0 = time.time()
         entry: dict[str, Any] = {"t0": t0, "model": body.get("model", ""), "status": "error", "usage": None, "id": "", "error": ""}
         self.log.append(entry)
@@ -188,7 +191,8 @@ class Client:
 def _body(model: str, messages: list[dict[str, Any]], max_tokens: int) -> dict[str, Any]:
     if not model:
         raise Unavailable("还没有选模型。请在“设置 → 账号与连接 → AI 服务”里选择或填写模型名称。")
-    return {"model": model, "messages": messages, "max_completion_tokens" if model.startswith(("gpt-5", "o1", "o3", "o4")) else "max_tokens": max_tokens}
+    # (the newer OpenAI models take the limit under another name - all of them from gpt-5 on, not only gpt-5)
+    return {"model": model, "messages": messages, "max_completion_tokens" if re.match(r"(gpt-[5-9]|o\d)", model) else "max_tokens": max_tokens}
 
 
 def _image(block: dict[str, Any]) -> dict[str, Any]:

@@ -128,7 +128,7 @@ def logout() -> None:
 
 def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict[str, Any] | None = None, tools: list[Any] | None = None,
         on_step: Callable[[dict[str, Any]], None] | None = None, base_url: str = "", timeout: float = 3600,
-        budget: Any = None) -> tuple[str, list[dict[str, Any]], dict[str, int], str]:
+        budget: Any = None, effort: str = "") -> tuple[str, list[dict[str, Any]], dict[str, int], str]:
     """One turn (with tool use if ``tools`` is given). Returns (final_text, steps, usage, stopped). Tool functions run
     on the calling thread.
 
@@ -171,7 +171,12 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
                                                     "startup_timeout_sec": 30, "tool_timeout_sec": 300}}
             with codex as c, tempfile.TemporaryDirectory(prefix="autoapply-codex-", ignore_cleanup_errors=True) as d:  # an empty folder: nothing for an agent to read
                 th = c.thread_start(base_instructions=(system or "") + "\n\n" + RULES, config=cfg or None, cwd=d, ephemeral=True, sandbox=Sandbox.read_only, model=model or None)
-                turn = th.turn(prompt, output_schema=schema)
+                more: dict[str, Any] = {}
+                if effort:      # how hard the model thinks, when the applicant chose (else the account's own default)
+                    from openai_codex.generated.v2_all import ReasoningEffort
+
+                    more["effort"] = ReasoningEffort(effort)
+                turn = th.turn(prompt, output_schema=schema, **more)
                 running.update(turn=turn, runtime=c)      # for the thread that owns the page, to end it from there
                 r = turn.run()
                 err = getattr(r, "error", None)
