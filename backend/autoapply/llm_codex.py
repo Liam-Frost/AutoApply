@@ -16,6 +16,8 @@ The sign-in flow from this program (login_chatgpt) and a full site-exploration r
 
 from __future__ import annotations
 
+from .say import say as T
+
 import concurrent.futures as cf
 import json as _json
 import logging
@@ -54,7 +56,7 @@ def _codex():  # noqa: ANN202
     try:
         from openai_codex import Codex
     except Exception as e:  # noqa: BLE001
-        raise Unavailable("还没有安装 ChatGPT 接入组件。在程序目录运行：uv sync --extra chatgpt（会下载约 190 MB）。") from e
+        raise Unavailable(T("server.llm_codex.theChatgptAddOn")) from e
     return Codex()
 
 
@@ -83,14 +85,14 @@ def login() -> dict[str, Any]:
         h = codex.login_chatgpt()
     except Exception as e:  # noqa: BLE001
         codex.__exit__(None, None, None)
-        raise Failed(f"没能开始登录：{type(e).__name__}: {str(e)[:200]}") from e
+        raise Failed(T("server.llm_codex.couldntStartSignIn", p0=type(e).__name__, p1=str(e)[:200])) from e
     _login.update(state="waiting", url=h.auth_url, error="")
 
     def wait() -> None:
         try:
             done = h.wait()
             ok = bool(getattr(done, "success", True))
-            _login.update(state="done" if ok else "failed", error="" if ok else str(getattr(done, "error", "") or "登录没有完成"))
+            _login.update(state="done" if ok else "failed", error="" if ok else str(getattr(done, "error", "") or T("server.llm_codex.signInDidntFinish")))
         except Exception as e:  # noqa: BLE001
             _login.update(state="failed", error=f"{type(e).__name__}: {str(e)[:160]}")
         finally:
@@ -114,7 +116,7 @@ def models() -> list[str]:
     except Unavailable:
         raise
     except Exception as e:  # noqa: BLE001
-        raise Failed(f"没能读取模型列表：{type(e).__name__}: {str(e)[:160]}") from e
+        raise Failed(T("server.llm_codex.couldntLoadTheModel", p0=type(e).__name__, p1=str(e)[:160])) from e
     d = r.model_dump() if hasattr(r, "model_dump") else {}
     rows = d.get("data") or d.get("models") or []
     return [str(m.get("id") or m.get("model") or m.get("slug") or "") for m in rows if isinstance(m, dict) and (m.get("id") or m.get("model") or m.get("slug"))]
@@ -140,7 +142,7 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
     from . import toolbridge
 
     if not isinstance(prompt, str):
-        raise Failed("用 ChatGPT 登录时暂不支持在提问里附带图片或文件。")
+        raise Failed(T("server.llm_codex.attachingImagesOrFiles"))
     codex = _codex()
     calls: queue.Queue[Any] = queue.Queue()
     steps: list[dict[str, Any]] = []
@@ -223,7 +225,7 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
             if on_step:
                 on_step(step)
     except queue.Empty as e:
-        raise Failed("ChatGPT 这一步超时了") from e
+        raise Failed(T("server.llm_codex.chatgptTimedOutOn")) from e
     finally:
         if bridge is not None:
             bridge.close()
@@ -245,8 +247,8 @@ def run(prompt: Any, *, system: str | None = None, model: str = "", schema: dict
         msg = f"{type(e).__name__}: {str(e)[:300]}"
         low = msg.lower()
         if any(w in low for w in ("login", "auth", "unauthorized", "usage limit", "rate limit", "quota", "not signed in")):
-            raise Unavailable(f"ChatGPT 登录不可用或额度已用完：{msg}") from e
-        raise Failed(f"ChatGPT 出错：{msg}") from e
+            raise Unavailable(T("server.llm_codex.chatgptSignInIs", p0=msg)) from e
+        raise Failed(T("server.llm_codex.chatgptError", p0=msg)) from e
     return text, steps, usage, stopped
 
 

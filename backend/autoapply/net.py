@@ -9,6 +9,8 @@ Connections to this computer itself never go through a proxy.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import os
 import time
 from typing import Any
@@ -120,8 +122,8 @@ def describe() -> dict[str, Any]:
     return {"mode": mode(), "in_effect": shown, "system": _system_url()}
 
 
-TEST_SITES = [("Claude（AI 模型）", "https://api.anthropic.com/"), ("Telegram（通知）", "https://api.telegram.org/"), ("Gmail", "https://gmail.googleapis.com/"),
-              ("Amazon 招聘", "https://www.amazon.jobs/"), ("Microsoft 招聘", "https://apply.careers.microsoft.com/careers"), ("Greenhouse", "https://boards-api.greenhouse.io/")]
+TEST_SITES = [(T("server.net.claudeAiModel"), "https://api.anthropic.com/"), (T("server.net.telegramNotifications"), "https://api.telegram.org/"), ("Gmail", "https://gmail.googleapis.com/"),
+              (T("server.net.amazonJobs"), "https://www.amazon.jobs/"), (T("server.net.microsoftCareers"), "https://apply.careers.microsoft.com/careers"), ("Greenhouse", "https://boards-api.greenhouse.io/")]
 
 
 def test() -> list[dict[str, Any]]:

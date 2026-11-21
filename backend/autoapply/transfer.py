@@ -15,6 +15,8 @@ way it always does when a sign-in has run out.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import base64
 import hashlib
 import json
@@ -39,7 +41,7 @@ def _fernet(passphrase: str, salt: bytes) -> Fernet:
 
 def _check(passphrase: str) -> None:
     if len(passphrase or "") < MIN_PASSPHRASE:
-        raise Refused(f"口令至少 {MIN_PASSPHRASE} 个字符")
+        raise Refused(T("server.transfer.thePassphraseNeedsAt", p0=MIN_PASSPHRASE))
 
 
 def export(tenant_key: str, passphrase: str, *, host: str = "") -> bytes:
@@ -47,7 +49,7 @@ def export(tenant_key: str, passphrase: str, *, host: str = "") -> bytes:
     _check(passphrase)
     state = browser.load_state(tenant_key)
     if not state or not state.get("cookies"):
-        raise Refused("这个网站没有保存的登录状态")
+        raise Refused(T("server.transfer.noSignInIs"))
     salt = os.urandom(16)
     box = {"kind": KIND, "v": 1, "tenant": tenant_key, "host": host, "salt": base64.b64encode(salt).decode(),
            "data": _fernet(passphrase, salt).encrypt(json.dumps(state).encode()).decode()}
@@ -62,13 +64,13 @@ def read(blob: bytes, passphrase: str) -> dict[str, Any]:
             raise ValueError
         salt, data, tenant = base64.b64decode(box["salt"]), str(box["data"]).encode(), str(box["tenant"])
     except (ValueError, KeyError, UnicodeDecodeError, TypeError):
-        raise Refused("这不是 AutoApply 导出的登录状态文件") from None
+        raise Refused(T("server.transfer.thisIsNotA")) from None
     try:
         state = json.loads(_fernet(passphrase or "", salt).decrypt(data))
     except InvalidToken:
-        raise Refused("口令不对") from None
+        raise Refused(T("server.transfer.thePassphraseIsWrong")) from None
     if not isinstance(state, dict) or not isinstance(state.get("cookies"), list):
-        raise Refused("文件里的内容不是一份登录状态")
+        raise Refused(T("server.transfer.whatTheFileHolds"))
     return {"tenant": tenant, "host": str(box.get("host") or ""), "state": state}
 
 

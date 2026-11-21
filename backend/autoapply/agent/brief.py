@@ -159,7 +159,9 @@ def reads() -> str:
     """Which language the applicant reads the program in: what the agent writes for them is in it."""
     from .. import db
 
-    lang = "English" if (db.get_setting("ui.lang") or "zh") == "en" else "Simplified Chinese"
+    from ..say import language_name
+
+    lang = language_name(str(db.get_setting("ui.lang") or "zh"))
     return (f"The applicant reads this program in {lang}. Write for them in it: `log` lines, the `why` of a question you `ask`, where an answer comes from (`from`), "
             "and your report's summary and open points. Keep names, quoted text of the form and what you enter on the form as they are; write notes about sites (`note`) in English.")
 

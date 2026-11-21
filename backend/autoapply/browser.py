@@ -6,6 +6,8 @@ login survives between runs. A headed window is used only for human takeover.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import os
 import re
@@ -101,20 +103,20 @@ def _at(url: str, domain: str, path: str = "") -> bool:
 
 IDENTITIES = {
     "google": {"name": "Google", "url": "https://accounts.google.com/", "domains": ("google.com",), "done": lambda u: _at(u, "myaccount.google.com"),
-               "note": "用 passkey 或两步验证登录都可以，在打开的窗口里照常完成就行；登录不上时，把上面的浏览器换成 nodriver 再试。"},
+               "note": T("server.browser.aPasskeyOrTwo")},
     "linkedin": {"name": "LinkedIn", "url": "https://www.linkedin.com/login", "domains": ("linkedin.com",), "done": lambda u: _at(u, "linkedin.com", "/feed")},
     "microsoft": {"name": "Microsoft", "url": "https://login.live.com/", "domains": ("live.com", "microsoftonline.com", "microsoft.com"),
                   "done": lambda u: _at(u, "account.microsoft.com") or _at(u, "account.live.com")},
     "apple": {"name": "Apple", "url": "https://account.apple.com/sign-in", "domains": ("apple.com", "icloud.com"), "done": lambda u: _at(u, "account.apple.com", "/account"),
-              "note": "Apple 每次在新浏览器里登录都要双重认证，验证码请你自己输入。"},
+              "note": T("server.browser.appleRequiresTwoFactor")},
     "facebook": {"name": "Facebook", "url": "https://www.facebook.com/login", "domains": ("facebook.com",),
                  "done": lambda u: re.match(r"https://www\.facebook\.com/(\?.*)?$", u) is not None},
     "indeed": {"name": "Indeed", "url": "https://secure.indeed.com/auth", "domains": ("indeed.com",),
                "done": lambda u: _at(u, "indeed.com") and not _at(u, "secure.indeed.com")},
     "github": {"name": "GitHub", "url": "https://github.com/login", "domains": ("github.com",), "done": lambda u: u.rstrip("/") == "https://github.com"},
     "seek": {"name": "SEEK", "url": "https://www.seek.com.au/oauth/login/", "domains": ("seek.com.au", "seek.com"),
-             "done": lambda u: (_at(u, "seek.com") or _at(u, "seek.com.au")) and "login" not in u and "oauth" not in u, "region": "澳大利亚、新西兰"},
-    "xing": {"name": "XING", "url": "https://login.xing.com/", "domains": ("xing.com",), "done": lambda u: _at(u, "www.xing.com"), "region": "德语区"},
+             "done": lambda u: (_at(u, "seek.com") or _at(u, "seek.com.au")) and "login" not in u and "oauth" not in u, "region": T("server.browser.australiaNewZealand")},
+    "xing": {"name": "XING", "url": "https://login.xing.com/", "domains": ("xing.com",), "done": lambda u: _at(u, "www.xing.com"), "region": T("server.browser.germanSpeakingRegion")},
 }
 
 
@@ -458,7 +460,7 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
             state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key, "nodriver")
             with _window_place(for_person, headless, tenant_key, url, operation, needs_window=not headless) as place:
                 if place.pictures:
-                    raise RuntimeError("这个网站要在普通的浏览器窗口里操作，而这台电脑没有屏幕，也没有虚拟屏幕。请安装 xvfb 和 x11vnc（sudo apt-get install -y xvfb x11vnc），或者改用容器镜像。")
+                    raise RuntimeError(T("server.browser.thisSiteHasTo"))
                 with _environment(place.env):          # an ordinary Chrome takes its screen from the environment it is started in
                     opened = nodriver_backend.open_page(state, headless=headless and place.headless, executable=executable, args=net.chrome_args() + place.args, profile=profile)
                     page = opened.__enter__()

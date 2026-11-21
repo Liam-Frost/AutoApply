@@ -17,13 +17,15 @@ already chose those postings for you.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import re
 from datetime import date, datetime
 from typing import Any, Iterable, Iterator
 
 from . import db
 
-REASONS = {"kind": "不是你要找的那类岗位（标题里没有岗位性质的词）", "role": "方向不对", "excluded": "标题里有排除词", "country": "不在你选的国家", "old": "发布太久了"}
+REASONS = {"kind": T("server.intake.notTheKindOf"), "role": T("server.intake.wrongDirection"), "excluded": T("server.intake.titleContainsAnExcluded"), "country": T("server.intake.notInYourChosen"), "old": T("server.intake.postedTooLongAgo")}
 
 _CA_PROV = r"(?:BC|ON|QC|AB|MB|SK|NS|NB|NL|PE|YT|NT|NU)"
 _CA_CITY = r"vancouver|toronto|waterloo|montr[eé]al|ottawa|calgary|edmonton|burnaby|richmond|kitchener|markham|mississauga|victoria|winnipeg|halifax|qu[eé]bec"
@@ -182,7 +184,7 @@ def not_for_me(text: str, mine: set[str] | None = None) -> str:
     if not mine or any(_field_words(p) & mine for p in programs):
         return ""
     names = "、".join(programs[:6]) + (" …" if len(programs) > 6 else "")
-    return f"面向其他专业：{names}"
+    return T("server.intake.forOtherProgrammes", p0=names)
 
 
 def keeper(r: dict[str, Any] | None = None):  # noqa: ANN201

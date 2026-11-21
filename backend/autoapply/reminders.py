@@ -9,6 +9,8 @@ Only a date the mail itself states is used. A mail that names none gets a card w
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -55,7 +57,7 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
     asks = asks or {}
     due = parse_due(str(asks.get("due") or ""))
     action = str(asks.get("action") or "").strip()[:300]
-    body = "\n".join(x for x in (action, f"邮件里写的时间：{str(asks['due_text']).strip()[:200]}" if asks.get("due_text") else "", summary) if x)
+    body = "\n".join(x for x in (action, T("server.reminders.theTimeAsThe", p0=str(asks['due_text']).strip()[:200]) if asks.get("due_text") else "", summary) if x)
     payload = {"application_id": application_id, "message_id": message_id, "category": category, "due_text": str(asks.get("due_text") or "")[:200],
                "date_only": bool(due) and "T" not in str(asks.get("due") or "") and " " not in str(asks.get("due") or "").strip()}
     links = list(asks.get("links") or [])
@@ -146,10 +148,10 @@ def check(at: datetime | None = None) -> dict[str, int]:
                 when = datetime.fromisoformat(c.follow_up)
             except ValueError:
                 continue
-            s.add(Todo(kind=KIND, ref=ref, title=f"跟进 {c.name}" + (f"（{c.company}）" if c.company else ""), body=(c.note or "")[:400],
+            s.add(Todo(kind=KIND, ref=ref, title=T("server.reminders.followUp", p0=c.name) + (f"（{c.company}）" if c.company else ""), body=(c.note or "")[:400],
                        payload={"contact_id": c.id, "date_only": True}, due_at=when))
             out["contacts"] += 1
-            tell.append(("todo", messages.reminder(f"跟进 {c.name}" + (f"（{c.company}）" if c.company else ""), "day", when, True), ref))
+            tell.append(("todo", messages.reminder(T("server.reminders.followUp", p0=c.name) + (f"（{c.company}）" if c.company else ""), "day", when, True), ref))
     for category, card, ref in tell:
         try:
             notify.send(category, card, ref=ref)

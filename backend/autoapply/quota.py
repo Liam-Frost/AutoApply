@@ -18,6 +18,8 @@ tells ``llm`` to leave a used-up service alone until its window resets, so no ca
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import time
 from datetime import datetime
@@ -32,13 +34,13 @@ log = logging.getLogger("autoapply.quota")
 WINDOWS = ("claude_subscription", "chatgpt")
 BALANCE = ("deepseek", "openrouter")
 WHY_NOT = {
-    "anthropic": "Anthropic 的 API 不提供查询余额的接口，只能在它的控制台里看。额度用完时程序会从报错里得知，并改用备用服务。",
-    "openai": "OpenAI 的 API 不提供查询余额的接口，只能在它的控制台里看。额度用完时程序会从报错里得知，并改用备用服务。",
-    "gemini": "Gemini 的 API 不提供查询余额的接口。额度用完时程序会从报错里得知，并改用备用服务。",
-    "qwen": "通义千问的 API key 查不了余额（要用阿里云账号的另一套接口）。额度用完时程序会从报错里得知，并改用备用服务。",
-    "custom": "自定义服务没有统一的查询方式。额度用完时程序会从报错里得知，并改用备用服务。",
+    "anthropic": T("server.quota.anthropicsApiHasNo"),
+    "openai": T("server.quota.openaisApiHasNo"),
+    "gemini": T("server.quota.geminisApiHasNo"),
+    "qwen": T("server.quota.aTongyiQianwenApi"),
+    "custom": T("server.quota.aCustomServiceHas"),
 }
-LABEL = {"five_hour": "5 小时额度", "seven_day": "每周额度", "seven_day_opus": "每周额度（Opus）", "seven_day_sonnet": "每周额度（Sonnet）", "overage": "超额用量"}
+LABEL = {"five_hour": T("server.quota.hourAllowance"), "seven_day": T("server.quota.weeklyAllowance"), "seven_day_opus": T("server.quota.weeklyAllowanceOpus"), "seven_day_sonnet": T("server.quota.weeklyAllowanceSonnet"), "overage": T("server.quota.usageOverTheAllowance")}
 
 
 def supported(provider: str) -> bool:
@@ -49,8 +51,8 @@ def _window_label(minutes: int | None, fallback: str) -> str:
     if not minutes:
         return fallback
     if minutes <= 24 * 60:
-        return f"{round(minutes / 60)} 小时额度"
-    return "每周额度" if 6 * 1440 <= minutes <= 8 * 1440 else f"{round(minutes / 1440)} 天额度"
+        return T("server.quota.hourAllowance2", p0=round(minutes / 60))
+    return T("server.quota.weeklyAllowance") if 6 * 1440 <= minutes <= 8 * 1440 else T("server.quota.dayAllowance", p0=round(minutes / 1440))
 
 
 def _store() -> dict[str, Any]:
@@ -85,13 +87,13 @@ def _chatgpt() -> dict[str, Any]:
     try:
         from openai_codex.generated.v2_all import GetAccountRateLimitsResponse
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError("还没有安装 ChatGPT 接入组件") from e
+        raise RuntimeError(T("server.quota.chatgptConnectorNotInstalled")) from e
     with llm_codex._codex() as c:
         r = c._client.request("account/rateLimits/read", None, response_model=GetAccountRateLimitsResponse)
     d = r.model_dump(mode="json", exclude_none=True)
     rl = d.get("rate_limits") or {}
     wins = []
-    for key, fallback in (("primary", "短期额度"), ("secondary", "长期额度")):
+    for key, fallback in (("primary", T("server.quota.shortTermAllowance")), ("secondary", T("server.quota.longTermAllowance"))):
         w = rl.get(key)
         if w:
             wins.append({"key": key, "label": _window_label(w.get("window_duration_mins"), fallback), "used": int(w.get("used_percent") or 0), "resets_at": int(w.get("resets_at") or 0),
@@ -106,7 +108,7 @@ def _deepseek() -> dict[str, Any]:
     base = str(cfg.get("base_url") or llm_openai.PRESETS["deepseek"]["base_url"]).rstrip("/").removesuffix("/v1")
     key = secrets.get(llm.key_name("deepseek"))
     if not key:
-        raise RuntimeError("还没有保存 DeepSeek 的 API key")
+        raise RuntimeError(T("server.quota.noDeepseekApiKey"))
     r = httpx.get(f"{base}/user/balance", headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}, timeout=20)
     r.raise_for_status()
     d = r.json()
@@ -119,7 +121,7 @@ def _openrouter() -> dict[str, Any]:
 
     key = secrets.get(llm.key_name("openrouter"))
     if not key:
-        raise RuntimeError("还没有保存 OpenRouter 的 API key")
+        raise RuntimeError(T("server.quota.noOpenrouterApiKey"))
     h = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
     k = httpx.get("https://openrouter.ai/api/v1/key", headers=h, timeout=20)
     k.raise_for_status()
@@ -131,7 +133,7 @@ def _openrouter() -> dict[str, Any]:
             cd = c.json().get("data") or {}
             left = float(cd.get("total_credits") or 0) - float(cd.get("total_usage") or 0)
     if left is None:
-        raise RuntimeError("OpenRouter 没有返回余额")
+        raise RuntimeError(T("server.quota.openrouterDidNotReturn"))
     return {"kind": "balance", "balances": [{"currency": "USD", "amount": round(float(left), 4)}], "blocked": float(left) <= 0}
 
 
@@ -157,7 +159,7 @@ def read(provider: str, *, refresh: bool = False, max_age: int = 600) -> dict[st
             snap = _store().get(provider)
             if not snap:
                 return {"provider": provider, "name": name, "supported": True, "kind": "windows", "windows": [], "pending": True,
-                        "note": "Claude 的额度随每次调用一起返回，程序用过一次之后这里就会显示。"}
+                        "note": T("server.quota.claudesAllowanceComesBack")}
         else:
             snap = remember(provider, {"chatgpt": _chatgpt, "deepseek": _deepseek, "openrouter": _openrouter}[provider]())
     except Exception as e:  # noqa: BLE001 - a figure that cannot be read is shown as such; it never breaks the caller
@@ -202,10 +204,10 @@ def describe(snap: dict[str, Any]) -> list[tuple[str, str]]:
     out = []
     for w in snap.get("windows") or []:
         when = datetime.fromtimestamp(w["resets_at"]).strftime("%m-%d %H:%M" if w["resets_at"] - time.time() > 20 * 3600 else "%H:%M") if w.get("resets_at") else ""
-        used = "已用完" if (w.get("blocked") or (w.get("used") or 0) >= 100) else f"已用 {w['used']}%" if w.get("used") is not None else "未知"
-        out.append((w["label"], used + (f"，{when} 重置" if when else "")))
+        used = T("server.quota.usedUp") if (w.get("blocked") or (w.get("used") or 0) >= 100) else T("server.quota.used", p0=w['used']) if w.get("used") is not None else T("server.quota.unknown")
+        out.append((w["label"], used + (T("server.quota.resets", p0=when) if when else "")))
     for b in snap.get("balances") or []:
-        out.append(("余额", f"{b['amount']:.2f} {b['currency']}".strip()))
+        out.append((T("server.quota.balance"), f"{b['amount']:.2f} {b['currency']}".strip()))
     return out
 
 
@@ -229,7 +231,7 @@ def check_all(*, announce: bool = True) -> list[dict[str, Any]]:
         if lvl == "out":
             until = reset_time(p)
             if until:
-                llm.rest(p, until, "额度用完了（查询额度得知）")
+                llm.rest(p, until, T("server.quota.theAllowanceIsUsed"))
         if not announce or not db.get_setting("llm.quota_notify"):
             continue
         if snap.get("kind") == "windows":

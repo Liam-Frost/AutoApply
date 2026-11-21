@@ -5,6 +5,8 @@ A failing source never fails the scan; its error is reported in the summary.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import re
 from typing import Any, Iterable
@@ -292,7 +294,7 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
             if isinstance(err, Refused):       # the same answer for every board of that service: said once
                 who = str(err).split(" ", 1)[0]
                 summary.setdefault("refused", {}).setdefault(who, []).append(e["name"])
-                summary["errors"][e["name"]] = f"网站的安全检查拒绝了这台电脑当前的网络（{who}）"
+                summary["errors"][e["name"]] = T("server.discover.theSitesSecurityCheck", p0=who)
             else:
                 summary["errors"][e["name"]] = f"{type(err).__name__}: {str(err)[:200]}"
             continue

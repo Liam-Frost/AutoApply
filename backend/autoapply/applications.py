@@ -11,6 +11,8 @@ any other change, marked as the applicant's.
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import csv
 import io
 from datetime import datetime, timezone
@@ -23,27 +25,27 @@ from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, Job, Ma
 # where the applicant may put an application by hand: a step that happened outside the program's sight
 BY_HAND = (*SENT, "withdrawn")
 # who said a change, in the applicant's words
-SOURCE = {"run": "Agent", "mail": "邮件", "site": "雇主网站", "user": "你", "draft": "申请记录", "auto": "自动批准", "resume": "继续任务", "recover": "程序重启后", "": ""}
+SOURCE = {"run": "Agent", "mail": T("server.applications.email"), "site": T("server.applications.theEmployersSite"), "user": T("server.applications.you"), "draft": T("server.applications.theRecord"), "auto": T("server.applications.approvedAutomatically"), "resume": T("server.applications.aResumedTask"), "recover": T("server.applications.afterTheProgramRestarted"), "": ""}
 # what comes next, by where it stands: (what is open, the things that can be done about it - the page turns them into buttons)
 NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
-    "recon": ("Agent 正在做这份申请", ()),
-    "revising": ("Agent 正在按你的意见处理这份申请", ()),
-    "needs_input": ("有问题等你回答", ("open_draft",)),
-    "draft_ready": ("申请记录等你批准", ("open_draft",)),
-    "approved": ("已批准，等 Agent 去提交", ()),
-    "executing": ("Agent 正在核对并提交", ()),
-    "drifted": ("申请表有变化", ("rerun",)),
-    "needs_human": ("需要你处理后才能继续（见“需要我处理”）", ("open_todos",)),
-    "failed": ("上一次没有做成，可以让 Agent 再做一次", ("rerun", "open_draft")),
-    "ready_to_submit": ("表单已经填好，还没有提交", ("rerun", "mark_submitted")),
-    UNKNOWN: ("点过提交，还不知道有没有提交成功：等确认邮件，或告诉程序结果", ("check_mail", "mark_submitted", "rerun_not_submitted")),
-    "submitted": ("已提交，等雇主的确认邮件", ("check_mail",)),
-    "confirmed": ("雇主已确认收到，等后续消息", ()),
-    "assessment": ("有笔试 / 测评，按邮件里的安排完成", ()),
-    "interview": ("有面试，按邮件里的安排准备", ()),
-    "offer": ("收到 Offer", ()),
-    "rejected": ("这份申请没有通过", ()),
-    "withdrawn": ("你决定不投这个岗位", ()),
+    "recon": (T("server.applications.theAgentIsWorking"), ()),
+    "revising": (T("server.applications.theAgentIsWorking2"), ()),
+    "needs_input": (T("server.applications.questionsWaitingForYour"), ("open_draft",)),
+    "draft_ready": (T("server.applications.theRecordOfThe"), ("open_draft",)),
+    "approved": (T("server.applications.approvedWaitingForThe"), ()),
+    "executing": (T("server.applications.theAgentIsChecking"), ()),
+    "drifted": (T("server.applications.applicationFormHasChanged"), ("rerun",)),
+    "needs_human": (T("server.applications.itNeedsYouBefore"), ("open_todos",)),
+    "failed": (T("server.applications.theLastAttemptDid"), ("rerun", "open_draft")),
+    "ready_to_submit": (T("server.applications.theFormIsFilled"), ("rerun", "mark_submitted")),
+    UNKNOWN: (T("server.applications.submitWasPressedAnd"), ("check_mail", "mark_submitted", "rerun_not_submitted")),
+    "submitted": (T("server.applications.submittedWaitingForThe"), ("check_mail",)),
+    "confirmed": (T("server.applications.confirmedByTheEmployer"), ()),
+    "assessment": (T("server.applications.aTestOrAssessment"), ()),
+    "interview": (T("server.applications.anInterviewPrepareAs"), ()),
+    "offer": (T("server.applications.offerReceived"), ()),
+    "rejected": (T("server.applications.thisApplicationWasNot"), ()),
+    "withdrawn": (T("server.applications.youDecidedNotTo"), ()),
 }
 
 
@@ -128,12 +130,12 @@ def detail(application_id: int) -> dict[str, Any] | None:
             line.append({"at": _iso(e.at), "kind": "status", "old": humanize.APP_STATUS.get(e.old, e.old), "new": humanize.APP_STATUS.get(e.new, e.new),
                          "by": SOURCE.get(e.source or "", e.source or ""), "note": getattr(e, "note", "") or ""})
         for r in s.query(Run).filter(Run.ref == f"application:{a.id}", Run.kind.in_(("execute", "scout"))):      # (runs of earlier versions)
-            line.append({"at": _iso(r.created_at), "kind": "run", "what": "填写申请表" if r.kind == "execute" else "预读表单后面的步骤", "ok": bool(r.ok), "run_id": r.id})
+            line.append({"at": _iso(r.created_at), "kind": "run", "what": T("server.applications.fillApplicationForms") if r.kind == "execute" else T("server.applications.readingTheLaterSteps"), "ok": bool(r.ok), "run_id": r.id})
         from .agent import work
 
         for e in work.journal(a.id):      # each run of the agent on it: how it ended, in the agent's own words
             if e["kind"] in ("report", "ended"):
-                line.append({"at": e["at"], "kind": "run", "what": "Agent 的一次运行", "ok": e["kind"] == "report", "said": str(e.get("text") or "")[:300]})
+                line.append({"at": e["at"], "kind": "run", "what": T("server.applications.aRunOfThe"), "ok": e["kind"] == "report", "said": str(e.get("text") or "")[:300]})
         for m in mails:
             line.append({"at": _iso(m.received_at), "kind": "mail", "label": messages.mail_label(m.category, m.event or "new")[1], "subject": m.subject, "message_id": m.message_id})
         out["timeline"] = sorted(line, key=lambda x: x["at"] or "", reverse=True)
@@ -160,20 +162,20 @@ def correct(application_id: int, *, status: str = "", submitted_at: datetime | N
         was = a.status
         if status and status != was:
             if status not in BY_HAND:
-                raise NotAllowed("只能手动记为：已提交、已确认、笔试、面试、Offer、被拒、不投了。准备和填写中的状态由程序维护。")
+                raise NotAllowed(T("server.applications.byHandItCan"))
             lifecycle.move(a, status, source="user", back=True, note=note)
             label = humanize.APP_STATUS.get(status, status)
-            a.last_event = f"你手动记为“{label}”" + (f"：{note}" if note else "")
+            a.last_event = T("server.applications.youRecordedItAs", p0=label) + (f"：{note}" if note else "")
             if status in SENT:
                 lifecycle.add_evidence(a, {"user": {"status": status, "at": now().isoformat(), "note": note}})
         if submitted_at is not None:
             if a.status not in SENT:
-                raise NotAllowed("还没有投出的申请没有投出日期。")
+                raise NotAllowed(T("server.applications.anApplicationThatHas"))
             old = a.submitted_at
             a.submitted_at = submitted_at
             if _utc(old) != _utc(submitted_at):
                 s.add(ApplicationEvent(application_id=a.id, old=a.status, new=a.status, source="user",
-                                       note=f"投出日期改为 {submitted_at.date().isoformat()}" + (f"（原为 {old.date().isoformat()}）" if old else "")))
+                                       note=T("server.applications.dateSentChangedTo", p0=submitted_at.date().isoformat()) + (T("server.applications.was", p0=old.date().isoformat()) if old else "")))
         elif note and (not status or status == was):
             # a note with nothing else changed (the page sends no status when it is the one the application has)
             s.add(ApplicationEvent(application_id=a.id, old=was, new=was, source="user", note=note))
@@ -196,7 +198,7 @@ def unlink_mail(application_id: int, message_id: str) -> bool:
             ev["mail_ids"] = ids
             ev["mail_id"] = ids[-1] if ids else ""
             a.evidence = ev
-        s.add(ApplicationEvent(application_id=application_id, old=a.status, new=a.status, source="user", note=f"邮件“{(m.subject or '')[:80]}”不是关于这份申请的"))
+        s.add(ApplicationEvent(application_id=application_id, old=a.status, new=a.status, source="user", note=T("server.applications.theEMailIs", p0=(m.subject or '')[:80])))
     if back is not None:
         # It is about some application, only not this one: the card that asks which comes back. (A mail the program
         # matched by itself never had one, and a mail matched by hand had its card closed; the mailbox is not read
@@ -211,7 +213,7 @@ def as_csv() -> str:
     """The applications as a table to keep or to open in a spreadsheet: what was applied for, when, where it stands."""
     out = io.StringIO()
     wr = csv.writer(out, lineterminator="\n")
-    wr.writerow([i18n.tr(h) for h in ("公司", "岗位", "地点", "状态", "投出日期", "最近进展", "岗位链接", "最后更新")])
+    wr.writerow([i18n.tr(h) for h in (T("server.applications.company"), T("server.applications.postings"), T("server.applications.location"), T("server.applications.status"), T("server.applications.dateSent"), T("server.applications.latest"), T("server.applications.postingLink"), T("server.applications.lastUpdated"))])
     for r in listing():
         wr.writerow([r["company"], r["title"], r["location"] or "", i18n.tr(r["status_label"]), (r["submitted_at"] or "")[:10], i18n.tr(r["last_event"] or r["next"]),
                      r["apply_url"] or "", (r["updated_at"] or "")[:16].replace("T", " ")])

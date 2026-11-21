@@ -7,6 +7,8 @@ the agent reads it from the mailbox itself when a site sends one while it works 
 
 from __future__ import annotations
 
+from .say import say as T
+
 import html
 import base64
 import json
@@ -99,8 +101,8 @@ def migrate_reconnect_waits() -> None:
             if not card or "RefreshError" not in card.body or "邮箱" not in card.body:
                 continue
             task.payload = {**task.payload, "waits_for": "config:gmail"}
-            card.kind, card.title, card.ref = "config", "重新授权 Gmail 邮箱", "config:gmail"
-            card.payload, card.body = {}, "Google 已拒绝旧授权。请到设置 → 账号与连接 → 收件邮箱重新授权，随后重试原岗位。"
+            card.kind, card.title, card.ref = "config", T("server.mail.authorizeGmailAgain"), "config:gmail"
+            card.payload, card.body = {}, T("server.mail.googleHasRejectedThe")
 
 
 def _service():
@@ -131,7 +133,7 @@ def _service():
             if not any(isinstance(arg, dict) and arg.get("error") == "invalid_grant" for arg in exc.args):
                 raise
             db.set_setting("mail.gmail_reconnect", True)
-            raise GmailReconnect("Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。") from exc
+            raise GmailReconnect(T("server.mail.theGmailAuthorizationHas")) from exc
         secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
     return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20)), cache_discovery=False)
 
@@ -199,7 +201,7 @@ def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments:
     from pathlib import Path
 
     if not can_send():
-        raise MailNotConfigured("程序还没有从你的邮箱发信的权限。请到设置 → 账号与连接 → 收件邮箱重新授权（授权页会多出“发送邮件”一项）。")
+        raise MailNotConfigured(T("server.mail.theProgramIsNot"))
     # A connection to the mailbox is dropped now and then (a proxy, a network that blinks). Reading is asked again.
     # Sending is not simply sent again - the mail may have gone out before the answer was lost: it carries a Message-ID
     # of its own, and after a failure the mailbox is asked whether it has a mail with that id before anything is resent.
@@ -621,7 +623,7 @@ def _record(app_id: int, category: str, summary: str, received: datetime | None,
     # mail when an application is merely started. The mail is kept on the record and shown; the status stays.
     early = category == "confirmation" and a.status in PREPARING and a.submitted_at is None and not _was_filled(s, a.id, received)
     if early:
-        a.last_event = f"收到一封像确认信的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{summary}"[:500]
+        a.last_event = T("server.mail.anEMailThat", p0=summary)[:500]
     elif new_status and RANK.get(new_status, 0) > RANK.get(a.status, 0):
         lifecycle.move(a, new_status, source="mail")
         if a.submitted_at is None:      # the program had not seen the submission; the employer has

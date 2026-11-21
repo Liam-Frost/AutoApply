@@ -6,6 +6,8 @@ serialised by design: one task at a time.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import json
 import logging
 import os
@@ -274,12 +276,12 @@ def _run_one(t: Task) -> None:
         status, error = "failed", str(e)
         if "usage limit" in str(e).lower():
             # The subscription's quota is used up for now. Try again later instead of dropping the work.
-            notify.add_todo("config", "AI 服务的额度暂时用完" + ("（备用的也都试过了）" if "所有配置的 AI 服务" in str(e) else ""), ref="config:llm-limit",
-                            body=f"{str(e)[:200]}\n需要模型的任务会每 30 分钟自动重试一次，额度恢复后继续；不需要你操作。")
+            notify.add_todo("config", T("server.tasks.theAiServicesUsage") + (T("server.tasks.allBackupsWereTried") if "所有配置的 AI 服务" in str(e) else ""), ref="config:llm-limit",
+                            body=T("server.tasks.tasksThatNeedThe", p0=str(e)[:200]))
             if t.kind in ("apply", "score") and int(t.payload.get("_limit_retries", 0)) < 12:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
-            notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")
+            notify.add_todo("config", T("server.tasks.aiModelUnavailable"), body=str(e), ref="config:llm")
             # (not the application's failure either: it is taken up again when the model can be reached - a few times,
             # and then the application says that it did not get done)
             if t.kind == "apply" and int(t.payload.get("_model_retries", 0)) < 4:
@@ -291,7 +293,7 @@ def _run_one(t: Task) -> None:
             # anything. The first time soon: a network that dropped for a moment is back in minutes.
             n = int(t.payload.get("_down_retries", 0))
             again, wait = t.kind == "apply" and n < 6, 5 if n == 0 else 30
-            status, error = "failed", f"网站暂时打不开：{str(e).splitlines()[0][:200]}" + (f"；{wait} 分钟后自动重试" if again else "")
+            status, error = "failed", T("server.tasks.siteTemporarilyUnavailable", p0=str(e).splitlines()[0][:200]) + (T("server.tasks.retryingAutomaticallyInMinutes", p0=wait) if again else "")
             log.warning("task %s (%s): the site did not answer: %s", t.id, t.kind, str(e).splitlines()[0][:200])
             if again:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_down_retries": n + 1}, minutes=wait, priority=t.priority)
@@ -409,10 +411,10 @@ def cancel(task_id: int) -> None:
         if t is None:
             raise KeyError(task_id)
         if t.status == "running":
-            raise NotNow("这个任务正在执行，不能中途取消。想让它做完就停、后面的不再开始，用“做完手上的就停”。")
+            raise NotNow(T("server.tasks.thisTaskIsRunning"))
         if t.status not in ("queued", "waiting_human", "held"):
-            raise NotNow("这个任务已经结束了。")
-        t.status, t.error, t.finished_at = "cancelled", "你取消了这个任务", now()
+            raise NotNow(T("server.tasks.thisTaskHasAlready"))
+        t.status, t.error, t.finished_at = "cancelled", T("server.tasks.youCancelledThisTask"), now()
         s.flush()
         a = application_of(s, t.ref) if t.kind in lifecycle.WORK else None
         if a is not None and a.status not in SENT:
@@ -421,7 +423,7 @@ def cancel(task_id: int) -> None:
             if not any(x.ref.split(":manual")[0] in refs for x in more):
                 if a.status in ("approved", "executing"):
                     if lifecycle.move(a, "failed", source="user"):
-                        a.last_event = "你取消了这次填写；草案还在，可以重新开始"
+                        a.last_event = T("server.tasks.youCancelledThisRun")
                 elif a.status in ("recon", "revising"):
                     pending = [d for d in a.drafts if d.review_status == "pending"]
                     if pending:
@@ -441,7 +443,7 @@ def hold(task_id: int) -> None:
         if t is None:
             raise KeyError(task_id)
         if t.status != "queued":
-            raise NotNow("只有还在排队的任务可以暂缓。")
+            raise NotNow(T("server.tasks.onlyATaskThat"))
         t.status = "held"
 
 
@@ -451,7 +453,7 @@ def take_up(task_id: int) -> None:
         if t is None:
             raise KeyError(task_id)
         if t.status != "held":
-            raise NotNow("这个任务没有被暂缓。")
+            raise NotNow(T("server.tasks.thisTaskIsNot"))
         t.status = "queued"
         asked_again(t)
     _wake.set()
@@ -464,7 +466,7 @@ def first(task_id: int) -> None:
         if t is None:
             raise KeyError(task_id)
         if t.status not in ("queued", "held"):
-            raise NotNow("只有还在排队的任务可以提前。")
+            raise NotNow(T("server.tasks.onlyATaskThat2"))
         lowest = min([x.priority for x in s.query(Task).filter(Task.status == "queued")] or [0])
         t.status, t.priority, t.due_at = "queued", min(lowest, t.priority) - 1, None
         t.payload = {**(t.payload or {}), "_by_hand": True}
@@ -561,7 +563,7 @@ def recover(owner: str | None = None) -> None:
                 app = application_of(s, t.ref)
                 if app is not None and app.status not in SENT and work._was_sending(work.folder_of(app.id), None, recovering=True):
                     lifecycle.move(app, UNKNOWN, source="recover")
-                    app.last_event = "程序在提交过程中中断，将先核实投递结果。"
+                    app.last_event = T("server.tasks.theProgramWasInterrupted")
                     t.status, t.error = "queued", ""
                     continue
             t.status = "queued" if t.attempts < 2 else "failed"
@@ -578,7 +580,7 @@ def recover(owner: str | None = None) -> None:
                 from . import lifecycle
 
                 if lifecycle.move(a, "failed", source="recover"):
-                    a.last_event = "填写被中断（程序在填写途中被关闭），可以重新开始"
+                    a.last_event = T("server.tasks.fillingWasInterruptedThe")
 
 
     reconcile_materials()

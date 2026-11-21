@@ -9,6 +9,8 @@ Documentation: discord.com/developers/docs (gateway, interactions, message compo
 """
 from __future__ import annotations
 
+from .say import say as T
+
 import json
 import logging
 import random
@@ -70,7 +72,7 @@ def dm_channel() -> str:
     """The direct-message channel with the bound user (made once, then kept)."""
     user = str(db.get_setting("notify.discord_user_id") or "")
     if not user:
-        raise RuntimeError("Discord 还没有绑定：在设置里点“绑定”，把短码私信给机器人。")
+        raise RuntimeError(T("server.discord.discordIsNotLinked"))
     known = db.get_setting("notify.discord_dm") or {}
     if known.get("user") == user and known.get("channel"):
         return str(known["channel"])

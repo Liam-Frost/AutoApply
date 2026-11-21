@@ -14,6 +14,8 @@ the same call is made on the next one; see ``_failover``. Both the main and the 
 
 from __future__ import annotations
 
+from .say import say as T
+
 import base64
 import json as _json
 import logging
@@ -183,7 +185,7 @@ _lock = threading.Lock()
 
 
 def label(p: str) -> str:
-    return {"claude_subscription": "Claude 订阅", "anthropic": "Claude API", "chatgpt": "ChatGPT 订阅"}.get(p) or (llm_openai.PRESETS.get(p) or {}).get("name", p)
+    return {"claude_subscription": T("server.llm.claudeSubscription"), "anthropic": "Claude API", "chatgpt": T("server.llm.chatgptSubscription")}.get(p) or (llm_openai.PRESETS.get(p) or {}).get("name", p)
 
 
 def _key(e: dict[str, str]) -> str:
@@ -326,7 +328,7 @@ def _failover(call: Callable[[], Any]) -> Any:
         return out
     first = failed[0][1]
     detail = "；".join(f"{label(e['provider'])}: {str(x)[:160]}" for e, x in failed)
-    raise (LLMUnavailable if any(isinstance(x, LLMUnavailable) for _, x in failed) else LLMError)(f"{first}. 所有配置的 AI 服务都试过了（{detail}）") from first
+    raise (LLMUnavailable if any(isinstance(x, LLMUnavailable) for _, x in failed) else LLMError)(T("server.llm.everyConfiguredAiService", p0=first, p1=detail)) from first
 
 
 def try_entry(e: dict[str, str]) -> dict[str, Any]:
@@ -372,7 +374,7 @@ def _codex(prompt: Any, *, small: bool, system: str | None, schema: dict[str, An
     if not isinstance(prompt, str):
         prompt = llm_openai._content(prompt)
         if not isinstance(prompt, str):
-            raise LLMError("用 ChatGPT 登录时不能发送图片。")
+            raise LLMError(T("server.llm.imagesCannotBeSent"))
     t0 = time.time()
     try:
         out, steps, used, stopped = llm_codex.run(prompt, system=system, model=model, schema=schema, tools=tools, on_step=on_step, budget=budget,

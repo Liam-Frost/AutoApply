@@ -6,6 +6,8 @@ scored on the summary, told that it is one, and its reason says so."""
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 from typing import Any
 
@@ -55,8 +57,8 @@ Read the whole description. Apply hard exclusions first: if one applies, set exc
 Otherwise score fit 0-10 following the rubric. Base every statement on the description; do not guess from the title."""
 
 
-PARTIAL = {"summary": "只有摘要：这个岗位的来源只给了摘要，岗位页面的全文没能读到；摘要里没提到的要求不等于没有。",
-           "cut": "岗位说明很长，只读了前面一部分；后面写的内容不在评分里。"}
+PARTIAL = {"summary": T("server.scoring.onlyASummaryThe"),
+           "cut": T("server.scoring.thePostingsDescriptionIs")}
 
 
 def _whole_text(job_id: int) -> None:
@@ -70,7 +72,7 @@ def _whole_text(job_id: int) -> None:
         log.exception("could not read the posting's page for its full text")
 
 
-_SAYS_SO = {"summary": ("只有摘要", "only a summary", "summary only"), "cut": ("只读了前面", "beginning only", "only the beginning")}
+_SAYS_SO = {"summary": (T("server.scoring.onlyASummary"), "only a summary", "summary only"), "cut": (T("server.scoring.onlyTheBeginningWas"), "beginning only", "only the beginning")}
 
 
 def _said_partial(reason: str, partial: str) -> str:
@@ -165,7 +167,7 @@ def set_aside_by_rule(ids: list[int]) -> list[int]:
             j = s.get(Job, jid)
             why = intake.not_for_me(j.jd_text or "", mine) if j is not None else ""
             if why and j.application is None:
-                j.status, j.score, j.exclusion, j.score_reason = "skipped", 0.0, why, "岗位自己写明了面向的专业，你的专业不在其中；没有交给 AI 评分。"
+                j.status, j.score, j.exclusion, j.score_reason = "skipped", 0.0, why, T("server.scoring.thePostingSaysWhich")
             else:
                 left.append(jid)
     return left

@@ -18,6 +18,8 @@ Rules that hold everywhere:
 
 from __future__ import annotations
 
+from .say import say as T
+
 import re
 import statistics
 from collections import defaultdict
@@ -206,8 +208,8 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
             got = came_of(a.status, mine, been[a.id])
             progressed, decided, heard = got["progressed"], got["decided"], got["heard"]
             apps.append({
-                "status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or "未标注",
-                "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
+                "status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or T("server.analytics.unlabeled"),
+                "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else T("server.analytics.employerWebsite")),
                 "auto": bool(a.auto_approved), "wait": (decisions[0] - sub_at).days if decisions else None,
                 "lead": (sub_at - _naive(j.first_seen)).days if j.first_seen else None, "month": _local(sub_at).strftime("%Y-%m"), "at": sub_at,
                 "progressed": progressed, "decided": decided, "heard": heard, "offer": a.status == "offer" or "offer" in been[a.id]})
@@ -227,7 +229,7 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
             gone_out = a_ is not None and (a_.status in SENT or a_.status == "submit_unknown")
             if st and not gone_out and j.status != "skipped" and w.has(_naive(j.first_seen)):
                 missed.append({"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": (j.deadline or "")[:10], "stage": st,
-                               "why": "没有申请链接" if not j.apply_url else "已截止，没有投" if st == "expired" else "已下线，没有投",
+                               "why": T("server.analytics.noApplicationLink") if not j.apply_url else T("server.analytics.closedNotApplied") if st == "expired" else T("server.analytics.takenDownNotApplied"),
                                "reason": _missed_reason(j, a_)})
         missed.sort(key=lambda r: (-(r["score"] or 0), r["deadline"] or "9999"))
         first = _first_records(s, w)
@@ -246,7 +248,7 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
 
     def band(r: dict[str, Any]) -> str:
         sc = r["score"]
-        return "没评分" if sc is None else "9–10" if sc >= 9 else "8–8.5" if sc >= 8 else "7–7.5" if sc >= 7 else "6–6.5" if sc >= 6 else "6 以下"
+        return T("server.analytics.notScored") if sc is None else "9–10" if sc >= 9 else "8–8.5" if sc >= 8 else "7–7.5" if sc >= 7 else "6–6.5" if sc >= 6 else T("server.analytics.below")
 
     total = rate(apps)
     waits = sorted(r["wait"] for r in apps if r["wait"] is not None)
@@ -263,14 +265,14 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
         "window": w.describe(), "total": total, "previous": {"n": prev_n} if w.prev_lo is not None else None, "min_sample": MIN_SAMPLE,
         "coverage": coverage,
         # Each step is a part of the one before (sent > heard anything > a decision > got further > offer), so it can be drawn as a funnel.
-        "funnel": [{"key": "sent", "label": "投出", "value": total["n"]}, {"key": "heard", "label": "收到回执（确认信或任何回复）", "value": total["replied"]},
-                   {"key": "decided", "label": "有实质结果（进展或被拒）", "value": total["decided"]},
-                   {"key": "progressed", "label": "进入笔试 / 面试", "value": total["progressed"]}, {"key": "offer", "label": "拿到 Offer", "value": total["offer"]}],
+        "funnel": [{"key": "sent", "label": T("server.analytics.sent"), "value": total["n"]}, {"key": "heard", "label": T("server.analytics.acknowledgedAConfirmationOr"), "value": total["replied"]},
+                   {"key": "decided", "label": T("server.analytics.cameToSomethingWent"), "value": total["decided"]},
+                   {"key": "progressed", "label": T("server.analytics.reachedAnAssessmentInterview"), "value": total["progressed"]}, {"key": "offer", "label": T("server.analytics.offer"), "value": total["offer"]}],
         "states": [{"key": k, "label": lab, "value": states.get(k, 0)} for k, lab in
-                   (("silent", "没有任何回音"), ("receipt", "只收到自动确认"), ("assessment", "笔试 / 测评中"), ("interview", "面试中"), ("offer", "Offer"), ("rejected", "被拒"), ("other", "其他（撤回等）"))],
+                   (("silent", T("server.analytics.noReplyAtAll")), ("receipt", T("server.analytics.automaticReceiptOnly")), ("assessment", T("server.analytics.assessment")), ("interview", T("server.analytics.interviewing")), ("offer", "Offer"), ("rejected", T("server.analytics.rejected")), ("other", T("server.analytics.otherWithdrawnEtc")))],
         "rejected_after_progress": sum(1 for r in apps if r["status"] == "rejected" and r["progressed"]),
         "median_wait_days": waits[len(waits) // 2] if waits else None, "waited": len(waits), "median_lead_days": leads[len(leads) // 2] if leads else None,
-        "by_score": by(band, ["9–10", "8–8.5", "7–7.5", "6–6.5", "6 以下", "没评分"]), "by_channel": by(lambda r: r["channel"]), "by_direction": by(lambda r: r["direction"])[:8],
+        "by_score": by(band, ["9–10", "8–8.5", "7–7.5", "6–6.5", T("server.analytics.below"), T("server.analytics.notScored")]), "by_channel": by(lambda r: r["channel"]), "by_direction": by(lambda r: r["direction"])[:8],
         "by_time": _through_time(w, [(r["at"], bool(r["decided"])) for r in apps], reply_times, bucket),
         "by_month": [{"label": m, **(per_month.get(m) or {**rate([]), "thin": True}), "replies": reply_months.get(m, 0)} for m in months],
         "auto": {"auto": sum(1 for r in apps if r["auto"]), "manual": sum(1 for r in apps if not r["auto"])},
@@ -332,22 +334,22 @@ def _backlog(s: Any, w: Window) -> dict[str, Any]:
             "open": len(open_), "oldest": [{"id": t.id, "title": t.title, "kind": TODO_KINDS.get(t.kind, t.kind), "hours": (now_ - t.created_at).total_seconds() / 3600} for t in oldest]}
 
 
-TODO_KINDS = {"answer": "回答问题", "review": "批准记录", "confirm": "确认", "code": "验证码", "resume": "继续一份申请", "submit": "自己提交", "failed": "没做成",
-              "config": "设置", "mail_unmatched": "邮件归属", "followup": "面试 / 测评", "gone": "岗位下架", "login": "登录", "facts_changed": "资料改了",
-              "mail_out": "看邮件再发", "takeover": "登录", "blocked": "网站操作不了", "captcha": "人工验证"}
+TODO_KINDS = {"answer": T("server.analytics.answerQuestions"), "review": T("server.analytics.approveARecord"), "confirm": T("server.analytics.confirm"), "code": T("server.analytics.code"), "resume": T("server.analytics.continueAnApplication"), "submit": T("server.analytics.submitYourself"), "failed": T("server.analytics.didNotGetThrough"),
+              "config": T("server.analytics.settings"), "mail_unmatched": T("server.analytics.whichApplicationAMail"), "followup": T("server.analytics.interviewAssessment"), "gone": T("server.analytics.postingTakenDown"), "login": T("server.analytics.signIn"), "facts_changed": T("server.analytics.profileChanged"),
+              "mail_out": T("server.analytics.readAMailBefore"), "takeover": T("server.analytics.signIn"), "blocked": T("server.analytics.siteTheProgramCannot"), "captcha": T("server.analytics.humanCheck")}
 
 
 # --- tasks: what a workflow execution came to ----------------------------------------------------
 
-OUTCOMES = {"success": "完成", "handed": "准备好，等你", "unknown": "点了提交，结果待确认", "waiting": "等你处理", "rerun": "接着做", "failed": "失败", "interrupted": "被中断",
-            "cancelled": "已取消", "skipped": "没有要做的", "running": "进行中"}
+OUTCOMES = {"success": T("server.analytics.done"), "handed": T("server.analytics.readyWaitingForYou"), "unknown": T("server.analytics.submitWasPressedThe"), "waiting": T("server.analytics.needsYou"), "rerun": T("server.analytics.goesOn"), "failed": T("server.analytics.failed"), "interrupted": T("server.analytics.interrupted"),
+            "cancelled": T("server.analytics.cancelled"), "skipped": T("server.analytics.nothingToDo"), "running": T("server.analytics.inProgress")}
 UNFINISHED = ("handed", "unknown", "waiting", "rerun", "running")       # not a failure: the next move is yours, or it is still going
 # (not counted either way: the task was called off, or found that there was nothing for it to do)
 NOT_COUNTED = ("cancelled", "skipped")
-STAGES = {"read_form": "读取申请表", "ensure_session": "登录网站", "open": "打开申请表", "sign_in": "登录网站", "reopen": "打开申请表", "walk": "逐步填写", "fill_step": "填写",
-          "fill_page": "填写", "form_reports": "表单校验", "repair": "AI 接手", "repair_skipped": "AI 接手", "read_back": "和草案核对", "unverified": "和草案核对",
-          "next": "翻页", "advance": "翻页", "cannot_advance": "翻页", "stuck": "翻页", "not_asked": "和确认页核对", "review_step": "确认页", "handed_over": "交给你提交",
-          "submit": "提交", "scouted": "读完后面的步骤", "read_step": "读这一步问了什么", "read_review": "读确认页", "review_unfolded": "展开确认页上的答案", "email_code": "邮箱验证码", "submitted_in_window": "你已提交", "window_closed": "窗口被关闭"}
+STAGES = {"read_form": T("server.analytics.readApplicationForm"), "ensure_session": T("server.analytics.signInToThe"), "open": T("server.analytics.openingTheForm"), "sign_in": T("server.analytics.signInToThe"), "reopen": T("server.analytics.openingTheForm"), "walk": T("server.analytics.fillingStepByStep"), "fill_step": T("server.analytics.enter"),
+          "fill_page": T("server.analytics.enter"), "form_reports": T("server.analytics.formCheck"), "repair": T("server.analytics.aiTakeOver"), "repair_skipped": T("server.analytics.aiTakeOver"), "read_back": T("server.analytics.checkingAgainstTheDraft"), "unverified": T("server.analytics.checkingAgainstTheDraft"),
+          "next": T("server.analytics.nextPage"), "advance": T("server.analytics.nextPage"), "cannot_advance": T("server.analytics.nextPage"), "stuck": T("server.analytics.nextPage"), "not_asked": T("server.analytics.checkingAgainstTheReview"), "review_step": T("server.analytics.confirmationPage"), "handed_over": T("server.analytics.handedToYouTo"),
+          "submit": T("server.analytics.submit"), "scouted": T("server.analytics.readTheLaterSteps"), "read_step": T("server.analytics.readingWhatTheStep"), "read_review": T("server.analytics.readingTheReviewPage"), "review_unfolded": T("server.analytics.unfoldingTheAnswersOn"), "email_code": T("server.analytics.eMailedCode"), "submitted_in_window": T("server.analytics.youSubmitted"), "window_closed": T("server.analytics.windowClosed")}
 
 
 def stage_label(key: str) -> str:
@@ -392,19 +394,19 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
 # Why a task failed, as a short name. The mapping reads the raw error text and is the same for every run, so the same
 # failure always lands in the same group; the sentence shown elsewhere and the raw text are kept beside it.
 CATEGORIES: list[tuple[str, str, str]] = [
-    ("interrupted", "运行被中断", r"interrupted|superseded|server stopped|Target page, context or browser has been closed|TargetClosed"),
-    ("ai_limit", "AI 额度用完", r"usage limit|limit reached|quota|额度|欠费|insufficient|billing"),
-    ("ai_unavailable", "AI 服务不可用", r"LLMUnavailable|LLMError|login is not usable|no model|API key|AI 服务|AI 模型"),
-    ("posting_closed", "岗位已关闭", r"posting not found|已关闭|已经关闭|no longer|下线|\b404\b|closed or wrong id"),
-    ("site_down", "网站打不开", r"网站暂时打不开|打不开|not answering|HTTP 5\d\d|ERR_|Page\.goto: Timeout|could not open the posting|SiteDown"),
-    ("login", "需要登录或验证", r"login required|needs login|sign.?in|captcha|verification|登录|验证码"),
-    ("cannot_advance", "表单进不了下一页", r"could not advance|没法进入下一步|does not go on"),
-    ("fields", "有字段没填上", r"could not set every field|field\(s\) could not be filled|没能自动填上|option not found"),
-    ("mismatch", "填的和草案不一致", r"differ from the approved draft|不一致|verify failed|mismatch"),
-    ("form_changed", "申请表有变化", r"form changed|drift"),
-    ("no_confirmation", "提交后没看到确认", r"no confirmation after submit"),
-    ("materials", "材料没准备好", r"cover-letter|cover letter|résumé|resume|求职信|简历"),
-    ("program", "程序自身出错", r"Error:|Exception|Traceback|driver bug|while parsing"),
+    ("interrupted", T("server.analytics.runInterrupted"), r"interrupted|superseded|server stopped|Target page, context or browser has been closed|TargetClosed"),
+    ("ai_limit", T("server.analytics.aiAllowanceUsedUp"), r"usage limit|limit reached|quota|额度|欠费|insufficient|billing"),
+    ("ai_unavailable", T("server.analytics.aiServiceUnavailable"), r"LLMUnavailable|LLMError|login is not usable|no model|API key|AI 服务|AI 模型"),
+    ("posting_closed", T("server.analytics.postingClosed"), r"posting not found|已关闭|已经关闭|no longer|下线|\b404\b|closed or wrong id"),
+    ("site_down", T("server.analytics.siteUnreachable"), r"网站暂时打不开|打不开|not answering|HTTP 5\d\d|ERR_|Page\.goto: Timeout|could not open the posting|SiteDown"),
+    ("login", T("server.analytics.signInOrVerification"), r"login required|needs login|sign.?in|captcha|verification|登录|验证码"),
+    ("cannot_advance", T("server.analytics.formWillNotGo"), r"could not advance|没法进入下一步|does not go on"),
+    ("fields", T("server.analytics.fieldsLeftUnfilled"), r"could not set every field|field\(s\) could not be filled|没能自动填上|option not found"),
+    ("mismatch", T("server.analytics.formDiffersFromThe"), r"differ from the approved draft|不一致|verify failed|mismatch"),
+    ("form_changed", T("server.analytics.applicationFormHasChanged"), r"form changed|drift"),
+    ("no_confirmation", T("server.analytics.noConfirmationAfterSubmitting"), r"no confirmation after submit"),
+    ("materials", T("server.analytics.materialsNotReady"), r"cover-letter|cover letter|résumé|resume|求职信|简历"),
+    ("program", T("server.analytics.errorInTheProgram"), r"Error:|Exception|Traceback|driver bug|while parsing"),
 ]
 
 
@@ -414,8 +416,8 @@ def failure(kind: str, status: str, result: dict[str, Any] | None, error: str) -
 
     raw = (error or str((result or {}).get("error") or "")).strip()
     if not raw:
-        return {"key": "none", "label": "没有记录原因", "message": "", "raw": ""}
-    key, label = next(((k, lab) for k, lab, pat in CATEGORIES if re.search(pat, raw, re.I)), ("other", "其他原因"))
+        return {"key": "none", "label": T("server.analytics.noReasonRecorded"), "message": "", "raw": ""}
+    key, label = next(((k, lab) for k, lab, pat in CATEGORIES if re.search(pat, raw, re.I)), ("other", T("server.analytics.otherReasons")))
     return {"key": key, "label": label, "message": humanize.explain(raw)["message"] or raw[:120], "raw": raw[:600]}
 
 
@@ -574,8 +576,8 @@ def _applications(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, An
 
 
 # How each run of an application ended, as its journal says it (agent/run.py writes the journal).
-RUN_ENDS = {"submitted": "提交了", "ready": "备好了，等你批准", "mailed": "申请邮件写好了", "needs_you": "停下来等你", "cannot": "做不成", "gone": "岗位已下架",
-            "other_browser": "换了一个浏览器", "cut_off": "没有报告就停了", "model": "模型不可用，没有开始"}
+RUN_ENDS = {"submitted": T("server.analytics.submitted"), "ready": T("server.analytics.readyWaitingForYour"), "mailed": T("server.analytics.applicationEMailWritten"), "needs_you": T("server.analytics.stoppedForYou"), "cannot": T("server.analytics.couldNotBeDone"), "gone": T("server.analytics.thePostingHasBeen"),
+            "other_browser": T("server.analytics.movedToTheOther"), "cut_off": T("server.analytics.stoppedWithoutAReport"), "model": T("server.analytics.modelUnavailableDidNot")}
 
 
 def _journal_runs(folder: Path) -> list[dict[str, Any]]:
@@ -652,7 +654,7 @@ def agent_runs(w: Window) -> dict[str, Any]:
             sysd["steps"].append(sum(r["steps"] for r in worked[: upto + 1]))
             sysd["seconds"].append(sum(r["seconds"] for r in worked[: upto + 1]))
     total = first_steps + later_steps
-    by_system = [{"key": k, "label": humanize.ats_name(k) if k != "other" else "其他雇主官网", "apps": v["apps"], "done": v["done"],
+    by_system = [{"key": k, "label": humanize.ats_name(k) if k != "other" else T("server.analytics.otherEmployerSites"), "apps": v["apps"], "done": v["done"],
                   "median_steps": _median(v["steps"]), "median_seconds": _median(v["seconds"])}
                  for k, v in sorted(systems.items(), key=lambda kv: -kv[1]["apps"])]
     return {"applications": len(per_app), "runs": sum(per_app), "idle_runs": idle,
@@ -777,7 +779,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
         m["n"] += 1
     by_stage: dict[str, dict[str, Any]] = {}
     for r in bad:
-        e = by_stage.setdefault(r["stage"], {"key": r["stage"], "stage": stage_label(r["stage"]) if r["stage"] else "没有记录到哪一步", "n": 0, "recorded": bool(r["stage"])})
+        e = by_stage.setdefault(r["stage"], {"key": r["stage"], "stage": stage_label(r["stage"]) if r["stage"] else T("server.analytics.stepNotRecorded"), "n": 0, "recorded": bool(r["stage"])})
         e["n"] += 1
     # the same thing run again: how often, and how many of those were the program's own retries
     per_obj: dict[tuple[str, str], int] = defaultdict(int)
@@ -809,12 +811,12 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
 
 # --- AI use and cost ----------------------------------------------------------------------------
 
-BILLING = {"metered": "按量计费", "subscription": "订阅内（不另收费）", "local": "本机模型（免费）", "unknown": "没有记录"}
-TOKEN_KINDS = (("input", "输入"), ("cache_read", "缓存读取"), ("cache_write", "缓存写入"), ("output", "输出"))
+BILLING = {"metered": T("server.analytics.payAsYouGo"), "subscription": T("server.analytics.withinTheSubscriptionNo"), "local": T("server.analytics.localModelFree"), "unknown": T("server.analytics.notRecorded")}
+TOKEN_KINDS = (("input", T("server.analytics.input")), ("cache_read", T("server.analytics.cacheRead")), ("cache_write", T("server.analytics.cacheWrite")), ("output", T("server.analytics.output")))
 
 
 def _provider_label(p: str) -> str:
-    return llm.label(p) if p else "改造前的记录"
+    return llm.label(p) if p else T("server.analytics.recordsFromBefore")
 
 
 def _requests(s: Any, lo: datetime | None, hi: datetime | None, provider: str, model: str, feature: str) -> list[Any]:
@@ -873,7 +875,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
 
     # --- trend -----------------------------------------------------------------------------------
     gkey = {"model": lambda r: r.model or "", "feature": lambda r: r.feature or "", "provider": lambda r: r.provider or ""}.get(group) or (lambda r: r.model or "")
-    glabel = (lambda k: k or "没有记录模型") if group not in ("feature", "provider") else metering.feature_label if group == "feature" else _provider_label
+    glabel = (lambda k: k or T("server.analytics.modelNotRecorded")) if group not in ("feature", "provider") else metering.feature_label if group == "feature" else _provider_label
     weight: dict[str, int] = defaultdict(int)
     for r in live:
         weight[gkey(r)] += (r.cost_micros or 0) if cost_total else _tok(r)
@@ -892,7 +894,7 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
         else:
             b["cost"] += r.cost_micros
             b["values"][g] += r.cost_micros
-    series = [{"key": k, "label": glabel(k)} for k in top] + ([{"key": "__other", "label": "其他"}] if len(weight) > len(top) else [])
+    series = [{"key": k, "label": glabel(k)} for k in top] + ([{"key": "__other", "label": T("server.analytics.other")}] if len(weight) > len(top) else [])
 
     # --- token structure: how many, and what share of the cost each kind carries --------------------
     kind_cost: dict[str, int] = defaultdict(int)
@@ -965,12 +967,12 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
 
     ok = lambda t: 1 if t["outcome"] == "success" else 0  # noqa: E731
     units = [u for u in (
-        unit("score", "给岗位评分", "评完分的岗位", "每个评完分的岗位", lambda t: int(t["result"].get("scored") or (1 if t["outcome"] == "success" and "score" in t["result"] else 0))),
-        unit("apply", "做一份申请", "做完的申请（已提交，或准备好等你）", "每份做完的申请", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
-        unit("recon", "读取申请表、生成草案（旧流程）", "生成的草案", "每份生成的草案", ok),
-        unit("execute", "填写申请表（旧流程）", "填好的申请表（已提交或交给你提交）", "每份填好的申请表", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
-        unit("tailor", "按岗位调整简历", "调整好的简历", "每份调整好的简历", ok),
-        unit("mail", "查收邮件", "处理的新邮件", "每封处理的新邮件", lambda t: int(t["result"].get("new_mail") or 0)),
+        unit("score", T("server.analytics.scoreJobs"), T("server.analytics.postingsScored"), T("server.analytics.perPostingScored"), lambda t: int(t["result"].get("scored") or (1 if t["outcome"] == "success" and "score" in t["result"] else 0))),
+        unit("apply", T("server.analytics.workingAnApplication"), T("server.analytics.finishedApplicationsSubmittedOr"), T("server.analytics.perFinishedApplication"), lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("recon", T("server.analytics.readingTheFormAnd"), T("server.analytics.draftsCreated"), T("server.analytics.perDraftCreated"), ok),
+        unit("execute", T("server.analytics.fillingInTheForm"), T("server.analytics.formsFilledSubmittedOr"), T("server.analytics.perFormFilled"), lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("tailor", T("server.analytics.tailorRSumTo"), T("server.analytics.rSumSTailored"), T("server.analytics.perRSumTailored"), ok),
+        unit("mail", T("server.analytics.checkMail"), T("server.analytics.newEMailsHandled"), T("server.analytics.perNewEMail"), lambda t: int(t["result"].get("new_mail") or 0)),
     ) if u]
 
     # --- what failures and repeats cost -----------------------------------------------------------

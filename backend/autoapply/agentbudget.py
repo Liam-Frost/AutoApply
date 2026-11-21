@@ -20,6 +20,8 @@ more than a look at one field, and neither should be cut short to protect the ot
 
 from __future__ import annotations
 
+from .say import say as T
+
 import time
 from typing import Any
 
@@ -114,4 +116,4 @@ def validate(settings: dict[str, Any]) -> None:
                 continue
             v = row[key]
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
-                raise ValueError(f"AI 每次能做多少：步数要在 {lo} 到 {hi} 之间（{kind}）" if key == "steps" else f"AI 每次能做多少：分钟数要在 {lo} 到 {hi} 之间（{kind}）")
+                raise ValueError(T("server.agentbudget.howMuchTheAi", p0=lo, p1=hi, p2=kind) if key == "steps" else T("server.agentbudget.howMuchTheAi2", p0=lo, p1=hi, p2=kind))

@@ -25,6 +25,8 @@ it is never counted as zero.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import contextlib
 import json
 import logging
@@ -54,15 +56,15 @@ CALLERS: dict[tuple[str, str], str] = {
     ("sources.watch", ""): "careers_page", ("api.main", ""): "connection_test", ("chat", ""): "assistant",
 }
 FEATURES: dict[str, str] = {
-    "scoring": "给岗位评分", "apply": "做一份申请", "scan": "读取要登录的岗位来源", "site_status": "到雇主网站查申请状态", "mail_triage": "邮件分类", "cover_letter": "写求职信",
-    "tailor_resume": "定制简历", "intake_rules": "生成筛选规则", "profile_setup": "建立个人资料", "careers_page": "读取招聘页面", "connection_test": "连接测试", "assistant": "在 Telegram / Discord 里对话", "": "未区分功能",
+    "scoring": T("server.metering.scoreJobs"), "apply": T("server.metering.workingAnApplication"), "scan": T("server.metering.readingASourceOf"), "site_status": T("server.metering.checkApplicationStatusOn"), "mail_triage": T("server.metering.mailTriage"), "cover_letter": T("server.metering.writeCoverLetter"),
+    "tailor_resume": T("server.metering.tailorRSum"), "intake_rules": T("server.metering.intakeRules"), "profile_setup": T("server.metering.profileSetUp"), "careers_page": T("server.metering.readingCareersPages"), "connection_test": T("server.metering.connectionTest"), "assistant": T("server.metering.chatInTelegramDiscord"), "": T("server.metering.noFeatureRecorded"),
     # (what earlier versions asked the model for: in the history)
-    "answers": "回答申请表的问题", "explore_form": "探索申请表", "sign_in": "登录或注册网站", "take_over": "接手填表", "navigate": "表单翻页", "revise_draft": "按意见修改草案",
+    "answers": T("server.metering.answeringFormQuestions"), "explore_form": T("server.metering.exploringAForm"), "sign_in": T("server.metering.signingInOrRegistering"), "take_over": T("server.metering.aiTakeOverOf"), "navigate": T("server.metering.movingBetweenFormSteps"), "revise_draft": T("server.metering.reviseDraftsOnRequest"),
 }
 WORKFLOWS: dict[str, str] = {
-    "discover": "扫描新岗位", "score": "给岗位评分", "apply": "做一份申请", "site_status": "到雇主网站查申请状态", "profile_init": "从简历生成个人资料",
-    "recon": "读取申请表、生成草案", "tailor": "按岗位调整简历", "revise": "按意见修改草案",
-    "reanswer": "重新回答问题", "scout": "带着答案读完后面的步骤", "execute": "填写申请表", "mail": "查收邮件", "canary": "驱动巡检", "": "任务之外",
+    "discover": T("server.metering.scanForNewJobs"), "score": T("server.metering.scoreJobs"), "apply": T("server.metering.workingAnApplication"), "site_status": T("server.metering.checkApplicationStatusOn"), "profile_init": T("server.metering.createProfileFromR"),
+    "recon": T("server.metering.readApplicationFormsCreate"), "tailor": T("server.metering.tailorRSumTo"), "revise": T("server.metering.reviseDraftsOnRequest"),
+    "reanswer": T("server.metering.reAnswerQuestions"), "scout": T("server.metering.readTheLaterSteps"), "execute": T("server.metering.fillApplicationForms"), "mail": T("server.metering.checkMail"), "canary": T("server.metering.driverCheck"), "": T("server.metering.outsideATask"),
 }
 SUBSCRIPTIONS = ("claude_subscription", "chatgpt")
 

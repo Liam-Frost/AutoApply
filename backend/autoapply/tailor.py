@@ -13,6 +13,8 @@ page count. Nothing can appear in a tailored résumé that is not in the origina
 
 from __future__ import annotations
 
+from .say import say as T
+
 import copy
 import re
 import subprocess
@@ -30,7 +32,7 @@ SKILLS = re.compile(r"skill|技能|technolog", re.I)
 
 PLAN_SCHEMA = llm.obj(
     {
-        "focus": {"type": "string", "description": "一句中文：这份简历针对这个岗位突出了什么"},
+        "focus": {"type": "string", "description": T("server.tailor.oneSentenceWhatThis")},
         "keywords": {"type": "array", "items": {"type": "string"}, "description": "requirements of the posting that the résumé already supports (short phrases)"},
         "skills": {"type": "array", "items": llm.obj({"id": {"type": "string"}, "items": {"type": "array", "items": {"type": "string"}}}),
                    "description": "skill lines to reorder: the same items, most relevant first"},
@@ -434,11 +436,11 @@ def make(job: Job, *, instructions: str = "", automatic: bool = False) -> dict[s
     cfg = settings()
     base = base_doc()
     if base is None:
-        raise RuntimeError("没有上传 Word 版简历（材料库 → 简历 Word 原稿），没法精调")
+        raise RuntimeError(T("server.tailor.noWordRSum"))
     st = parse(base["path"])
     n_bullets = sum(len(e["bullets"]) for s in st["sections"] for e in s["entries"])
     if n_bullets < 3:
-        raise RuntimeError("这份 Word 简历里没有找到项目符号列表，程序看不懂它的结构，没法精调")
+        raise RuntimeError(T("server.tailor.noBulletListsFound"))
     target = int(cfg.get("target_pages") or 0) or base_pages(base)
     p = plan(job, st, cfg, instructions)
     changes = apply(st, p, cfg)
@@ -471,7 +473,7 @@ def make(job: Job, *, instructions: str = "", automatic: bool = False) -> dict[s
                 changes.append({"type": "drop", "where": e["title"], "before": b["text"], "why": "to fit the page"})
                 out = render(st["doc"], docx)
             if out["pages"] > target:
-                problems.append(f"精调后是 {out['pages']} 页，超过了 {target} 页的限制")
+                problems.append(T("server.tailor.afterFineTuningIts", p0=out['pages'], p1=target))
         real = [c for c in changes if c["type"] != "rewrite_rejected"]
         info = {"focus": p.get("focus", ""), "keywords": p.get("keywords", [])[:12], "changes": changes, "mode": cfg.get("mode"), "base_id": base["id"], "base_name": base["name"],
                 "pages": out["pages"], "problems": problems, "unchanged": not real}

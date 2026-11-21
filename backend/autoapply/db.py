@@ -16,12 +16,28 @@ _engine = None
 _Session: sessionmaker[Session] | None = None
 
 
+def _dumps(value: Any) -> str:
+    from . import say as _say
+
+    return _say.dumps(value)
+
+
+def _loads(text: str) -> Any:
+    from . import say as _say
+
+    return _say.loads(text)
+
+
 def get_engine():
     global _engine, _Session
     if _engine is None:
+        from . import say as _say
+
         _engine = create_engine(
             f"sqlite:///{config.DB_PATH}",
             connect_args={"check_same_thread": False, "timeout": 30},
+            # (what the program wrote keeps its key in JSON columns too: read back, it is said in the reader's language)
+            json_serializer=_say.dumps, json_deserializer=_say.loads,
         )
 
         @event.listens_for(_engine, "connect")
@@ -132,7 +148,7 @@ def get_setting(key: str, default: Any = None) -> Any:
     with session() as s:
         row = s.get(Setting, key)
         if row is not None:
-            return json.loads(row.value)
+            return _loads(row.value)
     if default is not None:
         return default
     return config.DEFAULT_SETTINGS.get(key)
@@ -144,9 +160,9 @@ def set_setting(key: str, value: Any) -> None:
     with session() as s:
         row = s.get(Setting, key)
         if row is None:
-            s.add(Setting(key=key, value=json.dumps(value, ensure_ascii=False)))
+            s.add(Setting(key=key, value=_dumps(value)))
         else:
-            row.value = json.dumps(value, ensure_ascii=False)
+            row.value = _dumps(value)
 
 
 def all_settings() -> dict[str, Any]:
@@ -155,5 +171,5 @@ def all_settings() -> dict[str, Any]:
     out = dict(config.DEFAULT_SETTINGS)
     with session() as s:
         for row in s.query(Setting).all():
-            out[row.key] = json.loads(row.value)
+            out[row.key] = _loads(row.value)
     return out

@@ -19,6 +19,8 @@ with what was entered and where it comes from. A draft made by the agent has no 
 """
 from __future__ import annotations
 
+from ..say import say as T
+
 import json
 import logging
 from pathlib import Path
@@ -282,7 +284,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "", pag
             changed = bool((session.get(_Task, task_id).payload or {}).get("_changed_browser"))
 
     def card(kind: str, why: str, more: dict[str, Any]) -> int:      # the agent waits for the applicant: a code, a confirmation
-        head = {"code": f"{title}：请输入验证码", "confirm": f"{title}：等你确认"}[kind]
+        head = {"code": T("server.agent.work.pleaseEnterTheCode", p0=title), "confirm": T("server.agent.work.waitingForYourConfirmation", p0=title)}[kind]
         return notify.add_todo(kind, head, body=why, ref=f"application:{app_id}:{kind}", payload={"application_id": app_id, "job_id": job_id, **more})
 
     def mail_out(to: str, cc: str, subject: str, body: str, files: dict[str, str]) -> dict[str, Any]:
@@ -292,7 +294,7 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "", pag
         from .. import outbox
 
         oid = outbox.compose(app_id, kind="application", to=to, cc=cc, subject=subject, body=body, attachments=[{"name": n, "path": p} for n, p in files.items()],
-                             title=f"{title}：邮件等你看一遍再发")
+                             title=T("server.agent.work.theEMailIs", p0=title))
         if mode not in ("auto", "send"):
             return {"id": oid, "sent": False, "why": "this run prepares and does not send"}
         if outbox.policy() != "auto":
@@ -306,8 +308,8 @@ def work(job_id: int, *, task_id: int | None = None, instructions: str = "", pag
         return {"id": oid, "sent": True}
 
     def handed() -> None:       # the window is the applicant's: they are told, on a card and on their phone
-        notify.add_todo("submit", f"{title}：请检查并点提交", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
-                        body="Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口。")
+        notify.add_todo("submit", T("server.agent.work.lookItOverAnd", p0=title), ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
+                        body=T("server.agent.work.theAgentHasFilled"))
 
     # (the window: the applicant's when the last press is theirs; otherwise hidden, or shown while the agent works if they set so)
     # ... or because the last run stopped at something the applicant has to do in the window (a CAPTCHA)
@@ -380,7 +382,7 @@ def _keep_for_approval(task_id: int, app_id: int, draft_id: int, page: Any, fold
     tasks.KEPT[task_id] = done
     with open(folder / "journal.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"at": __import__("datetime").datetime.now().isoformat(timespec="seconds"), "kind": "log",
-                            "text": f"申请记录已经备好，浏览器窗口保留 {int(minutes)} 分钟：这段时间里批准，就直接在这个窗口里提交。"}, ensure_ascii=False) + "\n")
+                            "text": T("server.agent.work.theRecordIsReady", p0=int(minutes))}, ensure_ascii=False) + "\n")
     until = time.monotonic() + minutes * 60
     try:
         while time.monotonic() < until and not done.is_set():
@@ -549,10 +551,10 @@ def _budget_used(app_id: int, title: str, folder: Path) -> dict[str, Any]:
     with db.session() as s:
         app = s.get(Application, app_id)
         lifecycle.move(app, "failed", source="run")
-        app.last_event = "这份申请的预算用完了，等你决定是否继续"
-    said = [e["text"] for e in journal(app_id) if e["kind"] == "log"][-1:] or ["（没有）"]      # the agent's own last line
-    notify.add_todo("failed", f"{title}：这份申请的预算用完了", ref=f"application:{app_id}", payload={"application_id": app_id, "budget": True},
-                    body=f"已经用了 {int(spent['steps'])} 步、约 {int(spent['seconds'] // 60)} 分钟，分 {int(spent.get('runs') or 0)} 次运行，还没有做完。Agent 最后记下的是：{said[0][:300]}\n要继续的话，再给它一份预算。")
+        app.last_event = T("server.agent.work.thisApplicationsBudgetIs")
+    said = [e["text"] for e in journal(app_id) if e["kind"] == "log"][-1:] or [T("server.agent.work.nothing")]      # the agent's own last line
+    notify.add_todo("failed", T("server.agent.work.thisApplicationsBudgetIs2", p0=title), ref=f"application:{app_id}", payload={"application_id": app_id, "budget": True},
+                    body=T("server.agent.work.stepsAndAboutMinutes", p0=int(spent['steps']), p1=int(spent['seconds'] // 60), p2=int(spent.get('runs') or 0), p3=said[0][:300]))
     return {"status": "budget_used", **spent}
 
 
@@ -628,7 +630,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         return {"status": "submitted", "steps": result.steps, "seconds": result.seconds}
     if _was_sending(folder, began):
         # the run said it was about to send, and did not say what came of it: the application may be out
-        lifecycle.outcome_unknown(app_id, title, "Agent 已经要点提交了，但这次运行没有拿到确认就结束了；这份申请可能已经发出。程序会先去网站和邮箱核实，不会再点一次。")
+        lifecycle.outcome_unknown(app_id, title, T("server.agent.work.theAgentWasAbout"))
         from .. import tasks
 
         tasks.enqueue_later("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=3, priority=30)
@@ -638,12 +640,12 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
     if mode == "verify":
         return _verified(app_id, job_id, title, result)
     if result.outcome == "mail_reconnect":
-        why = "Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。"
+        why = T("server.agent.work.theGmailAuthorizationHas")
         with db.session() as session:
             app = session.get(Application, app_id)
             lifecycle.move(app, "needs_human", source="run")
             app.last_event = why
-        notify.add_todo("config", "重新授权 Gmail 邮箱", body=why, ref="config:gmail")
+        notify.add_todo("config", T("server.agent.work.authorizeGmailAgain"), body=why, ref="config:gmail")
         raise NeedsHuman(why, kind="mailbox", waits_for="config:gmail")
     if result.outcome == "material_pending":
         return {"status": "waiting_material", "material_task": int(rec["material_task"])}
@@ -665,8 +667,8 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         email_delivery = session.get(Job, job_id).channel == "email"
     if result.outcome == "needs_you" and not rec.get("asked") and (not _last_url(folder) or
             (email_delivery and urlparse(_last_url(folder)).hostname in ("mail.google.com", "accounts.google.com"))):
-        why = ("该岗位要求通过邮件投递，请检查申请材料和邮件内容。" if email_delivery
-               else str(rec.get("summary") or "请检查当前申请记录"))
+        why = (T("server.agent.work.thisPostingIsApplied") if email_delivery
+               else str(rec.get("summary") or T("server.agent.work.pleaseCheckTheCurrent")))
         draft_id = keep_record(app_id, rec, files, rec.get("url") or "")
         with db.session() as session:
             app = session.get(Application, app_id)
@@ -684,13 +686,13 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
         notify.close_todos("answer", f"draft:{draft_id}")
         if open_n:
             qs = "\n".join("· " + str(q["question"])[:120] for q in (rec.get("asked") or [])[:6])
-            notify.add_todo("answer", title, body=f"{open_n} 个问题需要你回答：\n{qs}", ref=f"draft:{draft_id}", payload={"draft_id": draft_id})
+            notify.add_todo("answer", title, body=T("server.agent.work.questionSNeedYour", p0=open_n, p1=qs), ref=f"draft:{draft_id}", payload={"draft_id": draft_id})
         else:
             n_ans = sum(1 for a in rec.get("answers") or [] if a.get("entered") not in ("", None, []))
             notify.send("todo", messages.draft_ready(title, draft_id, answers=n_ans, files=[str(f.get("file", "")) for f in rec.get("files") or []]), ref=f"draft:{draft_id}")
         return {"draft_id": draft_id, "status": "needs_input" if open_n else "ready", "steps": result.steps, "seconds": result.seconds}
     if result.outcome == "needs_you":
-        why = str(rec.get("summary") or "这个网站需要你登录或验证一次")[:600]
+        why = str(rec.get("summary") or T("server.agent.work.thisSiteNeedsYou"))[:600]
         url = _last_url(folder)
         with db.session() as s:
             lifecycle.move(s.get(Application, app_id), "needs_human", source="run")
@@ -708,7 +710,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
             with db.session() as s:
                 app = s.get(Application, app_id)
                 lifecycle.move(app, "needs_human", source="run")
-                app.last_event = "申请邮件已经写好，等你看一遍再发"
+                app.last_event = T("server.agent.work.theApplicationEMail")
             for kind in ("failed", "answer"):
                 notify.close_todos(kind, f"application:{app_id}")
         return {"status": "submitted" if sent else "mail_ready", "outgoing_id": (rec.get("mail") or {}).get("id"), "steps": result.steps}
@@ -721,11 +723,11 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
             app = s.get(Application, app_id)
             job = s.get(Job, job_id)
             lifecycle.move(app, "withdrawn", source="run")
-            app.last_event = ("招聘网站上已经没有这个岗位。" + why)[:300]
+            app.last_event = (T("server.agent.work.thePostingIsNo") + why)[:300]
             job.online, job.status = 0, "offline"
             job.note = (f"gone at the employer's site {now().date().isoformat()}: {why[:300]}; " + (job.note or ""))[:2000]
         notify.close_todos("failed", f"application:{app_id}")
-        notify.add_todo("gone", f"{title}：岗位已下架", body=why, ref=f"application:{app_id}:gone", payload={"application_id": app_id, "job_id": job_id})
+        notify.add_todo("gone", T("server.agent.work.thePostingHasBeen", p0=title), body=why, ref=f"application:{app_id}:gone", payload={"application_id": app_id, "job_id": job_id})
         return {"status": "gone", "steps": result.steps}
     if result.outcome == "cannot":
         why = str(rec.get("summary") or "")[:800]
@@ -733,7 +735,7 @@ def settle(app_id: int, job_id: int, title: str, site: str, mode: str, result: r
             app = s.get(Application, app_id)
             lifecycle.move(app, "failed", source="run")
             app.last_event = why[:300]
-        notify.add_todo("failed", f"{title}：没有做成", body=why, ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id})
+        notify.add_todo("failed", T("server.agent.work.couldNotBeDone", p0=title), body=why, ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id})
         notify.send("task_result", messages.failed(title, error=why), ref=f"application:{app_id}")
         return {"status": "cannot", "steps": result.steps}
     return _without_report(app_id, job_id, title, result, folder)
@@ -799,7 +801,7 @@ def _verified(app_id: int, job_id: int, title: str, result: run.Result) -> dict[
     if result.outcome == "ready":      # it is not out: the site shows it as not sent. It may be worked again.
         with db.session() as s:
             app = s.get(Application, app_id)
-            lifecycle.move(app, "approved" if any(d.review_status == "approved" for d in app.drafts) else "draft_ready", source="run", not_sent=True, note="网站上显示这份申请没有发出")
+            lifecycle.move(app, "approved" if any(d.review_status == "approved" for d in app.drafts) else "draft_ready", source="run", not_sent=True, note=T("server.agent.work.theSiteShowsThis"))
         notify.close_todos("failed", f"application:{app_id}")
         from .. import tasks
 
@@ -821,9 +823,9 @@ def _without_report(app_id: int, job_id: int, title: str, result: run.Result, fo
         with db.session() as s:
             app = s.get(Application, app_id)
             lifecycle.move(app, "failed", source="user")
-            app.last_event = "你叫停了 Agent"
-        notify.add_todo("failed", f"{title}：已按你的要求停下", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id}, push=False,
-                        body="Agent 在下一步操作之前停了，没有再继续。网站上已经保存的内容还在。想让它接着做，点“让 Agent 再试一次”。")
+            app.last_event = T("server.agent.work.youStoppedTheAgent")
+        notify.add_todo("failed", T("server.agent.work.stoppedAsYouAsked", p0=title), ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id}, push=False,
+                        body=T("server.agent.work.theAgentStoppedBefore"))
         return {"status": "stopped", "steps": result.steps}
     place = _place(folder)
     same = _same_place(folder, place)
@@ -831,10 +833,10 @@ def _without_report(app_id: int, job_id: int, title: str, result: run.Result, fo
         app = s.get(Application, app_id)
         if same >= SAME_PLACE:
             lifecycle.move(app, "failed", source="run")
-            app.last_event = "连续几次停在同一个地方"
+            app.last_event = T("server.agent.work.stoppedAtTheSame")
     if same >= SAME_PLACE:
-        notify.add_todo("failed", f"{title}：连续 {same} 次停在同一个地方", ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
-                        body=f"停在：{place[:200]}\n{run.journal_text(folder)[-900:]}")
+        notify.add_todo("failed", T("server.agent.work.stoppedAtTheSame2", p0=title, p1=same), ref=f"application:{app_id}", payload={"application_id": app_id, "job_id": job_id},
+                        body=T("server.agent.work.stoppedAt", p0=place[:200], p1=run.journal_text(folder)[-900:]))
         return {"status": "stuck", "at": place[:200], "steps": result.steps}
     tasks.enqueue_later("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, minutes=1, priority=60)
     return {"status": "goes_on", "stopped": result.stopped, "steps": result.steps}
@@ -892,7 +894,7 @@ def tasks_from_before() -> int:
             if t.kind == "revise" and draft is not None and str(payload.get("comment") or "").strip():
                 s.add(DraftComment(draft_id=draft.id, comment=str(payload["comment"])[:4000], result=""))
             if job_id is None or (int(job_id) in seen and t.status == "queued"):
-                t.status, t.error = "cancelled", "这个任务属于旧的流程，已经由新的申请任务代替"
+                t.status, t.error = "cancelled", T("server.agent.work.thisTaskBelongedTo")
             else:
                 seen.add(int(job_id))
                 keep = {k: v for k, v in payload.items() if k in ("instructions", "waits_for", "by_hand", "browser_backend") or k.startswith("_")}
@@ -936,7 +938,7 @@ def recover_material_reviews() -> None:
         # A legacy report has no typed blocker. Require affirmative evidence the
         # missing attachment was the obstacle before changing an existing card.
         summary = str(record.get("summary", ""))
-        if "求职信" not in summary or not any(word in summary for word in ("未上传", "尚未上传", "未取得")):
+        if "求职信" not in summary or not any(word in summary for word in (T("server.agent.work.notUploaded"), T("server.agent.work.notUploadedYet"), T("server.agent.work.notObtained"))):
             continue
         with db.session() as session:
             waiting = session.query(Task).filter_by(kind="apply", ref=f"job:{job_id}", status="waiting_human").all()
@@ -951,12 +953,12 @@ def recover_material_reviews() -> None:
         if resume:
             files[resume["name"]] = resume["path"]
         files[letter["name"]] = letter["path"]
-        record["files"] = [*record.get("files", []), {"field": "求职信（已生成，待核对上传）", "file": letter["name"]}]
+        record["files"] = [*record.get("files", []), {"field": T("server.agent.work.coverLetterWrittenUpload"), "file": letter["name"]}]
         draft_id = keep_record(app_id, record, files, record.get("url", ""))
         with db.session() as session:
             app = session.get(Application, app_id)
             lifecycle.move(app, "needs_input", source="recover")
-            app.last_event = "求职信已生成，请审阅申请材料"
+            app.last_event = T("server.agent.work.theCoverLetterIs")
             for card_id in card_ids:
                 card = session.get(Todo, card_id)
                 card.kind, card.ref, card.title = "answer", f"draft:{draft_id}", title
@@ -984,7 +986,7 @@ def recover_email_delivery_cards() -> None:
                 continue
             task.status, task.error = "queued", ""
             lifecycle.move(app, "recon", source="recover")
-            app.last_event = "将整理邮件投递材料供你审阅。"
+            app.last_event = T("server.agent.work.theMaterialsForApplying")
         session.flush()
         still_waiting = any((task.payload or {}).get("waits_for") == "account:idp:google"
                             for task in session.query(Task).filter_by(status="waiting_human"))

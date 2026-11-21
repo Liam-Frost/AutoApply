@@ -7,6 +7,8 @@ Nothing else is tried: a converter that changes the layout silently would make "
 
 from __future__ import annotations
 
+from .say import say as T
+
 import os
 import shutil
 import subprocess
@@ -71,5 +73,5 @@ def docx_to_pdf(docx: str | Path, *, timeout: int = 180) -> Path:
             return pdf
         err = (r.stderr or r.stdout)[-300:] or err
     if not _has_word() and not _soffice():
-        raise NoConverter("这台电脑上没有 Microsoft Word，也没有 LibreOffice，没法把 Word 文件转成 PDF。装一个免费的 LibreOffice 就可以（libreoffice.org）。")
+        raise NoConverter(T("server.convert.thisComputerHasNeither"))
     raise RuntimeError(f"PDF export failed: {err}")

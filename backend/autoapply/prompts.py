@@ -14,6 +14,8 @@ What the user edits is the *body* of a prompt. Three things keep an edit from do
 
 from __future__ import annotations
 
+from .say import say as T
+
 import importlib
 from dataclasses import dataclass, field
 from typing import Any
@@ -33,37 +35,37 @@ class Spec:
     used: str           # when this prompt is used, in the user's words
     source: tuple[str, str]  # (module, attribute) holding the built-in text
     guard: tuple[str, ...]   # fixed rules, always appended
-    group: str = "申请"
+    group: str = T("server.prompts.apply")
     risk: str = "normal"     # "high": this prompt steers an agent that clicks through real websites
     requires: tuple[str, ...] = field(default_factory=tuple)  # substrings the code depends on
 
 
 SPECS: dict[str, Spec] = {s.key: s for s in [
-    Spec("scoring", "给岗位评分", "每个新岗位入库后，按你的评分规则读岗位说明并打分。评分标准本身在“个人资料 → 评分规则”里改，这里是打分时的工作方式。",
-         ("scoring", "SYSTEM"), ("Base every statement on the posting's text. Do not guess from the title.", DATA_RULE), group="岗位"),
-    Spec("apply", "做一份申请（Agent 的工作手册）", "Agent 做每一份申请时读的手册：表单怎么填、页面怎么操作、做完怎么交代。想改变它填表的习惯，改这里；只和你个人有关的规则写在个人资料里更合适。",
+    Spec("scoring", T("server.prompts.scoreJobs"), T("server.prompts.eachNewPostingIs"),
+         ("scoring", "SYSTEM"), ("Base every statement on the posting's text. Do not guess from the title.", DATA_RULE), group=T("server.prompts.postings")),
+    Spec("apply", T("server.prompts.workingAnApplicationThe"), T("server.prompts.theManualTheAgent"),
          ("agent.brief", "MANUAL_TEXT"),
          ("Sending the application follows the Mode of the run: a run that is told to prepare, to stop at the last step or to verify does not make the press that sends it.",
           "Facts about the applicant come from what you were given (the profile, the résumé, the answers on record). What the form needs and you were not given, you ask; you never invent it.",
           "You never see, type or ask for a password: `type_password` and `sign_in_by_hand` are the only ways. A CAPTCHA, a code on the applicant's phone or an identity check is theirs; never work around one.",
           "An application is reported as submitted only with its confirmation: the page's own words, its address, and what ties it to this posting.", DATA_RULE),
-         group="网站操作", risk="high", requires=("report",)),
-    Spec("letter_write", "写求职信", "申请表需要求职信时，参考你的简历、资料和范例来写。",
+         group=T("server.prompts.siteActions"), risk="high", requires=("report",)),
+    Spec("letter_write", T("server.prompts.writeCoverLetter"), T("server.prompts.whenAnApplicationAsks"),
          ("materials", "WRITE_SYSTEM"),
-         ("Every statement about the applicant must come from the résumé or the profile. Do not invent metrics, tools or experience.", DATA_RULE), group="材料"),
-    Spec("letter_check", "核对求职信", "求职信写完后，另一次独立的检查：有没有简历里没有的说法、写错的公司或岗位名。",
+         ("Every statement about the applicant must come from the résumé or the profile. Do not invent metrics, tools or experience.", DATA_RULE), group=T("server.prompts.files")),
+    Spec("letter_check", T("server.prompts.reviewCoverLetter"), T("server.prompts.aSeparateCheckAfter"),
          ("materials", "CHECK_RULES"),
-         ("Report every claim about the applicant that the résumé and profile do not support. Never pass a letter by ignoring one.", DATA_RULE), group="材料"),
-    Spec("tailor", "按岗位调整简历", "为一个岗位决定简历里哪些要点、项目、技能排在前面（以及在允许时怎么改写措辞）。",
+         ("Report every claim about the applicant that the résumé and profile do not support. Never pass a letter by ignoring one.", DATA_RULE), group=T("server.prompts.files")),
+    Spec("tailor", T("server.prompts.tailorRSumTo"), T("server.prompts.decidesWhichRSum"),
          ("tailor", "SYSTEM"),
-         ("Never add facts, numbers, tools or experience that are not in the résumé. Use only the ids given in the outline.", DATA_RULE), group="材料"),
-    Spec("profile_init", "从简历生成个人资料", "在“个人资料 → 从简历生成”里，读你上传的文件，整理成个人资料。",
+         ("Never add facts, numbers, tools or experience that are not in the résumé. Use only the ids given in the outline.", DATA_RULE), group=T("server.prompts.files")),
+    Spec("profile_init", T("server.prompts.createProfileFromR"), T("server.prompts.inProfileGenerateFrom"),
          ("profile_init", "SYSTEM"),
          ("Copy facts exactly from the documents. Never invent or infer facts that are not there.",
           "Never silently replace a value in the current profile: list disagreements under 'Conflicts to review'.", DATA_RULE),
-         group="资料", requires=("Identity & contact", "Conflicts to review")),
-    Spec("mail_triage", "读邮件、判断进展", "检查邮箱时，判断一封邮件是确认信、拒信、面试邀请还是无关邮件。",
-         ("mail", "TRIAGE_RULES"), (DATA_RULE,), group="邮件"),
+         group=T("server.prompts.profile"), requires=("Identity & contact", "Conflicts to review")),
+    Spec("mail_triage", T("server.prompts.readEmailsTrackProgress"), T("server.prompts.whenCheckingEmailDecides"),
+         ("mail", "TRIAGE_RULES"), (DATA_RULE,), group=T("server.prompts.email")),
 ]}
 
 
@@ -117,9 +119,13 @@ def get(key: str) -> str:
         if asks:
             about = "For this applicant, forms will also ask the following; add a '- TODO: <question>' for each one the documents do not answer: " + "; ".join(asks) + "."
     out_lang = ""
-    if (db.get_setting("ui.lang") or "zh") == "en":
-        out_lang = ("\n\nLanguage of your own notes: the applicant reads this program in English. Wherever a field description asks for Simplified Chinese "
-                    "(reasons, summaries, overviews, replies, focus), write English instead. Application answers and letters stay in the language of the form.")
+    reads = str(db.get_setting("ui.lang") or "zh")
+    if reads != "zh":      # (the descriptions ask for Simplified Chinese: the program's own language until 2.0)
+        from .say import language_name
+
+        name = language_name(reads)
+        out_lang = (f"\n\nLanguage of your own notes: the applicant reads this program in {name}. Wherever a field description asks for Simplified Chinese "
+                    f"(reasons, summaries, overviews, replies, focus), write {name} instead. Application answers and letters stay in the language of the form.")
     return body(key) + ("\n\nAbout the applicant: " + about if about else "") + out_lang + "\n\n" + guard_text(key)
 
 
@@ -128,12 +134,12 @@ def problems(key: str, text: str) -> list[str]:
     spec, t = SPECS[key], text.strip()
     out = []
     if len(t) < MIN_LEN:
-        out.append(f"内容太短了（至少 {MIN_LEN} 个字符）。想恢复原样可以点“恢复默认”。")
+        out.append(T("server.prompts.tooShortAtLeast", p0=MIN_LEN))
     if len(t) > MAX_LEN:
-        out.append(f"内容太长了（{len(t)} 个字符，上限 {MAX_LEN}）。")
+        out.append(T("server.prompts.tooLongCharactersLimit", p0=len(t), p1=MAX_LEN))
     for r in spec.requires:
         if r not in t:
-            out.append(f"不能去掉“{r}”：程序要靠它才能接上后面的步骤。")
+            out.append(T("server.prompts.cantRemoveTheApp", p0=r))
     return out
 
 
@@ -160,7 +166,7 @@ def reset(key: str) -> int:
     if not had:
         return 0
     with db.session() as s:
-        v = ProfileVersion(doc=_doc(key), content=default(key), source="user", note="恢复默认")
+        v = ProfileVersion(doc=_doc(key), content=default(key), source="user", note=T("server.prompts.restoreDefaults"))
         s.add(v)
         s.flush()
         return v.id

@@ -12,6 +12,8 @@ between vendors are handled here, not by callers:
 
 from __future__ import annotations
 
+from .say import say as T
+
 import base64
 import json as _json
 import re
@@ -22,12 +24,12 @@ import httpx
 # Built-in vendors. No model names here on purpose: they change often, so the settings page reads the
 # vendor's own model list and the user picks from it.
 PRESETS: dict[str, dict[str, str]] = {
-    "openai": {"name": "OpenAI（ChatGPT 的 API）", "base_url": "https://api.openai.com/v1", "keys": "https://platform.openai.com/api-keys"},
+    "openai": {"name": T("server.llm_openai.openaiChatgptApi"), "base_url": "https://api.openai.com/v1", "keys": "https://platform.openai.com/api-keys"},
     "gemini": {"name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "keys": "https://aistudio.google.com/apikey"},
     "deepseek": {"name": "DeepSeek", "base_url": "https://api.deepseek.com/v1", "keys": "https://platform.deepseek.com/api_keys"},
-    "qwen": {"name": "通义千问（阿里云百炼）", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "keys": "https://bailian.console.aliyun.com/"},
-    "openrouter": {"name": "OpenRouter（一个 key 用多家模型）", "base_url": "https://openrouter.ai/api/v1", "keys": "https://openrouter.ai/keys"},
-    "custom": {"name": "自定义（任何兼容 OpenAI 接口的服务，包括本机的 Ollama / LM Studio）", "base_url": "", "keys": ""},
+    "qwen": {"name": T("server.llm_openai.qwenAlibabaCloudModel"), "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "keys": "https://bailian.console.aliyun.com/"},
+    "openrouter": {"name": T("server.llm_openai.openrouterOneKeyFor"), "base_url": "https://openrouter.ai/api/v1", "keys": "https://openrouter.ai/keys"},
+    "custom": {"name": T("server.llm_openai.customAnyOpenaiCompatible"), "base_url": "", "keys": ""},
 }
 
 
@@ -42,7 +44,7 @@ class Failed(RuntimeError):
 class Client:
     def __init__(self, base_url: str, api_key: str | None, *, transport: httpx.BaseTransport | None = None) -> None:
         if not base_url:
-            raise Unavailable("还没有填这个 AI 服务的接口地址")
+            raise Unavailable(T("server.llm_openai.noEndpointUrlSet"))
         self.base = base_url.rstrip("/")
         self.http = httpx.Client(timeout=httpx.Timeout(300, connect=30), headers={"Authorization": f"Bearer {api_key}"} if api_key else {}, transport=transport)
         self.calls = self.input_tokens = self.output_tokens = 0
@@ -64,14 +66,14 @@ class Client:
             r = self.http.post(self.base + "/chat/completions", json=body, **limits)
         except httpx.HTTPError as e:
             entry.update(ms=int((time.time() - t0) * 1000), status="timeout" if isinstance(e, httpx.TimeoutException) else "unavailable", error=type(e).__name__)
-            raise Unavailable(f"连不上 AI 服务（{type(e).__name__}）。检查接口地址和“设置 → 系统与数据 → 网络连接”。") from e
+            raise Unavailable(T("server.llm_openai.canTReachThe", p0=type(e).__name__)) from e
         entry["ms"] = int((time.time() - t0) * 1000)
         if r.status_code in (401, 403):
             entry.update(status="unavailable", error=f"HTTP {r.status_code}")
-            raise Unavailable("AI 服务拒绝了这个 API key（没填、填错或没有权限）。")
+            raise Unavailable(T("server.llm_openai.theAiServiceRejected"))
         if r.status_code == 402 or (r.status_code == 429 and re.search(r"quota|billing|insufficient|balance", r.text, re.I)):
             entry.update(status="rate_limited", error=f"HTTP {r.status_code}")
-            raise Unavailable(f"AI 服务的额度用完了或账户欠费：{r.text[:200]}")
+            raise Unavailable(T("server.llm_openai.theAiServiceIs", p0=r.text[:200]))
         if r.status_code >= 400:
             entry.update(status="rate_limited" if r.status_code == 429 else "error", error=f"HTTP {r.status_code}")
             raise Failed(f"HTTP {r.status_code}: {r.text[:400]}")
@@ -87,11 +89,11 @@ class Client:
         try:
             r = self.http.get(self.base + "/models")
         except httpx.HTTPError as e:
-            raise Unavailable(f"连不上 AI 服务（{type(e).__name__}）") from e
+            raise Unavailable(T("server.llm_openai.cantReachTheAi", p0=type(e).__name__)) from e
         if r.status_code in (401, 403):
-            raise Unavailable("AI 服务拒绝了这个 API key。")
+            raise Unavailable(T("server.llm_openai.theAiServiceRejected2"))
         if r.status_code >= 400:
-            raise Failed(f"这个服务不提供模型列表（HTTP {r.status_code}），请手动填写模型名称。")
+            raise Failed(T("server.llm_openai.thisServiceDoesnT", p0=r.status_code))
         rows = r.json().get("data") or r.json().get("models") or []
         return sorted({str(m.get("id") or m.get("name") or "").removeprefix("models/") for m in rows if isinstance(m, dict)} - {""})
 
@@ -121,7 +123,7 @@ class Client:
             try:
                 return _parse_json(raw)
             except ValueError as e:
-                last = Failed(f"模型没有按要求返回 JSON：{raw[:200]}")
+                last = Failed(T("server.llm_openai.theModelDidntReturn", p0=raw[:200]))
                 last.__cause__ = e
         raise last or Failed("no structured output")
 
@@ -190,7 +192,7 @@ class Client:
 
 def _body(model: str, messages: list[dict[str, Any]], max_tokens: int) -> dict[str, Any]:
     if not model:
-        raise Unavailable("还没有选模型。请在“设置 → 账号与连接 → AI 服务”里选择或填写模型名称。")
+        raise Unavailable(T("server.llm_openai.noModelSelectedYet"))
     # (the newer OpenAI models take the limit under another name - all of them from gpt-5 on, not only gpt-5)
     return {"model": model, "messages": messages, "max_completion_tokens" if re.match(r"(gpt-[5-9]|o\d)", model) else "max_tokens": max_tokens}
 
