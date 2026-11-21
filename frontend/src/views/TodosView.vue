@@ -51,6 +51,8 @@ const RESUME = {
 }
 // the employer took the posting down: nothing to do - unless the applicant knows better
 // a mail the program wrote for the applicant, waiting to be looked at and sent from their mailbox
+// the profile changed and prepared applications still say the old thing: they are stopped until the applicant decides
+VIEW.facts_changed = { icon: 'edit', tone: 'warn', title: (t) => t.title, what: () => '' }
 VIEW.mail_out = { icon: 'mail', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.gone = { icon: 'bell', tone: '', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
@@ -120,6 +122,12 @@ const giveCode = (t) => act(async () => {
   delete codes.value[t.id]
   if (!r.given) throw new Error('Agent 已经不在等这个验证码了（等待超过了 10 分钟）。它现在会重新开始并让网站再发一个，新的验证码卡片出现后再输入。')
 }, '已交给 Agent，它正在填')
+const factPick = ref({})      // to-do id -> the applications ticked on a "profile changed" card
+const factsLeft = (t) => (t.payload.applications || []).filter((r) => !(t.payload.decided || []).includes(r.application_id))
+const factsPicked = (t) => factsLeft(t).filter((r) => (factPick.value[t.id] || {})[r.application_id] !== false).map((r) => r.application_id)
+const factsDecide = (t, action) => act(() => api.post(`/facts/${t.id}`, { action, application_ids: factsPicked(t) }), action === 'redo' ? '已经排上，Agent 只改依据变了的那几项' : '好的，照旧发')
+const sentTitles = (t) => (t.payload.sent || []).map((r) => r.title).join(', ')
+const factTick = (t, id, on) => { factPick.value = { ...factPick.value, [t.id]: { ...(factPick.value[t.id] || {}), [id]: on } } }
 const writeReply = (t) => act(() => api.post(`/todos/${t.id}/reply`), '正在起草回复，写好后这张卡片上会出现“查看回复草稿”')
 const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 接着做了')
 const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 马上开始，到那一步时会在这里等你')
@@ -213,6 +221,24 @@ onMounted(load)
           <button class="primary" @click="resumeNow(t)"><Icon name="refresh" />{{ (RESUME[t.payload.need] || RESUME.confirm)[1] }}</button>
           <button class="ghost" @click="dismiss(t)">先不处理</button>
           <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
+        </template>
+        <template v-else-if="t.kind === 'facts_changed'">
+          <div style="width: 100%">
+            <div class="small" style="margin-bottom: 8px">
+              <div v-for="(c, i) in t.payload.changes || []" :key="i"><span class="muted">{{ c.key || '这一行' }}：</span><s class="muted">{{ c.old }}</s> → <b>{{ c.new || '（删掉了）' }}</b></div>
+            </div>
+            <div v-for="r in factsLeft(t)" :key="r.application_id" style="margin-bottom: 8px">
+              <label class="row" style="gap: 6px"><input type="checkbox" :checked="(factPick[t.id] || {})[r.application_id] !== false" @change="factTick(t, r.application_id, $event.target.checked)" />
+                <router-link :to="'/applications/' + r.application_id">{{ r.title }}</router-link>
+                <span v-if="r.told_while_working" class="tag">正在做，已经告诉它了</span></label>
+              <ul class="small muted" style="margin: 2px 0 0 22px"><li v-for="(a, j) in r.answers" :key="j">{{ a.label }}：{{ a.value }}</li></ul>
+            </div>
+            <p v-if="(t.payload.sent || []).length" class="small muted">已经发出的 {{ t.payload.sent.length }} 份也用了旧的：{{ sentTitles(t) }}。它们不会改动。</p>
+            <div class="row" style="margin-top: 6px">
+              <button class="primary" :disabled="!factsPicked(t).length" @click="factsDecide(t, 'redo')"><Icon name="refresh" />勾上的按新的重新准备</button>
+              <button :disabled="!factsPicked(t).length" @click="factsDecide(t, 'keep')">勾上的照旧发</button>
+            </div>
+          </div>
         </template>
         <template v-else-if="t.kind === 'mail_out'">
           <router-link :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看并发送</router-link>

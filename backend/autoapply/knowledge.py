@@ -6,6 +6,7 @@ change (especially agent-appended rules) can be reviewed and rolled back.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 from pathlib import Path
@@ -108,6 +109,7 @@ def blank(md: str | None = None) -> bool:
 def write(doc: str, content: str, *, source: str = "user", note: str = "") -> int:
     """Save a document and record a version. Returns the version id."""
     arrived = doc == "profile" and blank() and not blank(content)
+    before = read(doc) if doc == "profile" and DOCS[doc].exists() else ""
     DOCS[doc].parent.mkdir(parents=True, exist_ok=True)
     DOCS[doc].write_text(content, encoding="utf-8")
     with db.session() as s:
@@ -119,6 +121,13 @@ def write(doc: str, content: str, *, source: str = "user", note: str = "") -> in
         from . import profile_init
 
         profile_init.arrived()
+    elif before and before != content:      # something about them changed: what is prepared and not sent may say the old thing
+        try:
+            from . import facts
+
+            facts.profile_saved(before, content)
+        except Exception:  # noqa: BLE001 - the profile is saved whatever the check of the applications finds
+            logging.getLogger("autoapply").exception("could not check the applications against the changed profile")
     return vid
 
 
