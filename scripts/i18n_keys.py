@@ -43,6 +43,19 @@ def leaves(tree: dict, prefix: str = "") -> dict[str, str]:
     return out
 
 
+def without_comments(text: str) -> str:
+    """The text with its HTML comments blanked (line breaks kept, so line numbers stay), cut out by position."""
+    out, at = [], 0
+    while True:
+        start = text.find("<!--", at)
+        if start < 0:
+            return "".join(out) + text[at:]
+        end = text.find("-->", start + 4)
+        end = len(text) if end < 0 else end + 3
+        out.append(text[at:start] + "\n" * text.count("\n", start, end))
+        at = end
+
+
 def slug(english: str, taken: set[str], ns: str) -> str:
     words = re.findall(r"[A-Za-z]+", english.replace("'", "").replace("’", ""))[:4] or ["text"]
     base = words[0].lower() + "".join(w.capitalize() for w in words[1:])
@@ -198,9 +211,8 @@ def main() -> None:
         return "\n".join(out)
 
     head = script_part(head)
-    for i, line in enumerate((head + tpl).split("\n"), 1):
+    for i, line in enumerate(without_comments(head + tpl).split("\n"), 1):
         code = line.split("//")[0] if not line.lstrip().startswith("<") else line
-        code = re.sub(r"<!--.*?-->", "", code)
         if CJK.search(code):
             left.append(f"{i}: {line.strip()[:160]}")
     # (T, not t: a page often calls a row of its list `t`)
