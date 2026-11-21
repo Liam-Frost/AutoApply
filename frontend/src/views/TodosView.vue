@@ -123,7 +123,10 @@ const giveCode = (t) => act(async () => {
 const writeReply = (t) => act(() => api.post(`/todos/${t.id}/reply`), '正在起草回复，写好后这张卡片上会出现“查看回复草稿”')
 const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 接着做了')
 const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 马上开始，到那一步时会在这里等你')
-const dismiss = (t) => act(() => api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }), '已关闭')
+// (a card that work is waiting for is not closed by "not now": the server puts it off until tomorrow, and says so)
+const dismiss = (t) => act(async () => { const r = await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }); if (r && r.snoozed_until) toast('有申请在等这一步，所以没有关闭：明天早上再提醒你。不想投了的话，到这份申请里标成不投。') }, '好的')
+// "not applying after all" on a card about an application that did not get done: the posting is marked so, and the application put away
+const notApplying = (t) => act(async () => { await api.patch(`/jobs/${t.job.id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已标为不投递')
 // What a card about an application offers follows from where the application stands, not from the card.
 // Submit was pressed and the outcome is not known: filling it in again would be a second application if the first went through.
 const unknown = (t) => !!(t.application && t.application.status === 'submit_unknown')
@@ -252,7 +255,7 @@ onMounted(load)
           <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), 'Agent 已重新开始')">使用 nodriver 重试</button>
           <router-link :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
           <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
-          <button v-if="!unknown(t)" class="ghost" @click="dismiss(t)">不投了，关闭</button>
+          <button v-if="!unknown(t)" class="ghost" @click="notApplying(t)">不投了，关闭</button>
         </template>
         <template v-else-if="t.kind === 'captcha'">
           <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开页面</a>

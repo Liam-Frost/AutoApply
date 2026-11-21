@@ -3004,5 +3004,20 @@
 "指用邮件投递的申请，和回复雇主来信的邮件。都从你自己的邮箱发出，发出后收不回来。有需要你本人回答的内容时，不管选哪个都会先给你看。": "Applications that are sent by e-mail, and replies to employers' mails. Both go from your own mailbox and cannot be taken back. Whenever something in one is yours to answer, you see it first whichever you choose.",
 "授权时申请读取、发送、草稿和修改邮件标签这几项权限：读信用来跟踪申请的回信，发信用来替你发邮件投递的申请和回复雇主。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦），并在它的“数据访问”里加上这几项 Gmail 权限。只想让程序读信的话，可以在上面改选“Gmail（应用专用密码）”，那样不能发信。": "Authorizing asks for reading, sending, drafts and changing a message's labels: reading follows the answers to your applications, sending is for applications that go by e-mail and replies to employers. You need an OAuth client of your own in Google Cloud (once, a little tedious), with these Gmail permissions added under its \"Data access\". To let the program read only, choose \"Gmail (app password)\" above; that cannot send.",
 "就填这个": "Enter this",
-"Agent 的建议：{0}": "The agent suggests: {0}"
+"Agent 的建议：{0}": "The agent suggests: {0}",
+"好的": "All right",
+"每周投了多少": "Applications per week",
+"每天投了多少": "Applications per day",
+"哪一周（周一）": "Week (its Monday)",
+"按多长的时间看": "By which length of time",
+"这段时间收到的回复": "Replies received in it",
+"{0} 个问题需要你回答": "{0} question(s) for you to answer",
+"按投出的日期（本地时间）": "By the day they were sent (local time)",
+"这份申请停在需要你的一步。": "This application stopped at a step that needs you.",
+"按投出的那一周（周一起算，本地时间）": "By the week they were sent in (from Monday, local time)",
+"这份申请做到一半停下了，之后没有再继续。": "This application stopped half-way and was not taken up again.",
+"这份申请做到一半停下了，之后没有再继续。可以让 Agent 再试一次。": "This application stopped half-way and was not taken up again. You can have the agent try once more.",
+"有申请在等这一步，所以没有关闭：明天早上再提醒你。不想投了的话，到这份申请里标成不投。": "An application is waiting for this step, so it was not closed: you will be reminded tomorrow morning. If you are not applying after all, mark the application so.",
+"程序在发送途中被打断，不知道这封邮件有没有发出去。请先到邮箱的“已发送”里看一眼，没有再重发。": "The program was interrupted while sending and does not know whether this e-mail went out. Look in your mailbox's Sent folder first, and send again only if it is not there.",
+"前两列按投出的时间算（这段时间投的后来怎么样）；最后一列按回复到达的时间算，不看是什么时候投的。": "The first two columns go by when the applications were sent (what became of those sent in it); the last by when replies arrived, whenever the application was sent."
 }

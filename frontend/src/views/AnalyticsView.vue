@@ -32,7 +32,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/
 const asked = () => { const st = fromQuery(route.query, ADDR0, { view: VIEWS.map(([k]) => k), range: RANGES.map(([k]) => k) }); return { ...st, start: DAY.test(st.start) ? st.start : '', end: DAY.test(st.end) ? st.end : '' } }
 const view = ref(asked().view)
 const range = reactive({ mode: asked().range, start: asked().start, end: asked().end })
-const params = reactive({ auto: { kind: '' }, ai: { group: 'model', bucket: '', provider: '', model: '', feature: '' } })
+const params = reactive({ apps: { bucket: '' }, auto: { kind: '' }, ai: { group: 'model', bucket: '', provider: '', model: '', feature: '' } })
 const state = reactive({ apps: { data: null, error: '', loading: false }, auto: { data: null, error: '', loading: false }, sites: { data: null, error: '', loading: false }, ai: { data: null, error: '', loading: false } })
 const PATH = { apps: '/analytics', auto: '/analytics/automation', sites: '/sites', ai: '/analytics/ai' }
 const ready = computed(() => range.mode !== 'custom' || (range.start && range.end && range.start <= range.end))
@@ -60,7 +60,7 @@ watch(() => ({ view: view.value, range: range.mode, start: range.mode === 'custo
   if (!sameQuery(q, route.query)) router.replace({ query: q })
 }, { deep: true })
 watch(() => route.query, () => { const st = asked(); view.value = st.view; if (st.range !== range.mode || st.start !== range.start || st.end !== range.end) Object.assign(range, { mode: st.range, start: st.start, end: st.end }) })
-watch([view, () => range.mode, () => range.start, () => range.end, () => ({ ...params.auto }), () => ({ ...params.ai })], load, { deep: true })
+watch([view, () => range.mode, () => range.start, () => range.end, () => ({ ...params.apps }), () => ({ ...params.auto }), () => ({ ...params.ai })], load, { deep: true })
 onMounted(load)
 const cur = computed(() => state[view.value])
 </script>
@@ -88,7 +88,7 @@ const cur = computed(() => state[view.value])
     <div class="skel" style="height: 240px"></div>
   </template>
   <div v-else class="an-view" :style="{ opacity: cur.loading ? 0.55 : 1, transition: 'opacity 0.15s' }" :aria-busy="cur.loading">
-    <AppsPanel v-if="view === 'apps'" :d="state.apps.data" />
+    <AppsPanel v-if="view === 'apps'" :d="state.apps.data" :params="params.apps" />
     <AutoPanel v-else-if="view === 'auto'" :d="state.auto.data" :params="params.auto" :range="range" />
     <SitesPanel v-else-if="view === 'sites'" :d="state.sites.data" @reload="load" />
     <CostPanel v-else :d="state.ai.data" :params="params.ai" @reload="load" />
