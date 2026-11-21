@@ -1,0 +1,192 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Careers at Northwind</title>
+<!--
+  An application shaped like a large employer's own careers site:
+  - four steps; the first is a profile and ends with "Submit profile & continue";
+  - the résumé is parsed when it is uploaded, and the parse is wrong in the usual ways;
+  - lists that are not native lists, one of which searches as one types;
+  - a question the applicant's profile does not answer;
+  - after the application is sent there is no thank-you page: the site shows the list of applications.
+  What the page holds is sent to the server at every step (/__/save) and when it is sent (/__/submit): that, and not
+  anything in the page, is what a run is judged by.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #222; }
+  header { padding: 14px 28px; border-bottom: 1px solid #ddd; font-size: 20px; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 28px 80px; }
+  ol.stepper { display: flex; gap: 18px; list-style: none; padding: 0; color: #777; font-size: 13px; }
+  ol.stepper li.on { color: #1a56db; font-weight: 600; }
+  label.f { display: block; margin: 14px 0 4px; font-weight: 600; }
+  input[type=text], textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #aaa; border-radius: 6px; font: inherit; }
+  .combo { position: relative; }
+  .combo .box { padding: 8px; border: 1px solid #aaa; border-radius: 6px; cursor: pointer; background: #fff; }
+  .combo .list { position: absolute; z-index: 5; left: 0; right: 0; background: #fff; border: 1px solid #aaa; max-height: 180px; overflow: auto; display: none; }
+  .combo.open .list { display: block; }
+  .combo .list div { padding: 6px 8px; cursor: pointer; } .combo .list div:hover { background: #e8f0fe; }
+  .job { border: 1px solid #ddd; border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+  .job a { color: #b00; font-size: 12px; cursor: pointer; }
+  .chips span { display: inline-block; background: #e8f0fe; border-radius: 12px; padding: 2px 10px; margin: 2px; }
+  .err { color: #b00; font-size: 13px; }
+  button.main { background: #1a56db; color: #fff; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; cursor: pointer; margin-top: 22px; }
+  .banner { background: #fff8e1; padding: 10px 14px; border-radius: 6px; margin: 10px 0; }
+  .tag { background: #e8f0fe; color: #1a56db; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+  #cookie { position: fixed; bottom: 0; left: 0; right: 0; background: #222; color: #fff; padding: 12px 28px; }
+  #cookie button { margin-left: 10px; }
+</style>
+<header>Northwind Careers</header>
+<main>
+  <ol class="stepper" id="stepper"></ol>
+  <h1 id="t"></h1>
+  <div id="body"></div>
+</main>
+<div id="cookie">We use cookies to improve your experience. <button id="ck-all">Accept all</button><button id="ck-need">Only necessary</button></div>
+<script>
+const NAME = 'profile_first';
+const STEPS = ['Careers profile', 'Role information', 'Voluntary self-identification', 'Review & apply'];
+const S = { step: 0, cookie: '', profile: { first: '', last: '', email: 'alex.chen@example.com', country: '', code: '', phone: '', school: '', degree: '', grad: '', resume: '', jobs: [], skills: [], personalize: '' },
+            role: { locations: [], start: '', worked_before: '' }, self: { gender: '', ethnicity: '' }, certify: false, submitted: false };
+const $ = (id) => document.getElementById(id);
+const post = (what) => fetch('/__/' + what + '?form=' + NAME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S) }).catch(() => {});
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// a list that is not a native list: a box that opens a panel of entries
+function combo(id, entries, get, set, placeholder) {
+  return `<div class="combo" id="${id}" role="combobox" aria-expanded="false" aria-label="${placeholder}"><div class="box" tabindex="0">${esc(get() || placeholder)}</div>`
+    + `<div class="list" role="listbox">${entries.map((e) => `<div role="option">${esc(e)}</div>`).join('')}</div></div>`;
+}
+function wireCombo(id, set) {
+  const c = $(id); if (!c) return;
+  c.querySelector('.box').onclick = () => { c.classList.toggle('open'); c.setAttribute('aria-expanded', c.classList.contains('open')); };
+  c.querySelectorAll('.list div').forEach((d) => d.onclick = () => { set(d.textContent); render(); });
+}
+
+const COUNTRIES = ['Australia', 'Canada', 'China', 'France', 'Germany', 'India', 'Japan', 'United Kingdom', 'United States'];
+const CODES = ['Australia (+61)', 'Canada (+1)', 'China (+86)', 'United Kingdom (+44)', 'United States (+1)'];
+const DEGREES = ["Associate's Degree", "Bachelor of Arts", "Bachelor of Engineering", "Bachelor of Science", "Bachelor's Degree - Other", "Master's Degree", "Doctorate"];
+const SCHOOLS = ['University of Alberta', 'University of British Columbia', 'University of Calgary', 'University of Toronto', 'University of Victoria', 'University of Waterloo', 'Simon Fraser University', 'McGill University'];
+const SKILLS = ['C++', 'Docker', 'Go', 'Java', 'JavaScript', 'Kubernetes', 'PostgreSQL', 'Python', 'React.js', 'Rust', 'SQL', 'TypeScript'];
+
+const steps = [
+  () => `
+    <div class="banner">You can submit up to 3 applications every 30 days.</div>
+    <label class="f">Résumé *</label>
+    <div>${S.profile.resume ? 'Attached: <b id="resume-name">' + esc(S.profile.resume) + '</b> <a id="resume-remove" style="cursor:pointer;color:#b00">Remove resume</a>' : ''}</div>
+    <button id="resume-btn" type="button">Upload résumé</button><input type="file" id="resume-file" style="display:none">
+    <label class="f" for="first">First name *</label><input type="text" id="first" value="${esc(S.profile.first)}">
+    <label class="f" for="last">Last name *</label><input type="text" id="last" value="${esc(S.profile.last)}">
+    <label class="f" for="email">Email address</label><input type="text" id="email" value="${esc(S.profile.email)}" readonly>
+    <label class="f">Country / Region *</label>${combo('country', COUNTRIES, () => S.profile.country, null, 'Select a country')}
+    <label class="f">Primary phone *</label>
+    <div style="display:flex; gap:8px"><div style="flex:1">${combo('code', CODES, () => S.profile.code, null, 'Country code')}</div><div style="flex:2"><input type="text" id="phone" aria-label="Primary phone" value="${esc(S.profile.phone)}"></div></div>
+    <h3>Education</h3>
+    <label class="f" for="school">School *</label>
+    <div class="combo" id="school-c"><input type="text" id="school" role="combobox" aria-label="School" autocomplete="off" value="${esc(S.profile.school)}"><div class="list" role="listbox" id="school-list"></div></div>
+    <label class="f">Degree *</label>${combo('degree', DEGREES, () => S.profile.degree, null, 'Degree')}
+    <label class="f" for="grad">Graduation date (month and year) *</label><input type="text" id="grad" placeholder="e.g. May 2029" value="${esc(S.profile.grad)}">
+    <h3>Work experience</h3>
+    <div id="jobs">${S.profile.jobs.map((j, i) => `<div class="job"><b>${esc(j.title || '(no job title)')}</b> · ${esc(j.employer)}<br><span>${esc(j.dates)}</span><br><a data-rm="${i}">REMOVE THIS JOB</a></div>`).join('') || '<i>No work experience yet. Upload a résumé to fill this in.</i>'}</div>
+    <h3>Skills</h3>
+    <div class="chips" id="chips">${S.profile.skills.map((s) => `<span>${esc(s)}</span>`).join('')}</div>
+    <div class="combo" id="skill-c"><input type="text" id="skill" role="combobox" aria-label="What skills do you have?" autocomplete="off" placeholder="Start typing a skill"><div class="list" role="listbox" id="skill-list"></div></div>
+    <h3>Profile preferences</h3>
+    <div>Personalize your Northwind Careers profile with job recommendations and related content? *
+      <label><input type="radio" name="pers" value="Yes" ${S.profile.personalize === 'Yes' ? 'checked' : ''}> Yes</label>
+      <label><input type="radio" name="pers" value="No" ${S.profile.personalize === 'No' ? 'checked' : ''}> No</label></div>
+    <div class="err" id="err"></div>
+    <button class="main" id="go" type="button">Submit profile &amp; continue</button>`,
+  () => `
+    <label class="f">Which location(s) do you prefer? *</label>
+    ${['Toronto, ON, Canada', 'Waterloo, ON, Canada', 'Vancouver, BC, Canada'].map((l) => `<label><input type="checkbox" name="loc" value="${l}" ${S.role.locations.includes(l) ? 'checked' : ''}> ${l}</label><br>`).join('')}
+    <label class="f" for="start">When is the earliest date you can start? *</label><input type="text" id="start" placeholder="YYYY-MM-DD" value="${esc(S.role.start)}">
+    <div style="margin-top:14px">Have you ever worked for Northwind or one of its subsidiaries? *
+      <label><input type="radio" name="wb" value="Yes" ${S.role.worked_before === 'Yes' ? 'checked' : ''}> Yes</label>
+      <label><input type="radio" name="wb" value="No" ${S.role.worked_before === 'No' ? 'checked' : ''}> No</label></div>
+    <div class="err" id="err"></div>
+    <button class="main" id="go" type="button">Save &amp; continue</button>`,
+  () => `
+    <p>Answering is voluntary and is not shown to the hiring team.</p>
+    <label class="f" for="gender">Gender</label><select id="gender">${['', 'Woman', 'Man', 'Non-binary', 'Prefer not to say'].map((g) => `<option ${S.self.gender === g ? 'selected' : ''}>${g}</option>`).join('')}</select>
+    <label class="f" for="eth">Race / ethnicity</label><select id="eth">${['', 'Asian', 'Black or African American', 'Hispanic or Latino', 'White', 'Two or more', 'Prefer not to say'].map((g) => `<option ${S.self.ethnicity === g ? 'selected' : ''}>${g}</option>`).join('')}</select>
+    <div class="err" id="err"></div>
+    <button class="main" id="go" type="button">Next</button>`,
+  () => `
+    <p>Check your application before you send it.</p>
+    <div class="job"><b>Profile</b><br>${esc(S.profile.first)} ${esc(S.profile.last)} · ${esc(S.profile.country)} · ${esc(S.profile.code)} ${esc(S.profile.phone)}<br>${esc(S.profile.school)} · ${esc(S.profile.degree)} · ${esc(S.profile.grad)}<br>Résumé: ${esc(S.profile.resume)}<br>Experience: ${S.profile.jobs.map((j) => esc(j.title + ' at ' + j.employer)).join('; ')}<br>Skills: ${S.profile.skills.map(esc).join(', ')}</div>
+    <div class="job"><b>Role information</b><br>${S.role.locations.map(esc).join('; ')} · earliest start ${esc(S.role.start)} · worked here before: ${esc(S.role.worked_before)}</div>
+    <div class="job"><b>Voluntary self-identification</b><br>${esc(S.self.gender || '(not answered)')} · ${esc(S.self.ethnicity || '(not answered)')}</div>
+    <label><input type="checkbox" id="certify" ${S.certify ? 'checked' : ''}> I hereby certify that, to the best of my knowledge, the provided information is true and accurate.</label>
+    <div class="err" id="err"></div>
+    <button class="main" id="go" type="button">Submit</button>`,
+];
+
+function suggest(inputId, listId, all, pick) {
+  const inp = $(inputId), list = $(listId); if (!inp) return;
+  let t;
+  inp.addEventListener('keyup', () => {       // the suggestions come after a key, a moment later - not when the value is set from outside
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const q = inp.value.trim().toLowerCase();
+      const hits = q.length < 2 ? [] : all.filter((x) => x.toLowerCase().includes(q)).slice(0, 6);
+      list.innerHTML = hits.map((h) => `<div role="option">${esc(h)}</div>`).join('');
+      list.parentElement.classList.toggle('open', hits.length > 0);
+      list.querySelectorAll('div').forEach((d) => d.onclick = () => { pick(d.textContent); render(); });
+    }, 350);
+  });
+}
+
+function keep() {       // what the boxes hold goes into the state before anything is drawn again
+  const v = (id) => ($(id) ? $(id).value : undefined);
+  if (S.step === 0) { for (const k of ['first', 'last', 'phone', 'grad']) if (v(k) !== undefined) S.profile[k] = v(k);
+    const p = document.querySelector('input[name=pers]:checked'); if (p) S.profile.personalize = p.value;
+    if ($('school') && !SCHOOLS.includes($('school').value)) S.profile.school = ''; }
+  if (S.step === 1) { S.role.locations = [...document.querySelectorAll('input[name=loc]:checked')].map((x) => x.value); if (v('start') !== undefined) S.role.start = v('start');
+    const w = document.querySelector('input[name=wb]:checked'); if (w) S.role.worked_before = w.value; }
+  if (S.step === 2) { S.self.gender = v('gender'); S.self.ethnicity = v('eth'); }
+  if (S.step === 3 && $('certify')) S.certify = $('certify').checked;
+}
+
+function render() {
+  if (S.submitted) { return dashboard(); }
+  $('stepper').innerHTML = STEPS.map((s, i) => `<li class="${i === S.step ? 'on' : ''}">${i + 1} ${s}</li>`).join('');
+  $('t').textContent = STEPS[S.step];
+  $('body').innerHTML = steps[S.step]();
+  if (S.step === 0) {
+    wireCombo('country', (x) => { keep(); S.profile.country = x; }); wireCombo('code', (x) => { keep(); S.profile.code = x; }); wireCombo('degree', (x) => { keep(); S.profile.degree = x; });
+    suggest('school', 'school-list', SCHOOLS, (x) => { keep(); S.profile.school = x; });
+    suggest('skill', 'skill-list', SKILLS, (x) => { keep(); if (!S.profile.skills.includes(x)) S.profile.skills.push(x); });
+    $('resume-btn').onclick = () => $('resume-file').click();
+    $('resume-file').onchange = (ev) => { const f = ev.target.files[0]; if (!f) return; keep(); S.profile.resume = f.name;
+      // the parse: a project taken for a job, a job without its title, the graduation date of an older résumé, the name as on the file
+      S.profile.first = S.profile.first || 'Alex'; S.profile.last = S.profile.last || 'Chen'; S.profile.grad = 'May 2028';
+      S.profile.jobs = [{ title: 'Software Engineering Co-op', employer: 'Contoso', dates: 'May 2026 – Aug 2026' }, { title: '', employer: 'PaperTrail', dates: 'Apr 2026 – Present' }];
+      S.profile.skills = ['Python', 'Go']; render(); };
+    const rr = $('resume-remove'); if (rr) rr.onclick = () => { keep(); S.profile.resume = ''; render(); };
+    document.querySelectorAll('[data-rm]').forEach((a) => a.onclick = () => { keep(); S.profile.jobs.splice(+a.dataset.rm, 1); render(); });
+  }
+  $('go').onclick = forward;
+}
+
+function forward() {
+  keep();
+  const miss = [];
+  if (S.step === 0) { const p = S.profile; for (const [k, n] of [['resume', 'Résumé'], ['first', 'First name'], ['last', 'Last name'], ['country', 'Country / Region'], ['code', 'Phone country code'], ['phone', 'Primary phone'], ['school', 'School (pick it from the suggestions)'], ['degree', 'Degree'], ['grad', 'Graduation date'], ['personalize', 'Profile preferences']]) if (!p[k]) miss.push(n);
+    if (p.jobs.some((j) => !j.title)) miss.push('Job title (every job needs one)'); }
+  if (S.step === 1) { if (!S.role.locations.length) miss.push('Location'); if (!/^\d{4}-\d{2}-\d{2}$/.test(S.role.start)) miss.push('Earliest start date (YYYY-MM-DD)'); if (!S.role.worked_before) miss.push('Worked here before'); }
+  if (S.step === 3 && !S.certify) miss.push('Certification');
+  if (miss.length) { $('err').textContent = 'Please complete: ' + miss.join('; '); return; }
+  if (S.step === 3) { S.submitted = true; post('submit'); return render(); }
+  S.step++; post('save'); render(); scrollTo(0, 0);
+}
+
+function dashboard() {
+  $('stepper').innerHTML = ''; $('t').textContent = 'Hello, ' + S.profile.first + '!';
+  $('body').innerHTML = `<h2>Applications</h2><div><b>Submitted (1)</b> &nbsp; Draft (0) &nbsp; Archive (0)</div>
+    <div class="job"><b>Software Developer Intern, Winter 2027 - Waterloo or Toronto</b><br><span>Updated 3 seconds ago</span><br><span class="tag">Submitted</span><br><a>View application</a></div>
+    <h2>Job recommendations (1)</h2><div class="job">Hardware Engineering Intern, Summer 2027</div>`;
+}
+$('ck-all').onclick = () => { S.cookie = 'all'; $('cookie').remove(); };
+$('ck-need').onclick = () => { S.cookie = 'necessary'; $('cookie').remove(); };
+// the site keeps what was saved: a page opened again starts from what the server holds
+fetch('/__/load?form=' + NAME).then((r) => r.json()).then((kept) => { if (kept && kept.profile) Object.assign(S, kept); render(); }).catch(() => render());
+</script>

@@ -15,19 +15,16 @@ import PageHead from '../components/PageHead.vue'
 import SetSection from '../components/SetSection.vue'
 import FormError from '../components/FormError.vue'
 import { useRoute, useRouter } from 'vue-router'
-import { persona, run as runAction, toast } from '../ui'
+import { fmtTime, persona, run as runAction, toast } from '../ui'
 import { absorb, changed, clone, unsaved, useUnsaved } from '../dirty'
 
 const s = ref(null)
-const info = ref({ secrets: {}, gmail: {}, drivers: [] })
+const info = ref({ secrets: {}, gmail: {} })
 const sec = ref({ anthropic_api_key: '', telegram_bot_token: '', claude_oauth_token: '', proxy_password: '' })
 const netPanel = ref(null)
 const route = useRoute()
 const router = useRouter()
 const rerun = async () => { await api.post('/persona/restart'); persona.done = false; router.push('/welcome') }
-const SYSTEMS = [
-  ['greenhouse', 'Greenhouse'], ['ashby', 'Ashby'], ['workday', 'Workday'], ['pdportal', 'UBC PD Portal'], ['generic', '其他网站'],
-]
 const sys = ref({})
 const exported = ref(null)
 const upd = ref(null)
@@ -35,8 +32,19 @@ const docs = ref([])
 api.get('/system').then((d) => (sys.value = d)).catch(() => {})
 api.get('/documents').then((d) => (docs.value = d)).catch(() => {})
 const exportData = async (sessions) => {
-  try { exported.value = await api.post('/system/export', { sessions }) } catch (e) { toast(e.message, 'bad') }
+  try {
+    exported.value = await api.post('/system/export', { sessions })
+    sys.value = await api.get('/system')        // "last exported" is read from the exports themselves
+  } catch (e) { toast(e.message, 'bad') }
 }
+const lastExport = computed(() => sys.value.last_export || null)
+// (one sentence for each of the two cases: the parts are not put together from pieces)
+const lastExportLine = computed(() => {
+  const e = lastExport.value
+  if (!e) return ''
+  const when = fmtTime(e.created), mb = (e.size / 1e6).toFixed(1)
+  return e.sessions ? `上次导出：${when}，${e.files} 个文件，${mb} MB，含登录状态。这台电脑上保留最近 5 份。` : `上次导出：${when}，${e.files} 个文件，${mb} MB，不含登录状态。这台电脑上保留最近 5 份。`
+})
 const checkUpdate = async () => {
   try { upd.value = await api.get('/system/update') } catch (e) { toast(e.message, 'bad') }
 }
@@ -46,8 +54,8 @@ const checkUpdate = async () => {
 const GROUPS = [
   ['overview', '总览', '这些设置合起来是什么意思：你会投什么，程序现在自己能做到哪一步。只读；每一条都能点到改它的地方。', []],
   ['goals', '求职目标与匹配', '想找什么样的岗位：哪些根本不看，哪些优先。', [['profile', '求职档案'], ['filters', '入库前的硬条件'], ['search', '在大型官网上搜什么'], ['sources', '来源与关注公司']]],
-  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动准备草案'], ['submit', '审批与提交'], ['permissions', '操作权限'], ['adaptive', '出问题时自己调整'], ['schedule', '工作计划']]],
-  ['materials', '材料与回答', '简历怎么调、求职信怎么写、答过的问题怎么再用。', [['resume', '简历'], ['cover', '求职信'], ['answers', '回答的复用']]],
+  ['automation', '自动化与工作计划', '程序自己能做到哪一步，什么时候做。', [['prepare', '自动开始申请'], ['submit', '怎么提交'], ['limits', 'Agent 怎么工作'], ['schedule', '工作计划']]],
+  ['materials', '材料', '简历怎么调、求职信怎么写。', [['resume', '简历'], ['cover', '求职信']]],
   ['accounts', '账号与连接', '招聘网站的登录、收信的邮箱、用哪家 AI。', [['logins', '招聘网站的登录'], ['mailbox', '收件邮箱'], ['ai', 'AI 服务']]],
   ['notify', '通知与提醒', '什么事告诉你，发到哪里，什么时候不打扰。', [['channel', '发到哪里'], ['events', '通知什么、什么时候']]],
   ['system', '系统与数据', '网络、浏览器、远程访问、备份，和平时用不到的专家工具。', [['network', '网络连接（出站）'], ['browser', '浏览器兼容'], ['remote', '远程访问（入站）'], ['security', '账号安全'], ['retention', '数据保留'], ['backup', '备份与更新'], ['diagnose', '诊断'], ['expert', '专家工具']]],
@@ -137,29 +145,6 @@ useUnsaved({ id: 'settings', label: '设置', dirty: () => pending.value > 0, sa
 // load takes what is new and leaves what is being edited)
 const act = (fn, ok) => runAction(fn, ok, load)
 const tgTest = () => act(() => api.post('/settings/telegram-test'), '测试消息已发送，请查看 Telegram')
-// (a table of the systems that are ticked: unticking takes the system out, as it is when it was never ticked - so that
-// ticking and unticking leaves nothing to save)
-function toggle(key, sys) { const p = { ...s.value[key] }; if (p[sys]) delete p[sys]; else p[sys] = true; s.value[key] = p }
-function setRegister(sys, on) { const p = { ...s.value['register.per_ats'] }; if (on) delete p[sys]; else p[sys] = false; s.value['register.per_ats'] = p }
-function setPolicy(sys, v) { const p = { ...s.value['policy.per_ats'] }; if (v) p[sys] = v; else delete p[sys]; s.value['policy.per_ats'] = p }
-
-// --- what the rules on the page come to (as they stand on the page, saved or not) ----------------------------------------
-const sysName = (k) => (SYSTEMS.find((x) => x[0] === k) || [k, k])[1]
-const submitNow = computed(() => {
-  const st = s.value
-  const out = []
-  const auto = st['policy.default'] !== 'manual'
-  out.push(auto ? '你批准之后，程序填好、核对无误就自己提交。' : '你批准之后，程序填好就停下，由你检查后点提交。')
-  const other = Object.entries(st['policy.per_ats'] || {}).filter(([, v]) => v && v !== st['policy.default'])
-  for (const [k, v] of other) out.push(v === 'manual' ? `${sysName(k)}：由你点提交。` : `${sysName(k)}：程序自己提交。`)
-  if ((st['policy.manual_companies'] || []).length) out.push(`这些公司始终由你点提交：${st['policy.manual_companies'].join('、')}。`)
-  if (st['policy.manual_confidence'] === 'low') out.push('草案里有“把握低”的答案时，由你点提交。')
-  if (st['policy.manual_confidence'] === 'medium') out.push('草案里有“把握中等”或“把握低”的答案时，由你点提交。')
-  const systems = SYSTEMS.filter(([k]) => (st['auto_approve.per_ats'] || {})[k]).map(([, n]) => n)
-  out.push(!st['auto_approve.enabled'] ? '每份草案都要你批准。'
-    : systems.length ? `同时满足下面条件的草案不用你批准（只限这些招聘系统：${systems.join('、')}）；其余的都要你批准。` : '自动批准已打开，但没有一个招聘系统被允许，所以每份草案仍然要你批准。')
-  return out
-})
 const hasWord = computed(() => docs.value.some((d) => d.kind === 'resume_docx' && d.active))
 const template = computed(() => docs.value.find((d) => d.kind === 'cl_template' && d.active))
 // the conventions of the applicant's own letter template, one per line
@@ -180,9 +165,6 @@ onMounted(load)
       <router-link v-for="[g, name] in GROUPS" :key="g" :to="'/settings/' + g" class="seg-link" :class="{ on: group === g }">{{ name }}<span v-if="marked(g)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></router-link>
     </nav>
     <p class="muted" style="margin: 0 0 6px">{{ here[2] }}</p>
-    <nav v-if="here[3].length" class="set-toc" aria-label="这一组里的各节">
-      <router-link v-for="[k, name] in here[3]" :key="k" :to="`/settings/${group}/${k}`" :class="{ on: route.params.section === k }">{{ name }}</router-link>
-    </nav>
 
     <!-- 总览：这些设置合起来是什么意思 -->
     <template v-if="group === 'overview'">
@@ -190,7 +172,7 @@ onMounted(load)
       <div v-if="rules" class="cols">
         <div class="card">
           <div class="card-title">我会投什么</div>
-          <p class="muted">从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的才准备草案。</p>
+          <p class="muted">从上到下是一个岗位要过的几关：先是硬条件（不符合的不入库），再按评分偏好打分，够分数线的 Agent 才去做申请。</p>
           <ul class="rule-list">
             <li v-for="(r, i) in rules.apply" :key="i">
               <span class="tag" :class="KIND_TONE[r.kind]">{{ r.label }}</span>
@@ -208,7 +190,7 @@ onMounted(load)
                 <ul v-if="st.more.length" class="small muted" style="margin: 4px 0 0 18px"><li v-for="(m, i) in st.more" :key="i">{{ m }}</li></ul></div>
             </li>
           </ul>
-          <p class="hint" style="margin-top: 10px">具体到每一份草案，草案页上写着它由谁提交、为什么，每条原因都能点到决定它的设置。</p>
+          <p class="hint" style="margin-top: 10px">具体到每一份申请，它的记录页上写着 Agent 做了什么、填了什么、批准之后由谁提交。</p>
         </div>
       </div>
     </template>
@@ -278,80 +260,66 @@ onMounted(load)
 
     <!-- 自动化与工作计划 -->
     <template v-if="group === 'automation'">
-      <SetSection id="prepare" title="自动准备草案">
+      <SetSection id="prepare" title="自动开始申请">
         <div class="card">
-          <p class="muted" style="margin-top: 0">新岗位评完分，够分的就自动准备草案给你看。两条分数线放在一起比较：</p>
+          <p class="muted" style="margin-top: 0">新岗位评完分，够分的 Agent 就自己去做申请。两条分数线放在一起比较：</p>
           <div class="kv" style="margin-top: 12px">
             <label for="f-min">一般岗位，评分达到多少分</label><div><input id="f-min" v-model.number="s['queue.min_score_for_draft']" type="number" step="0.5" style="width: 100px" /> <span class="hint">满分 10。</span></div>
             <label for="f-pmin">重点雇主的岗位，评分达到多少分</label><div><input id="f-pmin" v-model.number="s['employers.priority_min_score']" type="number" step="0.5" min="0" max="10" style="width: 100px" /> <span class="hint">哪些是重点雇主，在<router-link to="/jobs/sources">来源与关注公司</router-link>里标。</span></div>
-            <label for="f-cap">最多同时有多少份草案等你</label><div><input id="f-cap" v-model.number="s['drafts.max_pending']" type="number" min="0" step="1" style="width: 100px" /> <span class="hint">正在生成或等你审批的草案到了这个数，程序就不再自己开始新的，等你处理掉一些再继续（先做评分最高的）；填 0 不限制。你亲手点“生成草案”的不受限制。</span></div>
+            <label for="f-cap">最多同时有多少份申请等你</label><div><input id="f-cap" v-model.number="s['drafts.max_pending']" type="number" min="0" step="1" style="width: 100px" /> <span class="hint">正在做、或者等你回答和批准的申请到了这个数，程序就不再自己开始新的，等你处理掉一些再继续（先做评分最高的）。填 0 表示不限。你亲手点“申请”的不受这个限制。</span></div>
           </div>
         </div>
       </SetSection>
 
-      <SetSection id="submit" title="审批与提交">
+      <SetSection id="submit" title="怎么提交">
         <div class="card">
-          <div class="card-title">草案批准之后</div>
-          <p class="muted">每个申请都会先生成草案给你看。这里决定你批准之后，最后那一下“提交”由谁来点。</p>
+          <div class="card-title">申请怎么提交</div>
+          <p class="muted">每份申请由 Agent 在雇主的网站上一直做到最后一步。这里决定最后那一下“提交”怎么办。</p>
           <div class="kv">
-            <label>默认</label>
-            <AaSelect v-model="s['policy.default']"><option value="approve_then_submit">程序填好、核对无误后自动提交</option><option value="manual">程序填好后停下，我检查后自己点提交</option></AaSelect>
-            <label for="f-manual">这些公司始终由我提交</label>
-            <div><input id="f-manual" style="width: 100%" :value="(s['policy.manual_companies'] || []).join(', ')" placeholder="例如：Google, Apple（用逗号分开）" @change="s['policy.manual_companies'] = $event.target.value.split(/[,，]/).map((x) => x.trim()).filter(Boolean)" /></div>
-            <label>答案没把握时由我提交</label>
-            <AaSelect v-model="s['policy.manual_confidence']"><option value="none">不因此停下</option><option value="low">草案里有“把握低”的答案时</option><option value="medium">有“把握中等”或“把握低”的答案时</option></AaSelect>
+            <label for="f-submit-policy">提交方式</label>
+            <AaSelect id="f-submit-policy" v-model="s['submit.policy']">
+              <option value="auto">没有未决问题就直接提交</option>
+              <option value="approve">每份都先给我看，我批准后再提交</option>
+              <option value="hand_over">做到最后一步，把窗口交给我自己点</option>
+            </AaSelect>
+            <label for="f-manual">这些公司始终由我自己点提交</label>
+            <div><input id="f-manual" style="width: 100%" :value="(s['policy.manual_companies'] || []).join(', ')" placeholder="例如：Google, Apple（用逗号分开）" @change="s['policy.manual_companies'] = $event.target.value.split(/[,，]/).map((x) => x.trim()).filter(Boolean)" />
+              <div class="hint">不管上面选的是什么，这些公司的申请 Agent 都做到最后一步停下，把窗口交给你。</div></div>
           </div>
-          <table style="margin-top: 14px">
-            <thead><tr><th>招聘系统</th><th>批准之后</th></tr></thead>
-            <tbody>
-              <tr v-for="[k, name] in SYSTEMS" :key="k">
-                <td><b>{{ name }}</b></td>
-                <td><AaSelect :value="s['policy.per_ats'][k] || ''" :aria-label="name" @change="setPolicy(k, $event.target.value)"><option value="">跟默认一样</option><option value="approve_then_submit">自动提交</option><option value="manual">我自己点提交</option></AaSelect></td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="callout" style="margin-top: 14px; display: block">
-            <b>按现在页面上的选择，结果是：</b>
-            <ul style="margin: 6px 0 0 18px"><li v-for="(line, i) in submitNow" :key="i">{{ line }}</li></ul>
-            <div class="small muted" style="margin-top: 6px">各条之间的关系：公司的例外和“答案没把握”只会让一次申请改由你提交，不会反过来；招聘系统的选择盖过默认。不管怎么选，遇到这两种情况也会停下由你提交：有程序核对不了、由 AI 选定的填写项；表单在填完后仍然报告需要你处理的问题。具体到每份草案，草案页上会写明它由谁提交、为什么。</div>
-          </div>
-        </div>
-        <details class="card" :open="s['auto_approve.enabled'] || route.params.section === 'submit-auto'">
-          <summary><b>符合条件时自动批准</b> <span class="muted small">（{{ s['auto_approve.enabled'] ? '已打开' : '没有打开：每份草案都要你批准' }}）</span></summary>
-          <p class="muted" style="margin-top: 10px">默认每份草案都要你批准。打开后，同时满足下面所有条件的草案不用你看，直接填写提交。建议用熟了再开。</p>
-          <div class="kv">
-            <label for="f-aa">开启自动批准</label><div><input id="f-aa" v-model="s['auto_approve.enabled']" type="checkbox" /></div>
-            <label for="f-aa-min">岗位评分至少</label><input id="f-aa-min" v-model.number="s['auto_approve.min_score']" type="number" step="0.5" style="width: 100px" />
-            <label for="f-aa-n">这个招聘系统已连续成功提交</label><div><input id="f-aa-n" v-model.number="s['auto_approve.min_driver_successes']" type="number" style="width: 100px" /> 次以上</div>
-            <label for="f-aa-cl">新写的求职信也不用我看</label><div><input id="f-aa-cl" v-model="s['auto_approve.allow_new_cover_letter']" type="checkbox" /></div>
-            <label>允许自动批准的招聘系统</label>
-            <div class="row" style="flex-wrap: wrap"><label v-for="[k, name] in SYSTEMS" :key="k"><input type="checkbox" :checked="!!s['auto_approve.per_ats'][k]" @change="toggle('auto_approve.per_ats', k)" /> {{ name }}</label></div>
-          </div>
-          <p class="hint" style="margin-top: 12px">还必须同时满足：没有答不上的问题；所有答案都来自你确认过的资料，把握高；没有第一次遇到的敏感问题；网站已登录；草案里没有需要留意的备注。</p>
-        </details>
-      </SetSection>
-
-      <SetSection id="permissions" title="操作权限">
-        <div class="card">
-          <div class="kv">
-            <label for="f-consent">遇到挡住表单的“数据隐私声明”</label>
-            <div><input id="f-consent" v-model="s['consent.acknowledge_notices']" type="checkbox" /> <span class="hint">自动点“I understand / Accept”后继续。这说的是打开申请表之前弹出来、只是告知你的声明，它是申请的前提条件。申请表里面要你勾选的同意项（“我同意保留我的资料”等）不在此列：那些是表单的问题，照草案里你批准的答案填。不勾的话，遇到声明就停下来等你。</span></div>
-            <label for="f-optional">非必填项也填上</label><div><input id="f-optional" v-model="s['fill.optional']" type="checkbox" /> <span class="hint">表单上不带星号的问题和整段可选内容（工作经历、教育经历、语言、链接等），只要你的资料或简历里有，就填上。关掉后只填必填项。</span></div>
-            <label for="f-walk">审批前先把分步表单读完</label><div><input id="f-walk" v-model="s['recon.walk']" type="checkbox" /> <span class="hint">有些表单要填完前一步才打得开后一步。打开后，程序会带着草案的答案在隐藏窗口里一步步填到确认页，把后面问到的问题加进草案，不会提交；填进去的内容雇主网站可能会存成未完成的申请。</span></div>
-          </div>
-          <p class="hint" style="margin-top: 12px">程序能不能自己注册账号，在<router-link to="/settings/accounts/logins">招聘网站的登录</router-link>里。</p>
+          <p v-if="s['submit.policy'] === 'auto'" class="hint">资料里都有答案、Agent 也没有拿不准的地方时，它直接提交，然后把记录和确认页交给你。有问题要你回答，或者它拿不准时，它停在提交之前。</p>
+          <p v-else-if="s['submit.policy'] === 'approve'" class="hint">Agent 做到提交之前停下，把它填的每一项和依据给你看。你批准之后，它回去核对一遍再提交。</p>
+          <p v-else class="hint">Agent 被要求停在最后一步，把窗口交给你。这是给它的一条指令，不是一把锁：程序不靠识别按钮来拦它。</p>
+          <p class="hint">表单怎么填（可选项填不填、隐私声明怎么处理、要不要订阅职位提醒）不是这里的开关：Agent 按你个人资料里写的规则做，没有写的按通常的做法。想改，就在个人资料里写一句。 <router-link to="/profile">打开个人资料</router-link></p>
         </div>
       </SetSection>
 
-      <SetSection id="adaptive" title="出问题时自己调整">
+      <SetSection id="limits" title="Agent 怎么工作">
         <div class="card">
+          <div class="card-title">一份申请最多做多少</div>
+          <p class="muted">一份申请从岗位页到确认页，所有运行加在一起最多用多少步（每调用一次工具算一步）、最多用多久。用完了 Agent 会停下来，问你要不要再给一份。表单很长的网站可以调高。</p>
           <div class="kv">
-            <label for="f-repair">填写出错时让 AI 接手</label><div><input id="f-repair" v-model="s['repair.enabled']" type="checkbox" /> <span class="hint">AI 只能把你批准过的内容填进去，不能编新答案，也不能点提交；表单限制字数或格式时，它会把批准过的答案改写到符合要求，提交前给你看改写前后的内容。</span></div>
-            <label for="f-learn">让程序从运行里学习</label><div><input id="f-learn" v-model="s['learned.enabled']" type="checkbox" /> <span class="hint">一次运行里有明显偏离平时的地方（某一步特别慢、AI 反复接手）时，让 AI 写下下次在这个网站上该怎么做。</span></div>
-            <label>学到之后</label><AaSelect v-model="s['learned.mode']"><option value="auto">通过检查就自动试用</option><option value="ask">先问我</option></AaSelect>
-            <label>为新网站写的驱动稳定之后</label><AaSelect v-model="s['learned.share']"><option value="ask">问我要不要分享给项目</option><option value="always">直接准备好 issue</option><option value="never">不分享</option></AaSelect>
+            <label for="f-budget-steps">最多多少步</label>
+            <div><input id="f-budget-steps" v-model.number="s['agent.budgets'].apply.steps" type="number" min="1" max="2000" style="width: 90px" /></div>
+            <label for="f-budget-minutes">最多多少分钟</label>
+            <div><input id="f-budget-minutes" v-model.number="s['agent.budgets'].apply.minutes" type="number" min="1" max="240" style="width: 90px" /></div>
           </div>
-          <p class="hint" style="margin-top: 12px">学到了什么、效果怎样，在<router-link :to="{ path: '/analytics', query: { view: 'time' } }">数据分析 → 耗时与优化</router-link>里看；每一项都可以在那里撤回。</p>
+        </div>
+        <div class="card">
+          <div class="card-title">同时做几份、看不看得到</div>
+          <div class="kv">
+            <label for="f-parallel">同时做几份申请</label>
+            <div><input id="f-parallel" v-model.number="s['agent.parallel']" type="number" min="1" max="6" style="width: 90px" />
+              <div class="hint">每份申请各用各的浏览器，最多 6 份。同一个网站上的申请一次只做一份，因为那里的账号和登录只有一份。</div></div>
+            <label for="f-mail-send">程序替你写的邮件</label>
+            <div><AaSelect id="f-mail-send" v-model="s['mail.send']" style="max-width: 320px">
+                <option value="review">我看一遍再发</option>
+                <option value="auto">没有要我填的内容就直接发</option>
+              </AaSelect>
+              <div class="hint">指用邮件投递的申请，和回复雇主来信的邮件。都从你自己的邮箱发出，发出后收不回来。有需要你本人回答的内容时，不管选哪个都会先给你看。</div></div>
+            <label for="f-show-window">Agent 工作时的浏览器窗口</label>
+            <div><label><input id="f-show-window" v-model="s['agent.show_window']" type="checkbox" /> 显示在屏幕上</label>
+              <div class="hint">打开后，Agent 做申请时浏览器窗口在屏幕上：你可以看着它做，也可以叫停之后自己接着操作。不需要看就关着，它在后台做。最后一步交给你自己点的申请，窗口总是会显示。</div></div>
+          </div>
         </div>
       </SetSection>
 
@@ -359,18 +327,14 @@ onMounted(load)
         <div class="card">
           <div class="kv">
             <label for="f-scan">扫描新岗位</label><div>每 <input id="f-scan" v-model.number="s['schedule.discover_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭</span></div>
-            <label for="f-mail">检查邮箱</label><div>每 <input id="f-mail" v-model.number="s['schedule.mail_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭。读哪个邮箱在<router-link to="/settings/accounts/mailbox">收件邮箱</router-link>里。</span></div>
+            <label for="f-mail-new">看有没有新邮件</label><div>每 <input id="f-mail-new" v-model.number="s['schedule.mail_new_minutes']" type="number" min="0" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭。只问邮箱“上次之后来了什么”，通常是没有；来了才读。确认信、面试邀请、验证码靠的是这一项。只有 Gmail 的 Google 授权方式支持。</span></div>
+            <label for="f-mail">把最近几天的邮件整个再看一遍</label><div>每 <input id="f-mail" v-model.number="s['schedule.mail_minutes']" type="number" min="0" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭。上面那一项的兜底：程序关着的时候到的、当时没认出来的邮件，靠这一遍补上。其他邮箱（IMAP）只有这一项。读哪个邮箱在“账号与连接”里设。</span></div>
           </div>
           <p class="hint" style="margin-top: 12px"><b>暂停</b>在侧栏下方（“暂停自动运行”）。暂停只停程序自己发起的事：定时扫描、评分、自动准备草案、自动重试；你亲手点的照常执行，已经在做的那一件会做完。现在排着什么、能不能调顺序，在<router-link :to="{ path: '/runs', query: { tab: 'plan' } }">活动记录 → 工作计划</router-link>里。</p>
           <details class="tech" style="margin-top: 10px"><summary>用量与节奏（高级）</summary>
             <div class="kv" style="margin-top: 10px">
               <label for="f-batch">每次最多让 AI 评分多少个</label>
               <div><input id="f-batch" v-model.number="s['scoring.max_per_run']" type="number" style="width: 100px" /> 个 <span class="hint">超出的留到下一次扫描后再评，避免一次用掉太多额度。额度快用完时提醒不提醒、用到多少算“快用完”，在<router-link to="/settings/accounts/ai">AI 服务</router-link>的“额度提醒”里。</span></div>
-            </div>
-          </details>
-          <details class="tech" style="margin-top: 6px"><summary>维护</summary>
-            <div class="kv" style="margin-top: 10px">
-              <label for="f-canary">自检间隔</label><div>每 <input id="f-canary" v-model.number="s['schedule.canary_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">定期检查各招聘系统的适配是否还正常，填 0 关闭</span></div>
             </div>
           </details>
         </div>
@@ -407,7 +371,7 @@ onMounted(load)
             <label for="f-tpages">页数上限</label>
             <div><input id="f-tpages" v-model.number="s['tailor.target_pages']" type="number" min="0" max="5" style="width: 100px" /> 页 <span class="hint">填 0 表示和原版一样。如果你上传的是内容更全的多页“母版”简历，填 1，程序会按相关程度去掉排在最后的要点，直到剩一页。</span></div>
             <label for="f-trev">调整过的简历要我看过才能投</label>
-            <div><input id="f-trev" v-model="s['tailor.review']" type="checkbox" /> <span class="hint">勾选后，用了新调整简历的草案不会自动通过，一定等你批准。</span></div>
+            <div><input id="f-trev" v-model="s['tailor.review']" type="checkbox" /> <span class="hint">勾选后，用了刚改写的简历的申请不会直接提交，先等你批准。</span></div>
           </div>
         </div>
       </SetSection>
@@ -425,30 +389,17 @@ onMounted(load)
         </div>
       </SetSection>
 
-      <SetSection id="answers" title="回答的复用" how="">
-        <div class="card">
-          <p class="muted" style="margin: 0">你在草案里确认过的答案会被记住，下次遇到同样的问题直接用。通用的事实（工作许可、毕业时间、你的链接）到处都用；只对某个雇主有意义的答案（“为什么想来我们公司”、是否认识这里的员工、是否在这里工作过）只在那个雇主的网站上再用，不会带到别家。每个答案在草案里都写着它是从哪里来的；要改一条长期的答法，在草案里改答案时勾“以后都这样答”，它会进<router-link to="/profile">个人资料</router-link>的“Standard answers”。</p>
-        </div>
-      </SetSection>
     </template>
 
     <!-- 账号与连接 -->
     <template v-if="group === 'accounts'">
       <SetSection id="logins" title="招聘网站的登录">
         <div class="card">
-          <p class="muted" style="margin-top: 0">需要登录的招聘网站：你以前投过的公司，会请你登录一次并记住；没投过的，由程序自己注册账号（密码存在本机的系统凭据管理器里）。每个网站现在的登录状态在<router-link to="/accounts">网站账号</router-link>里。</p>
+          <p class="muted" style="margin-top: 0">网站需要账号时，Agent 用已经保存的账号登录；没有账号就用下面的邮箱注册一个，密码由程序生成、存在本机的系统凭据管理器里，Agent 自己看不到。验证码、手机上的二次验证、没有保存密码的账号，会请你来处理。 <router-link to="/accounts">查看每个网站的登录状态</router-link></p>
           <div class="kv">
-            <label for="f-reg">允许程序自己注册账号</label><div><input id="f-reg" v-model="s['register.auto']" type="checkbox" /></div>
-            <label>这些招聘系统上允许自己注册</label>
-            <div class="row" style="flex-wrap: wrap"><label v-for="[k, name] in SYSTEMS" :key="k"><input type="checkbox" :disabled="!s['register.auto']" :checked="s['register.per_ats'][k] !== false" @change="setRegister(k, $event.target.checked)" /> {{ name }}</label></div>
             <label for="f-email">注册和登录用的邮箱</label><input id="f-email" v-model="s['account.email']" />
-            <label>网站支持“用第三方账号登录”时</label>
-            <div><AaSelect v-model="s['sso.mode']"><option value="ask">每个网站第一次先问我用哪种方式</option><option value="auto">直接用我已登录的第三方账号</option><option value="never">不用第三方账号，用邮箱注册</option></AaSelect>
-              <div class="hint">指 Google / LinkedIn / Microsoft / Apple 等，需要先在<router-link to="/accounts">网站账号</router-link>里登录。用第三方账号登录时，对方会把你的姓名和邮箱提供给招聘网站；好处是不用多一个密码，也不用收验证邮件。网站上已经有账号的，始终用原来的账号。</div></div>
-            <label for="f-sso">第三方账号的优先顺序</label>
-            <div><input id="f-sso" :value="(s['sso.order'] || []).join(', ')" style="width: 260px" @change="s['sso.order'] = $event.target.value.split(/[,，\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean)" />
-              <span class="hint"> 一个网站同时支持几种时，用排在前面的。</span></div>
           </div>
+          <p class="hint" style="margin-top: 12px">想让某个网站用 Google / LinkedIn 等第三方账号登录，或者不想让 Agent 自己注册账号，在个人资料里写一句就行，例如“不要替我注册新账号，需要账号时来问我”。 <router-link to="/profile">打开个人资料</router-link></p>
         </div>
       </SetSection>
 
@@ -543,11 +494,48 @@ onMounted(load)
             <template v-else-if="upd.newer">有新版本 <b>{{ upd.latest }}</b>（{{ upd.published }}）：<a :href="upd.url" target="_blank" rel="noopener">查看发布说明并下载</a>。程序不会自动更新，下载后解压覆盖程序文件即可，数据不受影响。</template>
             <template v-else>{{ upd.note || '已经是最新版本。' }}</template>
           </p>
-          <ul class="hint" style="margin: 10px 0 0 18px; line-height: 1.8">
-            <li><b>导出</b>随时可以做，不用停任务。压缩包里有数据库、你上传和程序生成的文件、个人资料和规则；不含历次运行的截图，不含密码和 API key（它们在系统的密码库里）。登录状态是加密保存的，只能在这台电脑上用。</li>
-            <li><b>恢复</b>要先退出程序：在<router-link :to="{ path: '/runs', query: { tab: 'plan' } }">工作计划</router-link>里点“做完手上的就停”，等它停下后退出，然后在程序文件夹里运行 <code>uv run autoapply restore 导出文件.zip</code>，原来的数据会另存一份。</li>
-            <li><b>更新</b>同样先“做完手上的就停”再退出，覆盖程序文件后重新启动。</li>
-          </ul>
+          <p class="small" style="margin: 10px 0 0">
+            <template v-if="lastExport">{{ lastExportLine }} <a :href="'/api/system/export/' + lastExport.name">下载这一份</a></template>
+            <template v-else>还没有导出过。数据只在这台电脑上：硬盘坏了或者换电脑之前，先导出一份放到别处。</template>
+          </p>
+          <div class="backup-notes">
+            <div>
+              <h4>导出里有什么</h4>
+              <ul>
+                <li>全部记录：岗位、申请、草案和答过的问题、邮件的归类、设置、运行历史。</li>
+                <li>你上传的文件，和程序为各个岗位写的简历、求职信。</li>
+                <li>个人资料、评分规则、各网站的笔记、你改过的提示词，以及程序学到的做法。</li>
+                <li>选“连同登录状态一起导出”时，还有各网站保存的登录状态（加密的）。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>导出里没有什么</h4>
+              <ul>
+                <li v-if="sys.secrets === 'file'">密码和 API key：它们在数据文件夹里单独加密的密码文件里，不进压缩包。</li>
+                <li v-else>密码和 API key：它们在系统的密码库里（Windows 凭据管理器、macOS 钥匙串），不在数据文件夹里。</li>
+                <li>历次运行的截图和页面记录：很大，也不需要带走。</li>
+                <li>普通浏览器的用户资料文件夹：在普通浏览器里登录过的网站，登录是留在那里的。</li>
+                <li>远程访问的设置和登录密码。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>在这台电脑上恢复</h4>
+              <ul>
+                <li>先退出程序：到“工作计划”里点“做完手上的就停”，等它停下后退出。 <router-link :to="{ path: '/runs', query: { tab: 'plan' } }">打开工作计划</router-link></li>
+                <li>在程序文件夹里运行下面这条命令；原来的数据会另存一份，不会丢。<div><code>uv run autoapply restore 导出文件.zip</code></div></li>
+                <li>密码和 API key 还在原处，恢复后照常能用；导出时带了登录状态的，登录也一起回来。</li>
+              </ul>
+            </div>
+            <div>
+              <h4>搬到另一台电脑</h4>
+              <ul>
+                <li>在新电脑上装好程序，用同样的命令恢复：记录、文件、资料和规则都跟过去。</li>
+                <li>密码和 API key 不会跟过去：在新电脑上重新填（设置里的“账号与连接”；各网站的密码在“网站账号”里）。</li>
+                <li>登录状态不会跟过去：它是用这台电脑上的密钥加密的，换了电脑打不开。要么在新电脑上重新登录，要么在“网站账号”的“高级”里把某个登录单独导出（设一个口令），到新电脑上导入。 <router-link to="/accounts">打开网站账号</router-link></li>
+              </ul>
+            </div>
+          </div>
+          <p class="hint" style="margin: 10px 0 0">更新程序也是先“做完手上的就停”再退出，覆盖程序文件后重新启动；数据文件夹不受影响。</p>
         </div>
       </SetSection>
       <SetSection id="diagnose" title="诊断" how="">

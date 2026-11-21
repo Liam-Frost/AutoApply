@@ -28,30 +28,36 @@ const VIEW = {
   submit: {
     icon: 'send',
     tone: 'info',
-    title: (t) => (t.payload && t.payload.incomplete ? `${t.title}：还没填完，需要你接手` : t.title),
-    what: (t) =>
-      t.payload && t.payload.incomplete
-        ? '申请表还没有填完：下面列出的几处，自动填写和 AI 接手都没能解决。请在弹出的浏览器窗口里把它们处理好，再点击提交。窗口会保留约 20 分钟。'
-        : t.payload && t.payload.open_items
-          ? '申请表已经填好，表单自己没有再报错；有几项程序读不回控件里的值，请在弹出的浏览器窗口里看一眼，然后点击提交。窗口会保留约 20 分钟。'
-          : '申请表已经填好，并逐项核对过，表单自己也没有报错。请在弹出的浏览器窗口里看一遍，然后点击提交。窗口会保留约 20 分钟。',
+    title: (t) => t.title,
+    // (a submission whose outcome is not known says so in its own words, not "look it over and press submit")
+    what: (t) => (t.application && t.application.status === 'submit_unknown' ? t.explained.message
+      : 'Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口，Agent 会去核实并把这份申请记为已投出。'),
   },
   failed: { icon: 'alert', tone: 'bad', title: (t) => t.title, what: (t) => t.explained.message },
-  learned: { icon: 'wrench', tone: '', title: (t) => t.title, what: (t) => t.body || '程序从一次运行里学到了一个新做法，等你决定要不要采用。',
-             next: () => '在“数据分析 → 耗时与优化”里可以看到它的内容，决定采用或不采用。' },
-  share: { icon: 'wrench', tone: 'info', title: (t) => t.title, what: (t) => t.body },
-  driver_patch: { icon: 'wrench', tone: 'none', title: () => '自动修复了一处填写问题', what: (t) => `填写${t.subject ? '「' + t.subject + '」' : '申请表'}时，有一步没按预期完成，程序已改用另一种方式填完并核对过，这次申请不受影响。这条只是记录，你不需要做什么。` },
-  driver: { icon: 'wrench', tone: 'none', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
   mail_unmatched: { icon: 'mail', tone: 'info', title: () => '有一封邮件没对上岗位', what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
   // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
 }
+// The agent is waiting, in the site's own page, for something only the applicant has: these are answered here.
+VIEW.code = { icon: 'login', tone: 'warn', title: (t) => t.title, what: (t) => t.body || '' }
+VIEW.confirm = { icon: 'login', tone: 'warn', title: (t) => t.title, what: (t) => t.body || '' }
+// ... and when it waited and the applicant was not there: said again, and taken up at once when they are
+VIEW.resume = { icon: 'login', tone: 'warn', title: (t) => (RESUME[t.payload.need] || RESUME.confirm)[0](t), what: (t) => t.body || '' }
+const RESUME = {
+  code: [(t) => `${t.title}：需要你输入一个验证码`, '我现在有空，重新发验证码', 'Agent 等了 10 分钟没有等到验证码，那个验证码已经过期。你有空时点下面的按钮：它会马上回到那一步，让网站重新发一个，再在这里等你输入。'],
+  confirm: [(t) => `${t.title}：需要你确认一下`, '我现在有空，继续', 'Agent 等了 10 分钟没有等到你的确认。你有空时点下面的按钮：它会马上重新做到那一步并等你。'],
+  window: [(t) => `${t.title}：需要你在浏览器窗口里操作`, '打开窗口，我来处理', '这一步要你本人在浏览器窗口里完成（比如人机验证）。点下面的按钮：Agent 会在你看得见的窗口里重新做到那一步，然后等你。'],
+}
+// the employer took the posting down: nothing to do - unless the applicant knows better
+// a mail the program wrote for the applicant, waiting to be looked at and sent from their mailbox
+VIEW.mail_out = { icon: 'mail', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' }
+VIEW.gone = { icon: 'bell', tone: '', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
   what: () => '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
 
 // Sorting and filtering. Urgency comes from the server: 0 a window is waiting for you now, 1 the deadline is within 3 days, 2 when you can, 3 just so you know.
-const CATS = [['all', '全部'], ['dated', '有日期的'], ['login', '要登录'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
+const CATS = [['all', '全部'], ['dated', '有日期的'], ['login', '要登录或验证'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
 const URGENCY = ['现在处理', '快截止了', '有空时处理', '仅通知，不需要操作']
 const SORTS = { urgency: '按轻重缓急', newest: '最新的在前', deadline: '按截止时间', score: '按岗位评分' }
 const cat = ref('all')
@@ -99,44 +105,43 @@ const scoreCls = (x) => (x == null ? '' : x >= 9 ? 'hi' : x >= 7.5 ? 'mid' : '')
 const FIX = {
   'config:gmail': ['/settings/accounts/mailbox', '打开邮箱设置'], 'config:resume': ['/files', '打开材料库'], 'config:pdportal-blocked': ['/settings/system/browser', '打开浏览器兼容设置'],
   'config:llm-limit': ['/settings/accounts/ai', '查看 AI 服务和额度'], 'config:llm': ['/settings/accounts/ai', '打开 AI 服务设置'],
+  'config:profile': ['/profile?tab=init', '生成或填写个人资料'],
 }
 const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.title, what: (x) => x.explained.message }
 
 async function read() { todos.value = await api.get('/todos'); reloadOverview() }
 const act = (fn, ok) => runAction(fn, ok, load)
-const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: saveCred.value }),
+const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: !!t.remembers && saveCred.value }),
   '已打开一个浏览器窗口，请在里面登录。登录好之后直接关掉窗口，程序会保存登录状态并继续。')
-const useSso = (t, p) => act(() => api.post('/accounts/sign-in-choice', { tenant_key: t.payload.tenant_key, provider: p.key }), `好的，这个网站以后用 ${p.name} 账号登录，任务已重新排队`)
-const letRegister = (t) => act(() => api.post('/accounts/allow-register', { tenant_key: t.payload.tenant_key }), '好的，程序会自己注册账号，任务已重新排队')
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), '已继续')
-const dismiss = (t) => act(() => api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }), '已关闭')
-const runAgain = (t) => act(async () => { await api.post(`/drafts/${t.payload.draft_id}/execute`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已重新开始填写')
+const codes = ref({})        // what is being typed into each code card
+const giveCode = (t) => act(async () => {
+  const r = await api.post(`/todos/${t.id}/code`, { code: codes.value[t.id] })
+  delete codes.value[t.id]
+  if (!r.given) throw new Error('Agent 已经不在等这个验证码了（等待超过了 10 分钟）。它现在会重新开始并让网站再发一个，新的验证码卡片出现后再输入。')
+}, '已交给 Agent，它正在填')
+const writeReply = (t) => act(() => api.post(`/todos/${t.id}/reply`), '正在起草回复，写好后这张卡片上会出现“查看回复草稿”')
+const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 接着做了')
+const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 马上开始，到那一步时会在这里等你')
+// (a card that work is waiting for is not closed by "not now": the server puts it off until tomorrow, and says so)
+const dismiss = (t) => act(async () => { const r = await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }); if (r && r.snoozed_until) toast('有申请在等这一步，所以没有关闭：明天早上再提醒你。不想投了的话，到这份申请里标成不投。') }, '好的')
+// "not applying after all" on a card about an application that did not get done: the posting is marked so, and the application put away
+const notApplying = (t) => act(async () => { await api.patch(`/jobs/${t.job.id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已标为不投递')
 // What a card about an application offers follows from where the application stands, not from the card.
 // Submit was pressed and the outcome is not known: filling it in again would be a second application if the first went through.
 const unknown = (t) => !!(t.application && t.application.status === 'submit_unknown')
 const checkMail = (t) => act(() => api.post(`/applications/${t.application.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出，这张卡片会自己关闭')
-async function runAgainNotSubmitted(t) {
-  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，重新填写会向雇主再投一次。', { ok: '确定没提交，重新填写' }))) return
-  await act(async () => { await api.post(`/drafts/${t.payload.draft_id}/execute`, { not_submitted: true }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已重新开始填写')
+async function againNotSubmitted(t) {
+  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，再做一次会向雇主再投一次。', { ok: '确定没提交，再做一次' }))) return
+  await act(async () => { await api.post(`/applications/${t.application.id}/not-submitted`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, 'Agent 已重新开始')
 }
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
+const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), '已追加一份预算，Agent 接着做')
+const tryAgainFor = async (t, backend) => { await api.post(`/jobs/${t.job.id}/draft`, backend ? { browser_backend: backend } : {}); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
+const tryAgain = (t) => act(() => tryAgainFor(t), 'Agent 已重新开始')
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
-// a driver the program wrote: the issue opens in the applicant's own browser, filled in, for them to read and submit
-async function share(t, choice) {
-  const tab = ['once', 'always'].includes(choice) ? window.open('', '_blank') : null      // opened in the click itself, or the browser blocks it
-  try {
-    const r = await api.post(`/learned/${t.payload.id}/share`, { choice })
-    if (tab && r.url) tab.location = r.url
-    else if (tab) tab.close()
-    if (r.url && !r.whole) { try { await navigator.clipboard.writeText(r.body) } catch { /* the page shows what fits */ } }
-    toast(choice === 'once' || choice === 'always'
-      ? (r.whole ? '已在浏览器里打开 GitHub，内容已填好，确认后点提交即可' : '已打开 GitHub。驱动内容太长没放全，完整内容已复制到剪贴板，请粘贴到正文里再提交')
-      : choice === 'never' ? '好的，以后不再询问。可以在“数据分析 → 耗时与优化”里改回来' : '好的，这次不提')
-    load()
-  } catch (e) { if (tab) tab.close(); toast(e.message, 'bad') }
-}
 const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
@@ -181,48 +186,43 @@ onMounted(load)
       <p class="what" style="white-space: pre-line">{{ view(t).what(t) }}</p>
       <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>程序到雇主网站上查过，没能确定是哪一个。网站上显示：{{ t.payload.site.join('；') }}</span></p>
       <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="small muted">没认出是哪家雇主发的，下面列的是所有已投递的申请。</p>
-      <p v-if="t.sso && t.sso.length" class="callout"><Icon name="info" /><span>这个网站支持用 {{ t.sso.map((p) => p.name).join(' / ') }} 账号登录，而你已经在这里登录过。选它的话，程序会替你点“用 {{ t.sso[0].name }} 登录”，不需要新密码；对方会把你的姓名和邮箱提供给这个网站。你的选择会记住，这个网站以后不再问。</span></p>
-      <p v-else-if="t.sso_offered && t.sso_offered.length" class="callout"><Icon name="info" /><span>这个网站也支持用 {{ t.sso_offered.join(' / ') }} 账号登录。想用的话，先到<router-link to="/accounts">网站账号</router-link>里登录一次那个账号，再回来。</span></p>
       <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>登录窗口已打开，正在等你登录。大型网站第一次打开可能要半分钟到一分钟，请稍等。登录完成后直接关掉窗口即可。</span></p>
       <p v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><span>上次没有登录成功：{{ t.payload.last_try }}。可以再点一次“去登录”。</span></p>
-      <div v-if="t.payload && t.payload.open_items && t.payload.open_items.some((m) => m.kind === 'fix')" class="callout warn" style="display: block">
-        <b>这几项没能填好，请在窗口里自己填上，再点提交：</b>
-        <div v-for="m in t.payload.open_items.filter((m) => m.kind === 'fix')" :key="m.label" style="margin-top: 4px">「{{ m.label }}」<template v-if="m.expected">草案里的答案是 <b>{{ m.expected }}</b></template><span class="muted">（{{ m.why }}）</span></div>
-      </div>
-      <div v-if="t.payload && t.payload.open_items && t.payload.open_items.some((m) => m.kind === 'form')" class="callout warn" style="display: block">
-        <b>表单自己还在提示这些问题，AI 接手后也没能解决，请在窗口里处理：</b>
-        <div v-for="m in t.payload.open_items.filter((m) => m.kind === 'form')" :key="m.label" style="margin-top: 4px">{{ m.label }}</div>
-      </div>
-      <div v-if="t.payload && t.payload.open_items && t.payload.open_items.some((m) => m.kind !== 'fix' && m.kind !== 'form')" class="callout" style="display: block">
-        <b>这几项应该已经填上了，但程序读不回控件的值、没法自己确认，提交前请看一眼：</b>
-        <div v-for="m in t.payload.open_items.filter((m) => m.kind !== 'fix' && m.kind !== 'form')" :key="m.label" style="margin-top: 4px">「{{ m.label }}」应为 <b>{{ m.expected }}</b></div>
-      </div>
-      <div v-if="t.payload && t.payload.added" class="callout" style="display: block">
-        <b>这几项草案里没有（选了某个答案之后才出现），AI 按你的个人资料填上了，请确认：</b>
-        <div v-for="m in t.payload.added" :key="m.label" style="margin-top: 4px">「{{ m.label }}」填了 <b>{{ m.value }}</b><span v-if="m.basis" class="muted">（依据：{{ m.basis }}）</span></div>
-      </div>
-      <div v-if="t.payload && t.payload.adapted" class="callout" style="display: block">
-        <b>这几项答案按表单的限制改写过，提交前请过目</b>
-        <div v-for="m in t.payload.adapted" :key="m.label" style="margin-top: 6px">「{{ m.label }}」<span v-if="m.max_chars" class="muted">（表单最多收 {{ m.max_chars }} 个字符）</span>
-          <div style="margin-top: 2px" data-notr>{{ m.entered }}</div>
-          <details class="tech"><summary>改写前的答案</summary><pre data-notr>{{ m.approved }}</pre></details>
-        </div>
-      </div>
-      <div v-if="t.payload && t.payload.mapped" class="callout" style="display: block">
-        <b>这几项按表单上的实际选项填了，请确认意思没变：</b>
-        <div v-for="m in t.payload.mapped" :key="m.label" style="margin-top: 4px">「{{ m.label }}」你的答案 <b>{{ m.approved }}</b> → 表单选项 <b>{{ m.chosen }}</b></div>
-      </div>
-      <div v-if="t.payload && t.payload.mismatches" class="callout warn" style="display: block">
-        <div v-for="m in t.payload.mismatches" :key="m.id">「{{ m.label }}」草案里是 <b>{{ m.expected }}</b>，页面上是 <b>{{ m.actual || '空的' }}</b></div>
-      </div>
 
       <div class="acts">
         <template v-if="['takeover', 'login'].includes(t.kind) && t.payload && t.payload.tenant_key">
-          <button v-for="p in t.sso || []" :key="p.key" class="primary" @click="useSso(t, p)"><Icon name="login" />用我的 {{ p.name }} 账号登录</button>
-          <button :class="{ primary: !(t.sso && t.sso.length) }" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? `去登录 ${t.payload.provider}` : t.sso && t.sso.length ? '我自己登录' : '我有账号，去登录' }}</button>
-          <button v-if="t.payload.can_register" @click="letRegister(t)">我没注册过，帮我注册</button>
+          <button class="primary" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? `去登录 ${t.payload.provider}` : '去登录' }}</button>
           <button class="ghost" @click="dismiss(t)">先不处理</button>
-          <label class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> 记住我输入的密码，下次自动登录</label>
+          <label v-if="t.remembers" class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> 记住我输入的密码，下次自动登录</label>
+          <span v-else-if="t.payload.tenant_key.startsWith('idp:')" class="small muted" style="margin-left: 8px">只保存登录状态，不保存这个账号的密码</span>
+          <span v-else class="small muted" style="margin-left: 8px">这个登录窗口里程序看不到你输入的内容。想让程序以后自己登录，到“账号”页给这个网站保存登录名和密码。</span>
+        </template>
+        <template v-else-if="t.kind === 'code'">
+          <input v-model="codes[t.id]" placeholder="在这里输入验证码" inputmode="numeric" autocomplete="one-time-code" style="width: 180px" @keyup.enter="codes[t.id] && giveCode(t)" />
+          <button class="primary" :disabled="!codes[t.id]" @click="giveCode(t)"><Icon name="check" />交给 Agent</button>
+          <button class="ghost" @click="dismiss(t)">现在没法处理</button>
+          <span class="small muted" style="margin-left: 8px">Agent 正停在网站的那一页等着，大约等 10 分钟。</span>
+        </template>
+        <template v-else-if="t.kind === 'confirm'">
+          <button class="primary" @click="confirmed(t)"><Icon name="check" />已完成，继续</button>
+          <button class="ghost" @click="dismiss(t)">现在没法处理</button>
+          <span v-if="t.payload && t.payload.window" class="small muted" style="margin-left: 8px">浏览器窗口已经打开：在窗口里完成这一步，不要关窗口，然后点“已完成”。</span>
+          <span v-else class="small muted" style="margin-left: 8px">在手机上完成后点“已完成”，Agent 立刻接着做；它大约等 10 分钟。</span>
+        </template>
+        <template v-else-if="t.kind === 'resume'">
+          <button class="primary" @click="resumeNow(t)"><Icon name="refresh" />{{ (RESUME[t.payload.need] || RESUME.confirm)[1] }}</button>
+          <button class="ghost" @click="dismiss(t)">先不处理</button>
+          <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
+        </template>
+        <template v-else-if="t.kind === 'mail_out'">
+          <router-link :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看并发送</router-link>
+          <router-link v-if="t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请</router-link>
+        </template>
+        <template v-else-if="t.kind === 'gone'">
+          <button class="primary" @click="dismiss(t)"><Icon name="check" />知道了</button>
+          <a v-if="t.job && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn"><Icon name="external" />打开岗位页面看看</a>
+          <button v-if="t.job" @click="tryAgain(t)"><Icon name="refresh" />岗位还在，再试一次</button>
+          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
         </template>
         <template v-else-if="t.kind === 'blocked'">
           <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开岗位页面，自己投</a>
@@ -231,28 +231,31 @@ onMounted(load)
           <button class="ghost" @click="skipJob(t)">不投这个了</button>
         </template>
         <template v-else-if="t.kind === 'answer'">
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" />去回答</router-link>
+          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">查看申请材料</span><span v-else>去回答</span></router-link>
           <button class="ghost" @click="dismiss(t)">关闭</button>
         </template>
         <template v-else-if="t.kind === 'followup'">
-          <button class="primary" @click="done(t)"><Icon name="check" />已完成</button>
+          <router-link v-if="t.payload && t.payload.outgoing_id" :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看回复草稿</router-link>
+          <button v-else-if="t.payload && t.payload.category === 'info_request' && t.payload.message_id" @click="writeReply(t)"><Icon name="edit" />起草回复邮件</button>
+          <button :class="{ primary: !(t.payload && t.payload.outgoing_id) }" @click="done(t)"><Icon name="check" />已完成</button>
           <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? '改日期' : '加上日期' }}</button>
           <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请和原邮件</router-link>
           <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">打开人脉</router-link>
+          <button class="ghost" @click="dismiss(t)">不处理，关闭</button>
         </template>
-        <template v-else-if="['failed', 'submit'].includes(t.kind) && t.payload && t.payload.draft_id">
+        <template v-else-if="['failed', 'submit'].includes(t.kind) && t.application && t.job">
           <template v-if="unknown(t)">
             <button class="primary" @click="checkMail(t)"><Icon name="mail" />现在检查确认邮件</button>
             <button @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
-            <button class="ghost" @click="runAgainNotSubmitted(t)">没提交成功，重新填写</button>
+            <button class="ghost" @click="againNotSubmitted(t)">没提交成功，让 Agent 再做一次</button>
           </template>
-          <template v-else>
-            <button class="primary" @click="runAgain(t)"><Icon name="refresh" />{{ t.application && t.application.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
-            <button v-if="t.application && t.application.status === 'ready_to_submit'" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
-          </template>
-          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
-          <router-link :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
-          <button class="ghost" @click="dismiss(t)">不投了，关闭</button>
+          <button v-else-if="t.kind === 'submit'" class="primary" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
+          <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />再给一份预算，接着做</button>
+          <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />让 Agent 再试一次</button>
+          <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), 'Agent 已重新开始')">使用 nodriver 重试</button>
+          <router-link :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
+          <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
+          <button v-if="!unknown(t)" class="ghost" @click="notApplying(t)">不投了，关闭</button>
         </template>
         <template v-else-if="t.kind === 'captcha'">
           <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开页面</a>
@@ -265,15 +268,6 @@ onMounted(load)
           </AaSelect>
           <button class="primary" :disabled="!picked[t.id]" @click="linkMail(t)"><Icon name="check" />关联到这个申请</button>
           <button class="ghost" @click="dismiss(t)">和申请无关，关闭</button>
-        </template>
-        <template v-else-if="t.kind === 'share'">
-          <button class="primary" @click="share(t, 'once')"><Icon name="external" />{{ t.payload.ready ? '打开并提交' : '提这一次' }}</button>
-          <button v-if="!t.payload.ready" @click="share(t, 'always')">以后都提</button>
-          <button class="ghost" @click="share(t, 'skip')">这次不提</button>
-          <button class="ghost" @click="share(t, 'never')">永久不提</button>
-        </template>
-        <template v-else-if="['driver_patch', 'driver'].includes(t.kind)">
-          <button @click="dismiss(t)">知道了</button>
         </template>
         <template v-else-if="t.kind === 'config' && FIX[t.ref]">
           <router-link :to="FIX[t.ref][0]" class="btn primary"><Icon name="settings" />{{ FIX[t.ref][1] }}</router-link>
@@ -306,7 +300,7 @@ onMounted(load)
           <button class="sm ghost" @click="menu = 0">取消</button>
         </template>
       </div>
-      <TechDetails :text="t.explained.detail || (t.kind === 'driver_patch' ? t.body : '')" />
+      <TechDetails :text="t.explained.detail" />
     </div>
   </div>
   </template>

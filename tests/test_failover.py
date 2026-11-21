@@ -111,7 +111,7 @@ def test_an_agent_cut_off_midway_starts_again_on_the_backup_and_is_told(app_env,
     monkeypatch.setattr(notify, "send", lambda *a, **k: True)
     goals, clicks = [], []
 
-    def fake_agent(goal, tools, *, system, max_steps, on_step):
+    def fake_agent(goal, tools, *, system, budget, on_step):
         goals.append((llm.provider(), goal))
         tools[0].fn(selector="#a")
         if llm.provider() == "claude_subscription":

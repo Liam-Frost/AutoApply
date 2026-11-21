@@ -1,8 +1,8 @@
-"""Gmail (read-only): verification codes for drivers, and application tracking.
+"""Gmail (read-only), and tracking what the mailbox says about the applications.
 
-Scope is ``gmail.readonly``. Nothing is sent, labelled, or modified.
-Verification codes/links are returned to drivers only (never to the LLM agent,
-never logged). Tracking sends one e-mail body at a time to the small model.
+Scope is ``gmail.readonly``. Nothing is sent, labelled, or modified. Tracking sends one e-mail body at a time to the
+small model. Mail about an account - a code, a link to confirm an address - is not tracked, summarised or notified;
+the agent reads it from the mailbox itself when a site sends one while it works (agent/run.py: ``mail``).
 """
 
 from __future__ import annotations
@@ -22,11 +22,20 @@ from . import prompts
 from .models import RANK, SENT, UNKNOWN, Application, Job, MailEvent  # noqa: F401  (RANK: how far along; a mail never moves an application backwards by itself)
 
 log = logging.getLogger("autoapply.mail")
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# What the applicant is asked to grant. Reading was all there was; sending (an application by e-mail, a reply to an
+# employer) needs more, and they chose to grant drafts and changing a message's labels with it, for what comes later.
+# A mailbox authorized before keeps working for what it was granted: ``granted`` says what that is.
+READ = "https://www.googleapis.com/auth/gmail.readonly"
+SEND = "https://www.googleapis.com/auth/gmail.send"
+SCOPES = [READ, SEND, "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/gmail.modify"]
 
 
 class MailNotConfigured(RuntimeError):
     pass
+
+
+class GmailReconnect(MailNotConfigured):
+    """Google explicitly rejected the stored refresh grant."""
 
 
 # --- OAuth -------------------------------------------------------------------------
@@ -48,25 +57,173 @@ def authorize() -> None:
     flow = InstalledAppFlow.from_client_config(json.loads(cfg), SCOPES)
     creds = flow.run_local_server(port=0, prompt="consent")
     secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
+    db.set_setting("mail.gmail_reconnect", False)
+
+
+def granted() -> set[str]:
+    """What the stored authorization allows."""
+    try:
+        scopes = json.loads(secrets.get(secrets.GMAIL_TOKEN) or "{}").get("scopes") or []
+    except ValueError:
+        return set()
+    return set(scopes.split() if isinstance(scopes, str) else scopes)
+
+
+def can_send() -> bool:
+    """Can a mail be sent from the applicant's mailbox as it is connected now?"""
+    from . import mailbox
+
+    return mailbox.kind() == "gmail_api" and SEND in granted() and not bool(db.get_setting("mail.gmail_reconnect"))
 
 
 def status() -> dict[str, bool]:
-    return {"client": secrets.has(secrets.GMAIL_CLIENT), "authorized": secrets.has(secrets.GMAIL_TOKEN)}
+    return {"can_send": can_send(), "client": secrets.has(secrets.GMAIL_CLIENT), "reconnect": bool(db.get_setting("mail.gmail_reconnect")), "authorized": secrets.has(secrets.GMAIL_TOKEN) and not bool(db.get_setting("mail.gmail_reconnect"))}
+
+
+def migrate_reconnect_waits() -> None:
+    """Move an old employer card only when the linked task and the Google error agree."""
+    from .models import Task, Todo
+    from .mailbox import kind
+
+    if kind() != "gmail_api":
+        return
+    with db.session() as session:
+        last = session.query(Task).filter_by(kind="mail").order_by(Task.id.desc()).first()
+        if not last or last.status != "failed" or "invalid_grant" not in last.error:
+            return
+        for task in session.query(Task).filter_by(kind="apply", status="waiting_human"):
+            ref = (task.payload or {}).get("waits_for", "")
+            if not ref.startswith("account:"):
+                continue
+            card = session.query(Todo).filter_by(ref=ref, kind="takeover", status="open").first()
+            if not card or "RefreshError" not in card.body or "邮箱" not in card.body:
+                continue
+            task.payload = {**task.payload, "waits_for": "config:gmail"}
+            card.kind, card.title, card.ref = "config", "重新授权 Gmail 邮箱", "config:gmail"
+            card.payload, card.body = {}, "Google 已拒绝旧授权。请到设置 → 账号与连接 → 收件邮箱重新授权，随后重试原岗位。"
 
 
 def _service():
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
+    from google_auth_httplib2 import AuthorizedHttp
+    import httplib2
 
     tok = secrets.get(secrets.GMAIL_TOKEN)
     if not tok:
         raise MailNotConfigured("Gmail is not authorized (Settings > Gmail).")
-    creds = Credentials.from_authorized_user_info(json.loads(tok), SCOPES)
+    # (with the scopes the token was granted, not the ones asked for today: a refresh that names a scope the applicant
+    # never granted is refused, and reading their mail would stop until they authorized again)
+    creds = Credentials.from_authorized_user_info(json.loads(tok))
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        from google.auth.exceptions import RefreshError
+
+        try:
+            transport = Request()
+
+            def request_with_deadline(*args, **kwargs):
+                kwargs["timeout"] = 20
+                return transport(*args, **kwargs)
+
+            creds.refresh(request_with_deadline)
+        except RefreshError as exc:
+            if not any(isinstance(arg, dict) and arg.get("error") == "invalid_grant" for arg in exc.args):
+                raise
+            db.set_setting("mail.gmail_reconnect", True)
+            raise GmailReconnect("Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。") from exc
         secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
-    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20)), cache_discovery=False)
+
+
+# --- looking for the confirmation of an application that was just sent ------------------------------------------------
+def watches_new_mail() -> bool:
+    """Is the mailbox asked every few minutes what has arrived (Gmail through the API, with that check switched on)?"""
+    from . import mailbox
+
+    return mailbox.incremental() and int(db.get_setting("schedule.mail_new_minutes") or 0) > 0 and not db.get_setting("schedule.paused")
+
+
+def watch_for_confirmation(application_id: int) -> int:
+    """After an application went out: look for the employer's confirmation. Where the mailbox is asked every few
+    minutes what is new, that check is the one that finds it - nothing more is queued. Elsewhere (a mailbox read over
+    IMAP, or the check switched off) the mailbox is read at the delays set, for this application. Returns how many
+    looks were queued."""
+    from . import tasks
+
+    if watches_new_mail():
+        return 0
+    n = 0
+    for m in db.get_setting("mail.confirm_check_minutes") or []:
+        tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+        n += 1
+    return n
+
+
+def drop_needless_looks() -> int:
+    """Queued looks for a confirmation that nothing waits for any more: the application is confirmed (or further, or
+    withdrawn), or the mailbox is being asked every few minutes anyway. Returns how many were taken out."""
+    from .models import SENT, UNKNOWN, Task, now
+
+    n, covered = 0, watches_new_mail()
+    with db.session() as s:
+        for t in s.query(Task).filter(Task.kind == "mail", Task.status == "queued", Task.ref.like("confirm:%")):
+            num = t.ref.partition(":")[2]
+            app = s.get(Application, int(num)) if num.isdigit() else None
+            if covered or app is None or app.status not in ("submitted", UNKNOWN):
+                t.status, t.finished_at, t.result = "cancelled", now(), {"skipped": "nothing waits for this look any more"}
+                n += 1
+    return n
+
+
+# --- sending -------------------------------------------------------------------------
+def original(message_id: str) -> dict[str, str] | None:
+    """A mail in the mailbox, as far as answering it needs: who it is from, where an answer goes, what it says, and
+    what ties an answer to it. None when this mailbox cannot be asked for one mail."""
+    from . import mailbox
+
+    if mailbox.kind() != "gmail_api":
+        return None
+    msg = _service().users().messages().get(userId="me", id=message_id, format="full").execute()
+    refs = " ".join(x for x in (_hdr(msg, "References"), _hdr(msg, "Message-ID")) if x)
+    return {"from": _hdr(msg, "From"), "reply_to": _hdr(msg, "Reply-To"), "subject": _hdr(msg, "Subject"), "body": _body(msg["payload"]),
+            "message_id_header": _hdr(msg, "Message-ID"), "references": refs, "thread_id": msg.get("threadId", "")}
+
+
+def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments: list[dict[str, str]] | None = None, in_reply_to: str = "") -> dict[str, str]:
+    """Send one mail from the applicant's mailbox. ``in_reply_to``: the mailbox's id of the mail it answers - it then
+    goes into that conversation. Returns the mailbox's id of what was sent, its conversation, and the address it went
+    from. Called only by outbox.send, which has the mail on record first."""
+    import mimetypes
+    from email.message import EmailMessage
+    from pathlib import Path
+
+    if not can_send():
+        raise MailNotConfigured("程序还没有从你的邮箱发信的权限。请到设置 → 账号与连接 → 收件邮箱重新授权（授权页会多出“发送邮件”一项）。")
+    service = _service()
+    sender = service.users().getProfile(userId="me").execute().get("emailAddress", "")
+    m = EmailMessage()
+    m["To"], m["Subject"] = to, subject
+    if sender:
+        m["From"] = sender
+    if cc:
+        m["Cc"] = cc
+    thread = ""
+    if in_reply_to:
+        was = original(in_reply_to) or {}
+        if was.get("message_id_header"):
+            m["In-Reply-To"], m["References"] = was["message_id_header"], was.get("references") or was["message_id_header"]
+        thread = was.get("thread_id", "")
+    m.set_content(body)
+    for a in attachments or []:
+        kind, _ = mimetypes.guess_type(a["name"])
+        main, _, sub_ = (kind or "application/octet-stream").partition("/")
+        m.add_attachment(Path(a["path"]).read_bytes(), maintype=main, subtype=sub_, filename=a["name"])
+    raw = {"raw": base64.urlsafe_b64encode(m.as_bytes()).decode()}
+    if thread:
+        raw["threadId"] = thread
+    sent = service.users().messages().send(userId="me", body=raw).execute()
+    return {"id": sent.get("id", ""), "thread_id": sent.get("threadId", ""), "from": sender}
 
 
 # --- message helpers -----------------------------------------------------------------
@@ -220,130 +377,10 @@ def added_since_last(limit: int = 50, *, skip: Any = None) -> list[dict[str, Any
     return out
 
 
-# --- verification ----------------------------------------------------------------------
-
-_CODE = re.compile(r"(?<![\w/=-])(\d{6,8}|[A-Z0-9]{6,8})(?![\w/=-])")
-_LINK = re.compile(r"https?://[^\s\"'<>]+")
-_LINK_HINT = re.compile(r"verif|confirm|activate|validate|token|registration", re.I)
-
-
-def extract_verification(subject: str, body: str) -> str | None:
-    """Rule-based extraction: a link that looks like a verification link, else a code near a keyword."""
-    for m in _LINK.finditer(body):
-        if _LINK_HINT.search(m.group(0)) and "unsubscribe" not in m.group(0).lower():
-            return m.group(0).rstrip(").,")
-    text = f"{subject}\n{body}"
-    for kw in re.finditer(r"(verification|security|one[- ]time|temporary|confirmation|access|login|sign[- ]?in)\s*(code|pin|passcode|password)|\b(otp|passcode)\b", text, re.I):
-        window = text[kw.end() : kw.end() + 200]
-        for m in _CODE.finditer(window):
-            if re.search(r"\d", m.group(1)):
-                return m.group(1)
-    m = re.search(r"\bcode\b[^\n]{0,40}?\b(\d{6,8})\b", text, re.I)
-    return m.group(1) if m else None
-
-
-_TWO_PART = {"co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.nz", "co.jp", "co.kr", "co.in", "com.cn", "com.hk", "com.sg", "com.br",
-             "com.mx", "com.tw", "co.za", "com.tr"}
-
-
-def site_domain(host: str) -> str:
-    """The part of a host that names the site's owner: metacareers.com for www.metacareers.com, acme.co.uk for jobs.acme.co.uk.
-    On a host shared by many employers the employer's own name is kept: ciena.wd5.myworkdayjobs.com stays whole."""
-    host = (host or "").lower().split(":")[0].strip(".")
-    parts = host.split(".")
-    if len(parts) < 2 or re.fullmatch(r"[\d.]+", host):
-        return ""
-    if re.search(r"(myworkdayjobs|myworkdaysite|icims|greenhouse|lever|ashbyhq|smartrecruiters|bamboohr|taleo|oraclecloud|successfactors|jobvite|workable)\.", host):
-        return host
-    n = 3 if ".".join(parts[-2:]) in _TWO_PART else 2
-    return ".".join(parts[-n:])
-
-
-def link_refusal(url: str, site_host: str) -> str:
-    """Why a link from an e-mail must not be opened by the program ('' when it may be).
-
-    A confirmation link is opened only when it is plainly the site's own: the program is in the middle of signing up or in
-    there, and the link leads to that same site over https. Anything else - another domain, a mail service's redirect, an
-    address with a user name or a port in it, a bare IP - is left to the applicant: a link in a mail is the oldest way to
-    send someone to a look-alike page, and this program types passwords."""
-    from urllib.parse import urlparse
-
-    try:
-        u = urlparse(url)
-    except ValueError:
-        return "not an address"
-    host = (u.hostname or "").lower()
-    if u.scheme != "https":
-        return "not https"
-    if u.username or u.password or (u.port not in (None, 443)):
-        return "has a user name or a port in it"
-    if not host or re.fullmatch(r"[\d.]+", host) or host.startswith("xn--") or ".xn--" in host:
-        return "not a plain host name"
-    want = site_domain(site_host)
-    if not want:
-        return "the site is not known"
-    if not (host == want or host.endswith("." + want)):
-        return f"leads to {host}, not to {want}"
-    return ""
-
-
-# the subject of a mail that carries a code or a link for an account: never summarised, stored or given to a model
+# Mail about an account - a code, a link to confirm an address, a password reset: not about an application. It is never
+# summarised, stored or notified; the agent reads it from the mailbox itself when a site sends one while it works.
 ACCOUNT_MAIL = re.compile(r"(security|verification|one[- ]time|temporary|access|login)\s*(code|pin|passcode|password)|\b(otp|passcode)\b|\bverify\b|"
                           r"\bactivate your\b|\bconfirm your\b.{0,40}\b(e-?mail|account|address)|reset your password", re.I)
-
-
-def wait_for_verification(*, sender_hint: str = "", timeout: int = 180, since: datetime | None = None, site_host: str = "") -> str | None:
-    """Poll for a verification e-mail, the newest first. Returns the code or link, or None on timeout. With ``site_host``,
-    a link is returned only when link_refusal allows it; a mail whose only link is refused yields "refused: <why>"."""
-    since = since or (datetime.now(timezone.utc) - timedelta(minutes=3))
-    # a mail from hours ago (an account whose confirmation was never finished) lies under whatever arrived since
-    many = 10 if datetime.now(timezone.utc) - since < timedelta(minutes=15) else 80
-    hint = re.sub(r"^(www|jobs|careers)\.", "", sender_hint).split(".")[0] if sender_hint else ""
-    from . import mailbox
-
-    deadline = time.time() + timeout
-    refused = ""
-    while time.time() < deadline:
-        try:
-            msgs = mailbox.fetch(since, many)
-        except mailbox.NotConfigured as e:
-            raise MailNotConfigured(str(e)) from e
-        for msg in msgs:
-            frm, subj, body = msg.sender, msg.subject, msg.body
-            if hint and hint.lower() not in (frm + subj + body[:2000]).lower():
-                continue
-            found = extract_verification(subj, body)
-            if found is None and site_host and re.search(r"confirm|verif|activate", subj, re.I):
-                # a confirmation mail whose link does not say so in its address: the site's own link if there is exactly one
-                links = [m.group(0).rstrip(").,") for m in _LINK.finditer(body) if not re.search(r"unsubscribe|privacy|/help|support|terms|\.(png|jpe?g|gif|css)\b", m.group(0), re.I)]
-                own = [u for u in links if not link_refusal(u, site_host)]
-                if len(own) == 1:
-                    found = own[0]
-                elif links and not own:
-                    refused = f"refused: {link_refusal(links[0], site_host)}"
-                    continue
-            if found is None and re.search(r"verif|code|confirm|password|passcode|otp|one[- ]time", subj, re.I):
-                try:
-                    out = llm.json(
-                        f"Subject: {subj}\n\n{body[:6000]}\n\nExtract the verification code or verification link from this e-mail.",
-                        llm.obj({"found": {"type": "boolean"}, "value": {"type": "string"}}),
-                        small=True, max_tokens=500,
-                    )
-                    found = out["value"] if out["found"] else None
-                except llm.LLMError:
-                    found = None
-            if found and str(found).startswith("http"):
-                if str(found) not in body:      # a model read it out of the mail: it has to be in there word for word
-                    found = None
-                elif site_host and (why := link_refusal(str(found), site_host)):
-                    refused = f"refused: {why}"
-                    found = None
-            if found:
-                return found
-        if refused:
-            return refused
-        time.sleep(8)
-    return None
 
 
 # --- tracking ----------------------------------------------------------------------------
@@ -585,10 +622,17 @@ def _was_filled(s: Any, application_id: int, before: datetime | None) -> bool:
     """Has the program filled this application's form (so that the applicant had it in front of them to submit) before
     this time? Then a confirmation is what it says, whatever the program believes about the run: a window that closed, a
     confirmation page that was not recognised."""
+    from .agent import work
     from .models import Run
 
-    for r in s.query(Run).filter_by(kind="execute", ref=f"application:{application_id}"):
-        at = getattr(r, "created_at", None)
+    began = [getattr(r, "created_at", None) for r in s.query(Run).filter_by(kind="execute", ref=f"application:{application_id}")]      # (runs of earlier versions)
+    for e in work.journal(application_id):      # the agent's runs on it
+        if e["kind"] == "run":
+            try:
+                began.append(datetime.fromisoformat(str(e["at"])).astimezone(timezone.utc))
+            except ValueError:
+                began.append(None)
+    for at in began:
         if before is None or at is None:
             return True
         a, b = (at if at.tzinfo else at.replace(tzinfo=timezone.utc)), (before if before.tzinfo else before.replace(tzinfo=timezone.utc))
@@ -659,7 +703,6 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
                 continue
         frm, subj, received, body = msg.sender, msg.subject, msg.date, msg.body
         if ACCOUNT_MAIL.search(subj):
-            # Codes are used by the sign-in / submit step only; they are never summarised, stored or notified.
             t = {"category": "other", "company": "", "job_title": "", "summary": "verification e-mail (not shown)"}
         else:
             t = triage(subj, frm, body)

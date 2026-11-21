@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Contract page</title>
+<style>
+  .hidden { display: none; }
+  .spacer { height: 2400px; }
+  body { font-family: sans-serif; }
+</style>
+</head>
+<body>
+<h1>Contract page</h1>
+
+<!-- 1. the selector shapes the program's own code uses -->
+<div id="sel">
+  <div class="fieldEntry" id="fe1"><label for="city">City</label><input id="city" data-automation-id="cityInput" value="Vancouver"><button type="button" id="pick">Pick</button></div>
+  <div class="row _field" id="fe2"><span class="lbl">Country</span><input id="combo" role="combobox" aria-label="Country search"></div>
+  <fieldset id="fs"><legend>Work authorization</legend><label><input type="radio" name="auth" value="yes" id="auth_yes"> Yes</label><label><input type="radio" name="auth" value="no" id="auth_no"> No</label></fieldset>
+  <ul id="opts" role="listbox">
+    <li role="option" class="opt">Canada</li>
+    <li role="option" class="opt">Cape Verde</li>
+    <li role="option" class="opt hidden">Chad</li>
+  </ul>
+  <p class="msg">This job is no longer accepting applications.</p>
+  <p class="msg hidden">Hidden message</p>
+  <a href="#x" id="lnk" data-ui="apply-button">Apply now</a>
+  <button type="button" class="btn" aria-label="Close dialog">x</button>
+  <button type="button" class="btn">Save and continue</button>
+  <button type="button" class="btn hidden">Save draft</button>
+  <div id="later" class="hidden">ready</div>
+</div>
+
+<!-- 2. frames as the program meets them: a challenge frame that is shown, or is not -->
+<iframe id="cap_hidden" src="about:blank?recaptcha=1" title="recaptcha challenge" style="display:none"></iframe>
+<iframe id="cap_shown" src="about:blank?hcaptcha=1" title="shown challenge" width="60" height="24"></iframe>
+
+<!-- 3. controls the page itself is in charge of -->
+<div id="ctl">
+  <label for="name">Full name</label><input id="name"><output id="name_state"></output>
+  <label for="code">Code</label><input id="code" maxlength="8"><output id="code_log"></output>
+  <label><input type="checkbox" id="agree"> I agree</label><output id="agree_state">no</output>
+  <label for="level">Level</label>
+  <select id="level"><option value="">Choose</option><option value="jr">Junior</option><option value="sr">Senior</option></select><output id="level_state"></output>
+  <label for="bio">Bio</label><textarea id="bio"></textarea><output id="bio_state">0</output>
+</div>
+
+<!-- 4. files -->
+<div id="files">
+  <label for="file">Resume</label><input type="file" id="file"><output id="file_state"></output>
+  <input type="file" id="hidden_file" hidden>
+  <button type="button" id="choose">Choose a file</button><output id="hidden_state"></output>
+</div>
+
+<!-- 5. windows -->
+<div id="wins">
+  <button type="button" id="open">Open window</button>
+  <a id="blank" href="about:blank" target="_blank">New tab</a>
+</div>
+
+<!-- 6. the mouse, events, things far down the page -->
+<div id="acts">
+  <button type="button" id="count">Count</button><output id="count_state">0</output>
+  <div id="hover" style="width:120px;height:30px;background:#ddd">hover me</div><output id="hover_state">0</output>
+</div>
+<div class="spacer"></div>
+<button type="button" id="far">Far down</button><output id="far_state">0</output>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  // A controlled input: what the box shows is the page's state, and the state changes only when the page hears an
+  // input event. Whatever is put into the box behind the page's back is gone at the next render.
+  const state = { name: '' };
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  $('name').addEventListener('input', (e) => { state.name = e.target.value.toUpperCase().slice(0, 16); render(); });
+  function render() { if ($('name').value !== state.name) setValue.call($('name'), state.name); $('name_state').textContent = state.name; }
+  setInterval(render, 40);
+
+  // which events a box hears, in numbers
+  const log = { keydown: 0, keyup: 0, input: 0, change: 0, enter: 0 };
+  const show = () => { $('code_log').textContent = JSON.stringify(log); };
+  for (const k of ['keydown', 'keyup', 'input', 'change']) $('code').addEventListener(k, (e) => { log[k] += 1; if (k === 'keydown' && e.key === 'Enter') log.enter += 1; show(); });
+  show();
+
+  $('agree').addEventListener('change', (e) => { $('agree_state').textContent = e.target.checked ? 'yes' : 'no'; });
+  $('level').addEventListener('change', (e) => { $('level_state').textContent = e.target.value; });
+  $('bio').addEventListener('input', (e) => { $('bio_state').textContent = String(e.target.value.length); });
+
+  const named = (out) => (e) => { const f = e.target.files[0]; $(out).textContent = f ? f.name + ':' + f.size : ''; };
+  $('file').addEventListener('change', named('file_state'));
+  $('hidden_file').addEventListener('change', named('hidden_state'));
+  $('choose').addEventListener('click', () => $('hidden_file').click());
+
+  $('open').addEventListener('click', () => window.open('about:blank'));
+
+  const bump = (out) => () => { $(out).textContent = String(Number($(out).textContent) + 1); };
+  $('count').addEventListener('click', bump('count_state'));
+  $('hover').addEventListener('mouseover', bump('hover_state'));
+  $('far').addEventListener('click', bump('far_state'));
+  $('pick').addEventListener('click', () => { $('city').value = 'Picked'; });
+  setTimeout(() => $('later').classList.remove('hidden'), 350);
+</script>
+</body>
+</html>

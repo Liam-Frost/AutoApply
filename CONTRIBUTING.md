@@ -79,7 +79,8 @@ an importer never runs in the program's browser: it is a bookmarklet the student
 browser, which sends the postings on the page to the program running on their computer.
 
 - The working example is UBC's portal: `backend/autoapply/sources/pdportal_import.js` (the bookmarklet), `sources/pdportal.py`
-  (what it sends, turned into postings) and `ats/pdportal.py` (applying through the portal).
+  (what it sends, turned into postings) and `agent/playbooks/orbis.md` (what the agent is told about applying through
+  a portal of that kind).
 - `status` in `portals.json` must be honest: `supported` only when the importer has been used for real by someone with an
   account there; `same_system` for a school on the same portal software that nobody has tried; `none` otherwise.
 - Never ask for, store or transmit a school password, and never work around the portal's sign-in.
@@ -111,12 +112,22 @@ File: `backend/autoapply/persona.py`: `FIELDS` (title words that mark the field,
 `STAGES` (words for the kind of posting, page limit, how cautious submitting is), `PROFILE_ASKS` / `FIELD_ASKS`
 (what forms ask this kind of applicant), `WRITING` / `FIELD_WRITING` (how a cover letter is pitched).
 
-## Support a job-application system
+## Help the agent on a job-application system
 
-The quickest path is no code at all: a site without a dedicated driver is explored by the AI and filled through
-`ats/generic_driver.py`. A dedicated driver (`backend/autoapply/ats/`) is worth writing when a system is common and
-the generic path is slow or unreliable on it; `ats/greenhouse.py` is the smallest complete example and
-`uv run autoapply fixtures <ats>` replays saved form pages against a driver.
+There are no drivers. Every site is worked by one agent with the same browser tools, and what helps it on a system
+is words: `backend/autoapply/agent/playbooks/<system>.md`. The first line names the hosts the notes are about
+(`hosts: myworkdayjobs.com, myworkdaysite.com`); the rest is what is true of that system on every employer's site -
+how its sign-in works, what its steps are called, which control does not behave like it looks, what its résumé parser
+gets wrong, how a sent application is confirmed. Write what you saw when you applied there, in plain sentences, and
+nothing about a person. `ashby.md` is a short example.
+
+A change to how every form is worked belongs in the manual, `backend/autoapply/agent/apply.md`. Before proposing one,
+run the evaluation (`python eval/run.py --all`, or one shape at a time: `--form profile_first`, `embedded`, `account`,
+`widgets`, `returning`, `closed`, `approve`, `hand_over`, and `--scan` / `--portal-apply` for the co-op portal; it
+spends your AI allowance) and say what it gave: a run is judged by what the employer's side received, not by what
+the agent says. A shape of form the agent got wrong on a real site and that none of these has belongs here as a new
+form: `eval/forms/<name>.html`, its posting in `eval/server.py`, what a careful person would have got right in
+`eval/run.py`.
 
 ## Reporting what was verified
 

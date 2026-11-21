@@ -1,5 +1,6 @@
 <script setup>
 // The door of the program: sign in, or - the first time, on the computer it runs on - choose the administrator's name and password.
+import BrandLogo from '../components/BrandLogo.vue'
 import { computed, ref } from 'vue'
 import { api } from '../api'
 import Icon from '../components/Icon.vue'
@@ -30,7 +31,7 @@ async function submit() {
 <template>
   <div class="door">
     <form class="card door-card" @submit.prevent="submit">
-      <div class="door-brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></div>
+      <div class="door-brand full"><BrandLogo /></div>
 
       <template v-if="setup && !session.canSetup">
         <div class="card-title">还没有设置管理员账号</div>

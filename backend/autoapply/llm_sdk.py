@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from . import timing
+from .agentbudget import Spent
 
 SERVER = "autoapply"
 _loop: asyncio.AbstractEventLoop | None = None
@@ -54,6 +54,7 @@ class SDKResult:
     api_ms: int | None = None
     session_id: str = ""
     model_usage: dict[str, Any] | None = None
+    summarized: int = 0                      # how many times the command line summarized the older part of the conversation
 
 
 def cli_path() -> str | None:
@@ -67,6 +68,24 @@ def cli_path() -> str | None:
     except ImportError:
         return None
     return shutil.which("claude")
+
+
+# The system text is given to the command line as an argument, and Windows takes 32,767 characters for a whole command
+# line. An application's system text is the manual and the brief of the run (so that neither is lost when the
+# conversation is summarized): with a long posting, a full profile and a journal of several runs that is more. Windows
+# then refuses to start the process with "file not found" - which read, to the applicant, as "Claude is not installed".
+# A long text goes in a file the command line reads instead.
+ARGUMENT_LIMIT = 6000
+
+
+def _as_file(system: str) -> str:
+    """The path of a file holding ``system`` when it is too long to be an argument, else ''. The caller removes it."""
+    if len(system) <= ARGUMENT_LIMIT:
+        return ""
+    fd, path = tempfile.mkstemp(prefix="autoapply-system-", suffix=".md")
+    with os.fdopen(fd, "w", encoding="utf-8", newline=chr(10)) as f:
+        f.write(system)
+    return path
 
 
 def _env(token: str | None) -> dict[str, str]:
@@ -164,8 +183,8 @@ def _mcp_content(out: Any) -> list[dict[str, Any]]:
 
 
 async def _run(content: Any, *, system: str | None, model: str, effort: str | None, schema: dict[str, Any] | None,
-               tools: list[Any], max_turns: int, token: str | None, calls: "queue.Queue[Any]", timeout: float, res: SDKResult) -> SDKResult:
-    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, create_sdk_mcp_server, query, tool
+               tools: list[Any], max_turns: int | None, token: str | None, calls: "queue.Queue[Any]", timeout: float, res: SDKResult) -> SDKResult:
+    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, RateLimitEvent, ResultMessage, SystemMessage, create_sdk_mcp_server, query, tool
     sdk_tools = []
     for t in tools:
 
@@ -219,6 +238,12 @@ async def _run(content: Any, *, system: str | None, model: str, effort: str | No
                 except Exception:  # noqa: BLE001 - bookkeeping must never fail a call
                     pass
                 continue
+            if isinstance(msg, SystemMessage):
+                if msg.subtype == "compact_boundary":      # the command line summarized the older part of the conversation: said to whoever follows the run
+                    meta = (msg.data or {}).get("compact_metadata") or {}
+                    res.summarized += 1
+                    calls.put(("step", {"event": "summarized", "tokens_before": meta.get("pre_tokens")}))
+                continue
             if isinstance(msg, AssistantMessage) and msg.stop_reason == "refusal":
                 raise SDKError("the model declined this request", refused=True)
             if isinstance(msg, ResultMessage):
@@ -243,26 +268,55 @@ async def _run(content: Any, *, system: str | None, model: str, effort: str | No
                     low = detail.lower()
                     raise SDKError(detail, status=st, unavailable=st in (401, 403) or "login" in low or "authenticat" in low)
 
-    await asyncio.wait_for(consume(), timeout)
+    system_file = _as_file(system or "")
+    if system_file:
+        opts.system_prompt = {"type": "file", "path": system_file}
+    try:
+        await asyncio.wait_for(consume(), timeout)
+    finally:
+        if system_file:
+            Path(system_file).unlink(missing_ok=True)
     return res
 
 
 def call(content: Any, *, system: str | None, model: str, effort: str | None = None, schema: dict[str, Any] | None = None,
-         tools: list[Any] | None = None, max_turns: int = 1, token: str | None = None,
-         on_step: Callable[[dict[str, Any]], None] | None = None, timeout: float = 900) -> SDKResult:
-    """Run one query. Tool functions execute on the calling thread."""
+         tools: list[Any] | None = None, max_turns: int | None = 1, token: str | None = None,
+         on_step: Callable[[dict[str, Any]], None] | None = None, timeout: float = 900, budget: Any = None) -> SDKResult:
+    """Run one query. Tool functions execute on the calling thread.
+
+    ``budget`` (agentbudget.Budget, for an agent): the tools spend from it and its deadline bounds the whole query.
+    When it ends, the query is cancelled - which ends the command line's process with it - and what was done so far
+    is returned with ``stopped`` saying why ("max_steps" or "timeout"). The command line's own count of turns is not
+    used for an agent (``max_turns=None``): there is one count, and it is the budget's."""
     from claude_agent_sdk import ClaudeSDKError, CLINotFoundError
 
     calls: queue.Queue[Any] = queue.Queue()
     res = SDKResult()       # filled as the answer arrives, so that an error can still say what was used
+    if budget is not None:
+        timeout = budget.left() + 60      # (the loop's own limit, behind the budget's: it only ends a query that is stuck)
     fut = asyncio.run_coroutine_threadsafe(
         _run(content, system=system, model=model, effort=effort, schema=schema, tools=tools or [], max_turns=max_turns,
              token=token, calls=calls, timeout=timeout, res=res),
         _ensure_loop(),
     )
     fut.add_done_callback(lambda _f: calls.put(None))
+    stopped = ""
+
+    def stop(why: str) -> None:
+        nonlocal stopped
+        if not stopped:
+            stopped = why
+            fut.cancel()
+
     while True:
-        item = calls.get()
+        try:
+            item = calls.get(timeout=30 if stopped else budget.left() if budget is not None else None)
+        except queue.Empty:
+            if stopped:
+                break      # the cancelled query did not say it was over; nothing more is coming from it
+            if budget.expired():
+                stop(budget.ended)      # the model was still thinking when the time was up
+            continue
         if item is None:
             break
         if item[0] == "step":
@@ -270,18 +324,19 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
                 on_step(item[1])
             continue
         t, args, reply = item
+        if stopped:      # asked for while the query was being cancelled: not carried out
+            reply.cancel()
+            continue
         try:
-            began = time.monotonic()
-            good = True
-            try:
-                reply.set_result(t.fn(**args))
-            except BaseException:
-                good = False
-                raise
-            finally:
-                timing.mark("tool", t.name, (time.monotonic() - began) * 1000.0, started=began, ok=good)
+            reply.set_result(t.fn(**args))
+        except Spent as e:     # the budget does not cover this call: it was not carried out, and the query ends here
+            reply.set_exception(e)
+            stop(e.why)
         except Exception as e:  # noqa: BLE001
             reply.set_exception(e)
+    if stopped:
+        res.stopped = stopped
+        return res
     def failed(err: SDKError) -> SDKError:
         err.partial = res      # type: ignore[attr-defined]
         return err
@@ -291,6 +346,9 @@ def call(content: Any, *, system: str | None, model: str, effort: str | None = N
     except SDKError as e:
         raise failed(e)
     except CLINotFoundError as e:
+        if cli_path() and Path(cli_path() or "").exists():
+            # (the SDK says "not found" for any refusal to start the process; the file is there)
+            raise failed(SDKError(f"the Claude command line is installed but could not be started ({str(e.__cause__ or e)[:200]})")) from e
         raise failed(SDKError(f"Claude Code CLI not found: {e}", unavailable=True)) from e
     except (asyncio.TimeoutError, TimeoutError) as e:
         raise failed(SDKError(f"no answer from Claude within {int(timeout)}s")) from e

@@ -1,0 +1,20 @@
+# The tests that are run once more with every page opened in the ordinary browser (AUTOAPPLY_TEST_BROWSER=nodriver):
+# everything that works a page or a sign-in. One list, read by the CI step and by anybody who runs the round by hand:
+#
+#   AUTOAPPLY_TEST_BROWSER=nodriver uv run --extra nodriver pytest -q $(grep -vE '^(#|[[:space:]]*$)' tests/ordinary_browser.txt | tr -d '\r')
+#
+# (in a POSIX shell - Git Bash on Windows; the lines that are not comments are the files)
+#
+# A new test file that opens a page belongs here.
+
+# the agent's browser tools and what is fixed around them; a portal read by the agent
+tests/test_agent_limits.py
+tests/test_agent_scan.py
+tests/test_mail_link.py
+
+# sign-ins
+tests/test_takeover.py
+
+# the two browsers themselves
+tests/test_browser_backends.py
+tests/test_browser_contract.py

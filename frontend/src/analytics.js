@@ -22,8 +22,10 @@ export function compact(n) {
 export function dur(s) {
   if (s == null) return '—'
   if (s < 60) return `${Math.max(1, Math.round(s))} 秒`
-  if (s < 3600) return `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒`
-  return `${Math.floor(s / 3600)} 小时 ${Math.round((s % 3600) / 60)} 分`
+  s = Math.round(s)        // (rounded first: 719.6 seconds is 12 minutes, not "11 minutes 60 seconds")
+  if (s < 3600) return `${Math.floor(s / 60)} 分 ${s % 60} 秒`
+  const m = Math.round(s / 60)
+  return `${Math.floor(m / 60)} 小时 ${m % 60} 分`
 }
 
 // a share of a whole (0..1) in words: never "0%" for something that is there

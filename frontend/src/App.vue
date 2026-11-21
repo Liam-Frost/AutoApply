@@ -5,6 +5,7 @@ import { hold } from './focus'
 import { clock } from './data'
 import { api, auth } from './api'
 import Icon from './components/Icon.vue'
+import BrandLogo from './components/BrandLogo.vue'
 import RemoteBanner from './components/RemoteBanner.vue'
 import { LANGS, lang, setLang } from './i18n'
 import { dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
@@ -77,12 +78,13 @@ onUnmounted(() => clearInterval(timer))
     </header>
     <div v-if="menu" class="overlay menu-overlay" @click="menu = false"></div>
     <nav id="side-nav" ref="side" class="side" :class="{ guide: !persona.done, open: menu }" aria-label="导航" @keydown.esc="menu = false">
-      <router-link to="/" class="brand"><img :src="'logo-mark.svg'" alt="" /><span>AutoApply</span></router-link>
+      <router-link to="/" class="brand full"><BrandLogo /></router-link>
 
       <router-link to="/home" class="nav"><Icon name="home" />概览</router-link>
       <router-link to="/todos" class="nav"><Icon name="bell" />需要我处理 <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
       <router-link to="/drafts" class="nav"><Icon name="draft" />草案审批 <span v-if="ov.pending_drafts" class="count">{{ ov.pending_drafts }}</span></router-link>
-      <router-link to="/jobs" class="nav"><Icon name="briefcase" />岗位</router-link>
+      <router-link to="/jobs" class="nav" active-class="" exact-active-class="router-link-active"><Icon name="briefcase" />岗位</router-link>
+      <router-link to="/jobs/sources" class="nav"><Icon name="search" />来源与关注公司</router-link>
       <router-link to="/applications" class="nav"><Icon name="check" />我的申请</router-link>
 
       <div class="nav-label">我的资料</div>

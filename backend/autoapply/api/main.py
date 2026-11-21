@@ -27,15 +27,21 @@ mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".js")
 
 from .. import net, persona, prompts
-from .. import auth, config, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
-from ..ats import registry
+from .. import auth, config, context, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..models import Contact
-from ..models import SENT, UNKNOWN, Application, Document, Draft, DriverStat, Job, MailEvent, Notification, Run, Task, Todo, now
+from ..models import SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent, Notification, Run, Task, Todo, now
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    if os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1":
+        tasks.start()
+        try:
+            yield
+        finally:
+            tasks.stop()
+        return
     persona.migrate()
     from .. import i18n as _i18n
     from ..sources import watch as _watch
@@ -68,12 +74,13 @@ async def lifespan(app: FastAPI):
             db.set_setting("migrated.pricing_version", ver)
     except Exception:  # noqa: BLE001
         logging.getLogger("autoapply").exception("could not apply the new price list")
-    if not db.get_setting("migrated.agent_reads_all"):
-        # the first version of "the agent reads the form" covered one system; a settings page saved since then has stored
-        # that list. Every site is read by the agent now.
-        if db.get_setting("agent.reads") == ["workday"]:
-            db.set_setting("agent.reads", ["*"])
-        db.set_setting("migrated.agent_reads_all", True)
+    if not db.get_setting("migrated.submit_policy"):
+        from ..agent import work as _agent_work
+
+        before = _agent_work.policy_from_before()
+        if before:
+            db.set_setting("submit.policy", before)
+        db.set_setting("migrated.submit_policy", True)
     if not db.get_setting("migrated.sites"):
         from .. import sites as _sites_
 
@@ -98,26 +105,56 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("could not re-file submissions whose outcome is not known")
         db.set_setting("migrated.submit_unknown", True)
-    if not db.get_setting("migrated.unconfirmed_accounts"):
-        try:
-            auth.requeue_unconfirmed()
-        except Exception:  # noqa: BLE001
-            logging.getLogger("autoapply").exception("could not put unconfirmed accounts back in line")
-        db.set_setting("migrated.unconfirmed_accounts", True)
+    if not db.get_setting("migrated.jd_partial"):
+        from .. import fulltext as _fulltext
+
+        _fulltext.mark_stored_teasers()
+        db.set_setting("migrated.jd_partial", True)
+    if not db.get_setting("migrated.document_versions"):
+        from .. import materials as _materials
+
+        _materials.mark_overwritten()
+        db.set_setting("migrated.document_versions", True)
     if not db.get_setting("migrated.site_rules_whole"):
         from .. import browser_policy as _policy
 
         _policy.store_rules_whole()
         db.set_setting("migrated.site_rules_whole", True)
-    if not db.get_setting("migrated.generic_patch_cards"):
-        # "driver patch suggestion" cards for forms the AI explored: there is no driver to patch, so nobody could act on them
-        from ..models import Todo, now
+    if not db.get_setting("migrated.one_agent"):
+        # 2.0: one agent works an application. What waited in the queue under the older kinds of task is the one task now;
+        # cards about drivers, learned code and changed forms have nobody left to act on them.
+        from ..agent import work as _agent_work2
+        from ..models import Todo as _Todo
 
-        with db.session() as s:
-            for td in s.query(Todo).filter_by(kind="driver_patch", status="open"):
-                if (td.payload or {}).get("ats") == "generic":
+        try:
+            _agent_work2.tasks_from_before()
+            with db.session() as s:
+                for td in s.query(_Todo).filter(_Todo.kind.in_(("driver_patch", "driver", "learned", "share", "drift")), _Todo.status == "open"):
                     td.status, td.done_at = "done", now()
-        db.set_setting("migrated.generic_patch_cards", True)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("autoapply").exception("could not carry the queue over to the one task for an application")
+        db.set_setting("migrated.one_agent", True)
+    if not db.get_setting("migrated.material_reviews"):
+        from ..agent.work import recover_material_reviews
+        recover_material_reviews()
+        db.set_setting("migrated.material_reviews", True)
+    try:      # every unfinished application has work in the queue or a card with the applicant - also what was left standing before this was checked
+        from .. import chain
+
+        chain.mend()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("autoapply").exception("the chain could not be checked at start-up")
+    if not db.get_setting("migrated.one_record"):
+        from ..agent.work import one_record_stands
+        one_record_stands()
+        db.set_setting("migrated.one_record", True)
+    if not db.get_setting("migrated.gmail_waits"):
+        mail.migrate_reconnect_waits()
+        db.set_setting("migrated.gmail_waits", True)
+    if not db.get_setting("migrated.email_delivery_review"):
+        from ..agent.work import recover_email_delivery_cards
+        recover_email_delivery_cards()
+        db.set_setting("migrated.email_delivery_review", True)
     net.apply()
     tasks.start()
     yield
@@ -344,7 +381,7 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["archived"] = j.archived_at is not None
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
-        out.update(jd_text=j.jd_text, brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
+        out.update(jd_text=j.jd_text, jd_partial=j.jd_partial if j.jd_partial in ("summary", "cut") else "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
                    first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=humanize.explain(a.last_event if a else ""),
                    evidence=a.evidence if a else None,
                    drafts=[{"id": d.id, "version": d.version, "review_status": d.review_status} for d in (a.drafts if a else [])])
@@ -394,13 +431,13 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 else:
                     todo.append((jid, j.deadline or ""))
             elif action == "score":
-                if len((j.jd_text or "").strip()) < 200:
+                if len((j.jd_text or "").strip()) < 200 and j.jd_partial != "summary":      # (a summary's page is read before it is scored)
                     skipped += 1
                 else:
                     todo.append((jid, ""))
     for jid, deadline in todo:  # enqueue after the session closes (single SQLite writer)
         if action == "draft":
-            tasks.enqueue("recon", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
+            tasks.enqueue("apply", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
         else:
             tasks.enqueue("score", ref=f"job:{jid}", payload={"job_id": jid})
         done += 1
@@ -432,12 +469,25 @@ def add_job(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.post("/api/jobs/{job_id}/draft")
 def make_draft(job_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from .. import browser_policy
+
+    backend = body.get("browser_backend")
+    payload = {"job_id": job_id, "instructions": body.get("instructions", "")}
     with db.session() as s:
         j = _404(s.get(Job, job_id))
         if not j.apply_url:
             raise HTTPException(400, "job has no application URL")
+        if backend:
+            try:
+                browser_policy.select(None, override=backend)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            a = j.application
+            if not a or a.status != "failed":
+                raise HTTPException(409, "Browser retry requires a failed application before submission")
+            payload["browser_backend"] = backend
         prio = tasks.deadline_priority(j.deadline)
-    tid = tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": body.get("instructions", "")}, priority=prio)
+    tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload=payload, priority=prio)
     return {"task_id": tid}
 
 
@@ -483,7 +533,7 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
         j.status = "applied"
         s.flush()
         aid = a.id
-        for t in s.query(Task).filter(Task.kind == "recon", Task.ref == f"job:{job_id}", Task.status.in_(("waiting_human", "queued"))):
+        for t in s.query(Task).filter(Task.kind == "apply", Task.ref == f"job:{job_id}", Task.status.in_(("waiting_human", "queued"))):
             t.status = "cancelled"
     for kind in ("blocked", "login"):
         notify.close_todos(kind, f"job:{job_id}")
@@ -492,8 +542,7 @@ def mark_job_submitted(job_id: int) -> dict[str, Any]:
         for td in s.query(Todo).filter_by(status="open"):
             if url and (td.payload or {}).get("job_url") == url:
                 td.status, td.done_at = "done", now()
-    for m in db.get_setting("mail.confirm_check_minutes") or []:
-        tasks.enqueue_later("mail", ref=f"confirm:{aid}", minutes=float(m), priority=40)
+    mail.watch_for_confirmation(aid)
     return {"ok": True}
 
 
@@ -532,8 +581,7 @@ def list_drafts(all: bool = False) -> list[dict[str, Any]]:  # noqa: A002
             j = d.application.job
             out.append({"id": d.id, "version": d.version, "review_status": d.review_status, "app_status": d.application.status,
                         "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline, "ats": j.ats, "ats_label": humanize.ats_name(j.ats),
-                        "unresolved": len(d.unresolved), "auto_eligible": bool(d.auto_approve_check.get("eligible")),
-                        "sensitive_new": sum(1 for a in d.answers if a.get("sensitive") and not a.get("sensitive_confirmed") and a.get("value") not in ("", None, []))})
+                        "unresolved": len(d.unresolved)})
         return out
 
 
@@ -543,31 +591,28 @@ def get_draft(draft_id: int) -> dict[str, Any]:
         d = drafts.get(draft_id)
     except KeyError:
         raise HTTPException(404, "draft not found") from None
-    if d["review_status"] == "pending":  # opening a draft picks up files uploaded since it was prepared
-        with db.session() as s:
-            dr = s.get(Draft, draft_id)
-            try:
-                changed = bool(dr is not None and drafts.dedupe_ids(dr))   # every question its own id (older drafts of explored forms)
-                changed = bool(dr is not None and drafts.refresh_files(dr)) or changed
-            except Exception:  # noqa: BLE001 - never let a convenience keep a draft from opening
-                log.exception("refreshing the files of draft %s failed", draft_id)
-                s.rollback()
-                changed = False
-        if changed:  # read again once the change is committed
-            d = drafts.get(draft_id)
-    # display fields: the stored draft keeps the engine's wording
+    # display fields: the stored record keeps the agent's wording
     d["notes_display"] = [humanize.note(n) for n in d["notes"]]
-    with db.session() as s:  # what was changed in a tailored résumé, for the review page
-        for m in d["materials"]:
-            if m.get("kind") == "tailored_resume" and (doc := s.get(Document, m["document_id"])) is not None:
-                m["tailor"] = (doc.meta or {}).get("tailor", {})
     from .. import tailor as _tailor
+    from ..agent import work as _work
 
-    d["tailor"] = {"available": _tailor.base_doc() is not None, "mode": db.get_setting("tailor.mode"), "has_jd": True}
+    with db.session() as s:
+        dr = s.get(Draft, draft_id)
+        chosen = ((dr.schema or {}).get("extra") or {}).get("resume") or ""
+    written = _tailor.existing(d["job"]["id"])
+    # the résumé of this application: whether one can be rewritten for the posting, whether one was, and which the applicant chose
+    d["tailor"] = {"available": _tailor.base_doc() is not None, "mode": db.get_setting("tailor.mode"), "has_jd": True,
+                   "written": {"name": written["name"], **(written.get("tailor") or {})} if written else None, "use": chosen or ("tailored" if written else "base")}
+    # what the agent wrote down while it worked this application, and what it has used
+    d["journal"], d["spent"] = _work.journal(d["application"]["id"]), _work.spent(d["application"]["id"])
     d["review_label"] = humanize.REVIEW.get(d["review_status"], d["review_status"])
     d["application"]["status_label"] = humanize.APP_STATUS.get(d["application"]["status"], d["application"]["status"])
     d["application"]["explained"] = humanize.explain(d["application"]["last_event"])
     d["job"]["ats_label"] = humanize.ats_name(d["job"]["ats"])
+    if not d["job"]["ats_label"]:      # no recruiting system is named for it: where it is made is the site
+        from urllib.parse import urlparse as _urlparse
+
+        d["job"]["ats_label"] = _urlparse(d["job"]["apply_url"] or "").netloc
     for a in d["answers"]:
         a["basis_display"] = humanize.basis(a.get("basis", ""))
     for u in d["unresolved"]:
@@ -598,40 +643,26 @@ def drop_question(draft_id: int, qid: str) -> dict[str, Any]:
     return get_draft(draft_id)
 
 
-@app.post("/api/drafts/{draft_id}/scout")
-def scout_draft(draft_id: int) -> dict[str, Any]:
-    """Read the steps of the form that open only once the earlier ones are filled, by walking it with this draft's
-    answers in a hidden window. Nothing is submitted; what the steps ask is added to the draft."""
-    with db.session() as s:
-        d = _404(s.get(Draft, draft_id))
-        if d.review_status != "pending":
-            raise HTTPException(400, "只有待审批的草案可以接着读后面的步骤")
-        if d.unresolved and not db.get_setting("recon.provisional"):
-            raise HTTPException(400, "先回答草案里还没有答案的问题，程序才能带着答案往下走")
-        sch = dict(d.schema)
-        sch["extra"] = {**(sch.get("extra") or {}), "scouted": 0}      # asked for by hand: the count of automatic rounds starts over
-        d.schema = sch
-        lifecycle.move(d.application, "recon", source="user")
-    return {"task_id": tasks.enqueue("scout", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)}
-
-
 @app.post("/api/drafts/{draft_id}/reanswer")
 def reanswer_draft(draft_id: int) -> dict[str, Any]:
-    """Ask the AI again for the questions of this draft that have no answer yet."""
+    """Have the agent work this application again (it reads what is on the record and on the site, and goes on)."""
     with db.session() as s:
         d = _404(s.get(Draft, draft_id))
-        if d.review_status != "pending":
-            raise HTTPException(400, "只有待审批的草案可以重新回答")
-    return {"task_id": tasks.enqueue("reanswer", ref=f"draft:{draft_id}", payload={"draft_id": draft_id}, priority=10)}
+        if (why := drafts.locked(d)):
+            raise HTTPException(409, why)
+        job_id, deadline = d.application.job_id, d.application.job.deadline
+    return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
 
 @app.post("/api/drafts/{draft_id}/comment")
 def comment_draft(draft_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    with db.session() as s:
-        d = _404(s.get(Draft, draft_id))
-        lifecycle.move(d.application, "revising", source="user")
-    tid = tasks.enqueue("revise", ref=f"draft:{draft_id}", payload={"draft_id": draft_id, "comment": body["comment"]}, priority=10)
-    return {"task_id": tid}
+    """What the applicant writes about the record as a whole: kept with it, and the agent works the application again."""
+    try:
+        return {"task_id": drafts.comment(draft_id, str(body["comment"]))}
+    except KeyError:
+        raise HTTPException(404, "draft not found") from None
+    except drafts.Locked as e:
+        raise HTTPException(409, str(e)) from e
 
 
 @app.post("/api/drafts/{draft_id}/approve")
@@ -645,7 +676,7 @@ def approve_draft(draft_id: int) -> dict[str, Any]:
 
 @app.post("/api/drafts/{draft_id}/execute")
 def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    """Run an approved draft again after a run that ended without submitting (window closed, timeout, failure).
+    """Have the agent send an approved record after a run that ended without sending (window closed, timeout, failure).
 
     When Submit was pressed and the outcome is not known, that is a second application if the first went through: it is
     done only on the applicant's word that it did not (``not_submitted``)."""
@@ -660,9 +691,9 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
             raise HTTPException(400, "a run is in progress")
         if app.status == UNKNOWN and not body.get("not_submitted"):
             raise HTTPException(409, "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。")
-        app_id, deadline = app.id, app.job.deadline
+        job_id, deadline = app.job_id, app.job.deadline
         lifecycle.move(app, "approved", source="user", not_sent=app.status == UNKNOWN, note="你确认上一次没有提交成功" if app.status == UNKNOWN else "")
-    return {"task_id": tasks.enqueue("execute", ref=f"application:{app_id}", payload={"draft_id": draft_id}, priority=tasks.deadline_priority(deadline))}
+    return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
 
 @app.get("/api/applications")
@@ -689,6 +720,73 @@ def get_application(application_id: int) -> dict[str, Any]:
     out = _404(applications.detail(application_id))
     out["contacts"] = _contacts_for(out["company"])
     return out
+
+
+@app.post("/api/applications/{application_id}/say")
+def say_to_the_agent(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """A word from the applicant about this application. A run that is working it hears it with the answer to its next
+    action; with no run on it, the agent works the application again with it."""
+    from ..agent import work as _work
+
+    text = " ".join(str(body.get("text") or "").split())[:2000]
+    if not text:
+        raise HTTPException(400, "nothing was said")
+    with db.session() as s:
+        a = _404(s.get(Application, application_id))
+        if a.status in SENT:
+            raise _already_sent(a)
+        job_id, deadline = a.job_id, a.job.deadline
+        current = [d.id for d in a.drafts if d.review_status in ("pending", "approved")]
+    if _work.being_worked(job_id):
+        _work.say(application_id, text)
+        return {"heard": "now"}
+    if current:
+        try:
+            return {"task_id": drafts.comment(current[-1], text)}
+        except drafts.Locked as e:
+            raise HTTPException(409, str(e)) from e
+    return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id, "instructions": text}, priority=tasks.deadline_priority(deadline))}
+
+
+@app.get("/api/applications/{application_id}/confirmation.png")
+def confirmation_picture(application_id: int) -> FileResponse:
+    """The page as it stood when the agent reported this application as sent (kept with its evidence)."""
+    from .. import applications
+
+    with db.session() as s:
+        p = applications.picture(_404(s.get(Application, application_id)).evidence)
+    if p is None:      # (none, or not one the program itself kept)
+        raise HTTPException(404, "no picture was kept")
+    return FileResponse(p, media_type="image/png", content_disposition_type="inline")
+
+
+@app.post("/api/applications/{application_id}/budget")
+def more_budget(application_id: int, request_id: str = "") -> dict[str, Any]:
+    """The applicant gives an application whose budget is used up another one, and the agent goes on."""
+    from ..agent import work as _work
+
+    with db.session() as s:
+        a = _404(s.get(Application, application_id))
+        if a.status in SENT:
+            raise _already_sent(a)
+        job_id, deadline = a.job_id, a.job.deadline
+    if not _work.grant(application_id, request_id):
+        return {"already_granted": True}
+    return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
+
+
+@app.post("/api/applications/{application_id}/not-submitted")
+def not_submitted(application_id: int) -> dict[str, Any]:
+    """Submit was pressed and the outcome is not known; the applicant says it did not go through. On their word the
+    agent works the application again (it would be a second application if the first did go through)."""
+    with db.session() as s:
+        a = _404(s.get(Application, application_id))
+        if a.status != UNKNOWN:
+            raise _already_sent(a) if a.status in SENT else HTTPException(409, "这份申请现在不是“结果待确认”")
+        job_id, deadline = a.job_id, a.job.deadline
+        lifecycle.move(a, "approved" if any(d.review_status == "approved" for d in a.drafts) else "recon", source="user", not_sent=True, note="你确认上一次没有提交成功")
+    notify.close_todos("failed", f"application:{application_id}")
+    return {"task_id": tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))}
 
 
 @app.post("/api/applications/{application_id}/correct")
@@ -761,28 +859,27 @@ def mark_submitted(application_id: int) -> dict[str, Any]:
         a.detail = f"submitted {now().date().isoformat()} (confirmed by the user, no confirmation page captured)"
     for kind in ("failed", "submit"):
         notify.close_todos(kind, f"application:{application_id}")
-    for m in db.get_setting("mail.confirm_check_minutes") or []:
-        tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+    mail.watch_for_confirmation(application_id)
     return {"ok": True}
 
 
 @app.post("/api/drafts/{draft_id}/resume")
 def draft_resume(draft_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """which = "base": use the résumé as uploaded; "tailored": use the tailored one written for this job."""
+    """which = "base": this application is made with the résumé as uploaded; "tailored": with the one rewritten for
+    the posting. The agent's next run on the application uses it."""
     from .. import tailor
-    from ..models import Draft
 
     with db.session() as s:
         d = _404(s.get(Draft, draft_id))
-        if (why := drafts.locked(d)):
-            raise HTTPException(409, why)
-        doc = None
-        if body.get("which") == "tailored":
-            doc = tailor.existing(d.application.job_id)
-            if doc is None:
-                raise HTTPException(400, "这个岗位还没有定制简历")
-        n = drafts.swap_resume(d, doc)
-    return {"changed": n}
+        job_id = d.application.job_id
+    which = "tailored" if body.get("which") == "tailored" else "base"
+    if which == "tailored" and tailor.existing(job_id) is None:
+        raise HTTPException(400, "这个岗位还没有定制简历")
+    try:
+        drafts.use_resume(draft_id, which)
+    except drafts.Locked as e:
+        raise HTTPException(409, str(e)) from e
+    return {"changed": 1}
 
 
 @app.post("/api/drafts/approve")
@@ -799,8 +896,8 @@ def approve_many(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.post("/api/drafts/batch")
 def drafts_batch(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """One action for several drafts that wait for approval: "withdraw" (not applying after all) or "rebuild" (read the
-    form and write the draft again). Approving several is /api/drafts/approve."""
+    """One action for several records that wait for approval: "withdraw" (not applying after all) or "rebuild" (the
+    agent works the application again). Approving several is /api/drafts/approve."""
     action = body.get("action")
     if action not in ("withdraw", "rebuild"):
         raise HTTPException(400, "unsupported action")
@@ -817,7 +914,7 @@ def drafts_batch(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 for kind in ("answer", "submit", "failed"):
                     notify.close_todos(kind, f"draft:{int(i)}")
             else:
-                tasks.enqueue("recon", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))
+                tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))
             done.append(i)
         except (ValueError, HTTPException) as e:
             errors[str(i)] = str(getattr(e, "detail", e))
@@ -845,7 +942,10 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     from datetime import datetime
     from ..models import Draft
 
-    CAT = {"takeover": "login", "login": "login", "captcha": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
+    from .. import browser_policy
+    enabled = bool(db.get_setting("browser.nodriver_enabled"))
+
+    CAT = {"mail_out": "submit", "takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
            "mail_unmatched": "answer", "followup": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
@@ -861,8 +961,9 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                 j = by_url.get(p["job_url"])
             # where the application the card is about stands: what the card offers follows from that, not from the card
             about = j.application if j is not None else None
-            if about is not None and (p.get("draft_id") or p.get("application_id") or r["ref"].startswith("application:")):
+            if about is not None and (p.get("draft_id") or p.get("application_id") or r["ref"].startswith("application:") or r["kind"] in ("failed", "submit")):
                 r["application"] = {"id": about.id, "status": about.status}
+                r["can_retry_nodriver"] = bool(enabled and r["kind"] == "failed" and about.status == "failed" and not p.get("budget"))
             if r["kind"] == "mail_unmatched":      # the applications the applicant can say it belongs to
                 from ..models import MailEvent
 
@@ -884,7 +985,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
             r["category"] = CAT.get(r["kind"], "info")
             days = None
             if j is not None:
-                r["job"] = {"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline}
+                r["job"] = {"id": j.id, "company": j.company, "title": j.title, "score": j.score, "deadline": j.deadline, "url": j.apply_url}
                 try:
                     days = (datetime.fromisoformat(j.deadline.replace(" ", "T")) - datetime.now()).days if j.deadline else None
                 except ValueError:
@@ -896,33 +997,15 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                     pass
             r["days_left"] = days
             # 0 = now (a window is open and waiting), 1 = soon (deadline close), 2 = when you can, 3 = just so you know
-            r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] == "submit" else 1 if days is not None and days <= 3 else 2
-    from .. import browser as _browser
-
-    from .. import sites as _sites
-    ready = {k: v["name"] for k, v in _browser.identities().items() if (i := _browser.session_info(f"idp:{k}")) and not i["expired"]}
+            r["urgency"] = 3 if r["category"] == "info" else 0 if r["kind"] in ("submit", "code", "confirm") else 1 if days is not None and days <= 3 else 2
     for r in rows:  # what the page shows: the employer's name and one plain sentence; raw text stays available as detail
         key = (r["payload"] or {}).get("tenant_key") or (r["ref"][8:] if r["ref"].startswith("account:") else "")
-        if r["kind"] in ("takeover", "login") and key and not key.startswith("idp:"):  # ways to sign in that need nothing more from the user than a choice (not for a provider itself)
-            offered = _sites.fact(key, "sso_offered")
-            r["sso"] = [{"key": p, "name": ready[p]} for p in offered if p in ready]
-            r["sso_offered"] = [_browser.identities()[p]["name"] for p in offered if p in _browser.identities() and p not in ready]
+        if r["kind"] in ("takeover", "login") and key:      # is "remember the password I type" something this card's window can do?
+            r["remembers"] = auth.remembers_login(key, str((r["payload"] or {}).get("url") or ""))
         r["site"] = humanize.site(key) if key else None
         r["explained"] = humanize.explain(r["body"])
         r["subject"] = humanize.subject(r["ref"])
     return rows
-
-
-@app.post("/api/accounts/sign-in-choice")
-def sign_in_choice(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """How to sign in to one site from now on: provider = microsoft | google | linkedin, or "" for "register with e-mail instead"."""
-    from .. import browser
-
-    key, provider = str(body["tenant_key"]), str(body.get("provider", ""))
-    if provider and provider not in browser.identities():
-        raise HTTPException(400, "unknown provider")
-    auth.choose_sign_in(key, provider)
-    return {"resumed": handlers.resume_waiting(f"account:{key}", f"account:{auth.key_for(key)}")}
 
 
 @app.post("/api/todos/bulk")
@@ -988,13 +1071,144 @@ def todo_due(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str,
     return {"ok": True}
 
 
-@app.post("/api/todos/{todo_id}/done")
-def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+def _take_up_now(job_id: int) -> int:
+    """The applicant is here for this application: its run is the next thing done, ahead of what is queued."""
+    tid = tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=20)
+    try:
+        tasks.first(tid)
+    except (KeyError, tasks.NotNow):      # (it is running already)
+        pass
+    return tid
+
+
+@app.get("/api/mail/out/{outgoing_id}")
+def mail_out_get(outgoing_id: int) -> dict[str, Any]:
+    from .. import outbox
+
+    return _404(outbox.get(outgoing_id))
+
+
+@app.patch("/api/mail/out/{outgoing_id}")
+def mail_out_edit(outgoing_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .. import outbox
+
+    try:
+        outbox.edit(outgoing_id, {k: body[k] for k in ("to", "cc", "subject", "body", "remove_attachment") if k in body})
+    except KeyError:
+        raise HTTPException(404, "not found") from None
+    except outbox.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    return _404(outbox.get(outgoing_id))
+
+
+@app.post("/api/mail/out/{outgoing_id}/send")
+def mail_out_send(outgoing_id: int) -> dict[str, Any]:
+    """The applicant sends a mail the program wrote for them, from their own mailbox."""
+    from .. import outbox
+
+    try:
+        outbox.send(outgoing_id, by="user")
+    except KeyError:
+        raise HTTPException(404, "not found") from None
+    except outbox.NotNow as e:
+        raise HTTPException(409, str(e)) from e
+    except Exception as e:  # noqa: BLE001 - the mail is still there; what went wrong is on the mail itself (outbox.send) and in the log
+        logging.getLogger("autoapply").exception("an e-mail could not be sent")
+        raise HTTPException(502, "邮件没有发出去。原因记在这封邮件上，修好后可以再发一次。") from e
+    return _404(outbox.get(outgoing_id))
+
+
+@app.post("/api/mail/out/{outgoing_id}/discard")
+def mail_out_discard(outgoing_id: int) -> dict[str, Any]:
+    from .. import outbox
+
+    outbox.discard(outgoing_id)
+    return {"ok": True}
+
+
+@app.get("/api/mail/out/{outgoing_id}/attachment/{name}")
+def mail_out_attachment(outgoing_id: int, name: str):  # noqa: ANN201
+    from fastapi.responses import FileResponse
+
+    from ..models import Outgoing
+
+    with db.session() as s:
+        o = _404(s.get(Outgoing, outgoing_id))
+        path = next((a.get("path") for a in (o.attachments or []) if a.get("name") == name), None)
+    if not path or not Path(path).is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, filename=name)
+
+
+@app.post("/api/todos/{todo_id}/reply")
+def todo_reply(todo_id: int) -> dict[str, Any]:
+    """Have the reply to the mail this card is about written (again)."""
     with db.session() as s:
         t = _404(s.get(Todo, todo_id))
+        if not (t.payload or {}).get("message_id"):
+            raise HTTPException(409, "这张卡片不是关于一封邮件的")
+    return {"task_id": tasks.enqueue("mail_reply", ref=f"todo:{todo_id}", payload={"todo_id": todo_id}, priority=20)}
+
+
+@app.get("/api/chain")
+def chain_look() -> dict[str, Any]:
+    """What has nothing to move it right now (chain.py). Empty when everything is as it should be."""
+    from .. import chain
+
+    return {"broken": chain.look()}
+
+
+@app.post("/api/chain/mend")
+def chain_mend() -> dict[str, Any]:
+    from .. import chain
+
+    return {"mended": chain.mend()}
+
+
+@app.post("/api/todos/{todo_id}/code")
+def todo_code(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The code a site sent the applicant, for the run that is waiting for it. A run that is no longer waiting cannot
+    use it (a code is for the session it was sent to): the application is taken up again and asks for a fresh one."""
+    from ..agent import work as _work
+
+    code = "".join(str(body.get("code") or "").split())[:40]
+    if not code:
+        raise HTTPException(400, "请输入验证码")
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.kind != "code" or t.status != "open":
+            raise HTTPException(409, "这张卡片已经处理过了")
+        job_id = int((t.payload or {}).get("job_id") or 0)
+        waiting = bool(job_id and _work.being_worked(job_id))
+        t.status, t.done_at = ("done" if waiting else "dismissed"), now()
+        if waiting:
+            t.payload = {**(t.payload or {}), "code": code}
+    if not waiting and job_id:
+        _take_up_now(job_id)
+    return {"given": waiting}
+
+
+@app.post("/api/todos/{todo_id}/done")
+def todo_done(todo_id: int, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from ..agent import work as _work
+
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if body.get("status") == "dismissed" and t.ref and any((x.payload or {}).get("waits_for") == t.ref for x in s.query(Task).filter_by(status="waiting_human")):
+            # Work is waiting for this card. "Not now" puts the card off until tomorrow morning; closing it would leave
+            # that work waiting for something nobody can see any more.
+            from datetime import datetime, timedelta
+
+            until = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            t.snoozed_until = until
+            return {"resumed": 0, "snoozed_until": until.isoformat(timespec="minutes")}
         t.status, t.done_at = body.get("status", "done"), now()
-        handled = t.ref
-    return {"resumed": handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0}
+        handled, kind, job_id = t.ref, t.kind, int((t.payload or {}).get("job_id") or 0)
+    resumed = handlers.resume_waiting(handled) if body.get("resume", True) and handled else 0
+    if body.get("status", "done") == "done" and job_id and (kind == "resume" or (kind == "confirm" and not _work.being_worked(job_id))):
+        # "I am ready" / "done" for an application whose run is not waiting any more: it is taken up again now, not in its turn
+        _take_up_now(job_id)
+    return {"resumed": resumed}
 
 
 @app.get("/api/tasks")
@@ -1010,6 +1224,8 @@ def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
                  "browser_detail": [x["stage"] for x in (t.stages or []) if x.get("stage", "").startswith("browser:")]}
                 for t in s.query(Task).order_by(Task.id.desc()).limit(limit)]
     for r in rows:
+        if r["kind"] == "profile_init" and (r["result"] or {}).get("draft"):     # a whole profile: the page that shows it asks for it (/api/profile/init)
+            r["result"] = {k: v for k, v in r["result"].items() if k != "draft"}
         r["label"] = humanize.TASK.get(r["kind"], r["kind"])
         r["subject"] = humanize.subject(r["ref"])
         r["status_label"], r["tone"] = humanize.TASK_STATUS.get(r["status"], (r["status"], ""))
@@ -1029,7 +1245,7 @@ def schedule() -> list[dict[str, Any]]:
 @app.post("/api/tasks")
 def run_task(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     kind = body["kind"]
-    if kind not in ("discover", "score", "mail", "canary"):
+    if kind not in ("discover", "score", "mail"):
         raise HTTPException(400, "unsupported task kind")
     return {"task_id": tasks.enqueue(kind, ref="manual", payload=body.get("payload", {}), priority=20, dedupe=False)}
 
@@ -1039,7 +1255,26 @@ def queue_plan() -> dict[str, Any]:
     """What is being done, what comes next, what waits for the applicant, what was set aside, what is for later."""
     from .. import scoring
 
-    return {**tasks.plan(), "drafts": scoring.draft_room()}
+    plan = tasks.plan()
+    marker = config.DATA / "run" / "next-release"
+    return {**plan, "drafts": scoring.draft_room(), "release": {
+        "worker": tasks.worker_id(),
+        "rolling_protocol": 1,
+
+        "active": config.ROOT.name,
+        "target": marker.read_text(encoding="utf-8").strip() if marker.is_file() else None,
+        "draining": plan["draining"],
+    }}
+
+
+@app.post("/api/runtime/activate-scheduler")
+def activate_scheduler(request: Request) -> dict[str, bool]:
+    import secrets as compare
+
+    if not compare.compare_digest(request.headers.get(access.LOCAL_HEADER, ""), access.local_token()):
+        raise HTTPException(403, "Local launcher authorization required")
+    tasks.activate_scheduler()
+    return {"ok": True}
 
 
 @app.post("/api/queue/drain")
@@ -1061,8 +1296,8 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
             task = s.get(Task, task_id)
             if task is None:
                 raise HTTPException(404, "Task not found")
-            if task.status not in ("failed", "waiting_human") or task.kind not in ("recon", "discover", "revise"):
-                raise HTTPException(400, "Backend retry is available for stopped discovery and draft-reading tasks")
+            if task.status not in ("failed", "waiting_human") or task.kind not in ("apply", "discover"):
+                raise HTTPException(400, "Backend retry is available for stopped discovery and application tasks")
             try:
                 tasks.may_retry(s, task)
             except tasks.NothingToRetry as exc:
@@ -1074,6 +1309,23 @@ def retry_task(task_id: int, body: dict[str, Any] = Body(default={})) -> dict[st
         tasks.retry(task_id)
     except tasks.NothingToRetry as exc:
         raise HTTPException(409, str(exc)) from exc
+    return {"ok": True}
+
+
+@app.post("/api/tasks/{task_id}/stop")
+def stop_task(task_id: int) -> dict[str, Any]:
+    """Stop the agent that is working an application right now: it ends before its next action."""
+    from ..agent import work as _work
+
+    with db.session() as s:
+        t = _404(s.get(Task, task_id))
+        if t.status != "running" or t.kind != "apply":
+            raise HTTPException(409, "这个任务现在不在运行，或者不是一份申请的运行")
+        a = tasks.application_of(s, t.ref)
+        if a is None:
+            raise HTTPException(409, "还没有可以叫停的申请运行")
+        app_id = a.id
+    _work.stop(app_id)
     return {"ok": True}
 
 
@@ -1123,8 +1375,6 @@ def overview() -> dict[str, Any]:
             "paused": bool(db.get_setting("schedule.paused")),
             "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),
             "remote": _open_remote_windows(),
-            "drivers": [{"ats": d.ats, "recon_ok": d.recon_ok, "recon_fail": d.recon_fail, "exec_ok": d.exec_ok, "exec_fail": d.exec_fail,
-                         "streak": d.consecutive_submits} for d in s.query(DriverStat).all()],
             "mail_recent": [_mail_row(s, m) for m in s.query(MailEvent).filter(MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(10)],
             "stage_counts": _stage_counts(s),
             "weekly": _weekly(s),
@@ -1190,7 +1440,7 @@ def _stage_counts(s: Any) -> dict[str, int]:
 def get_persona() -> dict[str, Any]:
     p = persona.get()
     with db.session() as s:
-        has_profile = "TODO" not in knowledge.read("profile") and len(knowledge.read("profile")) > 400
+        has_profile = not knowledge.blank()
         docs = s.query(Document).filter(Document.active == 1, Document.kind.in_(("resume_site", "resume_docx", "source"))).count()
     return {"persona": p, "features": persona.features(p), "onboarding_done": bool(db.get_setting("onboarding.done")),
             "stages": [{"key": k, "name": v["name"]} for k, v in persona.STAGES.items()], "fields": [{"key": k, "name": v["name"]} for k, v in persona.FIELDS.items()],
@@ -1271,7 +1521,10 @@ def system_state() -> dict[str, Any]:
 
     from .. import backup
 
-    return {"platform": platform.system(), "pdf": convert.available(), "version": backup.version(), "data_dir": str(config.DATA), "knowledge_dir": str(config.KNOWLEDGE)}
+    return {"platform": platform.system(), "pdf": convert.available(), "version": backup.version(), "data_dir": str(config.DATA), "knowledge_dir": str(config.KNOWLEDGE),
+            # for the backup section: when the data was last exported, and where passwords and keys are kept (they are in
+            # no export, and whether they are found again after a restore depends on that)
+            "last_export": backup.last(), "secrets": secrets.describe()["backend"]}
 
 
 @app.post("/api/system/export")
@@ -1433,7 +1686,7 @@ def identity_login(provider: str) -> dict[str, Any]:
             notify.send("task_result", messages.session_saved(f"{name} 账号", credentials=False), ref=f"account:idp:{provider}")
 
     _IDP_STATE[provider] = "trying"
-    threading.Thread(target=run, daemon=True, name="identity").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="identity").start()
     return {"started": True}
 
 
@@ -1540,26 +1793,14 @@ async def import_session(file: UploadFile = File(...), passphrase: str = Form(""
     return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting(f"account:{got['tenant']}")}
 
 
-@app.post("/api/accounts/allow-register")
-def allow_register(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """The user has no account on this site: let the agent register, and resume the tasks that were waiting."""
-    auth.allow_register(body["tenant_key"])
-    return {"resumed": handlers.resume_waiting(f"account:{body['tenant_key']}", f"account:{auth.key_for(body['tenant_key'])}")}
-
-
 @app.post("/api/accounts/takeover")
 def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Open a visible browser window for the user to sign in. Runs in a thread; poll /api/accounts."""
     key, url = body["tenant_key"], body["url"]
-    ats = key.split(":")[0]
-    drv = registry.get(ats)
-    ref = registry.detect(body.get("job_url") or url) if drv else None
-    if ref is not None and ref.ats != ats:
-        ref = None
 
     def run() -> None:
         try:
-            res = auth.takeover(key, url, driver=drv if ref else None, ref=ref, save_credentials=bool(body.get("save_credentials", True)))
+            res = auth.takeover(key, url, save_credentials=bool(body.get("save_credentials", True)))
         except Exception as e:  # noqa: BLE001
             res = {"ok": False, "reason": f"登录窗口出错了：{type(e).__name__}"}
         with db.session() as s:  # tell the user on the card what happened to the window they opened
@@ -1572,7 +1813,7 @@ def takeover(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     with db.session() as s:
         for td in s.query(Todo).filter_by(ref=f"account:{key}", status="open"):
             td.payload = {**(td.payload or {}), "trying": True, "last_try": ""}
-    threading.Thread(target=run, daemon=True, name="takeover").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="takeover").start()
     return {"started": True}
 
 
@@ -1640,16 +1881,39 @@ def remove_line(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"removed": knowledge.remove_line(body["fragment"])}
 
 
+@app.get("/api/profile/init")
+def profile_init_state() -> dict[str, Any]:
+    """Where the writing of the profile from the uploaded material stands: queued, being written, written (saved, or a
+    proposal to look at), or not done and why. Whichever page asks, whenever it is opened."""
+    from .. import profile_init
+
+    return {**profile_init.state(), "current": knowledge.read("profile")}
+
+
 @app.post("/api/profile/init")
 def init_profile(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Queue the writing of the profile. It is a task: the page that asked need not stay open, and may ask again later
+    what came of it (GET)."""
     from .. import profile_init
 
     try:
-        return {"draft": profile_init.draft_profile(body.get("notes", "")), "current": knowledge.read("profile")}
+        task_id = profile_init.start(str(body.get("notes") or ""))
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
-    except llm.LLMError as e:
-        raise HTTPException(502, str(e)) from None
+    return {"task_id": task_id, **profile_init.state(), "current": knowledge.read("profile")}
+
+
+@app.post("/api/profile/init/{task_id}/{how}")
+def settle_profile_proposal(task_id: int, how: str, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Adopt a proposed profile (as edited, when ``markdown`` is given) or discard it."""
+    from .. import profile_init
+
+    try:
+        return profile_init.settle(task_id, how, body.get("markdown"))
+    except KeyError:
+        raise HTTPException(404, "not found") from None
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
 
 
 DOC_KINDS = {"resume_docx", "resume_site", "resume_portal", "transcript", "summary_sheet", "cl_template", "cl_example", "portfolio", "certificate", "reference", "source", "other",
@@ -1659,6 +1923,9 @@ SINGLETON = {"resume_docx", "resume_site", "resume_portal", "transcript", "summa
 
 @app.get("/api/documents")
 def list_documents() -> list[dict[str, Any]]:
+    from .. import materials
+
+    nth, held = materials.versions(), materials.held_by_drafts()
     with db.session() as s:
         rows = []
         for d in s.query(Document).order_by(Document.id.desc()).limit(300):
@@ -1668,13 +1935,18 @@ def list_documents() -> list[dict[str, Any]]:
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
                          "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
-                         "problems": (d.meta or {}).get("problems", []), "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
+                         # (what the checks objected to: a letter keeps it with itself, a tailored résumé with its changes)
+                         "problems": (d.meta or {}).get("problems") or ((d.meta or {}).get("tailor") or {}).get("problems") or [], "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
                          # (the parts of the posting's name, for a list that has room for one line of each: several
                          # postings of one employer differ in the title's end, the place or the term)
                          "job_company": job.company if job else "", "job_title": job.title if job else "",
                          "job_where": " · ".join(x for x in ((job.location or "").split(",")[0].strip(), job.term or "") if x) if job else "",
-                         "has_docx": bool((d.meta or {}).get("docx"))})
+                         "has_docx": bool((d.meta or {}).get("docx")),
+                         # which writing of this file for this posting it is; and, for the records from before each
+                         # writing kept its own file, whether a later one was written over it
+                         "version": nth.get(d.id), "overwritten": bool((d.meta or {}).get("overwritten_by")),
+                         "in_draft": d.id in held})      # the latest draft of an application names it: not one to tidy away
         return rows
 
 
@@ -1695,7 +1967,12 @@ async def upload_document(kind: str = Form(...), file: UploadFile = File(...)) -
         d = Document(kind=kind, name=name, path=str(dest))
         s.add(d)
         s.flush()
-        return {"id": d.id, "name": name}
+        out = {"id": d.id, "name": name}
+    from .. import profile_init
+
+    # a résumé, and nothing is known about the applicant yet: their profile is written from it now (a task)
+    out["profile_task"] = profile_init.on_upload(kind)
+    return out
 
 
 @app.get("/api/documents/{doc_id}/file")
@@ -1794,6 +2071,11 @@ def patch_document(doc_id: int, body: dict[str, Any] = Body(...)) -> dict[str, A
         if d.active and d.kind in SINGLETON:  # one file in use per kind
             for other in s.query(Document).filter(Document.kind == d.kind, Document.active == 1, Document.id != d.id):
                 other.active = 0
+        generated = bool(d.active and "active" in body and d.job_id)
+    if generated:      # ...and one per posting, of the files written for it: "use this version" takes the place of the other
+        from .. import materials
+
+        materials.use_version(doc_id)
     return {"ok": True}
 
 
@@ -1805,9 +2087,10 @@ def delete_document(doc_id: int, permanent: bool = False) -> dict[str, Any]:
         d.active = 0
         if permanent:
             path = Path(d.path)
+            shared = s.query(Document).filter(Document.path == d.path, Document.id != d.id).count()      # records from before each writing had its own file
             s.delete(d)
             try:
-                if path.exists() and config.DATA in path.parents:
+                if path.exists() and config.DATA in path.parents and not shared:
                     path.unlink()
             except OSError:
                 pass
@@ -1902,12 +2185,12 @@ def pdportal_bookmarklet() -> dict[str, Any]:
 
 
 @app.get("/api/analytics")
-def analytics(days: int = 0, start: str = "", end: str = "") -> dict[str, Any]:
+def analytics(days: int = 0, start: str = "", end: str = "", bucket: str = "") -> dict[str, Any]:
     """What came of the applications sent in the window: the last ``days`` days, or local dates ``start``..``end``
     (inclusive), or everything. The other two views of the analysis page are below."""
     from .. import analytics as an
 
-    return an.applications(an.window(days, start, end))
+    return an.applications(an.window(days, start, end), bucket=bucket)
 
 
 @app.get("/api/analytics/automation")
@@ -1926,43 +2209,15 @@ def analytics_runs(days: int = 0, start: str = "", end: str = "", kind: str = ""
     return an.runs(an.window(days, start, end), kind=kind, outcome=outcome, offset=offset, limit=limit)
 
 
-@app.get("/api/analytics/timing")
-def analytics_timing(days: int = 0, start: str = "", end: str = "", ats: str = "") -> dict[str, Any]:
-    """Where the time of the form-filling runs went, per system over time, and what the program learned from it."""
-    from .. import analytics as an
-
-    return an.timing_overview(an.window(days, start, end), ats=ats)
-
-
-@app.get("/api/analytics/timing/runs/{run_id}")
-def analytics_timing_run(run_id: int) -> dict[str, Any]:
-    from .. import analytics as an
-
-    try:
-        return an.timing_run(run_id)
-    except KeyError:
-        raise HTTPException(404, "这次运行没有耗时记录。") from None
-
-
-@app.get("/api/learned/{rev_id}")
-def learned_one(rev_id: str) -> dict[str, Any]:
-    """One thing the program learned: what it is, why, its text (recipe or code), and how its trials went."""
-    from .. import learned
-
-    rev = learned.get(rev_id)
-    if rev is None:
-        raise HTTPException(404, "没有这一项。")
-    return {**rev, "content": learned.content(rev)}
-
-
 @app.get("/api/sites")
 def sites_list() -> list[dict[str, Any]]:
-    """Every site the program knows something about, with how much: notes, steps of its form, what was learned for it."""
+    """Every site the program knows something about: what agents wrote down about working it, how it signs in."""
     from .. import sites
 
     rows = sites.listing()
     for r in rows:
-        r["employer"] = humanize.site(r["key"])["name"] if ":" in r["key"] and not r["key"].startswith("idp:") else ""
+        system = r["key"].startswith("system:")      # notes about a recruiting system: its name, as the applicant knows it
+        r["employer"] = humanize.ats_name(r["key"][7:]) if system else humanize.site(r["key"])["name"] if ":" in r["key"] and not r["key"].startswith("idp:") else ""
     return rows
 
 
@@ -1976,37 +2231,10 @@ def site_one(key: str) -> dict[str, Any]:
 
 @app.post("/api/sites/{key:path}/forget")
 def site_forget(key: str) -> dict[str, Any]:
-    """Drop what was learned about working one site (notes, steps; its revisions are taken out). Its sign-in is kept."""
+    """Drop what was written down about working one site. Its sign-in is kept."""
     from .. import sites
 
     return sites.forget(key)
-
-
-@app.post("/api/learned/{rev_id}/share")
-def learned_share(rev_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    """The applicant's answer to "report this driver to the project?": once, always, skip, never. For once and always
-    the answer holds the address of GitHub's new-issue page with the text filled in - the applicant opens and submits it."""
-    from .. import share
-
-    try:
-        return share.decide(rev_id, str(body.get("choice") or ""))
-    except KeyError:
-        raise HTTPException(404, "没有这一项。") from None
-    except ValueError:
-        raise HTTPException(400, "不认识的选择。") from None
-
-
-@app.post("/api/learned/{rev_id}/{action}")
-def learned_decide(rev_id: str, action: str) -> dict[str, Any]:
-    """The applicant's word on something the program learned: approve, reject, revert, retry."""
-    from .. import learned
-
-    try:
-        return learned.decide(rev_id, action)
-    except KeyError:
-        raise HTTPException(404, "没有这一项。") from None
-    except learned.Refused as e:
-        raise HTTPException(409, str(e)) from e
 
 
 @app.get("/api/analytics/ai")
@@ -2091,8 +2319,12 @@ def try_rules(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 @app.get("/api/settings")
 def get_settings() -> dict[str, Any]:
     # only what the settings page edits: the program's own bookkeeping (which one-time migrations have run) is not a setting
-    return {"settings": {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
-            "drivers": sorted(registry.drivers()), "playbooks": knowledge.list_playbooks()}
+    from .. import agentbudget
+
+    shown = {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}
+    shown["agent.budgets"] = agentbudget.table(shown.get("agent.budgets"))      # every kind of work, also the ones added since it was last saved
+    return {"settings": shown, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
+            "playbooks": knowledge.list_playbooks()}
 
 
 @app.get("/api/browser/status")
@@ -2124,10 +2356,11 @@ def browser_test() -> dict[str, Any]:
 
 @app.put("/api/settings")
 def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from .. import browser_policy
+    from .. import agentbudget, browser_policy
 
     try:
         browser_policy.validate(body.get("settings") or {})
+        agentbudget.validate(body.get("settings") or {})
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
@@ -2217,11 +2450,11 @@ def llm_providers() -> dict[str, Any]:
     saved = db.get_setting("llm.providers") or {}
     rows = [{"key": "claude_subscription", "name": "Claude 订阅（Pro / Max）", "kind": "login"},
             {"key": "anthropic", "name": "Claude API key", "kind": "anthropic", "has_key": secrets.has(secrets.ANTHROPIC_KEY), "keys": "https://console.anthropic.com/settings/keys"},
-            {"key": "chatgpt", "name": "ChatGPT 订阅（Plus / Pro）", "kind": "codex", **llm_codex.status(), **{k: (saved.get("chatgpt") or {}).get(k, "") for k in ("model", "small_model")}}]
+            {"key": "chatgpt", "name": "ChatGPT 订阅（Plus / Pro）", "kind": "codex", **llm_codex.status(), **{k: (saved.get("chatgpt") or {}).get(k, "") for k in ("model", "small_model", "effort")}}]
     for k, p in llm_openai.PRESETS.items():
         c = saved.get(k) or {}
         rows.append({"key": k, "name": p["name"], "kind": "openai", "default_base_url": p["base_url"], "keys": p["keys"], "base_url": c.get("base_url", ""),
-                     "model": c.get("model", ""), "small_model": c.get("small_model", ""), "has_key": secrets.has(llm.key_name(k))})
+                     "model": c.get("model", ""), "small_model": c.get("small_model", ""), "effort": c.get("effort", ""), "has_key": secrets.has(llm.key_name(k))})
     return {"current": llm.provider(), "providers": rows}
 
 
@@ -2313,7 +2546,9 @@ def llm_provider_save(key: str, body: dict[str, Any] = Body(...)) -> dict[str, A
         if base and not re.match(r"^https?://", base):
             raise HTTPException(400, "接口地址要以 http:// 或 https:// 开头")
         allp = dict(db.get_setting("llm.providers") or {})
-        allp[key] = {"base_url": base, "model": str(body.get("model", "")).strip(), "small_model": str(body.get("small_model", "")).strip()}
+        effort = str(body.get("effort", "")).strip()
+        allp[key] = {"base_url": base, "model": str(body.get("model", "")).strip(), "small_model": str(body.get("small_model", "")).strip(),
+                     "effort": effort if effort in ("minimal", "low", "medium", "high", "xhigh") else ""}
         db.set_setting("llm.providers", allp)
     if body.get("api_key"):
         secrets.put(secrets.ANTHROPIC_KEY if key == "anthropic" else llm.key_name(key), str(body["api_key"]).strip())
@@ -2486,7 +2721,7 @@ def list_employers() -> dict[str, Any]:
     rows = []
     for e in employers.listing():
         src, scope = employers.source_of(e)
-        n = counts.get((src, scope), 0) if e["kind"] != "builtin" else sum(v for (a, _), v in counts.items() if a == src)
+        n = counts.get((src, scope), 0) if scope is not None else sum(v for (a, _), v in counts.items() if a == src)
         rows.append({**e, "kind_label": employers.KIND_LABEL.get(e["kind"], e["kind"]), "open_jobs": n})
     return {"employers": rows, "priority_min_score": db.get_setting("employers.priority_min_score")}
 
@@ -2549,11 +2784,13 @@ def gmail_authorize() -> dict[str, Any]:
     def run() -> None:
         try:
             mail.authorize()
+            notify.close_todos("config", "config:gmail")
+            handlers.resume_waiting("config:gmail")
             notify.send("task_result", messages.gmail_authorized(), ref="config:gmail")
         except Exception as e:  # noqa: BLE001
             notify.add_todo("config", "Gmail 授权失败", body=str(e)[:300], ref="config:gmail")
 
-    threading.Thread(target=run, daemon=True, name="gmail-oauth").start()
+    threading.Thread(target=context.carried(run), daemon=True, name="gmail-oauth").start()
     return {"started": True}
 
 

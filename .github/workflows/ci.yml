@@ -36,12 +36,14 @@ jobs:
           npm run build
       - name: Tests
         run: uv run pytest -q
-      # A site's work is done in the browser its sign-in lives in, so whatever the program does to a form has to work in
-      # the ordinary browser as well as the automated one: every test that drives a form, once more, there.
-      - name: The same forms in the ordinary browser
+      # A site's work is done in the browser its sign-in lives in, so whatever the program does to a form or a sign-in
+      # has to work in the ordinary browser as well as the automated one: every test that drives one, once more, there.
+      # Which tests those are is one list (tests/ordinary_browser.txt).
+      - name: The same forms and sign-ins in the ordinary browser
+        shell: bash      # (the list is read with grep; the runner's own shell on Windows is PowerShell)
         env:
           AUTOAPPLY_TEST_BROWSER: nodriver
-        run: uv run --extra nodriver pytest -q tests/test_repair_generic.py tests/test_sent.py tests/test_mail_link.py tests/test_held.py tests/test_pipeline.py tests/test_browser_backends.py tests/test_learned.py
+        run: uv run --extra nodriver pytest -q $(grep -vE '^(#|[[:space:]]*$)' tests/ordinary_browser.txt | tr -d '\r')
 
   package:
     name: Portable zip and Linux package

@@ -73,7 +73,7 @@ def test_a_draft_that_is_sent_back_leaves_a_posting_that_is_not_applied_for(app_
 
     drafts.reject(ids[0][2])                       # sent back, and nothing else is waiting
     status, stage, said = stand(0)
-    assert (status, stage) == ("returned", "not_applied") and "重新生成草案" in said
+    assert (status, stage) == ("returned", "not_applied") and "重新开始" in said
     drafts.reject(ids[1][2])                       # sent back, and another version still waits (with a question open)
     assert stand(1)[:2] == ("needs_input", "needs_input")
     drafts.reject(ids[2][2], withdraw=True)        # "I am not applying for this one"

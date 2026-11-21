@@ -4,6 +4,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import AgentJournal from '../components/AgentJournal.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
 import AaSelect from '../components/Select.vue'
@@ -36,10 +37,10 @@ const can = (k) => !!a.value && a.value.actions.includes(k)
 
 const checkMail = () => act('mail', () => api.post(`/applications/${props.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出')
 const markSubmitted = () => act('sent', () => api.post(`/applications/${props.id}/mark-submitted`), '已记为“已提交”，稍后会查确认邮件')
-const rerun = () => act('rerun', () => api.post(`/drafts/${draftId.value}/execute`, {}), '已重新开始填写')
+const rerun = () => act('rerun', () => api.post(`/jobs/${a.value.job_id}/draft`, {}), 'Agent 已重新开始')
 async function rerunNotSubmitted() {
-  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，重新填写会向雇主再投一次。', { ok: '确定没提交，重新填写' }))) return
-  await act('rerun', () => api.post(`/drafts/${draftId.value}/execute`, { not_submitted: true }), '已重新开始填写')
+  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，再做一次会向雇主再投一次。', { ok: '确定没提交，再做一次' }))) return
+  await act('rerun', () => api.post(`/applications/${props.id}/not-submitted`), 'Agent 已重新开始')
 }
 
 function openFix() {
@@ -97,8 +98,8 @@ onMounted(load)
       <div v-if="a.actions.length" class="row" style="margin-top: 12px; flex-wrap: wrap">
         <button v-if="can('check_mail')" :class="{ primary: a.unknown }" :disabled="!!busy" @click="checkMail"><Icon name="mail" />{{ busy === 'mail' ? '正在查…' : '现在检查确认邮件' }}</button>
         <button v-if="can('mark_submitted')" :disabled="!!busy" @click="markSubmitted"><Icon name="check" />我已经提交了</button>
-        <button v-if="can('rerun') && draftId" class="primary" :disabled="!!busy" @click="rerun"><Icon name="refresh" />{{ a.status === 'ready_to_submit' ? '重新打开窗口，由我提交' : '重新填写并提交' }}</button>
-        <button v-if="can('rerun_not_submitted') && draftId" class="ghost" :disabled="!!busy" @click="rerunNotSubmitted">没提交成功，重新填写</button>
+        <button v-if="can('rerun')" class="primary" :disabled="!!busy" @click="rerun"><Icon name="refresh" />让 Agent 再做一次</button>
+        <button v-if="can('rerun_not_submitted')" class="ghost" :disabled="!!busy" @click="rerunNotSubmitted">没提交成功，让 Agent 再做一次</button>
         <router-link v-if="can('open_draft') && draftId" :to="'/drafts/' + draftId" class="btn primary">打开草案</router-link>
         <router-link v-if="can('open_todos')" to="/todos" class="btn primary">去处理</router-link>
       </div>
@@ -107,6 +108,8 @@ onMounted(load)
         <router-link v-for="c in a.cards" :key="c.id" to="/todos" class="tag warn" style="margin: 4px 6px 0 0">{{ c.title }}</router-link>
       </div>
     </div>
+
+    <AgentJournal :journal="a.journal || []" :spent="a.spent" :running-task="a.running_task || 0" :expected="!!a.run_expected" :application-id="a.id" note="Agent 在这份申请上途中记下的话；它填了什么、依据是什么，在草案里。" @refresh="load" />
 
     <div v-if="fix.open" class="card">
       <div class="card-title">更正记录</div>
@@ -130,6 +133,7 @@ onMounted(load)
             <div v-if="a.evidence.text || a.evidence.url">
               <div class="small muted">{{ a.evidence.already_applied ? '雇主网站显示这个岗位已经申请过' : '提交后网站显示的内容' }}<template v-if="a.evidence.read_by === 'model'">（由 AI 从页面读出）</template></div>
               <details class="tech" open><summary>{{ a.evidence.url || '页面内容' }}</summary><pre>{{ a.evidence.text }}</pre></details>
+              <div v-if="a.evidence.has_screenshot" class="small" style="margin-top: 6px"><a :href="`/api/applications/${a.id}/confirmation.png`" target="_blank" rel="noopener">当时的页面截图</a></div>
             </div>
             <div v-if="a.evidence.mail_ids.length" class="small" style="margin-top: 8px">雇主的确认邮件 {{ a.evidence.mail_ids.length }} 封（见“往来邮件”）</div>
             <div v-if="a.evidence.by_user" class="small" style="margin-top: 8px">有你手动记录的进展（见“全部经过”）</div>
@@ -199,7 +203,7 @@ onMounted(load)
               <template v-if="e.old !== e.new">{{ e.old || '新建' }} → <b>{{ e.new }}</b></template><template v-else>{{ e.note }}</template>
               <span v-if="e.by" class="muted">（{{ e.by }}）</span><span v-if="e.note && e.old !== e.new" class="muted"> {{ e.note }}</span>
             </span>
-            <span v-else-if="e.kind === 'run'" class="small">{{ e.what }}：<span :class="e.ok ? '' : 'muted'">{{ e.ok ? '完成' : '没有完成' }}</span> <router-link to="/runs" class="muted">记录</router-link></span>
+            <span v-else-if="e.kind === 'run'" class="small">{{ e.what }}：<span :class="e.ok ? '' : 'muted'">{{ e.ok ? '完成' : '没有完成' }}</span><span v-if="e.said" class="muted" data-notr>　{{ e.said }}</span> <router-link to="/runs" class="muted">记录</router-link></span>
             <span v-else class="small">邮件：{{ e.label }} <span class="muted">{{ e.subject }}</span></span>
           </div>
           <div v-if="!a.timeline.length" class="muted">还没有记录。</div>

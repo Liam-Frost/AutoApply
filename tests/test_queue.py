@@ -114,7 +114,7 @@ def test_postings_for_other_programmes_are_set_aside_without_the_model_and_the_r
         rows = {j.id: j for j in s.query(Job)}
         assert all(rows[i].status == "skipped" and rows[i].exclusion.startswith("面向其他专业：Civil") and rows[i].score == 0 for i in ids[6:])
         assert rows[ids[0]].status == "queued" and rows[ids[0]].brief and rows[ids[1]].status == "scored" and not rows[ids[1]].brief
-        assert [t.kind for t in s.query(Task).filter_by(status="queued")] == ["recon"]
+        assert [t.kind for t in s.query(Task).filter_by(status="queued")] == ["apply"]
     # the overview of a posting that got none is written when it is asked for
     monkeypatch.setattr(llm, "json", lambda prompt, schema, **kw: {"brief": "#### 这个岗位做什么\n- written on request"})
     assert "written on request" in scoring.brief_job(ids[1])
@@ -191,10 +191,66 @@ def test_a_scan_does_not_hold_an_application_up(app_env):
 
     with db.session() as s:
         for kind, prio in (("discover", 10), ("score", 20), ("execute", 50), ("recon", 60), ("mail", 70)):
-            s.add(Task(kind=kind, ref="x", payload={}, priority=prio))
+            s.add(Task(kind=kind, ref=f"x:{kind}", payload={}, priority=prio))
     assert tasks._claim("forms").kind == "execute" and tasks._claim("background").kind == "discover"
-    assert tasks._claim("forms").kind == "recon" and tasks._claim("background").kind == "score"
-    assert tasks._claim("forms") is None and tasks._claim("background").kind == "mail" and tasks._claim() is None
+    # the forms go on while the scan runs; the background work itself is one at a time, whichever process asks
+    # (two generations of the service share the queue while one hands over to the other)
+    assert tasks._claim("forms").kind == "recon" and tasks._claim("background") is None
+
+    def finish(kind):
+        with db.session() as s:
+            s.query(Task).filter_by(kind=kind, status="running").one().status = "done"
+
+    finish("discover")
+    assert tasks._claim("background").kind == "score" and tasks._claim("forms") is None
+    finish("score")
+    assert tasks._claim("background").kind == "mail" and tasks._claim() is None
+
+
+def test_several_applications_are_worked_at_once_but_not_two_on_one_application_or_one_site(app_env):
+    """As many applications at a time as the applicant has set - three unless they say otherwise. An account and its
+    sign-in are one, and so is an application: a second worker takes neither the application another is on nor another
+    application on that site, and goes on to the next that is free."""
+    from autoapply import tasks
+    from autoapply.models import Job, Task
+
+    assert tasks.parallel() == 3
+    db.set_setting("agent.parallel", 5)
+    assert tasks.parallel() == 5
+    db.set_setting("agent.parallel", 40)
+    assert tasks.parallel() == tasks.MOST
+    db.set_setting("agent.parallel", 0)
+    assert tasks.parallel() == 3                    # (nothing set is the default, not "none at all")
+    with db.session() as s:
+        ids = []
+        for n, url in enumerate(("https://careers.acme.example/jobs/1", "https://careers.acme.example/jobs/2", "https://jobs.other.example/9")):
+            j = Job(source="manual", source_id=f"p{n}", company="C", title=f"T{n}", apply_url=url, jd_text="x" * 300, status="queued", online=1)
+            s.add(j)
+            s.flush()
+            ids.append(j.id)
+            s.add(Task(kind="apply", ref=f"job:{j.id}", payload={"job_id": j.id}, priority=10 + n))
+        s.add(Task(kind="apply", ref=f"job:{ids[0]}", payload={"job_id": ids[0], "record_changed": "later"}, priority=5))      # the same application, asked for again
+    first = tasks._claim("forms")
+    assert first.ref == f"job:{ids[0]}"
+    second = tasks._claim("forms")                  # not the same application again, not the other posting on that site: the one on another site
+    assert second.ref == f"job:{ids[2]}" and tasks._claim("forms") is None
+    with db.session() as s:
+        s.get(Task, first.id).status = "done"
+    third = tasks._claim("forms")                   # the site is free again
+    assert third.ref == f"job:{ids[0]}" and third.id != first.id
+    # two addresses that turned out to sign in on the same one share an account and a saved sign-in: one site
+    from autoapply import sites
+
+    with db.session() as s:
+        for t in s.query(Task):
+            t.status = "done"
+        j = Job(source="manual", source_id="p9", company="C", title="T9", apply_url="https://apply.acme-talent.example/7", jd_text="x" * 300, status="queued", online=1)
+        s.add(j)
+        s.flush()
+        s.add(Task(kind="apply", ref=f"job:{ids[1]}", payload={"job_id": ids[1]}, priority=1))
+        s.add(Task(kind="apply", ref=f"job:{j.id}", payload={"job_id": j.id}, priority=2))
+    sites.link(sites.key_of("https://apply.acme-talent.example/7"), sites.key_of("https://careers.acme.example/jobs/2"))
+    assert tasks._claim("forms").ref == f"job:{ids[1]}" and tasks._claim("forms") is None
 
 
 # --- a service that turns this computer's network away ---
@@ -479,7 +535,7 @@ def test_the_program_does_not_start_more_drafts_than_the_applicant_wants_waiting
     assert scoring.draft_room() == {"waiting": 2, "cap": 3, "room": 1}
     assert scoring.queue_qualifying(limit=6) == 1                    # one more, the best of them
     with db.session() as s:
-        assert [t.ref for t in s.query(Task).filter_by(kind="recon")] == [f"job:{good[0]}"] and s.get(Job, good[0]).status == "queued"
+        assert [t.ref for t in s.query(Task).filter_by(kind="apply")] == [f"job:{good[0]}"] and s.get(Job, good[0]).status == "queued"
         assert [s.get(Job, i).status for i in good[1:]] == ["scored"] * 3     # they keep their place: next when there is room
     assert scoring.draft_room()["room"] == 0 and scoring.queue_qualifying(limit=6) == 0
     db.set_setting("drafts.max_pending", 0)                           # no limit
@@ -646,7 +702,7 @@ def test_the_room_for_drafts_goes_to_the_best_postings(app_env, monkeypatch):
     monkeypatch.setattr(scoring, "score_job", score_job)
     monkeypatch.setattr(scoring, "set_aside_by_rule", lambda ids: ids)
     out = scoring.score_pending()
-    refs = lambda: sorted(t.ref for t in db.session().__enter__().query(Task).filter_by(kind="recon"))  # noqa: E731
+    refs = lambda: sorted(t.ref for t in db.session().__enter__().query(Task).filter_by(kind="apply"))  # noqa: E731
     assert refs() == [f"job:{best}"] and out.get("queued_for_draft", out.get("queued")) == 1
     with db.session() as s:
         assert [s.get(Job, i).status for i in (best, waiting, fine)] == ["queued", "scored", "scored"]

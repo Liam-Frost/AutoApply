@@ -13,7 +13,7 @@
 | Intel | Workday（intel.wd1） | 是 | Workday 维护期间读不到 |
 | Meta | 没有公开接口，用普通无头浏览器读渲染后的页面 | 是 | 慢，一次约 10 分钟；被拒绝访问时会如实报错，不做伪装 |
 | Greenhouse / Ashby / Lever / Workday 看板 | 各自的公开接口 | 是 | 在设置里填公司 |
-| UBC PD Portal | 程序自己读（登录一次，建议用 nodriver 后端）；也可用书签脚本导入 | 是 | 登录状态过期时待办里会提示重新登录 |
+| UBC PD Portal | 由 Agent 登录并读取（用保存的登录名和密码，手机上的二次验证由你批准；建议用 nodriver 后端）；也可用书签脚本导入 | 是 | Agent 登录不了时（没有保存密码、你没批准）待办里会请你登录 |
 
 代码：`backend/autoapply/sources/bigtech.py`、`sources/public.py`、`sources/pdportal_import.js`。
 

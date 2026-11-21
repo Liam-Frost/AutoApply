@@ -12,7 +12,6 @@ import pytest
 
 from autoapply import db
 
-from test_pipeline import pipeline  # noqa: F401  (the fixture: a real form in a real browser)
 
 
 def _app(status="submitted", **kw):
@@ -99,28 +98,24 @@ def test_an_application_that_has_gone_out_is_not_filled_again(app_env, monkeypat
     """An application at "interview" with an approved draft, and a retry of its old task: the form was opened again."""
     from fastapi.testclient import TestClient
 
-    from autoapply import executor, tasks
+    from autoapply import browser, tasks
+    from autoapply.agent import work
     from autoapply.api.main import app
-    from autoapply.ats.base import FormSchema
-    from autoapply.models import Draft, Task
+    from autoapply.models import Application, Draft, Task
 
     app_id = _app("interview")
-    schema = FormSchema(ats="generic").to_dict()
-    schema["_ref"] = {"ats": "generic", "tenant": "audit", "job_id": "1", "url": "https://example.test"}
     with db.session() as s:
-        d = Draft(application_id=app_id, version=1, review_status="approved", schema=schema, answers=[])
-        s.add(d)
-        s.add(Task(kind="execute", ref=f"application:{app_id}", status="failed", payload={"draft_id": 1}))
-        s.add(Task(kind="recon", ref="job:1", status="failed", payload={}))
+        job_id = s.get(Application, app_id).job_id
+        s.add(Draft(application_id=app_id, version=1, review_status="approved", schema={}, answers=[]))
+        s.add(Task(kind="execute", ref=f"application:{app_id}", status="failed", payload={"draft_id": 1}))      # a task of an earlier version, still in the list
+        s.add(Task(kind="apply", ref=f"job:{job_id}", status="failed", payload={"job_id": job_id}))
         s.add(Task(kind="mail", ref="schedule", status="failed", payload={}))
-        s.flush()
-        did = d.id
 
-    def no_browser(*a):
+    def no_browser(*a, **k):
         raise AssertionError("the form was about to be opened")
 
-    monkeypatch.setattr(executor.registry, "get", no_browser)
-    assert executor.execute(app_id, did) == {"status": "interview", "note": "already submitted"}
+    monkeypatch.setattr(browser, "open_page", no_browser)
+    assert work.work(job_id) == {"already_applied": True}
     assert _now(app_id)[0] == "interview"
     with pytest.raises(tasks.NothingToRetry, match="面试中"):
         tasks.retry(1)
@@ -130,58 +125,6 @@ def test_an_application_that_has_gone_out_is_not_filled_again(app_env, monkeypat
     assert c.post("/api/tasks/3/retry", json={}).status_code == 200                                       # not work on a form
     with db.session() as s:
         assert [t.status for t in s.query(Task).order_by(Task.id)] == ["failed", "failed", "queued"]
-
-
-def test_a_run_that_ends_late_does_not_write_over_what_a_mail_said(pipeline, monkeypatch):  # noqa: F811
-    """While the window waited for Submit, the employer's confirmation - or an invitation - arrived. The run then wrote
-    its own outcome over it, and with "submitted" replaced the evidence whole."""
-    from autoapply import drafts, lifecycle, mail, tasks
-    from autoapply.models import Job
-
-    did = drafts.build(pipeline["job_id"])
-    drafts.approve(did)
-    with db.session() as s:
-        app_id = s.get(Job, pipeline["job_id"]).application.id
-    real = pipeline["driver"].submit
-
-    def submit(page):
-        real(page)
-        # (the applicant had applied on the employer's site before; the employer answers while the program's run ends)
-        lifecycle.move(app_id, "confirmed", source="mail", evidence={"mail_id": "m-confirm"})
-        mail._record(app_id, "interview", "invited for Thursday", None, "m-invite")
-
-    monkeypatch.setattr(pipeline["driver"], "submit", submit)
-    tasks.drain()
-    status, evidence, _ = _now(app_id)
-    assert status == "interview"                                             # not back to "submitted"
-    assert "Thank you for applying" in evidence["text"] and evidence["mail_ids"] == ["m-confirm"]     # the page and the mail, both
-    assert any("已提交" in t for t in pipeline["sent"])                      # the run did submit, and says so
-
-
-def test_a_run_that_fails_after_the_application_went_out_says_nothing_about_failure(pipeline, monkeypatch):  # noqa: F811
-    from autoapply import drafts, executor, lifecycle, tasks
-    from autoapply.models import Job, Run, Todo
-
-    did = drafts.build(pipeline["job_id"])
-    drafts.approve(did)
-    with db.session() as s:
-        app_id = s.get(Job, pipeline["job_id"]).application.id
-
-    def window_closed(driver, page, title, application_id, draft_id=None, **kw):
-        # the applicant submitted on the employer's site in another tab; the confirmation mail is in before the window closes
-        lifecycle.move(app_id, "confirmed", source="mail", evidence={"mail_id": "m-confirm"})
-        return {"status": "ready_to_submit", "error": "window closed"}
-
-    monkeypatch.setattr(executor, "_wait_for_manual_submit", window_closed)
-    pipeline["driver"].corrupt = "email"        # something to look at: the run hands the window over
-    tasks.drain()
-    status, evidence, _ = _now(app_id)
-    assert status == "confirmed" and evidence["mail_id"] == "m-confirm"
-    with db.session() as s:
-        assert s.query(Todo).filter(Todo.status == "open", Todo.kind.in_(("failed", "submit"))).count() == 0      # nothing is asked about a sent application
-        steps = s.query(Run).filter_by(kind="execute").order_by(Run.id.desc()).first().steps
-    assert any(st["op"] == "superseded" and st["told"] == "ready_to_submit" for st in steps)
-    assert not any("没有确认提交成功" in t or "执行失败" in t for t in pipeline["sent"])
 
 
 def test_a_mail_and_what_it_does_to_its_application_are_written_together(app_env, monkeypatch):

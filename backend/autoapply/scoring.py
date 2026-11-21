@@ -1,13 +1,19 @@
 """Scoring: natural-language rules (knowledge/scoring.md) applied by the model
-to the FULL job description. A job without a description stays unscored."""
+to the FULL job description. A job without a description stays unscored.
+
+A posting whose source gave only a summary has its own page read first (fulltext.py); one whose page cannot be read is
+scored on the summary, told that it is one, and its reason says so."""
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from . import db, knowledge, llm, messages, notify
 from . import prompts
 from .models import Job
+
+log = logging.getLogger("autoapply.scoring")
 
 SCHEMA = llm.obj(
     {
@@ -49,17 +55,67 @@ Read the whole description. Apply hard exclusions first: if one applies, set exc
 Otherwise score fit 0-10 following the rubric. Base every statement on the description; do not guess from the title."""
 
 
+PARTIAL = {"summary": "只有摘要：这个岗位的来源只给了摘要，岗位页面的全文没能读到；摘要里没提到的要求不等于没有。",
+           "cut": "岗位说明很长，只读了前面一部分；后面写的内容不在评分里。"}
+
+
+def _whole_text(job_id: int) -> None:
+    """Before a posting is read for a score or an overview: when what is stored is only a summary, its own page is
+    read for the whole text (fulltext.complete). What cannot be read stays a summary, and is scored as one."""
+    from . import fulltext
+
+    try:
+        fulltext.complete(job_id)
+    except Exception:  # noqa: BLE001 - a page that cannot be read does not stop the scoring
+        log.exception("could not read the posting's page for its full text")
+
+
+_SAYS_SO = {"summary": ("只有摘要", "only a summary", "summary only"), "cut": ("只读了前面", "beginning only", "only the beginning")}
+
+
+def _said_partial(reason: str, partial: str) -> str:
+    """The reason of a score that was given on a partial text says so, whatever the model wrote (in the language the
+    reasons are written in: the interface's)."""
+    from . import i18n
+
+    note = PARTIAL.get(partial, "")
+    if not note or any(m in (reason or "").lower() for m in _SAYS_SO[partial]):
+        return reason
+    return f"{i18n.tr(note)} {reason or ''}".strip()
+
+
+def nobody_to_score_for(*, quiet: bool = False) -> bool:
+    """Is the applicant's profile empty? Then nothing is scored: a posting cannot be judged for nobody, a score given
+    without the applicant would stand as if it were about them (nothing scores a posting twice), and the best of those
+    scores would start drafts. Said on one card unless ``quiet`` (the clock asking whether there is anything to do)."""
+    if not knowledge.blank():
+        return False
+    if not quiet:
+        from . import profile_init
+
+        profile_init.wanted()
+    return True
+
+
 def score_job(job_id: int) -> dict[str, Any] | None:
+    from . import fulltext
+
+    if knowledge.blank():
+        return None
+    _whole_text(job_id)
     with db.session() as s:
         j = s.get(Job, job_id)
         if j is None or len((j.jd_text or "").strip()) < 200:
             return None  # no description: stay unscored rather than score from the title
+        partial = j.jd_partial or ""
+        note = fulltext.partial_note(partial)
         prompt = (
             f"<rules>\n{knowledge.read('scoring')}\n</rules>\n\n<applicant>\n{knowledge.read('profile')}\n</applicant>\n\n"
             f"<posting>\nCompany: {j.company}\nTitle: {j.title}\nLocation: {j.location} {j.work_type}\nTerm: {j.term} {j.months}\n"
-            f"Salary: {j.salary}\nDeadline: {j.deadline}\nDocuments required: {j.docs_required}\n\n{j.jd_text}\n</posting>"
+            f"Salary: {j.salary}\nDeadline: {j.deadline}\nDocuments required: {j.docs_required}\n\n{note + chr(10) + chr(10) if note else ''}{j.jd_text}\n</posting>"
         )
     out = llm.json(prompt, _schema(float(db.get_setting("scoring.brief_min_score") or 0)), system=prompts.get("scoring"))
+    out["reason"] = _said_partial(out["reason"], partial)
     with db.session() as s:
         j = s.get(Job, job_id)
         j.score = 0.0 if out["excluded"] else float(out["score"])
@@ -77,12 +133,16 @@ def score_job(job_id: int) -> dict[str, Any] | None:
 
 def brief_job(job_id: int) -> str:
     """Write the long overview of one posting, for the applicant who opens a posting that has none."""
+    from . import fulltext
+
+    _whole_text(job_id)
     with db.session() as s:
         j = s.get(Job, job_id)
         if j is None or len((j.jd_text or "").strip()) < 200:
             return ""
+        note = fulltext.partial_note(j.jd_partial or "")
         prompt = (f"<applicant>\n{knowledge.read('profile')}\n</applicant>\n\n<posting>\nCompany: {j.company}\nTitle: {j.title}\nLocation: {j.location} {j.work_type}\n"
-                  f"Term: {j.term} {j.months}\nDeadline: {j.deadline}\nDocuments required: {j.docs_required}\n\n{j.jd_text}\n</posting>")
+                  f"Term: {j.term} {j.months}\nDeadline: {j.deadline}\nDocuments required: {j.docs_required}\n\n{note + chr(10) + chr(10) if note else ''}{j.jd_text}\n</posting>")
     out = llm.json(prompt, BRIEF_SCHEMA, system="You write an overview of one job posting for one applicant. Base every statement on the posting and the applicant's profile.")
     brief = str(out.get("brief") or "")
     if brief:
@@ -129,16 +189,37 @@ def draft_line():  # noqa: ANN201
 def score_pending(limit: int | None = None) -> dict[str, int]:
     from concurrent.futures import ThreadPoolExecutor
 
-    from . import metering
+    from . import context
 
+    if nobody_to_score_for():
+        return {"waits_for_profile": True}
     limit = limit or int(db.get_setting("scoring.max_per_run") or 60)
     with db.session() as s:
         # only postings that can be scored (a description to read) and are not another listing of the same job
         rows = s.query(Job).filter(Job.status == "new", Job.online == 1, Job.duplicate_of.is_(None)).order_by(Job.id.desc()).all()
+        short = [j.id for j in rows if len((j.jd_text or "").strip()) < 200 and j.jd_partial == "summary"]
+    # A summary too short to score has its own page read first - before the places of this run are given out, so that
+    # one whose page cannot be read takes none of them, now or at the next run (it is tried again after some hours,
+    # fulltext.AGAIN_AFTER; until then it is not among what is left to do).
+    from . import fulltext
+
+    tried = waiting = 0
+    for jid in short:
+        if not fulltext.due(jid):
+            continue
+        if tried >= limit:
+            waiting += 1        # not reached this time: still to be tried
+            continue
+        tried += 1
+        _whole_text(jid)
+    with db.session() as s:
+        rows = s.query(Job).filter(Job.status == "new", Job.online == 1, Job.duplicate_of.is_(None)).order_by(Job.id.desc()).all()
         able = [j.id for j in rows if len((j.jd_text or "").strip()) >= 200]
     left = set_aside_by_rule(able)
     by_rule = len(able) - len(left)
-    ids, remaining = left[:limit], max(0, len(left) - limit)
+    ids, remaining = left[:limit], max(0, len(left) - limit) + waiting
+    for jid in ids:      # the pages of the postings that came as summaries, one after the other: not several browsers at once
+        _whole_text(jid)
     scored = skipped = queued = 0
     # Reading a posting is waiting for the model: several are read at once (scoring.parallel). What is done with each
     # result - the status, queueing a draft - happens here, one after the other. A model that is out of quota ends the
@@ -157,7 +238,7 @@ def score_pending(limit: int | None = None) -> dict[str, int]:
     workers = max(1, min(8, int(db.get_setting("scoring.parallel") or 1)))
     if workers > 1 and len(ids) > 1:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="score") as pool:
-            outs = list(pool.map(metering.carried(read), ids))
+            outs = list(pool.map(context.carried(read), ids))
     else:
         outs = [read(jid) for jid in ids]
     line = draft_line()
@@ -199,7 +280,7 @@ def draft_room() -> dict[str, int]:
     with db.session() as s:
         waiting = s.query(Application).filter(Application.status.in_(("recon", "revising", "needs_input", "draft_ready"))).count()
         # drafts that are about to be started and have no application yet
-        for t in s.query(Task).filter(Task.kind == "recon", Task.status == "queued"):
+        for t in s.query(Task).filter(Task.kind == "apply", Task.status == "queued"):
             num = t.ref.partition(":")[2]
             if t.ref.startswith("job:") and num.isdigit():
                 j = s.get(Job, int(num))
@@ -225,12 +306,12 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
     from . import tasks
     from .models import Task
 
-    if limit <= 0:
+    if limit <= 0 or knowledge.blank():     # (no drafts are started for an applicant nothing is known about)
         return 0
     line = draft_line()
     todo: list[tuple[int, str]] = []
     with db.session() as s:
-        busy = {t.ref for t in s.query(Task).filter(Task.kind == "recon", Task.status.in_(("queued", "running", "waiting_human", "held")))}
+        busy = {t.ref for t in s.query(Task).filter(Task.kind == "apply", Task.status.in_(("queued", "running", "waiting_human", "held")))}
         rows = (s.query(Job).filter(Job.status == "scored", Job.online == 1, Job.duplicate_of.is_(None), Job.archived_at.is_(None), Job.score.isnot(None))
                 .order_by(Job.score.desc(), Job.id.desc()).all())
         for j in rows:
@@ -242,7 +323,7 @@ def _start_best(limit: int, fresh: set[int] | frozenset[int] = frozenset()) -> i
                 if len(todo) >= limit:
                     break
     for jid, deadline in todo:
-        tasks.enqueue("recon", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
+        tasks.enqueue("apply", ref=f"job:{jid}", payload={"job_id": jid}, priority=tasks.deadline_priority(deadline))
     return len(todo)
 
 

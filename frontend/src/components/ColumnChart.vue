@@ -1,7 +1,7 @@
 <script setup>
 // Single-series column chart. data: [{ label, value, tip }]. One hue, baseline-anchored columns (max 24px),
 // hairline grid, a value only on the tallest and the last column, tooltip on hover, table view underneath.
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const props = defineProps({
   data: { type: Array, required: true },
@@ -16,12 +16,30 @@ const ticks = computed(() => [top.value, top.value / 2].filter((t) => Number.isI
 const iMax = computed(() => props.data.reduce((b, d, i) => (d.value > props.data[b].value ? i : b), 0))
 const labelled = (i) => props.data[i].value > 0 && (i === iMax.value || i === props.data.length - 1)
 const tip = ref(null)
-const every = computed(() => Math.ceil(props.data.length / 6))
+// The axis names as many steps as there is room for - all of them when they fit, else every second, third ... - by the
+// width the chart really has (it was "six labels, whatever the width": a month of days in a wide card named six).
+const plot = ref(null)
+const width = ref(0)
+let seen = null
+onMounted(() => {
+  if (!plot.value) return
+  width.value = plot.value.clientWidth
+  if (typeof ResizeObserver !== 'undefined') { seen = new ResizeObserver(() => { width.value = plot.value ? plot.value.clientWidth : 0 }); seen.observe(plot.value) }
+})
+onBeforeUnmount(() => { if (seen) seen.disconnect() })
+const every = computed(() => {
+  const n = props.data.length
+  if (!n) return 1
+  const widest = Math.max(...props.data.map((d) => String(d.label || '').length))
+  const need = widest * 6.4 + 12                      // (px for one label at the axis' size, with air between two)
+  const room = (width.value || 600) / n               // what one step has
+  return Math.max(1, Math.ceil(need / room))
+})
 </script>
 
 <template>
   <div class="chart">
-    <div class="plot" :style="{ height: height + 'px' }">
+    <div ref="plot" class="plot" :style="{ height: height + 'px' }">
       <div v-for="t in ticks" :key="t" class="gridline" :style="{ bottom: (t / top) * 100 + '%' }"><span>{{ t }}</span></div>
       <div v-for="(d, i) in data" :key="i" class="col" @mouseenter="tip = i" @mouseleave="tip = null">
         <span v-if="labelled(i)" class="val">{{ d.value }}</span>
@@ -29,7 +47,7 @@ const every = computed(() => Math.ceil(props.data.length / 6))
         <div v-if="tip === i" class="tip" :style="{ left: '50%', bottom: 'calc(' + (d.value / top) * 100 + '% + 22px)', top: 'auto', transform: 'translateX(-50%)' }">{{ d.tip || d.label }}：{{ d.value }}{{ unit }}</div>
       </div>
     </div>
-    <div class="xaxis"><span v-for="(d, i) in data" :key="i">{{ i % every === 0 || i === data.length - 1 ? d.label : '' }}</span></div>
+    <div class="xaxis"><span v-for="(d, i) in data" :key="i">{{ i % every === 0 ? d.label : '' }}</span></div>
     <details v-if="table" class="tech">
       <summary>用表格看</summary>
       <table style="margin-top: 6px"><thead><tr><th>{{ tableLabel }}</th><th>数量</th></tr></thead>

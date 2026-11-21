@@ -55,24 +55,22 @@ def test_the_applicant_says_which_application_an_email_is_about(app_env):
 def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
     """Before the applicant is asked, the applicant page of the employer's site is read with the saved sign-in: the e-mail
     goes to the application the site shows as waiting for the assessment, and what the site says is kept with each."""
-    from autoapply import browser, db, llm, sitestatus
+    from autoapply import browser, db, sitestatus
     from autoapply.models import Application, Todo
 
     with db.session() as s:
         first, second = _two_sent_applications(s)
     _card()
-    assert sitestatus.resolve("m1") == {"skipped": "no saved sign-in for this employer's site"}      # nothing saved: the site is not opened
-    monkeypatch.setattr(browser, "load_state", lambda key: {"cookies": [{"name": "s"}]})
-    opened = []
+    opened = []      # (whether there is a saved sign-in or a stored login is said to the agent; it is sent either way)
 
-    def site(key, start, run_dir):
+    def site(key, start, folder, question):
         opened.append((key, start))
-        return {"signed_in": True, "notes": "", "applications": [
+        assert "Action Required for your Amazon Application" in question and f"id={second} | Applied Scientist Intern" in question
+        return {"signed_in": True, "about": [second, 999], "reason": "the second one waits for an assessment", "applications": [
             {"title": "Software Dev Engineer Intern", "job_id": "A0", "status": "Application submitted", "date": ""},
             {"title": "Applied Scientist Intern", "job_id": "A1", "status": "Assessment pending", "date": "Nov 15"}]}
 
     monkeypatch.setattr(sitestatus, "read", site)
-    monkeypatch.setattr(llm, "json", lambda prompt, schema, **k: {"application_ids": [second, 999], "reason": "the second one waits for an assessment"})
     out = sitestatus.resolve("m1")
     assert out["linked"] == [second] and opened == [("generic:www.amazon.jobs", "https://www.amazon.jobs/")]      # one visit for the site, not one per application
     with db.session() as s:
@@ -84,97 +82,52 @@ def test_the_employers_site_says_which_application_it_is(app_env, monkeypatch):
 
 
 def test_a_site_that_does_not_settle_it_leaves_the_card_with_what_it_shows(app_env, monkeypatch):
-    from autoapply import browser, db, llm, sitestatus
+    from autoapply import browser, db, sitestatus
     from autoapply.models import Todo
 
     with db.session() as s:
         _two_sent_applications(s)
     _card()
     monkeypatch.setattr(browser, "load_state", lambda key: {"cookies": [{"name": "s"}]})
-    monkeypatch.setattr(sitestatus, "read", lambda *a: {"signed_in": True, "notes": "", "applications": [{"title": "Software Dev Engineer Intern", "job_id": "", "status": "Under review", "date": ""}]})
-    monkeypatch.setattr(llm, "json", lambda prompt, schema, **k: {"application_ids": [], "reason": "both look the same"})
+    monkeypatch.setattr(sitestatus, "read", lambda *a: {"signed_in": True, "about": [], "reason": "both look the same",
+                                                        "applications": [{"title": "Software Dev Engineer Intern", "job_id": "", "status": "Under review", "date": ""}]})
     assert sitestatus.resolve("m1")["linked"] == []
     with db.session() as s:
         t = s.query(Todo).filter_by(kind="mail_unmatched").one()
         assert t.status == "open" and t.payload["site"] == ["Software Dev Engineer Intern：Under review"]
 
 
-def test_the_visit_to_the_site_only_reads(app_env, tmp_path):
-    """On the applicant page the agent may look and move about the site; it is refused anything that changes an application."""
-    import pytest
-    from playwright.sync_api import sync_playwright
+def test_the_visit_to_the_site_is_the_agents_with_its_tools_and_what_it_reports_is_kept(app_env, tmp_path, monkeypatch):
+    """The agent goes to the employer's site the way it goes anywhere: with the browser tools and the account tools,
+    so that a sign-in that has run out is signed in to again. What it reports is what resolve gets."""
+    from contextlib import contextmanager
 
-    from autoapply import sitestatus
+    from autoapply import browser, llm, sitestatus
 
-    with sync_playwright() as pw:
-        b = pw.chromium.launch()
-        page = b.new_page()
-        page.route("**/*", lambda r: r.fulfill(content_type="text/html", body='<main><h1>My applications</h1><p>SDE Intern - Assessment pending</p>'
-                                               '<button id="w" onclick="document.title = \'gone\'">Withdraw application</button><button>Start assessment</button><a href="/more">Details</a></main>'))
-        page.goto("https://www.amazon.jobs/applicant")
-        tools = {t.name: t for t in sitestatus._tools(page, tmp_path, {}, "amazon.jobs")}
-        assert set(tools) == {"read_page", "screenshot", "click", "goto", "report"}      # no filling, no uploading, no account tools
-        for kw in ({"selector": "#w"}, {"text": "Start assessment"}):
-            with pytest.raises(PermissionError):
-                tools["click"].fn(**kw)
-        assert page.title() != "gone"
-        with pytest.raises(PermissionError):
-            tools["goto"].fn(url="https://evil.example/")
-        assert "amazon.jobs/account" in tools["goto"].fn(url="https://account.amazon.jobs/account")
-        b.close()
+    page = tmp_path / "applications.html"
+    page.write_text("<main><h1>My applications</h1><p>SDE Intern - Assessment pending</p></main>", encoding="utf-8")
+    real = browser.open_page
 
+    @contextmanager
+    def open_page(site, **kw):
+        with real(None) as p:
+            yield p
 
-def test_an_account_offered_only_after_the_submission_is_taken_up_there(app_env, tmp_path, monkeypatch):
-    """A site that says "you can log in after submitting": the page that confirms the application offers the account.
-    It is signed in to (or created) there - unless the account is already known to work, or the page offers none."""
-    from playwright.sync_api import sync_playwright
+    monkeypatch.setattr(browser, "open_page", open_page)
+    monkeypatch.setattr(browser, "save_state", lambda *a, **k: None)
+    given = {}
 
-    from autoapply import auth, db, executor, generic
-    from autoapply.ats.base import JobRef
+    def agent(goal, tools, *, system, kind="", on_step=None, budget=None):
+        given.update(tools={t.name for t in tools}, goal=goal, kind=kind, read={t.name: t for t in tools}["read"].fn())
+        {t.name: t for t in tools}["report"].fn(signed_in=True, about=[7], reason="it waits for an assessment",
+                                                applications=[{"title": "SDE Intern", "status": "Assessment pending"}, {"status": "no title: not an application"}])
 
-    db.set_setting("repair.enabled", True)
-    ref = JobRef("generic", "www.careers.test", "", "https://www.careers.test/jobs/1", "www.careers.test")
-    calls, steps = [], []
-    monkeypatch.setattr(generic, "account_after_submit", lambda page, r, run_dir: calls.append(r.tenant_key) or {"ok": True, "notes": "signed in"})
-    step = lambda op, **kw: steps.append(op)  # noqa: E731
-    with sync_playwright() as pw:
-        b = pw.chromium.launch()
-        page = b.new_page()
-        page.set_content("<main><h1>Thanks for applying</h1><p>Your application has been received.</p><h2>Sign up for a Career Profile</h2><a href='#'>Log in</a></main>")
-        executor._finish_account(page, ref, step, tmp_path)
-        assert calls == [ref.tenant_key] and steps == ["account_after_submit"]
-        auth.upsert_account(ref.tenant_key, ats="generic", host=ref.host, status="ok")
-        executor._finish_account(page, ref, step, tmp_path)      # an account that works needs nothing
-        assert len(calls) == 1
-        b.close()
-    assert generic.ACCOUNT_OFFER.search("Already have a Career Profile? Log in") and not generic.ACCOUNT_OFFER.search("Thanks for applying. We will be in touch.")
-
-
-def test_a_control_that_shows_less_than_it_holds_is_taken_from_the_agent_that_chose_it():
-    """A phone-code list shows "+1" for "+1 / Canada". After the agent chose the approved entry there, "+1" is not a difference;
-    without the agent's word, or with something that is not part of the approved entry, it still is."""
-    from autoapply.executor import _not_vouched
-    from autoapply.ats.base import FormSchema, Question
-
-    schema = FormSchema(ats="generic", url="https://x", pages=["p"], questions=[
-        Question(id="code", label="Code", type="select", options=["+1 / United States", "+1 / Canada"]), Question(id="city", label="City", type="text"),
-        Question(id="name", label="Full name", type="text")])
-
-    code = {"id": "code", "label": "Code", "expected": "+1\nCanada", "actual": "+1"}
-    assert _not_vouched([code], ["code"], schema) == []
-    taken = []                                           # ... and what is let through on the agent's word is named, for the applicant to look at
-    assert _not_vouched([code, {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}], ["code", "city"], schema, taken)[0]["id"] == "city"
-    assert [b["id"] for b in taken] == ["code"]
-    assert _not_vouched([code], [], schema) == [code]
-    wrong = {**code, "actual": "+44"}
-    assert _not_vouched([wrong], ["code"], schema) == [wrong]
-    empty = {**code, "actual": ""}
-    assert _not_vouched([empty], ["code"], schema) == [empty]
-    plain = {"id": "city", "label": "City", "expected": "Vancouver", "actual": "Van"}
-    assert _not_vouched([plain], ["city"], schema) == [plain]
-    # a text box that holds a part of the approved text holds something else, whoever says it was fixed
-    name = {"id": "name", "label": "Full name", "expected": "John Smith", "actual": "John"}
-    assert _not_vouched([name], ["name"], schema) == [name]
+    monkeypatch.setattr(llm, "agent", agent)
+    out = sitestatus.read("generic:www.amazon.jobs", page.as_uri(), tmp_path / "visit", "The e-mail: ...")
+    assert {"look", "read", "controls", "click", "type", "script", "goto", "account", "type_password", "mail", "sign_in_by_hand", "note", "report"} <= given["tools"] and given["kind"] == "site_status"
+    assert "Assessment pending" in given["read"] and "The e-mail: ..." in given["goal"]
+    assert out == {"signed_in": True, "about": [7], "reason": "it waits for an assessment", "needs_applicant": "",
+                   "applications": [{"title": "SDE Intern", "job_id": "", "status": "Assessment pending", "date": ""}]}
 
 
 def test_nothing_the_server_starts_opens_a_console_window(monkeypatch):

@@ -129,12 +129,6 @@ def of_session(tenant: str, rules: list | None = None, _seen: tuple = ()) -> Sel
     for rule in rules:
         if rule.get("tenant") and rule["tenant"] in (tenant, key):
             return Selection(rule["backend"], f"tenant: {rule['tenant']}")
-    sites = db.get_setting("sso.sites") or {}
-    provider = sites.get(tenant) or sites.get(key)
-    if provider and f"idp:{provider}" not in _seen and not key.startswith("idp:"):
-        via = of_session(f"idp:{provider}", rules, (*_seen, f"idp:{provider}"))
-        if via is not None:
-            return Selection(via.backend, f"signs in through {provider}: {via.reason}")
     return None
 
 
@@ -146,3 +140,17 @@ def session_browser(tenant: str) -> str:
         return "playwright"
     found = of_session(tenant)
     return found.backend if found else "playwright"
+
+
+def remember(tenant: str, backend: str) -> bool:
+    """A site that an application got further on in ``backend``: the next task there starts in it. Only where the
+    applicant has no rule of their own for the site. Returns whether a rule was written."""
+    from . import db
+
+    if backend not in BACKENDS or not tenant:
+        return False
+    rules = list(db.get_setting("browser.rules") or [])
+    if any(r.get("tenant") == tenant for r in rules):
+        return False
+    db.set_setting("browser.rules", [*rules, {"tenant": tenant, "backend": backend, "operations": []}])
+    return True

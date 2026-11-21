@@ -79,28 +79,29 @@ function gmailClient(ev) {
   const fd = new FormData(); fd.append('file', f)
   run(() => api.upload('/settings/gmail-client', fd), '文件已保存，接着点“授权”', load)
 }
-const gmailAuth = () => run(() => api.post('/settings/gmail-authorize'), '已打开浏览器，请在里面完成 Google 授权（只读）', load)
+const gmailAuth = () => run(() => api.post('/settings/gmail-authorize'), '已打开浏览器，请在里面完成 Google 授权：把列出的几项权限都勾上', load)
 onMounted(load)
 </script>
 
 <template>
   <div v-if="d" class="card">
-    <div class="row"><span class="card-title grow">邮箱（只读）</span><span class="badge" :class="d.ready ? 'ok' : 'warn'">{{ d.ready ? '已连接' : '还没连接' }}</span></div>
-    <p class="muted">用来读取网站发来的验证码和激活链接，以及确认信、面试邀请、拒信，自动更新岗位状态。只读取，不会发送、删除、移动邮件，也不会把邮件标为已读。请填你投简历时用的那个邮箱。</p>
+    <div class="row"><span class="card-title grow">邮箱</span><span class="badge" :class="d.ready ? 'ok' : 'warn'">{{ d.ready ? '已连接' : '还没连接' }}</span></div>
+    <p class="muted">读信：读取网站发来的验证码和激活链接，以及确认信、面试邀请、拒信，自动更新岗位状态；不会删除、移动邮件，也不会把邮件标为已读。发信（只有 Gmail 的 Google 授权方式可以）：邮件投递的申请和给雇主的回复从这个邮箱发出，每一封都先记在程序里，发不发、先不先给你看由你在“自动化”里定。请填你投简历时用的那个邮箱。</p>
     <div class="kv">
       <label>哪种邮箱</label>
       <AaSelect v-model="pick" @change="fill">
-        <option value="gmail_api">Gmail（Google 授权，权限最小）</option>
+        <option value="gmail_api">Gmail（Google 授权，可以读信和发信）</option>
         <option v-for="p in d.presets" :key="p.key" :value="p.key">{{ p.name }}</option>
       </AaSelect>
     </div>
 
     <template v-if="pick === 'gmail_api'">
-      <p class="hint" style="margin: 12px 0">只申请“读取邮件”这一项权限。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；嫌麻烦可以在上面改选“Gmail（应用专用密码）”。</p>
+      <p class="hint" style="margin: 12px 0">授权时申请读取、发送、草稿和修改邮件标签这几项权限：读信用来跟踪申请的回信，发信用来替你发邮件投递的申请和回复雇主。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；处于测试状态的客户端不用另外配置权限，授权页上把列出的几项都勾上就行。授权过只读的，重新点一次“授权”。只想让程序读信的话，可以在上面改选“Gmail（应用专用密码）”，那样不能发信。</p>
       <div class="row">
         <FileButton accept=".json" @change="gmailClient"><Icon name="inbox" />选择 JSON 文件</FileButton>
         <button :disabled="!d.client" @click="gmailAuth">授权</button>
-        <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? '已授权' : d.client ? '文件已上传，还没授权' : '还没上传文件' }}</span>
+        <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? '已授权' : d.reconnect ? '授权已失效，请重新授权' : d.client ? '文件已上传，还没授权' : '还没上传文件' }}</span>
+        <span v-if="d.authorized" class="badge" :class="d.can_send ? 'ok' : 'warn'">{{ d.can_send ? '可以发信' : '只能读信：重新授权一次才能发信' }}</span>
       </div>
       <details class="tech"><summary>怎么拿到这个文件</summary><pre>在 Google Cloud 创建“桌面应用”类型的 OAuth 客户端，启用 Gmail API，下载 JSON 文件后在这里上传，再点“授权”。</pre></details>
     </template>

@@ -137,7 +137,7 @@ onMounted(load)
           <span class="small muted nowrap">{{ fmtTime(m.received_at) }}</span>
         </div>
       </div>
-      <EmptyState v-if="!(ov.mail_recent || []).length" icon="mail" title="还没有读到相关邮件" text="在设置里授权 Gmail（只读）后，确认信、面试和拒信会自动更新到岗位上。" />
+      <EmptyState v-if="!(ov.mail_recent || []).length" icon="mail" title="还没有读到相关邮件" text="在设置里连接邮箱后，确认信、面试和拒信会自动更新到岗位上。" />
     </div>
 
     <div class="card">

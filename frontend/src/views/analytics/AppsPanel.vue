@@ -10,11 +10,19 @@ import Icon from '../../components/Icon.vue'
 import Pager from '../../components/Pager.vue'
 import SplitBar from '../../components/SplitBar.vue'
 
-const props = defineProps({ d: { type: Object, required: true } })
+const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, default: () => ({ bucket: '' }) } })
 const t = computed(() => props.d.total)
 const STATE_COLOR = { silent: 'var(--chart-other)', receipt: 'var(--chart-soft)', assessment: 'var(--chart-1)', interview: 'var(--chart-deep)', offer: 'var(--ok)', rejected: 'var(--bad)', other: 'var(--neutral-soft)' }
 const states = computed(() => props.d.states.map((s) => ({ ...s, color: STATE_COLOR[s.key] })))
-const monthly = computed(() => props.d.by_month.map((m) => ({ label: m.label.slice(2).replace('-', '/'), value: m.n, tip: m.label + ' 投出' })))
+// how many were sent along the stretch of time the page is set to: by day, week or month (the server picks by the
+// length of the stretch unless one is chosen here)
+const SENT_TITLE = { hour: '今天每个小时投了多少', day: '每天投了多少', week: '每周投了多少', month: '每个月投了多少' }
+const SENT_SUB = { hour: '按投出的钟点（本地时间）', day: '按投出的日期（本地时间）', week: '按投出的那一周（周一起算，本地时间）', month: '按投出的月份（本地时间）' }
+const STEP_HEAD = { hour: '钟点', day: '日期', week: '哪一周（周一）', month: '月份' }
+const steps = computed(() => (props.d.by_time ? props.d.by_time.rows : []))
+const size = computed(() => (props.d.by_time ? props.d.by_time.bucket : 'month'))
+// (every step has its label; the chart shows as many of them as it has room for)
+const monthly = computed(() => steps.value.map((m) => ({ label: m.label, value: m.n, tip: m.key + ' 投出' })))
 const wait = computed(() => (props.d.median_wait_days == null ? '—' : props.d.median_wait_days ? props.d.median_wait_days + ' 天' : '当天'))
 const rateOf = (r) => (r.thin ? '—' : pct(r.decided, r.n) + '%')
 
@@ -22,8 +30,8 @@ const rateOf = (r) => (r.thin ? '—' : pct(r.decided, r.n) + '%')
 const asTable = ref(false)
 const page = ref(0)
 const SIZE = 6
-const months = computed(() => [...props.d.by_month].reverse())
-watch(() => props.d.by_month, () => { page.value = 0 })
+const months = computed(() => [...steps.value].reverse())
+watch(() => props.d.by_time, () => { page.value = 0 })
 </script>
 
 <template>
@@ -68,21 +76,22 @@ watch(() => props.d.by_month, () => { page.value = 0 })
     <div class="an-row c11">
       <div class="card">
         <div class="card-head">
-          <span class="card-title">每个月投了多少</span>
+          <span class="card-title">{{ SENT_TITLE[size] }}</span>
+          <div v-if="size !== 'hour'" class="seg" aria-label="按多长的时间看"><button v-for="[k, l] in [['', '自动'], ['day', '按天'], ['week', '按周'], ['month', '按月']]" :key="k" :class="{ on: params.bucket === k }" @click="params.bucket = k">{{ l }}</button></div>
           <div class="seg" role="tablist" aria-label="怎么看">
             <button role="tab" :aria-selected="!asTable" :class="{ on: !asTable }" @click="asTable = false"><Icon name="chart" />图表</button>
             <button role="tab" :aria-selected="asTable" :class="{ on: asTable }" @click="asTable = true"><Icon name="table" />表格</button>
           </div>
         </div>
-        <p class="card-sub">按投出的月份（本地时间）</p>
+        <p class="card-sub">{{ SENT_SUB[size] }}</p>
         <ColumnChart v-if="!asTable" :data="monthly" unit=" 个" :table="false" />
         <template v-else>
           <table class="an-table">
-            <thead><tr><th>月份</th><th class="num">投出</th><th class="num">其中已有实质结果</th><th class="num">当月收到的回复</th></tr></thead>
-            <tbody><tr v-for="m in months.slice(page * SIZE, (page + 1) * SIZE)" :key="m.label"><td>{{ m.label }}</td><td class="num">{{ m.n }}</td><td class="num">{{ m.decided }}</td><td class="num">{{ m.replies }}</td></tr></tbody>
+            <thead><tr><th>{{ STEP_HEAD[size] }}</th><th class="num">投出</th><th class="num">其中已有实质结果</th><th class="num">这段时间收到的回复</th></tr></thead>
+            <tbody><tr v-for="m in months.slice(page * SIZE, (page + 1) * SIZE)" :key="m.key"><td>{{ m.key }}</td><td class="num">{{ m.n }}</td><td class="num">{{ m.decided }}</td><td class="num">{{ m.replies }}</td></tr></tbody>
           </table>
           <Pager v-model:page="page" :size="SIZE" :total="months.length" />
-          <div class="card-foot"><span class="hint">前两列按投出的月份算（这个月投的后来怎么样）；最后一列按回复到达的月份算，不看是哪个月投的。</span></div>
+          <div class="card-foot"><span class="hint">前两列按投出的时间算（这段时间投的后来怎么样）；最后一列按回复到达的时间算，不看是什么时候投的。</span></div>
         </template>
       </div>
       <div class="card">

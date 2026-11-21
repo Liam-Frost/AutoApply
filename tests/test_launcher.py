@@ -91,8 +91,13 @@ def test_export_and_restore_round_trip(app_env, tmp_path, monkeypatch):
     (config.RUNS / "exec_1").mkdir(parents=True, exist_ok=True)
     (config.RUNS / "exec_1" / "shot.png").write_bytes(b"x" * 100)
     (config.SESSIONS / "site.enc").write_bytes(b"secret-session")
+    (config.DATA / "agent" / "app_1" / "shots").mkdir(parents=True, exist_ok=True)
+    (config.DATA / "agent" / "app_1" / "journal.jsonl").write_text('{"kind": "run"}\n', encoding="utf-8")
+    (config.DATA / "agent" / "app_1" / "shots" / "001.png").write_bytes(b"x" * 100)
     out = backup.export()
     names = zipfile.ZipFile(out["path"]).namelist()
+    # what the agent wrote down about an application goes with it (the next run takes it up from there); its pictures do not
+    assert "data/agent/app_1/journal.jsonl" in names and not any("shots" in n for n in names)
     assert "data/app.db" in names and "data/files/resume.pdf" in names and "knowledge/profile.md" in names and "manifest.json" in names
     assert not any(n.startswith(("data/runs", "data/sessions", "data/exports")) for n in names)       # no screenshots, no sign-ins unless asked
     with_sessions = backup.export(sessions=True)
@@ -178,3 +183,53 @@ def test_a_shortcut_is_written_without_another_program_and_carries_the_identity(
     got = winshell.read_shortcut(str(lnk))
     assert got["target"].lower() == sys.executable.lower() and got["arguments"] == "-m autoapply.launcher"
     assert got["workdir"] == str(tmp_path) and got["app_id"] == winshell.APP_ID
+
+def test_staged_restart_preserves_queued_work_and_rolls_back_on_failed_health(app_env, monkeypatch):
+    from pathlib import Path
+    from autoapply import launcher, tasks
+
+    class Server:
+        owned = True
+
+        def staged_release(self, marker="next-release"):
+            return Path("candidate") if marker == "next-release" else None
+
+        def preflight(self, release):
+            calls.append(("check", release))
+
+        def get(self, path):
+            return {"stopped": True, "running": [], "next": [1]} if path == "/api/queue" else []
+
+        def stop(self):
+            calls.append(("stop", None))
+            self.owned = False
+
+        def start(self, release, *, standby=False):
+            calls.append(("start", release))
+            self.owned = release != Path("candidate")
+
+        def up(self):
+            return False
+
+    calls = []
+    monkeypatch.setattr(launcher, "Server", lambda port: Server())
+    tray = launcher.Launcher()
+    tasks.enqueue("mail", ref="preserved")
+    tray._restart_lock.acquire()
+    tray._restart_when_idle()
+    assert calls == [("check", Path("candidate")), ("stop", None), ("start", Path("candidate")),
+                     ("stop", None), ("start", launcher.config.ROOT)]
+    assert tasks.plan()["next_total"] == 1
+
+
+def test_a_restart_can_be_asked_for_from_outside_the_menu(app_env, monkeypatch):
+    from autoapply import config, launcher
+
+    tray = launcher.Launcher(1)
+    calls = []
+    monkeypatch.setattr(tray, "restart", lambda *a: calls.append(1))
+    assert tray.asked_to_restart() is False and not calls
+    asked = config.DATA / "run" / "restart-request"
+    asked.parent.mkdir(parents=True, exist_ok=True)
+    asked.write_text("x", encoding="utf-8")
+    assert tray.asked_to_restart() is True and calls == [1] and not asked.exists()

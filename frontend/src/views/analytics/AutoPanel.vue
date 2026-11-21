@@ -26,6 +26,7 @@ const trend = computed(() => props.d.trend.map((b) => ({ key: b.key, label: b.la
 const parts = (k) => [{ key: 'success', label: '完成', value: k.success, color: 'var(--ok)' }, { key: 'unfinished', label: '没做完', value: k.unfinished, color: 'var(--warn)' },
   { key: 'failed', label: '失败', value: k.failed + k.interrupted, color: 'var(--bad)' }]
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
+// by recruiting system: what the short figures stand for, in whole sentences
 const count = (v) => String(Math.round(v))
 const TONE = { success: 'ok', handed: 'warn', unknown: 'warn', waiting: 'warn', rerun: 'warn', running: 'info', failed: 'bad', interrupted: 'bad', cancelled: '', skipped: '' }
 const unfinishedTip = computed(() => `填好等你提交 ${t.value.handed}，点了提交、结果待确认 ${t.value.unknown}，等你处理（登录、验证码）${t.value.waiting}，改为可见窗口重跑 ${t.value.rerun}，进行中 ${t.value.running}`)
@@ -105,16 +106,6 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </Transition>
     </div>
 
-    <div v-if="d.stages.length" class="card">
-      <div class="card-title">失败停留在哪个阶段</div>
-      <p class="card-sub">失败的任务当时做到了哪一步，各步上停下的次数。</p>
-      <div class="stages">
-        <div v-for="x in d.stages" :key="x.key" class="stage" :class="{ unknown: !x.recorded }" :title="x.recorded ? `${x.stage}：${x.n} 次，占失败的 ${pct(x.n, failed)}%` : `${x.n} 次失败没有记录做到了哪一步：这个版本之前只有填表会记步骤`">
-          <div class="v">{{ x.n }}</div><div class="k">{{ x.stage }}</div><span class="meter"><i :style="{ width: pct(x.n, failed) + '%' }"></i></span>
-        </div>
-      </div>
-    </div>
-
     <div class="card">
       <div class="card-title">各类任务的表现</div>
       <p class="card-sub">耗时取完成和失败的任务的中位数；AI 成本是这类任务的全部花费（失败的也算），除以完成的次数。</p>
@@ -140,6 +131,26 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
         同一个对象被重复执行：{{ d.repeats.objects }} 个对象多跑了 {{ d.repeats.extra_runs }} 次；其中程序自己安排的重试 {{ d.repeats.auto_retries }} 次，被中断后重新开始 {{ d.repeats.restarted }} 次。
         这里没有“节省了多少小时”：程序没有记录人工做同样的事要多久，不拿估计数冒充。
       </p>
+    </div>
+
+    <div v-if="d.applications && d.applications.worked" class="card">
+      <div class="card-title">按一份申请算
+        <Explain>上面的数字按“一次运行”算；一份申请可能要好几次运行（等你回答、等你登录、预算用完接着做）。这里把同一份申请的运行合在一起看。只算已经有结果的申请：还在等你回答或登录的、还在做的，不进任何一个分母。</Explain></div>
+      <p class="card-sub">这段时间里 Agent 处理过 {{ d.applications.worked }} 份申请。次数少的时候百分比说明不了什么，所以每个比例下面都写着“几份里有几份”。</p>
+      <div class="kpis">
+        <div class="kpi"><div class="n" :class="{ na: d.applications.prepared.rate == null }">{{ rate(d.applications.prepared.rate) }}</div><div class="l">准备成功</div>
+          <div class="d">{{ d.applications.prepared.n }} / {{ d.applications.prepared.of }} 份</div>
+          <Explain>做到了“只差最后一下提交”（或者已经提交）的申请 ÷（这些 + 没做成的）。没做成 = Agent 说做不了、连续停在同一个地方、或者任务出错。</Explain></div>
+        <div class="kpi"><div class="n" :class="{ na: d.applications.alone.rate == null }">{{ rate(d.applications.alone.rate) }}</div><div class="l">不需要你（登录除外）</div>
+          <div class="d">{{ d.applications.alone.n }} / {{ d.applications.alone.of }} 份</div>
+          <Explain>准备成功的申请里，途中没有问过你问题、没有被你叫停、也没有卡住过的。只有你本人能做的登录不算在内。</Explain></div>
+        <div class="kpi"><div class="n" :class="{ na: d.applications.sent.rate == null }">{{ rate(d.applications.sent.rate) }}</div><div class="l">该提交的，提交成功并留了证据</div>
+          <div class="d">{{ d.applications.sent.n }} / {{ d.applications.sent.of }} 份</div>
+          <Explain>你批准过的、或者按“没有未决问题就直接提交”由 Agent 自己提交的申请里，已经发出并且留有确认页原话或确认邮件的。还在路上的不算。</Explain></div>
+        <div class="kpi"><div class="n" :class="{ na: d.applications.median_s == null }">{{ dur(d.applications.median_s) }}</div><div class="l">一份申请用时（中位数）</div>
+          <div class="d">{{ d.applications.median_tokens ? `AI 用量约 ${compact(d.applications.median_tokens)} tokens` : '没有记录到 AI 用量' }}</div>
+          <Explain>一份申请的所有运行加在一起；只算准备成功的。</Explain></div>
+      </div>
     </div>
 
     <div class="card">

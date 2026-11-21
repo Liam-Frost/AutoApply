@@ -1,7 +1,9 @@
 """Numbers for the analysis page: three views over one time window.
 
 * ``applications`` - what came of the applications that were sent;
-* ``automation``   - what the program's tasks (workflow executions) did, and where they failed;
+* ``automation``   - what the program's tasks (workflow executions) did, and where they failed - and, by application
+                     rather than by run (``_applications``): how many were prepared, how many without the applicant,
+                     how many of those to be sent went out with their evidence, what one application takes;
 * ``ai``           - what the model calls used and what they cost, by model, by feature and per result.
 
 Rules that hold everywhere:
@@ -23,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
 from . import db, humanize, llm, metering, stages
-from .models import SENT, Application, ApplicationEvent, Job, LLMRequest, MailEvent, Run, Task
+from .models import SENT, Application, ApplicationEvent, Draft, Job, LLMRequest, MailEvent, Run, Task
 
 MIN_SAMPLE = 5          # a share over fewer applications than this is not shown as a percentage
 POSITIVE = ("assessment", "interview", "offer")
@@ -147,7 +149,43 @@ def sent_summary() -> dict[str, int]:
     return out
 
 
-def applications(w: Window) -> dict[str, Any]:
+def _through_time(w: Window, sent: list[tuple[datetime, bool]], replies: list[datetime], bucket: str) -> dict[str, Any]:
+    """Applications sent, and replies that arrived, along the window: by day, week or month - by the length of the
+    window unless ``bucket`` says which. Every step of the stretch is there, also those in which nothing was sent: a
+    week without an application is part of the picture."""
+    size, key = _bucket_fn(w, [t for t, _ in sent] + replies, bucket)
+    one_day = w.lo is not None and w.hi is not None and w.hi - w.lo <= timedelta(days=1)
+    if one_day:      # a single day is looked at by the hour - and only a single day is
+        size = "hour"
+
+        def key(dt: datetime) -> tuple[str, str]:  # noqa: F811
+            d = _local(dt)
+            return d.strftime("%Y-%m-%d %H:00"), d.strftime("%H:00")
+    rows: dict[str, dict[str, Any]] = {}
+
+    def at(t: datetime) -> dict[str, Any]:
+        k, label = key(t)
+        return rows.setdefault(k, {"key": k, "label": label, "n": 0, "decided": 0, "replies": 0})
+
+    for t, decided in sent:
+        r = at(t)
+        r["n"] += 1
+        r["decided"] += int(decided)
+    for t in replies:
+        at(t)["replies"] += 1
+    times = [t for t, _ in sent] + replies
+    lo = w.lo or (min(times) if times else None)
+    hi = min(w.hi or datetime.now(timezone.utc).replace(tzinfo=None), datetime.now(timezone.utc).replace(tzinfo=None))
+    step = lo
+    while step is not None and step <= hi and len(rows) < 800:      # the steps in which nothing happened
+        at(step)
+        step += timedelta(hours=1) if size == "hour" else timedelta(days=1 if size == "day" else 7 if size == "week" else 28)
+    if lo is not None:
+        at(hi)
+    return {"bucket": size, "rows": [rows[k] for k in sorted(rows)]}
+
+
+def applications(w: Window, bucket: str = "") -> dict[str, Any]:
     """What came of the applications sent in the window (a cohort by the day of sending). Archived jobs are included:
     this is about what happened, not about what is still open."""
     coverage = sent_summary()
@@ -169,14 +207,16 @@ def applications(w: Window) -> dict[str, Any]:
                 "status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or "未标注",
                 "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else "雇主官网"),
                 "auto": bool(a.auto_approved), "wait": (decisions[0] - sub_at).days if decisions else None,
-                "lead": (sub_at - _naive(j.first_seen)).days if j.first_seen else None, "month": _local(sub_at).strftime("%Y-%m"),
+                "lead": (sub_at - _naive(j.first_seen)).days if j.first_seen else None, "month": _local(sub_at).strftime("%Y-%m"), "at": sub_at,
                 "progressed": progressed, "decided": decided, "heard": heard, "offer": a.status == "offer" or "offer" in been[a.id]})
         # replies by the day they arrived (not by the day the application was sent)
         reply_months: dict[str, int] = defaultdict(int)
+        reply_times: list[datetime] = []
         for aid, lst in mails.items():
             for c, t in lst:
                 if c in DECISION_MAIL and w.has(t):
                     reply_months[_local(t).strftime("%Y-%m")] += 1
+                    reply_times.append(t)
         missed = []
         for j in s.query(Job).filter(Job.duplicate_of.is_(None), Job.score >= 7.5):
             st = stages.stage(j.status, bool(j.online), j.deadline or "", j.application.status if j.application else None)
@@ -223,6 +263,7 @@ def applications(w: Window) -> dict[str, Any]:
         "rejected_after_progress": sum(1 for r in apps if r["status"] == "rejected" and r["progressed"]),
         "median_wait_days": waits[len(waits) // 2] if waits else None, "waited": len(waits), "median_lead_days": leads[len(leads) // 2] if leads else None,
         "by_score": by(band, ["9–10", "8–8.5", "7–7.5", "6–6.5", "6 以下", "没评分"]), "by_channel": by(lambda r: r["channel"]), "by_direction": by(lambda r: r["direction"])[:8],
+        "by_time": _through_time(w, [(r["at"], bool(r["decided"])) for r in apps], reply_times, bucket),
         "by_month": [{"label": m, **(per_month.get(m) or {**rate([]), "thin": True}), "replies": reply_months.get(m, 0)} for m in months],
         "auto": {"auto": sum(1 for r in apps if r["auto"]), "manual": sum(1 for r in apps if not r["auto"])},
         "missed": missed[:12], "missed_total": len(missed),
@@ -231,7 +272,7 @@ def applications(w: Window) -> dict[str, Any]:
 
 # --- tasks: what a workflow execution came to ----------------------------------------------------
 
-OUTCOMES = {"success": "完成", "handed": "填好，等你提交", "unknown": "点了提交，结果待确认", "waiting": "等你处理", "rerun": "改为可见窗口重跑", "failed": "失败", "interrupted": "被中断",
+OUTCOMES = {"success": "完成", "handed": "准备好，等你", "unknown": "点了提交，结果待确认", "waiting": "等你处理", "rerun": "接着做", "failed": "失败", "interrupted": "被中断",
             "cancelled": "已取消", "skipped": "没有要做的", "running": "进行中"}
 UNFINISHED = ("handed", "unknown", "waiting", "rerun", "running")       # not a failure: the next move is yours, or it is still going
 # (not counted either way: the task was called off, or found that there was nothing for it to do)
@@ -256,7 +297,18 @@ def outcome(kind: str, status: str, result: dict[str, Any] | None, error: str) -
         return "cancelled"
     if status == "failed":
         return "interrupted" if "interrupted" in (error or "") else "failed"
-    if kind == "execute":
+    if kind == "apply":
+        # One run of the agent on an application. A success is an application that went out in this run; a record that
+        # waits for the applicant (their approval, their answers, their press of the last button) is theirs to move;
+        # a run that used its share of the budget and is taken up again is neither.
+        st = str((result or {}).get("status") or "")
+        if (result or {}).get("already_applied") or (result or {}).get("skipped"):
+            return "skipped"
+        if st == "stopped":
+            return "cancelled"
+        return {"submitted": "success", "not_sent": "success", "ready": "handed", "needs_input": "handed", "submit_unknown": "unknown", "goes_on": "rerun",
+                "cannot": "failed", "gone": "skipped", "stuck": "failed", "budget_used": "failed"}.get(st, "success")
+    if kind == "execute":      # (the kinds of earlier versions, for the history)
         # A filling task counts as a success when THIS run got the application submitted - not when the task ended
         # without an error. A task that found the application already sent (a retry, a task that was still queued)
         # answers with where the application stands and submitted nothing: it was counted among the successes. And
@@ -389,12 +441,78 @@ def runs(w: Window, *, kind: str = "", outcome: str = "", offset: int = 0, limit
     return {"total": len(rows), "offset": max(0, int(offset or 0)), "limit": limit, "rows": out}
 
 
+def _applications(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """How the agent does, counted by application and not by run - an application takes as many runs as it takes.
+    From the applications a run worked in the window:
+
+    - prepared: the application was brought to where one press sends it (a record with nothing open), or sent. Of
+      those that came to an end either way: an application that still waits for an answer or a sign-in, or is still
+      being worked, is in neither count;
+    - without you: of the prepared ones, those that got there with no question to the applicant, no stop on their
+      word and nothing the agent could not do (a sign-in only they can make is not counted against it);
+    - sent: of the applications that were to be sent - approved by the applicant, or sent by the agent itself under
+      "send when nothing is open" - those that are out with the confirmation kept as evidence. One that is still on
+      its way is not counted;
+    - for one application: the time and the model's tokens of all its runs together, the median over the prepared ones.
+    """
+    from . import lifecycle
+    from .models import SENT, UNKNOWN
+
+    apps_of_job = {job_id: (app_id, status, bool(auto), dict(ev or {})) for app_id, job_id, status, auto, ev in
+                   s.query(Application.id, Application.job_id, Application.status, Application.auto_approved, Application.evidence)}
+    job_of_app = {v[0]: k for k, v in apps_of_job.items()}
+    drafts = {d_id: (app_id, review) for d_id, app_id, review in s.query(Draft.id, Draft.application_id, Draft.review_status)}
+
+    def posting(ref: str) -> int | None:
+        kind, _, rest = (ref or "").partition(":")
+        num = rest.split(":")[0]
+        if not num.isdigit():
+            return None
+        n = int(num)
+        return n if kind == "job" else job_of_app.get(n) if kind == "application" else job_of_app.get(drafts.get(n, (None, ""))[0]) if kind == "draft" else None
+
+    runs: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for r in sorted(rows, key=lambda r: (r["at"], r["id"])):
+        job = posting(r["ref"]) if r["kind"] in lifecycle.WORK and r["kind"] != "tailor" else None
+        # (a run the applicant stopped is no success and no failure of a run - and it is part of what its application took)
+        if job in apps_of_job and (r["outcome"] not in NOT_COUNTED or str((r["result"] or {}).get("status") or "") == "stopped"):
+            runs[job].append(r)
+    approved = {app_id for app_id, review in drafts.values() if review == "approved"}
+    prepared, failed, alone, to_send, sent, took, used = 0, 0, 0, 0, 0, [], []
+    for job, rs in runs.items():
+        app_id, status, auto, ev = apps_of_job[job]
+        said = [str((r["result"] or {}).get("status") or "") for r in rs]
+        got_there = any(x in ("ready", "submitted") for x in said) or status in SENT
+        if got_there:
+            prepared += 1
+            alone += not any(x in ("needs_input", "cannot", "stuck", "budget_used", "stopped") for x in said)
+            took.append(sum(r["duration"] or 0 for r in rs))
+            tokens = sum(ai[r["id"]]["tokens"] for r in rs if r["id"] in ai)
+            if tokens:
+                used.append(float(tokens))
+        elif rs[-1]["outcome"] in ("failed", "interrupted"):
+            failed += 1
+        if app_id in approved or auto or status in SENT:
+            if status in SENT:
+                to_send += 1
+                sent += bool(str(ev.get("text") or "").strip() or ev.get("mail_id") or ev.get("mail_ids"))
+            elif status in ("failed", UNKNOWN):
+                to_send += 1
+
+    def share(n: int, of: int) -> dict[str, Any]:
+        return {"n": n, "of": of, "rate": round(n / of, 4) if of else None}
+
+    return {"worked": len(runs), "prepared": share(prepared, prepared + failed), "alone": share(alone, prepared), "sent": share(sent, to_send),
+            "median_s": _median(sorted(took)), "median_tokens": _median(sorted(used))}
+
+
 def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
     """What the program's tasks did in the window (by the day a task started)."""
     with db.session() as s:
         rows = _task_rows(s, w)
         prev_n = sum(1 for t in s.query(Task.started_at, Task.created_at) if w.had(_naive(t[0] or t[1]))) if w.prev_lo is not None else None
         ai = _ai_by_task(s, [r["id"] for r in rows])
+        applications = _applications(s, rows, ai)
         kinds = sorted({r["kind"] for r in rows}, key=lambda k: -sum(1 for r in rows if r["kind"] == k))
         shown = [r for r in rows if not kind or r["kind"] == kind]
         recent = sorted(shown, key=lambda r: (r["at"], r["id"]), reverse=True)[:8]
@@ -421,7 +539,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
                         # everything spent on this kind of task, the failed runs included, over the ones that succeeded
                         # (a lower bound when some of its requests have no cost: the page shows it as "at least")
                         "cost_per_success": round(a["cost"] / c["success"]) if a["cost"] is not None and c["success"] else None,
-                        "waits_for_you": k == "execute"})
+                        "waits_for_you": k in ("apply", "execute")})
     bad = [r for r in shown if r["outcome"] in ("failed", "interrupted")]
     # Every failure is in exactly one category; inside it, the sentences the program shows are counted one by one and an
     # example of the raw text is kept, so nothing of the old list is lost - it is one level down.
@@ -458,6 +576,7 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
                     "auto_retries": sum(1 for r in shown if r["auto_retry"]), "restarted": sum(1 for r in shown if r["attempts"] > 1)},
         "outcomes": OUTCOMES,
         "recent": [_run_row(r, ai, subjects.get(r["id"], "")) for r in recent], "recent_total": len(shown),
+        "applications": applications,      # (by application, whatever ``kind`` narrows the rest to)
     }
 
 
@@ -465,61 +584,6 @@ def automation(w: Window, *, kind: str = "") -> dict[str, Any]:
 
 BILLING = {"metered": "按量计费", "subscription": "订阅内（不另收费）", "local": "本机模型（免费）", "unknown": "没有记录"}
 TOKEN_KINDS = (("input", "输入"), ("cache_read", "缓存读取"), ("cache_write", "缓存写入"), ("output", "输出"))
-
-
-# --- where the time of the runs went (timing.py), and what was learned from it (learned.py) ---
-
-
-def _sites() -> list[dict[str, Any]]:
-    """The sites something was learned about (how they are worked): for the analysis page."""
-    from . import sites
-
-    return [r for r in sites.listing() if r["notes"] or r["steps"] or r["revisions"]]
-
-
-def timing_overview(w: Window, *, ats: str = "", limit: int = 2000) -> dict[str, Any]:
-    """Runs that filled a form, in the window: how long they took without the applicant's own time, by what the
-    time was spent on, per system over time, and the runs themselves."""
-    from . import humanize, learned, timing
-    from .models import Run
-
-    with db.session() as s:
-        rows = [r for r in s.query(Run).filter(Run.kind == "execute", Run.spans.isnot(None)).order_by(Run.id.desc()).limit(2000) if w.has(_naive(r.created_at)) and (not ats or r.ats == ats)]
-        runs = [{"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "learned": list(r.learned or []),
-                 "working_ms": timing.working_ms(r.spans or []), "totals": timing.totals(r.spans or []), "takeovers": sum(1 for st in (r.steps or []) if st.get("op") == "repair")} for r in rows]
-    systems: dict[str, list[dict[str, Any]]] = {}
-    for r in runs:
-        systems.setdefault(r["ats"], []).append(r)
-    by_system = []
-    for name, rs in sorted(systems.items(), key=lambda kv: -len(kv[1])):
-        weeks: dict[str, list[dict[str, Any]]] = {}
-        for r in rs:
-            local = _local(datetime.fromisoformat(r["at"]))
-            start = (local - timedelta(days=local.weekday())).date().isoformat()
-            weeks.setdefault(start, []).append(r)
-        trend = [{"week": k, "runs": len(v), "median_ms": int(_median([x["working_ms"] for x in v]) or 0), "ok": sum(1 for x in v if x["ok"]),
-                  **{kind: int(_median([x["totals"][kind] for x in v]) or 0) for kind in ("site", "driver", "ai", "tool")}} for k, v in sorted(weeks.items())]
-        by_system.append({"ats": name, "runs": len(rs), "ok": sum(1 for x in rs if x["ok"]), "median_ms": int(_median([x["working_ms"] for x in rs]) or 0),
-                          "takeovers": round(sum(x["takeovers"] for x in rs) / len(rs), 1), "trend": trend})
-    revs = [{**{k: v.get(k) for k in ("id", "kind", "target", "title", "why", "expected", "status", "why_status", "created", "from_run", "version", "strikes", "baseline")},
-             "trials": len(v.get("trials") or []), "good": sum(1 for t in v.get("trials") or [] if t.get("ok") and t.get("used")),
-             "median_ms": int(_median([t["ms"] for t in v.get("trials") or [] if t.get("ok") and t.get("used")]) or 0)} for v in reversed(learned.revisions())]
-    return {"window": w.describe(), "runs": runs[:limit], "count": len(runs), "systems": by_system, "learned": revs,
-            "mode": db.get_setting("learned.mode") or "auto", "enabled": bool(db.get_setting("learned.enabled")), "share": db.get_setting("learned.share") or "ask", "sites": _sites()}
-
-
-def timing_run(run_id: int) -> dict[str, Any]:
-    """One run: its spans in order, what stands out in it, and what was learned that was in force."""
-    from . import humanize, improve, learned
-    from .models import Run
-
-    with db.session() as s:
-        r = s.get(Run, run_id)
-        if r is None or r.spans is None:
-            raise KeyError(run_id)
-        out = {"id": r.id, "at": r.created_at.isoformat(), "ats": r.ats, "site": r.site or "", "ok": bool(r.ok), "subject": humanize.subject(r.ref), "spans": list(r.spans or []),
-               "learned": [{"id": i, "title": (learned.get(i) or {}).get("title", ""), "status": (learned.get(i) or {}).get("status", "")} for i in (r.learned or [])]}
-    return {**out, "review": improve.review(run_id)}
 
 
 def _provider_label(p: str) -> str:
@@ -675,9 +739,10 @@ def ai(w: Window, *, group: str = "model", bucket: str = "", provider: str = "",
     ok = lambda t: 1 if t["outcome"] == "success" else 0  # noqa: E731
     units = [u for u in (
         unit("score", "给岗位评分", "评完分的岗位", "每个评完分的岗位", lambda t: int(t["result"].get("scored") or (1 if t["outcome"] == "success" and "score" in t["result"] else 0))),
-        unit("recon", "读取申请表、生成草案", "生成的草案", "每份生成的草案", ok),
-        unit("execute", "填写申请表", "填好的申请表（已提交或交给你提交）", "每份填好的申请表", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
-        unit("revise", "按意见修改草案", "完成的修改", "每次完成的修改", ok), unit("tailor", "按岗位调整简历", "调整好的简历", "每份调整好的简历", ok),
+        unit("apply", "做一份申请", "做完的申请（已提交，或准备好等你）", "每份做完的申请", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("recon", "读取申请表、生成草案（旧流程）", "生成的草案", "每份生成的草案", ok),
+        unit("execute", "填写申请表（旧流程）", "填好的申请表（已提交或交给你提交）", "每份填好的申请表", lambda t: 1 if t["outcome"] in ("success", "handed") else 0),
+        unit("tailor", "按岗位调整简历", "调整好的简历", "每份调整好的简历", ok),
         unit("mail", "查收邮件", "处理的新邮件", "每封处理的新邮件", lambda t: int(t["result"].get("new_mail") or 0)),
     ) if u]
 

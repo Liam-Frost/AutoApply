@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Job Application for Backend Developer Co-op at Fabrikam</title>
+<!--
+  A single-page application form of the kind a recruiting system serves inside a frame on the employer's own site
+  (the posting's page is on another origin and shows this one in a frame):
+  - boxes the page is in charge of: what they hold is what the page heard typed, not what was put into them from outside;
+  - a file field that is there without being seen, behind an "Attach" label; a second, optional one that stays empty;
+  - three link fields, of which the applicant has two;
+  - a free-text question to be answered from the résumé and the posting;
+  - nothing the applicant's profile does not answer: a run told to send when nothing is open sends;
+  - a thank-you page with a reference number.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #222; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px 20px 60px; }
+  label.f { display: block; margin: 14px 0 4px; font-weight: 600; }
+  input[type=text], textarea, select { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #aaa; border-radius: 4px; font: inherit; }
+  .file { position: relative; display: inline-block; }
+  .file input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+  .file span { display: inline-block; border: 1px solid #1a7f37; color: #1a7f37; border-radius: 4px; padding: 6px 14px; }
+  .err { color: #b00; } button { background: #1a7f37; color: #fff; border: 0; border-radius: 4px; padding: 10px 18px; font: inherit; margin-top: 20px; cursor: pointer; }
+  small { color: #666; }
+</style>
+<main id="root"></main>
+<script>
+const NAME = 'embedded';
+const S = { first: '', last: '', email: '', phone: '', resume: '', cover: '', linkedin: '', website: '', github: '', why: '', authorized: '', sponsorship: '', gender: '', disability: '', consent: false, submitted: false };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const post = (what) => fetch('/__/' + what + '?form=' + NAME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S) }).catch(() => {});
+const text = (k, label, req) => `<label class="f" for="${k}">${label}${req ? ' *' : ''}</label><input type="text" id="${k}" data-k="${k}" value="${esc(S[k])}">`;
+const pick = (k, label, opts, req) => `<label class="f" for="${k}">${label}${req ? ' *' : ''}</label><select id="${k}" data-k="${k}">${['', ...opts].map((o) => `<option ${S[k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+
+function render(err) {
+  const root = document.getElementById('root');
+  if (S.submitted) { root.innerHTML = '<h1>Thank you for applying to Fabrikam</h1><p>Your application for <b>Backend Developer Co-op</b> has been received. Reference: <b>FBK-48213</b>.</p>'; return; }
+  root.innerHTML = `<h1>Apply for this job</h1><small>* required</small>
+    ${text('first', 'First Name', 1)}${text('last', 'Last Name', 1)}${text('email', 'Email', 1)}${text('phone', 'Phone', 1)}
+    <label class="f">Resume/CV *</label><div class="file"><span>Attach</span><input type="file" id="resume" aria-label="Resume/CV"></div> <span id="resume-name">${esc(S.resume)}</span>
+    <label class="f">Cover Letter</label><div class="file"><span>Attach</span><input type="file" id="cover" aria-label="Cover Letter"></div> <span id="cover-name">${esc(S.cover)}</span>
+    ${text('linkedin', 'LinkedIn Profile')}${text('website', 'Website')}${text('github', 'GitHub')}
+    <label class="f" for="why">Why do you want to work at Fabrikam? *</label><textarea id="why" data-k="why" rows="6">${esc(S.why)}</textarea><small>Up to 1500 characters.</small>
+    ${pick('authorized', 'Are you legally authorized to work in Canada?', ['Yes', 'No'], 1)}
+    ${pick('sponsorship', 'Will you now or in the future require sponsorship for employment visa status?', ['Yes', 'No'], 1)}
+    <h3>Voluntary Self-Identification</h3>
+    ${pick('gender', 'Gender', ['Male', 'Female', 'Decline To Self Identify'])}
+    ${pick('disability', 'Disability Status', ['Yes, I have a disability, or have had one in the past', 'No, I do not have a disability and have not had one in the past', 'I do not want to answer'])}
+    <p><label><input type="checkbox" id="consent" ${S.consent ? 'checked' : ''}> I have read and agree to the candidate privacy notice. *</label></p>
+    <div class="err" id="err">${esc(err || '')}</div>
+    <button id="go" type="button">Submit Application</button>`;
+  // the page keeps what it HEARD typed or chosen: a value put into a box from outside, without the box's own events, is not kept
+  root.querySelectorAll('[data-k]').forEach((e) => e.addEventListener(e.tagName === 'SELECT' ? 'change' : 'input', () => { S[e.dataset.k] = e.value; }));
+  document.getElementById('consent').addEventListener('change', (ev) => { S.consent = ev.target.checked; });
+  for (const k of ['resume', 'cover']) document.getElementById(k).addEventListener('change', (ev) => { const f = ev.target.files[0]; S[k] = f ? f.name : ''; document.getElementById(k + '-name').textContent = S[k]; });
+  document.getElementById('go').onclick = () => {
+    const miss = [['first', 'First Name'], ['last', 'Last Name'], ['email', 'Email'], ['phone', 'Phone'], ['resume', 'Resume/CV'], ['why', 'Why do you want to work at Fabrikam?'], ['authorized', 'Work authorization'], ['sponsorship', 'Sponsorship']].filter(([k]) => !S[k]).map(([, n]) => n);
+    if (!S.consent) miss.push('Privacy notice');
+    if (S.why.length > 1500) miss.push('Why (at most 1500 characters)');
+    if (miss.length) return render('Please complete: ' + miss.join('; '));
+    S.submitted = true; post('submit'); render();
+  };
+}
+render();
+</script>

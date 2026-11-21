@@ -56,6 +56,9 @@ class Job(Base):
     tenant: Mapped[str] = mapped_column(String, default="")
     docs_required: Mapped[str] = mapped_column(String, default="")
     jd_text: Mapped[str] = mapped_column(Text, default="")
+    # "" when jd_text is the posting as its source gave it; "summary" when the source gave only a summary; "cut" when
+    # the text was longer than is kept; "whole" when it was read from the posting's own page (fulltext.py)
+    jd_partial: Mapped[str] = mapped_column(String, default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     brief: Mapped[str] = mapped_column(Text, default="")  # detailed Markdown overview written when the job is scored
     duplicate_of: Mapped[int | None] = mapped_column(Integer, nullable=True)  # id of the job this is another listing of (see discover.link_duplicates)
@@ -69,6 +72,8 @@ class Job(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     first_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # when a reading of its own listing first did not show it (cleared when one shows it again) - see discover.upsert
+    missed_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     application: Mapped["Application | None"] = relationship(back_populates="job", uselist=False)
 
@@ -179,7 +184,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String)  # discover|score|recon|revise|execute|mail|canary|profile_init
+    kind: Mapped[str] = mapped_column(String)  # discover|score|apply|tailor|mail|site_status|profile_init (and, in the history, the kinds of earlier versions)
     status: Mapped[str] = mapped_column(String, default="queued")  # queued|running|done|failed|waiting_human|cancelled
     ref: Mapped[str] = mapped_column(String, default="")  # e.g. "job:12", "draft:4"
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -206,7 +211,7 @@ class Run(Base):
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     spans: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)      # where the time went (timing.py)
     site: Mapped[str | None] = mapped_column(String, nullable=True)                       # the site the form is on (a plan and notes are per site)
-    learned: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)                # what the program had learned that was in force (learned.py)
+    learned: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)                # (earlier versions: what had been learned that was in force)
     llm_calls: Mapped[int] = mapped_column(Integer, default=0)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -263,9 +268,9 @@ class Site(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)          # "generic:careers.acme.com", "workday:acme.wd1", "idp:google"
     same_as: Mapped[str] = mapped_column(String, default="")            # the site whose sign-in this one uses
-    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, driver_written
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)             # sso_offered, needs_window, session_browser, sign_in_hosts, second_factor (sites.FACTS)
     notes: Mapped[list] = mapped_column(JSON, default=list)             # [{"at": "2026-11-17", "text": ...}], newest first
-    steps: Mapped[dict] = mapped_column(JSON, default=dict)             # the steps of its form (siteplan.py)
+    steps: Mapped[dict] = mapped_column(JSON, default=dict)             # (earlier versions: the steps of its form)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 
 
@@ -302,11 +307,35 @@ class Contact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class Outgoing(Base):
+    """A mail the program wrote for the applicant (outbox.py): an application sent by e-mail, a reply to an employer."""
+    __tablename__ = "outgoing"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String, default="application")  # application | reply
+    to: Mapped[str] = mapped_column(String, default="")
+    cc: Mapped[str] = mapped_column(String, default="")
+    subject: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # [{name, path}]
+    in_reply_to: Mapped[str] = mapped_column(String, default="")  # the mailbox's id of the mail this answers
+    status: Mapped[str] = mapped_column(String, default="draft")  # draft | sending | sent | failed | discarded
+    error: Mapped[str] = mapped_column(Text, default="")
+    todo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # the card that asked for it (a reply)
+    message_id: Mapped[str] = mapped_column(String, default="")  # the mailbox's id of the mail once sent: the evidence that it went
+    thread_id: Mapped[str] = mapped_column(String, default="")
+    sent_from: Mapped[str] = mapped_column(String, default="")
+    sent_by: Mapped[str] = mapped_column(String, default="")  # user | auto
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Todo(Base):
     __tablename__ = "todos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String)  # login|captcha|takeover|answer|drift|failed|mail_unmatched|driver_patch
+    kind: Mapped[str] = mapped_column(String)  # takeover|answer|submit|failed|blocked|config|mail_unmatched|followup (and, in the history, the kinds of earlier versions)
     ref: Mapped[str] = mapped_column(String, default="")
     title: Mapped[str] = mapped_column(String, default="")
     body: Mapped[str] = mapped_column(Text, default="")
@@ -425,3 +454,20 @@ def _direct_write(target: Any, old: str, value: Any) -> None:
 from sqlalchemy import event as _event  # noqa: E402
 
 _event.listen(Application.status, "set", _guard_status, retval=True, active_history=True)
+
+
+class ApplicationBudget(Base):
+    __tablename__ = "application_budgets"
+    application_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ledger: Mapped[dict] = mapped_column(JSON)
+
+
+class TaskExecution(Base):
+    """Durable ownership and last known progress of a claimed task."""
+    __tablename__ = "task_executions"
+
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer)
+    worker: Mapped[str] = mapped_column(String)
+    heartbeat: Mapped[datetime] = mapped_column(DateTime)
+    checkpoint: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

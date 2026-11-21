@@ -62,6 +62,9 @@ def test_chatgpt_turns_with_structured_output_and_tools(app_env, monkeypatch):
         def __init__(self, kw):
             self.kw = kw
 
+        def turn(self, prompt, output_schema=None):
+            return types.SimpleNamespace(run=lambda: self.run(prompt, output_schema), interrupt=lambda: None)
+
         def run(self, prompt, output_schema=None):
             seen.update(prompt=prompt, schema=output_schema, **self.kw)
             text = '{"score": 7}' if output_schema else "hello"

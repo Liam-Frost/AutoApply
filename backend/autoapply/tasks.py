@@ -6,19 +6,22 @@ serialised by design: one task at a time.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 from contextvars import ContextVar
-from datetime import timezone
+from datetime import timedelta, timezone
 import traceback
 from datetime import datetime
 from typing import Any, Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import text
 
 from . import db, llm, metering, notify
-from .ats.base import NeedsHuman, unreachable
-from .models import Run, Task, now
+from .errors import NeedsHuman, unreachable
+from .models import Run, Setting, Task, TaskExecution, now
 
 log = logging.getLogger("autoapply.tasks")
 
@@ -79,6 +82,7 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     if by_hand.get():
         payload = {**(payload or {}), "_by_hand": True}
     with db.session() as s:
+        s.execute(text("BEGIN IMMEDIATE"))
         if dedupe and ref:
             ex = s.query(Task).filter(Task.kind == kind, Task.ref == ref, Task.status.in_(("queued", "running"))).order_by(Task.due_at.isnot(None), Task.id).first()
             if ex is None:
@@ -112,47 +116,138 @@ def enqueue(kind: str, *, ref: str = "", payload: dict[str, Any] | None = None, 
     return tid
 
 
-# Two workers. One fills and reads forms - a browser, a site, an account at a time. The other does what needs none of
-# that and can take long: scanning the sources, scoring, reading mail, the self-check, learning from a run. A scan of
-# twenty minutes used to hold every application up; now the two do not wait for each other. Within each, one task at
-# a time, as before.
-BACKGROUND = ("discover", "score", "mail", "canary", "improve")
+# Three kinds of worker. One kind works applications - each a browser, a site, an account: as many at a time as the
+# applicant has set (agent.parallel; three unless they say otherwise), never two on the same application and never
+# two on the same site (an account and its sign-in are one). One does what needs none of that and can take long:
+# scanning the sources, scoring, reading mail. A scan of twenty minutes used to hold every application up; now they
+# do not wait for each other. The third is the desk: writing the applicant asked for at a page and is waiting to see -
+# their profile, from the résumé they just uploaded. The last two: one task at a time.
+BACKGROUND = ("discover", "score", "mail")
+DESK = ("profile_init", "cover_letter", "mail_reply")
+LANES = ("forms", "background", "desk")
+MOST = 6       # the most applications that can be worked at once, whatever is set
+_claiming = threading.Lock()      # (several workers look at the same queue: one takes a task at a time)
+
+
+def parallel() -> int:
+    """How many applications are worked at the same time (the setting agent.parallel)."""
+    try:
+        return max(1, min(int(db.get_setting("agent.parallel") or 3), MOST))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _site(s: Any, t: Task) -> str:
+    """The site an application's task works on ('' for a task that is not an application's)."""
+    from . import sites
+    from .models import Job
+
+    if t.kind != "apply" or not t.ref.startswith("job:") or not t.ref[4:].isdigit():
+        return ""
+    job = s.get(Job, int(t.ref[4:]))
+    # (the key its account and its saved sign-in are kept under: two addresses that turned out to sign in on the same one are one site here)
+    return sites.account(sites.key_of(job.apply_url)) if job is not None and job.apply_url else ""
+
+
+def lane_of(kind: str) -> str:
+    return "background" if kind in BACKGROUND else "desk" if kind in DESK else "forms"
+
+
+def worker_id() -> str:
+    return os.environ.get("AUTOAPPLY_WORKER_ID", f"pid:{os.getpid()}")
+
+
+def retiring() -> bool:
+    return worker_id() in (db.get_setting("runtime.retiring_workers") or [])
 
 
 def _claim(lane: str = "", *, only_by_hand: bool = False) -> Task | None:
-    with db.session() as s:
+    with _claiming, db.session() as s:
+        s.execute(text("BEGIN IMMEDIATE"))
+        draining = s.get(Setting, "schedule.draining")
+        if draining and draining.value == "true":
+            return None
+        retired = s.get(Setting, "runtime.retiring_workers")
+        if retired and worker_id() in json.loads(retired.value):
+            return None
+        if os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1":
+            active = s.get(Setting, "runtime.active_workers")
+            if not active or worker_id() not in json.loads(active.value):
+                return None
         q = s.query(Task).filter_by(status="queued")
         if lane == "background":
             q = q.filter(Task.kind.in_(BACKGROUND))
+        elif lane == "desk":
+            q = q.filter(Task.kind.in_(DESK))
         elif lane == "forms":
-            q = q.filter(Task.kind.notin_(BACKGROUND))
+            q = q.filter(Task.kind.notin_(BACKGROUND + DESK))
         # a task that is for later (a retry, a look for the confirmation mail in half an hour) is not taken before its time
         due = q.filter((Task.due_at.is_(None)) | (Task.due_at <= now())).order_by(Task.priority, Task.id)
         # paused: only what the applicant asked for by hand (they pressed the button; the pause is for what runs by itself)
-        t = next((x for x in due.limit(200) if (x.payload or {}).get("_by_hand")), None) if only_by_hand else due.first()
+        if lane in ("background", "desk"):
+            kinds = BACKGROUND if lane == "background" else DESK
+            if s.query(Task.id).filter(Task.status == "running", Task.kind.in_(kinds)).first():
+                return None
+        if lane == "forms":
+            # not the application another worker is on, and not another application on the site one is on
+            busy = s.query(Task).filter(Task.status == "running", Task.kind.notin_(BACKGROUND + DESK)).all()
+            if len(busy) >= parallel():
+                return None
+            refs, on = {b.ref for b in busy}, {_site(s, b) for b in busy} - {""}
+            t = next((x for x in due.limit(200) if (not only_by_hand or (x.payload or {}).get("_by_hand")) and x.ref not in refs and (_site(s, x) or None) not in on), None)
+        else:
+            t = next((x for x in due.limit(200) if (x.payload or {}).get("_by_hand")), None) if only_by_hand else due.first()
         if t is None:
             return None
         t.status, t.started_at, t.attempts = "running", now(), t.attempts + 1
+        s.merge(TaskExecution(task_id=t.id, generation=t.attempts, worker=worker_id(),
+                              heartbeat=now(), checkpoint={"release": os.environ.get("AUTOAPPLY_ROOT", "")}))
         s.flush()
         s.expunge(t)
         return t
 
 
-_running = threading.local()      # what the task this thread is running was started by
+# What the running task was started by. The task's, on every thread that does a part of it (context.py).
+_started_by_hand: ContextVar[bool] = ContextVar("task_by_hand", default=False)
 
 
 def running_by_hand() -> bool:
-    """Is the task this thread is running one the applicant asked for (so that they are at the program now)? False for
+    """Is the task that is running here one the applicant asked for (so that they are at the program now)? False for
     what the program does by itself - and outside any task."""
-    return bool(getattr(_running, "by_hand", False))
+    return _started_by_hand.get()
+
+
+def checkpoint(task_id: int, generation: int, progress: dict[str, Any] | None = None) -> bool:
+    with db.session() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        task = session.get(Task, task_id)
+        execution = session.get(TaskExecution, task_id)
+        if not task or task.status != "running" or task.attempts != generation or not execution or execution.generation != generation:
+            return False
+        execution.heartbeat = now()
+        if progress is not None:
+            execution.checkpoint = {**execution.checkpoint, **progress}
+        return True
 
 
 def run_one(t: Task) -> None:
-    _running.by_hand = bool((t.payload or {}).get("_by_hand"))
+    token = _started_by_hand.set(bool((t.payload or {}).get("_by_hand")))
+    finished = threading.Event()
+
+    def heartbeat() -> None:
+        while not finished.wait(15):
+            try:
+                if not checkpoint(t.id, t.attempts):
+                    return
+            except Exception:
+                log.exception("Could not persist task heartbeat for %s", t.id)
+
+    threading.Thread(target=heartbeat, name=f"task-heartbeat-{t.id}", daemon=True).start()
     try:
         _run_one(t)
     finally:
-        _running.by_hand = False
+        finished.set()
+        _started_by_hand.reset(token)
 
 
 def _run_one(t: Task) -> None:
@@ -175,17 +270,21 @@ def _run_one(t: Task) -> None:
             # The subscription's quota is used up for now. Try again later instead of dropping the work.
             notify.add_todo("config", "AI 服务的额度暂时用完" + ("（备用的也都试过了）" if "所有配置的 AI 服务" in str(e) else ""), ref="config:llm-limit",
                             body=f"{str(e)[:200]}\n需要模型的任务会每 30 分钟自动重试一次，额度恢复后继续；不需要你操作。")
-            if t.kind in ("recon", "revise", "score") and int(t.payload.get("_limit_retries", 0)) < 12:
+            if t.kind in ("apply", "score") and int(t.payload.get("_limit_retries", 0)) < 12:
                 enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_limit_retries": int(t.payload.get("_limit_retries", 0)) + 1}, minutes=30, priority=t.priority)
         else:
             notify.add_todo("config", "AI 模型不可用", body=str(e), ref="config:llm")
+            # (not the application's failure either: it is taken up again when the model can be reached - a few times,
+            # and then the application says that it did not get done)
+            if t.kind == "apply" and int(t.payload.get("_model_retries", 0)) < 4:
+                enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_model_retries": int(t.payload.get("_model_retries", 0)) + 1}, minutes=30, priority=t.priority)
     except Exception as e:  # noqa: BLE001
         if unreachable(e):
             # The employer's site is not answering - an error page, or no answer at all from its address (a connection
             # that timed out is the same thing, wherever in the run it happened). Try again later; nobody needs to do
             # anything. The first time soon: a network that dropped for a moment is back in minutes.
             n = int(t.payload.get("_down_retries", 0))
-            again, wait = t.kind == "recon" and n < 6, 5 if n == 0 else 30
+            again, wait = t.kind == "apply" and n < 6, 5 if n == 0 else 30
             status, error = "failed", f"网站暂时打不开：{str(e).splitlines()[0][:200]}" + (f"；{wait} 分钟后自动重试" if again else "")
             log.warning("task %s (%s): the site did not answer: %s", t.id, t.kind, str(e).splitlines()[0][:200])
             if again:
@@ -193,24 +292,57 @@ def _run_one(t: Task) -> None:
         else:
             status, error = "failed", f"{type(e).__name__}: {e}"
             log.error("task %s (%s) failed: %s\n%s", t.id, t.kind, error, traceback.format_exc())
-            if t.kind in ("revise", "recon"):  # started by the user from the UI: say why it failed
+            # An error nobody foresaw is, more often than not, not the application's: a browser that was busy, a file
+            # that was locked, a model that could not be reached. It is tried again twice, later, before anybody is
+            # told that the application failed (chain.py then makes the card that says so).
+            n = int(t.payload.get("_error_retries", 0))
+            if t.kind == "apply" and n < 2:
+                enqueue_later(t.kind, ref=t.ref, payload={**t.payload, "_error_retries": n + 1}, minutes=10 if n == 0 else 60, priority=t.priority)
+            elif t.kind == "apply":  # an application the applicant waits for: say why it failed
                 from . import messages
 
                 notify.send("task_result", messages.task_failed(t.kind, error), ref=t.ref)
     stages = metering.end_task()
     with db.session() as s:
+        s.execute(text("BEGIN IMMEDIATE"))
         row = s.get(Task, t.id)
+        if not row or row.status != "running" or row.attempts != t.attempts:
+            return
         row.status, row.result, row.error, row.finished_at = status, result, error, now()
         if status == "waiting_human":      # what it waits for: handlers.resume_waiting() puts it back when that is dealt with
             row.payload = {**(row.payload or {}), "waits_for": waits_for}
+        if result.get("status") == "upgrade_checkpoint":
+            row.status = "queued"
         row.stages = stages
         if usage.calls:
             s.add(Run(task_id=t.id, kind="llm", ref=t.ref, ok=int(status == "done"), llm_calls=usage.calls,
                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))
+    if result.get("status") == "upgrade_checkpoint":
+        _wake.set()
+    if t.kind == "cover_letter" or result.get("material_task"):
+        reconcile_materials()
+    if t.kind in ("apply", "cover_letter"):      # however it ended: the application has work in the queue or a card with the applicant
+        try:
+            from . import chain
+
+            chain.mend(int(t.ref[4:]) if t.kind == "apply" and t.ref.startswith("job:") and t.ref[4:].isdigit() else None)
+        except Exception:  # noqa: BLE001
+            log.exception("the chain could not be checked")
+    if waits_for or result.get("waits_for_profile"):       # (what it waits for may have come while it was finding it missing)
+        from . import profile_init
+
+        profile_init.began_to_wait(status, waits_for, result)
 
 
-def _loop(lane: str = "") -> None:
+def _loop(lane: str = "", nth: int = 0) -> None:
+    """``nth``: which of the workers of this lane this is (from 0). One beyond the number set takes nothing."""
     while not _stop.is_set():
+        if retiring() or (os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1" and worker_id() not in (db.get_setting("runtime.active_workers") or [])):
+            _stop.wait(2)
+            continue
+        if nth and nth >= parallel():
+            _stop.wait(5)
+            continue
         if db.get_setting("schedule.draining"):
             # "finish what is being done and start nothing new": nothing is claimed; when the last task has ended, say so once
             _tell_when_drained()
@@ -242,8 +374,10 @@ def _tell_when_drained() -> None:
 def set_draining(on: bool) -> dict[str, Any]:
     """Finish what is being done, start nothing new, and say when it has stopped - for closing or restarting the
     program without cutting a form off halfway. Off: the queue goes on."""
-    db.set_setting("schedule.drain_told", False)
-    db.set_setting("schedule.draining", bool(on))
+    with _claiming, db.session() as s:
+        s.execute(text("BEGIN IMMEDIATE"))
+        s.merge(Setting(key="schedule.drain_told", value="false"))
+        s.merge(Setting(key="schedule.draining", value="true" if on else "false"))
     if on:
         _tell_when_drained()        # nothing may be running at all: then it is said at once
     _wake.set()
@@ -291,7 +425,7 @@ def cancel(task_id: int) -> None:
     if undo is not None:
         from . import drafts
 
-        drafts._undo(undo)
+        drafts.undo(undo)
 
 
 def hold(task_id: int) -> None:
@@ -340,7 +474,7 @@ def plan() -> dict[str, Any]:
 
     def row(t: Task) -> dict[str, Any]:
         return {"id": t.id, "kind": t.kind, "label": humanize.TASK.get(t.kind, t.kind), "subject": humanize.subject(t.ref), "ref": t.ref,
-                "status": t.status, "by_hand": bool((t.payload or {}).get("_by_hand")), "lane": "background" if t.kind in BACKGROUND else "forms",
+                "status": t.status, "by_hand": bool((t.payload or {}).get("_by_hand")), "lane": lane_of(t.kind),
                 "created_at": t.created_at.isoformat() if t.created_at else None, "started_at": t.started_at.isoformat() if t.started_at else None,
                 "due_at": t.due_at.isoformat() if t.due_at else None, "why": humanize.explain(t.error)["message"] if t.error else ""}
 
@@ -358,7 +492,17 @@ def plan() -> dict[str, Any]:
             r = row(t)
             r["waits_for"] = cards.get(str((t.payload or {}).get("waits_for") or ""), "")
             waiting.append(r)
-        return {"running": [row(t) for t in s.query(Task).filter_by(status="running").order_by(Task.started_at)],
+        running = []
+        for task in s.query(Task).filter_by(status="running").order_by(Task.started_at):
+            detail = row(task)
+            execution = s.get(TaskExecution, task.id)
+            if execution is not None:
+                expires = execution.heartbeat.replace(tzinfo=timezone.utc) + timedelta(seconds=60)
+                detail["execution"] = {"worker": execution.worker, "generation": execution.generation,
+                                       "lease_expires_at": expires.isoformat(), "heartbeat_overdue": expires <= at,
+                                       "checkpoint": execution.checkpoint}
+            running.append(detail)
+        return {"running": running,
                 "next": nxt[:60], "next_total": len(nxt),
                 "later": sorted((row(t) for t in queued if not is_due(t)), key=lambda r: r["due_at"])[:60],
                 "waiting": waiting, "held": [row(t) for t in s.query(Task).filter_by(status="held").order_by(Task.id)],
@@ -377,10 +521,43 @@ def drain(max_tasks: int = 100) -> int:
     return n
 
 
-def recover() -> None:
-    """Tasks left 'running' by a crash go back to the queue once."""
+def reconcile_materials() -> None:
+    """The material and the form may finish in either order, including across a restart."""
+    from sqlalchemy import text
+
+    with db.session() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        for form in session.query(Task).filter_by(kind="apply", status="done").filter(Task.result["status"].as_string() == "waiting_material"):
+            task_id = (form.result or {}).get("material_task")
+            if not task_id or (form.result or {}).get("status") != "waiting_material":
+                continue
+            material = session.get(Task, task_id)
+            if material and material.status == "done":
+                form.status, form.result, form.due_at = "queued", {}, None
+            elif material and material.status == "failed":
+                form.status, form.error = "failed", material.error
+    _wake.set()
+
+
+def recover(owner: str | None = None) -> None:
+    """Recover interrupted tasks after the supervisor has stopped their owner."""
     with db.session() as s:
-        for t in s.query(Task).filter_by(status="running"):
+        from .agent import work
+        from . import lifecycle
+        from .models import SENT, UNKNOWN
+
+        s.execute(text("BEGIN IMMEDIATE"))
+        interrupted = s.query(Task).filter_by(status="running")
+        if owner is not None:
+            interrupted = interrupted.join(TaskExecution, TaskExecution.task_id == Task.id).filter(TaskExecution.worker == owner)
+        for t in interrupted:
+            if t.kind == "apply":
+                app = application_of(s, t.ref)
+                if app is not None and app.status not in SENT and work._was_sending(work.folder_of(app.id), None, recovering=True):
+                    lifecycle.move(app, UNKNOWN, source="recover")
+                    app.last_event = "程序在提交过程中中断，将先核实投递结果。"
+                    t.status, t.error = "queued", ""
+                    continue
             t.status = "queued" if t.attempts < 2 else "failed"
             if t.status == "failed":
                 t.error = "interrupted twice"
@@ -389,13 +566,16 @@ def recover() -> None:
         # it can be started again instead of showing "filling in" for ever.
         from .models import Application
 
-        waiting = {t.ref for t in s.query(Task).filter(Task.kind == "execute", Task.status.in_(("queued", "running")))}
+        waiting = {t.ref for t in s.query(Task).filter(Task.kind == "apply", Task.status.in_(("queued", "running")))}
         for a in s.query(Application).filter_by(status="executing"):
-            if f"application:{a.id}" not in waiting:
+            if f"job:{a.job_id}" not in waiting:
                 from . import lifecycle
 
                 if lifecycle.move(a, "failed", source="recover"):
                     a.last_event = "填写被中断（程序在填写途中被关闭），可以重新开始"
+
+
+    reconcile_materials()
 
 
 class NothingToRetry(ValueError):
@@ -446,30 +626,37 @@ def start() -> None:
     global _worker, _sched
     from . import handlers  # noqa: F401  (registers task handlers)
 
-    recover()
+    joining = os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1"
+    if not joining:
+        recover()
     # "finish and stop" was for closing the program: it has been started again
-    db.set_setting("schedule.draining", False)
-    db.set_setting("schedule.drain_told", False)
-    try:  # what was learned on another version of the program is checked again before it is used
-        from . import learned
-
-        learned.recheck_after_upgrade()
-    except Exception:  # noqa: BLE001
-        log.exception("could not re-check what was learned")
+    if not joining:
+        db.set_setting("runtime.retiring_workers", [])
+        db.set_setting("schedule.draining", os.environ.get("AUTOAPPLY_MAINTENANCE_START") == "1")
+        db.set_setting("schedule.drain_told", False)
     try:  # postings left unscored by an interrupted or capped run are picked up again at start-up and by the hourly check
         from . import scoring
 
-        if scoring.unscored_count():
+        if scoring.unscored_count() and not scoring.nobody_to_score_for(quiet=True):
             enqueue("score", ref="unscored", priority=150)
     except Exception:  # noqa: BLE001
         pass
     _stop.clear()
     _worker = threading.Thread(target=_loop, args=("forms",), name="autoapply-worker", daemon=True)
     _worker.start()
+    for nth in range(1, MOST):      # (they are all there; how many take work is the setting, read as they go)
+        threading.Thread(target=_loop, args=("forms", nth), name=f"autoapply-worker-{nth + 1}", daemon=True).start()
     threading.Thread(target=_loop, args=("background",), name="autoapply-background", daemon=True).start()
+    threading.Thread(target=_loop, args=("desk",), name="autoapply-desk", daemon=True).start()
     _sched = BackgroundScheduler(daemon=True)
     _schedule_jobs()
-    _sched.start()
+    if not joining:
+        _sched.start()
+
+
+def activate_scheduler() -> None:
+    if _sched is not None and not _sched.running:
+        _sched.start()
 
 
 def _mail_new() -> None:
@@ -487,7 +674,7 @@ def _mail_new() -> None:
         log.info("could not ask the mailbox what is new (%s)", type(e).__name__)
 
 
-PERIODIC = ("discover", "mail", "mail_new", "canary", "upkeep", "unscored", "quota")      # what the clock starts by itself
+PERIODIC = ("discover", "mail", "mail_new", "upkeep", "unscored", "quota")      # what the clock starts by itself
 
 
 def _schedule_jobs() -> None:
@@ -500,7 +687,6 @@ def _schedule_jobs() -> None:
         "mail": ("schedule.mail_minutes", lambda: enqueue("mail", ref="schedule", priority=50)),
         # between the passes over the last days: only what arrived since the last look (one small request, usually "nothing")
         "mail_new": ("schedule.mail_new_minutes", _mail_new),
-        "canary": ("schedule.canary_minutes", lambda: enqueue("canary", ref="schedule", priority=900)),
     }
     from datetime import datetime, timedelta
 
@@ -514,15 +700,19 @@ def _schedule_jobs() -> None:
             _sched.add_job(fn, "interval", minutes=minutes, id=name, replace_existing=True, next_run_time=datetime.now() + timedelta(seconds=max(120, due)))
 
     def upkeep() -> None:
-        """What should happen by itself between the big runs: drafts whose form still has unread steps are read on, and
-        postings that have come to qualify for a draft get one."""
+        """What should happen by itself between the big runs: postings that have come to qualify are applied for."""
         try:
-            from . import drafts, scoring
+            from . import scoring
 
-            drafts.walk_pending()
             scoring.queue_qualifying()
         except Exception:  # noqa: BLE001
             log.exception("upkeep failed")
+        try:
+            from . import chain
+
+            chain.mend()
+        except Exception:  # noqa: BLE001
+            log.exception("the chain could not be checked")
         try:      # what is due tomorrow and today, cards put off until now, contacts to get back to, notices held for the night
             from . import reminders
 
@@ -535,7 +725,7 @@ def _schedule_jobs() -> None:
     def unscored() -> None:  # safety net: nothing that can be scored stays unscored for long, whatever interrupted the last run
         from . import scoring
 
-        if scoring.unscored_count():
+        if scoring.unscored_count() and not scoring.nobody_to_score_for(quiet=True):
             enqueue("score", ref="unscored", priority=150)
 
     _sched.add_job(unscored, "interval", minutes=60, id="unscored", replace_existing=True)
@@ -553,7 +743,7 @@ def _schedule_jobs() -> None:
         _sched.add_job(quota_check, "interval", minutes=minutes, id="quota", replace_existing=True)
 
 
-SCHEDULED = {"discover": "schedule.discover_minutes", "mail": "schedule.mail_minutes", "canary": "schedule.canary_minutes"}
+SCHEDULED = {"discover": "schedule.discover_minutes", "mail": "schedule.mail_minutes"}
 
 
 def last_run(kind: str):  # noqa: ANN201
@@ -607,5 +797,5 @@ def reschedule() -> None:
 def stop() -> None:
     _stop.set()
     _wake.set()
-    if _sched is not None:
+    if _sched is not None and _sched.running:
         _sched.shutdown(wait=False)

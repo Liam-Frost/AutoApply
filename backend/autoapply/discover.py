@@ -9,8 +9,8 @@ import logging
 import re
 from typing import Any, Iterable
 
-from . import db, intake, messages, notify
-from .ats.base import NeedsHuman
+from . import db, fulltext, intake, messages, notify
+from .errors import NeedsHuman
 from .models import Job, now
 from .sources import bigtech, public
 
@@ -21,9 +21,22 @@ FIELDS = ("company", "title", "location", "work_type", "salary", "apply_url", "a
 
 
 def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = None, complete: bool = True, stale_days: int = 0) -> dict[str, int]:
-    """Insert/update jobs for one source. ``scope`` narrows offline-marking to
-    a tenant (so scanning board A does not mark board B's jobs offline).
-    ``complete=False`` skips offline-marking (partial scan)."""
+    """Store what one listing showed, and take offline what it has stopped showing.
+
+    A posting goes offline on the word of its own listing and of nothing else. ``scope`` names that listing among the
+    ones a source has (a board, a tenant, a watched page); without it the source is one listing (PD Portal).
+
+    - a ``complete`` listing: what it does not show is gone, now;
+    - a capped or filtered one (``stale_days``): a posting it has not shown for that many days of looking is taken to
+      be gone. The days run from the first reading that did not show it (``missed_since``), not from when it was last
+      seen - a listing that could not be read for a week has said nothing in that week;
+    - neither: a partial reading, which says nothing about what it does not show.
+
+    Reading board A is not a reading of board B: both rules look only at the postings of this listing. (The second one
+    did not: every successful reading of one employer aged out the postings of all the others on the same service,
+    whether or not theirs had been read.)"""
+    from datetime import timedelta
+
     new = back = offline = seen_n = 0
     seen: set[str] = set()
     rows = list(rows)  # read the source completely first: fetching inside the transaction would lock the database for minutes
@@ -45,29 +58,39 @@ def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = N
                     j.status = "scored" if j.score is not None else "new"
                 j.note = (f"back online {now().date().isoformat()}; " + (j.note or ""))[:2000]
                 back += 1
+            # A source that gives only a summary lists the posting again at every scan - with the summary. Once the text
+            # was read from the posting's own page (fulltext.complete says so on the posting: "whole", or "cut" when the
+            # page was longer than is kept), the summary does not replace it. Nothing else is taken for that: a posting
+            # from before texts were marked has no mark, and its text may be a teaser like any other.
+            partial = str(r.get("jd_partial") or "")
+            keep_text = partial == "summary" and j.jd_partial in fulltext.FROM_PAGE and bool((j.jd_text or "").strip())
             for f in FIELDS:
                 v = r.get(f)
-                if v:
+                if v and not (f == "jd_text" and keep_text):
                     setattr(j, f, v)
+            if r.get("jd_text") and not keep_text:
+                j.jd_partial = partial
+            if scope and not j.tenant:
+                j.tenant = scope        # which listing it belongs to is how it is found again below
             j.last_seen = now()
-        if complete:
+            j.missed_since = None
+        if complete or stale_days:
             q = s.query(Job).filter(Job.source == source, Job.online == 1)
             if scope:
                 q = q.filter(Job.tenant == scope)
+            cut = (now() - timedelta(days=stale_days)).replace(tzinfo=None)
             for j in q:
-                if j.source_id not in seen:
-                    j.online = 0
-                    offline += 1
-                    # keep applied jobs' status; only undecided ones become "offline"
-                    if j.application is None and j.status in ("new", "scored", "queued"):
-                        j.status = "offline"
-        if stale_days:  # capped / filtered listings: a job is offline once it has not been listed for a while
-            from datetime import timedelta
-
-            cut = now() - timedelta(days=stale_days)
-            for j in s.query(Job).filter(Job.source == source, Job.online == 1, Job.last_seen < cut):
+                if j.source_id in seen:
+                    continue
+                if not complete:
+                    if j.missed_since is None:
+                        j.missed_since = now()
+                        continue
+                    if j.missed_since.replace(tzinfo=None) > cut:
+                        continue
                 j.online = 0
                 offline += 1
+                # keep applied jobs' status; only undecided ones become "offline"
                 if j.application is None and j.status in ("new", "scored", "queued"):
                     j.status = "offline"
     return {"seen": seen_n, "new": new, "back": back, "offline": offline}
@@ -239,7 +262,7 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
     # (sources.parallel). Storing what came back is done here, one source after the other - the database has one writer.
     from concurrent.futures import ThreadPoolExecutor
 
-    from . import metering
+    from . import context
 
     todo = [e for e in employers.listing() if e.get("enabled", True)]
 
@@ -253,7 +276,7 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
     workers = max(1, min(8, int(st.get("sources.parallel") or 1)))
     if workers > 1 and len(todo) > 1:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="source") as pool:
-            fetched = list(pool.map(metering.carried(fetch), todo))
+            fetched = list(pool.map(context.carried(fetch), todo))
     else:
         fetched = [fetch(e) for e in todo]
     needs_someone: NeedsHuman | None = None
@@ -365,7 +388,7 @@ def report() -> dict[str, Any]:
         if not e.get("enabled", True):
             continue
         src, scope = employers.source_of(e)
-        mine = [j for j in jobs if j[0] == src and (e["kind"] == "builtin" or j[1] == scope)]
+        mine = [j for j in jobs if j[0] == src and (scope is None or j[1] == scope)]
         rows.append(row(e["name"], employers.KIND_LABEL.get(e["kind"], e["kind"]), mine, line(e["name"], src), priority=bool(e.get("priority"))))
     if st["sources.pdportal"]:
         rows.append(row("pdportal", "UBC PD Portal", [j for j in jobs if j[0] == "pdportal"], line("", "pdportal"), priority=False, exempt=True))
@@ -382,16 +405,15 @@ def report() -> dict[str, Any]:
 
 def add_manual(url: str, *, company: str = "", title: str = "", jd_text: str = "") -> int:
     """Paste-a-link intake."""
-    from .ats import registry
+    from . import sites
 
-    ref = registry.detect(url)
+    system, tenant = sites.where(url)
     with db.session() as s:
         j = s.query(Job).filter_by(source="manual", source_id=url).first()
         if j is None:
             j = Job(source="manual", source_id=url, status="new")
             s.add(j)
         j.apply_url, j.company, j.title, j.jd_text, j.channel = url, company or j.company, title or j.title, jd_text or j.jd_text, "employer site"
-        if ref:
-            j.ats, j.tenant = ref.ats, ref.tenant
+        j.ats, j.tenant = system or "generic", tenant
         s.flush()
         return j.id

@@ -46,16 +46,15 @@ def app_env(tmp_path, monkeypatch):
 
     knowledge.DOCS = {"profile": config.PROFILE_MD, "scoring": config.SCORING_MD, "stories": config.STORIES_MD}
     db.init_db()
-    # The coded drivers are tested as what they are - tools. In the program every site is read by the agent ("*");
-    # a test that is about that says so itself.
-    db.set_setting("agent.reads", [])
+    # The tests are about the program with an applicant in it: what reads the profile - scoring a posting, answering a
+    # form - waits while there is none. A test that is about the empty profile empties it itself (test_profile_init.py).
+    config.PROFILE_MD.parent.mkdir(parents=True, exist_ok=True)
+    config.PROFILE_MD.write_text(knowledge.EMPTY_PROFILE.replace("## Identity & contact\n\n", "## Identity & contact\n\n- Name: Test Applicant\n\n", 1), encoding="utf-8", newline="\n")
     # Tests never show a window and never wait for a person. A run that hands the form to the applicant does so in a
     # visible window and waits up to twenty minutes; a test that gets there without saying what the applicant does would
     # sit on the screen of whoever runs the tests. So: every window is hidden, and that wait fails at once unless the
     # test replaces it.
-    from autoapply import browser, executor
-
-    from autoapply import access
+    from autoapply import access, browser
 
     monkeypatch.setattr(access, "enforced", lambda: False)      # the tests are about the program behind the login; test_access.py turns it on
     real_open = browser.open_page
@@ -73,12 +72,6 @@ def app_env(tmp_path, monkeypatch):
         monkeypatch.setattr(browser_policy, "_override", ContextVar("browser_backend", default="nodriver"))
     monkeypatch.setattr(browser, "open_page", lambda tenant_key=None, *, headless=True, downloads=None, **kwargs: real_open(tenant_key, headless=True, downloads=downloads, **kwargs))
 
-    def nobody_is_there(*a, **k):
-        raise AssertionError("this run handed the form to the applicant, and the test does not say what the applicant does")
-
-    if not hasattr(executor, "wait_for_the_applicant"):      # the real thing, for the tests that are about it
-        executor.wait_for_the_applicant = executor._wait_for_manual_submit
-    monkeypatch.setattr(executor, "_wait_for_manual_submit", nobody_is_there)
     # ("Look for the confirmation e-mail in five minutes" used to be a timer that went off in whichever test was running
     # five minutes later, and was switched off here. It is a row in the test's own queue now, gone with the test.)
     from autoapply import tasks
@@ -90,6 +83,7 @@ def app_env(tmp_path, monkeypatch):
     def no_model(*a, **k):
         raise llm.LLMUnavailable("no model in tests")
 
+    monkeypatch.setattr(llm_sdk, "real_call", llm_sdk.call, raising=False)      # for the tests that are about the call itself (with the SDK replaced)
     monkeypatch.setattr(llm_sdk, "call", lambda *a, **k: (_ for _ in ()).throw(llm_sdk.SDKError("no model in tests", unavailable=True)))
     monkeypatch.setattr(llm, "_create", no_model)
     monkeypatch.setitem(sys.modules, "openai_codex", None)  # the ChatGPT runtime may be installed and signed in on this machine

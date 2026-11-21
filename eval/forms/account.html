@@ -1,0 +1,124 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Careers - Tailspin Toys</title>
+<!--
+  An application behind an account, shaped like a large recruiting suite:
+  - nothing can be done before an account is made (e-mail, a password twice, terms) - the password is made up and
+    typed by the program, never by the agent, and must not turn up in anything the agent wrote or was told;
+  - "My Information" -> "My Experience" -> "Application Questions" -> "Review": each saved with "Save and Continue";
+  - work experience and education are not parsed from the résumé: each entry is added with an "Add" button;
+  - a reload asks for the sign-in again (the session is the page's), and then shows what was saved;
+  - a confirmation page with an application number.
+-->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #222; background: #f5f6f8; }
+  header { background: #0b4f8a; color: #fff; padding: 14px 28px; font-size: 19px; }
+  main { max-width: 720px; margin: 20px auto; background: #fff; padding: 20px 28px 50px; border-radius: 8px; }
+  label.f { display: block; margin: 14px 0 4px; font-weight: 600; }
+  input[type=text], input[type=password], textarea, select { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #999; border-radius: 4px; font: inherit; }
+  .tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 14px; font: inherit; cursor: pointer; } .tabs button.on { border-color: #0b4f8a; font-weight: 600; }
+  .entry { border: 1px solid #ccc; border-radius: 6px; padding: 8px 14px; margin: 10px 0; }
+  .err { color: #b00; margin-top: 10px; } .crumbs { color: #666; font-size: 13px; }
+  button.main { background: #0b4f8a; color: #fff; border: 0; border-radius: 20px; padding: 10px 22px; font: inherit; cursor: pointer; margin-top: 20px; }
+  button.add { background: #fff; border: 1px solid #0b4f8a; color: #0b4f8a; border-radius: 20px; padding: 6px 16px; font: inherit; cursor: pointer; }
+  .drop { border: 2px dashed #999; border-radius: 6px; padding: 18px; text-align: center; }
+</style>
+<header>Tailspin Toys Careers</header>
+<main><div class="crumbs" id="crumbs"></div><h1 id="t"></h1><div id="body"></div></main>
+<script>
+const NAME = 'account';
+const STEPS = ['My Information', 'My Experience', 'Application Questions', 'Review'];
+let S = { account: null, step: 0, info: { first: '', last: '', address: '', city: '', province: '', postal: '', phone_type: '', phone: '' },
+          exp: { resume: '', jobs: [], schools: [] }, q: { adult: '', onsite: '', notice: '' }, submitted: false };
+let signedIn = false, tab = 'signin', adding = '';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const post = (what) => fetch('/__/' + what + '?form=' + NAME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S) }).catch(() => {});
+const text = (id, label, v, req) => `<label class="f" for="${id}">${label}${req ? ' *' : ''}</label><input type="text" id="${id}" value="${esc(v)}">`;
+const pick = (id, label, opts, v, req) => `<label class="f" for="${id}">${label}${req ? ' *' : ''}</label><select id="${id}">${['', ...opts].map((o) => `<option ${v === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+const PROVINCES = ['Alberta', 'British Columbia', 'Manitoba', 'New Brunswick', 'Nova Scotia', 'Ontario', 'Quebec', 'Saskatchewan'];
+
+function door(err) {
+  $('crumbs').textContent = ''; $('t').textContent = tab === 'signin' ? 'Sign In' : 'Create Account';
+  $('body').innerHTML = `<div class="tabs"><button id="tab-in" class="${tab === 'signin' ? 'on' : ''}">Sign In</button><button id="tab-new" class="${tab === 'new' ? 'on' : ''}">Create Account</button></div>
+    <label class="f" for="email">Email Address *</label><input type="text" id="email" autocomplete="username">
+    <label class="f" for="pw">Password *</label><input type="password" id="pw" autocomplete="${tab === 'new' ? 'new-password' : 'current-password'}">
+    ${tab === 'new' ? `<label class="f" for="pw2">Verify New Password *</label><input type="password" id="pw2" autocomplete="new-password">
+      <p><label><input type="checkbox" id="terms"> I have read and consent to the terms and conditions *</label></p><small>Use at least 12 characters.</small>` : ''}
+    <div class="err" id="err">${esc(err || '')}</div>
+    <button class="main" id="go" type="button">${tab === 'signin' ? 'Sign In' : 'Create Account'}</button>`;
+  $('tab-in').onclick = () => { tab = 'signin'; door(); }; $('tab-new').onclick = () => { tab = 'new'; door(); };
+  $('go').onclick = () => {
+    const email = $('email').value.trim(), pw = $('pw').value;
+    if (tab === 'new') {
+      if (S.account) return door('An account with this email address already exists. Sign in instead.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) return door('Enter a valid email address.');
+      if (pw.length < 12) return door('The password must have at least 12 characters.');
+      if (pw !== $('pw2').value) return door('The passwords do not match.');
+      if (!$('terms').checked) return door('You must consent to the terms and conditions.');
+      S.account = { email, pw }; signedIn = true; post('save'); return render();
+    }
+    if (!S.account || S.account.email !== email || S.account.pw !== pw) return door('The email address or password is not right.');
+    signedIn = true; render();
+  };
+}
+
+const steps = [
+  () => `${text('first', 'Legal First Name', S.info.first, 1)}${text('last', 'Legal Last Name', S.info.last, 1)}${text('address', 'Address Line 1', S.info.address, 1)}${text('city', 'City', S.info.city, 1)}
+    ${pick('province', 'Province or Territory', PROVINCES, S.info.province, 1)}${text('postal', 'Postal Code', S.info.postal, 1)}
+    ${pick('phone_type', 'Phone Device Type', ['Home', 'Mobile', 'Work'], S.info.phone_type, 1)}${text('phone', 'Phone Number', S.info.phone, 1)}`,
+  () => `<label class="f">Resume/CV *</label><div class="drop">Drop files here or <button class="add" id="pick" type="button">Select files</button><input type="file" id="file" style="display:none"><div id="fname">${esc(S.exp.resume)}</div></div>
+    <h3>Work Experience</h3>${S.exp.jobs.map((j, i) => `<div class="entry"><b>${esc(j.title)}</b>, ${esc(j.company)} (${esc(j.from)} - ${esc(j.to)})<br>${esc(j.what)} <button class="add" data-del="jobs:${i}" type="button">Delete</button></div>`).join('')}
+    ${adding === 'job' ? `<div class="entry">${text('j-title', 'Job Title', '', 1)}${text('j-company', 'Company', '', 1)}${text('j-from', 'From (MM/YYYY)', '', 1)}${text('j-to', 'To (MM/YYYY)', '', 1)}
+      <label class="f" for="j-what">Role Description</label><textarea id="j-what" rows="3"></textarea><button class="add" id="j-ok" type="button">Done</button></div>` : '<button class="add" id="add-job" type="button">Add Work Experience</button>'}
+    <h3>Education</h3>${S.exp.schools.map((e, i) => `<div class="entry"><b>${esc(e.school)}</b>, ${esc(e.degree)}, ${esc(e.field)} <button class="add" data-del="schools:${i}" type="button">Delete</button></div>`).join('')}
+    ${adding === 'school' ? `<div class="entry">${text('e-school', 'School or University', '', 1)}${pick('e-degree', 'Degree', ["Bachelor's Degree", "Master's Degree", 'Doctorate', 'Diploma'], '', 1)}${text('e-field', 'Field of Study', '', 1)}
+      <button class="add" id="e-ok" type="button">Done</button></div>` : '<button class="add" id="add-school" type="button">Add Education</button>'}`,
+  () => `${pick('adult', 'Are you at least 18 years of age?', ['Yes', 'No'], S.q.adult, 1)}
+    ${pick('onsite', 'This role is on site in Toronto, Ontario. Are you able to work on site there for the full term?', ['Yes', 'No'], S.q.onsite, 1)}
+    ${text('notice', 'Is there anything else you would like us to know? (optional)', S.q.notice)}`,
+  () => `<p>Review your application, then submit it.</p>
+    <div class="entry"><b>My Information</b><br>${esc(S.info.first)} ${esc(S.info.last)}<br>${esc(S.info.address)}, ${esc(S.info.city)}, ${esc(S.info.province)} ${esc(S.info.postal)}<br>${esc(S.info.phone_type)} ${esc(S.info.phone)}</div>
+    <div class="entry"><b>My Experience</b><br>Résumé: ${esc(S.exp.resume)}<br>${S.exp.jobs.map((j) => esc(j.title + ', ' + j.company)).join('; ')}<br>${S.exp.schools.map((e) => esc(e.school + ', ' + e.degree + ', ' + e.field)).join('; ')}</div>
+    <div class="entry"><b>Application Questions</b><br>18 or older: ${esc(S.q.adult)} · on site in Toronto: ${esc(S.q.onsite)}</div>`,
+];
+
+function keep() {
+  const v = (id) => ($(id) ? $(id).value : undefined);
+  if (S.step === 0) for (const k of Object.keys(S.info)) if (v(k) !== undefined) S.info[k] = v(k);
+  if (S.step === 2) for (const k of Object.keys(S.q)) if (v(k) !== undefined) S.q[k] = v(k);
+}
+
+function render(err) {
+  if (!signedIn) return door();
+  if (S.submitted) { $('crumbs').textContent = ''; $('t').textContent = 'Congratulations!'; $('body').innerHTML = '<p>Your application for <b>Platform Engineering Intern</b> has been submitted. Application number <b>R-20931</b>.</p>'; return; }
+  $('crumbs').textContent = STEPS.map((s, i) => (i === S.step ? '● ' : '○ ') + s).join('   ');
+  $('t').textContent = STEPS[S.step];
+  $('body').innerHTML = steps[S.step]() + `<div class="err" id="err">${esc(err || '')}</div><button class="main" id="go" type="button">${S.step === 3 ? 'Submit' : 'Save and Continue'}</button>`;
+  if (S.step === 1) {
+    $('pick').onclick = () => $('file').click();
+    $('file').onchange = (ev) => { const f = ev.target.files[0]; if (f) { S.exp.resume = f.name; render(); } };
+    if ($('add-job')) $('add-job').onclick = () => { adding = 'job'; render(); };
+    if ($('add-school')) $('add-school').onclick = () => { adding = 'school'; render(); };
+    if ($('j-ok')) $('j-ok').onclick = () => { const j = { title: $('j-title').value.trim(), company: $('j-company').value.trim(), from: $('j-from').value.trim(), to: $('j-to').value.trim(), what: $('j-what').value.trim() };
+      if (!j.title || !j.company || !/^\d{2}\/\d{4}$/.test(j.from) || !/^\d{2}\/\d{4}$/.test(j.to)) return ($('err').textContent = 'Work experience: job title, company and both dates (MM/YYYY) are required.');
+      S.exp.jobs.push(j); adding = ''; render(); };
+    if ($('e-ok')) $('e-ok').onclick = () => { const e = { school: $('e-school').value.trim(), degree: $('e-degree').value, field: $('e-field').value.trim() };
+      if (!e.school || !e.degree || !e.field) return ($('err').textContent = 'Education: school, degree and field of study are required.');
+      S.exp.schools.push(e); adding = ''; render(); };
+    document.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => { const [k, i] = b.dataset.del.split(':'); S.exp[k].splice(+i, 1); render(); });
+  }
+  $('go').onclick = () => {
+    keep();
+    const miss = [];
+    if (S.step === 0) for (const [k, n] of [['first', 'Legal First Name'], ['last', 'Legal Last Name'], ['address', 'Address Line 1'], ['city', 'City'], ['province', 'Province'], ['postal', 'Postal Code'], ['phone_type', 'Phone Device Type'], ['phone', 'Phone Number']]) if (!S.info[k]) miss.push(n);
+    if (S.step === 1) { if (!S.exp.resume) miss.push('Resume/CV'); if (!S.exp.schools.length) miss.push('Education (add at least one)'); if (adding) miss.push('Finish the entry you are adding (Done)'); }
+    if (S.step === 2) { if (!S.q.adult) miss.push('Age'); if (!S.q.onsite) miss.push('On site'); }
+    if (miss.length) return render('Errors found: ' + miss.join('; '));
+    if (S.step === 3) { S.submitted = true; post('submit'); return render(); }
+    S.step++; post('save'); render(); scrollTo(0, 0);
+  };
+}
+// the site keeps the account and what was saved; the session is this page's: a page opened again asks for the sign-in
+fetch('/__/load?form=' + NAME).then((r) => r.json()).then((kept) => { if (kept && kept.info) S = kept; render(); }).catch(() => render());
+</script>

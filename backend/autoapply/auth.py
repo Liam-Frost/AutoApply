@@ -1,38 +1,37 @@
-"""Accounts and sessions (plan section 5).
+"""Accounts and sign-ins.
 
-One entry point for everything else: ``ensure_session(page, driver, ref)``.
-It tries, in order: saved session -> stored credentials -> registration.
-If the site says the account already exists and we hold no password, it stops
-and raises ``NeedsHuman`` (never resets the password).
+What is kept about the applicant's account on a site (the login name; whether a password is stored - the password
+itself is in the keyring, secrets.py), the window in which the applicant signs in by hand, and what that window may
+remember. Signing in while an application is worked is the agent's (agent/run.py: ``type_password`` types a stored
+password where it belongs, without the agent seeing it); this module never drives a sign-in page.
 
-Passwords and verification codes stay inside this module and the drivers; they
-are not returned, logged, or shown to the LLM.
+Passwords and verification codes are not returned, logged, or shown to a model.
 """
 
 from __future__ import annotations
 
-import time
-from datetime import datetime, timedelta, timezone
-
 import csv
 import io
+import json
 import logging
 import re
+import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
-from playwright.sync_api import Page
-
-from . import browser, db, messages, notify, secrets
-from .ats.base import Driver, JobRef, NeedsHuman, SiteDown, DriverError, Unconfirmed, unreachable
-from .models import SENT, Account, now
+from . import browser, db, notify, secrets
+from .models import Account, now
 
 log = logging.getLogger("autoapply.auth")
 
-MAX_LOGIN_FAILS = 2
+# Sites whose sign-in is an institution's own (a university's login): the login name there is not the applicant's
+# e-mail, and the program does not put the one in the other's place.
+INSTITUTIONS = ("pdportal",)
+# Where it is known what a finished sign-in looks like: the address the window is on then.
+SIGNED_IN = {"pdportal": lambda url: "pdportal.apsc.ubc.ca/myAccount" in url}
 
 
-# --- vault -----------------------------------------------------------------------
+# --- what is kept --------------------------------------------------------------------
 
 
 def upsert_account(tenant_key: str, *, ats: str = "", host: str = "", email: str | None = None, password: str | None = None,
@@ -87,50 +86,22 @@ def provider_at(*places: str) -> str:
     return ""
 
 
-def ask_to_sign_in(ref: JobRef, title: str, reason: str, *, url: str = "", can_register: bool = False, **payload: Any) -> str:
-    """The one card that asks the applicant to sign in, wherever the need was met (reading a form, filling it).
+def ask_to_sign_in(site: str, title: str, reason: str, *, url: str = "", job_url: str = "", **payload: Any) -> str:
+    """The one card that asks the applicant to sign in, wherever the need was met.
 
     It names whose sign-in is missing. When the site's sign-in is a provider's own (Google's careers site and Google),
     or the run stopped on a provider's sign-in page, what is missing is the provider's session: the card is the
-    provider's, signing in there is the whole of it, and "use my Google account" is not offered for Google itself.
-    Otherwise it is the site's: with the choices of signing in, a provider the site offers, or registering.
+    provider's, and signing in there is the whole of it. Otherwise it is the site's.
     Returns what the card is filed under ("account:idp:google") - what the task that met it now waits for."""
-    key = key_for(ref.tenant_key)
-    waiting = open_the_mail(key)
-    if waiting:      # nobody can sign in to an account whose address is not confirmed: the card asks for what helps
-        reason, can_register = waiting, False
+    key = key_for(site)
     provider = key[4:] if key.startswith("idp:") else provider_at(url, reason)
     spec = browser.identities().get(provider) if provider else None
-    if spec and not waiting:
+    if spec:
         notify.add_todo("takeover", spec["name"], body=reason, ref=f"account:idp:{provider}",
-                        payload={**payload, "tenant_key": f"idp:{provider}", "ats": "idp", "url": spec["url"], "job_url": ref.url, "provider": spec["name"],
-                                 "for": title, "can_register": False})
+                        payload={**payload, "tenant_key": f"idp:{provider}", "url": spec["url"], "job_url": job_url, "provider": spec["name"], "for": title})
         return f"account:idp:{provider}"
-    notify.add_todo("takeover", title, body=reason, ref=f"account:{key}",
-                    payload={**payload, "tenant_key": key, "ats": ref.ats, "url": url or ref.url, "job_url": ref.url, "can_register": can_register})
+    notify.add_todo("takeover", title, body=reason, ref=f"account:{key}", payload={**payload, "tenant_key": key, "url": url or job_url, "job_url": job_url})
     return f"account:{key}"
-
-
-def adopt(tenant_key: str, host: str) -> str | None:
-    """A sign-in page on ``host`` was reached while working for ``tenant_key``, which has no sign-in of its own. If a
-    sign-in for exactly that host is saved under another key (the same employer's postings were found under another
-    address before), that is the account: remember the link and return its key. Only an exact host, only an account
-    that has a password or a saved session, never across employers."""
-    host = (host or "").lower().strip()
-    if not host or key_for(tenant_key) != tenant_key or secrets.get_password(tenant_key):
-        return None
-    from . import browser
-
-    with db.session() as s:
-        rows = [(a.tenant_key, a.has_password) for a in s.query(Account).filter(Account.host == host, Account.tenant_key != tenant_key)]
-    for key, has_pw in rows:
-        if (has_pw and secrets.get_password(key)) or browser.load_state(key):
-            from . import sites
-
-            sites.link(tenant_key, key)
-            log.info("%s signs in on %s, where a sign-in is saved as %s: using it", tenant_key, host, key)
-            return key
-    return None
 
 
 def account(tenant_key: str) -> dict[str, Any] | None:
@@ -159,458 +130,8 @@ def delete_account(tenant_key: str) -> None:
             s.delete(a)
 
 
-def _bump_fail(tenant_key: str, err: str) -> int:
-    with db.session() as s:
-        a = s.get(Account, tenant_key)
-        if a is None:
-            return 0
-        a.fail_count += 1
-        a.last_error = err
-        if a.fail_count >= MAX_LOGIN_FAILS:
-            a.status = "needs_human"
-        return a.fail_count
-
-
 def login_email() -> str:
     return str(db.get_setting("account.email") or "")
-
-
-
-
-def likely_registered(ref: JobRef) -> str:
-    """Why the user probably already has an account on this site ('' when there is no sign of one).
-
-    The user registers by hand on sites they have applied on before, so an earlier application to the
-    same employer is the signal. Sites with no such history are registered by the agent."""
-    from .models import Application, Job
-
-    acct = account(ref.tenant_key)
-    if acct and "already exists" in (acct.get("last_error") or ""):
-        return "这个邮箱在该网站上已经注册过"
-    with db.session() as s:
-        q = s.query(Job).filter(Job.ats == ref.ats, Job.tenant == ref.tenant) if ref.ats != "generic" else s.query(Job).filter(Job.apply_url.like(f"%{ref.host}%"))
-        companies = {j.company for j in q if j.company}
-        if not companies:
-            return ""
-        hit = s.query(Application).join(Job).filter(Application.status.in_(SENT), Job.company.in_(companies)).first()
-        return f"你之前投过 {hit.job.company}，应该已经有账号" if hit else ""
-
-
-def may_register(ref: JobRef, also: str = "") -> tuple[bool, str]:
-    """(allowed, reason-when-not). The user's explicit "register for me" wins over the history guess. ``also``: the key
-    the posting was found under, when its sign-in is on another site - the user's answer was given under that one."""
-    if {ref.tenant_key, also} & set(db.get_setting("register.allow_keys") or []):
-        return True, ""
-    if not db.get_setting("register.auto") or (db.get_setting("register.per_ats") or {}).get(ref.ats) is False:
-        return False, "自动注册已在设置里关闭"
-    why = likely_registered(ref)
-    return (False, why) if why else (True, "")
-
-
-def sign_in_plan(ref: JobRef, offered: list[str] | None = None, also: str = "") -> dict[str, Any]:
-    """How to get into a site that needs an account. One answer, in this order:
-
-    1. an account this program already has for the site (stored password)      -> "password"
-    2. a provider the user approved for this site, or any offered one in "auto" -> "sso"
-    3. "ask" mode and an offered provider the user is signed in to              -> "ask_user"  (their choice is remembered per site)
-    4. registration allowed                                                      -> "register"
-    5. otherwise                                                                 -> "ask_user"
-    Rule 2 comes before registering because it leaves no new password behind and needs no e-mail verification.
-    """
-    key = ref.tenant_key
-    owner = key_for(key)
-    if owner.startswith("idp:") or (also and key_for(also).startswith("idp:")):
-        # The site's sign-in IS a provider's (Google's careers site signs in on Google). There is nothing to choose,
-        # no account to make and no button to press: with the provider's saved session the page is signed in, and
-        # without it only the applicant can sign in - at the provider, once, for every site that uses it.
-        name = (browser.identities().get(owner[4:] if owner.startswith("idp:") else key_for(also)[4:]) or {}).get("name", "the provider")
-        return {"login_email": login_email(), "has_password": False, "may_register": False, "why_not_register": f"this site signs in with {name} itself",
-                "offered": [], "signed_in_providers": [], "do": "ask_user",
-                "why": f"this site's sign-in is {name}'s own, and the saved {name} sign-in is not accepted here any more: finish with blocked=\"login\" and say so. "
-                       "Do not register, do not choose another account, do not type anything on the provider's page."}
-    offered = [p for p in (offered or []) if p in browser.identities()]
-    if offered:
-        from . import sites
-
-        sites.set_fact(key, "sso_offered", offered)
-    signed_in = [p for p in (db.get_setting("sso.order") or []) if p in offered and (i := browser.session_info(f"idp:{p}")) and not i["expired"]]
-    can_register, why = may_register(ref, also)
-    acct = account(key) or {}
-    base = {"login_email": login_email(), "has_password": bool(secrets.get_password(key)), "may_register": can_register, "why_not_register": why,
-            "offered": offered, "signed_in_providers": signed_in}
-    if acct.get("status") == "pending" and base["has_password"]:
-        # registered in an earlier run that stopped before the address was confirmed
-        return {**base, "do": "verify_then_password", "pending_verification": True}
-    if base["has_password"]:
-        return {**base, "do": "password"}
-    mode, sites = db.get_setting("sso.mode") or "ask", db.get_setting("sso.sites") or {}
-    chosen = sites.get(key) if key in sites else sites.get(also)
-    if chosen and chosen in signed_in:
-        return {**base, "do": "sso", "provider": chosen}
-    if chosen == "" or mode == "never" or not signed_in:
-        return {**base, "do": "register" if can_register else "ask_user"}
-    if mode == "auto":
-        return {**base, "do": "sso", "provider": signed_in[0]}
-    return {**base, "do": "ask_user", "why": "the applicant has not yet chosen how to sign in to this site"}
-
-
-def choose_sign_in(tenant_key: str, provider: str) -> None:
-    """The user's answer for one site: a provider key, or "" for "do not use a provider here"."""
-    db.set_setting("sso.sites", {**(db.get_setting("sso.sites") or {}), tenant_key: provider})
-    if provider == "":
-        allow_register(tenant_key)
-    else:
-        notify.close_todos("takeover", f"account:{tenant_key}")
-
-
-def allow_register(tenant_key: str) -> None:
-    """The user says they have no account on this site: let the agent create one."""
-    keys = list(db.get_setting("register.allow_keys") or [])
-    if tenant_key not in keys:
-        db.set_setting("register.allow_keys", keys + [tenant_key])
-    with db.session() as s:
-        a = s.get(Account, tenant_key)
-        if a is not None and a.status in ("needs_human", "locked") and not a.has_password:
-            a.status, a.last_error, a.fail_count = "unknown", "", 0
-    notify.close_todos("takeover", f"account:{tenant_key}")
-
-
-# --- an account whose e-mail address is not confirmed -------------------------------
-#
-# "Not confirmed yet" is a state of the account (status "pending"), not something that happens at sign-up and is over when
-# the run ends. Whoever finds an account in it - right after registering, at a sign-in days later, on the page that
-# follows a submission - does the same thing, here: find the site's mail, open its link or hand back its code. The
-# applicant is asked only when that cannot be done, and is then told what to do: open the mail. Not "sign in" - nobody
-# can sign in to such an account.
-
-CONFIRM_MAIL_DAYS = 3       # how far back the site's confirmation mail is looked for
-UNCONFIRMED = "邮箱还没有确认："   # how last_error of such an account begins
-
-
-def open_the_mail(key: str) -> str:
-    """What the applicant is asked when the account under ``key`` waits for its address to be confirmed and the program
-    could not do it ('' when that is not the case). One wording, whichever way the account was met."""
-    a = account(key) or {}
-    err = a.get("last_error") or ""
-    if a.get("status") != "pending" or not err.startswith(UNCONFIRMED):
-        return ""
-    return f"{a.get('host') or key} 要先确认邮箱才能登录，程序没能自己完成：{err[len(UNCONFIRMED):]}。请在邮箱里打开它发来的确认邮件、点里面的链接，然后把这一条标为已处理；不需要你登录，程序会用已保存的密码接着做。"
-
-
-def confirm_address(page: Any, ref: JobRef, *, key: str = "", since: datetime | None = None, wait: int = 180, site: str = "", earlier: bool = True) -> tuple[str, str]:
-    """Confirm the e-mail address of the account for ``ref`` from the site's mail. Returns what was done:
-
-    ("link", host)    the confirmation link was opened; the window is on ``host`` now
-    ("code", code)    the mail carries a code: the caller types it where the page asks for it (never logged or shown)
-    ("refused", why)  there is a link, and the program does not open it (mail.link_refusal) or it led off the site
-    ("none", "")      no such mail
-
-    ``since``: mail older than this is not looked at (default: the last three minutes). For an account the program made
-    and never got confirmed, the mail was sent when the account was made - hours or days ago - so the look goes back
-    to then; ``earlier=False`` turns that off (a mail that was just asked for again)."""
-    from . import mail
-
-    key = key or ref.tenant_key
-    site = site or ref.host
-    at = datetime.now(timezone.utc)
-    since = since or at - timedelta(minutes=3)
-    acct = account(key) or {}
-    if earlier and acct.get("status") != "ok" and acct.get("created_by") == "agent" and acct.get("created_at"):
-        made = datetime.fromisoformat(acct["created_at"]).replace(tzinfo=timezone.utc) - timedelta(minutes=2)
-        since = min(since, max(made, at - timedelta(days=CONFIRM_MAIL_DAYS)))
-    got = mail.wait_for_verification(sender_hint=ref.host or ref.tenant, timeout=wait, since=since, site_host=site)
-    if got is None:
-        return "none", ""
-    if got.startswith("refused:"):
-        return "refused", got[9:]
-    if not got.startswith("http"):
-        return "code", got
-    before = page.url
-    page.goto(got, wait_until="domcontentloaded")      # the address carries a one-time token: never shown to a model, never logged
-    page.wait_for_timeout(2500)
-    landed = urlparse(page.url).netloc.lower()
-    if mail.link_refusal(f"https://{landed}/", site):
-        try:        # the site's link sent the window somewhere else: nothing is typed there
-            page.goto(before, wait_until="domcontentloaded")
-        except Exception:  # noqa: BLE001
-            pass
-        return "refused", f"the link led away from the site, to {landed}"
-    return "link", landed
-
-
-def requeue_unconfirmed() -> list[str]:
-    """Accounts that earlier versions gave up on. An account the program made, whose address was never confirmed, was
-    filed as "needs you to sign in" - which nobody could do. It is what it is: an account that waits for its
-    confirmation. Its card is closed and the tasks that waited for the applicant go again; the program confirms the
-    address itself now. Returns the accounts this was done for."""
-    from . import handlers
-    from .ats.base import UNCONFIRMED_RE
-    from .models import Todo
-
-    stuck = []
-    with db.session() as s:
-        for a in s.query(Account).filter(Account.status == "needs_human", Account.has_password == 1, Account.created_by == "agent"):
-            said = [a.last_error or ""] + [t.body or "" for t in s.query(Todo).filter_by(kind="takeover", ref=f"account:{a.tenant_key}", status="open")]
-            if a.last_login_ok is None and any(UNCONFIRMED_RE.search(x) for x in said):
-                a.status, a.last_error, a.fail_count = "pending", "", 0
-                stuck.append(a.tenant_key)
-    for key in stuck:
-        notify.close_todos("takeover", f"account:{key}")
-        handlers.resume_waiting(f"account:{key}", f"account:{key_for(key)}")
-    return stuck
-
-
-def _confirm_and_sign_in(page: Page, driver: Driver, ref: JobRef, email: str, pw: str, *, registered: bool = False) -> str:
-    """The site has an account for us that it will not sign in until the address is confirmed. Confirm it and sign in.
-
-    First with the mail the site sent when the account was made; if there is none, or its link no longer works, the site
-    is asked to send another (when the driver knows how) and that one is used. Only when all of that fails is the
-    applicant asked - to open the mail, which is the one thing that is left."""
-    key = ref.tenant_key
-    upsert_account(key, ats=ref.ats, host=ref.host, status="pending")
-    made = (account(key) or {}).get("created_at")
-    fresh = bool(made) and datetime.now(timezone.utc) - datetime.fromisoformat(made).replace(tzinfo=timezone.utc) < timedelta(minutes=5)
-    why, asked_at = "", None
-    for attempt in (1, 2):
-        if attempt == 2:
-            again = getattr(driver, "request_confirmation", None)
-            try:
-                sent = bool(again(page, ref, email)) if again is not None else False
-            except (NeedsHuman, SiteDown):
-                raise
-            except Exception as e:  # noqa: BLE001
-                log.info("could not ask %s for another confirmation mail: %s", key, type(e).__name__)
-                sent = False
-            if not sent:
-                break
-            asked_at = datetime.now(timezone.utc)
-        how, val = confirm_address(page, ref, since=asked_at - timedelta(seconds=20) if asked_at else None, earlier=asked_at is None,
-                                   wait=180 if (fresh or asked_at) else 20)
-        if how == "none":
-            why = "邮箱里没有找到它发来的确认邮件" if asked_at is None else "让网站重发了确认邮件，但 3 分钟内没有收到"
-            continue
-        if how == "refused":
-            why = f"确认邮件里的链接不是这个网站自己的，程序不会去点（{val}）"
-            break
-        if how == "code":
-            enter = getattr(driver, "enter_verification_code", None)
-            if enter is None:
-                why = "确认邮件里是验证码，这个网站的登录页上程序不知道该填到哪里"
-                break
-            enter(page, val)
-        try:
-            driver.login(page, ref, email, pw)
-        except Unconfirmed as e:
-            why = f"已经打开了确认邮件里的链接，网站仍然说：{e.reason[:120]}"
-            continue
-        except (NeedsHuman, SiteDown):
-            raise
-        except Exception as e:  # noqa: BLE001
-            if unreachable(e):
-                raise
-            why = f"邮箱确认后登录没有成功：{secrets.redact(str(e), pw)[:150]}"
-            break
-        if driver.is_logged_in(page, ref):
-            upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")
-            browser.save_state(key, page.context)
-            log.info("confirmed the e-mail address of %s and signed in", key)
-            if registered:
-                notify.send("task_result", messages.registered(key), ref=f"account:{key}")
-            return "registered" if registered else "logged_in"
-        why = "邮箱确认后登录没有成功"
-        break
-    # still not confirmed: the account stays what it is - one that waits for its confirmation - so that the next run
-    # tries again (the applicant may have opened the mail by then, and then the sign-in simply works)
-    upsert_account(key, ats=ref.ats, host=ref.host, status="pending", error=f"{UNCONFIRMED}{why}"[:300])
-    _need_takeover(ref, driver, open_the_mail(key), can_register=False)
-    raise AssertionError("unreachable")
-
-
-# --- the one tool ------------------------------------------------------------------
-
-
-def ensure_session(page: Page, driver: Driver, ref: JobRef) -> str:
-    """Make ``page``'s context logged in for ``ref``. Returns 'not_required' | 'logged_in' | 'registered'.
-
-    Raises NeedsHuman when a person has to act (CAPTCHA, MFA, SSO, existing
-    account without stored credentials, repeated failures).
-    """
-    if not driver.requires_login:
-        return "not_required"
-    key = ref.tenant_key
-    acct = account(key)
-
-    # 1. saved session (already loaded into the context by browser.open_page)
-    if driver.is_logged_in(page, ref):
-        upsert_account(key, ats=ref.ats, host=ref.host, status="ok")
-        browser.save_state(key, page.context)
-        return "logged_in"
-
-    if getattr(driver, "sso", False):
-        # The site signs in through an institution's login. Its own session is short; the institution's often is not.
-        # Going through the sign-in again then needs nobody: no password is asked for. Only when a password or a second
-        # factor IS asked for is it the applicant's turn.
-        # A second factor that went unanswered is not sent again behind the applicant's back: the card is waited for.
-        if _open_card(key, "second_factor"):
-            raise NeedsHuman("The second factor was not approved last time; waiting for the applicant.", kind="login", url=driver.login_url(ref), waits_for=f"account:{key}")
-        resume = getattr(driver, "resume", None)
-        try:
-            resumed = bool(resume(page, ref)) if resume is not None else False
-        except NeedsHuman as e:
-            if not e.waits_for:
-                _need_takeover(ref, driver, e.reason, can_register=False, second_factor=True)
-            raise
-        except SiteDown:
-            raise
-        except Exception as e:  # noqa: BLE001 - it could not be tried: the applicant is asked, as before
-            if unreachable(e):
-                raise
-            log.info("could not go through the sign-in of %s again by itself: %s", key, type(e).__name__)
-            resumed = False
-        if resumed and driver.is_logged_in(page, ref, navigate=False):
-            upsert_account(key, ats=ref.ats, host=ref.host, status="ok")
-            browser.save_state(key, page.context)
-            return "logged_in"
-        # The institution's login asks for its password. With the login name and password saved for this site the
-        # program signs in like anywhere else (below); the second factor is the applicant's, and they are told when
-        # it is their turn.
-
-    sso = bool(getattr(driver, "sso", False))
-    # an institution's login name is its own (a CWL name), never the applicant's e-mail address by default
-    email = (acct or {}).get("login_email") or ("" if sso else login_email())
-    if not email and not sso:
-        raise NeedsHuman("No login e-mail configured. Set it in Settings.", kind="config")
-
-    # 2. stored credentials
-    pw = secrets.get_password(key) if email else None
-    if pw:
-        if acct and acct["fail_count"] >= MAX_LOGIN_FAILS:
-            _need_takeover(ref, driver, "Login failed twice with the stored password; please sign in yourself.")
-        if sso and _would_ring_in_quiet_hours(key):
-            # The stored password would be typed, and the institution would then ask for an approval on the applicant's
-            # phone - in the hours they asked not to be disturbed, for something the program began by itself. It waits
-            # for them instead: one card, and the sign-in when they say so.
-            _need_takeover(ref, driver, f"{ref.host} 的登录过期了。重新登录要在手机上确认，现在是你设的静默时段，程序没有发起。把这一条标为已处理，程序就会登录并发出手机确认请求。",
-                           can_register=False, second_factor=True)
-        try:
-            driver.login(page, ref, email, pw)
-        except Unconfirmed:
-            return _confirm_and_sign_in(page, driver, ref, email, pw)
-        except NeedsHuman as e:
-            if sso and not e.waits_for:      # the second factor went unanswered: the applicant's turn, and it is said in a card
-                _need_takeover(ref, driver, e.reason, can_register=False, second_factor=True)
-            raise
-        except SiteDown:
-            raise
-        except Exception as e:  # noqa: BLE001
-            if unreachable(e):       # no answer from the site: nothing about the password or the page, and nobody is asked
-                raise
-            msg = secrets.redact(str(e), pw)
-            if isinstance(e, DriverError) and re.search(r"sign-in rejected|rejected|incorrect|invalid (password|credentials)|wrong password", str(e), re.I):
-                # The site itself refused the stored password: that counts. Two refusals and the program stops trying it,
-                # so that an account is not locked by the same wrong password being sent again and again.
-                n = _bump_fail(key, msg)
-                log.warning("the site refused the stored password for %s (%d): %s", key, n, msg)
-            else:
-                # The program could not work the sign-in page (a field that did not appear, a time-out). That says nothing
-                # about the password, so it does not count towards "the stored password failed twice".
-                upsert_account(key, ats=ref.ats, host=ref.host, error=msg[:300])
-                log.warning("could not work the sign-in page of %s: %s", key, msg)
-            _need_takeover(ref, driver, f"Automatic login failed: {msg[:200]}")
-        if driver.is_logged_in(page, ref):
-            upsert_account(key, ats=ref.ats, host=ref.host, email=email, status="ok")
-            browser.save_state(key, page.context)
-            if sso and hasattr(driver, "second_factor_seen"):
-                from . import sites
-
-                sites.set_fact(key, "second_factor", bool(driver.second_factor_seen))       # known for the next time: will it ring the phone?
-            return "logged_in"
-        _bump_fail(key, "login did not result in a signed-in session")
-        _need_takeover(ref, driver, "Login did not succeed; please sign in yourself.")
-
-    if sso:
-        _need_takeover(ref, driver, f"{ref.host} 的登录过期了，学校的统一登录要重新输入密码。请登录一次。想让程序以后自己登录：到“账号”页给这个网站（{key}）保存登录名和密码，之后只有手机上的二次确认需要你。")
-
-    # 3. registration: the agent registers on sites the user has not applied on before;
-    #    where an account probably exists, the user signs in once and the credentials are saved.
-    ok, why = may_register(ref)
-    if acct and acct["status"] in ("needs_human", "locked") and key not in (db.get_setting("register.allow_keys") or []):
-        _need_takeover(ref, driver, why or "这个账号需要你登录一次。")
-    if not ok:
-        _need_takeover(ref, driver, f"{why}。请登录一次，登录状态和密码会保存下来；如果你其实没有注册过，可以改让 agent 注册。")
-    new_pw = secrets.generate_password(driver.password_policy.length, symbols=driver.password_policy.symbols)
-    # Save BEFORE submitting so the password cannot be lost mid-flow.
-    upsert_account(key, ats=ref.ats, host=ref.host, email=email, password=new_pw, status="pending", created_by="agent")
-    try:
-        outcome = driver.register(page, ref, email, new_pw)
-    except SiteDown:
-        delete_account(key)  # nothing was sent: do not keep a password for an account that does not exist
-        raise
-    except NeedsHuman:
-        raise
-    except Exception as e:  # noqa: BLE001
-        if unreachable(e):
-            delete_account(key)  # the sign-up page did not open: nothing was sent
-            raise
-        outcome = f"error: {secrets.redact(str(e), new_pw)[:200]}"
-    if outcome == "exists":
-        # Account predates us: drop the unused password and hand over. No reset.
-        secrets.delete_password(key)
-        upsert_account(key, status="needs_human", error="account already exists")
-        with db.session() as s:
-            a = s.get(Account, key)
-            if a:
-                a.has_password = 0
-        _need_takeover(ref, driver, "An account with this e-mail already exists. Sign in once and the credentials will be saved.", kind="takeover")
-    if outcome == "verify_email":
-        return _confirm_and_sign_in(page, driver, ref, email, new_pw, registered=True)
-    if outcome != "ok":
-        upsert_account(key, status="needs_human", error=str(outcome))
-        _need_takeover(ref, driver, f"Registration did not complete ({outcome}).")
-    try:
-        if not driver.is_logged_in(page, ref):
-            driver.login(page, ref, email, new_pw)
-    except Unconfirmed:      # the site took the sign-up without a word and says it only now
-        return _confirm_and_sign_in(page, driver, ref, email, new_pw, registered=True)
-    if driver.is_logged_in(page, ref):
-        upsert_account(key, status="ok")
-        browser.save_state(key, page.context)
-        notify.send("task_result", messages.registered(key), ref=f"account:{key}")
-        return "registered"
-    upsert_account(key, status="needs_human", error="registered but could not sign in")
-    _need_takeover(ref, driver, "Registered, but signing in failed.")
-    raise AssertionError("unreachable")
-
-
-def _would_ring_in_quiet_hours(key: str) -> bool:
-    """Is this a sign-in the program began by itself, in the applicant's quiet hours, that will ask for their phone?
-    (Not known yet whether it asks: it is taken to ask. Known not to - the device is remembered: it goes ahead.)"""
-    from . import sites, tasks
-
-    if not notify.quiet_now() or tasks.running_by_hand():
-        return False
-    return sites.fact(key, "second_factor") is not False
-
-
-def _open_card(key: str, flag: str) -> bool:
-    """Is a sign-in card for this account open that carries ``flag`` (what it is about)?"""
-    from .models import Todo
-
-    with db.session() as s:
-        return any((t.payload or {}).get(flag) for t in s.query(Todo).filter_by(kind="takeover", ref=f"account:{key}", status="open"))
-
-
-def _need_takeover(ref: JobRef, driver: Driver, reason: str, kind: str = "login", can_register: bool | None = None, **about: Any) -> None:
-    url = driver.login_url(ref) or ref.url
-    notify.add_todo(
-        "takeover",
-        ref.tenant_key,
-        body=reason,
-        ref=f"account:{ref.tenant_key}",
-        payload={"tenant_key": ref.tenant_key, "ats": ref.ats, "url": url, "job_url": ref.url, **about,
-                 "can_register": (not getattr(driver, "sso", False)) if can_register is None else can_register},
-    )
-    raise NeedsHuman(reason, kind=kind, url=url, waits_for=f"account:{ref.tenant_key}")
 
 
 # --- human takeover ------------------------------------------------------------------
@@ -635,19 +156,18 @@ _CAPTURE_JS = """
 """
 
 
-def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: JobRef | None = None,
-             save_credentials: bool = True, timeout_s: int = 600, done: Any = None) -> dict[str, Any]:
+def takeover(tenant_key: str, url: str, *, save_credentials: bool = True, timeout_s: int = 600, done: Any = None) -> dict[str, Any]:
     """Open a headed window at ``url`` and wait for the user to sign in.
 
     On success the session is saved; if ``save_credentials`` is set, the e-mail
     and password the user typed are stored in the OS keyring (like a password
     manager would). Nothing typed is logged.
     """
-    from .ats import registry
     from . import browser_policy
 
+    known = SIGNED_IN.get(tenant_key.split(":")[0])
     if tenant_key.startswith("idp:") and done is None:
-        # A sign-in provider (Google, LinkedIn ...) has no driver to ask "is this signed in?" and no password to keep:
+        # A sign-in provider (Google, LinkedIn ...) has no password to keep:
         # what tells that its sign-in is finished is the provider's own check. A card for a provider is opened by the
         # same button as a card for a site, so the difference is made here, not by whoever calls.
         spec = browser.identities().get(tenant_key[4:])
@@ -656,12 +176,40 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
 
     selected = browser_policy.select(tenant_key, url, "login")
     if selected.backend == "nodriver":
-        check = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
+        check = done or known
         with browser.open_page(tenant_key, headless=False, url=url, operation="login") as page:
             try:      # the applicant takes it from here; a page that redirects while it loads is no reason to give up
                 page.goto(url, wait_until="commit", timeout=30000)
             except Exception as e:  # noqa: BLE001
                 log.info("sign-in window for %s: the first page did not report loading (%s)", tenant_key, type(e).__name__)
+
+            # "Remember the password I type": in this browser it is heard from what the sign-in form sends (the
+            # browser tells; nothing is put into the page). That also hears a form the browser's own password manager
+            # filled in, where nothing was typed at all. (This window used to remember nothing, whatever was ticked.)
+            sent: dict[str, str] = {}
+            hears: set[int] = set()
+            site_ = _site(urlparse(url).netloc)
+
+            def heard(address: str, method: str, body: str) -> None:
+                where = urlparse(address).netloc.lower()
+                found = credentials_sent(body) if _this_sites_password(where, site_) else None
+                # (a login without its name does not take the place of one that had it: what follows a sign-in -
+                # a code, a confirmation - is not the sign-in sent again)
+                if found and (found[0] or not sent.get("user")):
+                    sent.update(user=found[0], pw=found[1], host=where)
+
+            def listen() -> None:
+                if not save_credentials or done is not None:
+                    return
+                for p in page.context.pages:
+                    if id(p) not in hears and hasattr(p, "on_request"):
+                        hears.add(id(p))
+                        p.on_request(heard)
+
+            try:
+                listen()
+            except Exception as e:  # noqa: BLE001 - the window is still for signing in
+                log.info("sign-in window for %s: cannot hear what is sent (%s)", tenant_key, type(e).__name__)
 
             def keep() -> dict[str, Any]:
                 """The window is signed in: keep its session. If a page cannot be read for its storage just now (it is
@@ -671,38 +219,50 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
                 except Exception as e:  # noqa: BLE001
                     log.info("session of %s kept from its cookies (%s)", tenant_key, type(e).__name__)
                     browser.write_state(tenant_key, {"cookies": page.context.cookies(), "origins": []})
-                upsert_account(tenant_key, host=urlparse(url).netloc, status="ok", created_by="takeover")
+                saved = False
+                if done is None:      # a site's account; a sign-in told by the caller's own check (a provider's) is a session and no account
+                    saved = _signed_in_by_hand(tenant_key, urlparse(url).netloc, sent if save_credentials else {})
                 notify.close_todos("takeover", f"account:{tenant_key}")
-                return {"ok": True, "credentials_saved": False}
+                return {"ok": True, "credentials_saved": saved}
+
+            # Nothing to tell a finished sign-in by (no check for this site): then the applicant closing the window
+            # is their "done", as it is in the other browser - and what the window held has to be read while it is
+            # open, for once it is closed there is nothing left to read.
+            blind = not check
+            held: list[dict[str, Any]] = []
+
+            def closed() -> dict[str, Any]:
+                if blind and held:
+                    browser.write_state(tenant_key, {"cookies": held, "origins": []})
+                    saved = _signed_in_by_hand(tenant_key, urlparse(url).netloc, sent if save_credentials else {})
+                    notify.close_todos("takeover", f"account:{tenant_key}")
+                    return {"ok": True, "credentials_saved": saved, "unverified": True}
+                return {"ok": False, "reason": "window closed before sign-in was verified"}
 
             deadline, misses = time.monotonic() + timeout_s, 0
             while time.monotonic() < deadline:
                 try:
+                    listen()        # (a sign-in that opened a tab of its own is heard there too)
                     urls = [p.url for p in page.context.pages]
+                    if blind and urls:
+                        held = page.context.cookies() or held
                     misses = 0
                 except Exception:  # noqa: BLE001 - between two pages, or the window is going away
                     misses += 1
                     if misses >= 5:
-                        return {"ok": False, "reason": "window closed before sign-in was verified"}
+                        return closed()
                     browser.idle(page, 1)
                     continue
                 if not urls:
-                    return {"ok": False, "reason": "window closed before sign-in was verified"}
+                    return closed()
                 if check and any(check(u) for u in urls):
                     return keep()
-                if not check and driver and ref:
-                    try:
-                        if driver.is_logged_in(page, ref, navigate=False):
-                            return keep()
-                    except Exception:  # noqa: BLE001
-                        pass
                 browser.idle(page, 1)
         return {"ok": False, "reason": "sign-in verification timed out"}
 
-    plain = getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
+    plain = known
     if plain is not None and browser.no_screen():
-        plain = None        # an ordinary browser window needs a screen: here the sign-in goes through the remote window
-        done = done or getattr(driver or registry.get(tenant_key.split(":")[0]), "signed_in_url", None)
+        done, plain = done or known, None        # an ordinary browser window needs a screen: here the sign-in goes through the remote window
     if plain is not None:  # this site refuses sign-in to an automated browser: plain window, human login
         res = browser.plain_login(tenant_key, url, plain)
         if not res["ok"]:
@@ -717,11 +277,10 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
         # only a password typed on the site itself is this site's password; one typed at Microsoft / Google / LinkedIn
         # during "Sign in with ..." belongs to that provider and is never stored
         try:
-            where = _site(urlparse(source["frame"].url).netloc)
+            where = urlparse(source["frame"].url).netloc
         except Exception:  # noqa: BLE001
             where = ""
-        idp = any(where == d or where.endswith("." + d) for v in browser.identities().values() for d in v["domains"])
-        if pw and (where == site or not idp):
+        if pw and _this_sites_password(where, site):
             captured["user"], captured["pw"] = user, pw
             try:
                 captured["host"] = urlparse(source["frame"].url).netloc.lower()
@@ -766,8 +325,6 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
             try:
                 if done is not None:
                     ok = any(done(p.url) for p in pages)
-                elif driver is not None and ref is not None:
-                    ok = driver.is_logged_in(page, ref, navigate=False)  # type: ignore[call-arg]
                 else:
                     ok = bool(captured) and page.locator("input[type=password]:visible").count() == 0
             except Exception:  # noqa: BLE001 - page navigating
@@ -780,7 +337,7 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
                     pass
                 break
     unverified = False
-    if not ok and closed and state is not None and done is None and (driver is None or ref is None):
+    if not ok and closed and state is not None and done is None:
         # A site this program has no sign-in check for (typically "Sign in with Microsoft / Google"): there is nothing to
         # detect, so the user closing the window is their "done". If they were not signed in, the next attempt asks again.
         ok = unverified = True
@@ -789,23 +346,95 @@ def takeover(tenant_key: str, url: str, *, driver: Driver | None = None, ref: Jo
     if not ok:
         return {"ok": False, "reason": "窗口关闭前没有检测到登录成功" if closed else "等了 10 分钟没有检测到登录成功"}
     if done is not None:
+        notify.close_todos("takeover", f"account:{tenant_key}")      # the card that asked for this sign-in has its answer, as in the other browser
         return {"ok": True, "credentials_saved": False}
-    host = urlparse(url).netloc
-    saved = False
-    if save_credentials and captured.get("pw"):
-        upsert_account(tenant_key, host=host, email=captured.get("user") or login_email(), password=captured["pw"], status="ok", created_by="takeover")
-        saved = True
-        typed_on = captured.get("host") or ""
-        if typed_on and _site(typed_on) != _site(host):
-            # the site took its password on another address (its sign-in lives there): known from now on, so that the
-            # program types it there too instead of taking that page for another site's
-            from . import sites
-
-            sites.set_fact(tenant_key, "sign_in_hosts", sorted({*(sites.fact(tenant_key, "sign_in_hosts") or []), typed_on}))
-    else:
-        upsert_account(tenant_key, host=host, status="ok", created_by="takeover")
+    saved = _signed_in_by_hand(tenant_key, urlparse(url).netloc, captured if save_credentials else {})
     notify.close_todos("takeover", f"account:{tenant_key}")
     return {"ok": True, "credentials_saved": saved, "unverified": unverified}
+
+
+def _signed_in_by_hand(tenant_key: str, host: str, captured: dict[str, str]) -> bool:
+    """The applicant has signed in to a site in the program's window: the account is good, and the login they used -
+    when it was to be remembered and was seen - is kept in the keyring. True when it was kept. The same for both
+    browsers' windows."""
+    if not captured.get("pw"):
+        upsert_account(tenant_key, host=host, status="ok", created_by="takeover")
+        return False
+    sso = tenant_key.split(":")[0] in INSTITUTIONS
+    # (an institution's login name is its own - a CWL name: where none was seen, the applicant's e-mail is not put in its place)
+    upsert_account(tenant_key, host=host, email=captured.get("user") or ("" if sso else login_email()), password=captured["pw"], status="ok", created_by="takeover")
+    typed_on = captured.get("host") or ""
+    if typed_on and _site(typed_on) != _site(host):
+        # the site took its password on another address (its sign-in lives there): known from now on, so that the
+        # program types it there too instead of taking that page for another site's
+        from . import sites
+
+        sites.set_fact(tenant_key, "sign_in_hosts", sorted({*(sites.fact(tenant_key, "sign_in_hosts") or []), typed_on}))
+    return True
+
+
+def remembers_login(tenant_key: str, url: str = "") -> bool:
+    """Can the sign-in window for this site keep the login the applicant uses in it ("remember the password I type")?
+    The card offers it only where this is so - what it offers is done. Not for a sign-in provider: its password is
+    never stored, only its session. Not where the window is one the program does not look into until the sign-in is
+    done (browser.plain_login - a site that refuses the automated browser, with the ordinary one switched off): there
+    is nothing to hear. This follows takeover()'s own choice of window."""
+    if tenant_key.startswith("idp:"):
+        return False
+    from . import browser_policy
+
+    try:
+        if browser_policy.select(tenant_key, url, "login").backend == "nodriver":
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return SIGNED_IN.get(tenant_key.split(":")[0]) is None or browser.no_screen()
+
+
+def _this_sites_password(where: str, site: str) -> bool:
+    """Is a password given at the address ``where`` this site's (``site``: its registrable name)? One given on the site
+    itself is, and so is one given at the site's own sign-in elsewhere (an institution's login). One given at
+    Microsoft / Google / LinkedIn during "Sign in with ..." belongs to that provider and is never stored."""
+    where = _site(where)
+    idp = any(where == d or where.endswith("." + d) for v in browser.identities().values() for d in v["domains"])
+    return bool(where) and (where == site or not idp)
+
+
+_PASSWORD_FIELD = re.compile(r"pass|pwd|(?<![a-z])pw(?![a-z])", re.I)
+_OTHER_PASSWORD = re.compile(r"new|confirm|repeat|again|retype|verify", re.I)
+# what a second factor is sent as: used once, and never the account's password ("passcode" has "pass" in it)
+_ONE_TIME = re.compile(r"code|otp|token|(?<![a-z])pin(?![a-z])|mfa|2fa|totp|challenge|answer", re.I)
+_LOGIN_FIELD = re.compile(r"user|e-?mail|login|identifier|account", re.I)
+
+
+def credentials_sent(body: str) -> tuple[str, str] | None:
+    """(login name, password) from the body of a request a sign-in form sent - form fields or JSON - or None when it
+    carries no password. Never logged, never kept anywhere but the keyring."""
+    text = (body or "").strip()
+    fields: list[tuple[str, str]] = []
+    if text[:1] in "{[":
+        def walk(node: Any, name: str = "") -> None:
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    walk(v, str(k))
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v, name)
+            elif isinstance(node, str):
+                fields.append((name, node))
+
+        try:
+            walk(json.loads(text))
+        except ValueError:
+            return None
+    else:
+        fields = parse_qsl(text, keep_blank_values=False)
+    pw = next((v for k, v in fields if v and _PASSWORD_FIELD.search(k) and not _OTHER_PASSWORD.search(k) and not _ONE_TIME.search(k)), "")
+    if not pw:
+        return None
+    user = (next((v for k, v in fields if v and _LOGIN_FIELD.search(k) and not _PASSWORD_FIELD.search(k)), "")
+            or next((v for k, v in fields if "@" in v and v != pw and not _PASSWORD_FIELD.search(k)), ""))
+    return user, pw
 
 
 def _site(host: str) -> str:
@@ -832,24 +461,16 @@ def identities() -> list[dict[str, Any]]:
 
 # --- Chrome password CSV import ------------------------------------------------------
 
+WITH_ACCOUNTS = ("workday", "oracle", "eightfold", "icims")      # recruiting systems on which each employer's site has accounts of its own
+
 
 def tenant_key_for_url(url: str) -> str | None:
-    """Map a saved-login URL to a tenant key (same rule the drivers use)."""
-    from .ats import registry
+    """The site a saved login belongs to, when it is an employer's site on a recruiting system that has accounts; None for
+    everything else in a browser's export (it is the applicant's whole password list)."""
+    from . import sites
 
-    host = urlparse(url if "//" in url else f"https://{url}").netloc.lower()
-    if not host:
-        return None
-    from .ats.base import host_is
-
-    if host_is(host, "myworkdayjobs.com") or host_is(host, "myworkdaysite.com"):
-        return f"workday:{host.split('.myworkday')[0]}"
-    for suffix, ats in registry.KNOWN_HOSTS.items():
-        if host_is(host, suffix):
-            return f"{ats}:{host.split('.')[0]}"
-    if host_is(host, "ashbyhq.com") or host_is(host, "greenhouse.io"):
-        return None  # no accounts on these
-    return None
+    system, _ = sites.where(url)
+    return sites.key_of(url) if system in WITH_ACCOUNTS else None
 
 
 def import_chrome_csv(content: str, *, only_known: bool = True) -> dict[str, Any]:
