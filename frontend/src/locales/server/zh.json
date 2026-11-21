@@ -43,6 +43,7 @@
  "server.actions.thisRecordIsNo": "这份记录已经不在等批准了。",
  "server.actions.toldTheAgentWorking": "已经告诉正在做这份申请的 Agent",
  "server.actions.tryAgain": "再试一次",
+ "server.actions.updateWhenIdle": "空闲时更新",
  "server.agenda.onlyAnHttpS": "只能是 http(s) 地址",
  "server.agent.work.authorizeGmailAgain": "重新授权 Gmail 邮箱",
  "server.agent.work.couldNotBeDone": "{p0}：没有做成",
@@ -321,10 +322,6 @@
  "server.applications.youRecordedItAs": "你手动记为“{p0}”",
  "server.auth.noSuccessfulSignIn": "窗口关闭前没有检测到登录成功",
  "server.auth.noSuccessfulSignIn2": "等了 10 分钟没有检测到登录成功",
- "server.backup.itCouldNotBe": "查不到（{p0}）。可能是网络不通，或 GitHub 暂时限制了访问。",
- "server.backup.noReleaseRepositoryIs": "没有设置发布仓库",
- "server.backup.thisReleaseRepositoryWas": "没有找到这个发布仓库",
- "server.backup.thisRepositoryHasNot": "这个仓库还没有发布过版本",
  "server.bots.approveAndSend": "{p0} · {p1}（批准并提交）",
  "server.bots.automaticWorkPaused": "已暂停自动运行。",
  "server.bots.automaticWorkPausedWhat": "已暂停自动运行。正在做的会做完；你在页面上或这里点的照常执行。",
@@ -816,6 +813,11 @@
  "server.messages.time": "时间",
  "server.messages.today": "今天的日程：",
  "server.messages.tooManyRequestsRate": "请求太频繁，被限流了",
+ "server.messages.update.available": "AutoApply 有新版本了",
+ "server.messages.update.failed": "新版本没能启动，继续用原来的版本",
+ "server.messages.update.open": "打开“关于”",
+ "server.messages.update.ready": "新版本已准备好，可以在“关于”页面切换",
+ "server.messages.update.switched": "AutoApply 已更新",
  "server.messages.uploaded": "上传了",
  "server.messages.usageLimitReached": "用量额度用完了",
  "server.messages.viewAccount": "查看账号",
@@ -1068,5 +1070,6 @@
  "server.transfer.thePassphraseIsWrong": "口令不对",
  "server.transfer.thePassphraseNeedsAt": "口令至少 {p0} 个字符",
  "server.transfer.thisIsNotA": "这不是 AutoApply 导出的登录状态文件",
- "server.transfer.whatTheFileHolds": "文件里的内容不是一份登录状态"
+ "server.transfer.whatTheFileHolds": "文件里的内容不是一份登录状态",
+ "server.updates.whenIdle": "好的，等手上没事的时候切换到 {v}。"
 }

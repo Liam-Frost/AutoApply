@@ -172,6 +172,12 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logging.getLogger("autoapply").exception("the reminders of the dated cards could not be set")
         db.set_setting("migrated.alarms", True)
+    try:      # a switch to a new version asked for: it happened, or the old version goes on (said either way)
+        from .. import updates as _updates
+
+        _updates.after_start()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("autoapply").exception("could not settle the last update")
     net.apply()
     tasks.start()
     from .. import bots as _bots
@@ -1589,6 +1595,7 @@ def overview() -> dict[str, Any]:
             "paused": bool(db.get_setting("schedule.paused")),
             "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),
             "remote": _open_remote_windows(),
+            "update": _newer_version(),
             "mail_recent": [_mail_row(s, m) for m in s.query(MailEvent).filter(MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(10)],
             "stage_counts": _stage_counts(s),
             "weekly": _weekly(s),
@@ -1598,6 +1605,14 @@ def overview() -> dict[str, Any]:
                                      **stages.describe(stages.stage(a.job.status, bool(a.job.online), a.job.deadline or "", a.status))}
                                     for a in s.query(Application).filter(Application.submitted_at.isnot(None)).order_by(Application.submitted_at.desc()).limit(8)],
         }
+
+
+def _newer_version() -> str:
+    """A newer release found by the daily look (a dot on "About" in the menu)."""
+    from .. import updates
+
+    latest = str(updates.state().get("latest") or "")
+    return latest if db.get_setting("update.mode") != "off" and latest and updates._key(latest) > updates._key(updates.version()) else ""
 
 
 def _open_remote_windows() -> list[dict[str, Any]]:
@@ -1761,10 +1776,74 @@ def system_export_download(name: str) -> FileResponse:
 
 @app.get("/api/system/update")
 def system_update() -> dict[str, Any]:
-    """Looks at the releases of the publishing repository. Asked for by the user; nothing is downloaded or installed."""
-    from .. import backup
+    """Where updates stand: this version, the newest found, what is prepared, the mode (updates.py)."""
+    from .. import updates
 
-    return backup.check_update(str(db.get_setting("update.repo") or ""))
+    return updates.status()
+
+
+@app.post("/api/system/update/check")
+def system_update_check() -> dict[str, Any]:
+    from .. import updates
+
+    updates.check()
+    return updates.status()
+
+
+@app.post("/api/system/update/prepare")
+def system_update_prepare() -> dict[str, Any]:
+    """Fetch, check and prepare the newest release, in the background (the page follows its progress)."""
+    from .. import updates
+
+    updates.prepare_later()
+    return {**updates.status(), "status": "downloading"}
+
+
+@app.post("/api/system/update/switch")
+def system_update_switch(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Restart into the version prepared (the tray waits for what is in hand to be done), or go back to the one before."""
+    from .. import updates
+
+    try:
+        return updates.rollback() if body.get("back") else updates.switch()
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
+
+
+@app.get("/api/about")
+def about() -> dict[str, Any]:
+    """What the about page says: this version and how it runs, where the data is, the components and their licences."""
+    import platform
+    import subprocess as _sp
+    from importlib import metadata
+
+    from .. import backup, updates
+
+    commit = ""
+    if (config.ROOT / ".git").exists():
+        try:
+            commit = _sp.run(["git", "rev-parse", "--short", "HEAD"], cwd=config.ROOT, capture_output=True, text=True, timeout=5).stdout.strip()
+        except Exception:  # noqa: BLE001
+            commit = ""
+    wanted = ("fastapi", "uvicorn", "sqlalchemy", "pydantic", "httpx", "playwright", "anthropic", "claude-agent-sdk", "pypdf", "python-docx", "keyring",
+              "apscheduler", "cryptography", "pillow", "pystray", "websockets", "google-api-python-client", "nodriver", "openai-codex")
+    parts = []
+    for name in wanted:
+        try:
+            m = metadata.metadata(name)
+            parts.append({"name": name, "version": metadata.version(name), "license": (m.get("License-Expression") or m.get("License") or "")[:60]})
+        except metadata.PackageNotFoundError:
+            continue
+    ver = backup.version()
+    changes = ""
+    try:      # this version's part of the changelog (the package carries CHANGELOG.md)
+        log_text = (config.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        m = re.search(r"^## \[" + re.escape(ver) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)", log_text, re.M | re.S)
+        changes = m.group(1).strip()[:20000] if m else ""
+    except OSError:
+        pass
+    return {"version": ver, "commit": commit, "kind": updates.kind(), "python": platform.python_version(), "system": platform.platform(terse=True),
+            "data": str(config.DATA), "repo": str(db.get_setting("update.repo") or ""), "components": parts, "changes": changes}
 
 
 @app.get("/api/proxy")

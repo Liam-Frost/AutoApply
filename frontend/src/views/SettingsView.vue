@@ -30,7 +30,6 @@ const router = useRouter()
 const rerun = async () => { await api.post('/persona/restart'); persona.done = false; router.push('/welcome') }
 const sys = ref({})
 const exported = ref(null)
-const upd = ref(null)
 const docs = ref([])
 api.get('/system').then((d) => (sys.value = d)).catch(() => {})
 api.get('/documents').then((d) => (docs.value = d)).catch(() => {})
@@ -48,9 +47,6 @@ const lastExportLine = computed(() => {
   const when = fmtTime(e.created), mb = (e.size / 1e6).toFixed(1)
   return e.sessions ? T('settings.page.lastExportFilesMb', { p0: when, p1: e.files, p2: mb }) : T('settings.page.lastExportFilesMb2', { p0: when, p1: e.files, p2: mb })
 })
-const checkUpdate = async () => {
-  try { upd.value = await api.get('/system/update') } catch (e) { toast(e.message, 'bad') }
-}
 
 // --- where everything is ---------------------------------------------------------------------------------------------
 // [group, its name, what it is for, [[section, its name], ...]]. The sections of a group are on one page, in this order.
@@ -607,16 +603,11 @@ onMounted(() => { load(); loadDiscord() })
           <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 8px">
             <button @click="exportData(false)"><Icon name="download" />{{ $t('settings.page.exportAllData') }}</button>
             <button class="ghost" @click="exportData(true)">{{ $t('settings.page.exportWithSignIn') }}</button>
-            <button @click="checkUpdate"><Icon name="refresh" />{{ $t('settings.page.checkForUpdates') }}</button>
+            <router-link to="/about" class="btn"><Icon name="refresh" />{{ $t('settings.page.updatesOnAbout') }}</router-link>
             <span class="muted small">{{ $t('settings.page.currentVersion', { p0: sys.version }) }}</span>
           </div>
           <p v-if="exported" class="small" style="margin-top: 8px">{{ $t('settings.page.exportedFilesMb', { p0: exported.files, p1: (exported.size / 1e6).toFixed(1) }) }}<a :href="'/api/system/export/' + exported.name">{{ $t('settings.page.download', { p0: exported.name }) }}</a>
             <span class="muted">{{ $t('settings.page.alsoSavedIn', { p0: exported.path }) }}</span></p>
-          <p v-if="upd" class="small" style="margin-top: 8px">
-            <template v-if="upd.error">{{ upd.error }}</template>
-            <template v-else-if="upd.newer">{{ $t('settings.page.newVersionAvailable') }} <b>{{ upd.latest }}</b>（{{ upd.published }}）：<a :href="upd.url" target="_blank" rel="noopener">{{ $t('settings.page.seeReleaseNotesAnd') }}</a>{{ $t('settings.page.theAppDoesntUpdate') }}</template>
-            <template v-else>{{ upd.note || $t('settings.page.youreOnTheLatest') }}</template>
-          </p>
           <p class="small" style="margin: 10px 0 0">
             <template v-if="lastExport">{{ lastExportLine }} <a :href="'/api/system/export/' + lastExport.name">{{ $t('settings.page.downloadThisOne') }}</a></template>
             <template v-else>{{ $t('settings.page.nothingHasBeenExported') }}</template>

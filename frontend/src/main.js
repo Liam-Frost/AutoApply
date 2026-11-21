@@ -23,6 +23,7 @@ import MailOut from './views/MailOut.vue'
 import AccountsView from './views/AccountsView.vue'
 import ProfileView from './views/ProfileView.vue'
 import RunsView from './views/RunsView.vue'
+import AboutView from './views/AboutView.vue'
 import SettingsView from './views/SettingsView.vue'
 import SourcesView from './views/SourcesView.vue'
 import RemoteView from './views/RemoteView.vue'
@@ -60,6 +61,7 @@ const router = createRouter({
     { path: '/accounts', component: AccountsView },
     { path: '/profile', component: ProfileView },
     { path: '/runs', component: RunsView },
+    { path: '/about', component: AboutView },
     { path: '/settings/:group?/:section?', component: SettingsView },
     { path: '/jobs/sources', component: SourcesView },
     { path: '/remote/:id', component: RemoteView, props: true },

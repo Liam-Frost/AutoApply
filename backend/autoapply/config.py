@@ -34,7 +34,7 @@ for _p in (DATA, FILES, MATERIALS, RUNS, SESSIONS, KNOWLEDGE, PLAYBOOKS):
 # Kept in the settings table, but the program's own record of what it found out - not something the settings page
 # shows or saves. The page used to get these and send them back with everything else: a page left open wrote an older
 # copy over what the program had recorded since (which browser a sign-in lives in, which site signs in on which).
-STATE = frozenset({"mail.gmail_history", "schedule.draining", "schedule.drain_told", "sources.history"})
+STATE = frozenset({"mail.gmail_history", "schedule.draining", "schedule.drain_told", "sources.history", "update.state"})
 # Settings of earlier versions that are no longer settings: what the program found out about sites lives in sites.py now.
 # A settings page loaded before sends them back; they are ignored.
 RETIRED = frozenset({"accounts.alias", "sso.offered", "browser.visible_sites", "browser.session_made_in", "learned.drivers_written",
@@ -172,7 +172,11 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "employers": [],
     "employers.migrated": False,
     "employers.priority_min_score": 7.0,   # a priority employer's posting gets a draft from this score
-    "update.repo": "Liam-Frost/AutoApply",   # where releases are published; looked at only when the user clicks "check for updates"
+    "update.repo": "Liam-Frost/AutoApply",     # where releases are published
+    # updates (updates.py): off | notify (look once a day, say so) | download (fetch and prepare too) | auto (switch when idle in the window)
+    "update.mode": "notify",
+    "update.channel": "stable",            # stable | beta (pre-releases too)
+    "update.window": {"from": "03:00", "to": "05:00"},      # when "auto" may switch (local time)
     "ui.lang": "zh",   # interface language: zh | en. Text the AI writes for the user (reasons, summaries, replies) follows it.
     # who is using the program (persona.py); filled in by the first-run guide
     "persona": {},

@@ -26,7 +26,7 @@ const link = reactive({ at: null, down: false })
 // --- the navigation on a narrow screen -------------------------------------------------------------------------------
 const route = useRoute()
 const NAMES = [['/home', T('app.overview')], ['/todos', T('app.needsYou')], ['/drafts', T('app.drafts')], ['/jobs/sources', T('app.sourcesAndWatchedEmployers')], ['/jobs', T('app.postings')], ['/applications', T('app.myApplications')], ['/profile', T('app.profile')],
-  ['/files', T('app.files')], ['/contacts', T('app.contactsReferrals')], ['/accounts', T('app.siteAccounts')], ['/analytics', T('app.analytics')], ['/runs', T('app.activity')], ['/settings', T('app.settings')], ['/welcome', T('app.setupGuide')], ['/remote', T('app.remoteWindow')]]
+  ['/files', T('app.files')], ['/contacts', T('app.contactsReferrals')], ['/accounts', T('app.siteAccounts')], ['/analytics', T('app.analytics')], ['/runs', T('app.activity')], ['/settings', T('app.settings')], ['/about', T('about.nav')], ['/welcome', T('app.setupGuide')], ['/remote', T('app.remoteWindow')]]
 const pageName = computed(() => (NAMES.find(([p]) => route.path === p || route.path.startsWith(p + '/')) || ['', ''])[1])
 const menu = ref(false)
 const side = ref(null)
@@ -100,6 +100,7 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/analytics" class="nav"><Icon name="search" />{{ $t('app.analytics') }}</router-link>
       <router-link to="/runs" class="nav"><Icon name="activity" />{{ $t('app.activity') }}</router-link>
       <router-link to="/settings" class="nav"><Icon name="settings" />{{ $t('app.settings') }}</router-link>
+      <router-link to="/about" class="nav"><Icon name="info" />{{ $t('about.nav') }}<span v-if="ov.update" class="tag ok" style="margin-left: auto" :title="$t('about.newVersionDot', { v: ov.update })">{{ $t('about.new') }}</span></router-link>
 
       <div class="side-foot">
         <div v-if="link.down" role="status"><span class="status-dot down"></span>{{ $t('app.cannotReachTheService') }}<template v-if="link.at">{{ $t('app.lastUpdated', { p0: clock(link.at) }) }}</template></div>
