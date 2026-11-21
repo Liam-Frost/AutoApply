@@ -219,6 +219,13 @@ const renew = async () => { if (await ask(t('calendar.share.renewAsk'), { ok: t(
       <div v-if="sel.subject" class="small">{{ sel.subject }}</div>
       <p v-if="sel.note" class="small" style="white-space: pre-line">{{ sel.note }}</p>
       <div v-if="sel.link" class="row"><a :href="sel.link" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('calendar.open') }}</a><span class="small muted clamp2">{{ sel.link }}</span></div>
+      <div v-if="(sel.links || []).filter((l) => l.url !== sel.link).length" class="small">
+        <div class="muted">{{ $t('calendar.links.fromMail') }}</div>
+        <div v-for="l in sel.links.filter((x) => x.url !== sel.link)" :key="l.url" class="row" style="gap: 8px; margin-top: 4px">
+          <span class="grow clamp2">{{ l.what || l.url }} <span class="muted">{{ l.what ? l.url : '' }}</span></span>
+          <button class="sm" @click="linkEdit = l.url; saveLink(sel)">{{ $t('calendar.links.use') }}</button>
+        </div>
+      </div>
       <div class="row" style="flex-wrap: wrap; gap: 8px">
         <template v-if="sel.about.todo_id && !['snoozed'].includes(sel.kind)">
           <button v-if="!sel.done" @click="done(sel)"><Icon name="check" />{{ $t('calendar.done') }}</button>

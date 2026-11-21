@@ -81,7 +81,8 @@ def items(start: date, end: date, *, kinds: tuple[str, ...] = SHOWN, states: tup
 
     def add(id_: str, kind: str, title: str, at: datetime, whole: bool, *, job: Job | None = None, app: Application | None = None, todo: Todo | None = None,
             link: str = "", note: str = "", contact_id: int | None = None, done: bool = False) -> None:
-        out.append({"id": id_, "kind": kind, "title": title, "start": _iso(at), "all_day": whole, "link": link, "note": note[:300], "done": done,
+        links = list(((todo.payload or {}).get("links") or []) if todo is not None else [])
+        out.append({"id": id_, "kind": kind, "title": title, "start": _iso(at), "all_day": whole, "link": link, "links": links, "note": note[:300], "done": done,
                     "company": job.company if job else "", "subject": f"{job.company} · {job.title}" if job else "",
                     "state": state_of(app) if (job or app) else "", "score": job.score if job else None,
                     "about": {"job_id": job.id if job else None, "application_id": app.id if app else None, "todo_id": todo.id if todo else None, "contact_id": contact_id}})
@@ -184,7 +185,7 @@ def set_link(todo_id: int, link: str) -> None:
         t = s.get(Todo, todo_id)
         if t is None:
             raise KeyError(todo_id)
-        t.payload = {**(t.payload or {}), "link": link}
+        t.payload = {**(t.payload or {}), "link": link, "link_by": "user"}
 
 
 def month_range(day: date) -> tuple[date, date]:

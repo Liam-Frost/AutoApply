@@ -88,3 +88,26 @@ def test_the_page_adds_an_item_and_gives_it_a_link(app_env):
     assert [(x["kind"], x["link"]) for x in got] == [("own", "https://meet.example/abc")]
     with pytest.raises(HTTPException):
         calendar_items("2026-11-23", "2027-11-30")          # too long a span
+
+
+def test_a_mail_gives_its_card_the_link_it_has_and_never_one_it_does_not(app_env):
+    from autoapply import agenda, mail, reminders
+    from autoapply.models import Todo
+
+    body = "Join here: https://meet.example/abc-def or reschedule at https://cal.example/r/9 . Unsubscribe https://acme.example/u"
+    found = [{"url": "https://meet.example/abc-def", "what": "面试会议链接"}, {"url": "https://meet.example/made-up", "what": "x"},
+             {"url": "javascript:alert(1)", "what": "x"}, {"url": "https://meet.example/abc-def", "what": "again"}]
+    assert mail.mail_links(found, body) == [{"url": "https://meet.example/abc-def", "what": "面试会议链接"}]
+    one = reminders.from_mail(3, "Acme", "interview", "new", "", {"due": "2026-11-26T10:00", "links": mail.mail_links(found, body)}, "m1")
+    two = reminders.from_mail(4, "Globex", "assessment", "new", "", {"due": "2026-11-27", "links": [{"url": "https://a.example/1", "what": "测评入口"},
+                                                                                                  {"url": "https://a.example/help", "what": "帮助"}]}, "m2")
+    with db.session() as s:
+        assert s.get(Todo, one).payload["link"] == "https://meet.example/abc-def"          # one link: that is where it leads
+        assert "link" not in s.get(Todo, two).payload and len(s.get(Todo, two).payload["links"]) == 2      # several: the applicant chooses
+    got = {x["about"]["todo_id"]: x for x in agenda.items(date(2026, 11, 23), date(2026, 11, 30))}
+    assert [link["what"] for link in got[two]["links"]] == ["测评入口", "帮助"]
+    # the applicant's own choice stays when a later mail of the same thing comes with another link
+    agenda.set_link(one, "https://meet.example/mine")
+    reminders.from_mail(3, "Acme", "interview", "changed", "", {"due": "2026-11-26T11:00", "links": [{"url": "https://meet.example/new", "what": ""}]}, "m3")
+    with db.session() as s:
+        assert s.get(Todo, one).payload["link"] == "https://meet.example/mine"

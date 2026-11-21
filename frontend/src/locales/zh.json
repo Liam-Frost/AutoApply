@@ -187,6 +187,10 @@
     "rang": {
       "title": "提醒",
       "openDay": "在日程里看"
+    },
+    "links": {
+      "fromMail": "邮件里的链接，选一个作为“去哪里”：",
+      "use": "用这个"
     }
   },
   "settings": {
