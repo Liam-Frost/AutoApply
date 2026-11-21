@@ -480,7 +480,19 @@ def test_the_agent_makes_one_file_out_of_the_applicants_files_and_it_stays_with_
             d.make_file("x", bad)
     with pytest.raises(ValueError, match="own files"):
         d.make_file("resume.pdf", [{"file": "letter.pdf"}])
+    # a file that opens for anyone but carries restrictions (a school's transcript) goes in like any other; one that
+    # needs a password to be opened does not
+    for name, user in (("restricted.pdf", ""), ("closed.pdf", "secret")):
+        w = PdfWriter()
+        w.add_blank_page(width=504, height=800)
+        w.encrypt(user_password=user, owner_password="the-school")
+        w.write(str(tmp_path / name))
+        d.hands.files[name] = str(tmp_path / name)
+    assert "2 page(s)" in d.make_file("with transcript", [{"file": "resume.pdf"}, {"file": "restricted.pdf"}])
+    assert not PdfReader(d.hands.files["with transcript.pdf"]).is_encrypted
+    with pytest.raises(ValueError, match="without a password"):
+        d.make_file("x", [{"file": "closed.pdf"}])
     # the next run of this application has them, with what each holds
     kept = run.made_files(desk.folder)
-    assert set(kept) == {"Seaspan application.pdf", "Liu_Liam.pdf"} and "transcript.pdf (3 of 4 page(s))" in kept["Seaspan application.pdf"][1]
+    assert set(kept) == {"Seaspan application.pdf", "Liu_Liam.pdf", "with transcript.pdf"} and "transcript.pdf (3 of 4 page(s))" in kept["Seaspan application.pdf"][1]
     assert "make_file" in {t.name for t in d.tools()}

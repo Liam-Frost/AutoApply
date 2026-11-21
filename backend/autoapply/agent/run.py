@@ -554,8 +554,11 @@ class Desk:
             else:
                 raise ValueError(f"{file!r} is a {kind or 'file without a type'}: a PDF is made of PDFs, Word documents and pictures")
             reader = PdfReader(source)
-            if reader.is_encrypted:
-                raise ValueError(f"{file!r} is locked with a password: it cannot be put into another file")
+            # "Encrypted" is two different things. A file that opens for anyone and only carries restrictions (a
+            # transcript a school issues: no editing) opens with an empty password - and is read like any other. A file
+            # that cannot be opened without a password is the one that cannot go in.
+            if reader.is_encrypted and not reader.decrypt(""):
+                raise ValueError(f"{file!r} cannot be opened without a password: it cannot be put into another file. Ask the applicant for a copy without one.")
             take = _pages((part or {}).get("pages") or "", len(reader.pages))
             for i in take:
                 writer.add_page(reader.pages[i])
