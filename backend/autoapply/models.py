@@ -172,6 +172,7 @@ class MailEvent(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     category: Mapped[str] = mapped_column(String, default="")  # confirmation|rejection|interview|assessment|info_request|other
     asks: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # what it asks of the applicant: {action, due, due_text} as the mail states it
+    thread_id: Mapped[str] = mapped_column(String, default="")  # the conversation it is in (mailbox.Message.thread): a later mail in it is about the same application
     linked_by: Mapped[str] = mapped_column(String, default="")  # who said which application it is about: "" the program, "site" the employer's list, "user"
     event: Mapped[str] = mapped_column(String, default="new")  # what the mail says about it: new|changed|reminder|cancelled (mail.EVENTS)
     application_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), nullable=True)

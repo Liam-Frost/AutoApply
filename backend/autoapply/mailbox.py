@@ -71,6 +71,7 @@ class Message:
     subject: str
     body: str
     date: datetime | None
+    thread: str = ""        # the conversation it is in: Gmail's own thread id; over IMAP, the first Message-ID of its References
 
 
 class NotConfigured(RuntimeError):
@@ -190,7 +191,9 @@ def _imap_fetch(since: datetime, limit: int, cfg: dict[str, Any] | None = None, 
             if when is not None and when < since - timedelta(minutes=5):  # SINCE is by day; cut to the minute here
                 continue
             mid = (msg.get("Message-ID") or "").strip() or f"imap:{c_user(cfg)}:{num.decode()}"
-            out.append(Message(id=mid[:200], sender=_decode(msg.get("From")), subject=_decode(msg.get("Subject")), body=_text_of(msg), date=when))
+            refs = (msg.get("References") or "").split() or (msg.get("In-Reply-To") or "").split()
+            out.append(Message(id=mid[:200], sender=_decode(msg.get("From")), subject=_decode(msg.get("Subject")), body=_text_of(msg), date=when,
+                               thread=(refs[0] if refs else mid).strip()[:200]))
         return out
     finally:
         try:
@@ -213,7 +216,7 @@ def _gmail_message(g: dict[str, Any]) -> Message:
         when = parsedate_to_datetime(mail._hdr(g, "Date"))
     except Exception:  # noqa: BLE001
         when = None
-    return Message(id=g["id"], sender=mail._hdr(g, "From"), subject=mail._hdr(g, "Subject"), body=mail._body(g["payload"]), date=when)
+    return Message(id=g["id"], sender=mail._hdr(g, "From"), subject=mail._hdr(g, "Subject"), body=mail._body(g["payload"]), date=when, thread=str(g.get("threadId") or ""))
 
 
 def incremental() -> bool:

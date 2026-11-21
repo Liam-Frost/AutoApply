@@ -508,6 +508,21 @@ def candidates(company: str) -> list[int]:
     return [i for _, i in sorted(rows, reverse=True)]
 
 
+def of_thread(thread: str) -> int | None:
+    """The application a conversation is about, when the conversation says it without doubt: a mail the program sent
+    for an application is in it, or the mails of it that are linked to an application are all linked to the same one.
+    None when it says nothing, or says two different things."""
+    from .models import Outgoing
+
+    if not thread:
+        return None
+    with db.session() as s:
+        ours = {o.application_id for o in s.query(Outgoing).filter(Outgoing.thread_id == thread, Outgoing.status == "sent", Outgoing.application_id.isnot(None))}
+        theirs = {e.application_id for e in s.query(MailEvent).filter(MailEvent.thread_id == thread, MailEvent.application_id.isnot(None))}
+    both = ours | theirs
+    return next(iter(both)) if len(both) == 1 else None
+
+
 def link(message_id: str, application_ids: list[int], *, by: str = "user") -> int:
     """This e-mail is about these applications (said by the applicant on the card, or found on the employer's site).
     Each gets what the e-mail says - the same as if the e-mail had named it. Returns how many changed state."""
@@ -520,6 +535,7 @@ def link(message_id: str, application_ids: list[int], *, by: str = "user") -> in
             return 0        # the applicant has said which application this is about: nothing the program finds later changes that
         me.application_id, me.linked_by = int(application_ids[0]), by
         category, summary, received, event, asks = me.category, me.summary, me.received_at, me.event or "new", dict(me.asks or {})
+        thread = me.thread_id or ""
         for app_id in application_ids:
             updated, early, title = _record(int(app_id), category, summary, received, message_id, event, session=s)
             changed += updated
@@ -530,6 +546,12 @@ def link(message_id: str, application_ids: list[int], *, by: str = "user") -> in
         _tell(lambda: notify.send("status_update", messages.mail_update(category, title, summary, event=event), ref=f"application:{app_id}", tag=category))
     notify.close_todos("mail_unmatched", f"mail:{message_id}")
     log.info("mail %s linked to application(s) %s (%s)", message_id[:12], application_ids, by)
+    if by != "thread" and thread and len(application_ids) == 1:
+        # the other mails of the conversation that nobody could place are about the same application
+        with db.session() as s:
+            rest = [e.message_id for e in s.query(MailEvent).filter(MailEvent.thread_id == thread, MailEvent.application_id.is_(None), MailEvent.message_id != message_id)]
+        for mid in rest:
+            changed += link(mid, application_ids, by="thread")
     return changed
 
 
@@ -750,7 +772,10 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             t = triage(subj, frm, body)
             if t["category"] == "confirmation" and t.get("received") is False:
                 t = {**t, "category": "other"}       # about an application that was begun, or about an account: nothing was received yet
-        app_id = match_application(t["company"], t["job_title"], received, f"{subj}\n{body}") if t["category"] != "other" else None
+        # The conversation first: a reply in the thread of a mail the program sent for an application, or of mails
+        # already placed, is about that application whatever its words make of the company's name.
+        by_thread = of_thread(getattr(msg, "thread", ""))
+        app_id = by_thread if by_thread is not None else match_application(t["company"], t["job_title"], received, f"{subj}\n{body}") if t["category"] != "other" else None
         changed, early, title = 0, False, ""
         with db.session() as s:
             # The mail and what it does to its application are one write. Written apart, a failure in between left the
@@ -758,12 +783,13 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             # still "submitted". Now a failure leaves neither, and the next pass reads the mail again.
             asks = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text") if t.get(k)}
             s.add(MailEvent(message_id=mid, sender=frm[:200], subject=subj[:300], received_at=received, category=t["category"], event=t.get("event") or "new",
-                            application_id=app_id, company_guess=t["company"], summary=t["summary"], asks=asks or None))
+                            application_id=app_id, company_guess=t["company"], summary=t["summary"], asks=asks or None,
+                            thread_id=str(getattr(msg, "thread", "") or "")[:200], linked_by="thread" if by_thread is not None else ""))
             if app_id is not None and t["category"] != "other":
                 changed, early, title = _record(app_id, t["category"], t["summary"], received, mid, t.get("event") or "new", session=s)
         new += 1
         if t["category"] == "other":
-            continue
+            continue      # (placed by its conversation, it is on the application's page; it changes nothing)
         if app_id is None:
             unmatched += 1
             ask_which(mid, subj, t["category"], t.get("event") or "new", t["summary"])
