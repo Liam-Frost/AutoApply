@@ -2221,6 +2221,18 @@ def analytics_automation(days: int = 0, start: str = "", end: str = "", kind: st
     return an.automation(an.window(days, start, end), kind=kind)
 
 
+@app.post("/api/analytics/asked-again/remember")
+def remember_answer(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """A question the applicant was asked in several applications, written into the profile with their answer: the
+    agent answers it by itself from then on (the same rule as "always answer like this" on a record)."""
+    question = " ".join(str(body.get("question") or "").split())[:200]
+    answer = " ".join(str(body.get("answer") or "").split())[:300]
+    if not question or not answer:
+        raise HTTPException(400, "要有问题和答案。")
+    knowledge.append_rule(f'Form question "{question}": answer "{answer}".', source="user", section="Standard answers")
+    return {"ok": True}
+
+
 @app.get("/api/analytics/automation/runs")
 def analytics_runs(days: int = 0, start: str = "", end: str = "", kind: str = "", outcome: str = "", offset: int = 0, limit: int = 15) -> dict[str, Any]:
     """The runs of the window, newest first, a page at a time."""
