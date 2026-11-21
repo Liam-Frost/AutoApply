@@ -10,8 +10,6 @@ Restoring replaces the data folder, so it is done from the command line while th
 
 from __future__ import annotations
 
-from .say import say as T
-
 import json
 import re
 import shutil
@@ -160,27 +158,3 @@ def _key(v: str) -> tuple:
     nums = [int(p) for p in parts if p.isdigit()]
     pre = next((p for p in parts if not p.isdigit()), "")
     return (nums[:3] + [0, 0, 0])[:3], 0 if pre else 1, pre, nums[3:] if pre else []
-
-
-def check_update(repo: str) -> dict[str, Any]:
-    """Ask GitHub for the newest release of ``repo`` ("owner/name"). Nothing about the user is sent. Never installs anything."""
-    import httpx
-
-    cur = version()
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo or ""):
-        return {"current": cur, "error": T("server.backup.noReleaseRepositoryIs")}
-    try:
-        with httpx.Client(timeout=15, headers={"User-Agent": "autoapply-update-check", "Accept": "application/vnd.github+json"}) as c:
-            r = c.get(f"https://api.github.com/repos/{repo}/releases", params={"per_page": 10})
-        if r.status_code == 404:
-            return {"current": cur, "error": T("server.backup.thisReleaseRepositoryWas")}
-        r.raise_for_status()
-        rels = [x for x in r.json() if not x.get("draft")]
-    except Exception as e:  # noqa: BLE001
-        return {"current": cur, "error": T("server.backup.itCouldNotBe", p0=type(e).__name__)}
-    if not rels:
-        return {"current": cur, "latest": "", "newer": False, "note": T("server.backup.thisRepositoryHasNot")}
-    best = max(rels, key=lambda x: _key(x.get("tag_name") or "0"))
-    tag = (best.get("tag_name") or "").lstrip("v")
-    return {"current": cur, "latest": tag, "newer": _key(tag) > _key(cur), "url": best.get("html_url", ""), "published": (best.get("published_at") or "")[:10],
-            "notes": (best.get("body") or "")[:1500]}

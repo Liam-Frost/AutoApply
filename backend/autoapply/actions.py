@@ -108,6 +108,13 @@ def _decorate(card: Card, ref: str, todo_id: int | None) -> list[dict[str, str]]
                 if q is not None:
                     card.fields = [*card.fields, (_t(T("server.actions.theQuestion")), str(q.get("label") or "")[:300])]
         return acts
+    if ref.startswith("update:"):      # a new version: "update when idle" (a restart right now is pressed on the page)
+        from . import updates
+
+        _, ver, what = (ref.split(":") + ["", ""])[:3]
+        if what in ("available", "ready") and updates.kind() == "managed":
+            return [{"label": _t(T("server.actions.updateWhenIdle")), "data": f"u:{ver}:idle"}]
+        return []
     if ref.startswith("draft:") and ref[6:].isdigit():
         acts = for_record(int(ref[6:]))
         if acts:
@@ -151,6 +158,13 @@ def run(data: str, value: str = "", *, via: str = "") -> str:
             from . import chat
 
             return chat.confirm(parts[1])
+        if parts[0] == "u" and len(parts) == 3 and parts[2] == "idle":
+            from . import updates
+
+            try:
+                return _t(updates.when_idle(parts[1]))
+            except ValueError as e:
+                raise Done(_t(T("server.actions.thisButtonNoLonger"))) from e
         if parts[0] == "d" and len(parts) == 3 and parts[2] == "approve":
             from . import drafts
 

@@ -131,10 +131,11 @@ def test_export_and_restore_round_trip(app_env, tmp_path, monkeypatch):
 
 
 def test_update_check_compares_versions_and_survives_no_network(app_env, monkeypatch):
-    from autoapply import backup
+    from autoapply import backup, db, updates
 
     assert backup._key("1.0.0") > backup._key("1.0.0a1") and backup._key("v1.2.0") > backup._key("1.1.9") and backup._key("1.0.0a2") > backup._key("1.0.0a1")
-    assert "error" in backup.check_update("")                       # no repository configured: says so, asks no one
+    db.set_setting("update.repo", "")
+    assert updates.check()["error"] == "no-repo"                     # no repository configured: says so, asks no one
 
     class Boom:
         def __init__(self, *a, **k): pass
@@ -145,8 +146,9 @@ def test_update_check_compares_versions_and_survives_no_network(app_env, monkeyp
     import httpx
 
     monkeypatch.setattr(httpx, "Client", Boom)
-    out = backup.check_update("someone/project")
-    assert out["current"] and "error" in out and "newer" not in out
+    db.set_setting("update.repo", "someone/project")
+    out = updates.check()
+    assert out["error"].startswith("network:") and not updates.status()["newer"]
 
 
 def test_designed_tray_menu_renders_from_state_and_maps_clicks(app_env):

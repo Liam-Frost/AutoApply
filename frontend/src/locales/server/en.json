@@ -43,6 +43,7 @@
  "server.actions.thisRecordIsNo": "This record is no longer waiting for approval.",
  "server.actions.toldTheAgentWorking": "Told the agent working on this application",
  "server.actions.tryAgain": "Try again",
+ "server.actions.updateWhenIdle": "Update when idle",
  "server.agenda.onlyAnHttpS": "Only an http(s) address",
  "server.agent.work.authorizeGmailAgain": "Authorize Gmail again",
  "server.agent.work.couldNotBeDone": "{p0}: could not be done",
@@ -321,10 +322,6 @@
  "server.applications.youRecordedItAs": "You recorded it as “{p0}”",
  "server.auth.noSuccessfulSignIn": "No successful sign-in was detected before the window closed",
  "server.auth.noSuccessfulSignIn2": "No successful sign-in detected after 10 minutes",
- "server.backup.itCouldNotBe": "It could not be looked up ({p0}). The network may be down, or GitHub may be limiting access for now.",
- "server.backup.noReleaseRepositoryIs": "No release repository is set",
- "server.backup.thisReleaseRepositoryWas": "This release repository was not found",
- "server.backup.thisRepositoryHasNot": "This repository has not published a release yet",
  "server.bots.approveAndSend": "{p0} · {p1} (approve and send)",
  "server.bots.automaticWorkPaused": "Automatic work paused.",
  "server.bots.automaticWorkPausedWhat": "Automatic work paused. What is under way finishes; what you start on the page or here still runs.",
@@ -816,6 +813,11 @@
  "server.messages.time": "Time",
  "server.messages.today": "Today:",
  "server.messages.tooManyRequestsRate": "Too many requests, rate-limited",
+ "server.messages.update.available": "A new version of AutoApply is out",
+ "server.messages.update.failed": "The new version did not start; the old one goes on",
+ "server.messages.update.open": "Open About",
+ "server.messages.update.ready": "A new version is ready: switch to it on the About page",
+ "server.messages.update.switched": "AutoApply was updated",
  "server.messages.uploaded": "Uploaded",
  "server.messages.usageLimitReached": "Usage limit reached",
  "server.messages.viewAccount": "View account",
@@ -1068,5 +1070,6 @@
  "server.transfer.thePassphraseIsWrong": "The passphrase is wrong",
  "server.transfer.thePassphraseNeedsAt": "The passphrase needs at least {p0} characters",
  "server.transfer.thisIsNotA": "This is not a sign-in file exported by AutoApply",
- "server.transfer.whatTheFileHolds": "What the file holds is not a sign-in"
+ "server.transfer.whatTheFileHolds": "What the file holds is not a sign-in",
+ "server.updates.whenIdle": "All right: AutoApply switches to {v} once nothing is being done."
 }

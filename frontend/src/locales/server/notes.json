@@ -43,6 +43,7 @@
  "server.actions.thisRecordIsNo": "Said by the program (actions.py).",
  "server.actions.toldTheAgentWorking": "Said by the program (actions.py).",
  "server.actions.tryAgain": "Said by the program (actions.py).",
+ "server.actions.updateWhenIdle": "Button under the new-version notification: switch to it once nothing is being done.",
  "server.agenda.onlyAnHttpS": "Said by the program (agenda.py).",
  "server.agent.work.authorizeGmailAgain": "Said by the program (agent/work.py).",
  "server.agent.work.couldNotBeDone": "Said by the program (agent/work.py). {p0} are values it fills in.",
@@ -321,10 +322,6 @@
  "server.applications.youRecordedItAs": "Said by the program (applications.py). {p0} are values it fills in.",
  "server.auth.noSuccessfulSignIn": "Said by the program (auth.py).",
  "server.auth.noSuccessfulSignIn2": "Said by the program (auth.py).",
- "server.backup.itCouldNotBe": "Said by the program (backup.py). {p0} are values it fills in.",
- "server.backup.noReleaseRepositoryIs": "Said by the program (backup.py).",
- "server.backup.thisReleaseRepositoryWas": "Said by the program (backup.py).",
- "server.backup.thisRepositoryHasNot": "Said by the program (backup.py).",
  "server.bots.approveAndSend": "Said by the program (bots.py). {p0}, {p1} are values it fills in.",
  "server.bots.automaticWorkPaused": "Said by the program (bots.py).",
  "server.bots.automaticWorkPausedWhat": "Said by the program (bots.py).",
@@ -816,6 +813,11 @@
  "server.messages.time": "Said by the program (messages.py).",
  "server.messages.today": "Said by the program (messages.py).",
  "server.messages.tooManyRequestsRate": "Said by the program (messages.py).",
+ "server.messages.update.available": "Notification heading: a newer release was found. The version follows.",
+ "server.messages.update.failed": "Notification heading.",
+ "server.messages.update.open": "Link on the update notification.",
+ "server.messages.update.ready": "Notification heading.",
+ "server.messages.update.switched": "Notification heading: the switch to the new version happened.",
  "server.messages.uploaded": "Said by the program (messages.py).",
  "server.messages.usageLimitReached": "Said by the program (messages.py).",
  "server.messages.viewAccount": "Said by the program (messages.py).",
@@ -1068,5 +1070,6 @@
  "server.transfer.thePassphraseIsWrong": "Said by the program (transfer.py).",
  "server.transfer.thePassphraseNeedsAt": "Said by the program (transfer.py). {p0} are values it fills in.",
  "server.transfer.thisIsNotA": "Said by the program (transfer.py).",
- "server.transfer.whatTheFileHolds": "Said by the program (transfer.py)."
+ "server.transfer.whatTheFileHolds": "Said by the program (transfer.py).",
+ "server.updates.whenIdle": "Said back after the button. {v}: version."
 }

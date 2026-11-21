@@ -186,6 +186,13 @@ def morning(waiting: list[str], today: list[tuple[str, str, str]], *, sent: int,
                 detail="\n".join(f"• {w}" for w in waiting[:5]), path="/todos", link=T("server.messages.openToDo"))
 
 
+def update(what: str, ver: str) -> Card:
+    """A newer version: found, prepared, switched to - or a switch that did not take."""
+    head = {"available": T("server.messages.update.available"), "ready": T("server.messages.update.ready"),
+            "switched": T("server.messages.update.switched"), "failed": T("server.messages.update.failed")}[what]
+    return Card("⬆️", head, ver, path="/about", link=T("server.messages.update.open"))
+
+
 def drained() -> Card:
     return Card("⏹️", T("server.messages.whatWasBeingDone"), hint=T("server.messages.noNewTaskWill"), path="/runs", link=T("server.messages.openThePlan"))
 

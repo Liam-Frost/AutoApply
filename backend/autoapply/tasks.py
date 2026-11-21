@@ -721,6 +721,12 @@ def _schedule_jobs() -> None:
             chain.mend()
         except Exception:  # noqa: BLE001
             log.exception("the chain could not be checked")
+        try:      # a newer release: looked for once a day, fetched, switched to when idle (updates.py, by update.mode)
+            from . import updates
+
+            updates.tick()
+        except Exception:  # noqa: BLE001
+            log.exception("the update look failed")
         try:      # what is due tomorrow and today, cards put off until now, contacts to get back to, notices held for the night
             from . import reminders
 
