@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // Settings -> 系统与数据: two sections that share what the server keeps as "access" - how other devices reach the
 // program (where it listens, the proxy in front of it), and the account (how long a login lasts, the password, the
 // open logins). Each has its own button and saves its own part: the address of the server is not sent along with a
@@ -45,88 +46,88 @@ const save = () => run(async () => {
   await api.put('/access', { settings: { ...c.value, session_days: base.value.c.session_days, trusted_proxies: list(proxies.value), allowed_hosts: list(hosts.value) } })
   await load()
   c.value.session_days = days
-}, '已保存。监听地址、端口和路径前缀在重启服务后生效（托盘图标 → 重启服务）。')
+}, T('settings.access.savedTheAddressPort'))
 const saveDays = () => run(async () => {
   const days = c.value.session_days
   await api.put('/access', { settings: { ...base.value.c, session_days: days } })
   info.value = await api.get('/access')
   base.value.c.session_days = info.value.settings.session_days
   c.value.session_days = info.value.settings.session_days
-}, '已保存，下次登录起按新的时间算')
+}, T('settings.access.savedItCountsFrom'))
 const changePassword = () => {
-  if (pw.value.password !== pw.value.again) { toast('两次输入的新密码不一样', 'bad'); return false }
+  if (pw.value.password !== pw.value.again) { toast(T('settings.access.theTwoNewPasswords'), 'bad'); return false }
   return run(async () => {
     await api.post('/auth/password', { current: pw.value.current, password: pw.value.password, user: pw.value.user })
     pw.value = { current: '', password: '', again: '', user: pw.value.user }
     session.user = pw.value.user
     await load()
-  }, '密码已更改，其他设备上的登录都已退出')
+  }, T('settings.access.passwordChangedOtherDevices'))
 }
-useUnsaved({ id: 'access', label: '远程访问', dirty: () => dirty.value, save: () => save(), discard })
-useUnsaved({ id: 'access-days', label: '登录保持时间', dirty: () => daysDirty.value, save: () => saveDays(), discard: () => { c.value.session_days = base.value.c.session_days } })
-useUnsaved({ id: 'access-pw', label: '新密码', dirty: () => typedPw.value, save: () => changePassword(), discard: () => { pw.value = { current: '', password: '', again: '', user: info.value.user } } })
-const signOutAll = async () => (await ask('退出所有设备上的登录？这个浏览器也要重新登录。')) && run(async () => { await api.post('/auth/logout', { everywhere: true }); session.in = false }, '已全部退出')
+useUnsaved({ id: 'access', label: T('settings.access.remoteAccess'), dirty: () => dirty.value, save: () => save(), discard })
+useUnsaved({ id: 'access-days', label: T('settings.access.howLongALogin2'), dirty: () => daysDirty.value, save: () => saveDays(), discard: () => { c.value.session_days = base.value.c.session_days } })
+useUnsaved({ id: 'access-pw', label: T('settings.access.newPassword'), dirty: () => typedPw.value, save: () => changePassword(), discard: () => { pw.value = { current: '', password: '', again: '', user: info.value.user } } })
+const signOutAll = async () => (await ask(T('settings.access.signOutOnEvery2'))) && run(async () => { await api.post('/auth/logout', { everywhere: true }); session.in = false }, T('settings.access.signedOutEverywhere'))
 onMounted(load)
 </script>
 
 <template>
   <template v-if="c">
-    <SetSection id="remote" title="远程访问（入站）" how="own">
+    <SetSection id="remote" :title="$t('settings.access.remoteAccessInbound')" how="own">
     <div class="card">
-      <div class="card-title">从哪里可以打开 AutoApply</div>
-      <p class="muted">默认只有这台电脑能打开。要在手机或别的电脑上用，就让它监听局域网的地址；不管从哪里打开，都要先登录。</p>
-      <p v-if="info.restart_needed" class="callout"><Icon name="info" /><span>现在运行的服务监听 {{ info.running.host }}:{{ info.running.port }}，和这里保存的不一样：重启服务后生效（托盘图标 → 重启服务）。</span></p>
+      <div class="card-title">{{ $t('settings.access.whereAutoapplyCanBe') }}</div>
+      <p class="muted">{{ $t('settings.access.byDefaultOnlyThis') }}</p>
+      <p v-if="info.restart_needed" class="callout"><Icon name="info" /><span>{{ $t('settings.access.theRunningServerListens', { p0: info.running.host, p1: info.running.port }) }}</span></p>
       <div class="kv">
-        <label>监听地址 <span class="badge">重启后生效</span></label>
+        <label>{{ $t('settings.access.listenOn') }} <span class="badge">{{ $t('settings.access.takesEffectAfterA') }}</span></label>
         <div class="row" style="flex-wrap: wrap">
           <div class="seg">
-            <button :class="{ on: where === 'local' }" @click="pickWhere('local')">只有这台电脑</button>
-            <button :class="{ on: where === 'all' }" @click="pickWhere('all')">这台电脑所在的所有网络</button>
-            <button :class="{ on: where === 'one' }" @click="pickWhere('one')">指定一个地址</button>
+            <button :class="{ on: where === 'local' }" @click="pickWhere('local')">{{ $t('settings.access.thisComputerOnly') }}</button>
+            <button :class="{ on: where === 'all' }" @click="pickWhere('all')">{{ $t('settings.access.everyNetworkThisComputer') }}</button>
+            <button :class="{ on: where === 'one' }" @click="pickWhere('one')">{{ $t('settings.access.oneAddress') }}</button>
           </div>
-          <input v-if="where === 'one'" v-model.trim="c.host" style="width: 180px" placeholder="192.168.1.20" aria-label="监听的 IP 地址" />
-          <span v-if="where !== 'local' && info.addresses.length" class="hint">这台电脑的地址：{{ info.addresses.join('、') }}</span>
+          <input v-if="where === 'one'" v-model.trim="c.host" style="width: 180px" placeholder="192.168.1.20" :aria-label="$t('settings.access.ipAddressToListen')" />
+          <span v-if="where !== 'local' && info.addresses.length" class="hint">{{ $t('settings.access.thisComputersAddresses', { p0: info.addresses.join('、') }) }}</span>
         </div>
-        <label>端口 <span class="badge">重启后生效</span></label><div><input v-model.number="c.port" type="number" style="width: 110px" /></div>
-        <label>路径前缀 <span class="badge">重启后生效</span></label><div><input v-model.trim="c.root_path" style="width: 220px" placeholder="留空" /> <span class="hint">放在反向代理的某个路径下面时才填，例如 /autoapply</span></div>
+        <label>{{ $t('settings.access.port') }} <span class="badge">{{ $t('settings.access.takesEffectAfterA') }}</span></label><div><input v-model.number="c.port" type="number" style="width: 110px" /></div>
+        <label>{{ $t('settings.access.pathPrefix') }} <span class="badge">{{ $t('settings.access.takesEffectAfterA') }}</span></label><div><input v-model.trim="c.root_path" style="width: 220px" :placeholder="$t('settings.access.leaveEmpty')" /> <span class="hint">{{ $t('settings.access.onlyWhenAReverse') }}</span></div>
       </div>
-      <p v-if="unencrypted" class="callout warn" style="margin-top: 14px"><Icon name="alert" /><span>别的设备访问时，密码和页面内容在网络上是不加密的。只在你信任的网络（家里的局域网）里这样用；要从外面访问，请在前面放一个负责 HTTPS 的反向代理，并打开下面的开关。</span></p>
+      <p v-if="unencrypted" class="callout warn" style="margin-top: 14px"><Icon name="alert" /><span>{{ $t('settings.access.whenAnotherDeviceOpens') }}</span></p>
     </div>
 
     <div class="card">
-      <div class="card-title">反向代理</div>
-      <p class="muted">AutoApply 自己不提供 HTTPS。需要加密访问时，由它前面的反向代理（Caddy、nginx、Cloudflare Tunnel 等）负责，这里告诉程序前面有这样一个代理。</p>
+      <div class="card-title">{{ $t('settings.access.reverseProxy') }}</div>
+      <p class="muted">{{ $t('settings.access.autoapplyDoesNotDo') }}</p>
       <div class="kv">
-        <label>由反向代理负责 HTTPS</label><div><input v-model="c.https_by_proxy" type="checkbox" /> <span class="hint">打开后，登录状态只在 HTTPS 下发送；这台电脑上的代理会被自动信任</span></div>
-        <label>代理的地址</label><div><input v-model="proxies" placeholder="留空" style="width: 320px" /> <span class="hint">代理在别的机器上时，填它的 IP 地址，多个用逗号隔开</span></div>
-        <label>访问用的域名</label><div><input v-model="hosts" placeholder="jobs.example.com" style="width: 320px" /> <span class="hint">通过域名访问时填，程序只应答填在这里的名字</span></div>
+        <label>{{ $t('settings.access.aReverseProxyDoes') }}</label><div><input v-model="c.https_by_proxy" type="checkbox" /> <span class="hint">{{ $t('settings.access.whenOnTheLogin') }}</span></div>
+        <label>{{ $t('settings.access.proxyAddresses') }}</label><div><input v-model="proxies" :placeholder="$t('settings.access.leaveEmpty')" style="width: 320px" /> <span class="hint">{{ $t('settings.access.whenTheProxyRuns') }}</span></div>
+        <label>{{ $t('settings.access.hostNames') }}</label><div><input v-model="hosts" placeholder="jobs.example.com" style="width: 320px" /> <span class="hint">{{ $t('settings.access.fillInWhenYou') }}</span></div>
       </div>
-      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!dirty" @click="save"><Icon name="check" />保存访问设置</button>
-        <span v-if="dirty" class="badge warn">有改动还没保存</span><span v-else class="hint">上面两块（从哪里打开、反向代理）都由这个按钮保存。</span></div>
+      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!dirty" @click="save"><Icon name="check" />{{ $t('settings.access.saveAccessSettings') }}</button>
+        <span v-if="dirty" class="badge warn">{{ $t('settings.access.unsavedChanges') }}</span><span v-else class="hint">{{ $t('settings.access.thisButtonSavesBoth') }}</span></div>
     </div>
     </SetSection>
 
-    <SetSection id="security" title="账号安全" how="own">
+    <SetSection id="security" :title="$t('settings.access.accountSecurity')" how="own">
     <div class="card">
-      <div class="card-title">登录保持多久</div>
+      <div class="card-title">{{ $t('settings.access.howLongALogin') }}</div>
       <div class="kv">
-        <label for="f-days">登录保持</label><div><input id="f-days" v-model.number="c.session_days" type="number" style="width: 90px" /> 天 <span class="hint">到期后要重新登录</span></div>
+        <label for="f-days">{{ $t('settings.access.staySignedIn') }}</label><div><input id="f-days" v-model.number="c.session_days" type="number" style="width: 90px" /> {{ $t('settings.access.days') }} <span class="hint">{{ $t('settings.access.afterThatYouSign') }}</span></div>
       </div>
-      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!daysDirty" @click="saveDays"><Icon name="check" />保存</button><span v-if="daysDirty" class="badge warn">有改动还没保存</span></div>
+      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!daysDirty" @click="saveDays"><Icon name="check" />{{ $t('settings.access.save') }}</button><span v-if="daysDirty" class="badge warn">{{ $t('settings.access.unsavedChanges') }}</span></div>
     </div>
 
     <div class="card">
-      <div class="card-title">管理员账号</div>
-      <p class="muted">唯一的账号。密码只保存加密后的结果。忘记密码时，在这台电脑的托盘图标里选“重置管理员密码”。</p>
+      <div class="card-title">{{ $t('settings.access.administratorAccount') }}</div>
+      <p class="muted">{{ $t('settings.access.theOnlyAccountOnly') }}</p>
       <div class="kv">
-        <label>用户名</label><div><input v-model.trim="pw.user" autocomplete="username" style="width: 260px" /></div>
-        <label>现在的密码</label><div><input v-model="pw.current" type="password" autocomplete="current-password" style="width: 260px" /></div>
-        <label>新密码</label><div><input v-model="pw.password" type="password" autocomplete="new-password" style="width: 260px" /> <span class="hint">至少 8 个字符</span></div>
-        <label>再输入一次新密码</label><div><input v-model="pw.again" type="password" autocomplete="new-password" style="width: 260px" /></div>
+        <label>{{ $t('settings.access.username') }}</label><div><input v-model.trim="pw.user" autocomplete="username" style="width: 260px" /></div>
+        <label>{{ $t('settings.access.currentPassword') }}</label><div><input v-model="pw.current" type="password" autocomplete="current-password" style="width: 260px" /></div>
+        <label>{{ $t('settings.access.newPassword') }}</label><div><input v-model="pw.password" type="password" autocomplete="new-password" style="width: 260px" /> <span class="hint">{{ $t('settings.access.atLeastCharacters') }}</span></div>
+        <label>{{ $t('settings.access.newPasswordAgain') }}</label><div><input v-model="pw.again" type="password" autocomplete="new-password" style="width: 260px" /></div>
       </div>
       <div class="row" style="margin-top: 14px">
-        <button :disabled="!pw.current || !pw.password" @click="changePassword"><Icon name="key" />更改密码</button>
-        <button class="ghost danger" @click="signOutAll">退出所有设备上的登录</button>
+        <button :disabled="!pw.current || !pw.password" @click="changePassword"><Icon name="key" />{{ $t('settings.access.changePassword') }}</button>
+        <button class="ghost danger" @click="signOutAll">{{ $t('settings.access.signOutOnEvery') }}</button>
       </div>
     </div>
     </SetSection>

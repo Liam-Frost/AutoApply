@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 import { computed, inject, onMounted, ref } from 'vue'
 import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
@@ -18,26 +19,26 @@ const reloadOverview = inject('reloadOverview', () => {})
 
 // How each kind of to-do is presented: icon, tone, the title and the one-line explanation.
 const VIEW = {
-  takeover: { icon: 'login', tone: '', title: (t) => (t.payload && t.payload.provider ? `重新登录 ${t.payload.provider}` : `登录 ${t.site ? t.site.name : t.title}`),
+  takeover: { icon: 'login', tone: '', title: (t) => (t.payload && t.payload.provider ? T('todos.title.reLogin', { provider: t.payload.provider }) : T('todos.title.login', { site: t.site ? t.site.name : t.title })),
               what: (t) => (t.payload && t.payload.provider
                 ? (t.payload.for
-                  ? `处理“${t.payload.for}”时发现保存的 ${t.payload.provider} 登录已经失效。重新登录一次，所有用 ${t.payload.provider} 登录的网站都会恢复，等着它的任务会自动继续。`
-                  : `保存的 ${t.payload.provider} 登录已经失效。重新登录一次，所有用 ${t.payload.provider} 登录的网站都会恢复，等着它的任务会自动继续。`)
-                : t.explained.message || '这个网站需要你登录一次，之后程序会记住登录状态。') },
-  login: { icon: 'login', tone: '', title: (t) => `登录 ${t.site ? t.site.name : t.title}`, what: (t) => t.explained.message },
-  captcha: { icon: 'shield', tone: '', title: (t) => `${t.title}：需要你完成人机验证`, what: () => '网站要确认是真人在操作。请打开页面完成验证，然后回来点“我已完成”。' },
-  answer: { icon: 'edit', tone: 'info', title: (t) => t.title, what: (t) => t.body || '草案里有必答题没有答案。' },
+                  ? T('todos.what.expiredWhile', { for: t.payload.for, provider: t.payload.provider })
+                  : T('todos.what.expired', { provider: t.payload.provider }))
+                : t.explained.message || T('todos.thisSiteNeedsYou')) },
+  login: { icon: 'login', tone: '', title: (t) => T('todos.title.login', { site: t.site ? t.site.name : t.title }), what: (t) => t.explained.message },
+  captcha: { icon: 'shield', tone: '', title: (t) => T('todos.title.captcha', { title: t.title }), what: () => T('todos.theSiteWantsTo') },
+  answer: { icon: 'edit', tone: 'info', title: (t) => t.title, what: (t) => t.body || T('todos.theDraftHasRequired') },
   submit: {
     icon: 'send',
     tone: 'info',
     title: (t) => t.title,
     // (a submission whose outcome is not known says so in its own words, not "look it over and press submit")
     what: (t) => (t.application && t.application.status === 'submit_unknown' ? t.explained.message
-      : 'Agent 已经把申请表填到最后一步，浏览器窗口已经打开。请在窗口里看一遍，然后自己点提交；提交后直接关掉窗口，Agent 会去核实并把这份申请记为已投出。'),
+      : T('todos.theAgentHasFilled')),
   },
   failed: { icon: 'alert', tone: 'bad', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
-  mail_unmatched: { icon: 'mail', tone: 'info', title: () => '有一封邮件没对上岗位', what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
+  mail_unmatched: { icon: 'mail', tone: 'info', title: () => T('todos.anEmailDidntMatch'), what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
   // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
   // the applicant's own item with a date (added on the calendar page)
@@ -49,9 +50,9 @@ VIEW.confirm = { icon: 'login', tone: 'warn', title: (t) => t.title, what: (t) =
 // ... and when it waited and the applicant was not there: said again, and taken up at once when they are
 VIEW.resume = { icon: 'login', tone: 'warn', title: (t) => (RESUME[t.payload.need] || RESUME.confirm)[0](t), what: (t) => t.body || '' }
 const RESUME = {
-  code: [(t) => `${t.title}：需要你输入一个验证码`, '我现在有空，重新发验证码', 'Agent 等了 10 分钟没有等到验证码，那个验证码已经过期。你有空时点下面的按钮：它会马上回到那一步，让网站重新发一个，再在这里等你输入。'],
-  confirm: [(t) => `${t.title}：需要你确认一下`, '我现在有空，继续', 'Agent 等了 10 分钟没有等到你的确认。你有空时点下面的按钮：它会马上重新做到那一步并等你。'],
-  window: [(t) => `${t.title}：需要你在浏览器窗口里操作`, '打开窗口，我来处理', '这一步要你本人在浏览器窗口里完成（比如人机验证）。点下面的按钮：Agent 会在你看得见的窗口里重新做到那一步，然后等你。'],
+  code: [(t) => T('todos.title.code', { title: t.title }), T('todos.imHereNowSend'), T('todos.theAgentWaitedMinutes')],
+  confirm: [(t) => T('todos.title.confirm', { title: t.title }), T('todos.imHereNowGo'), T('todos.theAgentWaitedMinutes2')],
+  window: [(t) => T('todos.title.window', { title: t.title }), T('todos.openTheWindowIll'), T('todos.thisStepIsYours')],
 }
 // the employer took the posting down: nothing to do - unless the applicant knows better
 // a mail the program wrote for the applicant, waiting to be looked at and sent from their mailbox
@@ -59,13 +60,13 @@ const RESUME = {
 VIEW.facts_changed = { icon: 'edit', tone: 'warn', title: (t) => t.title, what: () => '' }
 VIEW.mail_out = { icon: 'mail', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' }
 VIEW.gone = { icon: 'bell', tone: '', title: (t) => t.title, what: (t) => t.body || '' }
-VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => `${t.title}：程序操作不了这个网站的申请页`,
-  what: () => '申请页在程序的浏览器里打不开或点不动（有些网站不对自动化浏览器显示内容）。可以自己打开岗位页面投递，投完回来点“我已经提交了”；也可以让程序再试一次。' }
+VIEW.blocked = { icon: 'alert', tone: 'bad', title: (t) => T('todos.title.blocked', { title: t.title }),
+  what: () => T('todos.theApplicationPageWont') }
 
 // Sorting and filtering. Urgency comes from the server: 0 a window is waiting for you now, 1 the deadline is within 3 days, 2 when you can, 3 just so you know.
-const CATS = [['all', '全部'], ['dated', '有日期的'], ['login', '要登录或验证'], ['answer', '要回答'], ['submit', '要提交'], ['problem', '出了问题'], ['info', '仅通知']]
-const URGENCY = ['现在处理', '快截止了', '有空时处理', '仅通知，不需要操作']
-const SORTS = { urgency: '按轻重缓急', newest: '最新的在前', deadline: '按截止时间', score: '按岗位评分' }
+const CATS = [['all', T('todos.all')], ['dated', T('todos.withADate')], ['login', T('todos.signInOrVerify')], ['answer', T('todos.needsAnswers')], ['submit', T('todos.readyToSubmit')], ['problem', T('todos.somethingWentWrong')], ['info', T('todos.notifyOnly')]]
+const URGENCY = [T('todos.handleNow'), T('todos.closingSoon'), T('todos.whenYouHaveTime'), T('todos.justANoticeNothing')]
+const SORTS = { urgency: T('todos.byPriority'), newest: T('todos.newestFirst'), deadline: T('todos.byDeadline'), score: T('todos.byScore') }
 const cat = ref('all')
 const sort = ref(localStorage.getItem('todos.sort') || 'urgency')
 const q = ref('')
@@ -103,61 +104,61 @@ const day = ref('')
 function at9(d) { d.setHours(9, 0, 0, 0); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:00` }
 function inDays(n) { const d = new Date(); d.setDate(d.getDate() + n); return at9(d) }
 function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return at9(d) }
-const snooze = (t, until) => { menu.value = 0; return act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? `好的，${dayText(until)} 再提醒你` : '已放回待办') }
+const snooze = (t, until) => { menu.value = 0; return act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? T('todos.snoozedTo', { day: dayText(until) }) : T('todos.backAmongTheTo')) }
 const snoozeDay = (t) => (day.value ? snooze(t, day.value + 'T09:00') : null)
 const dueEdit = ref({ id: 0, value: '' })
 const openDue = (t) => { dueEdit.value = { id: t.id, value: t.due_at ? t.due_at.slice(0, 16) : '' } }
-const saveDue = (t) => act(async () => { await api.post(`/todos/${t.id}/due`, { due: dueEdit.value.value || null }); dueEdit.value = { id: 0, value: '' } }, '日期已更新，到时会提醒你')
+const saveDue = (t) => act(async () => { await api.post(`/todos/${t.id}/due`, { due: dueEdit.value.value || null }); dueEdit.value = { id: 0, value: '' } }, T('todos.theDateIsUpdated'))
 const scoreCls = (x) => (x == null ? '' : x >= 9 ? 'hi' : x >= 7.5 ? 'mid' : '')
 
 // a card that says something is not set up (or no longer works): where that is put right
 const FIX = {
-  'config:gmail': ['/settings/accounts/mailbox', '打开邮箱设置'], 'config:resume': ['/files', '打开材料库'], 'config:pdportal-blocked': ['/settings/system/browser', '打开浏览器兼容设置'],
-  'config:llm-limit': ['/settings/accounts/ai', '查看 AI 服务和额度'], 'config:llm': ['/settings/accounts/ai', '打开 AI 服务设置'],
-  'config:profile': ['/profile?tab=init', '生成或填写个人资料'],
+  'config:gmail': ['/settings/accounts/mailbox', T('todos.openTheMailboxSettings')], 'config:resume': ['/files', T('todos.openTheLibrary')], 'config:pdportal-blocked': ['/settings/system/browser', T('todos.openTheBrowserCompatibility')],
+  'config:llm-limit': ['/settings/accounts/ai', T('todos.seeTheAiServices')], 'config:llm': ['/settings/accounts/ai', T('todos.openTheAiService')],
+  'config:profile': ['/profile?tab=init', T('todos.generateOrFillIn')],
 }
 const view = (t) => VIEW[t.kind] || { icon: 'bell', tone: '', title: (x) => x.title, what: (x) => x.explained.message }
 
 async function read() { todos.value = await api.get('/todos'); reloadOverview() }
 const act = (fn, ok) => runAction(fn, ok, load)
 const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: !!t.remembers && saveCred.value }),
-  '已打开一个浏览器窗口，请在里面登录。登录好之后直接关掉窗口，程序会保存登录状态并继续。')
-const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), '已继续')
+  T('todos.aBrowserWindowIs'))
+const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), T('todos.resumed'))
 const codes = ref({})        // what is being typed into each code card
 const giveCode = (t) => act(async () => {
   const r = await api.post(`/todos/${t.id}/code`, { code: codes.value[t.id] })
   delete codes.value[t.id]
-  if (!r.given) throw new Error('Agent 已经不在等这个验证码了（等待超过了 10 分钟）。它现在会重新开始并让网站再发一个，新的验证码卡片出现后再输入。')
-}, '已交给 Agent，它正在填')
+  if (!r.given) throw new Error(T('todos.theAgentIsNo'))
+}, T('todos.givenToTheAgent'))
 const factPick = ref({})      // to-do id -> the applications ticked on a "profile changed" card
 const factsLeft = (t) => (t.payload.applications || []).filter((r) => !(t.payload.decided || []).includes(r.application_id))
 const factsPicked = (t) => factsLeft(t).filter((r) => (factPick.value[t.id] || {})[r.application_id] !== false).map((r) => r.application_id)
-const factsDecide = (t, action) => act(() => api.post(`/facts/${t.id}`, { action, application_ids: factsPicked(t) }), action === 'redo' ? '已经排上，Agent 只改依据变了的那几项' : '好的，照旧发')
+const factsDecide = (t, action) => act(() => api.post(`/facts/${t.id}`, { action, application_ids: factsPicked(t) }), action === 'redo' ? T('todos.queuedTheAgentChanges') : T('todos.allRightSentAs'))
 const sentTitles = (t) => (t.payload.sent || []).map((r) => r.title).join(', ')
 const factTick = (t, id, on) => { factPick.value = { ...factPick.value, [t.id]: { ...(factPick.value[t.id] || {}), [id]: on } } }
-const writeReply = (t) => act(() => api.post(`/todos/${t.id}/reply`), '正在起草回复，写好后这张卡片上会出现“查看回复草稿”')
-const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 接着做了')
-const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), 'Agent 马上开始，到那一步时会在这里等你')
+const writeReply = (t) => act(() => api.post(`/todos/${t.id}/reply`), T('todos.theReplyIsBeing'))
+const confirmed = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), T('todos.theAgentIsGoing'))
+const resumeNow = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), T('todos.theAgentStartsNow'))
 // (a card that work is waiting for is not closed by "not now": the server puts it off until tomorrow, and says so)
-const dismiss = (t) => act(async () => { const r = await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }); if (r && r.snoozed_until) toast('有申请在等这一步，所以没有关闭：明天早上再提醒你。不想投了的话，到这份申请里标成不投。') }, '好的')
+const dismiss = (t) => act(async () => { const r = await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }); if (r && r.snoozed_until) toast(T('todos.anApplicationIsWaiting')) }, T('todos.allRight'))
 // "not applying after all" on a card about an application that did not get done: the posting is marked so, and the application put away
-const notApplying = (t) => act(async () => { await api.patch(`/jobs/${t.job.id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, '已标为不投递')
+const notApplying = (t) => act(async () => { await api.patch(`/jobs/${t.job.id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, T('todos.markedAsNotApplying'))
 // What a card about an application offers follows from where the application stands, not from the card.
 // Submit was pressed and the outcome is not known: filling it in again would be a second application if the first went through.
 const unknown = (t) => !!(t.application && t.application.status === 'submit_unknown')
-const checkMail = (t) => act(() => api.post(`/applications/${t.application.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出，这张卡片会自己关闭')
+const checkMail = (t) => act(() => api.post(`/applications/${t.application.id}/check-mail`), T('todos.lookingInTheMailbox'))
 async function againNotSubmitted(t) {
-  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，再做一次会向雇主再投一次。', { ok: '确定没提交，再做一次' }))) return
-  await act(async () => { await api.post(`/applications/${t.application.id}/not-submitted`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, 'Agent 已重新开始')
+  if (!(await ask(T('todos.areYouSureThis'), { ok: T('todos.itWasNotSubmitted2') }))) return
+  await act(async () => { await api.post(`/applications/${t.application.id}/not-submitted`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, T('todos.theAgentHasStarted'))
 }
-const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), '已关联，这个申请的状态已按邮件更新')
-const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), `已关闭 ${infoIds.value.length} 条通知`)
-const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), '已追加一份预算，Agent 接着做')
+const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), T('todos.linkedTheApplicationsStatus'))
+const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), T('todos.closedNotes', { n: infoIds.value.length }, infoIds.value.length))
+const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), T('todos.anotherBudgetIsGiven'))
 const tryAgainFor = async (t, backend) => { await api.post(`/jobs/${t.job.id}/draft`, backend ? { browser_backend: backend } : {}); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
-const tryAgain = (t) => act(() => tryAgainFor(t), 'Agent 已重新开始')
-const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
-const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, '已标为不投递')
-const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), '已记为“投递成功”，稍后会查确认邮件')
+const tryAgain = (t) => act(() => tryAgainFor(t), T('todos.theAgentHasStarted'))
+const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), T('todos.markedAsAppliedWell'))
+const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, T('todos.markedAsNotApplying'))
+const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), T('todos.markedAsAppliedWell'))
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
 useRefresh(() => { loadRang(); return load() }, { every: 15000 })
@@ -168,7 +169,7 @@ onMounted(() => { load(); loadRang() })
 </script>
 
 <template>
-  <PageHead title="需要我处理" sub="程序自己做不了、需要你出面的事。处理完，相关任务会自动继续。" />
+  <PageHead :title="$t('todos.needsYou')" :sub="$t('todos.thingsTheAppCant')" />
   <div v-if="rang.length" class="callout" style="margin-bottom: 12px">
     <Icon name="clock" />
     <div class="grow">
@@ -181,7 +182,7 @@ onMounted(() => { load(); loadRang() })
       </div>
     </div>
   </div>
-  <DataState :s="st" what="待办" @retry="load" />
+  <DataState :s="st" :what="$t('todos.toDo')" @retry="load" />
   <template v-if="st.at">
 
   <template v-if="todos.length">
@@ -189,11 +190,11 @@ onMounted(() => { load(); loadRang() })
       <button v-for="[k, l] in CATS" :key="k" :class="{ on: cat === k }" :disabled="k !== 'all' && !count(k)" @click="cat = k">{{ l }}<span class="n">{{ count(k) }}</span></button>
     </div>
     <div class="filters">
-      <input v-model="q" placeholder="搜索公司、岗位或网站" style="width: 240px" />
-      <AaSelect :model-value="sort" aria-label="排序方式" @update:model-value="setSort"><option v-for="(l, k) in SORTS" :key="k" :value="k">{{ l }}</option></AaSelect>
+      <input v-model="q" :placeholder="$t('todos.searchCompaniesPostingsOr')" style="width: 240px" />
+      <AaSelect :model-value="sort" :aria-label="$t('todos.sortBy')" @update:model-value="setSort"><option v-for="(l, k) in SORTS" :key="k" :value="k">{{ l }}</option></AaSelect>
       <span class="grow"></span>
-      <button v-if="infoIds.length > 1" class="sm" @click="ackAll"><Icon name="check" />{{ infoIds.length }} 条通知全部知道了</button>
-      <span class="muted small nowrap">{{ shown.length }} 件</span>
+      <button v-if="infoIds.length > 1" class="sm" @click="ackAll"><Icon name="check" />{{ $t('todos.allRead', { n: infoIds.length }, infoIds.length) }}</button>
+      <span class="muted small nowrap">{{ $t('todos.count', { n: shown.length }, shown.length) }}</span>
     </div>
   </template>
 
@@ -204,7 +205,7 @@ onMounted(() => { load(); loadRang() })
     <div>
       <div class="head">
         <span class="title grow">{{ view(t).title(t) }}</span>
-        <span v-if="t.due_at" class="tag" :class="dueTone(t)" :title="t.payload && t.payload.due_text ? '邮件里写的：' + t.payload.due_text : ''">{{ dueText(t) }}<template v-if="dueLeft(t)"> · {{ dueLeft(t) }}</template></span>
+        <span v-if="t.due_at" class="tag" :class="dueTone(t)" :title="t.payload && t.payload.due_text ? $t('todos.inTheMail', { text: t.payload.due_text }) : ''">{{ dueText(t) }}<template v-if="dueLeft(t)"> · {{ dueLeft(t) }}</template></span>
         <span v-if="t.site && t.site.system" class="badge">{{ t.site.system }}</span>
         <span class="small muted">{{ fmtTime(t.created_at) }}</span>
       </div>
@@ -214,139 +215,139 @@ onMounted(() => { load(); loadRang() })
         <span v-if="left(t)" class="tag" :class="t.days_left <= 3 ? 'warn' : ''">{{ left(t) }}</span>
       </router-link>
       <p class="what" style="white-space: pre-line">{{ view(t).what(t) }}</p>
-      <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>程序到雇主网站上查过，没能确定是哪一个。网站上显示：{{ t.payload.site.join('；') }}</span></p>
-      <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="small muted">没认出是哪家雇主发的，下面列的是所有已投递的申请。</p>
-      <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>登录窗口已打开，正在等你登录。大型网站第一次打开可能要半分钟到一分钟，请稍等。登录完成后直接关掉窗口即可。</span></p>
-      <p v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><span>上次没有登录成功：{{ t.payload.last_try }}。可以再点一次“去登录”。</span></p>
+      <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>{{ $t('todos.siteCouldNotTell', { shown: t.payload.site.join('; ') }) }}</span></p>
+      <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="small muted">{{ $t('todos.theSendingEmployerWas') }}</p>
+      <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>{{ $t('todos.theSignInWindow') }}</span></p>
+      <p v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><span>{{ $t('todos.lastTryFailed', { why: t.payload.last_try }) }}</span></p>
 
       <div class="acts">
         <template v-if="['takeover', 'login'].includes(t.kind) && t.payload && t.payload.tenant_key">
-          <button class="primary" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? `去登录 ${t.payload.provider}` : '去登录' }}</button>
-          <button class="ghost" @click="dismiss(t)">先不处理</button>
-          <label v-if="t.remembers" class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> 记住我输入的密码，下次自动登录</label>
-          <span v-else-if="t.payload.tenant_key.startsWith('idp:')" class="small muted" style="margin-left: 8px">只保存登录状态，不保存这个账号的密码</span>
-          <span v-else class="small muted" style="margin-left: 8px">这个登录窗口里程序看不到你输入的内容。想让程序以后自己登录，到“账号”页给这个网站保存登录名和密码。</span>
+          <button class="primary" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? $t('todos.signInTo', { provider: t.payload.provider }) : $t('todos.signIn') }}</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.notNow') }}</button>
+          <label v-if="t.remembers" class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> {{ $t('todos.rememberMyPasswordAnd') }}</label>
+          <span v-else-if="t.payload.tenant_key.startsWith('idp:')" class="small muted" style="margin-left: 8px">{{ $t('todos.onlyTheSignIn') }}</span>
+          <span v-else class="small muted" style="margin-left: 8px">{{ $t('todos.inThisSignIn') }}</span>
         </template>
         <template v-else-if="t.kind === 'code'">
-          <input v-model="codes[t.id]" placeholder="在这里输入验证码" inputmode="numeric" autocomplete="one-time-code" style="width: 180px" @keyup.enter="codes[t.id] && giveCode(t)" />
-          <button class="primary" :disabled="!codes[t.id]" @click="giveCode(t)"><Icon name="check" />交给 Agent</button>
-          <button class="ghost" @click="dismiss(t)">现在没法处理</button>
-          <span class="small muted" style="margin-left: 8px">Agent 正停在网站的那一页等着，大约等 10 分钟。</span>
+          <input v-model="codes[t.id]" :placeholder="$t('todos.enterTheCodeHere')" inputmode="numeric" autocomplete="one-time-code" style="width: 180px" @keyup.enter="codes[t.id] && giveCode(t)" />
+          <button class="primary" :disabled="!codes[t.id]" @click="giveCode(t)"><Icon name="check" />{{ $t('todos.giveItToThe') }}</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.iCantRightNow') }}</button>
+          <span class="small muted" style="margin-left: 8px">{{ $t('todos.theAgentIsWaiting') }}</span>
         </template>
         <template v-else-if="t.kind === 'confirm'">
-          <button class="primary" @click="confirmed(t)"><Icon name="check" />已完成，继续</button>
-          <button class="ghost" @click="dismiss(t)">现在没法处理</button>
-          <span v-if="t.payload && t.payload.window" class="small muted" style="margin-left: 8px">浏览器窗口已经打开：在窗口里完成这一步，不要关窗口，然后点“已完成”。</span>
-          <span v-else class="small muted" style="margin-left: 8px">在手机上完成后点“已完成”，Agent 立刻接着做；它大约等 10 分钟。</span>
+          <button class="primary" @click="confirmed(t)"><Icon name="check" />{{ $t('todos.doneGoOn') }}</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.iCantRightNow') }}</button>
+          <span v-if="t.payload && t.payload.window" class="small muted" style="margin-left: 8px">{{ $t('todos.theBrowserWindowIs') }}</span>
+          <span v-else class="small muted" style="margin-left: 8px">{{ $t('todos.onceYouHaveDone') }}</span>
         </template>
         <template v-else-if="t.kind === 'resume'">
           <button class="primary" @click="resumeNow(t)"><Icon name="refresh" />{{ (RESUME[t.payload.need] || RESUME.confirm)[1] }}</button>
-          <button class="ghost" @click="dismiss(t)">先不处理</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.notNow') }}</button>
           <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
         </template>
         <template v-else-if="t.kind === 'facts_changed'">
           <div style="width: 100%">
             <div class="small" style="margin-bottom: 8px">
-              <div v-for="(c, i) in t.payload.changes || []" :key="i"><span class="muted">{{ c.key || '这一行' }}：</span><s class="muted">{{ c.old }}</s> → <b>{{ c.new || '（删掉了）' }}</b></div>
+              <div v-for="(c, i) in t.payload.changes || []" :key="i"><span class="muted">{{ c.key || $t('todos.thisLine') }}: </span><s class="muted">{{ c.old }}</s> → <b>{{ c.new || $t('todos.removed') }}</b></div>
             </div>
             <div v-for="r in factsLeft(t)" :key="r.application_id" style="margin-bottom: 8px">
               <label class="row" style="gap: 6px"><input type="checkbox" :checked="(factPick[t.id] || {})[r.application_id] !== false" @change="factTick(t, r.application_id, $event.target.checked)" />
                 <router-link :to="'/applications/' + r.application_id">{{ r.title }}</router-link>
-                <span v-if="r.told_while_working" class="tag">正在做，已经告诉它了</span></label>
+                <span v-if="r.told_while_working" class="tag">{{ $t('todos.beingWorkedItHas') }}</span></label>
               <ul class="small muted" style="margin: 2px 0 0 22px"><li v-for="(a, j) in r.answers" :key="j">{{ a.label }}：{{ a.value }}</li></ul>
             </div>
-            <p v-if="(t.payload.sent || []).length" class="small muted">已经发出的 {{ t.payload.sent.length }} 份也用了旧的：{{ sentTitles(t) }}。它们不会改动。</p>
+            <p v-if="(t.payload.sent || []).length" class="small muted">{{ $t('todos.sentUsedOld', { n: t.payload.sent.length, titles: sentTitles(t) }, t.payload.sent.length) }}</p>
             <div class="row" style="margin-top: 6px">
-              <button class="primary" :disabled="!factsPicked(t).length" @click="factsDecide(t, 'redo')"><Icon name="refresh" />勾上的按新的重新准备</button>
-              <button :disabled="!factsPicked(t).length" @click="factsDecide(t, 'keep')">勾上的照旧发</button>
+              <button class="primary" :disabled="!factsPicked(t).length" @click="factsDecide(t, 'redo')"><Icon name="refresh" />{{ $t('todos.prepareTheTickedOnes') }}</button>
+              <button :disabled="!factsPicked(t).length" @click="factsDecide(t, 'keep')">{{ $t('todos.sendTheTickedOnes') }}</button>
             </div>
           </div>
         </template>
         <template v-else-if="t.kind === 'mail_out'">
-          <router-link :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看并发送</router-link>
-          <router-link v-if="t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请</router-link>
+          <router-link :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />{{ $t('todos.lookAtItAnd') }}</router-link>
+          <router-link v-if="t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">{{ $t('todos.openThisApplication') }}</router-link>
         </template>
         <template v-else-if="t.kind === 'gone'">
-          <button class="primary" @click="dismiss(t)"><Icon name="check" />知道了</button>
-          <a v-if="t.job && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn"><Icon name="external" />打开岗位页面看看</a>
-          <button v-if="t.job" @click="tryAgain(t)"><Icon name="refresh" />岗位还在，再试一次</button>
-          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
+          <button class="primary" @click="dismiss(t)"><Icon name="check" />{{ $t('todos.gotIt') }}</button>
+          <a v-if="t.job && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn"><Icon name="external" />{{ $t('todos.openThePostingsPage') }}</a>
+          <button v-if="t.job" @click="tryAgain(t)"><Icon name="refresh" />{{ $t('todos.itIsStillThere') }}</button>
+          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">{{ $t('todos.openThisApplication') }}</router-link>
         </template>
         <template v-else-if="t.kind === 'blocked'">
-          <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开岗位页面，自己投</a>
-          <button @click="appliedMyself(t)"><Icon name="check" />我已经提交了</button>
-          <button @click="done(t)"><Icon name="refresh" />让程序再试一次</button>
-          <button class="ghost" @click="skipJob(t)">不投这个了</button>
+          <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('todos.openThePostingAnd') }}</a>
+          <button @click="appliedMyself(t)"><Icon name="check" />{{ $t('todos.iveSubmittedIt') }}</button>
+          <button @click="done(t)"><Icon name="refresh" />{{ $t('todos.letTheAppTry') }}</button>
+          <button class="ghost" @click="skipJob(t)">{{ $t('todos.skipThisOne') }}</button>
         </template>
         <template v-else-if="t.kind === 'answer'">
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">查看申请材料</span><span v-else>去回答</span></router-link>
-          <button class="ghost" @click="dismiss(t)">关闭</button>
+          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">{{ $t('todos.viewTheApplicationsMaterials') }}</span><span v-else>{{ $t('todos.answer') }}</span></router-link>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.close') }}</button>
         </template>
         <template v-else-if="t.kind === 'followup' || t.kind === 'note'">
           <a v-if="t.payload && t.payload.link" :href="t.payload.link" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
-          <router-link v-if="t.payload && t.payload.outgoing_id" :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />查看回复草稿</router-link>
-          <button v-else-if="t.payload && t.payload.category === 'info_request' && t.payload.message_id" @click="writeReply(t)"><Icon name="edit" />起草回复邮件</button>
-          <button :class="{ primary: !(t.payload && t.payload.outgoing_id) }" @click="done(t)"><Icon name="check" />已完成</button>
-          <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? '改日期' : '加上日期' }}</button>
-          <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">查看这份申请和原邮件</router-link>
-          <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">打开人脉</router-link>
-          <button class="ghost" @click="dismiss(t)">不处理，关闭</button>
+          <router-link v-if="t.payload && t.payload.outgoing_id" :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />{{ $t('todos.lookAtTheReply') }}</router-link>
+          <button v-else-if="t.payload && t.payload.category === 'info_request' && t.payload.message_id" @click="writeReply(t)"><Icon name="edit" />{{ $t('todos.writeAReply') }}</button>
+          <button :class="{ primary: !(t.payload && t.payload.outgoing_id) }" @click="done(t)"><Icon name="check" />{{ $t('todos.done') }}</button>
+          <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? $t('calendar.move') : $t('todos.addDate') }}</button>
+          <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">{{ $t('todos.openThisApplicationAnd') }}</router-link>
+          <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">{{ $t('todos.openContacts') }}</router-link>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.leaveItClose') }}</button>
         </template>
         <template v-else-if="['failed', 'submit'].includes(t.kind) && t.application && t.job">
           <template v-if="unknown(t)">
-            <button class="primary" @click="checkMail(t)"><Icon name="mail" />现在检查确认邮件</button>
-            <button @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
-            <button class="ghost" @click="againNotSubmitted(t)">没提交成功，让 Agent 再做一次</button>
+            <button class="primary" @click="checkMail(t)"><Icon name="mail" />{{ $t('todos.lookForTheConfirmation') }}</button>
+            <button @click="markSubmitted(t)"><Icon name="check" />{{ $t('todos.iveSubmittedIt') }}</button>
+            <button class="ghost" @click="againNotSubmitted(t)">{{ $t('todos.itWasNotSubmitted') }}</button>
           </template>
-          <button v-else-if="t.kind === 'submit'" class="primary" @click="markSubmitted(t)"><Icon name="check" />我已经提交了</button>
-          <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />再给一份预算，接着做</button>
-          <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />让 Agent 再试一次</button>
-          <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), 'Agent 已重新开始')">使用 nodriver 重试</button>
-          <router-link :to="'/applications/' + t.application.id" class="btn">查看这份申请</router-link>
-          <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
-          <button v-if="!unknown(t)" class="ghost" @click="notApplying(t)">不投了，关闭</button>
+          <button v-else-if="t.kind === 'submit'" class="primary" @click="markSubmitted(t)"><Icon name="check" />{{ $t('todos.iveSubmittedIt') }}</button>
+          <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />{{ $t('todos.giveItAnotherBudget') }}</button>
+          <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />{{ $t('todos.haveTheAgentTry') }}</button>
+          <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), $t('todos.restarted'))">{{ $t('todos.tryAgainWithNodriver') }}</button>
+          <router-link :to="'/applications/' + t.application.id" class="btn">{{ $t('todos.openThisApplication') }}</router-link>
+          <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">{{ $t('todos.viewDraft') }}</router-link>
+          <button v-if="!unknown(t)" class="ghost" @click="notApplying(t)">{{ $t('todos.dontApplyClose') }}</button>
         </template>
         <template v-else-if="t.kind === 'captcha'">
-          <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />打开页面</a>
-          <button @click="done(t)">我已完成，继续</button>
-          <button class="ghost" @click="dismiss(t)">关闭</button>
+          <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('todos.openPage') }}</a>
+          <button @click="done(t)">{{ $t('todos.imDoneContinue') }}</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.close') }}</button>
         </template>
         <template v-else-if="t.kind === 'mail_unmatched'">
-          <AaSelect v-model="picked[t.id]" placeholder="这封邮件是哪个申请的？" style="max-width: 460px">
-            <option v-for="c in t.candidates || []" :key="c.id" :value="c.id">{{ c.label }}{{ c.site_status ? '（网站上：' + c.site_status + '）' : '' }}</option>
+          <AaSelect v-model="picked[t.id]" :placeholder="$t('todos.whichApplicationIsThis')" style="max-width: 460px">
+            <option v-for="c in t.candidates || []" :key="c.id" :value="c.id">{{ c.label }}{{ c.site_status ? $t('todos.onTheSite', { status: c.site_status }) : '' }}</option>
           </AaSelect>
-          <button class="primary" :disabled="!picked[t.id]" @click="linkMail(t)"><Icon name="check" />关联到这个申请</button>
-          <button class="ghost" @click="dismiss(t)">和申请无关，关闭</button>
+          <button class="primary" :disabled="!picked[t.id]" @click="linkMail(t)"><Icon name="check" />{{ $t('todos.linkToThisApplication') }}</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.notAboutAnApplication') }}</button>
         </template>
         <template v-else-if="t.kind === 'config' && FIX[t.ref]">
           <router-link :to="FIX[t.ref][0]" class="btn primary"><Icon name="settings" />{{ FIX[t.ref][1] }}</router-link>
-          <button @click="done(t)">已经处理了</button>
+          <button @click="done(t)">{{ $t('todos.itIsTakenCare') }}</button>
         </template>
         <template v-else>
-          <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn"><Icon name="external" />打开页面</a>
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">查看草案</router-link>
-          <button @click="done(t)">我处理好了，继续</button>
-          <button class="ghost" @click="dismiss(t)">关闭</button>
+          <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn"><Icon name="external" />{{ $t('todos.openPage') }}</a>
+          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">{{ $t('todos.viewDraft') }}</router-link>
+          <button @click="done(t)">{{ $t('todos.doneContinue') }}</button>
+          <button class="ghost" @click="dismiss(t)">{{ $t('todos.close') }}</button>
         </template>
       </div>
       <div v-if="dueEdit.id === t.id" class="row" style="margin-top: 8px; flex-wrap: wrap">
-        <label :for="'due-' + t.id" class="small muted">这件事的时间</label>
+        <label :for="'due-' + t.id" class="small muted">{{ $t('todos.whenThisIsFor') }}</label>
         <input :id="'due-' + t.id" v-model="dueEdit.value" type="datetime-local" style="width: 220px" />
-        <button class="sm primary" @click="saveDue(t)">保存</button>
-        <button v-if="t.due_at" class="sm ghost" @click="dueEdit.value = ''; saveDue(t)">去掉日期</button>
-        <button class="sm ghost" @click="dueEdit = { id: 0, value: '' }">取消</button>
+        <button class="sm primary" @click="saveDue(t)">{{ $t('todos.save') }}</button>
+        <button v-if="t.due_at" class="sm ghost" @click="dueEdit.value = ''; saveDue(t)">{{ $t('todos.removeTheDate') }}</button>
+        <button class="sm ghost" @click="dueEdit = { id: 0, value: '' }">{{ $t('todos.cancel') }}</button>
       </div>
       <!-- "not now": out of the way until a day of the applicant's choosing, then shown and said again -->
       <div class="row" style="margin-top: 8px; flex-wrap: wrap">
-        <button v-if="menu !== t.id" class="sm ghost" @click="menu = t.id; day = ''"><Icon name="clock" />稍后提醒</button>
+        <button v-if="menu !== t.id" class="sm ghost" @click="menu = t.id; day = ''"><Icon name="clock" />{{ $t('todos.remindMeLater') }}</button>
         <template v-else>
-          <span class="small muted">什么时候再提醒：</span>
-          <button class="sm" @click="snooze(t, inDays(1))">明天</button>
-          <button class="sm" @click="snooze(t, inDays(3))">3 天后</button>
-          <button class="sm" @click="snooze(t, nextMonday())">下周一</button>
-          <input v-model="day" type="date" aria-label="选一天" style="width: 150px" />
-          <button class="sm" :disabled="!day" @click="snoozeDay(t)">这一天</button>
-          <button class="sm ghost" @click="menu = 0">取消</button>
+          <span class="small muted">{{ $t('todos.remindMeAgain') }}</span>
+          <button class="sm" @click="snooze(t, inDays(1))">{{ $t('todos.tomorrow') }}</button>
+          <button class="sm" @click="snooze(t, inDays(3))">{{ $t('todos.inDays') }}</button>
+          <button class="sm" @click="snooze(t, nextMonday())">{{ $t('todos.nextMonday') }}</button>
+          <input v-model="day" type="date" :aria-label="$t('todos.chooseADay')" style="width: 150px" />
+          <button class="sm" :disabled="!day" @click="snoozeDay(t)">{{ $t('todos.onThisDay') }}</button>
+          <button class="sm ghost" @click="menu = 0">{{ $t('todos.cancel') }}</button>
         </template>
       </div>
       <TechDetails :text="t.explained.detail" />
@@ -355,17 +356,17 @@ onMounted(() => { load(); loadRang() })
   </template>
 
   <div v-if="later.length" class="card">
-    <button class="ghost" @click="showLater = !showLater">稍后提醒的（{{ later.length }}）{{ showLater ? '收起' : '展开' }}</button>
+    <button class="ghost" @click="showLater = !showLater">{{ $t('todos.later', { n: later.length }) }} {{ showLater ? $t('todos.hide') : $t('todos.show') }}</button>
     <div v-if="showLater" class="list" style="margin-top: 8px">
       <div v-for="t in later" :key="t.id" class="item">
         <span class="badge" style="min-width: 96px; justify-content: center">{{ dayText(t.snoozed_until) }}</span>
-        <div><div class="main">{{ view(t).title(t) }}</div><div v-if="t.due_at" class="sub">时间：{{ dueText(t) }}</div></div>
-        <div class="right"><button class="sm" @click="snooze(t, null)">现在就看</button></div>
+        <div><div class="main">{{ view(t).title(t) }}</div><div v-if="t.due_at" class="sub">{{ $t('todos.when', { when: dueText(t) }) }}</div></div>
+        <div class="right"><button class="sm" @click="snooze(t, null)">{{ $t('todos.showItNow') }}</button></div>
       </div>
     </div>
   </div>
-  <div v-if="active.length && !shown.length" class="card"><EmptyState icon="search" title="没有符合条件的待办" text="换一个分类，或清空搜索。" /></div>
+  <div v-if="active.length && !shown.length" class="card"><EmptyState icon="search" :title="$t('todos.noMatchingToDos')" :text="$t('todos.tryAnotherCategoryOr')" /></div>
 
-  <div v-if="!active.length" class="card"><EmptyState icon="check" title="没有需要你处理的事" text="需要登录、回答问题或确认提交时，会出现在这里，同时发到 Telegram。" /></div>
+  <div v-if="!active.length" class="card"><EmptyState icon="check" :title="$t('todos.nothingNeedsYouRight')" :text="$t('todos.requestsToSignIn')" /></div>
   </template>
 </template>

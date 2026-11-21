@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // Every instruction text the program gives the AI: read, edit, restore. The fixed rules under each one are shown but cannot be changed.
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
@@ -32,31 +33,31 @@ async function pick(r) {
   cur.value = r; text.value = r.body; showDefault.value = false
 }
 async function save() {
-  if (tooLong.value || missing.value.length) { toast(tooLong.value ? '这条提示词太长了，没有保存' : `不能去掉：${missing.value.join('、')}，没有保存`, 'bad'); return false }
-  if (cur.value.risk === 'high' && !(await ask('这条提示词指挥 AI 在真实的招聘网站上点击和填写。改得不好，可能填错申请表或卡在半路；固定规则（按你定的方式提交、不编造、不碰密码、不绕过人机验证）仍然会附在后面。确定保存吗？', { ok: '保存' }))) return false
+  if (tooLong.value || missing.value.length) { toast(tooLong.value ? T('settings.prompts.thisPromptIsToo') : T('settings.prompts.cannotBeRemovedNot', { p0: missing.value.join('、') }), 'bad'); return false }
+  if (cur.value.risk === 'high' && !(await ask(T('settings.prompts.thisPromptDirectsThe'), { ok: T('settings.prompts.save') }))) return false
   try {
     await api.put('/prompts/' + cur.value.key, { body: text.value })
-    toast('已保存，下一次用到时生效')
+    toast(T('settings.prompts.savedTakesEffectNext'))
     await load(cur.value.key)
     return true
   } catch (e) { toast(e.message, 'bad'); return false }
 }
-useUnsaved({ id: 'prompt', get label() { return cur.value ? `提示词“${cur.value.title}”` : 'AI 提示词' }, dirty: () => !!dirty.value, save, discard: () => { text.value = cur.value.body } })
+useUnsaved({ id: 'prompt', get label() { return cur.value ? T('settings.prompts.prompt', { p0: cur.value.title }) : T('settings.prompts.aiPrompts') }, dirty: () => !!dirty.value, save, discard: () => { text.value = cur.value.body } })
 async function reset() {
-  if (!(await ask(`把「${cur.value.title}」恢复成程序自带的内容？你改过的版本会留在历史记录里。`, { ok: '恢复默认' }))) return
-  try { await api.post(`/prompts/${cur.value.key}/reset`); toast('已恢复默认'); await load(cur.value.key) } catch (e) { toast(e.message, 'bad') }
+  if (!(await ask(T('settings.prompts.restoreToTheBuilt', { p0: cur.value.title }), { ok: T('settings.prompts.restoreDefaults') }))) return
+  try { await api.post(`/prompts/${cur.value.key}/reset`); toast(T('settings.prompts.defaultsRestored')); await load(cur.value.key) } catch (e) { toast(e.message, 'bad') }
 }
 function loadVersion(id) {
   const v = cur.value.history.find((h) => String(h.id) === String(id))
-  if (v) { text.value = v.content; toast('已把这个版本放进编辑框，点“保存”才会生效') }
+  if (v) { text.value = v.content; toast(T('settings.prompts.thisVersionIsNow')) }
 }
 onMounted(() => load())
 </script>
 
 <template>
   <div class="card">
-    <div class="card-title">AI 提示词</div>
-    <p class="muted">程序在各个环节交给 AI 的工作说明都在这里，可以按你的习惯改。每条下面的“固定规则”始终会附在后面、优先于你写的内容、不能修改。其中“不碰密码”由程序本身保证：密码由程序输入，AI 拿不到；其余几条是给 AI 的硬性指令。所以改提示词可能让结果变差，请改一处看一处。</p>
+    <div class="card-title">{{ $t('settings.prompts.aiPrompts') }}</div>
+    <p class="muted">{{ $t('settings.prompts.theInstructionsTheProgram') }}</p>
   </div>
   <div v-if="cur" class="pr">
     <div class="card pr-nav">
@@ -64,40 +65,40 @@ onMounted(() => load())
         <div class="pr-group">{{ g }}</div>
         <button v-for="r in list" :key="r.key" :class="{ on: cur.key === r.key }" @click="pick(r)">
           <span class="ell">{{ r.title }}</span>
-          <span v-if="r.edited" class="badge info">已修改</span>
+          <span v-if="r.edited" class="badge info">{{ $t('settings.prompts.edited') }}</span>
         </button>
       </template>
     </div>
     <div class="card pr-edit">
       <div class="row">
         <span class="card-title grow">{{ cur.title }}</span>
-        <span v-if="cur.risk === 'high'" class="badge warn">会操作真实网站，修改要谨慎</span>
-        <span v-if="dirty" class="badge warn">有改动还没保存</span>
-        <span class="badge" :class="cur.edited ? 'info' : ''">{{ cur.edited ? '你改过的版本' : '程序自带的版本' }}</span>
+        <span v-if="cur.risk === 'high'" class="badge warn">{{ $t('settings.prompts.actsOnRealSites') }}</span>
+        <span v-if="dirty" class="badge warn">{{ $t('settings.prompts.unsavedChanges') }}</span>
+        <span class="badge" :class="cur.edited ? 'info' : ''">{{ cur.edited ? $t('settings.prompts.yourEditedVersion') : $t('settings.prompts.builtInVersion') }}</span>
       </div>
       <p class="muted" style="margin: 4px 0 12px">{{ cur.used }}</p>
-      <textarea v-model="text" rows="16" spellcheck="false" aria-label="提示词内容"></textarea>
+      <textarea v-model="text" rows="16" spellcheck="false" :aria-label="$t('settings.prompts.promptText')"></textarea>
       <div class="row small muted" style="margin-top: 6px">
-        <span :style="tooLong ? 'color: var(--bad)' : ''">{{ text.length }} / {{ cur.max }} 个字符</span>
-        <span v-if="missing.length" style="color: var(--bad)">不能去掉：{{ missing.join('、') }}（程序靠它接上后面的步骤）</span>
+        <span :style="tooLong ? 'color: var(--bad)' : ''">{{ $t('settings.prompts.characters', { p0: text.length, p1: cur.max }) }}</span>
+        <span v-if="missing.length" style="color: var(--bad)">{{ $t('settings.prompts.cantRemoveTheApp', { p0: missing.join('、') }) }}</span>
         <span class="grow"></span>
-        <span>提示词用英文写效果最稳定；也可以用中文。</span>
+        <span>{{ $t('settings.prompts.promptsWorkMostReliably') }}</span>
       </div>
 
       <div class="pr-guard">
-        <div class="row"><Icon name="shield" /><b>固定规则</b><span class="muted small">始终附在上面的内容之后，优先于它，不能修改</span></div>
+        <div class="row"><Icon name="shield" /><b>{{ $t('settings.prompts.fixedRules') }}</b><span class="muted small">{{ $t('settings.prompts.alwaysAddedAfterThe') }}</span></div>
         <ul><li v-for="g in cur.guard" :key="g">{{ g }}</li></ul>
       </div>
 
       <div class="row" style="margin-top: 14px">
-        <button class="primary" :disabled="!dirty || tooLong || missing.length > 0" @click="save"><Icon name="check" />保存</button>
-        <button :disabled="!dirty" @click="text = cur.body">撤销修改</button>
-        <button :disabled="!cur.edited && isDefault" @click="cur.edited ? reset() : (text = cur.default)">恢复默认</button>
+        <button class="primary" :disabled="!dirty || tooLong || missing.length > 0" @click="save"><Icon name="check" />{{ $t('settings.prompts.save') }}</button>
+        <button :disabled="!dirty" @click="text = cur.body">{{ $t('settings.prompts.undoChanges') }}</button>
+        <button :disabled="!cur.edited && isDefault" @click="cur.edited ? reset() : (text = cur.default)">{{ $t('settings.prompts.restoreDefaults') }}</button>
         <span class="grow"></span>
-        <AaSelect v-if="cur.history.length" small :model-value="''" placeholder="历史版本" aria-label="历史版本" @update:model-value="loadVersion">
+        <AaSelect v-if="cur.history.length" small :model-value="''" :placeholder="$t('settings.prompts.versionHistory')" :aria-label="$t('settings.prompts.versionHistory')" @update:model-value="loadVersion">
           <option v-for="h in cur.history" :key="h.id" :value="h.id">{{ fmtTime(h.created_at) }}{{ h.note ? ' · ' + h.note : '' }}</option>
         </AaSelect>
-        <button class="ghost sm" @click="showDefault = !showDefault">{{ showDefault ? '收起自带版本' : '对照程序自带的版本' }}</button>
+        <button class="ghost sm" @click="showDefault = !showDefault">{{ showDefault ? $t('settings.prompts.hideBuiltInVersion') : $t('settings.prompts.compareWithTheBuilt') }}</button>
       </div>
       <pre v-if="showDefault" class="pr-default">{{ cur.default }}</pre>
     </div>

@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // The analysis page: four views over one time range. Each view asks the server for its own numbers; this file only
 // holds what they share - which view, which range - and the loading / error states around them.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -14,13 +15,13 @@ import AutoPanel from './analytics/AutoPanel.vue'
 import CostPanel from './analytics/CostPanel.vue'
 import SitesPanel from './analytics/SitesPanel.vue'
 
-const VIEWS = [['apps', '求职成效'], ['auto', '自动化效率'], ['sites', '网站笔记'], ['ai', 'AI 成本']]
-const RANGES = [['0', '全部'], ['90', '最近 90 天'], ['30', '最近 30 天'], ['7', '最近 7 天'], ['today', '今天'], ['custom', '自定义']]
+const VIEWS = [['apps', T('analytics.page.applications')], ['auto', T('analytics.page.automation')], ['sites', T('analytics.page.siteNotes')], ['ai', T('analytics.page.aiCost')]]
+const RANGES = [['0', T('analytics.page.all')], ['90', T('analytics.page.lastDays')], ['30', T('analytics.page.lastDays2')], ['7', T('analytics.page.lastDays3')], ['today', T('analytics.page.today')], ['custom', T('analytics.page.custom')]]
 const SUBS = {
-  apps: '投出去的申请结果怎么样，什么样的岗位更容易有回音，哪些机会错过了。按投递日期统计。',
-  auto: '程序的每一类任务跑了多少次、成了多少、卡在哪里、花了多少 AI。按任务开始的日期统计。',
-  sites: 'Agent 在各个网站上记下了什么，下一次到同一个网站时会先读这些。',
-  ai: '模型调用用了多少 Token、折合多少钱，花在哪个模型和哪项功能上。按调用发生的日期统计。',
+  apps: T('analytics.page.whatCameOfThe'),
+  auto: T('analytics.page.howOftenEachKind'),
+  sites: T('analytics.page.whatTheAgentWrote'),
+  ai: T('analytics.page.howManyTokensThe'),
 }
 const route = useRoute()
 const router = useRouter()
@@ -49,7 +50,7 @@ async function load() {
     const d = await api.get(PATH[v] + rangeQuery(range, params[v] || {}))
     if (mine === seq) st.data = d
   } catch (e) {
-    if (mine === seq) st.error = e.message || '没有读到数据'
+    if (mine === seq) st.error = e.message || T('analytics.page.couldNotReadThe')
   } finally {
     if (mine === seq) st.loading = false
   }
@@ -66,7 +67,7 @@ const cur = computed(() => state[view.value])
 </script>
 
 <template>
-  <PageHead title="数据分析" :sub="SUBS[view]">
+  <PageHead :title="$t('analytics.page.analytics')" :sub="SUBS[view]">
     <div class="seg"><button v-for="[v, l] in RANGES" :key="v" :class="{ on: range.mode === v }" @click="range.mode = v">{{ l }}</button></div>
   </PageHead>
 
@@ -76,13 +77,13 @@ const cur = computed(() => state[view.value])
     </div>
     <template v-if="range.mode === 'custom'">
       <span class="grow"></span>
-      <label class="small muted">从 <input v-model="range.start" type="date" :max="range.end || undefined" aria-label="开始日期" /></label>
-      <label class="small muted">到 <input v-model="range.end" type="date" :min="range.start || undefined" aria-label="结束日期" /></label>
+      <label class="small muted">{{ $t('analytics.page.from') }} <input v-model="range.start" type="date" :max="range.end || undefined" :aria-label="$t('analytics.page.startDate')" /></label>
+      <label class="small muted">{{ $t('analytics.page.to') }} <input v-model="range.end" type="date" :min="range.start || undefined" :aria-label="$t('analytics.page.endDate')" /></label>
     </template>
   </div>
 
-  <div v-if="!ready" class="card"><EmptyState icon="activity" title="选一个开始日期和结束日期" text="两个日期都算在内。" /></div>
-  <div v-else-if="cur.error" class="callout bad"><Icon name="alert" /><div><b>这一页的数据没有读出来</b><div class="small">{{ cur.error }}</div><button class="sm" style="margin-top: 8px" @click="load">再试一次</button></div></div>
+  <div v-if="!ready" class="card"><EmptyState icon="activity" :title="$t('analytics.page.chooseAStartDate')" :text="$t('analytics.page.bothDatesAreIncluded')" /></div>
+  <div v-else-if="cur.error" class="callout bad"><Icon name="alert" /><div><b>{{ $t('analytics.page.theDataForThis') }}</b><div class="small">{{ cur.error }}</div><button class="sm" style="margin-top: 8px" @click="load">{{ $t('analytics.page.tryAgain') }}</button></div></div>
   <template v-else-if="!cur.data">
     <div class="kpis" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))"><div v-for="i in 4" :key="i" class="skel" style="height: 84px; margin: 0"></div></div>
     <div class="skel" style="height: 240px"></div>
