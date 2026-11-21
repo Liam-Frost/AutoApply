@@ -172,6 +172,12 @@ def mend(settled: int | None = None) -> list[dict[str, Any]]:
             done.append(f)
         except Exception:  # noqa: BLE001 - one application that cannot be put right does not stop the others
             log.exception("could not mend %s", f)
+    try:      # (and the other way round: work that is queued for something nothing waits for any more)
+        from . import mail
+
+        mail.drop_needless_looks()
+    except Exception:  # noqa: BLE001
+        log.exception("could not drop looks for confirmations that are not needed")
     if done:
         log.info("the chain was mended in %d place(s): %s", len(done), ", ".join(sorted({d['what'] for d in done})))
     return done

@@ -96,6 +96,13 @@ def _tailor(t: Task) -> dict[str, Any]:
 
 @handler("mail")
 def _mail(t: Task) -> dict[str, Any]:
+    if t.ref.startswith("confirm:") and t.ref[8:].isdigit():      # a look for one application's confirmation: only while it is waited for
+        from .models import SENT, UNKNOWN, Application
+
+        with db.session() as s:
+            app = s.get(Application, int(t.ref[8:]))
+            if app is None or app.status not in ("submitted", UNKNOWN):
+                return {"skipped": "the application is confirmed already"}
     try:
         out = mail.track(days=int(t.payload.get("days", 3)), quick=bool(t.payload.get("quick")))
         if out.get("skipped"):

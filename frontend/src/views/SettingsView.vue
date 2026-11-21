@@ -165,9 +165,6 @@ onMounted(load)
       <router-link v-for="[g, name] in GROUPS" :key="g" :to="'/settings/' + g" class="seg-link" :class="{ on: group === g }">{{ name }}<span v-if="marked(g)" class="unsaved-dot" title="有改动还没保存" aria-label="有改动还没保存"></span></router-link>
     </nav>
     <p class="muted" style="margin: 0 0 6px">{{ here[2] }}</p>
-    <nav v-if="here[3].length" class="set-toc" aria-label="这一组里的各节">
-      <router-link v-for="[k, name] in here[3]" :key="k" :to="`/settings/${group}/${k}`" :class="{ on: route.params.section === k }">{{ name }}</router-link>
-    </nav>
 
     <!-- 总览：这些设置合起来是什么意思 -->
     <template v-if="group === 'overview'">
@@ -330,7 +327,8 @@ onMounted(load)
         <div class="card">
           <div class="kv">
             <label for="f-scan">扫描新岗位</label><div>每 <input id="f-scan" v-model.number="s['schedule.discover_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭</span></div>
-            <label for="f-mail">检查邮箱</label><div>每 <input id="f-mail" v-model.number="s['schedule.mail_minutes']" type="number" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭。读哪个邮箱在<router-link to="/settings/accounts/mailbox">收件邮箱</router-link>里。</span></div>
+            <label for="f-mail-new">看有没有新邮件</label><div>每 <input id="f-mail-new" v-model.number="s['schedule.mail_new_minutes']" type="number" min="0" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭。只问邮箱“上次之后来了什么”，通常是没有；来了才读。确认信、面试邀请、验证码靠的是这一项。只有 Gmail 的 Google 授权方式支持。</span></div>
+            <label for="f-mail">把最近几天的邮件整个再看一遍</label><div>每 <input id="f-mail" v-model.number="s['schedule.mail_minutes']" type="number" min="0" style="width: 90px" /> 分钟 <span class="hint">填 0 关闭。上面那一项的兜底：程序关着的时候到的、当时没认出来的邮件，靠这一遍补上。其他邮箱（IMAP）只有这一项。读哪个邮箱在“账号与连接”里设。</span></div>
           </div>
           <p class="hint" style="margin-top: 12px"><b>暂停</b>在侧栏下方（“暂停自动运行”）。暂停只停程序自己发起的事：定时扫描、评分、自动准备草案、自动重试；你亲手点的照常执行，已经在做的那一件会做完。现在排着什么、能不能调顺序，在<router-link :to="{ path: '/runs', query: { tab: 'plan' } }">活动记录 → 工作计划</router-link>里。</p>
           <details class="tech" style="margin-top: 10px"><summary>用量与节奏（高级）</summary>

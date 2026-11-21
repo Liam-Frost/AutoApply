@@ -99,7 +99,10 @@ def blank(md: str | None = None) -> bool:
     Whatever reads the profile to decide or to write for the applicant - scoring a posting, answering a form - has
     nothing to go on while this is so, and waits (profile_init.wanted)."""
     text = read("profile") if md is None else md
-    return not any(ln.strip() and not ln.lstrip().startswith("#") and not re.match(r"\s*[-*]\s*TODO\b", ln) for ln in text.splitlines())
+    # (each line is looked at without the space around it, and only its beginning: a pattern that also had to skip
+    # leading space could be made to try a long run of spaces again and again)
+    lines = (ln.strip() for ln in text.splitlines())
+    return not any(ln and not ln.startswith("#") and not re.match(r"[-*]\s*TODO\b", ln[:40]) for ln in lines)
 
 
 def write(doc: str, content: str, *, source: str = "user", note: str = "") -> int:

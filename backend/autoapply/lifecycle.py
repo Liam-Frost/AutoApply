@@ -253,8 +253,9 @@ def outcome_unknown(application_id: int, title: str, said: str, *, draft_id: int
     notify.add_todo("submit", f"{title}：提交结果待确认", body=f"{said}。如果已经提交成功，雇主的确认邮件会把它记为已投出；程序会继续留意邮箱，你也可以现在就查。"[:500],
                     ref=f"application:{application_id}", payload={"draft_id": draft_id, "application_id": application_id},
                     push=not db.get_setting("notify.task_result"))
-    for m in db.get_setting("mail.confirm_check_minutes") or []:
-        tasks.enqueue_later("mail", ref=f"confirm:{application_id}", minutes=float(m), priority=40)
+    from . import mail as _mail
+
+    _mail.watch_for_confirmation(application_id)      # (the confirmation e-mail turns "submitted" into "confirmed")
     notify.send("task_result", messages.submit_unknown(title, said=said), ref=f"application:{application_id}")
 
 

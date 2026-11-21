@@ -3042,5 +3042,10 @@
 "授权时申请读取、发送、草稿和修改邮件标签这几项权限：读信用来跟踪申请的回信，发信用来替你发邮件投递的申请和回复雇主。需要你自己在 Google Cloud 建一个 OAuth 客户端（一次性，稍麻烦）；处于测试状态的客户端不用另外配置权限，授权页上把列出的几项都勾上就行。授权过只读的，重新点一次“授权”。只想让程序读信的话，可以在上面改选“Gmail（应用专用密码）”，那样不能发信。": "Authorizing asks for reading, sending, drafts and changing a message's labels: reading follows the answers to your applications, sending is for applications that go by e-mail and replies to employers. You need an OAuth client of your own in Google Cloud (once, a little tedious); a client in testing needs no permissions configured there - tick everything the consent page lists. If you authorized for reading only before, press \"Authorize\" once more. To let the program read only, choose \"Gmail (app password)\" above; that cannot send.",
 "还没有上传过资料。": "Nothing has been uploaded yet.",
 "简历（Word，定制简历用）": "Résumé (Word, for rewriting)",
-"这里只列你自己上传的资料；程序为某个岗位写的定制简历和求职信不在这里。": "Only what you uploaded yourself is listed here; résumés and cover letters the program wrote for a posting are not."
+"这里只列你自己上传的资料；程序为某个岗位写的定制简历和求职信不在这里。": "Only what you uploaded yourself is listed here; résumés and cover letters the program wrote for a posting are not.",
+"看有没有新邮件": "Look for new mail",
+"把最近几天的邮件整个再看一遍": "Read the last few days' mail over again",
+"填 0 关闭。上面那一项的兜底：程序关着的时候到的、当时没认出来的邮件，靠这一遍补上。其他邮箱（IMAP）只有这一项。读哪个邮箱在“账号与连接”里设。": "0 switches it off. The safety net under the one above: mail that arrived while the program was closed, or was not recognised then, is caught by this pass. Other mailboxes (IMAP) have only this one. Which mailbox is read is set under Accounts & connections.",
+"填 0 关闭。只问邮箱“上次之后来了什么”，通常是没有；来了才读。确认信、面试邀请、验证码靠的是这一项。只有 Gmail 的 Google 授权方式支持。": "0 switches it off. It only asks the mailbox what has arrived since the last look - usually nothing - and reads when something has. Confirmations, invitations and codes come in through this. Only with Gmail's Google authorization.",
+"邮件没有发出去。原因记在这封邮件上，修好后可以再发一次。": "The e-mail was not sent. Why is on the e-mail itself; it can be sent again once that is put right."
 }
