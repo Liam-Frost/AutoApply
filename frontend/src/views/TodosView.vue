@@ -8,6 +8,8 @@ import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run as runAction, toast } from '../ui'
+import { t } from '../i18n/catalog'
+import { dateOf, dateTimeOf, dayText } from '../i18n/format'
 
 const todos = ref([])
 const saveCred = ref(true)
@@ -86,9 +88,12 @@ const sections = computed(() => {
 })
 const setSort = (v) => { sort.value = v; try { localStorage.setItem('todos.sort', v) } catch { /* ignore */ } }
 const infoIds = computed(() => shown.value.filter((t) => t.category === 'info').map((t) => t.id))
-const left = (t) => (t.days_left == null ? '' : t.days_left < 0 ? '已过截止时间' : t.days_left === 0 ? '今天截止' : `还剩 ${t.days_left} 天`)
+const left = (c) => (c.days_left == null ? '' : c.days_left < 0 ? t('todos.deadline.past') : c.days_left === 0 ? t('todos.deadline.today') : t('todos.deadline.left', { n: c.days_left }, c.days_left))
 // a card's own date, in words: the day (and the time, when the mail gave one)
-const dueText = (t) => (t.due_at ? (t.date_only ? t.due_at.slice(0, 10) : t.due_at.slice(0, 16).replace('T', ' ')) : '')
+// (a due time is the applicant's local time, written without a zone)
+const dueText = (c) => (c.due_at ? (c.date_only ? dateOf(new Date(c.due_at.slice(0, 10) + 'T00:00')) : dateTimeOf(new Date(c.due_at.slice(0, 16)))) : '')
+// how far away it is, next to the date: "today", "3 days left"
+const dueLeft = (c) => (c.days_left == null ? '' : c.days_left < 0 ? t('todos.due.past') : c.days_left === 0 ? t('todos.due.today') : t('todos.deadline.left', { n: c.days_left }, c.days_left))
 const dueTone = (t) => (t.days_left == null ? '' : t.days_left < 0 ? 'bad' : t.days_left <= 1 ? 'warn' : '')
 // "show me this again": tomorrow morning, in three days, next Monday - or a day of the applicant's choosing
 const menu = ref(0)          // the card whose "later" choices are open
@@ -96,7 +101,7 @@ const day = ref('')
 function at9(d) { d.setHours(9, 0, 0, 0); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:00` }
 function inDays(n) { const d = new Date(); d.setDate(d.getDate() + n); return at9(d) }
 function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return at9(d) }
-const snooze = (t, until) => { menu.value = 0; return act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? `好的，${until.slice(0, 10)} 再提醒你` : '已放回待办') }
+const snooze = (t, until) => { menu.value = 0; return act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? `好的，${dayText(until)} 再提醒你` : '已放回待办') }
 const snoozeDay = (t) => (day.value ? snooze(t, day.value + 'T09:00') : null)
 const dueEdit = ref({ id: 0, value: '' })
 const openDue = (t) => { dueEdit.value = { id: t.id, value: t.due_at ? t.due_at.slice(0, 16) : '' } }
@@ -182,7 +187,7 @@ onMounted(load)
     <div>
       <div class="head">
         <span class="title grow">{{ view(t).title(t) }}</span>
-        <span v-if="t.due_at" class="tag" :class="dueTone(t)" :title="t.payload && t.payload.due_text ? '邮件里写的：' + t.payload.due_text : ''">{{ dueText(t) }}<template v-if="left(t)"> · {{ left(t).replace('截止', '') }}</template></span>
+        <span v-if="t.due_at" class="tag" :class="dueTone(t)" :title="t.payload && t.payload.due_text ? '邮件里写的：' + t.payload.due_text : ''">{{ dueText(t) }}<template v-if="dueLeft(t)"> · {{ dueLeft(t) }}</template></span>
         <span v-if="t.site && t.site.system" class="badge">{{ t.site.system }}</span>
         <span class="small muted">{{ fmtTime(t.created_at) }}</span>
       </div>
@@ -335,7 +340,7 @@ onMounted(load)
     <button class="ghost" @click="showLater = !showLater">稍后提醒的（{{ later.length }}）{{ showLater ? '收起' : '展开' }}</button>
     <div v-if="showLater" class="list" style="margin-top: 8px">
       <div v-for="t in later" :key="t.id" class="item">
-        <span class="badge" style="min-width: 96px; justify-content: center">{{ t.snoozed_until.slice(0, 10) }}</span>
+        <span class="badge" style="min-width: 96px; justify-content: center">{{ dayText(t.snoozed_until) }}</span>
         <div><div class="main">{{ view(t).title(t) }}</div><div v-if="t.due_at" class="sub">时间：{{ dueText(t) }}</div></div>
         <div class="right"><button class="sm" @click="snooze(t, null)">现在就看</button></div>
       </div>

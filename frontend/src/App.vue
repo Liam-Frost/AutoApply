@@ -8,6 +8,7 @@ import Icon from './components/Icon.vue'
 import BrandLogo from './components/BrandLogo.vue'
 import RemoteBanner from './components/RemoteBanner.vue'
 import { LANGS, lang, setLang } from './i18n'
+import { isBeta } from './i18n/catalog'
 import { dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
 import LoginView from './views/LoginView.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
@@ -109,7 +110,7 @@ onUnmounted(() => clearInterval(timer))
           <button :class="{ on: theme.value === 'dark' }" @click="setTheme('dark')">深色</button>
           <button :class="{ on: theme.value === 'system' }" @click="setTheme('system')">跟随系统</button>
         </div>
-        <div class="seg lang" data-notr aria-label="Language / 语言"><button v-for="(l, k) in LANGS" :key="k" :class="{ on: lang.value === k }" @click="lang.value !== k && setLang(k)">{{ l }}</button></div>
+        <div class="seg lang" data-notr aria-label="Language / 语言"><button v-for="(l, k) in LANGS" :key="k" :class="{ on: lang.value === k }" @click="lang.value !== k && setLang(k)">{{ isBeta(k) ? $t('language.beta', { name: l }) : l }}</button></div>
         <button class="sm" @click="togglePause"><Icon :name="ov.paused ? 'play' : 'pause'" />{{ ov.paused ? '恢复自动运行' : '暂停自动运行' }}</button>
         <button v-if="session.user" class="sm ghost" :title="session.user" @click="signOut"><Icon name="login" />退出登录</button>
       </div>

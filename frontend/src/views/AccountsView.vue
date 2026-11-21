@@ -9,6 +9,7 @@ import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { fmtTime, run as runAction, ask, toast } from '../ui'
+import { dateOf } from '../i18n/format'
 
 const accounts = ref([])
 const form = ref({ tenant_key: '', login_email: '', password: '' })
@@ -48,7 +49,7 @@ async function removeCustom(p) {
   await api.del('/identities/' + p.key)
   await runAction(() => api.put('/settings', { settings: { 'identity.custom': (d.settings['identity.custom'] || []).filter((c) => c.name !== p.name) } }), `已移除 ${p.name}`, loadIdps)
 }
-const until = (x) => (x ? new Date(x).toLocaleDateString('zh-CN') : '')
+const until = (x) => (x ? dateOf(new Date(x)) : '')
 function sessionText(x) {
   if (!x) return '没有保存'
   if (x.expired) return '已过期，需要重新登录'

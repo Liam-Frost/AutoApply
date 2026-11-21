@@ -5,6 +5,7 @@
 import { computed, ref } from 'vue'
 import { api } from '../../api'
 import { ask, toast } from '../../ui'
+import { stampDay } from '../../i18n/format'
 import EmptyState from '../../components/EmptyState.vue'
 
 const props = defineProps({ d: { type: Array, required: true } })
@@ -38,7 +39,7 @@ async function forget(row) {
               <td class="name" data-notr>{{ shown(row) }}</td>
               <td class="small muted">{{ row.key.startsWith('system:') ? '整个招聘系统' : '这一个网站' }}</td>
               <td class="num">{{ row.notes }}</td>
-              <td class="small muted nowrap">{{ (row.updated || '').slice(0, 10) }}</td>
+              <td class="small muted nowrap">{{ stampDay(row.updated) }}</td>
               <td class="nowrap" @click.stop><button class="sm ghost danger" @click="forget(row)">清除</button></td>
             </tr>
             <tr v-if="site && site.key === row.key">

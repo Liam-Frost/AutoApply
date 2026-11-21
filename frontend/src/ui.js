@@ -1,5 +1,6 @@
 // Shared UI state and helpers. Views call toast()/run() instead of keeping their own msg/err refs.
 import { reactive } from 'vue'
+import { asDate, when } from './i18n/format'
 
 export const toasts = reactive([])
 let seq = 0
@@ -105,17 +106,8 @@ export async function loadPersona() {
   return persona
 }
 
-export const fmtTime = (iso) => {
-  if (!iso) return ''
-  const d = new Date(iso.endsWith('Z') || /[+-]\d\d:\d\d$/.test(iso) ? iso : iso + 'Z')
-  const now = new Date()
-  const hm = d.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-  const diff = Math.round((day(now) - day(d)) / 86400000)
-  if (diff === 0) return `今天 ${hm}`
-  if (diff === 1) return `昨天 ${hm}`
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
-}
+// a server timestamp in a list of what happened: "Today 15:05", "Nov 20 15:05" (i18n/format.js)
+export const fmtTime = (iso) => (iso ? when(asDate(iso)) : '')
 
 // Theme: 'system' (follow the OS), 'light' or 'dark'. Stored per browser; applied as data-theme on <html>.
 export const theme = reactive({ value: localStorage.getItem('theme') || 'system' })

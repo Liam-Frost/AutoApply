@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "i18n:status": "node scripts/i18n-status.mjs"
   },
   "dependencies": {
     "@novnc/novnc": "1.7.0",
     "pdfjs-dist": "^6.5.438",
     "vue": "^3.5.13",
+    "vue-i18n": "11.4.18",
     "vue-router": "^5.5.1"
   },
   "devDependencies": {

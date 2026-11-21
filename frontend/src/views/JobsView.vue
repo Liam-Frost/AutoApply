@@ -13,6 +13,7 @@ import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import TechDetails from '../components/TechDetails.vue'
 import { renderMarkdown } from '../md'
 import { run, toast, ask, persona } from '../ui'
+import { dayText, shortDayText } from '../i18n/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -247,9 +248,9 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
           <td v-if="cols.has('direction')" class="small col-more">{{ j.direction }}</td>
           <td v-if="cols.has('salary')" class="small col-more">{{ j.salary }}</td>
           <td v-if="cols.has('channel')" class="small nowrap col-more">{{ j.channel_label }}</td>
-          <td v-if="cols.has('posted')" class="small nowrap col-more">{{ (j.posted || '').slice(0, 10) || '—' }}</td>
+          <td v-if="cols.has('posted')" class="small nowrap col-more">{{ dayText(j.posted) || '—' }}</td>
           <td v-if="cols.has('first_seen')" class="small nowrap col-more">{{ j.first_seen || '—' }}</td>
-          <td class="small nowrap" :title="deadlineLabel(j.deadline).text">{{ (j.deadline || '').slice(5, 10) || '—' }}<span v-if="deadlineLabel(j.deadline).tone === 'soon'" class="tag warn" style="margin-left: 6px">{{ daysUntil(j.deadline) === 0 ? '今天' : '明天' }}</span><span v-else-if="deadlineLabel(j.deadline).tone === 'past' && j.stage_group === 'todo'" class="tag" style="margin-left: 6px">已截止</span></td>
+          <td class="small nowrap" :title="deadlineLabel(j.deadline).text">{{ shortDayText(j.deadline) || '—' }}<span v-if="deadlineLabel(j.deadline).tone === 'soon'" class="tag warn" style="margin-left: 6px">{{ daysUntil(j.deadline) === 0 ? '今天' : '明天' }}</span><span v-else-if="deadlineLabel(j.deadline).tone === 'past' && j.stage_group === 'todo'" class="tag" style="margin-left: 6px">已截止</span></td>
           <td class="nowrap"><span class="tag" :class="j.stage_tone">{{ j.stage_label }}</span><span v-if="j.archived" class="tag" style="margin-left: 4px">已归档</span><span v-if="!j.online && j.stage !== 'offline'" class="tag" style="margin-left: 4px">已下线</span></td>
           <td class="small muted col-more" style="min-width: 200px; max-width: 340px"><div class="clamp2">{{ j.app_detail || j.exclusion || j.note }}</div></td>
         </tr>

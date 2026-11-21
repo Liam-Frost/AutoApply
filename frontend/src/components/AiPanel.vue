@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { run, toast } from '../ui'
+import { clockOf, shortDayOf } from '../i18n/format'
 import { mayLeave, same, useUnsaved } from '../dirty'
 import Icon from './Icon.vue'
 import ModelPick from './ModelPick.vue'
@@ -134,7 +135,7 @@ async function testBackup(i) {
   try { foTest.value = { ...foTest.value, [i]: await api.post('/llm/failover/test', backups.value[i]) } } catch (e) { foTest.value = { ...foTest.value, [i]: { error: e.message } } }
 }
 const resetFo = () => run(() => api.post('/llm/failover/reset'), '已清除，下一次调用会重新从主用服务试起', loadFo)
-const hhmm = (iso) => (iso ? iso.slice(11, 16) : '')
+const hhmm = (iso) => (iso ? clockOf(new Date(iso)) : '')      // (a local time without a zone)
 
 // --- allowance of each service in the chain, where the service reports one ---
 const quota = ref({ services: [], warn_percent: 80, warn_balance: 1, notify: true })
@@ -147,12 +148,10 @@ async function loadQuota(refresh) {
 }
 const saveQuota = () => run(() => api.put('/llm/quota', { warn_percent: quota.value.warn_percent, warn_balance: quota.value.warn_balance, notify: quota.value.notify }), '已保存', (r) => (quota.value = r))
 const winTone = (w) => (w.blocked || w.used >= 100 ? 'out' : w.used >= quota.value.warn_percent ? 'low' : '')
-const resetAt = (ts) => {      // "01:36" today, "11-18 22:36" on another day: figures only, the words around them are in the template
+const resetAt = (ts) => {      // "01:36" today, "11/18 22:36" on another day: figures only, the words around them are in the template
   if (!ts) return ''
   const d = new Date(ts * 1000)
-  const p2 = (n) => String(n).padStart(2, '0')
-  const t = `${p2(d.getHours())}:${p2(d.getMinutes())}`
-  return d.toDateString() === new Date().toDateString() ? t : `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${t}`
+  return d.toDateString() === new Date().toDateString() ? clockOf(d) : `${shortDayOf(d)} ${clockOf(d)}`
 }
 onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
 </script>

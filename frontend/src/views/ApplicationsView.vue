@@ -9,6 +9,7 @@ import PageHead from '../components/PageHead.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import { fmtTime } from '../ui'
+import { stampDay } from '../i18n/format'
 
 const rows = ref([])
 const groups = ref([])
@@ -64,7 +65,7 @@ onMounted(load)
             <div v-if="r.location" class="small muted">{{ r.location }}</div>
           </td>
           <td><span class="tag" :class="r.unknown || r.status === 'ready_to_submit' ? 'warn' : r.tone">{{ r.status_label }}</span></td>
-          <td class="small nowrap">{{ r.submitted_at ? r.submitted_at.slice(0, 10) : '—' }}</td>
+          <td class="small nowrap">{{ stampDay(r.submitted_at) || '—' }}</td>
           <td class="small" style="max-width: 420px">{{ r.last_event || r.next }}</td>
           <td class="small nowrap muted">{{ fmtTime(r.updated_at) }}</td>
         </tr>
