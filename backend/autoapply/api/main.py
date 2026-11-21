@@ -138,6 +138,10 @@ async def lifespan(app: FastAPI):
         from ..agent.work import recover_material_reviews
         recover_material_reviews()
         db.set_setting("migrated.material_reviews", True)
+    if not db.get_setting("migrated.one_record"):
+        from ..agent.work import one_record_stands
+        one_record_stands()
+        db.set_setting("migrated.one_record", True)
     if not db.get_setting("migrated.gmail_waits"):
         mail.migrate_reconnect_waits()
         db.set_setting("migrated.gmail_waits", True)

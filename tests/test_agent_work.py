@@ -806,3 +806,26 @@ def test_a_posting_the_agent_found_gone_goes_off_the_list_and_is_not_tried_again
     assert tasks.drain() == 1 and len(agent.seen) == 2 and _state(agent.job)[0] == "draft_ready"
     with db.session() as s:
         assert s.query(Task).filter_by(status="failed").count() == 0
+
+
+def test_an_application_has_one_record_that_stands(agent):
+    """Approved, worked again, approved again: every version stayed "approved", and the application was in the list of
+    records once for each."""
+    from autoapply import drafts, tasks
+    from autoapply.agent import work
+    from autoapply.models import Draft, Job
+
+    db.set_setting("submit.policy", "approve")
+    for _ in range(3):
+        agent.ends.append(READY)
+        tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job}, dedupe=False)
+        assert tasks.drain() == 1
+        with db.session() as s:
+            latest = s.get(Job, agent.job).application.drafts[-1].id
+            s.get(Draft, latest).review_status = "approved"      # (approved, and then the applicant has it worked again)
+    assert [r[0] for r in _state(agent.job)[1]] == ["superseded", "superseded", "approved"]
+    with db.session() as s:      # as an installation from before has them
+        for d in s.get(Job, agent.job).application.drafts:
+            d.review_status = "approved"
+    assert work.one_record_stands() == 2 and work.one_record_stands() == 0
+    assert [r[0] for r in _state(agent.job)[1]] == ["superseded", "superseded", "approved"]

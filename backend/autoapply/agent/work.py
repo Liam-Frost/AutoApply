@@ -469,7 +469,9 @@ def rows_of(record: dict[str, Any], files: dict[str, str]) -> tuple[list[dict[st
 
 
 def keep_record(app_id: int, record: dict[str, Any], files: dict[str, str], url: str) -> int:
-    """The agent's record as a new pending draft of this application (the one before it is superseded)."""
+    """The agent's record as a new pending draft of this application. Every version before it is superseded - the
+    approved ones too: an application has one record that stands, the latest. (Only the pending ones were, so an
+    application approved three times over stood in the list of records three times, each "approved, queued".)"""
     answers, open_, mats = rows_of(record, files)
     notes = [str(record.get("summary", ""))[:3000]] + [str(x)[:600] for x in record.get("open") or []]      # the agent's own words: how it ended, and what it left open
     with db.session() as s:
@@ -485,7 +487,7 @@ def keep_record(app_id: int, record: dict[str, Any], files: dict[str, str], url:
             version = max(version, old.version + 1)
             if ((old.schema or {}).get("extra") or {}).get("resume"):      # which résumé the applicant chose stays chosen
                 kept = {"resume": old.schema["extra"]["resume"]}
-            if old.review_status == "pending":
+            if old.review_status in ("pending", "approved"):
                 old.review_status = "superseded"
         d = Draft(application_id=app_id, version=version, review_status="pending", answers=answers, unresolved=open_, materials=mats, notes=[n for n in notes if n.strip()], plan=[],
                   schema={"ats": "agent", "tenant": urlparse(url).netloc.lower(), "url": url, "source": "agent", "pages": [], "questions": [], "extra": {"agent": True, **kept}})
@@ -775,6 +777,19 @@ def tasks_from_before() -> int:
                 keep = {k: v for k, v in payload.items() if k in ("instructions", "waits_for", "by_hand", "browser_backend") or k.startswith("_")}
                 t.kind, t.ref, t.payload = "apply", f"job:{int(job_id)}", {**keep, "job_id": int(job_id)}
             n += 1
+    return n
+
+
+def one_record_stands() -> int:
+    """Records from before every earlier version was superseded: an approved version with a later one after it is
+    superseded. Returns how many were."""
+    n = 0
+    with db.session() as s:
+        for app in s.query(Application):
+            for d in app.drafts[:-1]:
+                if d.review_status in ("pending", "approved"):
+                    d.review_status = "superseded"
+                    n += 1
     return n
 
 
