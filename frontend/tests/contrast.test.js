@@ -38,6 +38,7 @@ const PAIRS = [
   ['--ok', '--ok-soft'], ['--warn', '--warn-soft'], ['--bad', '--bad-soft'], ['--info', '--info-soft'],
   ['--ok', '--surface'], ['--warn', '--surface'], ['--bad', '--surface'],
   ['--on-bad', '--bad'],
+  ['--tip-fg', '--tip-bg'],      // the tooltip: the reverse of the page
   // the calendar's kinds of item: the text on its pale ground, and on the page where it stands without one
   ...['deadline', 'interview', 'assessment', 'offer', 'follow', 'own', 'system'].flatMap((k) => [[`--ev-${k}-fg`, `--ev-${k}-bg`], [`--ev-${k}-fg`, '--surface']]),
 ]

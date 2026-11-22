@@ -73,7 +73,7 @@ const onPick = (d, e) => { if (e.target === e.currentTarget) emit('create', d, h
       <div ref="top" class="cal-week-top">
         <div class="cal-wrow">
           <div class="cal-gut"></div>
-          <button v-for="d in days" :key="iso(d)" type="button" class="cal-wh" :class="{ today: isToday(d), sel: iso(d) === iso(selected) }" :aria-label="longDate(d)" :title="$t('calendar.openDay')" @click="emit('day', d)">
+          <button v-for="d in days" :key="iso(d)" type="button" class="cal-wh" :class="{ today: isToday(d), sel: iso(d) === iso(selected) }" :aria-label="longDate(d)" v-tip="$t('calendar.openDay')" @click="emit('day', d)">
             <span class="wd">{{ head(d) }}</span><span class="num">{{ d.getDate() }}</span>
           </button>
         </div>
@@ -96,7 +96,7 @@ const onPick = (d, e) => { if (e.target === e.currentTarget) emit('create', d, h
           <div v-if="hover && hover.day === iso(d)" class="cal-ghost" :style="{ top: `${hover.minute * H / 60 + 1}px`, height: `${H / 2 - 2}px` }">+ {{ shown(hover.minute) }}</div>
           <EventChip v-for="b in blocks[i]" :key="b.item.id" :item="b.item" :now="now" variant="block" :short="b.height * H / 60 < 40" :tiny="tiny(b)" :selected="b.item.id === openId"
                      :style="box(b)" @open="emit('open', $event)" />
-          <div v-if="isToday(d)" class="cal-now" :style="{ top: `${nowTop}px` }" :title="clockOf(now)"></div>
+          <div v-if="isToday(d)" class="cal-now" :style="{ top: `${nowTop}px` }" v-tip="clockOf(now)"></div>
         </div>
       </div>
     </div>

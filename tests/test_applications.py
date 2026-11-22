@@ -61,8 +61,9 @@ def test_every_application_is_listed_by_whose_move_it_is(world):
     got = c.get("/api/applications").json()
     by = {r["company"]: r for r in got["applications"]}
     assert set(by) == {"Acme Robotics", "Globex", "Hooli", "Initech"}           # the one still being prepared too
-    assert (by["Initech"]["group"], by["Initech"]["who"], by["Initech"]["act"]) == ("me", "me", "approve") and by["Initech"]["stage_label"] == "等你批准"
-    assert (by["Globex"]["group"], by["Globex"]["act"]) == ("me", "check_mail") and by["Globex"]["unknown"] and "告诉程序结果" in by["Globex"]["next"]
+    assert (by["Initech"]["group"], by["Initech"]["who"], by["Initech"]["act"]) == ("me", "me", "approve") and by["Initech"]["stage_label"] == "待批准"
+    assert (by["Globex"]["group"], by["Globex"]["act"]) == ("me", "check_mail") and by["Globex"]["unknown"]
+    assert by["Globex"]["next"] == "确认提交结果" and "告知程序结果" in by["Globex"]["next_why"]      # the task in a phrase; why, for the application's page
     assert (by["Acme Robotics"]["group"], by["Acme Robotics"]["who"]) == ("sent", "them") and by["Acme Robotics"]["submitted_at"]
     assert by["Hooli"]["group"] == "progress" and by["Hooli"]["deadline"] == "" and by["Initech"]["deadline"] == "2027-01-15 23:59"
     assert c.get("/api/overview").json()["apps_need_me"] == 2
@@ -74,7 +75,7 @@ def test_every_application_is_listed_by_whose_move_it_is(world):
     r = c.get("/api/applications.csv")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv") and "applications-" in r.headers["content-disposition"]
     lines = r.text.lstrip("\ufeff").splitlines()
-    assert lines[0].startswith("公司,岗位,地点,状态,投出日期") and len(lines) == 5 and any(ln.startswith("Acme Robotics,Software Intern,\"Vancouver, BC\",已收到确认信,") for ln in lines)
+    assert lines[0].startswith("公司,岗位,地点,状态,投递日期") and len(lines) == 5 and any(ln.startswith("Acme Robotics,Software Intern,\"Vancouver, BC\",已收到确认邮件,") for ln in lines)
     assert len(c.get(f"/api/applications.csv?ids={world['sent']}").text.lstrip("\ufeff").splitlines()) == 2
 
 
@@ -134,7 +135,7 @@ def test_postings_are_grouped_and_lead_to_their_application(world):
     by = {j["company"]: j for j in c.get("/api/jobs").json()["jobs"]}
     assert by["Umbrella"]["group"] == "todo" and by["Umbrella"]["app"] is None
     assert by["Wayne"]["group"] == "skip" and by["Stark"]["group"] == "closed"
-    assert by["Initech"]["group"] == "started" and by["Initech"]["app"]["id"] == world["draft"] and by["Initech"]["app"]["stage_label"] == "等你批准"
+    assert by["Initech"]["group"] == "started" and by["Initech"]["app"]["id"] == world["draft"] and by["Initech"]["app"]["stage_label"] == "待批准"
     assert by["Hooli"]["group"] == "started"      # a posting taken down after its application went out still leads to it
 
 
@@ -195,7 +196,7 @@ def test_the_applicant_puts_the_record_right_and_it_is_kept_as_theirs(world):
     aid = world["talks"]
     # a call: rejected. Forward, with a note.
     r = c.post(f"/api/applications/{aid}/correct", json={"status": "rejected", "note": "phone call on Tuesday"})
-    assert r.status_code == 200 and r.json()["status"] == "rejected" and "你手动记为“已被拒”：phone call on Tuesday" in r.json()["explained"]["message"]
+    assert r.status_code == 200 and r.json()["status"] == "rejected" and "你手动记为“被拒”：phone call on Tuesday" in r.json()["explained"]["message"]
     # a mistake: it was the other application. Back - which nothing but the applicant may do.
     r = c.post(f"/api/applications/{aid}/correct", json={"status": "interview"})
     assert r.json()["status"] == "interview"
@@ -206,7 +207,7 @@ def test_the_applicant_puts_the_record_right_and_it_is_kept_as_theirs(world):
         said = [(e.old, e.new, e.source, e.note) for e in s.query(ApplicationEvent).filter_by(application_id=aid).order_by(ApplicationEvent.id)]
         assert s.get(Application, aid).evidence["user"]["status"] == "interview"
     assert said[0] == ("interview", "rejected", "user", "phone call on Tuesday") and said[1][:3] == ("rejected", "interview", "user")
-    assert said[2][:3] == ("interview", "interview", "user") and said[2][3].startswith("投出日期改为 2026-10-20")
+    assert said[2][:3] == ("interview", "interview", "user") and said[2][3].startswith("投递日期改为 2026-10-20")
     line = c.get(f"/api/applications/{aid}").json()["timeline"]
     assert sum(1 for e in line if e["kind"] == "status" and e["by"] == "你") == 3
     # what is the program's to keep is not the applicant's to set, and a draft has no date of sending
@@ -356,3 +357,78 @@ def test_a_mail_taken_off_an_application_asks_again_which_it_is_about(world):
         assert s.query(MailEvent).filter_by(message_id="m-conf").one().application_id is None
         card = s.query(Todo).filter_by(kind="mail_unmatched", ref="mail:m-conf", status="open").one()
         assert card.payload["message_id"] == "m-conf" and "We received your application" in card.title
+
+
+def test_the_next_date_of_an_application_is_what_is_still_to_come_on_the_local_clock(world):
+    """The column showed an information request that had been answered as what came next, and its time eight hours off:
+    what is done is not next, and the time is the wall clock the calendar shows (no zone, never read as UTC)."""
+    from autoapply import applications
+    from autoapply.models import Todo
+
+    soon = (datetime.now() + timedelta(days=2)).replace(hour=17, minute=0, second=0, microsecond=0)
+    later = soon + timedelta(days=1, hours=-7)
+    with db.session() as s:
+        s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:info", title="Hooli - information", status="done", due_at=soon,
+                   payload={"application_id": world["talks"], "category": "info_request"}))
+        s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:interview", title="Hooli - interview", due_at=later,
+                   payload={"application_id": world["talks"], "category": "interview"}))
+    row = next(r for r in applications.listing() if r["id"] == world["talks"])
+    assert row["next_date"]["kind"] == "interview"
+    assert row["next_date"]["start"] == later.isoformat(timespec="minutes") and not row["next_date"]["start"].endswith("Z")
+
+
+def test_a_row_says_the_next_step_and_the_latest_event_in_a_few_words(world):
+    """A row of the list has room for a phrase, not for a mail's text: the next step is a task for whoever's move it is
+    (in step with the stage the row shows), the latest event is a mail's heading or a first sentence - the whole of it
+    stays for the application's page - and the company is the name alone."""
+    from autoapply import applications, say
+    from autoapply.models import Application
+
+    long_mail = "Hooli moved the interview to Friday 10:00. Reply to confirm. " + "More about parking and badges. " * 30
+    with db.session() as s:
+        s.get(Application, world["talks"]).last_event = "interview (changed): " + long_mail
+        s.get(Application, world["sent"]).last_event = "Globex Inc. asked for a transcript. It was uploaded from the library."
+        s.get(Application, world["draft"]).job.company = "Initech  Location: Vancouver, BC  Work Term: Summer 2027"
+    rows = {r["id"]: r for r in applications.listing(dates=False)}
+    talks = rows[world["talks"]]
+    assert talks["latest"] == "面试安排有变化" and say.render(talks["latest"], "en") == "Interview arrangements changed"
+    assert talks["last_event"].startswith("面试安排有变化：") and "parking and badges" in talks["last_event"]
+    assert say.render(talks["last_event"], "en").startswith("Interview arrangements changed: Hooli moved")      # the heading in the page's language
+    assert rows[world["sent"]]["latest"] == "Globex Inc. asked for a transcript."      # ("Inc." does not end the sentence)
+    assert "uploaded from the library" in rows[world["sent"]]["last_event"]
+    assert rows[world["draft"]]["company"] == "Initech"
+    assert applications.review([world["draft"]])[0]["company"] == "Initech"
+    assert rows[world["talks"]]["next"] == "准备面试" and rows[world["talks"]]["next_why"] == ""
+    # the stage a row shows and its next step say the same thing
+    with db.session() as s:
+        a = s.get(Application, world["draft"])
+        j = a.job
+        a.status = "recon"
+        assert applications.next_of("recon", applications.stage_of(a, j))[0] == "Agent 正在处理"
+        waits = applications.stage_of(a, j, waiting=True)
+        assert (waits["who"], waits["act"]) == ("me", "handle") and applications.next_of("recon", waits)[0] == "处理待办"
+        a.status = "failed"
+        assert applications.next_of("failed", applications.stage_of(a, j))[0] == "让 Agent 重试"
+        assert applications.next_of("failed", applications.stage_of(a, j, budget=True)) == ("追加预算", "")
+        j.online = 0
+        a.status = "recon"
+        gone = applications.stage_of(a, j)
+        assert gone["stage"] == "offline" and applications.next_of("recon", gone) == ("", "")
+        s.rollback()
+
+
+def test_what_is_still_to_come_is_next_before_what_was_earlier_today(world):
+    """The interview of this morning is not "next" while an assessment waits tomorrow; alone, it is still shown."""
+    from autoapply import applications
+    from autoapply.models import Todo
+
+    past = datetime.now().replace(hour=0, minute=1, second=0, microsecond=0)
+    tomorrow = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=30, second=0, microsecond=0)
+    with db.session() as s:
+        s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:am", title="Hooli - interview", due_at=past, payload={"application_id": world["talks"], "category": "interview"}))
+    row = next(r for r in applications.listing() if r["id"] == world["talks"])
+    assert row["next_date"]["start"] == past.isoformat(timespec="minutes")
+    with db.session() as s:
+        s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:oa", title="Hooli - assessment", due_at=tomorrow, payload={"application_id": world["talks"], "category": "assessment"}))
+    row = next(r for r in applications.listing() if r["id"] == world["talks"])
+    assert (row["next_date"]["kind"], row["next_date"]["start"]) == ("assessment", tomorrow.isoformat(timespec="minutes"))

@@ -8,8 +8,10 @@ import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { api } from '../api'
 import { rangeQuery } from '../analytics'
 import EmptyState from '../components/EmptyState.vue'
+import HelpPop from '../components/HelpPop.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import Tabs from '../components/Tabs.vue'
 import AppsPanel from './analytics/AppsPanel.vue'
 import AutoPanel from './analytics/AutoPanel.vue'
 import CostPanel from './analytics/CostPanel.vue'
@@ -17,6 +19,7 @@ import SitesPanel from './analytics/SitesPanel.vue'
 
 const VIEWS = [['apps', T('analytics.page.applications')], ['auto', T('analytics.page.automation')], ['sites', T('analytics.page.siteNotes')], ['ai', T('analytics.page.aiCost')]]
 const RANGES = [['0', T('analytics.page.all')], ['90', T('analytics.page.lastDays')], ['30', T('analytics.page.lastDays2')], ['7', T('analytics.page.lastDays3')], ['today', T('analytics.page.today')], ['custom', T('analytics.page.custom')]]
+// what each view shows and by which date it counts: beside the period, behind an (i)
 const SUBS = {
   apps: T('analytics.page.whatCameOfThe'),
   auto: T('analytics.page.howOftenEachKind'),
@@ -64,31 +67,36 @@ watch(() => route.query, () => { const st = asked(); view.value = st.view; if (s
 watch([view, () => range.mode, () => range.start, () => range.end, () => ({ ...params.apps }), () => ({ ...params.auto }), () => ({ ...params.ai })], load, { deep: true })
 onMounted(load)
 const cur = computed(() => state[view.value])
+// The time scale of the charts (day, week, month) is the page's too: one control beside the period, for the views
+// that draw something over time. A single day is drawn by the hour, whatever is chosen.
+const SCALES = [['', T('analytics.page.scaleAuto')], ['day', T('analytics.page.scaleDay')], ['week', T('analytics.page.scaleWeek')], ['month', T('analytics.page.scaleMonth')]]
+const scaled = computed(() => (view.value === 'apps' || view.value === 'ai') && range.mode !== 'today')
 </script>
 
 <template>
-  <PageHead :title="$t('analytics.page.analytics')" :sub="SUBS[view]">
-    <div class="seg"><button v-for="[v, l] in RANGES" :key="v" :class="{ on: range.mode === v }" @click="range.mode = v">{{ l }}</button></div>
-  </PageHead>
+  <PageHead :title="$t('analytics.page.analytics')" />
 
-  <div class="an-bar">
-    <div class="seg" role="tablist">
-      <button v-for="[v, l] in VIEWS" :key="v" role="tab" :aria-selected="view === v" :class="{ on: view === v }" @click="pick(v)">{{ l }}</button>
+  <div class="an-toolbar">
+    <Tabs :model-value="view" :label="$t('analytics.page.views')" :items="VIEWS.map(([id, label]) => ({ id, label }))" @update:model-value="pick" />
+    <div class="an-tools">
+      <AaSelect v-if="scaled" v-model="params[view].bucket" :aria-label="$t('analytics.page.scale')"><option v-for="[k, l] in SCALES" :key="k" :value="k">{{ l }}</option></AaSelect>
+      <div v-if="range.mode === 'custom'" class="an-dates">
+        <input v-model="range.start" type="date" :max="range.end || undefined" :aria-label="$t('analytics.page.startDate')" />
+        <span class="t-meta" aria-hidden="true">–</span>
+        <input v-model="range.end" type="date" :min="range.start || undefined" :aria-label="$t('analytics.page.endDate')" />
+      </div>
+      <AaSelect v-model="range.mode" :aria-label="$t('analytics.page.period')"><option v-for="[v, l] in RANGES" :key="v" :value="v">{{ l }}</option></AaSelect>
+      <HelpPop :text="SUBS[view]" :label="$t('analytics.page.analytics')" />
     </div>
-    <template v-if="range.mode === 'custom'">
-      <span class="grow"></span>
-      <label class="small muted">{{ $t('analytics.page.from') }} <input v-model="range.start" type="date" :max="range.end || undefined" :aria-label="$t('analytics.page.startDate')" /></label>
-      <label class="small muted">{{ $t('analytics.page.to') }} <input v-model="range.end" type="date" :min="range.start || undefined" :aria-label="$t('analytics.page.endDate')" /></label>
-    </template>
   </div>
 
   <div v-if="!ready" class="card"><EmptyState icon="activity" :title="$t('analytics.page.chooseAStartDate')" :text="$t('analytics.page.bothDatesAreIncluded')" /></div>
-  <div v-else-if="cur.error" class="callout bad"><Icon name="alert" /><div><b>{{ $t('analytics.page.theDataForThis') }}</b><div class="small">{{ cur.error }}</div><button class="sm" style="margin-top: 8px" @click="load">{{ $t('analytics.page.tryAgain') }}</button></div></div>
+  <div v-else-if="cur.error" class="callout bad"><Icon name="alert" /><div class="grow"><div class="t-primary">{{ $t('analytics.page.theDataForThis') }}</div><div class="t-secondary">{{ cur.error }}</div></div><button class="sm" @click="load">{{ $t('analytics.page.tryAgain') }}</button></div>
   <template v-else-if="!cur.data">
-    <div class="kpis" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))"><div v-for="i in 4" :key="i" class="skel" style="height: 84px; margin: 0"></div></div>
-    <div class="skel" style="height: 240px"></div>
+    <div class="kpis"><div v-for="i in 4" :key="i" class="skel tile"></div></div>
+    <div class="skel tall"></div>
   </template>
-  <div v-else class="an-view" :style="{ opacity: cur.loading ? 0.55 : 1, transition: 'opacity 0.15s' }" :aria-busy="cur.loading">
+  <div v-else class="an-view" :class="{ loading: cur.loading }" :aria-busy="cur.loading">
     <AppsPanel v-if="view === 'apps'" :d="state.apps.data" :params="params.apps" />
     <AutoPanel v-else-if="view === 'auto'" :d="state.auto.data" :params="params.auto" :range="range" />
     <SitesPanel v-else-if="view === 'sites'" :d="state.sites.data" @reload="load" />

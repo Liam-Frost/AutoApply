@@ -377,7 +377,7 @@ def test_notifications_follow_the_interface_language(app_env, monkeypatch):
     db.set_setting("notify.todo", True)
     card = messages.todo("review", "Acme · 数据分析师 Intern", payload={"draft_id": 3})
     notify.send("todo", card)
-    assert "申请记录等你批准" in sent[-1]                                   # Chinese interface: unchanged
+    assert "申请记录待批准" in sent[-1]                                   # Chinese interface: unchanged
     db.set_setting("ui.lang", "en")
     notify.send("todo", messages.todo("review", "Acme · 数据分析师 Intern", payload={"draft_id": 3}))
     en = sent[-1]
@@ -389,8 +389,8 @@ def test_notifications_follow_the_interface_language(app_env, monkeypatch):
     inc = messages.todo("submit", "Acme · Engineer", "x").localized()
     assert not re.search(r"[\u4e00-\u9fff]", inc.heading + inc.hint), (inc.heading, inc.hint)
     # all or nothing: a sentence the dictionary only half knows is passed on as it was
-    assert i18n.tr("申请记录等你批准，另外还有一句词典里没有的话", "en") == "申请记录等你批准，另外还有一句词典里没有的话"
-    assert i18n.tr("plain ascii", "en") == "plain ascii" and i18n.tr("申请记录等你批准", "zh") == "申请记录等你批准"
+    assert i18n.tr("申请记录待批准，另外还有一句词典里没有的话", "en") == "申请记录待批准，另外还有一句词典里没有的话"
+    assert i18n.tr("plain ascii", "en") == "plain ascii" and i18n.tr("申请记录待批准", "zh") == "申请记录待批准"
 
 
 FEED_XML = """<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><title>Board</title>

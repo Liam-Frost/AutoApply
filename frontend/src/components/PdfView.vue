@@ -109,9 +109,9 @@ onBeforeUnmount(() => {
       <span class="muted small">{{ state === 'ready' ? $t('common.pdf.pages', { n: pages }, pages) : state === 'loading' ? $t('common.pdf.loading') : '' }}</span>
       <span class="grow"></span>
       <template v-if="state === 'ready'">
-        <button class="sm ghost" :aria-label="$t('common.pdf.zoomOut')" @click="setZoom(zoom - 0.25)">−</button>
-        <span class="small muted" style="min-width: 44px; text-align: center">{{ Math.round(zoom * 100) }}%</span>
-        <button class="sm ghost" :aria-label="$t('common.pdf.zoomIn')" @click="setZoom(zoom + 0.25)">+</button>
+        <button v-tip="$t('common.pdf.zoomOut')" class="sm ghost" :aria-label="$t('common.pdf.zoomOut')" @click="setZoom(zoom - 0.25)">−</button>
+        <span class="small muted num pdf-zoom">{{ Math.round(zoom * 100) }}%</span>
+        <button v-tip="$t('common.pdf.zoomIn')" class="sm ghost" :aria-label="$t('common.pdf.zoomIn')" @click="setZoom(zoom + 0.25)">+</button>
         <button class="sm ghost" @click="setZoom(1)">{{ $t('common.pdf.fitWidth') }}</button>
       </template>
     </div>

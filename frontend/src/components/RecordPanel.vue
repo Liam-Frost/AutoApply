@@ -5,6 +5,11 @@ import { t as T } from '../i18n/catalog'
 // application's page (ApplicationDetail), which has the buttons that decide about it (approve, send back).
 import { computed, nextTick, ref } from 'vue'
 import { api } from '../api'
+import CardHead from './CardHead.vue'
+import IconButton from './IconButton.vue'
+import SectionHead from './SectionHead.vue'
+import Status from './Status.vue'
+import Trunc from './Trunc.vue'
 import { decisions, toDecide } from '../draftsum'
 import { ask, run, toast } from '../ui'
 
@@ -96,16 +101,16 @@ const workAgain = () => run(() => api.post(`/drafts/${props.d.id}/reanswer`), T(
 </script>
 
 <template>
-  <div v-if="d.unresolved.length" class="callout bad" style="display: block">
-    <b>{{ $t('record.questionsForYou', { n: d.unresolved.length }, d.unresolved.length) }}</b>
-    <div class="muted small">{{ $t('record.questionsForYouHow') }}</div>
-    <ul style="margin: 8px 0 0; padding-left: 20px"><li v-for="u in d.unresolved" :key="u.id">{{ u.label }}</li></ul>
-    <div v-if="editable" class="row" style="margin-top: 10px"><button @click="workAgain">{{ $t('record.workAgain') }}</button>
-      <span class="muted small">{{ $t('record.workAgainWhen') }}</span></div>
+  <div v-if="d.unresolved.length" class="callout bad rec-block">
+    <div class="t-primary">{{ $t('record.questionsForYou', { n: d.unresolved.length }, d.unresolved.length) }}</div>
+    <div class="t-secondary">{{ $t('record.questionsForYouHow') }}</div>
+    <ul><li v-for="u in d.unresolved" :key="u.id">{{ u.label }}</li></ul>
+    <div v-if="editable" class="rec-line"><button @click="workAgain">{{ $t('record.workAgain') }}</button>
+      <span class="t-meta">{{ $t('record.workAgainWhen') }}</span></div>
   </div>
 
-  <div v-if="toLook.length" class="panel look" aria-labelledby="look-h">
-    <h3 id="look-h" style="margin-top: 0">{{ $t('record.lookFirst') }}<span class="muted small" style="font-weight: 400; margin-left: 10px">{{ toDecide(toLook) ? $t('record.toDecide', { n: toDecide(toLook) }, toDecide(toLook)) : $t('record.nothingToDecide') }}</span></h3>
+  <div v-if="toLook.length" class="card look" :aria-label="$t('record.lookFirst')">
+    <CardHead :title="$t('record.lookFirst')" :note="toDecide(toLook) ? $t('record.toDecide', { n: toDecide(toLook) }, toDecide(toLook)) : $t('record.nothingToDecide')" />
     <div v-for="g in toLook" :key="g.key" class="look-group">
       <span class="tag" :class="g.tone">{{ g.label }}</span>
       <button v-if="g.to" class="look-item" @click="goTo('', g.to)">{{ lineOf(g) }}</button>
@@ -115,76 +120,76 @@ const workAgain = () => run(() => api.post(`/drafts/${props.d.id}/reanswer`), T(
     </div>
   </div>
 
-  <div v-if="d.notes_display.length" class="callout" style="display: block">
-    <b>{{ $t('record.agentSummary') }}</b>
-    <ul style="margin: 6px 0 0; padding-left: 20px"><li v-for="(n, i) in d.notes_display" :key="i">{{ n }}</li></ul>
+  <div v-if="d.notes_display.length" class="callout rec-block">
+    <div class="t-primary">{{ $t('record.agentSummary') }}</div>
+    <ul><li v-for="(n, i) in d.notes_display" :key="i">{{ n }}</li></ul>
   </div>
 
-  <div class="row"><h3 class="grow">{{ $t('record.answers', { n: filled.length }, filled.length) }}</h3><span class="small muted">{{ $t('record.version', { n: d.version }) }} · {{ d.review_label }}</span></div>
-  <div class="table-wrap" style="max-height: none">
+  <SectionHead :title="$t('record.answers', { n: filled.length }, filled.length)"><span class="meta">{{ $t('record.version', { n: d.version }) }} · {{ d.review_label }}</span></SectionHead>
+  <div class="table-wrap rec-table">
     <table>
-      <thead><tr><th style="width: 34%">{{ $t('record.question') }}</th><th>{{ $t('record.answer') }}</th><th style="width: 22%">{{ $t('record.basis') }}</th><th>{{ $t('record.sure.title') }}</th><th></th></tr></thead>
+      <thead><tr><th class="rec-q">{{ $t('record.question') }}</th><th>{{ $t('record.answer') }}</th><th class="rec-basis">{{ $t('record.basis') }}</th><th class="rec-sure">{{ $t('record.sure.title') }}</th><th class="rec-act"></th></tr></thead>
       <tbody>
         <tr v-for="a in shown" :id="'ans-' + a.id" :key="a.id" :class="{ lit: lit === a.id }">
           <td>
-            {{ a.label }}<span v-if="a.required" style="color: var(--bad)"> *</span>
-            <span v-if="isUnresolved(a) && a.about === 'job'" class="tag" style="margin-left: 4px">{{ $t('record.onlyThisJob') }}</span>
+            {{ a.label }}<span v-if="a.required" class="rec-req"> *</span>
+            <span v-if="isUnresolved(a) && a.about === 'job'" class="meta small"> · {{ $t('record.onlyThisJob') }}</span>
           </td>
           <td>
             <template v-if="editing === a.id">
               <template v-if="a.options && a.options.length && a.type !== 'multiselect' && !a.searchable && !typeOwn">
-                <AaSelect v-model="editVal" style="max-width: 100%"><option v-for="o in a.options" :key="o">{{ o }}</option></AaSelect>
+                <AaSelect v-model="editVal"><option v-for="o in a.options" :key="o">{{ o }}</option></AaSelect>
                 <div><button class="ghost sm" @click="typeOwn = true">{{ $t('record.notInList') }}</button></div>
               </template>
               <template v-else-if="a.options && a.options.length && a.type !== 'multiselect'">
-                <input v-model="editVal" :list="'opts-' + a.page + '-' + a.label.length" style="width: 100%" />
+                <input v-model="editVal" :list="'opts-' + a.page + '-' + a.label.length" />
                 <datalist :id="'opts-' + a.page + '-' + a.label.length"><option v-for="o in a.options" :key="o" :value="o"></option></datalist>
-                <div class="small muted">{{ $t('record.optionsHint') }}</div>
+                <div class="t-meta">{{ $t('record.optionsHint') }}</div>
               </template>
               <AaSelect v-else-if="a.type === 'checkbox'" v-model="editVal"><option value="true">{{ $t('record.tick') }}</option><option value="false">{{ $t('record.dontTick') }}</option></AaSelect>
               <textarea v-else v-model="editVal" rows="3"></textarea>
-              <div v-if="a.type === 'multiselect'" class="small muted">{{ $t('record.multiHint', { options: a.options.join(' / ') }) }}</div>
-              <label class="small" style="display: block; margin-top: 8px"><input v-model="remember" type="checkbox" /> {{ $t('record.remember') }}</label>
-              <input v-if="remember" v-model="saveRule" :placeholder="$t('record.rulePlaceholder')" style="width: 100%; margin-top: 6px" />
-              <div class="row" style="margin-top: 6px"><button class="primary" @click="commitEdit(a)">{{ $t('record.save') }}</button><button @click="editing = null">{{ $t('record.cancel') }}</button>
-                <button v-if="isUnresolved(a) && a.source === 'unresolved'" class="ghost" :title="$t('record.notMineHow')" @click="dropQuestion(a)">{{ $t('record.notMine') }}</button></div>
+              <div v-if="a.type === 'multiselect'" class="t-meta">{{ $t('record.multiHint', { options: a.options.join(' / ') }) }}</div>
+              <label class="rec-remember"><input v-model="remember" type="checkbox" /> {{ $t('record.remember') }}</label>
+              <input v-if="remember" v-model="saveRule" :placeholder="$t('record.rulePlaceholder')" />
+              <div class="actions rec-line"><button class="primary" @click="commitEdit(a)">{{ $t('record.save') }}</button><button @click="editing = null">{{ $t('record.cancel') }}</button>
+                <button v-if="isUnresolved(a) && a.source === 'unresolved'" v-tip="$t('record.notMineHow')" class="ghost" @click="dropQuestion(a)">{{ $t('record.notMine') }}</button></div>
             </template>
             <template v-else>
               <span v-if="isUnresolved(a)" class="tag bad">{{ $t('record.noAnswerYet') }}</span>
               <template v-if="isUnresolved(a) && a.suggested">
-                <span class="small muted" style="margin-left: 8px">{{ $t('record.suggested', { v: a.suggested }) }}</span>
-                <button v-if="editable" class="sm" style="margin-left: 6px" @click="takeSuggestion(a)">{{ $t('record.takeSuggestion') }}</button>
+                <span class="t-secondary rec-suggest">{{ $t('record.suggested', { v: a.suggested }) }}</span>
+                <button v-if="editable" class="sm" @click="takeSuggestion(a)">{{ $t('record.takeSuggestion') }}</button>
               </template>
-              <span v-else-if="a.dropped" class="tag">{{ $t('record.dropped') }}</span>
-              <pre v-else style="font-family: inherit; font-size: 14px">{{ show(a) }}</pre>
+              <Status v-else-if="a.dropped" :label="$t('record.dropped')" />
+              <pre v-else class="rec-answer">{{ show(a) }}</pre>
             </template>
           </td>
-          <td class="small muted">{{ a.basis_display }}</td>
-          <td><span v-if="SURE[a.confidence]" class="tag" :class="SURE[a.confidence][1]">{{ $t(SURE[a.confidence][0]) }}</span></td>
-          <td><button v-if="editable && a.type !== 'file' && editing !== a.id" class="sm" @click="startEdit(a)">{{ $t('record.change.button') }}</button></td>
+          <td class="t-meta rec-basis">{{ a.basis_display }}</td>
+          <td><Status v-if="SURE[a.confidence]" :tone="SURE[a.confidence][1]" :label="$t(SURE[a.confidence][0])" /></td>
+          <td class="rec-act"><IconButton v-if="editable && a.type !== 'file' && editing !== a.id" icon="edit" :label="$t('record.change.button')" @click="startEdit(a)" /></td>
         </tr>
       </tbody>
     </table>
   </div>
-  <details v-if="blank.length" style="margin: 8px 0">
-    <summary class="muted">{{ $t('record.blankOptional', { n: blank.length }, blank.length) }}</summary>
-    <ul class="small"><li v-for="b in blank" :key="b.id">{{ b.label }} <button v-if="editable && b.type !== 'file'" class="sm" @click="startEdit(b)">{{ $t('record.fillIn') }}</button></li></ul>
+  <details v-if="blank.length" class="rec-blank">
+    <summary class="t-secondary">{{ $t('record.blankOptional', { n: blank.length }, blank.length) }}</summary>
+    <ul><li v-for="b in blank" :key="b.id">{{ b.label }} <button v-if="editable && b.type !== 'file'" class="sm ghost" @click="startEdit(b)">{{ $t('record.fillIn') }}</button></li></ul>
   </details>
 
   <div class="cols">
     <div>
       <h3 id="draft-materials" :class="{ lit: lit === 'materials' }">{{ $t('record.files') }}</h3>
       <div class="panel">
-        <div v-for="m in d.materials" :key="m.slot" class="row" style="margin-bottom: 6px">
-          <span class="tag info">{{ m.slot_label || m.label || m.slot }}</span>
-          <a v-if="m.document_id" :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener" data-notr>{{ m.name }}</a>
-          <span v-else data-notr>{{ m.name }}</span>
-          <span v-if="m.overwritten" class="badge warn" :title="$t('record.overwrittenHow')">{{ $t('record.overwritten') }}</span>
+        <div v-for="m in d.materials" :key="m.slot" class="file-line rec-file">
+          <span class="meta">{{ m.slot_label || m.label || m.slot }}</span>
+          <Trunc v-if="m.document_id" as="a" :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener" data-notr :text="m.name" />
+          <Trunc v-else data-notr :text="m.name" />
+          <Status v-if="m.overwritten" tone="warn" :label="$t('record.overwritten')" :tip="$t('record.overwrittenHow')" />
         </div>
         <div v-if="!d.materials.length" class="muted">{{ $t('record.noFiles') }}</div>
         <div v-if="written" class="tailor">
           <div><b>{{ usesWritten ? $t('record.usesWritten') : $t('record.hasWritten') }}</b><span v-if="written.focus">: {{ written.focus }}</span></div>
-          <div v-if="written.keywords && written.keywords.length" class="row" style="gap: 6px; margin-top: 8px"><span v-for="k in written.keywords" :key="k" class="tag">{{ k }}</span></div>
+          <div v-if="written.keywords && written.keywords.length" class="rec-words"><span v-for="k in written.keywords" :key="k" class="tag">{{ k }}</span></div>
           <details v-if="written.changes && written.changes.length" class="tech">
             <summary>{{ $t('record.changesFromBase', { n: written.changes.length }, written.changes.length) }}</summary>
             <div v-for="(c, i) in written.changes" :key="i" class="chg">
@@ -196,37 +201,37 @@ const workAgain = () => run(() => api.post(`/drafts/${props.d.id}/reanswer`), T(
               </template>
             </div>
           </details>
-          <div v-if="editable" class="row" style="margin-top: 10px">
+          <div v-if="editable" class="rec-line">
             <button v-if="usesWritten" class="sm" @click="useResume('base')">{{ $t('record.useBase') }}</button>
             <button v-else class="sm" @click="useResume('tailored')">{{ $t('record.useTailored') }}</button>
           </div>
         </div>
         <div v-if="editable && d.tailor && d.tailor.mode !== 'off'" class="tailor">
           <template v-if="d.tailor.available">
-            <div class="small muted" style="margin-bottom: 6px">{{ written ? $t('record.tailorAgainHint') : $t('record.tailorHint') }}</div>
-            <div class="row"><input v-model="tailorNote" class="grow" :placeholder="$t('record.tailorPlaceholder')" /><button class="sm" @click="tailorNow">{{ written ? $t('record.tailorAgain') : $t('record.tailor') }}</button></div>
+            <div class="t-meta rec-hint">{{ written ? $t('record.tailorAgainHint') : $t('record.tailorHint') }}</div>
+            <div class="form-line rec-tailor"><input v-model="tailorNote" class="grow" :aria-label="written ? $t('record.tailorAgainHint') : $t('record.tailorHint')" :placeholder="$t('record.tailorPlaceholder')" /><button @click="tailorNow">{{ written ? $t('record.tailorAgain') : $t('record.tailor') }}</button></div>
           </template>
-          <div v-else class="small muted">{{ $t('record.tailorNeedsWord') }} <router-link to="/files">{{ $t('record.openFiles') }}</router-link></div>
+          <div v-else class="t-meta">{{ $t('record.tailorNeedsWord') }} <router-link to="/files">{{ $t('record.openFiles') }}</router-link></div>
         </div>
       </div>
     </div>
     <div>
       <h3 id="draft-after" :class="{ lit: lit === 'after' }">{{ $t('record.afterApproval') }}</h3>
       <div class="panel">
-        <p style="margin: 0">{{ d.policy === 'hand_over' ? $t('record.afterHandOver') : $t('record.afterSubmit') }}</p>
-        <p class="small" style="margin: 8px 0 0"><router-link to="/settings/automation/submit">{{ $t('record.whoSubmits') }}</router-link></p>
+        <p class="rec-after">{{ d.policy === 'hand_over' ? $t('record.afterHandOver') : $t('record.afterSubmit') }}</p>
+        <p class="t-secondary rec-after-link"><router-link to="/settings/automation/submit">{{ $t('record.whoSubmits') }}</router-link></p>
       </div>
     </div>
   </div>
 
-  <div v-if="d.locked && ['pending', 'approved'].includes(d.review_status)" class="callout" style="display: block"><span class="muted">{{ d.locked }}</span></div>
+  <div v-if="d.locked && ['pending', 'approved'].includes(d.review_status)" class="callout rec-block"><span class="t-secondary">{{ d.locked }}</span></div>
 
   <template v-if="pending || approvedOpen">
     <h3>{{ $t('record.wantChanges') }}</h3>
     <div class="panel">
-      <textarea v-model="comment" :placeholder="$t('record.wantChangesPlaceholder')" style="font-family: inherit"></textarea>
-      <div class="row" style="margin-top: 8px"><button :disabled="!comment.trim()" @click="sendComment">{{ $t('record.changeIt') }}</button></div>
-      <div v-for="(c, i) in d.comments || []" :key="i" class="small muted" style="margin-top: 6px">{{ $t('record.youSaid', { text: c.comment }) }}<template v-if="c.result"> → {{ c.result }}</template></div>
+      <textarea v-model="comment" class="note-text" :aria-label="$t('record.wantChanges')" :placeholder="$t('record.wantChangesPlaceholder')"></textarea>
+      <div class="rec-line"><button :disabled="!comment.trim()" @click="sendComment">{{ $t('record.changeIt') }}</button></div>
+      <div v-for="(c, i) in d.comments || []" :key="i" class="t-meta rec-said">{{ $t('record.youSaid', { text: c.comment }) }}<template v-if="c.result"> → {{ c.result }}</template></div>
     </div>
   </template>
 </template>

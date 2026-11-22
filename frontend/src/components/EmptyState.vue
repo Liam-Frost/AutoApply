@@ -8,6 +8,6 @@ defineProps({ icon: { type: String, default: 'inbox' }, title: { type: String, r
     <Icon :name="icon" />
     <div class="t">{{ title }}</div>
     <div v-if="text">{{ text }}</div>
-    <div v-if="$slots.default" class="row" style="justify-content: center; margin-top: 12px"><slot /></div>
+    <div v-if="$slots.default" class="row empty-acts"><slot /></div>
   </div>
 </template>

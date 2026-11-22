@@ -4,6 +4,43 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **One design system for the whole interface.** Every page is rebuilt from the same shared pieces, so content no
+  longer decides layout. Lists are one kind of table: a column's width comes from its definition, never from the
+  longest value in it, every row has the same height, long names are cut with the whole text in a tooltip, and the
+  less important columns give way first when the window is narrow - the page itself never scrolls sideways. Buttons,
+  fields, selects and tabs of one level are the same height everywhere; an icon alone always has a name; rarely used
+  and destructive actions live in a row's menu instead of a red button on every row. The browser's own tooltips are
+  gone: one tooltip, one menu and one popover, with the keyboard, in both themes.
+- **Applications**: the next step is a short task ("Prepare for the interview", "Await reply") with whose move it is;
+  *Next event* shows the time and what it is (the calendar's words) instead of repeating the company and position;
+  the latest news is one line. **Postings** rows are one height, the score and the deadline line up.
+- **Site accounts**: one credential cell (dots and an eye, or "not saved" and a plus; a shown password hides itself
+  again after 30 seconds), and the states that were mixed up are said apart - the credential, the saved session (never
+  called "signed in": it is a saved session, with the latest date it can be valid to), and whether the program can
+  sign in by itself. A failure shows as a short state with its reason behind it; the technical detail is in the row's
+  details. Clearing a session, removing a saved password and deleting an account are three separate things in the
+  row's menu. The third-party sign-in cards share one structure and line up; a provider's settings are behind its menu.
+- **Wording**: concise product language in English, Chinese and French, one name per thing
+  (`docs/ux-writing-glossary.md`); long subtitles and helper paragraphs went behind an (i) or were removed, keeping
+  what is needed to decide and every safety statement. Dates are written one way everywhere.
+- Documentation for contributors: `docs/component-guidelines.md`, `docs/ux-writing-glossary.md`,
+  `docs/ui-quality-assurance.md`, `docs/ui-ux-audit.md`; a UI lab at `/ui-lab` shows every shared component in its
+  states.
+
+### Fixed
+
+- **A calendar item's time on the applications page was read as UTC**: an interview at 10:00 showed as 18:00 (or
+  03:00), eight hours off the calendar. It is the same wall-clock time everywhere now, whatever the time zone of the
+  browser; the day of an outcome and the name of an exported file use the local day too.
+- **An information request that had been answered was still shown as the application's next event.** What is done is
+  not next.
+- A row's menu could close the moment it opened when it was pressed right after scrolling.
+- Deleting several files for good is asked about as the dangerous thing it is; so is withdrawing several applications.
+- Text the program kept before 2.0.2 is still recognised after this release's rewording (the wording of 2.0.2 is kept
+  for that).
+
 ## [2.0.2] - 2026-11-22
 
 2.0.2 brings what was planned for 2.0.1 and 2.0.2 in one release: a calendar with reminders and a feed for your calendar app; the cards on Telegram and Discord with the buttons that deal with them, and an assistant in the chat; one page per application; the program in English, Chinese and French; and updates from inside the program.

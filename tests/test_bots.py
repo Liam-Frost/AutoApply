@@ -163,7 +163,7 @@ def test_commands(tg):
     n = len(tg.sent())
     bots._tg_update("123:abc", "42", {"update_id": 12, "message": {"message_id": 4, "chat": {"id": 42}, "text": "/todo"}})
     out = tg.sent()[n:]
-    assert "1 件" in out[0]["text"] and out[1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == f"t:{tid}:done"
+    assert "1 项" in out[0]["text"] and out[1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == f"t:{tid}:done"
     bots._tg_update("123:abc", "42", {"update_id": 13, "message": {"message_id": 5, "chat": {"id": 42}, "text": "/app acme"}})
     assert "Acme · Backend Intern" in tg.sent()[-1]["text"]
 

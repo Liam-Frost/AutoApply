@@ -51,7 +51,7 @@ def test_a_service_that_runs_out_hands_over_to_the_next_for_both_models(two_serv
     assert llm.json("classify", {"type": "object"}, small=True) == {"by": "reply from deepseek"}
     assert t["asked"][2:] == [("deepseek", "deepseek-small")]                    # the service that ran out is left alone, not asked again
     # the user is told once, in words, not once per call
-    assert len(t["sent"]) == 1 and "备用" in t["sent"][0].heading and ("原因", "用量额度用完了") in t["sent"][0].fields
+    assert len(t["sent"]) == 1 and "备用" in t["sent"][0].heading and ("原因", "用量额度已用完") in t["sent"][0].fields
     st = llm.failover_status()
     assert [(s["provider"], s["role"], s["state"]) for s in st] == [("claude_subscription", "primary", "cooling"), ("deepseek", "backup", "ok"), ("chatgpt", "backup", "ok")]
     assert st[2]["model"] == "gpt-x" and st[1]["small_model"] == "deepseek-small" and "usage limit" in st[0]["reason"]
@@ -171,7 +171,7 @@ def test_allowance_is_read_where_a_service_reports_it_and_warned_about_once(app_
     assert rows["chatgpt"]["level"] == "out" and rows["deepseek"]["level"] == "low"
     assert rows["openai"]["supported"] is False and "不提供查询余额" in rows["openai"]["note"]            # said plainly, not guessed
     heads = [c.heading for c, _ in sent]
-    assert heads == ["AI 额度快用完了", "AI 额度用完了", "AI 额度快用完了"] and all(tag == "quota" for _, tag in sent)
+    assert heads == ["AI 额度即将用完", "AI 额度已用完", "AI 额度即将用完"] and all(tag == "quota" for _, tag in sent)
     claude = sent[0][0]
     assert ("服务", "Claude 订阅") in claude.fields and any(k == "5 小时额度" and v.startswith("已用 86%") and "重置" in v for k, v in claude.fields)
     assert "备用服务：ChatGPT 订阅" in claude.hint
@@ -185,7 +185,7 @@ def test_allowance_is_read_where_a_service_reports_it_and_warned_about_once(app_
     assert not sent
     quota.remember_claude({"unifiedWindows": {"five_hour": {"utilization": 0.9, "resetsAt": soon + 18000, "status": "allowed"}}})
     quota.check_all()
-    assert [c.heading for c, _ in sent] == ["AI 额度快用完了"]
+    assert [c.heading for c, _ in sent] == ["AI 额度即将用完"]
     # switched off: figures are still read, nothing is sent
     sent.clear()
     db.set_setting("llm.quota_notify", False)

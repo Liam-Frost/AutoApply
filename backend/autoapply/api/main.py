@@ -480,7 +480,7 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
         out.update(jd_text=j.jd_text, jd_partial=j.jd_partial if j.jd_partial in ("summary", "cut") else "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
-                   first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=humanize.explain(a.last_event if a else ""),
+                   first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=_apps.explained(a.last_event if a else ""),
                    evidence=a.evidence if a else None,
                    drafts=[{"id": d.id, "version": d.version, "review_status": d.review_status} for d in (a.drafts if a else [])])
         return out
@@ -848,11 +848,14 @@ def list_applications() -> dict[str, Any]:
 
 @app.get("/api/applications.csv")
 def applications_csv(ids: str = "") -> Response:
+    from datetime import date
+
     from .. import applications
 
     picked = {int(x) for x in ids.split(",") if x.strip().isdigit()} or None
+    # (named by the applicant's own day: now() is UTC, a day ahead in the evening west of Greenwich)
     return Response(content=applications.as_csv(picked), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="applications-{now().date().isoformat()}.csv"', "Cache-Control": "no-store"})
+                    headers={"Content-Disposition": f'attachment; filename="applications-{date.today().isoformat()}.csv"', "Cache-Control": "no-store"})
 
 
 @app.get("/api/applications/review")
@@ -2176,6 +2179,22 @@ def save_account(tenant_key: str, body: dict[str, Any] = Body(...)) -> dict[str,
 @app.delete("/api/accounts/{tenant_key}")
 def remove_account(tenant_key: str) -> dict[str, Any]:
     auth.delete_account(tenant_key)
+    return {"ok": True}
+
+
+@app.delete("/api/accounts/{tenant_key}/session")
+def clear_account_session(tenant_key: str) -> dict[str, Any]:
+    """Forget one site's saved session; the account and its stored password stay."""
+    if not auth.clear_session(tenant_key):
+        raise HTTPException(404, T("server.api.main.noSuchAccount"))
+    return {"ok": True}
+
+
+@app.delete("/api/accounts/{tenant_key}/password")
+def remove_account_password(tenant_key: str) -> dict[str, Any]:
+    """Remove one site's stored password; the account and its saved session stay."""
+    if not auth.forget_password(tenant_key):
+        raise HTTPException(404, T("server.api.main.noSuchAccount"))
     return {"ok": True}
 
 

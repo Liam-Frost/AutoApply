@@ -318,7 +318,7 @@ def test_which_browser_a_task_worked_in_is_said_in_words():
     assert "站点规则" in said("browser:nodriver (domain: accounts.google.com)")
     assert "换浏览器重试" in said("browser:nodriver (task override)")
     assert "登录是在它里面做的" in said("browser:nodriver (where the sign-in for workday:acme was made)")
-    assert "第三方账号" in said("browser:nodriver (signs in through google: tenant: idp:google)")
+    assert "第三方登录" in said("browser:nodriver (signs in through google: tenant: idp:google)")
     assert "程序自带的浏览器" in said("browser:playwright (tenant: greenhouse:acme)")
     for s in ("browser:nodriver (tenant: x)", "browser:nodriver (something new)"):
         assert "browser:" not in said(s) and "nodriver" not in said(s)

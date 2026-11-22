@@ -15,13 +15,13 @@ onBeforeUnmount(() => { if (release) release() })
 
 <template>
   <Teleport to="body">
-    <div class="overlay" style="z-index: 80" @click="answer(dialog.cancel)"></div>
+    <div class="overlay over-all" @click="answer(dialog.cancel)"></div>
     <div ref="box" class="dialog" role="alertdialog" aria-modal="true" aria-describedby="dialog-text" @keydown.esc.stop="answer(dialog.cancel)">
       <p id="dialog-text">{{ dialog.text }}</p>
-      <div v-if="dialog.choices" class="row" style="justify-content: flex-end; flex-wrap: wrap">
+      <div v-if="dialog.choices" class="row dialog-acts">
         <button v-for="c in dialog.choices" :key="c.key" :class="c.cls" :data-first="c.focus ? '' : null" @click="answer(c.key)">{{ c.label }}</button>
       </div>
-      <div v-else class="row" style="justify-content: flex-end">
+      <div v-else class="row dialog-acts">
         <button :data-first="dialog.danger ? '' : null" @click="answer(false)">{{ $t('common.cancel') }}</button>
         <button :class="dialog.danger ? 'danger solid' : 'primary'" :data-first="dialog.danger ? null : ''" @click="answer(true)">{{ dialog.ok || $t('common.ok') }}</button>
       </div>

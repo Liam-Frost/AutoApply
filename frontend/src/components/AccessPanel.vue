@@ -1,13 +1,16 @@
 <script setup>
 import { t as T } from '../i18n/catalog'
-// Settings -> 系统与数据: two sections that share what the server keeps as "access" - how other devices reach the
+// Settings -> System and data: two sections that share what the server keeps as "access" - how other devices reach the
 // program (where it listens, the proxy in front of it), and the account (how long a login lasts, the password, the
 // open logins). Each has its own button and saves its own part: the address of the server is not sent along with a
 // change of how long a login lasts.
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
+import CardHead from './CardHead.vue'
+import HelpPop from './HelpPop.vue'
 import Icon from './Icon.vue'
 import SetSection from './SetSection.vue'
+import Status from './Status.vue'
 import { ask, run, session, toast } from '../ui'
 import { clone, same, useUnsaved } from '../dirty'
 
@@ -66,70 +69,71 @@ const changePassword = () => {
 useUnsaved({ id: 'access', label: T('settings.access.remoteAccess'), dirty: () => dirty.value, save: () => save(), discard })
 useUnsaved({ id: 'access-days', label: T('settings.access.howLongALogin2'), dirty: () => daysDirty.value, save: () => saveDays(), discard: () => { c.value.session_days = base.value.c.session_days } })
 useUnsaved({ id: 'access-pw', label: T('settings.access.newPassword'), dirty: () => typedPw.value, save: () => changePassword(), discard: () => { pw.value = { current: '', password: '', again: '', user: info.value.user } } })
-const signOutAll = async () => (await ask(T('settings.access.signOutOnEvery2'))) && run(async () => { await api.post('/auth/logout', { everywhere: true }); session.in = false }, T('settings.access.signedOutEverywhere'))
+const signOutAll = async () => (await ask(T('settings.access.signOutOnEvery2'), { ok: T('settings.access.signOutOnEvery'), danger: true })) && run(async () => { await api.post('/auth/logout', { everywhere: true }); session.in = false }, T('settings.access.signedOutEverywhere'))
 onMounted(load)
 </script>
 
 <template>
   <template v-if="c">
     <SetSection id="remote" :title="$t('settings.access.remoteAccessInbound')" how="own">
-    <div class="card">
-      <div class="card-title">{{ $t('settings.access.whereAutoapplyCanBe') }}</div>
-      <p class="muted">{{ $t('settings.access.byDefaultOnlyThis') }}</p>
-      <p v-if="info.restart_needed" class="callout"><Icon name="info" /><span>{{ $t('settings.access.theRunningServerListens', { p0: info.running.host, p1: info.running.port }) }}</span></p>
-      <div class="kv">
-        <label>{{ $t('settings.access.listenOn') }} <span class="badge">{{ $t('settings.access.takesEffectAfterA') }}</span></label>
-        <div class="row" style="flex-wrap: wrap">
-          <div class="seg">
-            <button :class="{ on: where === 'local' }" @click="pickWhere('local')">{{ $t('settings.access.thisComputerOnly') }}</button>
-            <button :class="{ on: where === 'all' }" @click="pickWhere('all')">{{ $t('settings.access.everyNetworkThisComputer') }}</button>
-            <button :class="{ on: where === 'one' }" @click="pickWhere('one')">{{ $t('settings.access.oneAddress') }}</button>
+      <div class="card">
+        <CardHead :title="$t('settings.access.whereAutoapplyCanBe')" :help="$t('settings.access.byDefaultOnlyThis')" />
+        <p v-if="info.restart_needed" class="callout"><Icon name="info" /><span>{{ $t('settings.access.theRunningServerListens', { p0: info.running.host, p1: info.running.port }) }}</span></p>
+        <div class="kv">
+          <label>{{ $t('settings.access.listenOn') }}</label>
+          <div class="set-val">
+            <AaSelect :model-value="where" class="w-line" @update:model-value="pickWhere">
+              <option value="local">{{ $t('settings.access.thisComputerOnly') }}</option>
+              <option value="all">{{ $t('settings.access.everyNetworkThisComputer') }}</option>
+              <option value="one">{{ $t('settings.access.oneAddress') }}</option>
+            </AaSelect>
+            <input v-if="where === 'one'" v-model.trim="c.host" class="w-short" placeholder="192.168.1.20" :aria-label="$t('settings.access.ipAddressToListen')" />
+            <span v-if="where !== 'local' && info.addresses.length" class="hint">{{ $t('settings.access.thisComputersAddresses', { p0: info.addresses.join(', ') }) }}</span>
           </div>
-          <input v-if="where === 'one'" v-model.trim="c.host" style="width: 180px" placeholder="192.168.1.20" :aria-label="$t('settings.access.ipAddressToListen')" />
-          <span v-if="where !== 'local' && info.addresses.length" class="hint">{{ $t('settings.access.thisComputersAddresses', { p0: info.addresses.join('、') }) }}</span>
+          <label>{{ $t('settings.access.port') }}</label><div class="set-val"><input v-model.number="c.port" class="w-num" type="number" /></div>
+          <label>{{ $t('settings.access.pathPrefix') }}</label><div class="set-val"><input v-model.trim="c.root_path" class="w-short" :placeholder="$t('settings.access.leaveEmpty')" /><span class="hint">{{ $t('settings.access.onlyWhenAReverse') }}</span></div>
         </div>
-        <label>{{ $t('settings.access.port') }} <span class="badge">{{ $t('settings.access.takesEffectAfterA') }}</span></label><div><input v-model.number="c.port" type="number" style="width: 110px" /></div>
-        <label>{{ $t('settings.access.pathPrefix') }} <span class="badge">{{ $t('settings.access.takesEffectAfterA') }}</span></label><div><input v-model.trim="c.root_path" style="width: 220px" :placeholder="$t('settings.access.leaveEmpty')" /> <span class="hint">{{ $t('settings.access.onlyWhenAReverse') }}</span></div>
+        <p class="set-note">{{ $t('settings.access.takesEffectAfterA') }}</p>
+        <p v-if="unencrypted" class="callout warn after-form"><Icon name="alert" /><span>{{ $t('settings.access.whenAnotherDeviceOpens') }}</span></p>
       </div>
-      <p v-if="unencrypted" class="callout warn" style="margin-top: 14px"><Icon name="alert" /><span>{{ $t('settings.access.whenAnotherDeviceOpens') }}</span></p>
-    </div>
 
-    <div class="card">
-      <div class="card-title">{{ $t('settings.access.reverseProxy') }}</div>
-      <p class="muted">{{ $t('settings.access.autoapplyDoesNotDo') }}</p>
-      <div class="kv">
-        <label>{{ $t('settings.access.aReverseProxyDoes') }}</label><div><input v-model="c.https_by_proxy" type="checkbox" /> <span class="hint">{{ $t('settings.access.whenOnTheLogin') }}</span></div>
-        <label>{{ $t('settings.access.proxyAddresses') }}</label><div><input v-model="proxies" :placeholder="$t('settings.access.leaveEmpty')" style="width: 320px" /> <span class="hint">{{ $t('settings.access.whenTheProxyRuns') }}</span></div>
-        <label>{{ $t('settings.access.hostNames') }}</label><div><input v-model="hosts" placeholder="jobs.example.com" style="width: 320px" /> <span class="hint">{{ $t('settings.access.fillInWhenYou') }}</span></div>
+      <div class="card">
+        <CardHead :title="$t('settings.access.reverseProxy')" :help="$t('settings.access.autoapplyDoesNotDo')" />
+        <div class="kv">
+          <label for="f-https">{{ $t('settings.access.aReverseProxyDoes') }}<HelpPop :text="$t('settings.access.whenOnTheLogin')" /></label><div class="set-val"><input id="f-https" v-model="c.https_by_proxy" type="checkbox" /></div>
+          <label>{{ $t('settings.access.proxyAddresses') }}<HelpPop :text="$t('settings.access.whenTheProxyRuns')" /></label><input v-model="proxies" :placeholder="$t('settings.access.leaveEmpty')" />
+          <label>{{ $t('settings.access.hostNames') }}<HelpPop :text="$t('settings.access.fillInWhenYou')" /></label><input v-model="hosts" placeholder="jobs.example.com" />
+        </div>
+        <div class="set-actions">
+          <button class="primary" :disabled="!dirty" @click="save"><Icon name="check" />{{ $t('settings.access.saveAccessSettings') }}</button>
+          <Status v-if="dirty" tone="warn" :label="$t('settings.access.unsavedChanges')" /><span v-else class="hint">{{ $t('settings.access.thisButtonSavesBoth') }}</span>
+        </div>
       </div>
-      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!dirty" @click="save"><Icon name="check" />{{ $t('settings.access.saveAccessSettings') }}</button>
-        <span v-if="dirty" class="badge warn">{{ $t('settings.access.unsavedChanges') }}</span><span v-else class="hint">{{ $t('settings.access.thisButtonSavesBoth') }}</span></div>
-    </div>
     </SetSection>
 
     <SetSection id="security" :title="$t('settings.access.accountSecurity')" how="own">
-    <div class="card">
-      <div class="card-title">{{ $t('settings.access.howLongALogin') }}</div>
-      <div class="kv">
-        <label for="f-days">{{ $t('settings.access.staySignedIn') }}</label><div><input id="f-days" v-model.number="c.session_days" type="number" style="width: 90px" /> {{ $t('settings.access.days') }} <span class="hint">{{ $t('settings.access.afterThatYouSign') }}</span></div>
+      <div class="card">
+        <CardHead :title="$t('settings.access.howLongALogin')" />
+        <div class="kv">
+          <label for="f-days">{{ $t('settings.access.staySignedIn') }}</label><div class="set-val"><input id="f-days" v-model.number="c.session_days" class="w-num" type="number" /><span class="unit">{{ $t('settings.access.days') }}</span><span class="hint">{{ $t('settings.access.afterThatYouSign') }}</span></div>
+        </div>
+        <div class="set-actions"><button class="primary" :disabled="!daysDirty" @click="saveDays"><Icon name="check" />{{ $t('settings.access.save') }}</button><Status v-if="daysDirty" tone="warn" :label="$t('settings.access.unsavedChanges')" /></div>
       </div>
-      <div class="row" style="margin-top: 14px"><button class="primary" :disabled="!daysDirty" @click="saveDays"><Icon name="check" />{{ $t('settings.access.save') }}</button><span v-if="daysDirty" class="badge warn">{{ $t('settings.access.unsavedChanges') }}</span></div>
-    </div>
 
-    <div class="card">
-      <div class="card-title">{{ $t('settings.access.administratorAccount') }}</div>
-      <p class="muted">{{ $t('settings.access.theOnlyAccountOnly') }}</p>
-      <div class="kv">
-        <label>{{ $t('settings.access.username') }}</label><div><input v-model.trim="pw.user" autocomplete="username" style="width: 260px" /></div>
-        <label>{{ $t('settings.access.currentPassword') }}</label><div><input v-model="pw.current" type="password" autocomplete="current-password" style="width: 260px" /></div>
-        <label>{{ $t('settings.access.newPassword') }}</label><div><input v-model="pw.password" type="password" autocomplete="new-password" style="width: 260px" /> <span class="hint">{{ $t('settings.access.atLeastCharacters') }}</span></div>
-        <label>{{ $t('settings.access.newPasswordAgain') }}</label><div><input v-model="pw.again" type="password" autocomplete="new-password" style="width: 260px" /></div>
+      <div class="card">
+        <CardHead :title="$t('settings.access.administratorAccount')" :help="$t('settings.access.theOnlyAccountOnly')" />
+        <div class="kv">
+          <label>{{ $t('settings.access.username') }}</label><div class="set-val"><input v-model.trim="pw.user" class="w-line" autocomplete="username" /></div>
+          <label>{{ $t('settings.access.currentPassword') }}</label><div class="set-val"><input v-model="pw.current" class="w-line" type="password" autocomplete="current-password" /></div>
+          <label>{{ $t('settings.access.newPassword') }}</label><div class="set-val"><input v-model="pw.password" class="w-line" type="password" autocomplete="new-password" /><span class="hint">{{ $t('settings.access.atLeastCharacters') }}</span></div>
+          <label>{{ $t('settings.access.newPasswordAgain') }}</label><div class="set-val"><input v-model="pw.again" class="w-line" type="password" autocomplete="new-password" /></div>
+        </div>
+        <div class="set-actions">
+          <button :disabled="!pw.current || !pw.password" @click="changePassword"><Icon name="key" />{{ $t('settings.access.changePassword') }}</button>
+          <span class="grow"></span>
+          <button class="ghost" @click="signOutAll">{{ $t('settings.access.signOutOnEvery') }}</button>
+        </div>
       </div>
-      <div class="row" style="margin-top: 14px">
-        <button :disabled="!pw.current || !pw.password" @click="changePassword"><Icon name="key" />{{ $t('settings.access.changePassword') }}</button>
-        <button class="ghost danger" @click="signOutAll">{{ $t('settings.access.signOutOnEvery') }}</button>
-      </div>
-    </div>
     </SetSection>
   </template>
 </template>

@@ -9,8 +9,11 @@ import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, ROOT } from '../api'
 import { ask, toast } from '../ui'
+import HelpPop from '../components/HelpPop.vue'
 import Icon from '../components/Icon.vue'
+import IconButton from '../components/IconButton.vue'
 import PageHead from '../components/PageHead.vue'
+import Trunc from '../components/Trunc.vue'
 
 const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
@@ -148,9 +151,9 @@ onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src); 
 </script>
 
 <template>
-  <PageHead :title="win ? `${PURPOSE[win.purpose] || $t('remote.window')}：${win.title}` : $t('remote.remoteWindow')" :sub="$t('remote.thisIsABrowser')">
-    <button class="sm" @click="router.back()"><Icon name="back" />{{ $t('remote.back') }}</button>
-    <button v-if="st.state === 'live' && win && win.mode === 'frames'" class="sm primary" @click="finish"><Icon name="check" />{{ $t('remote.doneCloseTheWindow') }}</button>
+  <PageHead :title="win ? $t('remote.titleOf', { what: PURPOSE[win.purpose] || $t('remote.window'), title: win.title }) : $t('remote.remoteWindow')" :sub="$t('remote.thisIsABrowser')">
+    <button @click="router.back()"><Icon name="back" />{{ $t('remote.back') }}</button>
+    <button v-if="st.state === 'live' && win && win.mode === 'frames'" class="primary" @click="finish"><Icon name="check" />{{ $t('remote.doneCloseTheWindow') }}</button>
   </PageHead>
 
   <div v-if="st.state === 'closed'" class="callout">
@@ -160,16 +163,16 @@ onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src); 
 
   <template v-else-if="win && win.mode === 'screen'">
     <div class="rw-frame"><div ref="screen" class="rw-screen"></div><div v-if="st.state === 'opening'" class="rw-wait rw-over">{{ $t('remote.connectingToTheVirtual') }}</div></div>
-    <p class="rw-note">{{ $t('remote.thisIsAReal') }}</p>
+    <p class="rw-note">{{ $t('remote.typedStays') }} <HelpPop :label="$t('remote.how')" :text="$t('remote.thisIsAReal')" /></p>
   </template>
 
   <template v-else>
     <div class="rw-bar">
-      <button class="sm ghost" :title="$t('remote.back2')" @click="nav('back')"><Icon name="back" /></button>
-      <button class="sm ghost" :title="$t('remote.reload')" @click="nav('reload')"><Icon name="refresh" /></button>
-      <span class="rw-url" data-notr>{{ st.page.url }}</span>
+      <IconButton icon="back" :label="$t('remote.back2')" @click="nav('back')" />
+      <IconButton icon="refresh" :label="$t('remote.reload')" @click="nav('reload')" />
+      <Trunc class="rw-url" data-notr :text="st.page.url" />
       <span v-if="st.page.tabs.length > 1" class="rw-tabs">
-        <button v-for="t in st.page.tabs" :key="t.i" class="sm" :class="{ primary: t.on }" data-notr @click="tab(t.i)">{{ t.title }}</button>
+        <button v-for="t in st.page.tabs" :key="t.i" class="sm" :class="{ primary: t.on }" :aria-pressed="t.on" data-notr @click="tab(t.i)"><Trunc :text="t.title" /></button>
       </span>
     </div>
     <div class="rw-frame">
@@ -179,6 +182,6 @@ onBeforeUnmount(() => { alive = false; if (st.src) URL.revokeObjectURL(st.src); 
       <textarea ref="keys" class="rw-keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" :aria-label="$t('remote.keyboardInput')"
                 @keydown="keydown" @input="typed" @compositionstart="composing = true" @compositionend="composed" @paste="pasted"></textarea>
     </div>
-    <p class="rw-note">{{ $t('remote.clickThePictureThen') }}</p>
+    <p class="rw-note">{{ $t('remote.typedStays') }} <HelpPop :label="$t('remote.how')" :text="$t('remote.clickThePictureThen')" /></p>
   </template>
 </template>

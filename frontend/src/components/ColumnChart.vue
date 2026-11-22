@@ -45,14 +45,14 @@ const every = computed(() => {
       <div v-for="(d, i) in data" :key="i" class="col" @mouseenter="tip = i" @mouseleave="tip = null">
         <span v-if="labelled(i)" class="val">{{ d.value }}</span>
         <div class="bar" :style="{ height: (d.value / top) * 100 + '%' }"></div>
-        <div v-if="tip === i" class="tip" :style="{ left: '50%', bottom: 'calc(' + (d.value / top) * 100 + '% + 22px)', top: 'auto', transform: 'translateX(-50%)' }">{{ d.tip || d.label }}：{{ d.value }}{{ unit }}</div>
+        <div v-if="tip === i" class="tip" :style="{ left: '50%', bottom: 'calc(' + (d.value / top) * 100 + '% + 22px)', top: 'auto', transform: 'translateX(-50%)' }">{{ $t('common.chart.pair', { label: d.tip || d.label, value: unit ? d.value + ' ' + unit : d.value }) }}</div>
       </div>
     </div>
     <div class="xaxis"><span v-for="(d, i) in data" :key="i">{{ i % every === 0 ? d.label : '' }}</span></div>
     <details v-if="table" class="tech">
       <summary>{{ $t('common.chart.asTable') }}</summary>
-      <table style="margin-top: 6px"><thead><tr><th>{{ tableLabel }}</th><th>{{ $t('common.chart.count') }}</th></tr></thead>
-        <tbody><tr v-for="(d, i) in data" :key="i"><td>{{ d.tip || d.label }}</td><td>{{ d.value }}{{ unit }}</td></tr></tbody></table>
+      <table class="an-table"><colgroup><col /><col class="w-wide" /></colgroup><thead><tr><th v-tip.overflow>{{ tableLabel }}</th><th v-tip.overflow class="num">{{ $t('common.chart.count') }}</th></tr></thead>
+        <tbody><tr v-for="(d, i) in data" :key="i"><td class="atomic">{{ d.tip || d.label }}</td><td class="num">{{ unit ? d.value + ' ' + unit : d.value }}</td></tr></tbody></table>
     </details>
   </div>
 </template>

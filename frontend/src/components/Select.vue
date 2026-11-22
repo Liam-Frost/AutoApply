@@ -8,6 +8,8 @@ let counter = 0   // ids for the label / listbox pairing: unique on the page, no
 import { Fragment, Static, computed, nextTick, onBeforeUnmount, ref, useAttrs, useSlots } from 'vue'
 import { t as T } from '../i18n/catalog'
 
+// (attributes go to the button by hand: a `title` given to it is said in the program's tooltip - never the browser's -
+// and is the button's name when it has no aria-label)
 defineOptions({ inheritAttrs: false })
 const props = defineProps({ modelValue: { default: undefined }, value: { default: undefined }, placeholder: { type: String, default: () => T('common.select.placeholder') }, disabled: Boolean, small: Boolean })
 const emit = defineEmits(['update:modelValue', 'change'])
@@ -116,7 +118,7 @@ const uid = 'sel' + ++counter
 </script>
 
 <template>
-  <button :id="attrs.id" ref="btn" type="button" class="sel" :class="[attrs.class, { open, sm: small, empty: !selected }]" :style="attrs.style" :title="attrs.title" :disabled="disabled"
+  <button :id="attrs.id" ref="btn" type="button" class="sel" :class="[attrs.class, { open, sm: small, empty: !selected }]" v-tip="attrs.title" :style="attrs.style" :disabled="disabled"
     role="combobox" aria-haspopup="listbox" :aria-expanded="open" :aria-controls="uid" :aria-label="attrs['aria-label'] || attrs.title"
     :aria-labelledby="attrs['aria-labelledby']" :aria-describedby="attrs['aria-describedby']"
     :aria-activedescendant="open && active >= 0 ? uid + '-' + active : undefined" @click="open ? close() : show()" @keydown="onKey">

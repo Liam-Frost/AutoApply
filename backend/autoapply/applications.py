@@ -15,18 +15,22 @@ from .say import say as T
 
 import csv
 import io
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import db, humanize, i18n, lifecycle, messages
+from .discover import company_name
 from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, Job, MailEvent, Run, Task, Todo, now
+from .say import Msg
 
 # where the applicant may put an application by hand: a step that happened outside the program's sight
 BY_HAND = (*SENT, "withdrawn")
 # who said a change, in the applicant's words
 SOURCE = {"run": "Agent", "mail": T("server.applications.email"), "site": T("server.applications.theEmployersSite"), "user": T("server.applications.you"), "draft": T("server.applications.theRecord"), "auto": T("server.applications.approvedAutomatically"), "resume": T("server.applications.aResumedTask"), "recover": T("server.applications.afterTheProgramRestarted"), "": ""}
-# what comes next, by where it stands: (what is open, the things that can be done about it - the page turns them into buttons)
+# what comes next, by where it stands: (the task, as a short phrase for whoever's move it is - or what is waited for;
+# the things that can be done about it - the page turns them into buttons)
 NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
     "recon": (T("server.applications.theAgentIsWorking"), ()),
     "revising": (T("server.applications.theAgentIsWorking2"), ()),
@@ -34,11 +38,11 @@ NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
     "draft_ready": (T("server.applications.theRecordOfThe"), ("open_draft",)),
     "approved": (T("server.applications.approvedWaitingForThe"), ()),
     "executing": (T("server.applications.theAgentIsChecking"), ()),
-    "drifted": (T("server.applications.applicationFormHasChanged"), ("rerun",)),
-    "needs_human": (T("server.applications.itNeedsYouBefore"), ("open_todos",)),
-    "failed": (T("server.applications.theLastAttemptDid"), ("rerun", "open_draft")),
-    "ready_to_submit": (T("server.applications.theFormIsFilled"), ("rerun", "mark_submitted")),
-    UNKNOWN: (T("server.applications.submitWasPressedAnd"), ("check_mail", "mark_submitted", "rerun_not_submitted")),
+    "drifted": (T("server.applications.next.retry"), ("rerun",)),
+    "needs_human": (T("server.applications.next.handle"), ("open_todos",)),
+    "failed": (T("server.applications.next.retry"), ("rerun", "open_draft")),
+    "ready_to_submit": (T("server.applications.next.submit"), ("rerun", "mark_submitted")),
+    UNKNOWN: (T("server.applications.next.confirm"), ("check_mail", "mark_submitted", "rerun_not_submitted")),
     "submitted": (T("server.applications.submittedWaitingForThe"), ("check_mail",)),
     "confirmed": (T("server.applications.confirmedByTheEmployer"), ()),
     "assessment": (T("server.applications.aTestOrAssessment"), ()),
@@ -47,6 +51,10 @@ NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
     "rejected": (T("server.applications.thisApplicationWasNot"), ()),
     "withdrawn": (T("server.applications.youDecidedNotTo"), ()),
 }
+# why that is what comes next, where the phrase alone does not say it: a sentence for the application's own page (a row
+# of the list has no room for it)
+WHY = {"drifted": T("server.applications.applicationFormHasChanged"), "needs_human": T("server.applications.itNeedsYouBefore"), "failed": T("server.applications.theLastAttemptDid"),
+       "ready_to_submit": T("server.applications.theFormIsFilled"), UNKNOWN: T("server.applications.submitWasPressedAnd")}
 
 
 # Where an application stands, as the applications page says it: status -> (label, tone, group, whose move it is).
@@ -97,6 +105,48 @@ def stage_of(a: Application, j: Job, *, waiting: bool = False, budget: bool = Fa
     return {"stage": key, "stage_label": label, "tone": tone, "group": "archived" if a.archived_at else group, "who": who, "act": act}
 
 
+def next_of(status: str, st: dict[str, Any]) -> tuple[Any, Any]:
+    """What comes next for an application that stands at ``st`` (stage_of), and why - in step with the stage the page
+    shows: an application whose posting is gone has no next step, one that waits on a card is the applicant's to
+    handle whatever the agent was doing, one out of budget needs a budget before anything else."""
+    if st["stage"] == "offline":
+        return "", ""
+    if st["stage"] == "waiting":
+        return NEXT["needs_human"][0], WHY["needs_human"]
+    if st["act"] == "budget":
+        return T("server.applications.next.budget"), ""
+    return NEXT.get(status, ("", ()))[0], WHY.get(status, "")
+
+
+# the latest event of an application when it is a mail (mail._record): "interview: <summary>", "offer (changed): <summary>"
+_MAIL_SAID = re.compile(r"^(confirmation|rejection|interview|assessment|offer|info_request)(?: \((\w+)\))?: (.*)$", re.S)
+
+
+def explained(text: str | None) -> dict[str, Any]:
+    """humanize.explain for an application's latest event - with a mail said by its heading in the page's language
+    (the heading was put into the sentence as Chinese text, and a mail about a change or a cancellation was not
+    recognised as a mail at all)."""
+    m = _MAIL_SAID.match((text or "").strip())
+    if m:
+        return {"message": T("server.applications.mailSaid", what=messages.mail_label(m.group(1), m.group(2) or "new")[1], summary=m.group(3)), "detail": ""}
+    return humanize.explain(text)
+
+
+def latest(text: str | None) -> Any:
+    """The latest event in a few words, for a row of the list: a mail by its heading alone ("Interview invitation" -
+    what it says is on the application's page), one of the program's own messages whole, anything else (the agent's
+    words, the applicant's note) by its first sentence. The whole of it stays in ``last_event``."""
+    m = _MAIL_SAID.match((text or "").strip())
+    if m:
+        return messages.mail_label(m.group(1), m.group(2) or "new")[1]
+    said = humanize.explain(text)["message"]
+    if isinstance(said, Msg):
+        return said
+    # (a full stop ends a sentence only before a new one - a capital, or a script without capitals: "Labs Inc. is
+    # not ..." is not two)
+    return re.split(r"(?<=[。！？!?])|(?<=\.)\s+(?=[^\Wa-z0-9_])|\n", str(said).strip(), maxsplit=1)[0].strip()
+
+
 def job_group(j: Job, a: Application | None) -> str:
     """The group of a posting on the postings page: todo (open, nothing begun) | started (an application was begun: the
     posting leads to it) | skip (not applying: the applicant's word, or a rule) | closed (taken down, or past its
@@ -145,10 +195,18 @@ def context(s: Any, *, dates: bool = True) -> dict[str, Any]:
 
         from . import agenda
 
+        # (the calendar's times are the local wall clock, written without a zone: compared as they are written)
+        clock = datetime.now().isoformat(timespec="minutes")
+        order: dict[int, tuple[bool, str]] = {}
         try:
             for it in agenda.items(date.today(), date.today() + timedelta(days=120), kinds=("interview", "assessment", "offer", "info_request", "own")):
                 aid = (it.get("about") or {}).get("application_id")
-                if aid and (aid not in nxt or str(it.get("start") or "") < str(nxt[aid]["start"] or "")):
+                if it.get("done"):      # (what was asked and has been done is not what comes next)
+                    continue
+                # what is still to come before what was earlier today; among each, the earliest
+                rank = (not it.get("all_day") and str(it.get("start") or "") < clock, str(it.get("start") or ""))
+                if aid and (aid not in order or rank < order[aid]):
+                    order[aid] = rank
                     nxt[aid] = {"kind": it.get("kind"), "title": it.get("title"), "start": it.get("start"), "all_day": bool(it.get("all_day"))}
         except Exception:  # noqa: BLE001 - a date the calendar cannot read leaves the column empty, not the page
             nxt = {}
@@ -171,11 +229,14 @@ def _row(a: Application, ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     cards = ctx.get("cards", {}).get(a.id, set())
     st = stage_of(a, j, waiting=bool(cards), budget="budget" in cards, work=ctx.get("work", {}).get(j.id, ""))
     draft = ctx.get("drafts", {}).get(a.id)
-    return {"id": a.id, "job_id": j.id, "company": j.company, "title": j.title, "location": j.location, "apply_url": j.apply_url,
+    todo, why = next_of(a.status, st)
+    # (the company as it is shown everywhere else: without the fields of the posting some sources glue to it)
+    return {"id": a.id, "job_id": j.id, "company": company_name(j.company), "title": j.title, "location": j.location, "apply_url": j.apply_url,
             "status": a.status, "status_label": humanize.APP_STATUS.get(a.status, a.status), **st,
             "submitted_at": _iso(a.submitted_at), "created_at": _iso(a.created_at), "updated_at": _iso(a.updated_at),
-            "last_event": humanize.explain(a.last_event)["message"] if a.last_event else "", "sent": a.status in SENT, "unknown": a.status == UNKNOWN,
-            "next": NEXT.get(a.status, ("", ()))[0], "deadline": "" if a.status in SENT else (j.deadline or ""), "next_date": ctx.get("next", {}).get(a.id),
+            "last_event": explained(a.last_event)["message"] if a.last_event else "", "latest": latest(a.last_event) if a.last_event else "",
+            "sent": a.status in SENT, "unknown": a.status == UNKNOWN,
+            "next": todo, "next_why": why, "deadline": "" if a.status in SENT else (j.deadline or ""), "next_date": ctx.get("next", {}).get(a.id),
             "archived": a.archived_at is not None, "note": a.note or "", "score": j.score, "ats_label": humanize.ats_name(j.ats) or "",
             "draft_id": draft[0] if draft else None, "draft_review": draft[1] if draft else ""}
 
@@ -206,7 +267,7 @@ def review(ids: list[int]) -> list[dict[str, Any]]:
             if a is None:
                 continue
             d = next((x for x in reversed(a.drafts) if x.review_status == "pending"), None)
-            out.append({"id": a.id, "company": a.job.company, "title": a.job.title, "draft_id": d.id if d else None,
+            out.append({"id": a.id, "company": company_name(a.job.company), "title": a.job.title, "draft_id": d.id if d else None,
                         "unresolved": len(d.unresolved) if d else 0, "unsure": actions._unsure(d)[:30] if d else [],
                         "changed": actions._changed(s, d)[:30] if d else [], "can": d is not None and not d.unresolved})
     return out
@@ -326,7 +387,7 @@ def detail(application_id: int) -> dict[str, Any] | None:
         j = a.job
         out = _row(a, context(s))
         out["actions"] = list(NEXT.get(a.status, ("", ()))[1])
-        out["explained"] = humanize.explain(a.last_event)
+        out["explained"] = explained(a.last_event)
         out["detail"], out["auto_approved"], out["channel"] = a.detail, bool(a.auto_approved), a.channel
         out["job_id"] = j.id
         out["job"] = {"id": j.id, "company": j.company, "title": j.title, "location": j.location, "deadline": j.deadline, "apply_url": j.apply_url, "score": j.score,

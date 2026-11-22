@@ -1,6 +1,6 @@
 # AutoApply 设计规范
 
-界面的唯一样式来源是 `frontend/src/style.css`。页面只使用这里定义的令牌和组件类，不自己写颜色、字号、圆角或阴影。新增页面先看本文件，缺什么组件先补到 `style.css` 和本文件，再用。
+界面的样式来源是 `frontend/src/style.css`（令牌、基础元素、旧组件）和 `frontend/src/styles/`（`foundations.css` 文字与基础件、`table.css` 表格、`overlay.css` 浮层、`patterns.css` 业务组合）。页面只使用这里定义的令牌和组件类，不自己写颜色、字号、高度、圆角或阴影。共享组件的名称、属性和保证写在 [`component-guidelines.md`](component-guidelines.md)（英文，是约定，开头有“新页面的规则”清单）；界面文字的用词在 [`ux-writing-glossary.md`](ux-writing-glossary.md)；界面检查（布局测试、`ui-rules` 测试、截图对比）在 [`ui-quality-assurance.md`](ui-quality-assurance.md)。新增页面先看这几份文件，缺什么组件先补到样式和文档里，再用。每个共享组件在 `/ui-lab`（不在导航里）有一节，列出它的各种状态。
 
 ## 1. 原则
 
@@ -29,24 +29,100 @@
 | 边框 | `--border` `--border-strong` | 分隔线、输入框和按钮的边 |
 | 文字 | `--text` `--text-2` `--text-3` | 正文、说明、占位和最弱提示（三级都要读得清：见第 7 节“对比度”） |
 | 操作 | `--primary` `--primary-hover` `--primary-soft` `--on-primary` `--focus` | 主按钮、选中态、焦点环 |
-| 含义 | `--ok` `--warn` `--bad` `--info`，各带 `-soft` 底色；`--on-bad` | 成功、需要注意、失败、提示；`--on-bad` 是压在 `--bad` 实心底上的文字 |
-| 字号 | `--fs-xs 12` `--fs-sm 13` `--fs-md 14` `--fs-lg 16` `--fs-xl 20` `--fs-2xl 26` | 14 为正文 |
+| 含义 | `--ok` `--warn` `--bad` `--info`，各带 `-soft` 底色；`--on-bad`；`--neutral-soft` | 成功、需要注意、失败、提示；`--on-bad` 是压在 `--bad` 实心底上的文字；`--neutral-soft` 是没有语气的徽标底 |
+| 品牌 | `--brand-navy` `--brand-cyan` `--logo-tile` | 只用于标志（第 2 节）；`--logo-tile` 是深色模式下标志的白底 |
+| 字体 | `--font` `--mono` | 系统字体；代码和技术细节用等宽 |
+| 字号 | `--fs-xs 12` `--fs-sm 13` `--fs-md 14` `--fs-ml 15` `--fs-lg 16` `--fs-xl 20` `--fs-2xl 26` | 14 为正文；用法见下面“字体层级” |
+| 字重 | `--fw-regular 400` `--fw-medium 500` `--fw-semibold 600` `--fw-bold 650` | 见“字体层级” |
+| 控件高度 | `--h-xs 24` `--h-sm 28` `--h-md 32` `--h-lg 36` `--h-xl 40` | 见“控件尺寸” |
+| 表格行高 | `--row-compact 40` `--row-standard 56` `--row-comfortable 64` | `DataTable` 的三种密度 |
 | 间距 | `--s1 4` `--s2 8` `--s3 12` `--s4 16` `--s5 24` `--s6 32` | 4 的倍数 |
 | 圆角 | `--r-sm 6` `--r-md 10` `--r-lg 14` `--r-pill` | 控件、卡片、大容器、徽标 |
 | 阴影 | `--shadow-sm` `--shadow-md` `--shadow-lg` | 卡片、浮层、抽屉和提示 |
+| 层级 | `--z-sticky 20` `--z-overlay 40` `--z-drawer 41` `--z-pop 60` `--z-tip 70` `--z-toast 80` `--z-dialog 90` `--z-select 100` | 吸顶吸底的条、抽屉遮罩、抽屉、菜单和气泡、悬停提示、轻提示、必须回答的确认框（遮罩连轻提示一起盖住）、下拉的选项列表（它可能在抽屉、气泡、确认框里打开） |
+| 动效 | `--dur-fast 120ms` `--dur 160ms` `--ease` | 悬停和按下、展开的东西 |
+| 悬停提示 | `--tip-bg` `--tip-fg` | 与页面反色；对比度在测试里 |
+| 版面 | `--side-w 224` `--content-max 1560` | 侧栏宽度、内容区最大宽度 |
+| 图表 | `--chart-1` … `--chart-6` `--chart-other` `--chart-soft` `--chart-deep` `--chart-grid` | 第 8 节 |
+| 日程类型 | `--ev-<类型>` `--ev-<类型>-bg` `--ev-<类型>-fg` | 第 4 节“业务类型的颜色”、第 8 节“日程” |
+
+`style.css` 里还有一组旧名（`--panel` `--ink` `--muted` `--line` `--brand` `--brand-ink` `--ok-bg` `--warn-bg` `--bad-bg` `--info-bg` `--dim-bg`），只是指向上面令牌的别名，留给旧样式；新代码不用。
 
 深色模式跟随系统（`prefers-color-scheme`），同名令牌换值，页面不需要单独处理。字体用系统字体，不加载网络字体（应用在本机离线运行）。
+
+### 控件尺寸
+
+同一级的控件在任何地方都是同一个高度；高度是写明的（`height` + `box-sizing: border-box`），不靠内边距凑出来。
+
+| 级别 | 高度 | 用在 |
+| --- | --- | --- |
+| 默认 | `--h-md` 32 | 按钮、输入框、下拉（`AaSelect`）、分段切换（`.seg`，轨道 3px + 内部按钮 26） |
+| 小 | `--h-sm` 28 | `.sm`：`button.sm`、`input.sm`、`<AaSelect small>`；`IconButton` 默认尺寸 |
+| 大 | `--h-lg` 36 | `.lg`：少数单独出现的主按钮（登录页） |
+| 最小 | `--h-xs` 24 | `IconButton size="sm"`（点击范围仍然不小于 28） |
+
+- 并排的按钮、输入框、下拉、分段切换必须等高：不要给其中一个单独写内边距或高度。筛选栏（`.filters`）里的控件就是默认级，没有自己的尺寸。
+- 按钮永不换行（`white-space: nowrap` 在基础样式里）。放不下时由页面决定把次要操作收进菜单，不靠换行。
+- 多行的东西不设固定高度：`textarea`、以 `<button>` 实现的行或卡片（材料库的文件行、日程条目）自己声明高度。
+- 复选框和单选固定 17px；徽标（`.tag`）固定 20px。
+
+### 字体层级
+
+| 角色 | 字号 / 字重 | 写法 |
+| --- | --- | --- |
+| 页面标题 | 26 / `--fw-bold` | `PageHead`（`.page-head h2`），每页一个 |
+| 小节标题 | 16 / `--fw-semibold` | `h3`、`SectionHead`、`SetSection` |
+| 卡片标题 | 15 / `--fw-semibold` | `.card-title` |
+| 主信息 | 14 / `--fw-medium`，`--text` | `.t-primary`：一行里说“这是什么”的那句 |
+| 次要信息 | 13 / 常规，`--text-2` | `.t-secondary` |
+| 元信息 | 12 / 常规，`--text-3` | `.t-meta`；空值的“—”用 `<span class="none">—</span>` |
+
+- 密集区域（表格、列表）的主信息用中等字重，不用粗体；旧表格里的 `<b>` 最多是 `--fw-semibold`。粗体只给页面标题和大数字。
+- 上下对齐的数字加 `.num`（等宽数字）。
+- 页面和组件里不写像素字号和数字字重，只用令牌或上面的类。
+
+### 文字溢出
+
+| 文字种类 | 规则 |
+| --- | --- |
+| 按钮、徽标、短标签、日期、时间、数字 | 不换行（`.atomic`，或组件自带） |
+| 公司、岗位、网站、文件名 | 单行，放不下时省略号；完整内容在溢出提示里 |
+| 域名、邮箱、网址 | 单行省略；正文里不用 `word-break: break-all` |
+| 表格里的描述 | 最多两行（`<Trunc :lines="2">`） |
+| 段落 | 自然换行 |
+| 技术细节 | 不放在行里：放气泡、抽屉或 `TechDetails` |
+
+- 用 `<Trunc :text>`：单行省略，**只有真的被截断时**才出现提示（`v-tip.overflow`）。纯样式写法是 `.cut`（单行）、`.cut2`（两行）；在 flex 或 grid 里，被截断的元素还要能收缩（`min-width: 0`）。
+- 截断只是显示方式：数据本身不截，更不按字符数截。
+- 给人看的悬停说明走 `v-tip` / `InfoTip`，不用浏览器的 `title`（细则见 `component-guidelines.md`）。
+
+### 层级、动效、焦点
+
+- 浮在页面上的东西只用 `--z-*` 这八级，不写裸数字；同一级之内靠 DOM 顺序。挂在 `<body>` 上的浮层（提示、菜单、气泡）如果是从更高一层里打开的，会自动放到那一层之上（`float.js` 的 `zOver`）。
+- 过渡只用 `--dur-fast`（悬停、按下）和 `--dur`（展开、出现），曲线 `--ease`。
+- 用户设置了“减少动态效果”（`prefers-reduced-motion`）时，所有过渡和动画立即结束（`style.css` 里一条全局规则）；组件不需要各写一遍，也不要让任何信息只靠动画传达。注意这条规则让**每一个**样式变化都变成一次 0.01ms 的过渡，晚一帧生效：浮层的位置（`left` / `top`）因此必须 `transition: none`（`.tip-box`、`.pop`、`.menu-pop` 已经是），而且要在放好位置之前不可见——用 `opacity`，不用会被子元素继承的 `visibility`（子元素继承的 `visibility` 也会晚一帧，那一帧里拿不到焦点）。
+- 焦点环全程序一个：`2px solid var(--primary)`、外扩 2px 的 `outline`，只在键盘操作时出现（`:focus-visible`）。可输入的框（输入框、下拉）是主色边框加一圈 `--focus` 光晕。用 `outline` 而不是 `box-shadow`：它跟随元素自己的圆角，也不和元素的阴影抢。组件不要自己另画焦点样式；`all: unset` 过的按钮照这个样子补回来。
 
 ## 4. 组件
 
 | 组件 | 写法 | 说明 |
 | --- | --- | --- |
-| 页头 | `<PageHead title sub>` 加右侧操作插槽 | 每页一个；`sub` 用一句话说这页是干什么的 |
+| 页头 | `<PageHead title help sub>` 加操作插槽 | 每页一个。`help` 是标题旁的 (i)：这页是干什么的（确有帮助才写）；`sub` 是标题下一行，只放在这里做决定必须知道的事，多数页面没有。操作在一行里：次要的在前，主按钮在最后；放不下时整组落到标题下面 |
+| 小节头 | `<SectionHead title count help>` 加操作插槽 | 页面里的一节：标题、数量、(i)，右侧是这一节自己的操作 |
+| 操作组 | `.actions` | 一组操作：一行、等高、间距 8px，不换行 |
+| 图标按钮 | `<IconButton icon label>` | 只有图标的按钮。`label` 必填，同时是读屏名称和悬停提示；`size` `md` 28 / `sm` 24，`tone="danger"`，`pressed`（开关），`loading`（原位转圈，大小不变） |
+| 截断文字 | `<Trunc :text>`、`.cut`、`.cut2` | 见第 3 节“文字溢出” |
+| 状态 | `<Status tone label tip>` | 圆点加文字；见下面“状态的三种轻重” |
+| 批量操作栏 | `<BulkBar :count @clear>` 加操作插槽 | 勾选了行才出现，固定在内容区底部居中，不推动页面；依次是“已选 N 项”、操作、“取消选择”。放在页面最外层，不要放进容器查询或有 `transform` 的盒子里 |
 | 卡片 | `.card`（`.panel` 同义）加 `.card-title` | 一组相关内容 |
-| 按钮 | `button`、`.primary`、`.ghost`、`.danger`、`.sm` | 默认是次要按钮；链接长成按钮用 `.btn` |
-| 徽标 | `.badge`（`.tag` 同义）加 `.ok .warn .bad .info` | 状态；一个徽标只说一件事 |
-| 分段切换 | `.seg > button.on` | 页内标签页、筛选分组 |
-| 表格 | `.table-wrap > table`，可点的行加 `tr.clickable` | 表头吸顶 |
+| 按钮 | `button`、`.primary`、`.ghost`、`.danger`、`.sm`、`.lg` | 默认是次要按钮；链接长成按钮用 `.btn`。高度见第 3 节“控件尺寸” |
+| 徽标 | `.tag`（`.badge` 同义）加 `.ok .warn .bad .info` | 必须被看见的状态；一个徽标只说一件事。高 20px、单行，所在位置比文字窄时省略 |
+| 分段切换 | `.seg > button.on`（链接用 `a.seg-link`） | 筛选分组、视图切换（按钮用 `aria-pressed`）；和按钮等高 |
+| 标签页 | `<Tabs v-model :items :label>` | 页内分成几部分时用：一行、放不下时在自己里面横向滚动；方向键、Home、End 切换。外观就是 `.seg.tabs`，不要再手写 `role="tablist"` |
+| 卡片头 | `<CardHead title help note>` 加工具插槽 | 卡片的标题、(i)、一句备注、右侧控件；标题放不下时省略，控件整组换到下一行 |
+| 帮助 | `<HelpPop text>` 或插槽 | (i) 后面的说明，不管多长：一句话是悬停提示，长了或有链接、列表时自动变成气泡 |
+| 菜单、气泡 | `<Menu :items @pick>`、`<Popover>` | 少用的操作、一段说明或小表单；见 `component-guidelines.md` |
+| 表格 | `<DataTable :columns :rows>`（单元格 `EntityCell`、`DateTimeCell`、`CredentialCell`） | 列宽由列定义算出，内容撑不开列、撑不高行；窄了先隐藏可选列，再在自己里面横向滚动。旧的 `.table-wrap > table` 只留在 `ui-rules` 测试列出理由的地方 |
 | 提示条 | `.callout` 加 `.warn .bad .ok` | 页面内需要注意的一段话 |
 | 待办卡 | `.card.todo`：`.ico`、`.title`、`.what`、`.acts` | 图标 + 标题 + 一句说明 + 操作 |
 | 列表 | `.list > .item`（左徽标 / 中内容 / 右时间） | 活动、邮件、最近申请 |
@@ -62,8 +138,35 @@
 | 设置小节 | `<SetSection id title how>` | 设置页的一节：有地址（`/settings/<组>/<id>`），标题旁写明怎么保存（`how`: `top` 右上角 / `own` 自己的按钮 / `now` 立即生效 / 空） |
 | 选文件 | `<FileButton accept multiple @change>文字</FileButton>` | 真正的按钮加隐藏的文件输入；键盘够得着 |
 | 图标 | `<Icon name>`（`components/Icon.vue`） | 统一线性图标；新图标加到这个文件，不在页面里贴 SVG |
-| 表单 | `.kv` 两栏、`.field`、`.hint` | 每个设置项用白话写标签，必要时加一行 `.hint` |
+| 表单 | `.fields` 网格（`label.f` 标签在上）、`.kv` 两栏、`.field`、`.hint`；按钮行 `.actions.form-acts` | 每个设置项用白话写标签，必要时加一行 `.hint`；细则见 `component-guidelines.md` “Forms” |
+| 固定行的列表 | `.rows > .r` | 不是表格的简单列表（`.lead` `.entity` `.end`；`.rows.tight` 40px） |
 | Markdown | `.md` 加 `renderMarkdown()` | 个人资料预览 |
+
+### 状态的三种轻重
+
+说“处于什么状态”有三种写法，由重到轻，多数情况用第三种：
+
+1. **徽标** `.tag` / `.tag.ok|warn|bad|info`，以及日程的 `.ev-kind`：对业务重要、必须一眼看到的状态——面试、笔试、逾期、失败、等验证码。一行里最多一个有底色的东西。
+2. **`<Status>`**：密集区域里的普通状态——`● 自动登录可用`、`● 会话已保存`。6px 圆点带语气色，文字是 13px 的 `--text-2`；`tip` 给一句简短原因，显示为一个 (i)。
+3. **`.meta`**：单纯的属性，没有底色——Workday、Greenhouse、“程序注册的”、“雇主官网”。
+
+- 颜色从不单独表达含义：圆点旁边一定有字。
+- 红色只给危险、失败和逾期；绿色只给真正成功的事，招聘流程的推进不全是绿的。
+- 没有值显示“—”（`.none`），不留空、不写 0。
+
+### 业务类型的颜色
+
+和申请有关的类型在任何地方都沿用日程的 `--ev-*` 令牌，不另起一套：`interview` 面试、`assessment` 笔试、`deadline` 截止、`offer` 录用、`follow` 补充材料与跟进、`own` 个人日程、`system` 记录与自动化（`calendar.js` 的 `FAMILY`、`views/calendar/look.js`）。写法：给元素加 `.ev-<类型>`，它设置三个变量——`--a` 标记色、`--b` 浅底、`--f` 浅底上的文字；现成的徽标是 `<span class="ev-kind ev-interview">`。表格、详情、列表里出现同一种类型时用同一个类，不要用 `.tag.info` 之类的语气色去近似。
+
+### 按钮与操作
+
+| 操作 | 样子 |
+| --- | --- |
+| 页面的主要操作 | `button.primary`，页头里一个 |
+| 页面的其他操作 | `button`（次要） |
+| 行内或卡片里常用的轻操作 | `button.ghost.sm` 或 `IconButton` |
+| 很少用的 | `Menu` 里的一项 |
+| 破坏性的 | `Menu` 最下面的 `danger` 项，并用 `ask(…, { danger: true })` 确认；红色不出现在每一行上 |
 
 ### 表单控件
 
@@ -158,11 +261,11 @@
 
 ## 7. 主题
 
-外观有三档：浅色、深色、跟随系统，在侧栏底部切换，选择保存在浏览器里（`src/ui.js` 的 `setTheme`）。实现方式是给 `<html>` 加 `data-theme`；没有这个属性时跟随系统。深色令牌在 `style.css` 里写了两处（系统深色、手动深色），改的时候两处一起改。
+外观有三档：浅色、深色、跟随系统，在侧栏底部切换，选择保存在浏览器里（`src/ui.js` 的 `setTheme`）。实现方式是给 `<html>` 加 `data-theme`；没有这个属性时跟随系统。深色令牌在 `style.css` 里写了两处（系统深色、手动深色），改的时候两处一起改；新增的颜色令牌两处都要有，值相同（对比度测试会核对两处是否一致）。
 
 深色模式下标志垫一块白色圆角底（`--logo-tile`），否则深蓝色的对勾看不见。
 
-**对比度**：读的文字对它所在的底色至少 4.5:1，两套主题都是。`frontend/tests/contrast.test.js` 直接从 `style.css` 读令牌，逐组核对（三级文字 × 三种底色、状态色 × 各自的浅底、主色上的文字……），改令牌后跑 `npm test` 就知道有没有掉下去。最弱的一级文字（`--text-3`）也是文字，不是装饰。
+**对比度**：读的文字对它所在的底色至少 4.5:1，两套主题都是。`frontend/tests/contrast.test.js` 直接从 `style.css` 读令牌，逐组核对（三级文字 × 三种底色、状态色 × 各自的浅底、主色上的文字、悬停提示的 `--tip-fg` × `--tip-bg`……），改令牌后跑 `npm test` 就知道有没有掉下去。最弱的一级文字（`--text-3`）也是文字，不是装饰。
 
 **压在颜色上的文字用专门的前景色令牌**，不要写死 `#fff`：主色上用 `--on-primary`，红色上用 `--on-bad`（侧栏计数、错误提示、“删除”实心按钮）。深色主题里 `--bad` 是浅红，白字压上去只有 2.1:1。以后给别的状态色做实心底时，同样先加 `--on-…` 令牌并把这一组写进对比度测试。
 

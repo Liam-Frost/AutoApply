@@ -1,0 +1,100 @@
+/* DataTable and its cells (components/DataTable.vue, components/cells/).
+   Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md. */
+
+/* ── the frame. `class="bare"` on a DataTable takes the frame away (a table inside a card).
+   A DataTable is as wide as the place it is put in: in a flex row give it `flex: 1`. */
+.dt { --dt-row: var(--row-standard); --dt-head: var(--h-lg); --dt-pad: var(--s3);
+  position: relative; min-width: 0; max-width: 100%; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-sm); }
+.dt.compact { --dt-row: var(--row-compact); --dt-head: var(--h-md); }
+.dt.comfortable { --dt-row: var(--row-comfortable); }
+.dt.bare { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+
+/* The box that scrolls: downwards past --dt-max-h (prop maxHeight), sideways only when the columns that must stay do
+   not fit. `contain` keeps the table's width from ever reaching the page: whatever is inside, the box is as wide as
+   its place. */
+.dt-scroll { overflow-x: hidden; overflow-y: auto; max-height: var(--dt-max-h, none); contain: inline-size; }
+.dt-scroll.x { overflow-x: auto; }
+.dt-scroll:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; box-shadow: none; }
+
+/* (the width of the table and of each column is written by the component, from tablelayout.js) */
+.dt-table { table-layout: fixed; border-collapse: separate; border-spacing: 0; margin: 0; }
+
+/* ── header */
+.dt-th { position: sticky; top: 0; z-index: 1; height: var(--dt-head); padding: 0; overflow: hidden; vertical-align: middle; text-align: left; white-space: nowrap;
+  background: var(--surface-2); border-bottom: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-xs); font-weight: var(--fw-medium); line-height: 1.3; }
+.dt-head { display: flex; align-items: center; gap: var(--s1); min-width: 0; padding: 0 var(--dt-pad); }
+.dt-head > * { min-width: 0; }
+.dt-head > .info-tip { flex: none; }
+.dt-th.a-end .dt-head { justify-content: flex-end; }
+.dt-th.a-center .dt-head { justify-content: center; }
+/* a header that sorts: a button in the header's own look; the arrow keeps its place so the words do not move */
+.dt-sort { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: var(--s1); min-width: 0; max-width: 100%; height: var(--h-xs); border-radius: var(--r-sm); cursor: pointer; }
+.dt-sort > * { min-width: 0; }
+/* (at the end of a column the arrow stands before the words: the words end where the figures under them end) */
+.dt-th.a-end .dt-sort { flex-direction: row-reverse; }
+.dt-sort svg { flex: none; width: 14px; height: 14px; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.dt-sort:hover, .dt-sort.on { color: var(--text); }
+.dt-sort:hover svg, .dt-sort:focus-visible svg { opacity: 0.55; }
+.dt-sort.on svg { opacity: 1; }
+.dt-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+
+/* ── rows: every one exactly as high as the density says. The cell cuts what does not fit; the box inside it has the
+   row's height and holds the content in the middle, so no content can make a row taller or a column wider. */
+.dt-td { height: var(--dt-row); padding: 0; overflow: hidden; vertical-align: middle; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: var(--fs-md); line-height: 1.4; transition: background-color var(--dur-fast) var(--ease); }
+.dt.bare .dt-td { background: transparent; }
+/* (the padding is the box's, not the cell's: a focus ring of something in the cell has room before it is cut) */
+.dt-cell { display: flex; align-items: center; gap: var(--s2); height: calc(var(--dt-row) - 1px); min-width: 0; padding: 0 var(--dt-pad); overflow: hidden; white-space: nowrap; }
+.dt-cell > * { min-width: 0; }
+.dt-cell > button, .dt-cell > .icon-btn, .dt-cell > .menu, .dt-cell > .tag, .dt-cell > svg, .dt-cell > input { flex: none; }
+.dt-td.a-end { text-align: right; } .dt-td.a-end .dt-cell { justify-content: flex-end; }
+.dt-td.a-center { text-align: center; } .dt-td.a-center .dt-cell { justify-content: center; }
+/* (two lines at most - Trunc lines="2" - are the one thing in a cell that wraps) */
+.dt-cell .cut2 { white-space: normal; line-height: 1.35; }
+
+.dt-row:hover > .dt-td { background: var(--surface-2); }
+.dt-row[aria-selected="true"] > .dt-td { background: var(--primary-soft); }
+.dt-row.clickable { cursor: pointer; }
+.dt-row:focus { outline: none; }
+.dt-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; box-shadow: none; border-radius: 0; }
+.dt-row:focus-visible > .dt-td { background: var(--surface-2); }
+.dt-row[aria-selected="true"]:focus-visible > .dt-td { background: var(--primary-soft); }
+
+/* ── the checkbox column (40px, tablelayout.js SELECT_WIDTH): the whole cell ticks the box */
+.dt-select { text-align: center; }
+.dt-check { display: flex; align-items: center; justify-content: center; width: 100%; height: calc(var(--dt-row) - 1px); cursor: pointer; }
+.dt-th .dt-check { height: calc(var(--dt-head) - 1px); }
+.dt-check input { margin: 0; }
+.dt-check input:indeterminate { background-color: var(--primary); border-color: var(--primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E"); }
+
+/* ── a row opened on purpose: as high as what it holds, as wide as the box (it stays in view when the table scrolls sideways) */
+.dt-table .dt-expanded > .dt-xtd { padding: 0; background: var(--surface); border-bottom: 1px solid var(--border); vertical-align: top; }
+.dt-x { position: sticky; left: 0; width: var(--dt-box, 100%); max-width: 100%; padding: var(--s3) var(--s4); white-space: normal; }
+.dt.has-scroll .dt-x { max-width: none; }
+.dt-row.open > .dt-td { border-bottom-color: transparent; }
+
+/* ── nothing to show: the header stays, this stands where the rows would */
+.dt-empty { border-top: 0; }
+
+/* ── EntityCell: who or what the row is - a main line and, under it, what tells it from the next */
+.entity { display: flex; flex-direction: column; justify-content: center; flex: 1 1 auto; min-width: 0; max-width: 100%; text-align: left; }
+.entity-1 { display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 20px; }
+.entity-1 > .cut { flex: 0 1 auto; min-width: 0; }
+.entity-after { display: inline-flex; align-items: center; gap: var(--s1); flex: none; }
+.entity-2 { display: block; min-width: 0; line-height: 18px; }
+a.entity-link { color: var(--text); text-decoration: none; border-radius: 3px; }
+a.entity-link:hover { color: var(--primary); text-decoration: underline; }
+a.entity-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; box-shadow: none; }
+.dt.compact .entity-1 { line-height: 18px; } .dt.compact .entity-2 { line-height: 16px; }
+
+/* ── DateTimeCell: a date or a time and, under it, what it is. Never wraps. */
+.dtc { display: flex; flex-direction: column; justify-content: center; min-width: 0; max-width: 100%; white-space: nowrap; }
+.dtc-1, .dtc-2 { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtc-1 { color: var(--text); font-size: var(--fs-md); line-height: 20px; }
+.dtc-2 { color: var(--text-2); font-size: var(--fs-xs); line-height: 16px; }
+.dtc.warn .dtc-2 { color: var(--warn); } .dtc.bad .dtc-2 { color: var(--bad); }
+.dtc.muted .dtc-1, .dtc.muted .dtc-2 { color: var(--text-3); }
+.dt.compact .dtc-1 { line-height: 18px; } .dt.compact .dtc-2 { line-height: 15px; }
+
+@media (prefers-reduced-motion: reduce) { .dt-td, .dt-sort svg { transition: none; } }

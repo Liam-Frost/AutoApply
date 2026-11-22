@@ -122,7 +122,7 @@ def test_analytics_numbers(app_env):
     assert whole == {"sent": 5, "dated": 4, "undated": 1, "archived": 1, "heard": 4, "decided": 2, "progressed": 1}
     # the three words mean what they mean on the analytics page: the four dated ones gave replied 3, decided 2, progressed 1 there
     assert (whole["heard"] - 1, whole["decided"], whole["progressed"]) == (d["total"]["replied"], d["total"]["decided"], d["total"]["progressed"])
-    assert [f["label"] for f in d["funnel"]][1:4] == ["收到回执（确认信或任何回复）", "有实质结果（进展或被拒）", "进入笔试 / 面试"]
+    assert [f["label"] for f in d["funnel"]][1:4] == ["收到回执（确认邮件或任何回复）", "有实质结果（进展或被拒）", "进入在线测评 / 面试"]
 
 
 def test_a_task_that_ended_is_not_an_application_that_was_sent():

@@ -8,10 +8,13 @@ import AiPanel from '../components/AiPanel.vue'
 import EmployersPanel from '../components/EmployersPanel.vue'
 import FileButton from '../components/FileButton.vue'
 import Icon from '../components/Icon.vue'
+import Status from '../components/Status.vue'
 import { useProfileInit } from '../profileInit'
 import { loadPersona, toast } from '../ui'
+import { listed } from '../i18n/format'
 
 const router = useRouter()
+// several things in one line, joined the way the language joins them (A, B and C)
 const STEPS = [T('welcome.start'), T('welcome.connectAi'), T('welcome.yourSituation'), T('welcome.rSum'), T('welcome.whatJobsToLook'), T('welcome.whereToLook'), T('welcome.done'), T('welcome.tryOnce')]
 const step = ref(0)
 const meta = ref(null)
@@ -125,6 +128,8 @@ async function tryOne() {
     }, 5000)
   } catch (e) { t.state = 'failed'; t.message = e.message }
 }
+// where postings will come from, as the last step sums it up
+const sources = computed(() => [...BIG.filter(([k]) => bigtech.value[k]).map(([, n]) => n), ...(p.value.portal ? [T('welcome.schoolCareerPortal')] : [])])
 async function skip() { await api.post('/persona/skip'); await loadPersona(); router.push('/home') }
 onMounted(load)
 </script>
@@ -144,15 +149,16 @@ onMounted(load)
         <li><Icon name="check" /><span><b>{{ $t('welcome.yourDataStaysOn') }}</b>{{ $t('welcome.yourRSumPasswords') }}</span></li>
         <li><Icon name="check" /><span><b>{{ $t('welcome.itDoesntGetAround') }}</b>{{ $t('welcome.ifASiteShows') }}</span></li>
       </ul>
-      <div class="row" style="margin-top: 20px"><button class="primary" @click="go(1)">{{ $t('welcome.getStarted') }}</button><button class="ghost" @click="skip">{{ $t('welcome.skipForNowAnd') }}</button></div>
+      <div class="actions wiz-acts"><button class="ghost" @click="skip">{{ $t('welcome.skipForNowAnd') }}</button><button class="primary" @click="go(1)">{{ $t('welcome.getStarted') }}</button></div>
     </div>
 
     <div v-else-if="step === 1">
-      <div class="card"><div class="card-title">{{ $t('welcome.connectAi') }}</div><p class="muted" style="margin-bottom: 0">{{ $t('welcome.aiIsNeededTo') }}</p></div>
-      <AiPanel :s="s" :sec="sec" :secrets="info.secrets" @changed="load" />
+      <!-- (a step begins as every step does: its title and one paragraph in a .wiz-card) -->
+      <div class="card wiz-card"><h2>{{ $t('welcome.connectAi') }}</h2><p class="muted wiz-lead">{{ $t('welcome.aiIsNeededTo') }}</p></div>
+      <AiPanel :s="s" :sec="sec" :secrets="info.secrets" guide @changed="load" />
       <div class="card">
         <div class="row"><button :disabled="busy === 'ai'" @click="testAi"><Icon name="refresh" />{{ busy === 'ai' ? $t('welcome.testing') : $t('welcome.testIt') }}</button>
-          <span v-if="aiOk === true" class="badge ok">{{ $t('welcome.usable') }}</span><span v-else-if="aiOk" class="small" style="color: var(--bad)">{{ aiOk }}</span></div>
+          <Status v-if="aiOk === true" tone="ok" :label="$t('welcome.usable')" /><span v-else-if="aiOk" class="small bad-text">{{ aiOk }}</span></div>
       </div>
       <div class="row"><button @click="go(0)">{{ $t('welcome.back') }}</button><button class="primary" @click="go(2)">{{ aiOk === true ? $t('welcome.next') : $t('welcome.nextYouCanConnect') }}</button></div>
     </div>
@@ -171,7 +177,7 @@ onMounted(load)
         <div class="hint">{{ $t('welcome.leaveAllUnselectedFor') }}</div></div>
       <div class="field"><label><input v-model="p.sponsorship" type="checkbox" /> {{ $t('welcome.iNeedEmployerVisa') }}</label></div>
       <div class="field"><label>{{ $t('welcome.howDoYouPrefer') }}</label>
-        <div class="choice" style="margin-top: 4px">
+        <div class="choice wiz-choice">
           <label :class="{ on: p.strategy === 'volume' }"><input v-model="p.strategy" type="radio" value="volume" /><div><b>{{ $t('welcome.applyBroadly') }}</b><span>{{ $t('welcome.draftsArePreparedAutomatically') }}</span></div></label>
           <label :class="{ on: p.strategy === 'targeted' }"><input v-model="p.strategy" type="radio" value="targeted" /><div><b>{{ $t('welcome.targeted') }}</b><span>{{ $t('welcome.theAppOnlyFinds') }}</span></div></label>
         </div></div>
@@ -183,9 +189,9 @@ onMounted(load)
       <p class="muted">{{ $t('welcome.theProgramReadsYour') }}</p>
       <div class="row">
         <FileButton :class="{ primary: !resume.uploaded }" accept=".pdf,.docx,.doc" :disabled="busy === 'up'" @change="upload"><Icon name="inbox" />{{ busy === 'up' ? $t('welcome.uploading') : resume.uploaded ? $t('welcome.uploadAnother') : $t('welcome.chooseRSumFile') }}</FileButton>
-        <span v-if="resume.uploaded" class="badge ok">{{ $t('welcome.uploaded', { p0: resume.name ? '：' + resume.name : '' }) }}</span>
+        <Status v-if="resume.uploaded" tone="ok" :label="resume.name ? $t('welcome.uploadedFile', { name: resume.name }) : $t('welcome.uploadedOk')" />
       </div>
-      <div v-if="resume.uploaded || hasProfile" style="margin-top: 16px">
+      <div v-if="resume.uploaded || hasProfile" class="mt-4">
         <p v-if="piWorking" class="callout"><Icon name="clock" /><span>{{ $t('welcome.theAiIsReading') }}</span></p>
         <template v-else>
           <p v-if="piPhase === 'failed'" class="callout warn"><Icon name="alert" /><span>{{ $t('welcome.yourProfileWasNot', { p0: piTask.error }) }}</span></p>
@@ -195,8 +201,8 @@ onMounted(load)
           <button v-if="resume.uploaded" :class="{ primary: !hasProfile }" :disabled="busy === 'profile'" @click="makeProfile"><Icon name="edit" />{{ piPhase === 'failed' ? $t('welcome.tryAgain') : hasProfile ? $t('welcome.writeANewVersion') : $t('welcome.generateProfile') }}</button>
         </template>
       </div>
-      <p class="hint" style="margin-top: 14px">{{ $t('welcome.thisStepNeedsAn') }}</p>
-      <div class="row" style="margin-top: 8px"><button @click="go(2)">{{ $t('welcome.back') }}</button><button class="primary" @click="go(4)">{{ resume.uploaded || hasProfile ? $t('welcome.next') : $t('welcome.skipNext') }}</button></div>
+      <p class="hint mt-3">{{ $t('welcome.thisStepNeedsAn') }}</p>
+      <div class="row mt-2"><button @click="go(2)">{{ $t('welcome.back') }}</button><button class="primary" @click="go(4)">{{ resume.uploaded || hasProfile ? $t('welcome.next') : $t('welcome.skipNext') }}</button></div>
     </div>
 
     <div v-else-if="step === 4" class="card wiz-card">
@@ -206,12 +212,12 @@ onMounted(load)
         <p class="muted">{{ sug.by === 'ai' ? $t('welcome.suggestionsByAi') : $t('welcome.suggestionsGeneric') }}</p>
         <p v-if="sug.note" class="callout warn"><Icon name="alert" /><span>{{ sug.note }}</span></p>
         <div class="field"><label>{{ $t('welcome.titleMustIncludeOne') }}</label><input v-model="kinds" @change="tryRules" /><div class="hint">{{ $t('welcome.leaveBlankForNo') }}</div></div>
-        <div class="field"><label>{{ $t('welcome.andHasOneOf') }}</label><textarea v-model="roles" rows="3" style="font-family: inherit" @change="tryRules"></textarea></div>
-        <div class="field"><label>{{ $t('welcome.titlesCantContainThese') }}</label><textarea v-model="none" rows="2" style="font-family: inherit" @change="tryRules"></textarea></div>
+        <div class="field"><label>{{ $t('welcome.andHasOneOf') }}</label><textarea v-model="roles" class="prose" rows="3" @change="tryRules"></textarea></div>
+        <div class="field"><label>{{ $t('welcome.titlesCantContainThese') }}</label><textarea v-model="none" class="prose" rows="2" @change="tryRules"></textarea></div>
         <div v-if="tried.length" class="field"><label>{{ $t('welcome.howThesePostingsWould') }}</label>
-          <div class="list"><div v-for="t in tried" :key="t.title" class="item"><span class="badge" :class="t.kept ? 'ok' : ''">{{ t.kept ? $t('welcome.keep') : $t('welcome.discard') }}</span><div><div class="main">{{ t.title }}</div><div class="sub">{{ t.location }}{{ t.why ? ' · ' + t.why : '' }}</div></div></div></div></div>
+          <div class="list wiz-tried"><div v-for="t in tried" :key="t.title" class="item"><Status :tone="t.kept ? 'ok' : ''" :label="t.kept ? $t('welcome.keep') : $t('welcome.discard')" /><div><div class="main">{{ t.title }}</div><div class="sub">{{ t.location }}{{ t.why ? ' · ' + t.why : '' }}</div></div></div></div></div>
         <details class="tech"><summary>{{ $t('welcome.scoringRulesWhatThe') }}</summary><textarea v-model="scoring" rows="14"></textarea></details>
-        <div class="row" style="margin-top: 14px"><button @click="go(3)">{{ $t('welcome.back') }}</button><button :disabled="busy === 'sug'" @click="suggest"><Icon name="refresh" />{{ $t('welcome.regenerateSuggestions') }}</button><button class="primary" @click="go(5)">{{ $t('welcome.next') }}</button></div>
+        <div class="row mt-3"><button @click="go(3)">{{ $t('welcome.back') }}</button><button :disabled="busy === 'sug'" @click="suggest"><Icon name="refresh" />{{ $t('welcome.regenerateSuggestions') }}</button><button class="primary" @click="go(5)">{{ $t('welcome.next') }}</button></div>
       </template>
     </div>
 
@@ -225,7 +231,7 @@ onMounted(load)
         <AaSelect v-model="p.portal">
           <option value="">{{ $t('welcome.noneOrNotFor') }}</option>
           <option v-for="x in portals.filter((x) => x.status === 'supported')" :key="x.key" :value="x.key">{{ x.school }} · {{ x.name }}</option>
-          <option v-for="x in portals.filter((x) => x.status !== 'supported')" :key="x.key" :value="'other:' + x.key" disabled>{{ x.school ? x.school + ' · ' : '' }}{{ x.name }}（{{ x.status === 'same_system' ? $t('welcome.sameSystemNotSupported') : $t('welcome.noImporterYet') }}）</option>
+          <option v-for="x in portals.filter((x) => x.status !== 'supported')" :key="x.key" :value="'other:' + x.key" disabled>{{ $t('welcome.portalOption', { name: (x.school ? x.school + ' · ' : '') + x.name, note: x.status === 'same_system' ? $t('welcome.sameSystemNotSupported') : $t('welcome.noImporterYet') }) }}</option>
         </AaSelect>
         <div class="hint">{{ $t('welcome.aSchoolPortalUses') }}</div></div>
       <div class="field"><label>{{ $t('welcome.companiesYouWantTo') }}</label>
@@ -236,37 +242,37 @@ onMounted(load)
 
     <div v-else-if="step === 7" class="card wiz-card">
       <h2>{{ $t('welcome.tryOnce') }}</h2>
-      <p class="muted">{{ $t('welcome.yourSettingsAreNow') }}<b>{{ $t('welcome.nothingIsSubmittedAt') }}</b>{{ $t('welcome.andDraftsAreFilled') }}</p>
-      <div class="row" style="margin-top: 14px">
+      <i18n-t keypath="welcome.tryIntro" tag="p" class="muted" scope="global"><template #strong><b>{{ $t('welcome.nothingIsSubmittedAt') }}</b></template></i18n-t>
+      <div class="row mt-3">
         <input v-model="trial.url" class="grow" :placeholder="$t('welcome.postingUrlEG')" :disabled="trial.state === 'running'" />
         <button class="primary" :disabled="!trial.url.trim() || trial.state === 'running' || !hasProfile" @click="tryOne"><Icon name="draft" />{{ trial.state === 'running' ? $t('welcome.preparing') : $t('welcome.prepareADraft') }}</button>
       </div>
-      <p v-if="trial.message" class="callout" :class="trial.state === 'failed' ? 'warn' : ''" style="margin-top: 12px"><Icon :name="trial.state === 'done' ? 'check' : trial.state === 'failed' ? 'alert' : 'clock'" /><span>{{ trial.message }}</span></p>
-      <p v-if="piWorking" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>{{ $t('welcome.yourProfileIsStill') }}</span></p>
-      <p v-else-if="!hasProfile" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>{{ $t('welcome.yourProfileIsStill2') }}</span></p>
-      <div class="row" style="margin-top: 16px">
+      <p v-if="trial.message" class="callout mt-3" :class="trial.state === 'failed' ? 'warn' : ''"><Icon :name="trial.state === 'done' ? 'check' : trial.state === 'failed' ? 'alert' : 'clock'" /><span>{{ trial.message }}</span></p>
+      <p v-if="piWorking" class="callout mt-3"><Icon name="clock" /><span>{{ $t('welcome.yourProfileIsStill') }}</span></p>
+      <p v-else-if="!hasProfile" class="callout warn mt-3"><Icon name="alert" /><span>{{ $t('welcome.yourProfileIsStill2') }}</span></p>
+      <div class="row mt-4">
+        <router-link to="/home" class="btn">{{ trial.state ? $t('welcome.goToOverview') : $t('welcome.skipForNowGo') }}</router-link>
         <router-link v-if="trial.draft" :to="'/drafts/' + trial.draft" class="btn primary"><Icon name="draft" />{{ $t('welcome.viewThisDraft') }}</router-link>
         <router-link v-if="trial.state === 'needs'" to="/todos" class="btn primary">{{ $t('welcome.goToNeedsYou') }}</router-link>
         <router-link v-if="!hasProfile && !piWorking" to="/profile?tab=init" class="btn primary">{{ $t('welcome.goToProfile') }}</router-link>
-        <router-link to="/home" class="btn">{{ trial.state ? $t('welcome.goToOverview') : $t('welcome.skipForNowGo') }}</router-link>
       </div>
     </div>
 
     <div v-else class="card wiz-card">
       <h2>{{ $t('welcome.allSet') }}</h2>
       <p class="muted">{{ $t('welcome.takeALookThen') }}</p>
-      <div class="facts" style="margin: 12px 0 18px">
+      <div class="facts wiz-facts">
         <div><div class="k">{{ $t('welcome.stage') }}</div><div class="v">{{ (meta.stages.find((x) => x.key === p.stage) || {}).name }}</div></div>
         <div><div class="k">{{ $t('welcome.field') }}</div><div class="v">{{ (meta.fields.find((x) => x.key === p.field) || {}).name }}</div></div>
-        <div><div class="k">{{ $t('welcome.region') }}</div><div class="v">{{ p.countries.join('、') || $t('welcome.any') }}</div></div>
+        <div><div class="k">{{ $t('welcome.region') }}</div><div class="v">{{ p.countries.length ? listed(p.countries) : $t('welcome.any') }}</div></div>
         <div><div class="k">{{ $t('welcome.approach') }}</div><div class="v">{{ p.strategy === 'targeted' ? $t('welcome.targetedIPickAnd') : $t('welcome.moreApplicationsDraftsPrepared') }}</div></div>
-        <div><div class="k">{{ $t('welcome.jobSource') }}</div><div class="v">{{ BIG.filter(([k]) => bigtech[k]).map(([, n]) => n).join('、') || $t('welcome.noneChosenAddLater') }}{{ p.portal ? $t('welcome.schoolPortals') : '' }}</div></div>
+        <div><div class="k">{{ $t('welcome.jobSource') }}</div><div class="v">{{ sources.length ? listed(sources) : $t('welcome.noneChosenAddLater') }}</div></div>
         <div><div class="k">{{ $t('welcome.profile') }}</div><div class="v">{{ hasProfile ? $t('welcome.generated') : piWorking ? $t('welcome.beingGeneratedItFinishes') : $t('welcome.notYetFillIt') }}</div></div>
       </div>
       <p v-if="piWorking" class="callout"><Icon name="clock" /><span>{{ $t('welcome.yourProfileIsStill3') }}</span></p>
       <p v-else-if="!hasProfile" class="callout warn"><Icon name="alert" /><span>{{ $t('welcome.yourProfileIsStill4') }}</span></p>
       <p class="hint">{{ $t('welcome.youCanAlsoSet') }}</p>
-      <div class="row" style="margin-top: 12px">
+      <div class="row mt-3">
         <button @click="go(5)">{{ $t('welcome.back') }}</button>
         <button class="primary" :disabled="busy === 'done'" @click="finish(BIG.some(([k]) => bigtech[k]))"><Icon name="check" />{{ BIG.some(([k]) => bigtech[k]) ? $t('welcome.doneAndScanFor') : $t('welcome.done') }}</button>
       </div>

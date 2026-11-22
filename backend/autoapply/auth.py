@@ -117,10 +117,66 @@ def account(tenant_key: str) -> dict[str, Any] | None:
                 "last_error": a.last_error, "fail_count": a.fail_count, "created_at": a.created_at.isoformat() if a.created_at else None}
 
 
+def readiness(a: dict[str, Any], session: dict[str, Any] | None) -> str:
+    """What the program can do on a site without the applicant - told from what is on record about the account and its
+    saved session; the site itself is not asked. One of:
+
+    ready            a sign-in was seen to work, and there is something to repeat it with: a stored password, or a
+                     saved session whose cookies have not all run out
+    manual           the applicant signs in: the account is marked so, or a sign-in worked once and nothing is left to
+                     repeat it with (no password, no session that is still good)
+    verify           the program registered the account, and no sign-in has been seen to work since (a site usually
+                     wants the e-mail address confirmed first)
+    register_failed  the program's own account never signed in, and the last thing recorded about it is an error
+    signin_failed    the same for an account that is not the program's own, or that signed in before
+    locked           the site locked the account
+    never            nothing has been tried yet
+    not_needed       the site takes applications without an account
+    """
+    status = a.get("status") or "unknown"
+    if status in ("locked", "not_needed"):
+        return status
+    if status == "ok":
+        live = bool(session) and not session.get("expired")
+        return "ready" if a.get("has_password") or live else "manual"
+    if status == "needs_human":
+        return "manual"
+    if a.get("last_error"):
+        return "register_failed" if a.get("created_by") == "agent" and not a.get("last_login_ok") else "signin_failed"
+    return "verify" if status == "pending" else "never"
+
+
 def list_accounts() -> list[dict[str, Any]]:
     with db.session() as s:
         keys = [a.tenant_key for a in s.query(Account).order_by(Account.tenant_key)]
-    return [{**account(k), "session": browser.session_info(k)} for k in keys]  # type: ignore[dict-item]
+    out = []
+    for k in keys:
+        row, session = account(k), browser.session_info(k)
+        if row is not None:
+            out.append({**row, "session": session, "automation": readiness(row, session)})
+    return out
+
+
+def clear_session(tenant_key: str) -> bool:
+    """Forget the saved session of a site and nothing else: the account, its login name and its stored password stay.
+    False when no account is on record under that key. (A site whose sign-in is another site's shares that site's
+    session - browser._state_path - so it is that one which goes.)"""
+    if account(tenant_key) is None:
+        return False
+    browser.clear_state(tenant_key)
+    return True
+
+
+def forget_password(tenant_key: str) -> bool:
+    """Remove a site's stored password from the secret store and nothing else: the account and its saved session stay.
+    False when no account is on record under that key."""
+    with db.session() as s:
+        a = s.get(Account, tenant_key)
+        if a is None:
+            return False
+        secrets.delete_password(tenant_key)
+        a.has_password = 0
+    return True
 
 
 def delete_account(tenant_key: str) -> None:

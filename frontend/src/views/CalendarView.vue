@@ -235,16 +235,16 @@ const renew = async () => { if (await ask(t('calendar.share.renewAsk'), { ok: t(
   <div class="cal-page">
     <PageHead :title="$t('calendar.title')" :sub="$t('calendar.sub')">
       <button type="button" @click="openShare"><Icon name="download" />{{ $t('calendar.share.button') }}</button>
-      <button type="button" class="primary" :title="$t('calendar.addKey')" @click="newItem()"><Icon name="plus" />{{ $t('calendar.add') }}</button>
+      <button type="button" class="primary" v-tip="$t('calendar.addKey')" @click="newItem()"><Icon name="plus" />{{ $t('calendar.add') }}</button>
     </PageHead>
 
     <div class="cal-toolbar">
-      <button type="button" :title="$t('calendar.todayKey')" @click="toToday">{{ $t('calendar.today') }}</button>
+      <button type="button" v-tip="$t('calendar.todayKey')" @click="toToday">{{ $t('calendar.today') }}</button>
       <span class="cal-steps">
-        <button type="button" :aria-label="$t('calendar.prev')" :title="$t('calendar.prev')" @click="step(-1)"><Icon name="back" /></button>
-        <button type="button" :aria-label="$t('calendar.next')" :title="$t('calendar.next')" @click="step(1)"><Icon name="forward" /></button>
+        <button type="button" :aria-label="$t('calendar.prev')" v-tip="$t('calendar.prev')" @click="step(-1)"><Icon name="back" /></button>
+        <button type="button" :aria-label="$t('calendar.next')" v-tip="$t('calendar.next')" @click="step(1)"><Icon name="forward" /></button>
       </span>
-      <button type="button" class="cal-range" :aria-label="$t('calendar.pickDate')" :title="$t('calendar.pickDate')" @click="pick">
+      <button type="button" class="cal-range" :aria-label="$t('calendar.pickDate')" v-tip="$t('calendar.pickDate')" @click="pick">
         <span>{{ title }}</span><Icon name="chevron" />
         <input ref="picker" type="date" tabindex="-1" aria-hidden="true" :value="iso(date)" @change="picked" />
       </button>
@@ -258,14 +258,14 @@ const renew = async () => { if (await ask(t('calendar.share.renewAsk'), { ok: t(
       <div class="cal-quick" role="group" :aria-label="$t('calendar.filter.types')">
         <button type="button" class="qchip" :class="{ on: quickAll }" :aria-pressed="quickAll" @click="pressAll">{{ $t('calendar.quick.all') }}</button>
         <button v-for="g in QUICK" :key="g.id" type="button" class="qchip" :class="['ev-' + (g.id === 'todo' ? 'follow' : g.id), quickAll ? '' : quickState(kinds, g)]"
-                :aria-pressed="!quickAll && quickState(kinds, g) === 'on'" :title="g.id === 'todo' ? $t('calendar.quick.todoHint') : $t('calendar.quick.hint')" @click="press(g)">
+                :aria-pressed="!quickAll && quickState(kinds, g) === 'on'" v-tip="g.id === 'todo' ? $t('calendar.quick.todoHint') : $t('calendar.quick.hint')" @click="press(g)">
           <span class="dot" :class="{ on: quickState(kinds, g) !== 'off' }"></span>{{ $t('calendar.quick.' + g.id) }}
         </button>
       </div>
       <span class="grow"></span>
       <span class="cal-find">
         <input v-if="searching" ref="findBox" v-model="search" type="search" :placeholder="$t('calendar.searchHint')" :aria-label="$t('calendar.search')" @blur="closeSearch" @keydown.esc.stop="clearSearch" />
-        <button v-else type="button" class="cal-tool ghost" :title="$t('calendar.search')" @click="openSearch"><Icon name="search" />{{ $t('calendar.search') }}</button>
+        <button v-else type="button" class="cal-tool ghost" @click="openSearch"><Icon name="search" />{{ $t('calendar.search') }}</button>
       </span>
       <FilterMenu :kinds="kinds" :f="f" :count="chips.length" :dirty="dirty" :summary="showSummary" @kinds="setKinds" @set="setF" @reset="reset" @summary="setSummary" />
     </div>
@@ -276,11 +276,11 @@ const renew = async () => { if (await ask(t('calendar.share.renewAsk'), { ok: t(
     </div>
 
     <div v-if="showSummary" class="cal-sum" role="group" :aria-label="$t('calendar.summary.label')">
-      <button type="button" :class="{ zero: !sum.today }" :title="$t('calendar.summary.todayHint')" @click="countList('today')">{{ $t('calendar.summary.today') }} <b>{{ num(sum.today) }}</b></button>
-      <button type="button" :class="{ zero: !sum.week }" :title="$t('calendar.summary.weekHint')" @click="countList('week')">{{ $t('calendar.summary.week') }} <b>{{ num(sum.week) }}</b></button>
-      <button type="button" :class="{ zero: !sum.interviews }" :title="$t('calendar.summary.interviewsHint')" @click="countList('interviews')">{{ $t('calendar.summary.interviews') }} <b>{{ num(sum.interviews) }}</b></button>
-      <button type="button" :class="sum.overdue.length ? 'late' : 'zero'" :title="$t('calendar.summary.overdueHint')" @click="countList('overdue')">{{ $t('calendar.summary.overdue') }} <b>{{ num(sum.overdue.length) }}</b></button>
-      <button type="button" class="cal-sum-hide" :aria-label="$t('calendar.summary.hide')" :title="$t('calendar.summary.hide')" @click="setSummary(false)"><Icon name="x" /></button>
+      <button type="button" :class="{ zero: !sum.today }" v-tip="$t('calendar.summary.todayHint')" @click="countList('today')">{{ $t('calendar.summary.today') }} <b>{{ num(sum.today) }}</b></button>
+      <button type="button" :class="{ zero: !sum.week }" v-tip="$t('calendar.summary.weekHint')" @click="countList('week')">{{ $t('calendar.summary.week') }} <b>{{ num(sum.week) }}</b></button>
+      <button type="button" :class="{ zero: !sum.interviews }" v-tip="$t('calendar.summary.interviewsHint')" @click="countList('interviews')">{{ $t('calendar.summary.interviews') }} <b>{{ num(sum.interviews) }}</b></button>
+      <button type="button" :class="sum.overdue.length ? 'late' : 'zero'" v-tip="$t('calendar.summary.overdueHint')" @click="countList('overdue')">{{ $t('calendar.summary.overdue') }} <b>{{ num(sum.overdue.length) }}</b></button>
+      <button type="button" class="cal-sum-hide" :aria-label="$t('calendar.summary.hide')" v-tip="$t('calendar.summary.hide')" @click="setSummary(false)"><Icon name="x" /></button>
     </div>
     <div v-if="zone.other" class="hint cal-tz">{{ zone.other }}</div>
 

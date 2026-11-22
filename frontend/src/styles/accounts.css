@@ -1,0 +1,66 @@
+/* Site accounts and third-party sign-in (views/AccountsView.vue, components/ProviderCard.vue, cells/CredentialCell.vue).
+   Tokens are in ../style.css; rules of use in docs/component-guidelines.md. */
+
+/* ── the security line under the page's title: a shield, one sentence, "learn more" ── */
+.acc-secure { display: flex; align-items: center; gap: var(--s2); min-width: 0; margin: calc(-1 * var(--s2)) 0 var(--s4); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+.acc-secure > svg { flex: none; width: 16px; height: 16px; color: var(--ok); }
+.acc-secure > span:not(.popover) { min-width: 0; }
+.acc-secure-more { margin: 0; }
+.acc-secure-more dt { color: var(--text); font-weight: var(--fw-semibold); }
+.acc-secure-more dd { margin: 2px 0 var(--s3); color: var(--text-2); }
+.acc-secure-more dd:last-child { margin-bottom: 0; }
+
+/* ── the form at the foot of a popover: its buttons at the end ── */
+.acc-pop-acts { justify-content: flex-end; margin-top: var(--s3); }
+
+/* ── provider cards: four in a row, two, or one - by the width of the place they are in, not of the window ── */
+.pgrid-box { container-type: inline-size; }
+.pgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); }
+@container (max-width: 900px) { .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 480px) { .pgrid { grid-template-columns: minmax(0, 1fr); } }
+.pgrid-more { margin-top: var(--s2); }
+
+/* One structure whatever is known: every line has its height and is there in every card, so cards side by side line
+   up row by row; the foot is at the bottom of the card. */
+.pcard { display: flex; flex-direction: column; min-width: 0; padding: var(--s3) var(--s4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-sm); }
+.pcard-name { display: flex; align-items: center; gap: var(--s2); height: var(--h-xs); min-width: 0; }
+.pcard-title { flex: 0 1 auto; font-size: var(--fs-ml); font-weight: var(--fw-semibold); color: var(--text); }
+.pcard-name > .meta { flex: 0 2 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pcard-name > .info-tip { margin-left: auto; }
+.pcard-state { display: flex; align-items: center; height: var(--h-xs); min-width: 0; }
+.pcard-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--s3); margin: var(--s2) 0 var(--s3); padding-top: var(--s2); border-top: 1px solid var(--border); }
+.pcard-facts > div { display: contents; }
+.pcard-facts dt, .pcard-facts dd { height: var(--h-xs); line-height: var(--h-xs); white-space: nowrap; }
+.pcard-facts dt { color: var(--text-3); font-size: var(--fs-xs); }
+.pcard-facts dd { min-width: 0; margin: 0; overflow: hidden; color: var(--text); font-size: var(--fs-sm); }
+.pcard-foot { display: flex; align-items: center; gap: var(--s2); margin-top: auto; }
+/* the main action: as wide as the card allows, in every card and every state */
+.pcard-main { flex: 1 1 0; min-width: 0; }
+/* (its sign-in window is open: the spinner is the card's own to show, for as long as the window waits) */
+.pcard-main.waiting::after { content: ""; flex: none; width: 12px; height: 12px; margin-left: 6px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .pcard-main.waiting::after { animation: none; } }
+
+/* ── CredentialCell: what is kept at the start, the one button at the end - the same in every state ── */
+.cred { display: flex; align-items: center; gap: var(--s1); flex: 1 1 auto; width: 100%; min-width: 0; }
+.cred-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.cred-dots { color: var(--text-2); letter-spacing: 2px; }
+.cred-value { color: var(--text); font-family: var(--mono); font-size: var(--fs-sm); user-select: all; }
+.cred-acts { display: inline-flex; flex: none; align-items: center; gap: 2px; }
+
+/* ── an account's details (a drawer): what is on record, name beside value ── */
+.acc-facts { display: grid; grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); gap: var(--s2) var(--s4); margin: var(--s2) 0 var(--s4); }
+.acc-facts > div { display: contents; }
+.acc-facts dt { color: var(--text-2); font-size: var(--fs-sm); line-height: var(--h-sm); white-space: nowrap; }
+.acc-facts dd { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-width: 0; min-height: var(--h-sm); margin: 0; }
+.acc-why { margin: 2px 0 0; }
+.acc-id { overflow-wrap: anywhere; color: var(--text-2); }
+.acc-h { margin: var(--s4) 0 var(--s2); font-size: var(--fs-md); }
+.acc-raw { max-height: 320px; padding: var(--s2) var(--s3); overflow: auto; background: var(--surface-2); border-radius: var(--r-sm); color: var(--text-2); }
+.acc-drawer-acts { justify-content: flex-end; margin-top: var(--s4); }
+
+/* (copies that are only measured - the row's "Sign in" button, every automation state: those columns are as wide as they need) */
+.acc-probe { position: absolute; left: -9999px; top: 0; visibility: hidden; pointer-events: none; }
+.acc-probe-list { display: flex; flex-direction: column; align-items: flex-start; }
+
+/* (a phone: the section's "add" button keeps its plus and its name, and gives the title its room) */
+@media (max-width: 640px) { .acc-add-provider > span { display: none; } .acc-add-provider { width: var(--h-sm); padding: 0; } }

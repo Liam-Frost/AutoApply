@@ -1,0 +1,174 @@
+/* Business patterns built from the shared pieces: provider cards, credential cell, application cells.
+   Tokens are in ../style.css; rules of use in docs/design-system.md and docs/component-guidelines.md. */
+
+/* ───────────────────────── Lists of applications and postings ───────────────────────── */
+/* the groups above a list, and its row of filters: the search first, the count at the end */
+.list-tabs { margin-bottom: var(--s3); }
+.filters > .search { flex: 0 1 240px; width: 240px; min-width: 140px; }
+.filters > .count { flex: none; color: var(--text-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.filters > label.check { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+
+/* A stage that is a dated step of the hiring (interview, assessment, offer) wears the calendar's colour of its kind
+   (.ev-interview ... give --b and --f): the same thing looks the same on both pages. */
+.tag.ev-tag { background: var(--b); color: var(--f); }
+/* (a tag in a cell is cut like any other text there, with its words in a tooltip) */
+.dt-cell > .tag.cut { flex: 0 1 auto; display: inline-block; }
+
+/* The next step of an application: what to do - a button when the page can do it - and, under it, whose move it is. */
+.next-step { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; max-width: 100%; }
+.next-step > button { max-width: calc(100% + 10px); overflow: hidden; text-overflow: ellipsis; }
+.next-step > button.ghost { margin-left: -10px; color: var(--primary); }      /* (words in line with the column; an action told from the plain words beside it) */
+.next-what { color: var(--text); font-size: var(--fs-md); line-height: 20px; }
+
+/* A posting's row: its score (a figure, coloured by how good), the small marks after the company's name, and the
+   place where the row's own action stands. */
+.score-num { font-size: var(--fs-md); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; color: var(--text-2); }
+.score-num.hi { color: var(--ok); }
+.score-num.mid { color: var(--text); }
+.score-num.lo { color: var(--text-3); }
+.mark { display: inline-flex; align-items: center; flex: none; color: var(--text-3); font-size: var(--fs-xs); line-height: 1; white-space: nowrap; }
+.mark svg { width: 14px; height: 14px; }
+.mark.prio { color: var(--ev-deadline); }
+.mark.prio svg { fill: currentColor; }
+a.mark:hover { color: var(--primary); }
+.row-acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--s1); min-width: 0; max-width: 100%; }
+.row-acts > .grow { min-width: 0; }
+.row-acts > button, .row-acts > .btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* The filter and column pickers of a list (in a Popover): a column of labelled fields and ticks. */
+.pop-form { display: flex; flex-direction: column; gap: var(--s3); }
+.pop-form > label, .pop-form > .field { display: flex; flex-direction: column; gap: var(--s1); color: var(--text-2); font-size: var(--fs-sm); }
+.pop-form > label.check { flex-direction: row; align-items: center; gap: var(--s2); color: var(--text); }
+.pop-form .pop-foot { display: flex; justify-content: flex-end; }
+.pop-title { margin: 0 0 var(--s1); color: var(--text-3); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
+
+/* ───────────────────────── The review drawer (approving several) ───────────────────────── */
+.review-item { margin-top: var(--s3); }
+.review-head { display: flex; align-items: center; gap: var(--s3); }
+.review-head > .entity { flex: 1 1 auto; }
+.review-head > .btn { flex: none; }
+.review-note { margin-top: var(--s2); color: var(--text-3); font-size: var(--fs-sm); }
+.review-part { margin-top: var(--s2); font-size: var(--fs-sm); }
+.review-part ul { margin: var(--s1) 0 0; padding-left: 18px; }
+
+/* the application a posting led to: its stage, as a link to it */
+.app-link { display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; color: inherit; text-decoration: none; border-radius: var(--r-sm); }
+.app-link > .status { flex: 0 1 auto; color: var(--text); }
+.app-link > svg { flex: none; width: 14px; height: 14px; color: var(--text-3); }
+.app-link:hover > .status, .app-link:hover > svg { color: var(--primary); }
+.list-note { margin: var(--s3) 0 0; }
+
+/* ───────────────────────── One posting (the drawer), and the posting on an application's page ───────────────────────── */
+.job-state { display: flex; align-items: center; gap: var(--s2) var(--s3); flex-wrap: wrap; margin: var(--s3) 0; min-width: 0; }
+.job-state > .tag.cut { max-width: 100%; }
+.job-has-app { align-items: center; }
+.job-has-app > .grow { min-width: 0; }
+.job-acts { margin-bottom: var(--s4); }
+.job-edit { min-width: 0; }
+.job-edit > input, .job-edit > textarea { width: 100%; font-family: inherit; }
+.job-form-acts { margin-top: var(--s3); }
+.job-list { display: grid; gap: var(--s1); font-size: var(--fs-sm); }
+.job-list .status { margin-left: var(--s2); }
+/* the posting's own text: as it was written, folded when it is long */
+.job-jd { margin: 0 0 var(--s2); font-family: inherit; font-size: var(--fs-md); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.job-jd.folded { max-height: 200px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.job-jd-note { display: block; margin: 0 0 var(--s3); font-size: var(--fs-sm); }
+.job-why { margin: var(--s3) 0 0; }
+
+/* ───────────────────────── One application (its page) ───────────────────────── */
+/* under the company's name: the way back, the job, and its plain attributes - one line, cut where it must be */
+.app-sub { display: flex; align-items: center; gap: var(--s1) var(--s3); flex-wrap: wrap; min-width: 0; }
+.app-sub > * { min-width: 0; }
+.app-back { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.app-back svg { width: 14px; height: 14px; }
+.app-job { color: var(--text); font-weight: var(--fw-medium); max-width: min(100%, 520px); }
+.app-place { max-width: 280px; }
+.warn-text { color: var(--warn); }
+/* where it stands: the stage, whose move it is, what comes next and why, then what can be done */
+.status-card { border-left: 3px solid var(--border); }
+.status-card.edge-warn { border-left-color: var(--warn); }
+.status-card.edge-bad { border-left-color: var(--bad); }
+.status-card.edge-ok { border-left-color: var(--ok); }
+.status-card.edge-info { border-left-color: var(--info); }
+.status-line { display: flex; align-items: center; gap: var(--s1) var(--s3); flex-wrap: wrap; }
+.status-next { margin: var(--s3) 0 0; font-size: var(--fs-lg); font-weight: var(--fw-medium); }
+.status-why { margin: var(--s1) 0 0; color: var(--text-2); }
+.status-cards { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s3); min-width: 0; }
+.status-cards > a.tag { max-width: 100%; text-decoration: none; }
+.status-acts { margin-top: var(--s3); flex-wrap: wrap; }
+.status-acts > .menu > button svg { width: 14px; height: 14px; }
+.status-blocked { margin: var(--s2) 0 0; }
+/* the forms that open under it, the note */
+.form-line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.form-acts { margin-top: var(--s3); }
+.note-text { width: 100%; font-family: inherit; }
+.note-card { background: var(--surface-2); }
+.note-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.app-tabs { margin: var(--s4) 0 var(--s3); }
+/* lists inside its cards: files, people, proof, mail, the timeline */
+.plain-list { display: grid; gap: var(--s2); min-width: 0; }
+.file-line { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.file-line > .cut { flex: 0 1 auto; }
+.evidence-line { margin-top: var(--s2); font-size: var(--fs-sm); }
+.mail-row { padding: var(--s2) 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.mail-head { display: flex; align-items: center; gap: var(--s2); min-width: 0; padding: 2px 0; }
+.mail-head > .status, .mail-head > .menu, .mail-head > button { flex: none; }
+.mail-subject { flex: 1 1 auto; }
+.mail-summary { margin-top: 2px; font-size: var(--fs-sm); }
+.mail-others { margin-top: var(--s3); }
+.mail-foot { margin: var(--s3) 0 0; }
+.tl-row { display: flex; align-items: baseline; gap: var(--s3); padding: var(--s1) 0; font-size: var(--fs-sm); }
+.tl-when { flex: none; min-width: 118px; }
+.tl-what { min-width: 0; overflow-wrap: anywhere; }
+
+/* ───────────────────────── The record of an application (RecordPanel) ───────────────────────── */
+.rec-block { display: block; }
+.rec-block ul { margin: var(--s2) 0 0; padding-left: 20px; }
+.rec-line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+/* the answers: a question and its answer wrap as they need (the one table whose rows are as tall as what they hold) */
+.rec-table { max-height: none; }
+/* The answers wrap (an answer is the text sent, read whole), so rows differ in height: every cell starts on the first
+   line's baseline, the small basis and the confidence included - not each at its own top. */
+.rec-table td { vertical-align: baseline; }
+/* In a narrow box the basis (where an answer came from) gives its room to the answer, as an optional DataTable column
+   would; the question and the answer are never squeezed to a few characters a line. */
+@container (max-width: 820px) { .rec-table .rec-basis { display: none; } }
+.rec-table th.rec-q { width: 34%; }
+.rec-table th.rec-basis { width: 22%; }
+.rec-table th.rec-sure { width: 104px; }
+.rec-table .rec-act { width: 44px; text-align: right; }
+.rec-table td input:not([type=checkbox]), .rec-table td textarea, .rec-table td .sel { width: 100%; max-width: 100%; }
+.rec-req { color: var(--bad); }
+.rec-answer { margin: 0; font-family: inherit; font-size: var(--fs-md); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rec-suggest { margin: 0 var(--s2); }
+.rec-remember { display: block; margin: var(--s2) 0; font-size: var(--fs-sm); }
+.rec-blank { margin: var(--s2) 0; }
+.rec-blank ul { font-size: var(--fs-sm); }
+.rec-file { margin-bottom: var(--s2); align-items: center; }
+.rec-words { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--s2); }
+.rec-hint { margin-bottom: var(--s2); }
+.rec-tailor { flex-wrap: nowrap; }
+.rec-tailor > input { min-width: 0; }
+.rec-after { margin: 0; }
+.rec-after-link { margin: var(--s2) 0 0; }
+.rec-said { margin-top: var(--s2); }
+
+/* ───────────────────────── What the agent wrote down (AgentJournal) ───────────────────────── */
+.journal-panel { margin-bottom: var(--s4); }
+.journal-say { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); }
+.journal-say > input { min-width: 0; }
+.journal-say > .info-tip { flex: none; }
+
+/* ───────────────────────── Sources ───────────────────────── */
+.src-toggle { display: block; margin-bottom: var(--s3); }
+.src-steps { margin: var(--s2) 0 var(--s3); padding-left: 20px; font-size: var(--fs-sm); line-height: 1.9; }
+.src-line { margin: 0 0 var(--s2); }
+.src-chips { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s3); font-size: var(--fs-sm); }
+.dt-row.src-plain { cursor: default; }      /* (nothing more to open in this row) */
+.src-drop { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.src-drop > .cut { min-width: 0; flex: 0 1 auto; }
+.src-drop > button { flex: none; }
+.src-now { display: flex; flex-direction: column; min-width: 0; font-size: var(--fs-sm); }
+.src-error { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s2); font-size: var(--fs-sm); }
+.src-foot { margin-top: var(--s2); }
+.bad-text { color: var(--bad); }

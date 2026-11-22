@@ -1,16 +1,28 @@
 <script setup>
 import { t as T } from '../i18n/catalog'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, fmt } from '../api'
+import { api } from '../api'
 import { renderMarkdown } from '../md'
+import CardHead from '../components/CardHead.vue'
+import DataState from '../components/DataState.vue'
+import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
 import FileButton from '../components/FileButton.vue'
+import HelpPop from '../components/HelpPop.vue'
 import Icon from '../components/Icon.vue'
+import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
+import Status from '../components/Status.vue'
+import Tabs from '../components/Tabs.vue'
+import Trunc from '../components/Trunc.vue'
+import DateTimeCell from '../components/cells/DateTimeCell.vue'
+import EntityCell from '../components/cells/EntityCell.vue'
+import { dataState } from '../data'
 import { fmtTime, run as runAction, toast, ask } from '../ui'
 import { clone, mayLeave, same, useUnsaved } from '../dirty'
 import { useProfileInit } from '../profileInit'
 import { useRoute } from 'vue-router'
+import { listed } from '../i18n/format'
 
 const route = useRoute()
 const tab = ref(['sections', 'pay', 'stories', 'init', 'scoring', 'markdown', 'history'].includes(route.query.tab) ? route.query.tab : 'sections')
@@ -27,6 +39,13 @@ const base = reactive({ md: '', stories: '', scoring: '', st: { compensation: {}
 const take = (k, r, fresh) => { if (same(r.value, base[k])) r.value = clone(fresh); base[k] = clone(fresh) }
 const regions = ref({ packs: [] })
 const addRef = () => st.value.referees.push({ name: '', title: '', org: '', relation: '', email: '', phone: '', contact: 'ask_first' })
+// (a referee that has nothing written in it yet goes without a question)
+async function removeRef(i) {
+  const r = st.value.referees[i]
+  const filled = ['name', 'title', 'org', 'relation', 'email', 'phone'].some((k) => (r[k] || '').trim())
+  if (filled && !(await ask(T('profile.deleteRefAsk', { name: r.name || T('profile.referenceN', { n: i + 1 }) }), { danger: true }))) return
+  st.value.referees.splice(i, 1)
+}
 const saveSt = () => run(async () => { await api.put('/profile/structured', { compensation: st.value.compensation, referees: st.value.referees }); base.st = clone(st.value) }, T('profile.savedAndAddedTo'))
 const p = ref({ markdown: '', sections: [], versions: [], agent_added: [] })
 const scoring = ref('')
@@ -65,7 +84,7 @@ const KINDS = {
 }
 const UPLOADABLE = ['resume_site', 'resume_portal', 'transcript', 'cl_template', 'cl_example', 'source']
 
-async function load() {
+async function read() {
   p.value = await api.get('/profile')
   take('md', md, p.value.markdown)
   take('scoring', scoring, (await api.get('/profile?doc=scoring')).markdown)
@@ -75,12 +94,15 @@ async function load() {
   regions.value = await api.get('/regions')
   await loadGen().catch(() => {})
 }
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st: page, load } = dataState(read)
 const run = (fn, ok) => runAction(fn, ok, load)
 // what the applicant put here themselves: not what the program wrote for one posting (a résumé rewritten for it, its cover
 // letter) - those are the posting's, and are in the library
 const active = computed(() => docs.value.filter((d) => d.active && !d.job_id && d.kind !== 'cover_letter' && d.kind !== 'tailored_resume'))
 const todoCount = computed(() => (p.value.markdown.match(/TODO:/g) || []).length)
 
+const bareHeading = (s) => s.title === 'preamble' && !(s.body || '').split('\n').some((l) => l.trim() && !l.trim().startsWith('#'))
 async function startEdit(i) { if (!(await mayLeave(['profile-section']))) return; editIdx.value = i; editBody.value = p.value.sections[i].body }
 const saveSection = () => run(async () => {
   const secs = p.value.sections.map((s, i) => (i === editIdx.value ? { ...s, body: editBody.value } : s))
@@ -90,8 +112,10 @@ const saveSection = () => run(async () => {
 const saveMd = () => run(async () => { await api.put('/profile', { markdown: md.value, note: T('profile.editTheFullText') }); base.md = md.value }, T('profile.saved'))
 const saveStories = () => run(async () => { await api.put('/profile', { doc: 'stories', markdown: stories.value }); base.stories = stories.value }, T('profile.saved'))
 const saveScoring = () => run(async () => { await api.put('/profile', { doc: 'scoring', markdown: scoring.value }); base.scoring = scoring.value }, T('profile.scoreRulesSaved'))
-const restore = async (v) => (await ask(T('profile.rollBackToThis'))) && run(() => api.post('/profile/restore/' + v.id), T('profile.reverted'))
-const undo = (a) => run(() => api.post('/profile/remove-line', { fragment: a.note.slice(0, 40) }), T('profile.ruleUndone'))
+const restore = async (v) => (await ask(T('profile.rollBackToThis'), { ok: T('profile.revertToThisVersion') })) && run(() => api.post('/profile/restore/' + v.id), T('profile.reverted'))
+const undo = async (a) => (await ask(T('profile.revokeAsk'), { ok: T('profile.revoke'), danger: true })) && run(() => api.post('/profile/remove-line', { fragment: a.note.slice(0, 40) }), T('profile.ruleUndone'))
+const SOURCES = { user: T('profile.yourEdit'), agent: T('profile.recordedByTheApp'), init: T('profile.generateFromRSum') }
+const VERSION_COLS = [{ id: 'note', header: T('profile.col.change'), min: 180, flex: 3 }, { id: 'source', header: T('profile.col.by'), min: 120, max: 200, flex: 2, priority: 1 }, { id: 'when', header: T('profile.col.saved'), width: 132 }, { id: 'act', header: '', width: 190, align: 'end' }]
 
 function upload(ev) {
   const f = ev.target.files[0]
@@ -117,7 +141,7 @@ async function init() {
   try { await startGen(notes.value) } catch (e) { toast(e.message, 'bad') }
 }
 const adopt = () => run(async () => { await api.post(`/profile/init/${draftOf.value}/adopt`, { markdown: draftText.value }); await loadGen() }, T('profile.draftedProfileApplied'))
-const dropDraft = async () => (await ask(T('profile.notAdoptThisDraft'))) && run(async () => { await api.post(`/profile/init/${draftOf.value}/discard`); await loadGen() }, T('profile.draftDiscarded'))
+const dropDraft = async () => (await ask(T('profile.notAdoptThisDraft'), { ok: T('profile.doNotUse'), danger: true })) && run(async () => { await api.post(`/profile/init/${draftOf.value}/discard`); await loadGen() }, T('profile.draftDiscarded'))
 
 // What is edited on each tab, and is asked about before it is left: another tab, another section, another page.
 const TAB_LABELS = { sections: T('profile.myInfo'), pay: T('profile.salaryReferences'), stories: T('profile.myExperienceStories'), init: T('profile.generateFromRSum'), scoring: T('profile.postingScoreRules'), markdown: T('profile.editSource'), history: T('profile.versionHistory') }
@@ -131,178 +155,191 @@ useUnsaved({ id: 'profile-md', label: T('profile.editSource'), dirty: () => mdDi
 useUnsaved({ id: 'profile-draft', label: T('profile.yourChangesToThe'), dirty: () => draftDirty.value, save: () => adopt(), discard: () => { draftText.value = genTask.value.draft || '' } })
 const marked = (k) => (EDITED_ON[k] || []).some((id) => ({ 'profile-section': sectionDirty.value, 'profile-pay': stDirty.value, 'profile-stories': stories.value !== base.stories,
   'profile-scoring': scoring.value !== base.scoring, 'profile-md': mdDirty.value, 'profile-draft': draftDirty.value })[id])
+const tabItems = computed(() => Object.entries(TAB_LABELS).map(([id, label]) => ({ id, label, dot: marked(id) ? T('profile.unsavedChanges') : '' })))
 async function go(k) { if (k !== tab.value && (await mayLeave(EDITED_ON[tab.value] || []))) tab.value = k }
 onMounted(load)
 </script>
 
 <template>
-  <PageHead :title="$t('profile.profile')" :sub="$t('profile.everythingUsedToFill')">
-    <span v-if="genWorking" class="badge info">{{ $t('profile.generatingFromYourR') }}</span>
-    <button v-else-if="genPhase === 'proposal' && tab !== 'init'" class="sm" @click="go('init')">{{ $t('profile.aGeneratedDraftIs') }}</button>
-    <span v-if="todoCount" class="badge warn">{{ $t('profile.fieldsStillEmpty', { p0: todoCount }) }}</span>
+  <PageHead :title="$t('profile.profile')" :help="$t('profile.everythingUsedToFill')">
+    <!-- (what the profile still lacks, and a generation under way, are states: under the title, not among the actions) -->
+    <template v-if="genWorking || todoCount" #sub>
+      <span class="actions">
+        <Status v-if="genWorking" tone="info" :label="$t('profile.generatingFromYourR')" />
+        <Status v-if="todoCount" tone="warn" :label="$t('profile.fieldsStillEmpty', { p0: todoCount })" />
+      </span>
+    </template>
+    <button v-if="!genWorking && genPhase === 'proposal' && tab !== 'init'" @click="go('init')">{{ $t('profile.aGeneratedDraftIs') }}</button>
+    <router-link to="/files" class="btn"><Icon name="inbox" />{{ $t('profile.openTheLibrary') }}</router-link>
   </PageHead>
-  <div class="seg" style="margin-bottom: 16px">
-    <router-link to="/files" class="btn ghost sm" style="order: 9; margin-left: 6px">{{ $t('profile.rSumSAnd') }}</router-link>
-    <button v-for="(l, k) in TAB_LABELS" :key="k" :class="{ on: tab === k }" @click="go(k)">{{ l }}<span v-if="marked(k)" class="unsaved-dot" :title="$t('profile.unsavedChanges')" :aria-label="$t('profile.unsavedChanges')"></span></button>
-  </div>
+  <DataState :s="page" :what="$t('profile.profile')" @retry="load" />
+  <template v-if="page.at">
+  <!-- (a tab is left through go(): what is edited on it is asked about first) -->
+  <Tabs class="page-tabs" :model-value="tab" :label="$t('profile.profile')" :items="tabItems" @update:model-value="go" />
 
   <template v-if="tab === 'sections'">
-    <div v-if="p.agent_added.length" class="panel" style="border-color: var(--info)">
-      <h3 style="margin-top: 0">{{ $t('profile.whatTheAppNoted') }}</h3>
-      <div v-for="a in p.agent_added" :key="a.id" class="row small" style="margin-bottom: 4px">
-        <span class="grow">{{ a.note }}</span><span class="muted">{{ fmt(a.created_at) }}</span><button @click="undo(a)">{{ $t('profile.revoke') }}</button>
+    <div v-if="p.agent_added.length" class="card">
+      <CardHead :title="$t('profile.whatTheAppNoted')" :note="p.agent_added.length" />
+      <div class="rows tight">
+        <div v-for="a in p.agent_added" :key="a.id" class="r">
+          <Trunc class="grow" :text="a.note" :lines="2" />
+          <span class="end"><span class="t-meta atomic">{{ fmtTime(a.created_at) }}</span><button class="ghost sm" @click="undo(a)">{{ $t('profile.revoke') }}</button></span>
+        </div>
       </div>
     </div>
-    <details v-if="regions.packs.length" class="panel">
-      <summary><b>{{ $t('profile.applicationFormsInThe') }}</b> <span class="muted small">{{ $t('profile.regionsNote', { regions: regions.packs.map((r) => r.name).join(', ') }) }}</span></summary>
-      <div v-for="r in regions.packs" :key="r.code" style="margin-top: 10px">
-        <b>{{ r.name }}</b>
-        <ul style="margin: 4px 0 4px 18px"><li v-for="x in r.profile" :key="x" class="small">{{ x }}</li></ul>
-        <div v-if="r.diversity" class="small muted">{{ $t('profile.diversityEqualOpportunitySurvey', { p0: r.diversity }) }}</div>
-        <div v-if="r.consents" class="small muted">{{ $t('profile.consent', { p0: r.consents }) }}</div>
-        <div v-if="r.never" class="small muted">{{ $t('profile.theAppWontFill', { p0: r.never }) }}</div>
+    <details v-if="regions.packs.length" class="card region-notes">
+      <summary><span class="card-title">{{ $t('profile.applicationFormsInThe') }}</span> <span class="t-meta">{{ $t('profile.regionsNote', { regions: listed(regions.packs.map((r) => r.name)) }) }}</span></summary>
+      <div v-for="r in regions.packs" :key="r.code" class="region">
+        <div class="t-primary">{{ r.name }}</div>
+        <ul><li v-for="x in r.profile" :key="x">{{ x }}</li></ul>
+        <div v-if="r.diversity" class="t-meta">{{ $t('profile.diversityEqualOpportunitySurvey', { p0: r.diversity }) }}</div>
+        <div v-if="r.consents" class="t-meta">{{ $t('profile.consent', { p0: r.consents }) }}</div>
+        <div v-if="r.never" class="t-meta">{{ $t('profile.theAppWontFill', { p0: r.never }) }}</div>
       </div>
     </details>
-    <div v-for="(s, i) in p.sections" :key="i" class="panel">
-      <div class="row"><h3 class="grow" style="margin: 0">{{ s.title === 'preamble' ? $t('profile.notes') : s.title }}</h3><button v-if="editIdx !== i" @click="startEdit(i)">{{ $t('profile.edit') }}</button></div>
+    <!-- (the text before the first section is shown when it says something: the document's own heading alone is not) -->
+    <div v-for="(s, i) in p.sections" v-show="!bareHeading(s) || editIdx === i" :key="i" class="card">
+      <CardHead :title="s.title === 'preamble' ? $t('profile.notes') : s.title">
+        <button v-if="editIdx !== i" class="ghost sm" @click="startEdit(i)"><Icon name="edit" />{{ $t('profile.edit') }}</button>
+      </CardHead>
       <template v-if="editIdx === i">
-        <textarea v-model="editBody" :rows="Math.min(30, Math.max(6, editBody.split('\n').length + 1))" style="margin-top: 8px"></textarea>
-        <div class="row" style="margin-top: 8px"><button class="primary" @click="saveSection">{{ $t('profile.save') }}</button><button @click="editIdx = -1">{{ $t('profile.cancel') }}</button><span v-if="sectionDirty" class="badge warn">{{ $t('profile.unsavedChanges') }}</span></div>
+        <textarea v-model="editBody" :rows="Math.min(30, Math.max(6, editBody.split('\n').length + 1))" :aria-label="s.title === 'preamble' ? $t('profile.notes') : s.title"></textarea>
+        <div class="actions form-acts"><span class="grow"></span><button @click="editIdx = -1">{{ $t('profile.cancel') }}</button><button class="primary" :disabled="!sectionDirty" @click="saveSection">{{ $t('profile.save') }}</button></div>
       </template>
-      <div v-else-if="s.body" class="md" style="margin-top: 8px" v-html="renderMarkdown(s.body)"></div>
-      <p v-else class="muted">{{ $t('profile.empty') }}</p>
+      <div v-else-if="s.body" class="md" v-html="renderMarkdown(s.body)"></div>
+      <p v-else class="none">{{ $t('profile.empty') }}</p>
     </div>
   </template>
 
   <template v-if="tab === 'pay'">
-    <div class="panel">
-      <h3 style="margin-top: 0">{{ $t('profile.expectedSalary') }}</h3>
-      <p class="muted small">{{ $t('profile.usedWhenAnApplication') }}</p>
-      <div class="row" style="gap: 16px; flex-wrap: wrap; margin-bottom: 10px">
+    <div class="card">
+      <CardHead :title="$t('profile.expectedSalary')" :help="$t('profile.usedWhenAnApplication')" />
+      <div class="pay-policy" role="radiogroup" :aria-label="$t('profile.expectedSalary')">
         <label><input v-model="st.compensation.policy" type="radio" value="state" /> {{ $t('profile.answerWithinTheRange') }}</label>
         <label><input v-model="st.compensation.policy" type="radio" value="ask" /> {{ $t('profile.dontFillInNumbers') }}</label>
       </div>
-      <div v-if="st.compensation.policy !== 'ask'" class="row" style="gap: 8px; flex-wrap: wrap; align-items: end">
-        <label class="small">{{ $t('profile.min') }}<input v-model="st.compensation.min" placeholder="70000" style="width: 110px; display: block" /></label>
-        <label class="small">{{ $t('profile.max') }}<input v-model="st.compensation.max" placeholder="85000" style="width: 110px; display: block" /></label>
-        <label class="small">{{ $t('profile.currency') }}<input v-model="st.compensation.currency" placeholder="CAD" style="width: 80px; display: block" /></label>
-        <label class="small">{{ $t('profile.per') }}
-          <AaSelect v-model="st.compensation.period" style="display: flex"><option value="year">{{ $t('profile.year') }}</option><option value="month">{{ $t('profile.month') }}</option><option value="hour">{{ $t('profile.hour') }}</option></AaSelect>
-        </label>
-        <label class="small"><input v-model="st.compensation.negotiable" type="checkbox" /> {{ $t('profile.negotiable') }}</label>
+      <div class="fields">
+        <template v-if="st.compensation.policy !== 'ask'">
+          <label class="f">{{ $t('profile.min') }}<input v-model="st.compensation.min" placeholder="70000" inputmode="numeric" /></label>
+          <label class="f">{{ $t('profile.max') }}<input v-model="st.compensation.max" placeholder="85000" inputmode="numeric" /></label>
+          <label class="f">{{ $t('profile.currency') }}<input v-model="st.compensation.currency" placeholder="CAD" /></label>
+          <div class="f"><span id="pay-per">{{ $t('profile.per') }}</span>
+            <AaSelect v-model="st.compensation.period" aria-labelledby="pay-per"><option value="year">{{ $t('profile.year') }}</option><option value="month">{{ $t('profile.month') }}</option><option value="hour">{{ $t('profile.hour') }}</option></AaSelect>
+          </div>
+          <label class="check"><input v-model="st.compensation.negotiable" type="checkbox" /> {{ $t('profile.negotiable') }}</label>
+        </template>
+        <label class="f span2">{{ $t('profile.currentSalaryOptional') }}<input v-model="st.compensation.current" :placeholder="$t('profile.eGCadYear')" /></label>
+        <label class="check span2"><input v-model="st.compensation.share_current" type="checkbox" /> {{ $t('profile.shareCurrentSalaryWhen') }}</label>
       </div>
-      <div class="row" style="gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 12px">
-        <label class="small">{{ $t('profile.currentSalaryOptional') }}<input v-model="st.compensation.current" :placeholder="$t('profile.eGCadYear')" style="width: 220px; display: block" /></label>
-        <label class="small"><input v-model="st.compensation.share_current" type="checkbox" /> {{ $t('profile.shareCurrentSalaryWhen') }}</label>
+      <CardHead class="sub-head" :title="$t('profile.noticePeriodStartDate')" />
+      <div class="fields">
+        <label class="f span2">{{ $t('profile.noticePeriod') }}<input v-model="st.compensation.notice" :placeholder="$t('profile.eGWeeksOne')" /></label>
+        <label class="f span2">{{ $t('profile.earliestStartDate') }}<input v-model="st.compensation.start" :placeholder="$t('profile.eGTwoWeeks')" /></label>
+        <label class="f all">{{ $t('profile.notesOptional') }}<input v-model="st.compensation.notes" :placeholder="$t('profile.eGCadPer')" /></label>
       </div>
-      <h3>{{ $t('profile.noticePeriodStartDate') }}</h3>
-      <div class="row" style="gap: 8px; flex-wrap: wrap">
-        <label class="small">{{ $t('profile.noticePeriod') }}<input v-model="st.compensation.notice" :placeholder="$t('profile.eGWeeksOne')" style="width: 240px; display: block" /></label>
-        <label class="small">{{ $t('profile.earliestStartDate') }}<input v-model="st.compensation.start" :placeholder="$t('profile.eGTwoWeeks')" style="width: 240px; display: block" /></label>
-      </div>
-      <label class="small" style="display: block; margin-top: 12px">{{ $t('profile.notesOptional') }}<input v-model="st.compensation.notes" :placeholder="$t('profile.eGCadPer')" style="display: block; width: 100%" /></label>
     </div>
-    <div class="panel">
-      <div class="row"><h3 class="grow" style="margin: 0">{{ $t('profile.references') }}</h3><button @click="addRef"><Icon name="plus" />{{ $t('profile.addOne') }}</button></div>
-      <p class="muted small">{{ $t('profile.onlyFilledInWhen') }}</p>
+    <div class="card">
+      <CardHead :title="$t('profile.references')" :help="$t('profile.onlyFilledInWhen')" :note="st.referees.length || ''">
+        <button class="sm" @click="addRef"><Icon name="plus" />{{ $t('profile.addOne') }}</button>
+      </CardHead>
       <p v-if="!st.referees.length" class="muted">{{ $t('profile.noReferencesAddedYet', { p0: st.suggested.referees ? $t('profile.applicationsForJobsLike') : '' }) }}</p>
-      <div v-for="(r, i) in st.referees" :key="i" class="panel" style="background: var(--bg2)">
-        <div class="row" style="gap: 8px; flex-wrap: wrap; align-items: end">
-          <label class="small">{{ $t('profile.name') }}<input v-model="r.name" style="width: 170px; display: block" /></label>
-          <label class="small">{{ $t('profile.job') }}<input v-model="r.title" style="width: 170px; display: block" /></label>
-          <label class="small">{{ $t('profile.unit') }}<input v-model="r.org" style="width: 190px; display: block" /></label>
-          <label class="small">{{ $t('profile.relationshipToYou') }}<input v-model="r.relation" :placeholder="$t('profile.eGDirectManager')" style="width: 170px; display: block" /></label>
-          <label class="small">{{ $t('profile.email') }}<input v-model="r.email" style="width: 210px; display: block" /></label>
-          <label class="small">{{ $t('profile.phone') }}<input v-model="r.phone" style="width: 150px; display: block" /></label>
-          <label class="small">{{ $t('profile.whenTheyCanBe') }}
-            <AaSelect v-model="r.contact" style="display: flex"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></AaSelect>
-          </label>
-          <button class="ghost" @click="st.referees.splice(i, 1)">{{ $t('profile.delete') }}</button>
+      <div v-for="(r, i) in st.referees" :key="i" class="ref-card">
+        <div class="ref-head">
+          <Trunc class="t-primary grow" :text="r.name || $t('profile.referenceN', { n: i + 1 })" />
+          <Menu :label="$t('common.more')" :items="[{ id: 'delete', label: $t('profile.delete'), icon: 'trash', danger: true }]" @pick="removeRef(i)" />
+        </div>
+        <div class="fields">
+          <label class="f">{{ $t('profile.name') }}<input v-model="r.name" autocomplete="off" /></label>
+          <label class="f">{{ $t('profile.job') }}<input v-model="r.title" /></label>
+          <label class="f">{{ $t('profile.unit') }}<input v-model="r.org" /></label>
+          <label class="f">{{ $t('profile.relationshipToYou') }}<input v-model="r.relation" :placeholder="$t('profile.eGDirectManager')" /></label>
+          <label class="f">{{ $t('profile.email') }}<input v-model="r.email" type="email" autocomplete="off" /></label>
+          <label class="f">{{ $t('profile.phone') }}<input v-model="r.phone" type="tel" autocomplete="off" /></label>
+          <div class="f"><span :id="'ref-contact-' + i">{{ $t('profile.whenTheyCanBe') }}</span>
+            <AaSelect v-model="r.contact" :aria-labelledby="'ref-contact-' + i"><option v-for="[k, l] in CONTACT" :key="k" :value="k">{{ l }}</option></AaSelect>
+          </div>
         </div>
       </div>
     </div>
-    <div class="row"><button class="primary" :disabled="!stDirty" @click="saveSt">{{ $t('profile.save') }}</button><span v-if="stDirty" class="badge warn">{{ $t('profile.unsavedChanges') }}</span><span class="muted small">{{ $t('profile.savingWritesThisTo') }}</span></div>
+    <div class="actions form-acts"><span class="grow"></span><HelpPop :label="$t('profile.save')" :text="$t('profile.savingWritesThisTo')" /><button class="primary" :disabled="!stDirty" @click="saveSt"><Icon name="check" />{{ $t('profile.save') }}</button></div>
   </template>
 
   <template v-if="tab === 'init'">
     <div class="card">
-      <h3 style="margin-top: 0">{{ $t('profile.uploadYourFiles') }}</h3>
-      <div class="row">
-        <AaSelect v-model="upKind"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
+      <CardHead :title="$t('profile.uploadYourFiles')" />
+      <div class="actions">
+        <AaSelect v-model="upKind" :aria-label="$t('profile.fileKind')"><option v-for="k in UPLOADABLE" :key="k" :value="k">{{ KINDS[k] }}</option></AaSelect>
         <FileButton @change="upload"><Icon name="inbox" />{{ $t('profile.chooseFile') }}</FileButton>
       </div>
-      <ul class="small"><li v-for="d in active" :key="d.id">{{ KINDS[d.kind] || KINDS.other }}：<a :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener">{{ d.name }}</a></li></ul>
-      <p v-if="!active.length" class="muted small">{{ $t('profile.nothingHasBeenUploaded') }}</p>
-      <p class="muted small">{{ $t('profile.onlyWhatYouUploaded') }} <router-link to="/files">{{ $t('profile.openTheLibrary') }}</router-link></p>
-      <h3>{{ $t('profile.additionalNotesOptional') }}</h3>
-      <textarea v-model="notes" style="font-family: inherit" :placeholder="$t('profile.thingsApplicationFormsOften')"></textarea>
-      <div class="row" style="margin-top: 8px"><button class="primary" :disabled="genWorking" @click="init">{{ genWorking ? $t('profile.generating') : $t('profile.generateProfileDraft') }}</button></div>
-      <p v-if="genPhase === 'queued'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>{{ $t('profile.queuedItStartsIn') }}</span></p>
-      <p v-else-if="genPhase === 'running'" class="callout" style="margin-top: 12px"><Icon name="clock" /><span>{{ $t('profile.theAiIsReading') }}</span></p>
-      <p v-else-if="genPhase === 'failed'" class="callout warn" style="margin-top: 12px"><Icon name="alert" /><span>{{ $t('profile.theLastAttemptDid', { p0: genTask.error }) }}</span></p>
-      <p v-else-if="genPhase === 'applied'" class="callout ok" style="margin-top: 12px"><Icon name="check" /><span>{{ $t('profile.whatWasGeneratedAt', { p0: fmtTime(genTask.finished_at) }) }}</span></p>
-      <p class="muted small">{{ $t('profile.theProgramOnlyCopies') }}</p>
+      <div v-if="active.length" class="rows tight init-files">
+        <div v-for="d in active" :key="d.id" class="r"><span class="meta lead">{{ KINDS[d.kind] || KINDS.other }}</span><Trunc as="a" :href="`api/documents/${d.id}/file`" target="_blank" rel="noopener" :text="d.name" /></div>
+      </div>
+      <p v-else class="muted mt-2">{{ $t('profile.nothingHasBeenUploaded') }}</p>
+      <p class="hint mt-2">{{ $t('profile.onlyWhatYouUploaded') }} <router-link to="/files">{{ $t('profile.openTheLibrary') }}</router-link></p>
+      <CardHead class="sub-head" :title="$t('profile.additionalNotesOptional')" />
+      <textarea v-model="notes" class="prose" rows="4" :placeholder="$t('profile.thingsApplicationFormsOften')" :aria-label="$t('profile.additionalNotesOptional')"></textarea>
+      <p class="hint mt-2">{{ $t('profile.theProgramOnlyCopies') }}</p>
+      <div class="actions form-acts"><button class="primary" :disabled="genWorking" @click="init">{{ genWorking ? $t('profile.generating') : $t('profile.generateProfileDraft') }}</button></div>
+      <p v-if="genPhase === 'queued'" class="callout mt-3"><Icon name="clock" /><span>{{ $t('profile.queuedItStartsIn') }}</span></p>
+      <p v-else-if="genPhase === 'running'" class="callout mt-3"><Icon name="clock" /><span>{{ $t('profile.theAiIsReading') }}</span></p>
+      <p v-else-if="genPhase === 'failed'" class="callout warn mt-3"><Icon name="alert" /><span>{{ $t('profile.theLastAttemptDid', { p0: genTask.error }) }}</span></p>
+      <p v-else-if="genPhase === 'applied'" class="callout ok mt-3"><Icon name="check" /><span>{{ $t('profile.whatWasGeneratedAt', { p0: fmtTime(genTask.finished_at) }) }}</span></p>
     </div>
     <div v-if="genPhase === 'proposal'" class="cols">
-      <div class="panel"><h3 style="margin-top: 0">{{ $t('profile.currentProfile') }}</h3><pre>{{ gen.current }}</pre></div>
-      <div class="panel" style="border-color: var(--ok)">
-        <div class="row"><h3 class="grow" style="margin: 0">{{ $t('profile.generatedDraft') }}</h3><span class="muted small">{{ fmtTime(genTask.finished_at) }}</span><button @click="dropDraft">{{ $t('profile.doNotUse') }}</button><button class="primary" @click="adopt">{{ $t('profile.use') }}</button></div>
-        <textarea v-model="draftText" rows="40" style="margin-top: 8px"></textarea>
+      <div class="card"><CardHead :title="$t('profile.currentProfile')" /><pre>{{ gen.current }}</pre></div>
+      <div class="card is-new">
+        <CardHead :title="$t('profile.generatedDraft')" :note="fmtTime(genTask.finished_at)">
+          <button class="sm" @click="dropDraft">{{ $t('profile.doNotUse') }}</button><button class="sm primary" @click="adopt">{{ $t('profile.use') }}</button>
+        </CardHead>
+        <textarea v-model="draftText" rows="40" :aria-label="$t('profile.generatedDraft')"></textarea>
       </div>
     </div>
   </template>
 
   <template v-if="tab === 'markdown'">
     <div class="card">
-      <div class="row">
-        <div class="grow"><div class="card-title">{{ $t('profile.editTheFullText') }}</div><div class="muted small">{{ $t('profile.writtenInMarkdownEditing') }}</div></div>
-        <label class="small muted"><input v-model="mdPreview" type="checkbox" /> {{ $t('profile.previewAlongside') }}</label>
-        <span v-if="mdDirty" class="badge warn">{{ $t('profile.unsavedChanges') }}</span>
-        <button :disabled="!mdDirty" @click="md = base.md">{{ $t('profile.discardChanges') }}</button>
-        <button class="primary" :disabled="!mdDirty" @click="saveMd"><Icon name="check" />{{ $t('profile.save') }}</button>
-      </div>
-      <div :class="mdPreview ? 'cols' : ''" style="margin-top: 14px">
-        <textarea v-model="md" style="height: 68vh; resize: vertical"></textarea>
-        <div v-if="mdPreview" class="md" style="height: 68vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 16px" v-html="renderMarkdown(md)"></div>
+      <CardHead :title="$t('profile.editTheFullText')" :help="$t('profile.writtenInMarkdownEditing')">
+        <label class="meta"><input v-model="mdPreview" type="checkbox" /> {{ $t('profile.previewAlongside') }}</label>
+        <button class="sm" :disabled="!mdDirty" @click="md = base.md">{{ $t('profile.discardChanges') }}</button>
+        <button class="sm primary" :disabled="!mdDirty" @click="saveMd"><Icon name="check" />{{ $t('profile.save') }}</button>
+      </CardHead>
+      <div :class="mdPreview ? 'cols' : ''">
+        <textarea v-model="md" class="editor tall" :aria-label="$t('profile.editTheFullText')"></textarea>
+        <div v-if="mdPreview" class="md editor-preview tall" v-html="renderMarkdown(md)"></div>
       </div>
     </div>
   </template>
 
   <template v-if="tab === 'stories'">
     <div class="card">
-      <div class="row">
-        <div class="grow"><div class="card-title">{{ $t('profile.myExperienceStories') }}</div><div class="muted small">{{ $t('profile.applicationFormsOftenHave') }}</div></div>
-        <span v-if="stories !== base.stories" class="badge warn">{{ $t('profile.unsavedChanges') }}</span>
-        <button class="primary" :disabled="stories === base.stories" @click="saveStories"><Icon name="check" />{{ $t('profile.save') }}</button>
-      </div>
-      <textarea v-model="stories" style="height: 60vh; margin-top: 14px; resize: vertical; font-family: inherit; font-size: 14px"></textarea>
-      <p class="hint" style="margin-top: 8px">{{ $t('profile.writeInChineseOr') }}</p>
+      <CardHead :title="$t('profile.myExperienceStories')">
+        <template #help><p>{{ $t('profile.applicationFormsOftenHave') }}</p><p>{{ $t('profile.writeInChineseOr') }}</p></template>
+        <button class="sm primary" :disabled="stories === base.stories" @click="saveStories"><Icon name="check" />{{ $t('profile.save') }}</button>
+      </CardHead>
+      <textarea v-model="stories" class="editor prose" :aria-label="$t('profile.myExperienceStories')"></textarea>
     </div>
   </template>
 
   <template v-if="tab === 'scoring'">
     <div class="card">
-      <div class="row">
-        <div class="grow"><div class="card-title">{{ $t('profile.postingScoreRules') }}</div><div class="muted small">{{ $t('profile.writeInPlainLanguage') }}</div></div>
-        <span v-if="scoring !== base.scoring" class="badge warn">{{ $t('profile.unsavedChanges') }}</span>
-        <button class="primary" :disabled="scoring === base.scoring" @click="saveScoring"><Icon name="check" />{{ $t('profile.save') }}</button>
-      </div>
-      <textarea v-model="scoring" style="height: 60vh; margin-top: 14px; resize: vertical"></textarea>
+      <CardHead :title="$t('profile.postingScoreRules')" :help="$t('profile.writeInPlainLanguage')">
+        <button class="sm primary" :disabled="scoring === base.scoring" @click="saveScoring"><Icon name="check" />{{ $t('profile.save') }}</button>
+      </CardHead>
+      <textarea v-model="scoring" class="editor" :aria-label="$t('profile.postingScoreRules')"></textarea>
     </div>
   </template>
 
   <template v-if="tab === 'history'">
     <div class="card">
-      <div class="card-title">{{ $t('profile.versionHistory') }}</div>
-      <p class="muted">{{ $t('profile.everySaveKeepsA') }}</p>
-      <div class="list">
-        <div v-for="(v, i) in p.versions" :key="v.id" class="item">
-          <span class="badge" :class="v.source === 'agent' ? 'info' : ''" style="min-width: 76px; justify-content: center">{{ { user: $t('profile.yourEdit'), agent: $t('profile.recordedByTheApp'), init: $t('profile.generateFromRSum') }[v.source] || v.source }}</span>
-          <div><div class="main">{{ v.note || $t('profile.save') }}</div><div class="sub">{{ $t('profile.characters', { p0: fmtTime(v.created_at), p1: v.size }) }}</div></div>
-          <div><span v-if="i === 0" class="small muted">{{ $t('profile.mostRecent') }}</span><button class="sm" style="margin-left: 8px" @click="restore(v)">{{ $t('profile.revertToThisVersion') }}</button></div>
-        </div>
-      </div>
-      <EmptyState v-if="!p.versions.length" icon="clock" :title="$t('profile.noPastVersionsYet')" :text="$t('profile.recordsWillStartAppearing')" />
+      <CardHead :title="$t('profile.versionHistory')" :help="$t('profile.everySaveKeepsA')" :note="p.versions.length || ''" />
+      <DataTable v-if="p.versions.length" class="bare" :columns="VERSION_COLS" :rows="p.versions" :label="$t('profile.versionHistory')">
+        <template #cell-note="{ row, index }"><EntityCell :primary="row.note || $t('profile.save')" :secondary="$t('profile.sizeOf', { n: row.size })"><template v-if="index === 0" #after><span class="meta small">{{ $t('profile.mostRecent') }}</span></template></EntityCell></template>
+        <template #cell-source="{ row }"><Status :tone="row.source === 'agent' ? 'info' : ''" :label="SOURCES[row.source] || row.source" /></template>
+        <template #cell-when="{ row }"><DateTimeCell :primary="fmtTime(row.created_at)" /></template>
+        <template #cell-act="{ row }"><button class="ghost sm" @click="restore(row)">{{ $t('profile.revertToThisVersion') }}</button></template>
+      </DataTable>
+      <EmptyState v-else icon="clock" :title="$t('profile.noPastVersionsYet')" :text="$t('profile.recordsWillStartAppearing')" />
     </div>
+  </template>
   </template>
 </template>

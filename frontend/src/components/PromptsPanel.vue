@@ -5,7 +5,11 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { ask, fmtTime, toast } from '../ui'
 import { mayLeave, useUnsaved } from '../dirty'
+import CardHead from './CardHead.vue'
+import HelpPop from './HelpPop.vue'
 import Icon from './Icon.vue'
+import Menu from './Menu.vue'
+import Status from './Status.vue'
 
 const rows = ref([])
 const cur = ref(null)
@@ -33,7 +37,7 @@ async function pick(r) {
   cur.value = r; text.value = r.body; showDefault.value = false
 }
 async function save() {
-  if (tooLong.value || missing.value.length) { toast(tooLong.value ? T('settings.prompts.thisPromptIsToo') : T('settings.prompts.cannotBeRemovedNot', { p0: missing.value.join('、') }), 'bad'); return false }
+  if (tooLong.value || missing.value.length) { toast(tooLong.value ? T('settings.prompts.thisPromptIsToo') : T('settings.prompts.cannotBeRemovedNot', { p0: missing.value.join(', ') }), 'bad'); return false }
   if (cur.value.risk === 'high' && !(await ask(T('settings.prompts.thisPromptDirectsThe'), { ok: T('settings.prompts.save') }))) return false
   try {
     await api.put('/prompts/' + cur.value.key, { body: text.value })
@@ -44,61 +48,67 @@ async function save() {
 }
 useUnsaved({ id: 'prompt', get label() { return cur.value ? T('settings.prompts.prompt', { p0: cur.value.title }) : T('settings.prompts.aiPrompts') }, dirty: () => !!dirty.value, save, discard: () => { text.value = cur.value.body } })
 async function reset() {
-  if (!(await ask(T('settings.prompts.restoreToTheBuilt', { p0: cur.value.title }), { ok: T('settings.prompts.restoreDefaults') }))) return
+  if (!(await ask(T('settings.prompts.restoreToTheBuilt', { p0: cur.value.title }), { ok: T('settings.prompts.restoreDefaults'), danger: true }))) return
   try { await api.post(`/prompts/${cur.value.key}/reset`); toast(T('settings.prompts.defaultsRestored')); await load(cur.value.key) } catch (e) { toast(e.message, 'bad') }
 }
 function loadVersion(id) {
   const v = cur.value.history.find((h) => String(h.id) === String(id))
   if (v) { text.value = v.content; toast(T('settings.prompts.thisVersionIsNow')) }
 }
+// the menu beside the buttons: compare with the built-in text; go back to it (asked first when a version of yours is stored)
+function more(id) {
+  if (id === 'compare') showDefault.value = !showDefault.value
+  else if (id === 'restore') { if (cur.value.edited) reset(); else text.value = cur.value.default }
+}
 onMounted(() => load())
 </script>
 
 <template>
-  <div class="card">
-    <div class="card-title">{{ $t('settings.prompts.aiPrompts') }}</div>
-    <p class="muted">{{ $t('settings.prompts.theInstructionsTheProgram') }}</p>
-  </div>
+  <CardHead class="pr-head" :title="$t('settings.prompts.aiPrompts')" :help="$t('settings.prompts.theInstructionsTheProgram')" />
   <div v-if="cur" class="pr">
     <div class="card pr-nav">
       <template v-for="[g, list] in groups" :key="g">
         <div class="pr-group">{{ g }}</div>
-        <button v-for="r in list" :key="r.key" :class="{ on: cur.key === r.key }" @click="pick(r)">
+        <button v-for="r in list" :key="r.key" :class="{ on: cur.key === r.key }" :aria-pressed="cur.key === r.key" @click="pick(r)">
           <span class="ell">{{ r.title }}</span>
-          <span v-if="r.edited" class="badge info">{{ $t('settings.prompts.edited') }}</span>
+          <span v-if="r.edited" class="meta small">{{ $t('settings.prompts.edited') }}</span>
         </button>
       </template>
     </div>
     <div class="card pr-edit">
-      <div class="row">
-        <span class="card-title grow">{{ cur.title }}</span>
-        <span v-if="cur.risk === 'high'" class="badge warn">{{ $t('settings.prompts.actsOnRealSites') }}</span>
-        <span v-if="dirty" class="badge warn">{{ $t('settings.prompts.unsavedChanges') }}</span>
-        <span class="badge" :class="cur.edited ? 'info' : ''">{{ cur.edited ? $t('settings.prompts.yourEditedVersion') : $t('settings.prompts.builtInVersion') }}</span>
-      </div>
-      <p class="muted" style="margin: 4px 0 12px">{{ cur.used }}</p>
+      <CardHead :title="cur.title">
+        <template #after>
+          <span v-if="cur.risk === 'high'" class="tag warn">{{ $t('settings.prompts.actsOnRealSites') }}</span>
+          <Status :tone="cur.edited ? 'info' : ''" :label="cur.edited ? $t('settings.prompts.yourEditedVersion') : $t('settings.prompts.builtInVersion')" />
+        </template>
+      </CardHead>
+      <p class="pr-used">{{ cur.used }}</p>
       <textarea v-model="text" rows="16" spellcheck="false" :aria-label="$t('settings.prompts.promptText')"></textarea>
-      <div class="row small muted" style="margin-top: 6px">
-        <span :style="tooLong ? 'color: var(--bad)' : ''">{{ $t('settings.prompts.characters', { p0: text.length, p1: cur.max }) }}</span>
-        <span v-if="missing.length" style="color: var(--bad)">{{ $t('settings.prompts.cantRemoveTheApp', { p0: missing.join('、') }) }}</span>
+      <div class="pr-foot">
+        <span class="num" :class="{ bad: tooLong }">{{ $t('settings.prompts.characters', { p0: text.length, p1: cur.max }) }}</span>
+        <span v-if="missing.length" class="bad">{{ $t('settings.prompts.cantRemoveTheApp', { p0: missing.join(', ') }) }}</span>
         <span class="grow"></span>
         <span>{{ $t('settings.prompts.promptsWorkMostReliably') }}</span>
       </div>
 
       <div class="pr-guard">
-        <div class="row"><Icon name="shield" /><b>{{ $t('settings.prompts.fixedRules') }}</b><span class="muted small">{{ $t('settings.prompts.alwaysAddedAfterThe') }}</span></div>
+        <div class="chain-name"><Icon name="shield" /><span class="t-primary">{{ $t('settings.prompts.fixedRules') }}</span><HelpPop :text="$t('settings.prompts.alwaysAddedAfterThe')" /></div>
         <ul><li v-for="g in cur.guard" :key="g">{{ g }}</li></ul>
       </div>
 
-      <div class="row" style="margin-top: 14px">
-        <button class="primary" :disabled="!dirty || tooLong || missing.length > 0" @click="save"><Icon name="check" />{{ $t('settings.prompts.save') }}</button>
+      <div class="set-actions">
         <button :disabled="!dirty" @click="text = cur.body">{{ $t('settings.prompts.undoChanges') }}</button>
-        <button :disabled="!cur.edited && isDefault" @click="cur.edited ? reset() : (text = cur.default)">{{ $t('settings.prompts.restoreDefaults') }}</button>
+        <button class="primary" :disabled="!dirty || tooLong || missing.length > 0" @click="save"><Icon name="check" />{{ $t('settings.prompts.save') }}</button>
+        <Status v-if="dirty" tone="warn" :label="$t('settings.prompts.unsavedChanges')" />
         <span class="grow"></span>
-        <AaSelect v-if="cur.history.length" small :model-value="''" :placeholder="$t('settings.prompts.versionHistory')" :aria-label="$t('settings.prompts.versionHistory')" @update:model-value="loadVersion">
+        <AaSelect v-if="cur.history.length" class="pr-history" :model-value="''" :placeholder="$t('settings.prompts.versionHistory')" :aria-label="$t('settings.prompts.versionHistory')" @update:model-value="loadVersion">
           <option v-for="h in cur.history" :key="h.id" :value="h.id">{{ fmtTime(h.created_at) }}{{ h.note ? ' · ' + h.note : '' }}</option>
         </AaSelect>
-        <button class="ghost sm" @click="showDefault = !showDefault">{{ showDefault ? $t('settings.prompts.hideBuiltInVersion') : $t('settings.prompts.compareWithTheBuilt') }}</button>
+        <Menu :label="$t('common.more')" :items="[
+          { id: 'compare', label: showDefault ? $t('settings.prompts.hideBuiltInVersion') : $t('settings.prompts.compareWithTheBuilt'), icon: 'eye' },
+          { divider: true },
+          { id: 'restore', label: $t('settings.prompts.restoreDefaults'), icon: 'refresh', danger: true, disabled: !cur.edited && isDefault },
+        ]" @pick="more" />
       </div>
       <pre v-if="showDefault" class="pr-default">{{ cur.default }}</pre>
     </div>

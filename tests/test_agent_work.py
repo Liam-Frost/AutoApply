@@ -487,7 +487,7 @@ def test_a_record_is_not_changed_under_a_run_that_is_working_from_it(agent):
 
     agent.ends.append({"during": edits_meanwhile, **SENT})
     tasks.enqueue("apply", ref=f"job:{agent.job}", payload={"job_id": agent.job})
-    assert tasks.drain() == 1 and len(tried) == 1 and "叫停" in tried[0]      # said, instead of taken and then not used
+    assert tasks.drain() == 1 and len(tried) == 1 and "停止" in tried[0]      # said, instead of taken and then not used
 
 
 

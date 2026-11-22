@@ -220,12 +220,12 @@ def test_an_e_mail_that_cancels_an_interview_is_not_an_invitation_to_one(app_env
     assert mail._record(app_id, "interview", "cancelled", None, "m3", "cancelled")[0] == 0
     assert mail._record(app_id, "interview", "moved to Friday", None, "m4", "changed")[0] == 1
     card = messages.mail_update("interview", "4AG Robotics · AI Co-op Student", "the interview was cancelled", event="cancelled")
-    assert card.heading == "面试被取消" and "重新安排" in card.hint and messages.mail_update("interview", "t", "s").heading == "面试邀请"
+    assert card.heading == "面试已取消" and "重新安排" in card.hint and messages.mail_update("interview", "t", "s").heading == "面试邀请"
     assert messages.mail_label("interview", "changed")[1] == "面试安排有变化" and messages.mail_label("rejection", "cancelled")[1] == "申请未通过"
     # what the reading of the mail found is kept with it and used when it is linked to an application later
     with db.session() as s:
         s.add(MailEvent(message_id="m9", sender="x", subject="Interview cancelled", category="interview", event="cancelled", summary="cancelled", company_guess="4AG"))
-    assert mail.link("m9", [app_id]) == 1 and sent[-1].heading == "面试被取消"
+    assert mail.link("m9", [app_id]) == 1 and sent[-1].heading == "面试已取消"
 
 
 # --- which application a mail is about ---

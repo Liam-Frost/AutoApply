@@ -33,7 +33,7 @@ def test_an_interview_and_an_assessment_are_reminded_of_as_their_kinds_say_and_f
     assert alarms.tick(AT(10, 0, days=-1)) == 1                  # the interview, a day before
     assert alarms.tick(AT(10, 5, days=-1)) == 0                  # once
     assert alarms.tick(AT(9, 30)) == 1                           # 30 minutes before
-    assert [(h, ahead, quiet) for h, ahead, quiet, _ in told] == [("提醒：测评", "1 天前", True), ("提醒：面试", "1 天前", True), ("提醒：面试", "30 分钟前", True)]
+    assert [(h, ahead, quiet) for h, ahead, quiet, _ in told] == [("提醒：在线测评", "1 天前", True), ("提醒：面试", "1 天前", True), ("提醒：面试", "30 分钟前", True)]
     assert told[1][3] == "https://meet.example/acme"             # the way to it, as a button
     # the employer moves the interview: its reminders move with it and are said again
     reminders.from_mail(1, "Acme", "interview", "changed", "", {"due": AT(14, days=2).isoformat(timespec="minutes")}, "m3")

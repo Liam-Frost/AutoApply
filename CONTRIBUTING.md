@@ -98,6 +98,30 @@ from the applicant's profile. Add the country to `COUNTRY_PATTERNS` in `intake.p
 File: `backend/autoapply/mailbox.py`, `PRESETS`: IMAP host, port, and a `how` text telling the user where to get an
 app password. Mail must stay read-only: folders are opened read-only and bodies fetched with `BODY.PEEK[]`.
 
+## Change the interface
+
+The interface is built from shared pieces with fixed behaviour, so that content never decides layout: a long name is
+cut, not allowed to stretch a column; every row of a list has one height; a tooltip looks the same everywhere. Before
+adding or changing a page, read `docs/component-guidelines.md` (start with its ten "Rules for a new page") and
+`docs/ux-writing-glossary.md` for the words. In short:
+
+- A list of records is a `DataTable` with cells; long text is `Trunc`; hover help is `v-tip` / `InfoTip` - never a
+  hand-made `<table>` for records, never `title="…"`.
+- One visible action per row or card, the rest in a `Menu`; delete is last, `danger`, and confirmed.
+- Only tokens from `frontend/src/style.css`: no colours, font sizes or z-index numbers of your own. Light and dark.
+- Every word is a key, concise and in the glossary's terms, in English, Chinese and French
+  (`python frontend/scripts/i18n-apply.py patch.json`).
+- A new shared component gets a section in the UI lab (`/ui-lab`) and a paragraph in the guidelines.
+
+What checks it: `npm test` in `frontend/` (static rules: no native tooltip, no stray colour, no unnamed icon button,
+no hand-made record table; the pure layout functions) and `uv run pytest tests/test_ui_layout.py tests/test_ui_pages.py`
+(a real browser measures the lab and every page: row heights, column widths, overflow, names, three window sizes,
+three languages, both themes). `docs/ui-quality-assurance.md` says how to run them, how to take before / after
+screenshots (`scripts/ui_shots.py`) and what still has to be looked at by hand (zoom, text scaling, touch).
+
+To work on a page against made-up data: `python scripts/demo.py --serve 8022`, then in `frontend/`
+`npx vite --config vite.demo.config.js` (never develop against a real installation's data).
+
 ## Add or fix a translation
 
 Everything the program shows is written with keys, in English, with a note for translators on each; a language is a

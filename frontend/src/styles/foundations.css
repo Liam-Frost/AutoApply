@@ -1,0 +1,116 @@
+/* Text roles, control sizes, badges / status / metadata labels, page and section heads, action groups (owner: foundations).
+   Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md. */
+
+/* ───────────────────────── Text ───────────────────────── */
+/* Three roles. A dense area (a table, a list) says its primary line in medium, never in bold. */
+.t-primary { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); }
+.t-secondary { font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--text-2); }
+.t-meta { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: var(--text-3); }
+.num { font-variant-numeric: tabular-nums; }      /* figures that stand under each other */
+.atomic { white-space: nowrap; }      /* a date, a figure, a short label: never broken */
+
+/* One line, cut with an ellipsis (Trunc.vue). Cutting is presentation: the words themselves are whole, and shown whole
+   in a tooltip when they are cut. In a flex row or a grid the element also has to be allowed to shrink: min-width 0. */
+.cut { display: inline-block; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+@supports (overflow: clip) { .cut { overflow: clip; vertical-align: baseline; } }      /* (cut by `clip`, it keeps the baseline of its words) */
+div.cut, p.cut, a.cut.block, .cut.block { display: block; }
+/* at most two lines (a description in a table) */
+.cut2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
+
+/* A plain attribute - a system's name, "employer site", "registered by the program": words, no fill. And the dash
+   that stands where there is no value. */
+.meta { font-size: var(--fs-sm); color: var(--text-2); white-space: nowrap; }
+.meta.small { font-size: var(--fs-xs); }
+.none:not(.tag, .badge, .ico) { color: var(--text-3); }
+
+/* ───────────────────────── Actions ───────────────────────── */
+/* A group of actions: one line, one height, 8px apart. What does not fit belongs in a Menu - it is not left to wrap. */
+.actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: nowrap; min-width: 0; }
+.actions > * { flex: none; }
+/* (a phone: until a page has moved what is rarely used into a menu, its buttons may still go onto a second line rather than off the screen) */
+@media (max-width: 640px) { .page-head > .actions { flex-wrap: wrap; margin-left: 0; } }
+
+/* An icon alone as a button (IconButton.vue): square, the glyph in the middle, its name in a tooltip and for a screen
+   reader. md 28px, sm 24px - the small one is still pressed within 28px. */
+button.icon-btn, .icon-btn { position: relative; flex: none; width: var(--h-sm); height: var(--h-sm); padding: 0; gap: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.icon-btn svg { width: 16px; height: 16px; }
+button.icon-btn.sm, .icon-btn.sm { width: var(--h-xs); height: var(--h-xs); padding: 0; }
+.icon-btn.sm svg { width: 14px; height: 14px; }
+.icon-btn.sm::before { content: ""; position: absolute; inset: -3px; }
+.icon-btn.sm.busy::after, .icon-btn.sm[data-busy]::after { width: 12px; height: 12px; }
+.icon-btn.danger { border-color: transparent; color: var(--bad); }
+.icon-btn.danger:hover { background: var(--bad-soft); border-color: transparent; color: var(--bad); }
+.icon-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary); }
+.icon-btn:disabled { background: transparent; color: var(--text-2); }
+/* under way (the `loading` prop, or ui.run marking the button): the spinner where the glyph was, the button as large as before */
+.icon-btn.busy, .icon-btn[data-busy] { pointer-events: none; opacity: 0.6; }
+.icon-btn.busy svg, .icon-btn[data-busy] svg { visibility: hidden; }
+.icon-btn.busy::after, .icon-btn[data-busy]::after { content: ""; position: absolute; inset: 0; width: 14px; height: 14px; margin: auto; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+  animation: spin 0.8s linear infinite; }
+
+/* ───────────────────────── Status ───────────────────────── */
+/* An ordinary state in a dense place (Status.vue): a dot of the tone and the words. The second of three weights - a
+   filled .tag is for the few states that must be seen, .meta for a plain attribute. The colour is the dot's alone. */
+.status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--text-2); line-height: 20px; white-space: nowrap; vertical-align: middle; }
+.status::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.status.ok::before { background: var(--ok); }
+.status.warn::before { background: var(--warn); }
+.status.bad::before { background: var(--bad); }
+.status.info::before { background: var(--info); }
+.status-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* the reason behind it: a small (i), read on hover, on focus or by a press */
+.status-tip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: -2px; border-radius: 50%; color: var(--text-3); cursor: help; }
+.status-tip:hover, .status-tip:focus-visible { color: var(--text); }
+.status-tip svg { width: 14px; height: 14px; }
+
+/* ───────────────────────── Heads and bars ───────────────────────── */
+/* the page's title with the (i) that says what the page is for */
+/* The title part takes the room the actions leave, down to about 12em (then the actions go under it); a title longer
+   than that is cut (PageHead.vue), never pushed onto a line of its own. */
+.page-head-main { flex: 1 1 0; min-width: min(12em, 100%); }
+.page-title { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.page-title > .info-tip { flex: none; }
+
+/* A section of a page (SectionHead.vue): its title, how many, and its actions at the right. */
+.section-head { display: flex; align-items: center; gap: var(--s2); min-height: var(--h-md); margin: var(--s5) 0 var(--s2); }
+.section-head:first-child { margin-top: 0; }
+.section-head > h3 { margin: 0; min-width: 0; font-size: var(--fs-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-head > .count { flex: none; color: var(--text-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.section-head > .info-tip { flex: none; }
+.section-head > .actions { margin-left: auto; }
+
+/* What can be done with the ticked rows (BulkBar.vue): over the bottom of the page's own area, in its middle. It is
+   laid over the page - nothing moves when it comes or goes; the page only gets room to scroll its last rows clear of it.
+   (.bulkbar on its own, without the frame, is the older bar that stands in the page's flow.) */
+.bulk-frame { position: fixed; z-index: var(--z-sticky); bottom: var(--s4); left: var(--side-w); right: max(0px, 100vw - var(--side-w) - var(--content-max));
+  display: flex; justify-content: center; padding: 0 var(--s4); pointer-events: none; }
+.bulk-frame > .bulkbar { position: static; margin: 0; pointer-events: auto; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; gap: var(--s2); padding: 6px 8px 6px var(--s4); }
+.bulk-frame .bulk-count { flex: none; margin-right: var(--s1); font-size: var(--fs-sm); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bulk-frame .actions { flex: none; }
+/* Toasts and the bar share the bottom edge: while the bar is shown the toasts rise above it (the bar's 6px padding,
+   a small button, its 1px borders), so what came of a bulk action never covers the bar's buttons. */
+body:has(.bulk-frame) .toasts { bottom: calc(var(--s4) + var(--h-sm) + 14px + var(--s3)); }
+.bulkbar button.primary, .bulkbar .btn.primary { background: var(--surface); border-color: var(--surface); color: var(--text); }
+.bulkbar button.primary:hover, .bulkbar .btn.primary:hover { background: color-mix(in srgb, var(--surface) 88%, var(--text)); }
+.bulkbar .btn { background: transparent; color: inherit; border-color: color-mix(in srgb, var(--surface) 35%, transparent); }
+.bulkbar .btn:hover { background: color-mix(in srgb, var(--surface) 15%, transparent); }
+.bulkbar .ghost { border-color: transparent; }
+.bulkbar .icon-btn { border-color: transparent; color: inherit; }
+.bulkbar :focus-visible { outline-color: var(--surface); }
+main.content:has(.bulk-frame) { padding-bottom: calc(var(--s6) + var(--h-xl) + var(--s4)); }
+@media (max-width: 1000px) { .bulk-frame { left: 0; right: 0; } }
+/* (a phone: the bar grows upwards onto a second line rather than hiding an action off its edge) */
+@media (max-width: 640px) { .bulk-frame > .bulkbar, .bulk-frame .actions { flex-wrap: wrap; flex-shrink: 1; overflow: visible; } .bulk-frame .bulk-clear { margin-left: auto; } }
+
+/* ───────────────────────── Tabs ───────────────────────── */
+/* Tabs.vue is a .seg.tabs (style.css: one line, scrolls sideways inside itself, no scroll bar). What it adds: the focus
+   ring drawn inside the track's padding (an outline outside it would be cut by the row's own scrolling); the row is the
+   box its tabs are measured from (Tabs.vue brings the selected one into view). */
+.aa-tabs { position: relative; }
+.aa-tabs > [role="tab"]:focus-visible { outline-offset: 0; }
+.aa-tabs > [role="tab"] { white-space: nowrap; }
+/* more tabs past an edge: that edge fades out (there is no scroll bar to say so) */
+.aa-tabs.more-right { mask-image: linear-gradient(to left, transparent, black 40px); }
+.aa-tabs.more-left { mask-image: linear-gradient(to right, transparent, black 40px); }
+.aa-tabs.more-left.more-right { mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent); }

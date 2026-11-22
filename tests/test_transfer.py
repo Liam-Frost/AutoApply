@@ -28,7 +28,7 @@ def test_a_saved_sign_in_travels_as_a_file_only_the_passphrase_opens(app_env):
 
 
 def test_what_is_not_such_a_file_or_has_a_weak_passphrase_is_refused(app_env):
-    with pytest.raises(transfer.Refused, match="没有保存的登录状态"):
+    with pytest.raises(transfer.Refused, match="没有保存的会话"):
         transfer.export("nobody:here", "long enough passphrase")
     browser.write_state("site:x", STATE)
     with pytest.raises(transfer.Refused, match="至少"):
