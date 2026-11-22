@@ -111,3 +111,45 @@ def test_a_mail_gives_its_card_the_link_it_has_and_never_one_it_does_not(app_env
     reminders.from_mail(3, "Acme", "interview", "changed", "", {"due": "2026-11-26T11:00", "links": [{"url": "https://meet.example/new", "what": ""}]}, "m3")
     with db.session() as s:
         assert s.get(Todo, one).payload["link"] == "https://meet.example/mine"
+
+
+def test_an_item_says_whether_its_employer_is_a_priority_one_and_how_the_mail_wrote_its_time(app_env):
+    from autoapply import agenda
+    from autoapply.models import Todo
+
+    _job("Acme Robotics", "2026-11-25 23:59")
+    _, app = _job("Kestrel", "", "interview")
+    with db.session() as s:
+        s.add(Todo(kind="followup", ref=f"followup:{app}:interview", title="Kestrel", due_at=datetime(2026, 11, 26, 10, 0),
+                   payload={"application_id": app, "category": "interview", "due_text": "Thursday 10am PT"}))
+    db.set_setting("employers", [{"name": "Acme Robotics", "url": "https://acme.example/careers", "priority": True}])
+    got = {x["kind"]: x for x in agenda.items(MON, MON + timedelta(days=7))}
+    assert got["deadline"]["priority"] is True and got["interview"]["priority"] is False
+    assert got["interview"]["due_text"] == "Thursday 10am PT" and got["deadline"]["due_text"] == ""
+
+
+def test_a_company_with_the_postings_fields_glued_to_it_is_read_as_its_name(app_env):
+    from autoapply import agenda
+    from autoapply.api.main import calendar_items
+    from autoapply.discover import company_name
+    from autoapply.models import Job
+
+    glued = ("Ballard Power SystemsDepartment: Research - Electrodes TeamWork Term: 8 months January 2027 - August 2027Contact: A. PersonWork Type: Full-time"
+             "Title: Research Co-op")
+    assert company_name(glued) == "Ballard Power Systems"
+    assert company_name("Title Nine Outfitters") == "Title Nine Outfitters"          # (a label is a word followed by ':')
+    assert company_name("  Acme   Corp ") == "Acme Corp"
+    _job(glued, "2026-11-25 23:59")
+    got = agenda.items(MON, MON + timedelta(days=7))
+    assert [(x["company"], x["subject"]) for x in got] == [("Ballard Power Systems", "Ballard Power Systems · Analyst")]
+    with db.session() as s:
+        assert s.query(Job).one().company == glued                                     # what was kept is not changed
+    assert isinstance(calendar_items("2026-11-23", "2026-11-30")["utc_offset"], int)
+
+
+def test_the_portal_posting_the_agent_saved_keeps_only_the_companys_name():
+    from autoapply.sources import pdportal
+
+    row, _ = pdportal.row_of({"id": "149001", "company": "Ballard Power SystemsDepartment: ResearchWork Term: 8 months", "title": "Research Co-op",
+                              "deadline": "2026-11-18 23:59", "how_to_apply": "portal"})
+    assert row["company"] == "Ballard Power Systems"

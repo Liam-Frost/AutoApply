@@ -110,9 +110,13 @@ def row_of(p: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     text = str(p.get("text") or "")[:40000]
     row = parse_detail(pid, text) if text.strip() else {"source": "pdportal", "source_id": pid, "title": "", "company": "", "deadline": "", "jd_text": "", "channel": "", "apply_url": "", "ats": ""}
     look: list[str] = []
+    from ..discover import company_name
+
     for mine, theirs in (("title", "title"), ("company", "company"), ("term", "term"), ("months", "months"), ("location", "location"), ("salary", "salary"), ("docs_required", "documents")):
         if str(p.get(theirs) or "").strip():
             row[mine] = " ".join(str(p[theirs]).split())[:300]
+    if row.get("company"):
+        row["company"] = company_name(row["company"])      # (the page's text can run the posting's fields into the name)
     if str(p.get("deadline") or "").strip():
         when = _when(p["deadline"])
         if when:

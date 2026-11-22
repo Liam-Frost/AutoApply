@@ -112,6 +112,20 @@ def norm_company(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", _CORP.sub(" ", (name or "").lower())).strip()
 
 
+# A posting's other fields glued to the company's name when a page's text ran together ("Ballard Power Systems" +
+# "Department: Research ..." + "Work Term: ..."): the labels a co-op portal and career pages put before them.
+_GLUED = re.compile(r"(?:Department|Division|Work Term|Co-op Work Term|Contact|Work Type|Job Title|Title|Job Location|Location|Organization|Address|"
+                    r"Salary(?: \(\$\))?|Website|Application Deadline)\s*:", re.I)
+
+
+def company_name(name: str) -> str:
+    """A company as it is shown: the name before the first field of the posting glued to it, as written otherwise.
+    What was kept is not changed - this is how it is read."""
+    text = " ".join(str(name or "").split())
+    m = _GLUED.search(text)
+    return (text[: m.start()].strip(" -–—·|,;") if m and m.start() > 0 else text)[:200]
+
+
 def norm_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
 
