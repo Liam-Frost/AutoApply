@@ -15,6 +15,13 @@
       "name": "English",
       "complete": 100,
       "english": "English"
+    },
+    {
+      "id": "fr",
+      "tag": "fr-FR",
+      "name": "Français",
+      "complete": 100,
+      "english": "French"
     }
   ]
 }

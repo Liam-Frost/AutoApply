@@ -1,109 +1,12 @@
-// Interface language - the older half of it. Text written with a key is catalog.js's. The pages that are not moved to
-// keys yet have their Chinese templates translated on the screen by a dictionary ({"中文": "English"}, built by
-// scripts/i18n_extract.py + i18n_translate.py) - also the wording that comes from the server, until it sends codes.
-//
-// The cost of a dictionary at the DOM: text that is assembled in ways it has no pattern for stays in Chinese until an
-// entry is added - never garbled, just untranslated. That is why new text is written with keys.
+// Choosing the interface language. The words themselves are catalog.js's (keys, src/locales/<language>.json); this is
+// which language the page is in, and following the one the program was set up with.
 import { LANGS, chosen, lang, tag, useLanguage } from './catalog'
 
 export { LANGS, lang }
-// one entry per dictionary, so each language is its own file that is only downloaded when chosen
-const LOADERS = { en: () => import('./en.json') }
-
-const CJK = /[一-鿿]/
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-let dict = null
-let patterns = []
-let segRe = null
-let shortRe = null
-
-function build(d) {
-  dict = d
-  const keys = Object.keys(d)
-  patterns = keys.filter((k) => /\{\d+\}/.test(k)).map((k) => ({
-    re: new RegExp('^' + esc(k).replace(/\\\{\d+\\\}/g, '([\\s\\S]*?)') + '$'),
-    order: [...k.matchAll(/\{(\d+)\}/g)].map((m) => +m[1]),
-    out: d[k],
-    weight: k.replace(/\{\d+\}/g, '').length,
-  })).sort((a, b) => b.weight - a.weight)   // the most specific pattern first
-  // whole phrases inside longer text; short words are left alone (replacing them piecemeal would produce nonsense)
-  const segs = keys.filter((k) => !/\{\d+\}/.test(k) && k.length >= 4).sort((a, b) => b.length - a.length)
-  segRe = segs.length ? new RegExp(segs.map(esc).join('|'), 'g') : null
-  // short words (个月, 今天, 截止 ...) only where they stand on their own between non-Chinese characters, e.g. "4 个月"
-  const short = keys.filter((k) => !/\{\d+\}/.test(k) && k.length < 4 && CJK.test(k)).sort((a, b) => b.length - a.length)
-  shortRe = short.length ? new RegExp('(^|[^\\u4e00-\\u9fff])(' + short.map(esc).join('|') + ')(?![\\u4e00-\\u9fff])', 'g') : null
-}
-
-const SEP = /(\s?·\s|；|; |，|, |：|: |（|）| \/ |、|\s?\|\s)/
-
-// a part of a joined string: translated if it can be, kept (as a marker of failure) if not
-function part(x, depth) { return CJK.test(x) ? tr(x, depth) : x }
-const PUNCT = { '；': '; ', '，': ', ', '：': ': ', '（': ' (', '）': ') ', '、': ', ' }
-
-export function tr(s, depth = 0) {
-  if (!dict || !s || !CJK.test(s)) return s
-  const lead = s.match(/^\s*/)[0]
-  const tail = s.match(/\s*$/)[0]
-  const core = s.trim().replace(/\s+/g, ' ')
-  let out = dict[core]
-  if (out == null) {
-    for (const p of patterns) {
-      const m = core.match(p.re)
-      if (m) { out = p.out.replace(/\{(\d+)\}/g, (_, n) => tr(m[p.order.indexOf(+n) + 1] ?? '', depth + 1)); break }
-    }
-  }
-  if (out == null) {
-    // text put together from parts ("今天 15:25 · 298 KB", "已投递；需简历"): translate each part on its own
-    const parts = core.split(SEP)
-    if (parts.length > 1 && depth < 3) out = parts.map((x, i) => (i % 2 ? PUNCT[x] || x : part(x, depth + 1))).join('')
-  }
-  if (out == null || CJK.test(out)) {
-    let o = out == null ? core : out
-    if (segRe) o = o.replace(segRe, (m) => dict[m])
-    if (shortRe) o = o.replace(shortRe, (_, pre, w) => pre + dict[w])
-    out = o
-  }
-  // All or nothing. If any Chinese is left, this is not (only) interface text - it is something the user, a website or
-  // the AI wrote - and a half-translated sentence is worse than the original. Show it exactly as it was.
-  if (CJK.test(out)) return s
-  return lead + out + tail
-}
-
-const ATTRS = ['placeholder', 'title', 'aria-label']
-// what the user or a website wrote is theirs: it is shown as written
-const SKIP = 'textarea, pre, code, [data-notr], .md, .pdf, script, style'
-
-function visit(node) {
-  if (node.nodeType === 3) {
-    if (CJK.test(node.nodeValue) && !(node.parentElement && node.parentElement.closest(SKIP))) {
-      const t = tr(node.nodeValue)
-      if (t !== node.nodeValue) node.nodeValue = t
-    }
-    return
-  }
-  if (node.nodeType !== 1 || node.matches(SKIP)) return
-  for (const a of ATTRS) {
-    const v = node.getAttribute(a)
-    if (v && CJK.test(v)) { const t = tr(v); if (t !== v) node.setAttribute(a, t) }
-  }
-  for (const c of node.childNodes) visit(c)
-}
 
 export async function initI18n() {
   document.documentElement.lang = tag()
   await useLanguage(lang.value)
-  if (lang.value === 'zh' || !LOADERS[lang.value]) return
-  try {
-    build((await LOADERS[lang.value]()).default)
-  } catch (e) { return }   // no dictionary for this language yet: stay in Chinese
-  new MutationObserver((list) => {
-    for (const m of list) {
-      if (m.type === 'characterData') visit(m.target)
-      else if (m.type === 'attributes') visit(m.target)
-      else for (const n of m.addedNodes) visit(n)
-    }
-  }).observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRS })
-  visit(document.body)
 }
 
 // A browser that has not chosen yet follows what the program was set up with (the installer's language, or the system's).
@@ -118,6 +21,6 @@ export async function followServerLang() {
 
 export function setLang(v) {
   try { localStorage.setItem('lang', v) } catch (e) { /* ignore */ }
-  // the server needs to know too: summaries and reasons written by the AI follow the interface language
+  // the server needs to know too: notifications, and what the AI writes for the applicant, follow the interface language
   fetch(new URL('api/settings', document.baseURI), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: { 'ui.lang': v } }) }).finally(() => location.reload())
 }

@@ -123,7 +123,7 @@ class Joined(Msg):
 def join(sep: str, parts: Any) -> Any:
     """``sep.join(parts)`` that keeps the messages among the parts."""
     parts = list(parts)
-    if not any(isinstance(p, Msg) for p in parts):
+    if not isinstance(sep, Msg) and not any(isinstance(p, Msg) for p in parts):
         return sep.join(parts)
     out: list[Any] = []
     for i, p in enumerate(parts):
@@ -196,6 +196,77 @@ def dumps(value: Any) -> str:
 
 def loads(text: str) -> Any:
     return kept_all(json.loads(text))
+
+
+# --- what was kept before messages had keys -------------------------------------------------------------------------------
+@lru_cache(maxsize=1)
+def _patterns() -> list[tuple[int, Any, str]]:
+    """Every message's Chinese wording as a pattern, its values as groups - the longest wording first. A wording with
+    almost nothing of its own ("{what} · {company}") would take any text for itself: it is left out."""
+    out = []
+    for key, text in _catalog(SOURCE).items():
+        if "|" in text:
+            continue
+        literal = re.sub(r"\{\w+\}", "", text)
+        if len(re.findall(r"[\u4e00-\u9fff]", literal)) < 2:
+            continue
+        names: list[str] = []
+
+        def group(m: Any) -> str:
+            name = m.group(1)
+            if name in names:
+                return f"(?P={name})"
+            names.append(name)
+            return f"(?P<{name}>.+?)"
+
+        rx = re.sub(r"\\\{(\w+)\\\}", group, re.escape(text))
+        try:
+            out.append((len(literal), re.compile(rx + r"\Z", re.S), key))
+        except re.error:
+            continue
+    return sorted(out, key=lambda x: -x[0])
+
+
+def recognise(text: str, depth: int = 0) -> Msg | None:
+    """The message a text is, when the program wrote it before its messages had keys (a card's title, an application's
+    latest event): found by its Chinese wording, its values taken back out of it. None when it is no message - the
+    applicant, an employer or the AI wrote it, or it was put together from several."""
+    if not isinstance(text, str) or isinstance(text, Msg) or not re.search(r"[\u4e00-\u9fff]", text) or len(text) > 2000:
+        return None
+    for _n, rx, key in _patterns():
+        m = rx.match(text)
+        if m is None:
+            continue
+        params: dict[str, Any] = {}
+        for name, value in m.groupdict().items():
+            inner = recognise(value, depth + 1) if depth < 2 else None
+            params[name] = inner if inner is not None else value
+        msg = say(key, **params)
+        if str(msg) == text:
+            return msg
+    return None
+
+
+def recognise_kept() -> int:
+    """Once: the cards' titles and texts and the applications' latest events the program wrote before its messages had
+    keys are kept as the messages they are - read in whatever language from then on. What is not one of the program's
+    messages stays as it was written. Returns how many were found."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from . import db
+    from .models import Application, Todo
+
+    n = 0
+    with db.session() as s:
+        for row, columns in [*((t, ("title", "body")) for t in s.query(Todo)), *((a, ("last_event",)) for a in s.query(Application))]:
+            for col in columns:
+                value = getattr(row, col)
+                found = recognise(value) if value and not isinstance(value, Msg) else None
+                if found is not None:
+                    setattr(row, col, found)
+                    flag_modified(row, col)      # (the message is the same string as before: told it changed, it is written)
+                    n += 1
+    return n
 
 
 def language_name(lang: str) -> str:

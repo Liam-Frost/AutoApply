@@ -22,8 +22,8 @@ onBeforeUnmount(() => { if (release) release() })
         <button v-for="c in dialog.choices" :key="c.key" :class="c.cls" :data-first="c.focus ? '' : null" @click="answer(c.key)">{{ c.label }}</button>
       </div>
       <div v-else class="row" style="justify-content: flex-end">
-        <button :data-first="dialog.danger ? '' : null" @click="answer(false)">取消</button>
-        <button :class="dialog.danger ? 'danger solid' : 'primary'" :data-first="dialog.danger ? null : ''" @click="answer(true)">{{ dialog.ok }}</button>
+        <button :data-first="dialog.danger ? '' : null" @click="answer(false)">{{ $t('common.cancel') }}</button>
+        <button :class="dialog.danger ? 'danger solid' : 'primary'" :data-first="dialog.danger ? null : ''" @click="answer(true)">{{ dialog.ok || $t('common.ok') }}</button>
       </div>
     </div>
   </Teleport>

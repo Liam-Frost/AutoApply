@@ -115,3 +115,70 @@ def test_what_the_ai_writes_for_the_applicant_is_in_their_language(app_env):
 
     listed = s.language_name("fr")
     assert listed in ("French", "English")
+
+
+def test_what_was_kept_before_messages_had_keys_is_found_as_the_message_it_is(app_env):
+    """Cards and latest events written before 2.0.2 hold the Chinese the program wrote. Once, at the start, each that is one
+    of the program's messages becomes that message - read in English or French from then on; what someone wrote stays."""
+    from sqlalchemy import text
+
+    from autoapply import db, say
+    from autoapply.models import Todo
+
+    budget = str(say.say("server.agent.work.thisApplicationsBudgetIs2", p0="Acme · Analyst"))      # (as it was stored: plain text)
+    with db.session() as s:
+        s.add(Todo(kind="failed", title="x", body="Recruiter said: call me back", payload={}))
+    with db.get_engine().begin() as c:      # written as an earlier version wrote it, without a key
+        c.execute(text("UPDATE todos SET title = :t"), {"t": budget})
+    assert say.recognise_kept() == 1
+    with db.session() as s:
+        t = s.query(Todo).one()
+        assert isinstance(t.title, say.Msg) and t.title.key == "server.agent.work.thisApplicationsBudgetIs2" and "Acme · Analyst" in t.title.in_lang("en")
+        assert t.body == "Recruiter said: call me back"
+    assert say.recognise("已投出").in_lang("en") == "Sent" and say.recognise("面试安排在下周") is None
+
+
+def test_server_code_writes_no_text_for_people_but_by_key():
+    """Every sentence the server shows has a key (say.py). Chinese left in the code is data - patterns that read what sites,
+    mails and AI services write, words looked for, the tray's own two languages - and only in these files, each saying why."""
+    import ast
+
+    data = {
+        "actions.py": "a field name of cards from before keys, compared",
+        "agent/work.py": "a word looked for in the agent's own summary",
+        "analytics.py": "patterns of error text",
+        "humanize.py": "patterns of error text",
+        "importer.py": "the words of the old tracking table being imported",
+        "intake.py": "place names looked for in postings",
+        "launcher.py": "the tray's own words, in Chinese and English",
+        "lifecycle.py": "what employers' sites write",
+        "llm.py": "what AI services answer",
+        "mail.py": "a word looked for in a card's text",
+        "mailbox.py": "words looked for in mails",
+        "messages.py": "patterns of error text, a word looked for in a reason",
+        "rules.py": "a heading of the applicant's scoring rules, looked for",
+        "scoring.py": "headings the model is asked to write (in the applicant's language, by prompts.py)",
+        "tailor.py": "section headings of résumés, looked for",
+        "tasks.py": "words looked for in an error",
+    }
+    cjk = re.compile(r"[一-鿿]")
+    root = Path(__file__).resolve().parents[1] / "backend" / "autoapply"
+    found = set()
+    for p in root.rglob("*.py"):
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module))
+                and n.body and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+        if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and cjk.search(n.value) and id(n) not in docs for n in ast.walk(tree)):
+            found.add(p.relative_to(root).as_posix())
+    assert found - set(data) == set()       # a sentence for people: T("server.<module>.<key>") with its English and note in the catalogs
+
+
+def test_a_third_language_is_only_its_catalogs():
+    """French came as two files (and a line in the list of languages): the program says its messages in it, numbers
+    pick their plural form the French way, and the AI is told the applicant reads French."""
+    from autoapply import say
+
+    msg = say.say("server.applications.questionsOpen", n=1)
+    assert msg.in_lang("fr") == "1 question est encore en suspens" and say.say("server.applications.questionsOpen", n=3).in_lang("fr").startswith("3 questions sont")
+    assert say.say("server.applications.questionsOpen", n=0).in_lang("fr").startswith("0 question est")      # (0 is singular in French)
+    assert say.language_name("fr") == "French"

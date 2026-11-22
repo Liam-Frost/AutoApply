@@ -6,6 +6,8 @@ change (especially agent-appended rules) can be reviewed and rolled back.
 
 from __future__ import annotations
 
+from .say import say as T
+
 import logging
 import re
 from datetime import date
@@ -302,7 +304,7 @@ def set_structured(data: dict) -> int:
     bodies = {MANAGED["compensation"]: compensation_md(comp), MANAGED["referees"]: referees_md(refs)}
     secs = [sec for sec in split_sections(read("profile")) if sec["title"] not in bodies]
     secs += [{"title": t, "body": b} for t, b in bodies.items() if b]
-    return write("profile", join_sections(secs), source="user", note="薪资与推荐人")
+    return write("profile", join_sections(secs), source="user", note=T("server.knowledge.payAndReferees"))
 
 
 NOTES_HEAD = "## Learned by the program on earlier runs"

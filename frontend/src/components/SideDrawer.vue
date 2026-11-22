@@ -26,7 +26,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); if (releas
           <h3>{{ title }}</h3>
           <div v-if="sub" class="muted small" style="margin-top: 2px">{{ sub }}</div>
         </div>
-        <button class="ghost" aria-label="关闭" @click="emit('close')"><Icon name="x" /></button>
+        <button class="ghost" :aria-label="$t('common.close')" @click="emit('close')"><Icon name="x" /></button>
       </div>
       <slot />
     </aside>

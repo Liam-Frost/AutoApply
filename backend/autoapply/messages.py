@@ -117,7 +117,9 @@ def discover_done(total: dict[str, int], new_by_source: dict[str, int], errors: 
         for k, v in errors.items():
             why = T("server.messages.needsYouToSign") if v.startswith("needs login") else T("server.messages.theSiteRefusesAutomated") if "blocked by the site" in v else _cut(v, 80)
             said.setdefault(why, []).append(k)
-        c.detail = "未能读取的来源：\n" + "\n".join(f"{'、'.join(names)}：{why}" for why, names in said.items())
+        from .say import join as _join
+
+        c.detail = _join("\n", [T("server.messages.sourcesNotRead"), *(T("server.messages.sourceNotRead", names=_join(T("server.messages.listSep"), names), why=why) for why, names in said.items())])
         if any("安全检查拒绝" in why for why in said):
             c.hint = T("server.messages.sourcesTurnedAwayBy")
     if not total["new"] and not errors:
@@ -174,7 +176,7 @@ def ahead(before: int, all_day: bool) -> str:
 def alarm(title: str, subject: str, start: Any, all_day: bool, kind: str, before: int, link: str = "") -> Card:
     """A reminder the applicant set (or the one of its kind): what, when, and the way to it."""
     when = start.strftime("%Y-%m-%d") if all_day else start.strftime("%Y-%m-%d %H:%M")
-    return Card("⏰", T("server.messages.reminder", p0=ITEM_KINDS.get(kind, '日程')), subject or title, fields=[(T("server.messages.item"), title if subject else ""), (T("server.messages.time"), when), (T("server.messages.ahead"), ahead(before, all_day))],
+    return Card("⏰", T("server.messages.reminder", p0=ITEM_KINDS.get(kind, T("server.ics.calendar"))), subject or title, fields=[(T("server.messages.item"), title if subject else ""), (T("server.messages.time"), when), (T("server.messages.ahead"), ahead(before, all_day))],
                 path=f"/calendar?view=day&date={start.strftime('%Y-%m-%d')}", link=T("server.messages.openTheCalendar"), open_url=link)
 
 
@@ -221,8 +223,8 @@ def high_scores(rows: list[dict[str, Any]]) -> Card:
     """rows: {score, company, title, deadline}"""
     c = Card("⭐", T("server.messages.newHighScoringPostings", p0=len(rows)), path="/jobs", link=T("server.messages.viewJobList"), hint=T("server.messages.queuedTheAgentWill"))
     for r in rows[:12]:
-        dl = f"　截止 {r['deadline']}" if r.get("deadline") else ""
-        c.items.append(f"{r['score']:g}　{r['company']} · {_cut(r['title'], 60)}{dl}")
+        line = f"{r['score']:g}  {r['company']} · {_cut(r['title'], 60)}"
+        c.items.append(line + T("server.messages.dueOn", day=r["deadline"]) if r.get("deadline") else line)
     if len(rows) > 12:
         c.items.append(T("server.messages.andMore", p0=len(rows) - 12))
     return c

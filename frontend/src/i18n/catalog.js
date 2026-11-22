@@ -4,9 +4,8 @@
 // its placeholders are, and every other language is a translation of it. A key a translation does not have yet is
 // shown in English - never in Chinese, never as the key's name.
 //
-// The pages are moving to keys one by one (2.0.1: this base, new and rewritten pages; 2.0.2: the rest). Until a page
-// has moved, its Chinese text is translated on the screen by the older dictionary (index.js). Both work side by side:
-// text from a key is never Chinese in another language, so the dictionary leaves it alone.
+// Every page is written with keys; what the server says comes with its own keys (say.py, locales/server/). Text that has
+// no key - what the applicant, an employer or the AI wrote - is shown as it was written.
 import { reactive } from 'vue'
 import { createI18n } from 'vue-i18n'
 import manifest from '../locales/languages.json'

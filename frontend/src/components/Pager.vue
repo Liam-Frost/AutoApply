@@ -11,9 +11,9 @@ const to = computed(() => Math.min(props.total, (props.page + 1) * props.size))
 
 <template>
   <div v-if="total > size" class="pager">
-    <span class="where">第 {{ from }}–{{ to }} 条，共 {{ total }} 条</span>
-    <button class="sm" :disabled="page <= 0" @click="emit('update:page', page - 1)">上一页</button>
+    <span class="where">{{ $t('common.pager.range', { from, to, total }) }}</span>
+    <button class="sm" :disabled="page <= 0" @click="emit('update:page', page - 1)">{{ $t('common.pager.prev') }}</button>
     <span class="small muted">{{ page + 1 }} / {{ pages }}</span>
-    <button class="sm" :disabled="page >= pages - 1" @click="emit('update:page', page + 1)">下一页</button>
+    <button class="sm" :disabled="page >= pages - 1" @click="emit('update:page', page + 1)">{{ $t('common.pager.next') }}</button>
   </div>
 </template>

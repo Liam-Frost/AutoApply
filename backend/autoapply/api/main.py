@@ -51,6 +51,15 @@ async def lifespan(app: FastAPI):
     from ..sources import watch as _watch
 
     _i18n.first_run_lang()
+    if not db.get_setting("migrated.said_keys"):
+        # what the program wrote before its messages had keys (cards, latest events) becomes the message it is, once
+        try:
+            from .. import say as _say_kept
+
+            logging.getLogger("autoapply").info("found %d kept texts that are messages", _say_kept.recognise_kept())
+        except Exception:  # noqa: BLE001 - never a reason not to start; such a text is then shown as written
+            logging.getLogger("autoapply").exception("could not find the messages among the kept texts")
+        db.set_setting("migrated.said_keys", True)
     if not db.get_setting("migrated.page_ids"):
         _watch.migrate_ids()
         db.set_setting("migrated.page_ids", True)
@@ -2282,7 +2291,9 @@ def get_regions() -> dict[str, Any]:
     from .. import persona, regions
 
     countries = persona.get().get("countries") or db.get_setting("intake.countries") or []
-    return {"countries": countries, "packs": regions.view(countries, str(db.get_setting("ui.lang") or "zh")), "available": sorted(regions.packs())}
+    from .. import say as _say_lang
+
+    return {"countries": countries, "packs": regions.view(countries, _say_lang.page_lang()), "available": sorted(regions.packs())}      # (in the page's language)
 
 
 @app.get("/api/profile/structured")
@@ -2596,11 +2607,11 @@ def pdportal_import(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return out
 
 
-BRIDGE_HTML = r"""<!doctype html><meta charset="utf-8"><title>AutoApply 导入</title>
+BRIDGE_HTML = r"""<!doctype html><meta charset="utf-8"><title>%(title)s</title>
 <body style="font:14px/1.6 system-ui,sans-serif;margin:24px;color:#14233b">
-<b>AutoApply 正在接收 PD Portal 的岗位</b><p id="s">等待门户页面发来数据…请不要关闭这个窗口，完成后会自动关闭。</p>
+<b>%(head)s</b><p id="s">%(wait)s</p>
 <script>
-const PORTAL = "%s"; let n = 0;
+const PORTAL = "%(portal)s"; let n = 0; const SAID = %(said)s;
 window.addEventListener("message", async (ev) => {
   if (ev.origin !== PORTAL || !ev.data || !ev.data.aa) return;
   const { id, path, body } = ev.data;
@@ -2609,8 +2620,8 @@ window.addEventListener("message", async (ev) => {
   if (!/^\/api\/import\/pdportal(\/known)?$/.test(path)) return reply({ error: "not allowed" });
   try {
     const r = await fetch(path, body == null ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error("AutoApply 返回 " + r.status);
-    if (body && body.details) { n += body.details.length; document.getElementById("s").textContent = "已收到 " + n + " 个新岗位的详情…"; }
+    if (!r.ok) throw new Error(SAID.status.replace("{status}", r.status));
+    if (body && body.details) { n += body.details.length; document.getElementById("s").textContent = SAID.got.replace("{n}", n); }
     reply({ result: await r.json() });
   } catch (e) { reply({ error: String(e && e.message || e) }); }
 });
@@ -2623,7 +2634,16 @@ def pdportal_bridge():
     direct requests from the portal's page to this computer."""
     from fastapi.responses import HTMLResponse
 
-    return HTMLResponse(BRIDGE_HTML % PORTAL_ORIGIN)
+    import html as _html
+    import json as _json
+
+    from .. import i18n as _i18n
+
+    lang = _i18n.lang()      # (the window is opened from the portal's page: it is in the program's language)
+    say_it = lambda key: T(key).in_lang(lang)      # noqa: E731
+    return HTMLResponse(BRIDGE_HTML % {"title": _html.escape(say_it("server.api.main.bridgeTitle")), "head": _html.escape(say_it("server.api.main.bridgeHead")),
+                                       "wait": _html.escape(say_it("server.api.main.bridgeWait")), "portal": PORTAL_ORIGIN,
+                                       "said": _json.dumps({"status": say_it("server.api.main.bridgeStatus"), "got": say_it("server.api.main.bridgeGot")}, ensure_ascii=False).replace("</", "<\\/")})
 
 
 @app.get("/pdportal-import.js")

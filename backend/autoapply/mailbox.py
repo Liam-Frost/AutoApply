@@ -38,8 +38,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "fastmail": {"name": "Fastmail", "host": "imap.fastmail.com", "port": 993, "how": T("server.mailbox.generateAReadOnly")},
     "zoho": {"name": "Zoho Mail", "host": "imap.zoho.com", "port": 993, "how": T("server.mailbox.turnOnImapIn")},
     "outlook": {"name": T("server.mailbox.outlookHotmailMicrosoftMicrosoft"), "host": "outlook.office365.com", "port": 993, "oauth": True,
-                "how": "微软不接受密码，需要授权。要先有一个“应用（客户端）ID”：在 entra.microsoft.com → 应用注册 新建一个应用（账户类型选“任何组织目录和个人 Microsoft 帐户”），"
-                       "在“身份验证”里把“允许公共客户端流”设为“是”，在“API 权限”里添加委托权限 IMAP.AccessAsUser.All。把应用 ID 填在下面，再点“授权”。"},
+                "how": T("server.mailbox.outlookHow")},
     "custom": {"name": T("server.mailbox.otherEmailEnterServer"), "host": "", "port": 993, "how": T("server.mailbox.enterTheImapServer")},
 }
 

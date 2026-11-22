@@ -1,3 +1,4 @@
+import { t as T } from './i18n/catalog'
 // Shared UI state and helpers. Views call toast()/run() instead of keeping their own msg/err refs.
 import { reactive } from 'vue'
 import { asDate, when } from './i18n/format'
@@ -57,17 +58,17 @@ export async function run(fn, ok, after, opts = {}) {
   try {
     let r
     try { r = await fn() } catch (e) {
-      const said = e.message || '操作没有成功'
+      const said = e.message || T('common.failed')
       if (opts.form) formErrors[opts.form] = said; else toast(said, 'bad')
       // what the page shows may be what is out of date (a card for something that is settled meanwhile): show it afresh
       if (after) await Promise.resolve().then(after).catch(() => {})
       return false
     }
     const text = typeof ok === 'function' ? ok(r) : ok
-    if (r && typeof r === 'object' && r.task_id && text) toast(text, '', { to: { path: '/runs', query: { tab: 'plan' } }, link: '看它排在哪' })
+    if (r && typeof r === 'object' && r.task_id && text) toast(text, '', { to: { path: '/runs', query: { tab: 'plan' } }, link: T('common.seeQueue') })
     else toast(text)
     if (after) {
-      try { await after() } catch (e) { toast(`已经做完了，但页面没能读到最新的内容：${e.message || ''}`, 'warn') }
+      try { await after() } catch (e) { toast(T('common.doneButNotRead', { error: e.message || '' }), 'warn') }
     }
     return r === undefined ? true : r
   } finally {
@@ -78,11 +79,11 @@ export async function run(fn, ok, after, opts = {}) {
 
 // Confirmation dialog in the product's own style (instead of the browser's confirm()). Resolves to true / false.
 // (`choices`: a question with more than yes and no - see choose; `cancel`: what closing it without choosing answers.)
-export const dialog = reactive({ open: false, text: '', ok: '确定', danger: false, resolve: null, choices: null, cancel: false })
+export const dialog = reactive({ open: false, text: '', ok: '', danger: false, resolve: null, choices: null, cancel: false })
 export function ask(text, opts = {}) {
   if (dialog.open && dialog.resolve) dialog.resolve(dialog.cancel)
-  const danger = opts.danger ?? /删除|清理/.test(text)
-  return new Promise((resolve) => Object.assign(dialog, { open: true, text, ok: opts.ok || (danger ? '删除' : '确定'), danger, resolve, choices: null, cancel: false }))
+  const danger = !!opts.danger
+  return new Promise((resolve) => Object.assign(dialog, { open: true, text, ok: opts.ok || (danger ? T('common.delete') : T('common.ok')), danger, resolve, choices: null, cancel: false }))
 }
 // A question with its own answers: choices = [{ key, label, cls?, focus? }]. Resolves to the key that was chosen;
 // to `cancel` when the dialog is closed without choosing (Esc, a click beside it).

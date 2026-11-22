@@ -9,7 +9,7 @@
 <!-- Say what you ran it against. "Unit tests" and "a real Greenhouse form, not submitted" are both fine answers; they are different answers. -->
 
 - [ ] `uv run pytest` passes
-- [ ] If the interface changed: `cd frontend && npm run build`, and new text went through `scripts/i18n_extract.py`
+- [ ] If the interface changed: `cd frontend && npm run build`, and new text is written with keys (English, notes; see CONTRIBUTING)
 - [ ] If behaviour that `docs/STATUS.md` describes changed: that page is updated
 - [ ] Nothing personal in the diff, the screenshots or the test data (names, e-mail addresses, application records)
 

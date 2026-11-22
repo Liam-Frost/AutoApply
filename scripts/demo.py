@@ -134,11 +134,13 @@ def seed(lang: str) -> None:
     })
     db.set_setting("llm.providers", {"deepseek": {"base_url": "", "model": "deepseek-chat", "small_model": "deepseek-chat"}})
     db.set_setting("llm.failover", [{"provider": "chatgpt", "model": "", "small_model": ""}])
+    from autoapply.say import say as T
+
     db.set_setting("llm.quota", {
         "claude_subscription": {"provider": "claude_subscription", "supported": True, "checked_at": int(time.time()) + 86400, "kind": "windows", "blocked": False, "windows": [
-            {"key": "five_hour", "label": "5 小时额度", "used": 62, "resets_at": soon, "blocked": False}, {"key": "seven_day", "label": "每周额度", "used": 41, "resets_at": week, "blocked": False}]},
+            {"key": "five_hour", "label": T("server.quota.hourAllowance"), "used": 62, "resets_at": soon, "blocked": False}, {"key": "seven_day", "label": T("server.quota.weeklyAllowance"), "used": 41, "resets_at": week, "blocked": False}]},
         "chatgpt": {"provider": "chatgpt", "supported": True, "checked_at": int(time.time()) + 86400, "kind": "windows", "blocked": False, "plan": "plus", "windows": [
-            {"key": "primary", "label": "5 小时额度", "used": 88, "resets_at": soon + 1800, "blocked": False}, {"key": "secondary", "label": "每周额度", "used": 47, "resets_at": week, "blocked": False}]},
+            {"key": "primary", "label": T("server.quota.hourAllowance"), "used": 88, "resets_at": soon + 1800, "blocked": False}, {"key": "secondary", "label": T("server.quota.weeklyAllowance"), "used": 47, "resets_at": week, "blocked": False}]},
         "deepseek": {"provider": "deepseek", "supported": True, "checked_at": int(time.time()) + 86400, "kind": "balance", "blocked": False, "balances": [{"currency": "USD", "amount": 12.4}]},
     })
     questions = [("first_name", "First Name", "text", "Alex", "name"), ("last_name", "Last Name", "text", "Chen", "name"), ("email", "Email", "text", "alex.chen@example.com", "email"),

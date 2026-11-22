@@ -41,6 +41,34 @@ describe('the catalogs', () => {
       expect(Object.keys(tr).filter((k) => !fits(source[k], tr[k])), l.id).toEqual([])
     }
   })
+  it('have the plural forms their language uses (one where it has one, as many as the source where it has more)', () => {
+    const forms = (s) => String(s).replace(/\{'\|'\}/g, '').split('|').length      // ({'|'} is a | written as it is, not a form)
+    for (const l of manifest.languages.filter((x) => x.id !== manifest.source)) {
+      const single = new Intl.PluralRules(l.tag).resolvedOptions().pluralCategories.length === 1
+      for (const [src, tr] of [[source, leaves(read(l.id + '.json'))], [read('server/en.json'), read('server/' + l.id + '.json')]]) {
+        const wrong = Object.keys(tr).filter((k) => forms(src[k]) > 1 && forms(tr[k]) !== (single ? 1 : forms(src[k])))
+        expect(wrong, l.id).toEqual([])
+      }
+    }
+  })
+  it('have the server messages of every language with the same placeholders', () => {
+    const src = read('server/en.json')
+    for (const l of manifest.languages.filter((x) => x.id !== manifest.source)) {
+      const tr = read('server/' + l.id + '.json')
+      expect(Object.keys(tr).filter((k) => !(k in src) || !fits(src[k], tr[k])), l.id).toEqual([])
+    }
+  })
+  it("compile, every message of every language (an @ or a | meant as a character is written {'@'} / {'|'})", () => {
+    const broken = []
+    for (const l of manifest.languages) {
+      const all = leaves(read(l.id + '.json'))
+      i18n.global.setLocaleMessage('check', read(l.id + '.json'))
+      for (const k of Object.keys(all)) {
+        try { t(k, {}, { locale: 'check' }) } catch (e) { broken.push(`${l.id} ${k}: ${String(e.message).split('\n')[0]}`) }
+      }
+    }
+    expect(broken).toEqual([])
+  })
   it('are as complete as the manifest says (npm run i18n:status)', () => {
     for (const l of manifest.languages) {
       const both = (id) => ({ ...read(id + '.json'), server: read('server/' + id + '.json') })
@@ -92,14 +120,9 @@ describe('in Chinese (the default)', () => {
   })
 })
 
-// The pages moved to keys (C2): no Chinese is written in them any more, outside comments. A page is added here when
-// it moves; the on-screen dictionary has nothing left to do on it.
-const MIGRATED = ['views/TodosView.vue', 'views/CalendarView.vue', 'views/AnalyticsView.vue', 'views/analytics/CostPanel.vue', 'views/analytics/AutoPanel.vue',
-  'views/analytics/AppsPanel.vue', 'views/analytics/RunDetail.vue', 'views/analytics/SitesPanel.vue', 'views/SettingsView.vue', 'components/AiPanel.vue',
-  'components/MailboxPanel.vue', 'components/AccessPanel.vue', 'components/NetworkPanel.vue', 'components/BrowserPanel.vue', 'components/PromptsPanel.vue',
-  'components/EmployersPanel.vue', 'views/ProfileView.vue', 'views/WelcomeView.vue', 'views/RunsView.vue', 'views/AccountsView.vue', 'views/FilesView.vue',
-  'views/HomeView.vue', 'views/SourcesView.vue', 'App.vue', 'views/MailOut.vue', 'views/ContactsView.vue', 'views/RemoteView.vue', 'views/LoginView.vue',
-  'views/JobsView.vue', 'views/ApplicationsView.vue', 'views/ApplicationDetail.vue', 'components/RecordPanel.vue', 'components/AgentJournal.vue', 'views/AboutView.vue']
+// Every text for people is a key: no Chinese is written in the interface's code, outside comments - nothing would
+// translate it. A pattern that reads data (a material named in Chinese) is not text for people; it is named here.
+const DATA = { 'draftsum.js': /求职信/ }
 // HTML and block comments cut out by position (not by a pattern a nested or broken one could slip through)
 function withoutComments(text) {
   let out = ''
@@ -115,13 +138,15 @@ function withoutComments(text) {
     at = stop < 0 ? text.length : stop + close.length
   }
 }
-describe('pages moved to keys', () => {
-  it('have no text of their own in Chinese', () => {
-    for (const f of MIGRATED) {
-      const src = withoutComments(readFileSync(new URL('../src/' + f, import.meta.url), 'utf-8'))
-        .replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '')
-      const lines = src.split('\n').filter((l) => /[一-鿿]/.test(l))
-      expect(lines, f).toEqual([])
+describe('the interface', () => {
+  it('has no text of its own in Chinese, on any page or piece', () => {
+    const code = files(SRC).filter((f) => !/[\\/]locales[\\/]/.test(f))
+    expect(code.length).toBeGreaterThan(50)
+    for (const f of code) {
+      const name = f.slice(SRC.length).replace(/^[\\/]/, '').replace(/\\/g, '/')
+      const src = withoutComments(readFileSync(f, 'utf-8')).replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '')
+      const lines = src.split('\n').filter((l) => /[一-鿿]/.test(l) && !(DATA[name] && DATA[name].test(l)))
+      expect(lines, name).toEqual([])
     }
   })
 })

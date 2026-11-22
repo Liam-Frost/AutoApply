@@ -100,40 +100,37 @@ app password. Mail must stay read-only: folders are opened read-only and bodies 
 
 ## Add or fix a translation
 
-The interface is moving from Chinese templates translated on the screen to text written with keys. Both work side by
-side until every page has moved.
+Everything the program shows is written with keys, in English, with a note for translators on each; a language is a
+pair of files. Chinese, English and French are there.
 
-**Text with keys** (new and rewritten pages, dates and numbers):
+**The interface** (`frontend/src/locales/`):
 
-- `frontend/src/locales/en.json` is the source: every key, in English. `notes.json` says for each key where it is
-  shown and what its placeholders are - read it before translating a key.
-- Every other language is one file next to it (`zh.json`). A key a language does not have is shown in English.
+- `en.json` is the source: every key, in English. `notes.json` says for each key where it is shown and what its
+  placeholders are - read it before translating a key.
+- Every other language is one file next to it (`zh.json`, `fr.json`). A key a language does not have is shown in
+  English.
 - `{name}` placeholders are filled in at run time; a translation keeps exactly the same ones. Plural forms are
-  separated by `|`, in the order of the language's plural categories (English: `one | other`; Chinese: one form).
+  separated by `|`, in the order of the language's plural categories (English and French: `one | other`; Chinese: one
+  form). A `|` that is meant as a character is written `{'|'}`.
 - Dates, times, numbers and amounts are never written into a message by hand: they come formatted from
   `frontend/src/i18n/format.js` (Intl).
-- A new language: add it to `frontend/src/locales/languages.json` (its id and its BCP 47 tag) with its file, then run
-  `npm run i18n:status` in `frontend/`, which writes how complete each language is. Below `beta_below` percent a
-  language is offered as a test. `npm test` checks that every key used exists, has a note, and keeps its placeholders.
 
-**What the program says** (a status, a reason, a notification, a refusal):
+**What the program says** (a status, a reason, a notification, a refusal - `frontend/src/locales/server/`):
 
 - The server writes `T("server.<module>.<key>", name=value)` (`backend/autoapply/say.py`, imported as `T`). The
-  messages are in `frontend/src/locales/server/<lang>.json` with their notes in `notes.json` - the same languages and
-  the same rules as the interface's. Inside the program a message is the Chinese it always was; it is said in the page's
-  language where an API answer leaves (the page sends `X-Lang`) and in the program's language in notifications. What the
-  program keeps (a card's title, an application's latest event, JSON results) keeps its key and is read in the reader's
-  language.
-- `uv run python scripts/i18n_server.py backend/autoapply/<module>.py --write` moves a module's sentences to messages
-  (English from the dictionary); `tests/test_say.py` checks that every key used is there, noted, with its values.
+  messages are in `server/<lang>.json`, with their notes in `server/notes.json` - the same languages and the same rules
+  as the interface's. A message is said in the page's language where an API answer leaves (the page sends `X-Lang`) and
+  in the program's language in notifications. What the program keeps (a card's title, an application's latest event,
+  JSON results) keeps its key and is read in the reader's language.
+- Chinese written in the server's code is data only (patterns that read what sites and mails say, words looked for):
+  `tests/test_say.py` lists the files where it may be and fails on a sentence for people anywhere else.
 - What the AI or an employer wrote is kept as it was written.
 
-**Older text** (pages not moved yet, and what the server still writes by hand):
-
-- `uv run python scripts/i18n_extract.py` collects the Chinese interface text into `frontend/src/i18n/zh.json`.
-- `uv run python scripts/i18n_translate.py en` machine-translates what is missing into `frontend/src/i18n/en.json`.
-  Entries already there are never overwritten, so **corrections are made by editing `en.json` by hand**.
-- `{0}`, `{1}` are values filled in at run time; a translation must keep exactly the same ones.
+**A new language:** copy `en.json` and `server/en.json` to `<id>.json` and `server/<id>.json`, translate them with the
+notes beside you, and add the language to `languages.json` (its id, its BCP 47 tag, its own name and its English name -
+the English name is what the AI is told the applicant reads). Run `npm run i18n:status` in `frontend/`, which writes how
+complete each language is; below `beta_below` percent a language is offered as a test. `npm test` and `uv run pytest`
+check that every key used exists, has a note, and that translations keep the placeholders and the plural forms.
 
 ## Add a field of work or a career stage
 
