@@ -13,6 +13,7 @@ import { isBeta } from './i18n/catalog'
 import { dialog, dismissToast, persona, session, setTheme, theme, toasts } from './ui'
 import LoginView from './views/LoginView.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import TipLayer from './components/TipLayer.vue'
 
 const ov = ref({ pending_drafts: 0, open_todos: 0, queued_tasks: 0, paused: false, running: [] })
 let timer
@@ -119,6 +120,7 @@ onUnmounted(() => clearInterval(timer))
     <main class="content"><RemoteBanner /><router-view :key="$route.path.startsWith('/remote/') ? $route.path : undefined" /></main>
   </div>
   <ConfirmDialog v-if="dialog.open" />
+  <TipLayer />
   <div class="toasts" role="status" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
       <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link></span>

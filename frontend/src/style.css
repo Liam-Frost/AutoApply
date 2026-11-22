@@ -56,6 +56,16 @@
   --ev-own: #64748b; --ev-own-bg: #eef1f5; --ev-own-fg: #475569;
   --ev-system: #9ca3af; --ev-system-bg: #f3f4f6; --ev-system-fg: #5f6874;
   --logo-tile: transparent;
+
+  /* sizes of controls and rows (docs/design-system.md): a control of a level has that level's height everywhere */
+  --h-xs: 24px; --h-sm: 28px; --h-md: 32px; --h-lg: 36px; --h-xl: 40px;
+  --row-compact: 40px; --row-standard: 56px; --row-comfortable: 64px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600;
+  /* what lies over what: a sticky bar, the drawer's veil and the drawer, a menu or popover, a tooltip, a toast */
+  --z-sticky: 20; --z-overlay: 40; --z-drawer: 41; --z-pop: 60; --z-tip: 70; --z-toast: 80;
+  --dur-fast: 120ms; --dur: 160ms; --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* the tooltip: the reverse of the page */
+  --tip-bg: #14233b; --tip-fg: #ffffff;
   color-scheme: light;
 }
 /* Dark theme. Follows the system unless the user picked a theme (data-theme on <html>, set by src/ui.js). */
@@ -76,6 +86,7 @@
     --ev-own: #8a97ab; --ev-own-bg: #232b38; --ev-own-fg: #b7c1d0;
     --ev-system: #6b7686; --ev-system-bg: #1e2530; --ev-system-fg: #9aa5b5;
     --shadow-sm: none; --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35); --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+    --tip-bg: #e7ecf3; --tip-fg: #0d131c;
     color-scheme: dark;
   }
 }
@@ -95,6 +106,7 @@
   --ev-own: #8a97ab; --ev-own-bg: #232b38; --ev-own-fg: #b7c1d0;
   --ev-system: #6b7686; --ev-system-bg: #1e2530; --ev-system-fg: #9aa5b5;
   --shadow-sm: none; --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35); --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --tip-bg: #e7ecf3; --tip-fg: #0d131c;
   color-scheme: dark;
 }
 /* legacy aliases so older markup keeps working */

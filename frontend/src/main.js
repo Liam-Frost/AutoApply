@@ -3,6 +3,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import AaSelect from './components/Select.vue'
 import './style.css'
+import './styles/foundations.css'
+import './styles/table.css'
+import './styles/overlay.css'
+import './styles/patterns.css'
+import { tip } from './tip'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
 import { i18n } from './i18n/catalog'
@@ -67,6 +72,8 @@ const router = createRouter({
     { path: '/settings/:group?/:section?', component: SettingsView },
     { path: '/jobs/sources', component: SourcesView },
     { path: '/remote/:id', component: RemoteView, props: true },
+    // the UI lab: every shared component in its states, with made-up data - for development and the layout tests; not in the navigation
+    { path: '/ui-lab', component: () => import('./views/lab/LabView.vue') },
   ],
 })
 
@@ -93,5 +100,5 @@ router.beforeEach(async (to) => {
 })
 
 // (labels.js: a label of a form grid is tied to the control it names - after the page was drawn or drawn again)
-createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).mixin({ mounted: pairSoon, updated: pairSoon }).use(router).use(i18n).mount('#app')
+createApp(App).component('AaSelect', AaSelect).directive('focus', { mounted: (el) => el.focus() }).directive('tip', tip).mixin({ mounted: pairSoon, updated: pairSoon }).use(router).use(i18n).mount('#app')
 initI18n().then(followServerLang)
