@@ -59,7 +59,7 @@ const tabCount = (k) => (!a.value ? 0 : k === 'mail' ? a.value.mails.length : k 
 // --- what can be done, and the few that matter now --------------------------------------------------------------------
 const pending = computed(() => !!d.value && d.value.review_status === 'pending')
 const notOut = computed(() => !!a.value && !a.value.sent && !a.value.unknown && a.value.status !== 'withdrawn')
-const WHO = { me: 'application.who.me', agent: 'application.who.agent', them: 'application.who.them' }
+const WHO = { me: 'applications.who.me', agent: 'applications.who.agent', them: 'applications.who.them' }      // (the list's words: one name for whose move it is)
 // a dated step of the hiring wears the calendar's colour of its kind, as in the list
 const EV = { interview: 'ev-interview', assessment: 'ev-assessment', offer: 'ev-offer' }
 
@@ -194,7 +194,7 @@ onMounted(async () => { await load(); tab.value = firstTab() })
     <div class="row empty-acts"><button @click="load">{{ $t('application.tryAgain') }}</button><button class="ghost" @click="router.push('/applications')">{{ $t('application.backToList') }}</button></div>
   </div>
   <template v-else>
-    <PageHead :title="a.company">
+    <PageHead class="app-head" :title="a.company">
       <template #sub>
         <div class="app-sub">
           <router-link to="/applications" class="app-back"><Icon name="back" />{{ $t('application.backToList') }}</router-link>
@@ -213,7 +213,7 @@ onMounted(async () => { await load(); tab.value = firstTab() })
         <span v-if="EV[a.stage]" class="tag ev-tag" :class="EV[a.stage]">{{ a.stage_label }}</span>
         <span v-else class="tag" :class="a.tone">{{ a.stage_label }}</span>
         <span v-if="a.archived" class="meta">{{ $t('application.archived') }}</span>
-        <span v-if="a.who" class="t-secondary">{{ $t(WHO[a.who]) }}</span>
+        <span v-if="a.who" class="t-secondary">{{ $t('applications.owner', { who: $t(WHO[a.who]) }) }}</span>
         <span v-if="a.submitted_at" class="t-meta atomic">{{ $t('application.sentOn', { day: stampDay(a.submitted_at) }) }}</span>
         <span v-if="a.auto_approved" class="t-meta atomic">{{ $t('application.autoApproved') }}</span>
       </div>

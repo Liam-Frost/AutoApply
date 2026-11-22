@@ -1,5 +1,5 @@
 /* DataTable and its cells (components/DataTable.vue, components/cells/).
-   Tokens are in ../style.css; rules of use in docs/design-system.md and docs/component-guidelines.md. */
+   Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md. */
 
 /* ── the frame. `class="bare"` on a DataTable takes the frame away (a table inside a card).
    A DataTable is as wide as the place it is put in: in a flex row give it `flex: 1`. */

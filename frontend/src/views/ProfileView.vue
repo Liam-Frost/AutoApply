@@ -100,6 +100,7 @@ const run = (fn, ok) => runAction(fn, ok, load)
 const active = computed(() => docs.value.filter((d) => d.active && !d.job_id && d.kind !== 'cover_letter' && d.kind !== 'tailored_resume'))
 const todoCount = computed(() => (p.value.markdown.match(/TODO:/g) || []).length)
 
+const bareHeading = (s) => s.title === 'preamble' && !(s.body || '').split('\n').some((l) => l.trim() && !l.trim().startsWith('#'))
 async function startEdit(i) { if (!(await mayLeave(['profile-section']))) return; editIdx.value = i; editBody.value = p.value.sections[i].body }
 const saveSection = () => run(async () => {
   const secs = p.value.sections.map((s, i) => (i === editIdx.value ? { ...s, body: editBody.value } : s))
@@ -194,7 +195,8 @@ onMounted(load)
         <div v-if="r.never" class="t-meta">{{ $t('profile.theAppWontFill', { p0: r.never }) }}</div>
       </div>
     </details>
-    <div v-for="(s, i) in p.sections" :key="i" class="card">
+    <!-- (the text before the first section is shown when it says something: the document's own heading alone is not) -->
+    <div v-for="(s, i) in p.sections" v-show="!bareHeading(s) || editIdx === i" :key="i" class="card">
       <CardHead :title="s.title === 'preamble' ? $t('profile.notes') : s.title">
         <button v-if="editIdx !== i" class="ghost sm" @click="startEdit(i)"><Icon name="edit" />{{ $t('profile.edit') }}</button>
       </CardHead>

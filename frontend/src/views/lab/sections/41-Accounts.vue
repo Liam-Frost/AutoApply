@@ -22,7 +22,7 @@ const cols = [
   { id: 'cred', header: 'Credentials', width: 136, priority: 1 },
   { id: 'auto', header: 'Automation', width: 220, headerTip: 'Worked out from what is saved, not checked with the site.' },
   { id: 'session', header: 'Sign-in session', width: 168, priority: 3, headerTip: 'The saved cookies. "Expires by" is an upper bound.' },
-  { id: 'source', header: 'Source', min: 96, flex: 0.2, max: 128, priority: 4 },
+  { id: 'source', header: 'Source', min: 124, flex: 0.2, max: 140, priority: 4 },
   { id: 'act', header: '', width: 144, align: 'end' },
 ]
 const rows = reactive([

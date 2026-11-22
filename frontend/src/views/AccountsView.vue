@@ -169,7 +169,7 @@ function fitAct() {
   if (probe.value && probe.value.offsetWidth) actWidth.value = probe.value.offsetWidth + 60      // + the gap, the menu and the padding
   if (autoProbe.value) {
     const widest = Math.max(0, ...[...autoProbe.value.children].map((e) => e.offsetWidth))
-    if (widest) autoWidth.value = Math.ceil(widest) + PAD
+    if (widest) autoWidth.value = Math.ceil(widest) + PAD + 2      // (+2: a width measured in fractions is not cut by rounding)
   }
 }
 let probing = null
@@ -182,7 +182,7 @@ const columns = computed(() => [
   { id: 'cred', header: T('accounts.colCredential'), width: 136, priority: 1 },
   { id: 'auto', header: T('accounts.automation'), width: autoWidth.value, headerTip: T('accounts.automationHelp') },
   { id: 'session', header: T('accounts.colSession'), width: 168, priority: 3, headerTip: T('accounts.sessionHelp') },
-  { id: 'source', header: T('accounts.howItGotHere'), min: 96, flex: 0.2, max: 128, priority: 4 },
+  { id: 'source', header: T('accounts.howItGotHere'), min: 124, flex: 0.2, max: 140, priority: 4 },
   { id: 'act', header: '', width: actWidth.value, align: 'end' },
 ])
 const sources = computed(() => ({ agent: T('accounts.registeredByTheApp'), takeover: T('accounts.savedWhenYouSign'), manual: T('accounts.sourceManual'), chrome_csv: T('accounts.importFromChrome') }))

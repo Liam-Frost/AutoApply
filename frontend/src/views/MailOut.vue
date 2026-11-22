@@ -67,7 +67,7 @@ const removeFile = (name) => run(async () => { m.value = await api.patch(`/mail/
       <p v-if="m.can_edit && !m.can_send" class="callout warn"><Icon name="alert" /><span class="grow">{{ $t('mail.theProgramIsNot') }}</span><router-link to="/settings/accounts/mailbox" class="btn sm">{{ $t('mail.openTheMailboxSettings') }}</router-link></p>
       <p v-if="m.can_edit && open.length" class="callout warn"><Icon name="edit" /><span>{{ $t('mail.toFill', { n: open.length }, open.length) }}</span></p>
 
-      <div class="kv">
+      <div class="kv mo-form">
         <label for="mo-to">{{ $t('mail.to') }}</label>
         <input id="mo-to" v-model="form.to" class="w-full" :disabled="!m.can_edit" />
         <label for="mo-cc">{{ $t('mail.cc') }}</label>

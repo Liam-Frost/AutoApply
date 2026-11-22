@@ -2,7 +2,7 @@
 import { t as T } from '../i18n/catalog'
 // Where postings come from: the employers that are watched, what the last scan read, the school's portal. It was
 // three cards of the settings; it is looked at and added to all the time, and belongs with the postings.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import DataTable from '../components/DataTable.vue'
 import DateTimeCell from '../components/cells/DateTimeCell.vue'
@@ -35,7 +35,7 @@ onMounted(load)
 
 // --- the report as a table: one row per source, the figures right-aligned; what does not fit a row (the failure in
 // full, every reason a posting was dropped) is in the row opened
-const COLUMNS = [
+const COLUMNS = computed(() => [
   { id: 'source', header: T('sources.source'), min: 160, max: 320, flex: 2 },
   { id: 'last', header: T('sources.lastRead2'), min: 128, max: 168, flex: 0 },
   { id: 'read', header: T('sources.read'), width: 64, align: 'end' },
@@ -43,7 +43,7 @@ const COLUMNS = [
   { id: 'new', header: T('sources.add'), width: 64, align: 'end' },
   { id: 'dropped', header: T('sources.whyTheRestWas'), min: 168, max: 320, flex: 3, priority: 2 },
   { id: 'now', header: T('sources.inTheLibraryNow'), min: 160, max: 240, flex: 1, priority: 1 },
-]
+])
 const more = (r) => !!r.error || r.dropped.length > 0
 const toggle = (r) => { if (more(r)) open.value = open.value === r.name ? null : r.name }
 function lastOf(r) {

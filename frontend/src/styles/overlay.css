@@ -1,5 +1,5 @@
 /* Tooltip, popover, menu (src/tip.js, components/TipLayer.vue, InfoTip.vue, Popover.vue, Menu.vue).
-   Tokens are in ../style.css; rules of use in docs/design-system.md and docs/component-guidelines.md.
+   Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md.
    All three are `position: fixed` boxes on <body>, placed by src/float.js; `width: max-content` keeps their width
    their own (a fixed box near the right edge would otherwise be squeezed into what is left of the window). */
 

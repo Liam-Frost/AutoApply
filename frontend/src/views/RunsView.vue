@@ -11,6 +11,7 @@ import Icon from '../components/Icon.vue'
 import IconButton from '../components/IconButton.vue'
 import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
+import Tabs from '../components/Tabs.vue'
 import Pager from '../components/Pager.vue'
 import Status from '../components/Status.vue'
 import DataState from '../components/DataState.vue'
@@ -132,9 +133,7 @@ onMounted(load)
   <template v-if="st.at">
 
   <div class="tabs-bar">
-    <div class="seg tabs" role="tablist" :aria-label="$t('runs.activity')">
-      <button v-for="[k, l] in TABS" :key="k" role="tab" :aria-selected="tab === k" :class="{ on: tab === k }" @click="tab = k">{{ l }}</button>
-    </div>
+    <Tabs v-model="tab" :label="$t('runs.activity')" :items="TABS.map(([id, label]) => ({ id, label }))" />
     <span class="grow"></span>
     <div v-if="tab === 'activity'" class="seg" role="group" :aria-label="$t('runs.col.status')">
       <button :class="{ on: filter === 'all' }" :aria-pressed="filter === 'all'" @click="filter = 'all'">{{ $t('runs.all') }}</button>

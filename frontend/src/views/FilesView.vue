@@ -236,7 +236,7 @@ onMounted(load)
     </div>
 
     <!-- preview -->
-    <div class="card fm-view">
+    <div class="card fm-view" :class="{ idle: !cur }">
       <template v-if="cur">
         <div class="fm-view-head">
           <div class="grow">

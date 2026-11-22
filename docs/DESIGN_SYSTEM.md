@@ -1,6 +1,6 @@
 # AutoApply 设计规范
 
-界面的样式来源是 `frontend/src/style.css`（令牌、基础元素、旧组件）和 `frontend/src/styles/`（`foundations.css` 文字与基础件、`table.css` 表格、`overlay.css` 浮层、`patterns.css` 业务组合）。页面只使用这里定义的令牌和组件类，不自己写颜色、字号、高度、圆角或阴影。共享组件的名称、属性和保证写在 `docs/component-guidelines.md`；新增页面先看这两份文件，缺什么组件先补到样式和文档里，再用。每个共享组件在 `/ui-lab`（不在导航里）有一节，列出它的各种状态。
+界面的样式来源是 `frontend/src/style.css`（令牌、基础元素、旧组件）和 `frontend/src/styles/`（`foundations.css` 文字与基础件、`table.css` 表格、`overlay.css` 浮层、`patterns.css` 业务组合）。页面只使用这里定义的令牌和组件类，不自己写颜色、字号、高度、圆角或阴影。共享组件的名称、属性和保证写在 [`component-guidelines.md`](component-guidelines.md)（英文，是约定，开头有“新页面的规则”清单）；界面文字的用词在 [`ux-writing-glossary.md`](ux-writing-glossary.md)；界面检查（布局测试、`ui-rules` 测试、截图对比）在 [`ui-quality-assurance.md`](ui-quality-assurance.md)。新增页面先看这几份文件，缺什么组件先补到样式和文档里，再用。每个共享组件在 `/ui-lab`（不在导航里）有一节，列出它的各种状态。
 
 ## 1. 原则
 
@@ -29,7 +29,9 @@
 | 边框 | `--border` `--border-strong` | 分隔线、输入框和按钮的边 |
 | 文字 | `--text` `--text-2` `--text-3` | 正文、说明、占位和最弱提示（三级都要读得清：见第 7 节“对比度”） |
 | 操作 | `--primary` `--primary-hover` `--primary-soft` `--on-primary` `--focus` | 主按钮、选中态、焦点环 |
-| 含义 | `--ok` `--warn` `--bad` `--info`，各带 `-soft` 底色；`--on-bad` | 成功、需要注意、失败、提示；`--on-bad` 是压在 `--bad` 实心底上的文字 |
+| 含义 | `--ok` `--warn` `--bad` `--info`，各带 `-soft` 底色；`--on-bad`；`--neutral-soft` | 成功、需要注意、失败、提示；`--on-bad` 是压在 `--bad` 实心底上的文字；`--neutral-soft` 是没有语气的徽标底 |
+| 品牌 | `--brand-navy` `--brand-cyan` `--logo-tile` | 只用于标志（第 2 节）；`--logo-tile` 是深色模式下标志的白底 |
+| 字体 | `--font` `--mono` | 系统字体；代码和技术细节用等宽 |
 | 字号 | `--fs-xs 12` `--fs-sm 13` `--fs-md 14` `--fs-ml 15` `--fs-lg 16` `--fs-xl 20` `--fs-2xl 26` | 14 为正文；用法见下面“字体层级” |
 | 字重 | `--fw-regular 400` `--fw-medium 500` `--fw-semibold 600` `--fw-bold 650` | 见“字体层级” |
 | 控件高度 | `--h-xs 24` `--h-sm 28` `--h-md 32` `--h-lg 36` `--h-xl 40` | 见“控件尺寸” |
@@ -37,10 +39,14 @@
 | 间距 | `--s1 4` `--s2 8` `--s3 12` `--s4 16` `--s5 24` `--s6 32` | 4 的倍数 |
 | 圆角 | `--r-sm 6` `--r-md 10` `--r-lg 14` `--r-pill` | 控件、卡片、大容器、徽标 |
 | 阴影 | `--shadow-sm` `--shadow-md` `--shadow-lg` | 卡片、浮层、抽屉和提示 |
-| 层级 | `--z-sticky 20` `--z-overlay 40` `--z-drawer 41` `--z-pop 60` `--z-tip 70` `--z-toast 80` | 吸底的条、抽屉遮罩、抽屉、菜单和气泡、悬停提示、轻提示 |
+| 层级 | `--z-sticky 20` `--z-overlay 40` `--z-drawer 41` `--z-pop 60` `--z-tip 70` `--z-toast 80` `--z-dialog 90` `--z-select 100` | 吸顶吸底的条、抽屉遮罩、抽屉、菜单和气泡、悬停提示、轻提示、必须回答的确认框（遮罩连轻提示一起盖住）、下拉的选项列表（它可能在抽屉、气泡、确认框里打开） |
 | 动效 | `--dur-fast 120ms` `--dur 160ms` `--ease` | 悬停和按下、展开的东西 |
 | 悬停提示 | `--tip-bg` `--tip-fg` | 与页面反色；对比度在测试里 |
 | 版面 | `--side-w 224` `--content-max 1560` | 侧栏宽度、内容区最大宽度 |
+| 图表 | `--chart-1` … `--chart-6` `--chart-other` `--chart-soft` `--chart-deep` `--chart-grid` | 第 8 节 |
+| 日程类型 | `--ev-<类型>` `--ev-<类型>-bg` `--ev-<类型>-fg` | 第 4 节“业务类型的颜色”、第 8 节“日程” |
+
+`style.css` 里还有一组旧名（`--panel` `--ink` `--muted` `--line` `--brand` `--brand-ink` `--ok-bg` `--warn-bg` `--bad-bg` `--info-bg` `--dim-bg`），只是指向上面令牌的别名，留给旧样式；新代码不用。
 
 深色模式跟随系统（`prefers-color-scheme`），同名令牌换值，页面不需要单独处理。字体用系统字体，不加载网络字体（应用在本机离线运行）。
 
@@ -92,9 +98,9 @@
 
 ### 层级、动效、焦点
 
-- 浮在页面上的东西只用 `--z-*` 这六级，不写裸数字；同一级之内靠 DOM 顺序。
+- 浮在页面上的东西只用 `--z-*` 这八级，不写裸数字；同一级之内靠 DOM 顺序。挂在 `<body>` 上的浮层（提示、菜单、气泡）如果是从更高一层里打开的，会自动放到那一层之上（`float.js` 的 `zOver`）。
 - 过渡只用 `--dur-fast`（悬停、按下）和 `--dur`（展开、出现），曲线 `--ease`。
-- 用户设置了“减少动态效果”（`prefers-reduced-motion`）时，所有过渡和动画立即结束（`style.css` 里一条全局规则）；组件不需要各写一遍，也不要让任何信息只靠动画传达。
+- 用户设置了“减少动态效果”（`prefers-reduced-motion`）时，所有过渡和动画立即结束（`style.css` 里一条全局规则）；组件不需要各写一遍，也不要让任何信息只靠动画传达。注意这条规则让**每一个**样式变化都变成一次 0.01ms 的过渡，晚一帧生效：浮层的位置（`left` / `top`）因此必须 `transition: none`（`.tip-box`、`.pop`、`.menu-pop` 已经是），而且要在放好位置之前不可见——用 `opacity`，不用会被子元素继承的 `visibility`（子元素继承的 `visibility` 也会晚一帧，那一帧里拿不到焦点）。
 - 焦点环全程序一个：`2px solid var(--primary)`、外扩 2px 的 `outline`，只在键盘操作时出现（`:focus-visible`）。可输入的框（输入框、下拉）是主色边框加一圈 `--focus` 光晕。用 `outline` 而不是 `box-shadow`：它跟随元素自己的圆角，也不和元素的阴影抢。组件不要自己另画焦点样式；`all: unset` 过的按钮照这个样子补回来。
 
 ## 4. 组件
@@ -111,8 +117,12 @@
 | 卡片 | `.card`（`.panel` 同义）加 `.card-title` | 一组相关内容 |
 | 按钮 | `button`、`.primary`、`.ghost`、`.danger`、`.sm`、`.lg` | 默认是次要按钮；链接长成按钮用 `.btn`。高度见第 3 节“控件尺寸” |
 | 徽标 | `.tag`（`.badge` 同义）加 `.ok .warn .bad .info` | 必须被看见的状态；一个徽标只说一件事。高 20px、单行，所在位置比文字窄时省略 |
-| 分段切换 | `.seg > button.on`（链接用 `a.seg-link`） | 页内标签页、筛选分组；和按钮等高 |
-| 表格 | `.table-wrap > table`，可点的行加 `tr.clickable` | 表头吸顶 |
+| 分段切换 | `.seg > button.on`（链接用 `a.seg-link`） | 筛选分组、视图切换（按钮用 `aria-pressed`）；和按钮等高 |
+| 标签页 | `<Tabs v-model :items :label>` | 页内分成几部分时用：一行、放不下时在自己里面横向滚动；方向键、Home、End 切换。外观就是 `.seg.tabs`，不要再手写 `role="tablist"` |
+| 卡片头 | `<CardHead title help note>` 加工具插槽 | 卡片的标题、(i)、一句备注、右侧控件；标题放不下时省略，控件整组换到下一行 |
+| 帮助 | `<HelpPop text>` 或插槽 | (i) 后面的说明，不管多长：一句话是悬停提示，长了或有链接、列表时自动变成气泡 |
+| 菜单、气泡 | `<Menu :items @pick>`、`<Popover>` | 少用的操作、一段说明或小表单；见 `component-guidelines.md` |
+| 表格 | `<DataTable :columns :rows>`（单元格 `EntityCell`、`DateTimeCell`、`CredentialCell`） | 列宽由列定义算出，内容撑不开列、撑不高行；窄了先隐藏可选列，再在自己里面横向滚动。旧的 `.table-wrap > table` 只留在 `ui-rules` 测试列出理由的地方 |
 | 提示条 | `.callout` 加 `.warn .bad .ok` | 页面内需要注意的一段话 |
 | 待办卡 | `.card.todo`：`.ico`、`.title`、`.what`、`.acts` | 图标 + 标题 + 一句说明 + 操作 |
 | 列表 | `.list > .item`（左徽标 / 中内容 / 右时间） | 活动、邮件、最近申请 |
@@ -128,7 +138,8 @@
 | 设置小节 | `<SetSection id title how>` | 设置页的一节：有地址（`/settings/<组>/<id>`），标题旁写明怎么保存（`how`: `top` 右上角 / `own` 自己的按钮 / `now` 立即生效 / 空） |
 | 选文件 | `<FileButton accept multiple @change>文字</FileButton>` | 真正的按钮加隐藏的文件输入；键盘够得着 |
 | 图标 | `<Icon name>`（`components/Icon.vue`） | 统一线性图标；新图标加到这个文件，不在页面里贴 SVG |
-| 表单 | `.kv` 两栏、`.field`、`.hint` | 每个设置项用白话写标签，必要时加一行 `.hint` |
+| 表单 | `.fields` 网格（`label.f` 标签在上）、`.kv` 两栏、`.field`、`.hint`；按钮行 `.actions.form-acts` | 每个设置项用白话写标签，必要时加一行 `.hint`；细则见 `component-guidelines.md` “Forms” |
+| 固定行的列表 | `.rows > .r` | 不是表格的简单列表（`.lead` `.entity` `.end`；`.rows.tight` 40px） |
 | Markdown | `.md` 加 `renderMarkdown()` | 个人资料预览 |
 
 ### 状态的三种轻重

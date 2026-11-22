@@ -77,8 +77,20 @@ function settle() {
   // an address that names no group, or one that is not there (an old link): the first group
   if (route.params.group !== group.value) { router.replace('/settings/' + group.value); return }
   const sec = route.params.section
-  if (sec) nextTick(() => { const el = document.getElementById('set-' + sec); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }) })
+  if (!sec) return
+  // The panels of a group (AI services, mailbox, diagnostics) fill in after the page and move what is below them: the
+  // section is brought back to the top while they do, until the reader scrolls or presses a key.
+  const go = (behavior) => { const el = document.getElementById('set-' + sec); if (el) el.scrollIntoView({ block: 'start', behavior }) }
+  const mine = ++follow.n
+  follow.on = true
+  nextTick(() => go('smooth'))
+  for (const ms of [700, 1400, 2400]) setTimeout(() => { if (follow.on && follow.n === mine) go('auto') }, ms)
 }
+const follow = { n: 0, on: false }
+const unfollow = () => { follow.on = false }
+const STOP = ['wheel', 'touchstart', 'keydown', 'mousedown']
+onMounted(() => STOP.forEach((e) => window.addEventListener(e, unfollow, { passive: true })))
+onUnmounted(() => STOP.forEach((e) => window.removeEventListener(e, unfollow)))
 watch(() => [route.params.group, route.params.section, !!s.value], settle)
 // The groups are one line of tabs that scrolls sideways where the window is too narrow for all of them: the open
 // group is brought into view, and an edge fades where there is more beyond it.

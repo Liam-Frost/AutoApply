@@ -124,7 +124,7 @@ const columns = computed(() => {
   ].filter((c) => cols.value.has(c.id)).map((c) => ({ ...c, header: T(COLS[c.id]) }))
   return [
     { id: 'score', header: T('postings.col.score'), width: latin ? 76 : 68, align: 'end', sortable: true },
-    { id: 'job', header: T('postings.col.job'), min: 220, max: 440, flex: 4, sortable: true },
+    { id: 'job', header: T('postings.col.job'), min: 200, max: 440, flex: 4, sortable: true },
     ...more,
     { id: 'deadline', header: T('postings.col.deadline'), min: latin ? 128 : 116, max: 148, flex: 0, sortable: true },
     { id: 'app', header: T('postings.col.application'), min: latin ? 176 : 132, max: 220, flex: 1 },

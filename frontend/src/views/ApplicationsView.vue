@@ -53,6 +53,8 @@ const shown = computed(() => {
   return out.sort((a, b) => (byDeadline ? (a.deadline || '9999').localeCompare(b.deadline || '9999') : 0) || (b.updated_at || '').localeCompare(a.updated_at || ''))
 })
 function pickGroup(g) { f.group = g; picked.value = new Set() }
+// (whose move it is says something only where the rows differ: when one owner has every row shown, the group says it)
+const oneOwner = computed(() => new Set(shown.value.map((r) => r.who).filter(Boolean)).size <= 1)
 
 // --- the columns: what must stay, and what goes first when the table is narrow (the highest priority first). Words in
 // a Latin script take more room than the same in Chinese: there the columns that hold phrases get their comfortable
@@ -70,13 +72,16 @@ onBeforeUnmount(() => sized?.disconnect())
 const columns = computed(() => {
   const latin = !/^(zh|ja|ko)/.test(lang.value)
   const wide = latin && boxWidth.value >= 900
-  const [job, stage, next, schedule] = !latin ? [232, 96, 160, 140] : wide ? [240, 168, 172, 148] : [204, 120, 164, 144]
+  const narrow = boxWidth.value > 0 && boxWidth.value < 760      // (a phone-wide window: the four that stay, at their least)
+  const [job, stage, next, schedule] = narrow ? (latin ? [184, 104, 144, 136] : [200, 88, 140, 132])
+    : !latin ? [232, 96, 160, 140] : wide ? [240, 168, 172, 148] : [204, 120, 164, 144]
   return [
-    { id: 'job', header: T('applications.col.job'), min: job, max: 360, flex: 2 },
-    { id: 'stage', header: T('applications.col.stage'), min: stage, max: latin ? 200 : 140, flex: 6 },      // (the first to take what room is left: a stage cut short says little)
+    { id: 'job', header: T('applications.col.job'), min: job, max: 360, flex: 4 },
+    { id: 'stage', header: T('applications.col.stage'), min: stage, max: latin ? 176 : 128, flex: 2 },      // (a stage cut short says little: it is next to take what room is left)
     { id: 'next', header: T('applications.col.next'), min: next, max: 220, flex: 1 },
     { id: 'schedule', header: T('applications.col.schedule'), min: schedule, max: 168, flex: 1 },
-    { id: 'sent', header: T('applications.col.sent'), min: 104, max: 120, flex: 0, priority: 1 },
+    // (a group where nothing has gone out has no use for the day it went out: the room goes to the posting)
+    ...(shown.value.some((r) => r.submitted_at) ? [{ id: 'sent', header: T('applications.col.sent'), min: 104, max: 120, flex: 0, priority: 1 }] : []),
     { id: 'latest', header: T('applications.col.latest'), min: 160, max: 240, flex: 1, priority: 3 },
     { id: 'updated', header: T('applications.col.updated'), min: 112, max: 136, flex: 0, priority: 2 },
     { id: 'more', header: '', width: 44, align: 'end' },
@@ -204,9 +209,9 @@ onMounted(async () => {
       </template>
       <template #cell-next="{ row }">
         <div v-if="row.who && (row.next || row.act)" class="next-step">
-          <button v-if="row.act && ACT[row.act]" class="sm primary" @click.stop="press(row)">{{ $t(ACT[row.act]) }}</button>
+          <button v-if="row.act && ACT[row.act]" class="sm ghost" @click.stop="press(row)">{{ $t(ACT[row.act]) }}</button>
           <Trunc v-else class="next-what" :text="row.next" />
-          <span v-if="WHO[row.who]" class="t-meta atomic">{{ $t('applications.owner', { who: $t(WHO[row.who]) }) }}</span>
+          <span v-if="WHO[row.who] && !oneOwner" class="t-meta atomic">{{ $t('applications.owner', { who: $t(WHO[row.who]) }) }}</span>
         </div>
         <span v-else class="none">—</span>
       </template>

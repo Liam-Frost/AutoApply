@@ -16,7 +16,8 @@
 
 /* The next step of an application: what to do - a button when the page can do it - and, under it, whose move it is. */
 .next-step { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; max-width: 100%; }
-.next-step > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.next-step > button { max-width: calc(100% + 10px); overflow: hidden; text-overflow: ellipsis; }
+.next-step > button.ghost { margin-left: -10px; color: var(--primary); }      /* (words in line with the column; an action told from the plain words beside it) */
 .next-what { color: var(--text); font-size: var(--fs-md); line-height: 20px; }
 
 /* A posting's row: its score (a figure, coloured by how good), the small marks after the company's name, and the
@@ -75,6 +76,9 @@ a.mark:hover { color: var(--primary); }
 .job-why { margin: var(--s3) 0 0; }
 
 /* ───────────────────────── One application (its page) ───────────────────────── */
+/* the company's name as the page's title: two lines at most, never wider than the page (a name of any length) */
+.app-head > div:first-child { flex: 1 1 0; min-width: 0; }
+.app-head h2 { min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 /* under the company's name: the way back, the job, and its plain attributes - one line, cut where it must be */
 .app-sub { display: flex; align-items: center; gap: var(--s1) var(--s3); flex-wrap: wrap; min-width: 0; }
 .app-sub > * { min-width: 0; }

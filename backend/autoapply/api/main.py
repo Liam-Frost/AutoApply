@@ -848,11 +848,14 @@ def list_applications() -> dict[str, Any]:
 
 @app.get("/api/applications.csv")
 def applications_csv(ids: str = "") -> Response:
+    from datetime import date
+
     from .. import applications
 
     picked = {int(x) for x in ids.split(",") if x.strip().isdigit()} or None
+    # (named by the applicant's own day: now() is UTC, a day ahead in the evening west of Greenwich)
     return Response(content=applications.as_csv(picked), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="applications-{now().date().isoformat()}.csv"', "Cache-Control": "no-store"})
+                    headers={"Content-Disposition": f'attachment; filename="applications-{date.today().isoformat()}.csv"', "Cache-Control": "no-store"})
 
 
 @app.get("/api/applications/review")

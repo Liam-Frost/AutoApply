@@ -1,5 +1,5 @@
 /* Text roles, control sizes, badges / status / metadata labels, page and section heads, action groups (owner: foundations).
-   Tokens are in ../style.css; rules of use in docs/design-system.md and docs/component-guidelines.md. */
+   Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md. */
 
 /* ───────────────────────── Text ───────────────────────── */
 /* Three roles. A dense area (a table, a list) says its primary line in medium, never in bold. */

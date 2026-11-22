@@ -9,6 +9,7 @@ import Icon from '../components/Icon.vue'
 import IconButton from '../components/IconButton.vue'
 import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
+import Tabs from '../components/Tabs.vue'
 import Popover from '../components/Popover.vue'
 import Trunc from '../components/Trunc.vue'
 import DateTimeCell from '../components/cells/DateTimeCell.vue'
@@ -282,9 +283,8 @@ onMounted(() => { load(); loadRang() })
   <template v-if="st.at">
 
   <template v-if="todos.length">
-    <div class="seg tabs page-tabs" role="tablist" :aria-label="$t('todos.needsYou')">
-      <button v-for="[k, l] in CATS" :key="k" role="tab" :aria-selected="cat === k" :class="{ on: cat === k }" :disabled="k !== 'all' && !count(k)" @click="cat = k">{{ l }}<span class="n">{{ count(k) }}</span></button>
-    </div>
+    <!-- (a kind with nothing in it is left out: the row stays short enough for one line) -->
+    <Tabs v-model="cat" class="page-tabs" :label="$t('todos.needsYou')" :items="CATS.filter(([x]) => x === 'all' || x === cat || count(x)).map(([id, label]) => ({ id, label, count: count(id) }))" />
     <div class="filters">
       <input v-model="q" type="search" :placeholder="$t('todos.searchCompaniesPostingsOr')" :aria-label="$t('todos.searchCompaniesPostingsOr')" />
       <AaSelect :model-value="sort" :aria-label="$t('todos.sortBy')" @update:model-value="setSort"><option v-for="(l, k) in SORTS" :key="k" :value="k">{{ l }}</option></AaSelect>
