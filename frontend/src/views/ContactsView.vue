@@ -24,7 +24,7 @@ const due = computed(() => rows.value.filter((r) => r.follow_up && r.follow_up <
 async function load() { rows.value = await api.get('/contacts') }
 const save = () => run(async () => { await (form.value.id ? api.put('/contacts/' + form.value.id, form.value) : api.post('/contacts', form.value)); form.value = blank(); editing.value = false }, T('contacts.saved'), load)
 const edit = (r) => { form.value = { ...r }; editing.value = true; window.scrollTo({ top: 0, behavior: 'smooth' }) }
-const remove = async (r) => (await ask(T('contacts.deleteContact', { p0: r.name }))) && run(() => api.del('/contacts/' + r.id), T('contacts.deleted'), load)
+const remove = async (r) => (await ask(T('contacts.deleteContact', { p0: r.name }), { danger: true })) && run(() => api.del('/contacts/' + r.id), T('contacts.deleted'), load)
 onMounted(load)
 </script>
 

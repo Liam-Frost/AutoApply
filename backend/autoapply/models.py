@@ -392,7 +392,7 @@ class ProfileVersion(Base):
     doc: Mapped[str] = mapped_column(String, default="profile")  # profile|scoring
     content: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String, default="user")  # user|agent|init
-    note: Mapped[str] = mapped_column(String, default="")
+    note: Mapped[str] = mapped_column(Said, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 

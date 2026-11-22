@@ -1,3 +1,4 @@
+import { t as T } from './i18n/catalog'
 // The state of something a page reads from the server.
 //
 // A page used to start from an empty list and fill it in: until the answer came it said "0 postings" and showed the
@@ -17,7 +18,7 @@ import { clockOf } from './i18n/format'
 // What the state is after a read ended: `ok`, or not with `error`. (Pure: tests/data.test.js.)
 export function after(st, ok, error, now) {
   if (ok) return { phase: 'ready', error: '', at: now }
-  return { phase: st.at ? 'stale' : 'error', error: error || '没有读到数据', at: st.at }
+  return { phase: st.at ? 'stale' : 'error', error: error || T('common.noData'), at: st.at }
 }
 
 export function dataState(read) {

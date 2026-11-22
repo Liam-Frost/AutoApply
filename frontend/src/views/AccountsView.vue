@@ -58,7 +58,7 @@ function sessionText(x) {
 }
 async function loadIdps() { idps.value = await api.get('/identities'); idpState.value = await api.get('/identities/state') }
 const idpLogin = (p) => runAction(() => api.post(`/identities/${p.key}/login`), T('accounts.aWindowHasOpened', { p0: p.name }), loadIdps)
-const idpForget = async (p) => (await ask(T('accounts.deleteTheSavedSession', { p0: p.name, p1: p.name }))) && runAction(() => api.del('/identities/' + p.key), T('accounts.deleted'), loadIdps)
+const idpForget = async (p) => (await ask(T('accounts.deleteTheSavedSession', { p0: p.name, p1: p.name }), { danger: true })) && runAction(() => api.del('/identities/' + p.key), T('accounts.deleted'), loadIdps)
 
 const STATUS = { ok: [T('accounts.canSignInAutomatically'), 'ok'], pending: [T('accounts.waitingForItsE'), 'warn'], locked: [T('accounts.locked'), 'bad'], needs_human: [T('accounts.youNeedToSign'), 'warn'], unknown: [T('accounts.neverSignedIn'), ''], not_needed: [T('accounts.noSignInNeeded'), ''] }
 const BY = { agent: T('accounts.registeredByTheApp'), takeover: T('accounts.savedWhenYouSign'), manual: T('accounts.addManually'), chrome_csv: T('accounts.importFromChrome') }
@@ -66,7 +66,7 @@ const BY = { agent: T('accounts.registeredByTheApp'), takeover: T('accounts.save
 async function read() { accounts.value = await api.get('/accounts'); browserRules.value = (await api.get('/settings')).settings['browser.rules'] || []; loadIdps() }
 const run = (fn, ok) => runAction(fn, ok, load)
 const save = () => run(async () => { await api.put('/accounts/' + encodeURIComponent(form.value.tenant_key), form.value); form.value = { tenant_key: '', login_email: '', password: '' } }, T('accounts.saved'))
-const remove = async (a) => (await ask(T('accounts.deleteTheAccountRecord', { p0: a.site.name }))) && run(() => api.del('/accounts/' + encodeURIComponent(a.tenant_key)), T('accounts.deleted'))
+const remove = async (a) => (await ask(T('accounts.deleteTheAccountRecord', { p0: a.site.name }), { danger: true })) && run(() => api.del('/accounts/' + encodeURIComponent(a.tenant_key)), T('accounts.deleted'))
 async function reveal(a) {
   if (revealed.value[a.tenant_key]) { const r = { ...revealed.value }; delete r[a.tenant_key]; revealed.value = r; return }
   if (!(await ask(T('accounts.showThePasswordFor', { p0: a.site.name })))) return

@@ -1,3 +1,4 @@
+import { t as T } from './i18n/catalog'
 // What has been typed and not saved.
 //
 // Every place where something is edited and saved later - the settings, a prompt, a section of the profile - says so
@@ -73,10 +74,10 @@ export function mayLeave(only, to) {
   asking = (async () => {
     const names = [...new Set(open.map((a) => a.label))].join('、')
     const can = open.every((a) => a.save)
-    const pick = await choose(`还没保存的改动：${names}。`, [
-      { key: 'stay', label: '继续编辑' },
-      { key: 'discard', label: '放弃改动' },
-      ...(can ? [{ key: 'save', label: '保存', cls: 'primary', focus: true }] : []),
+    const pick = await choose(T('common.unsaved', { names }), [
+      { key: 'stay', label: T('common.keepEditing') },
+      { key: 'discard', label: T('common.discard') },
+      ...(can ? [{ key: 'save', label: T('common.save'), cls: 'primary', focus: true }] : []),
     ], 'stay')
     if (pick === 'save') {
       for (const a of open) if ((await a.save()) === false) return false

@@ -755,7 +755,7 @@
       "connected": "Connected",
       "notSetUpYet2": "Not set up yet",
       "savedToChangeIt": "Saved. To change it, enter a new one here",
-      "youGetThisAfter": "You get this after creating a bot with @BotFather",
+      "youGetThisAfter": "You get this after creating a bot with {'@'}BotFather",
       "createAnApplicationIn": "Create an application in the Discord Developer Portal; the token is on its Bot page",
       "channelSettingsIntegrationsWebhooks": "Channel settings → Integrations → Webhooks, copy the URL",
       "changeSNotSaved": "{p0} change(s) not saved yet",
@@ -1003,8 +1003,8 @@
       "rSum": "Résumé",
       "coverLetter": "Cover letter",
       "forExampleNamesOf": "For example: names of projects, of employers (separated by commas)",
-      "onePerLineThe": "One per line: the text shown | the link, for example careers@school.example | mailto:careers@school.example",
-      "onePerLineThe2": "One per line: the text as it is | the text it becomes",
+      "onePerLineThe": "One per line: the text shown {'|'} the link, for example careers{'@'}school.example {'|'} mailto:careers{'@'}school.example",
+      "onePerLineThe2": "One per line: the text as it is {'|'} the text it becomes",
       "signInsToCareer": "Sign-ins to career sites",
       "mailbox": "Mailbox",
       "whereNoticesGo": "Where notices go",
@@ -2385,7 +2385,7 @@
     "onlyThisJob": "Only about this job",
     "notInList": "Not in the list? Type it",
     "optionsHint": "These are the options on the form; you can also type your answer.",
-    "multiHint": "Separate several with ||; options: {options}",
+    "multiHint": "Separate several with {'|'}{'|'}; options: {options}",
     "remember": "Answer like this when another form asks this question",
     "rulePlaceholder": "(Optional) a condition, e.g. only for jobs in Canada",
     "save": "Save",
@@ -2879,5 +2879,84 @@
     "jdNone": "This posting has only a short line and no full description, so it has no overview and cannot be scored again. See the posting on the employer's site.",
     "more": "Show all",
     "less": "Show less"
+  },
+  "common": {
+    "pdf": {
+      "page": "Page {n} of {of}",
+      "cannotPreview": "This kind of file cannot be previewed here; download it to look at it.",
+      "couldNotRead": "Could not read the file ({status})",
+      "failed": "The preview did not work",
+      "pages": "{n} page | {n} pages",
+      "loading": "Loading the preview…",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "fitWidth": "Fit width",
+      "noPreview": "No preview"
+    },
+    "failed": "It did not work",
+    "seeQueue": "See where it is in the queue",
+    "doneButNotRead": "Done, but the page could not read what changed: {error}",
+    "ok": "OK",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "loading": "Reading…",
+    "notRead": "Could not read {what}",
+    "thisPage": "this page's data",
+    "retrying": "Trying again…",
+    "retry": "Try again",
+    "stale": "Cannot reach the service. Below is what was read at {time}; it may be out of date.",
+    "model": {
+      "pick": "Pick a model",
+      "typeHow": "For when the model you want is not in the list",
+      "type": "Type it",
+      "loading": "Reading the list of models…",
+      "name": "Model name",
+      "fromList": "Pick from the list"
+    },
+    "unsaved": "Changes not saved: {names}.",
+    "keepEditing": "Keep editing",
+    "discard": "Discard the changes",
+    "save": "Save",
+    "chart": {
+      "item": "Item",
+      "asTable": "Show as a table",
+      "count": "Count",
+      "date": "Date",
+      "total": "Total",
+      "toggle": "Click to take this out of the chart or put it back"
+    },
+    "doctor": {
+      "title": "This computer",
+      "sub": "What the program needs to work fully: what this computer has and what it lacks. Each missing one comes with the command that adds it.",
+      "checking": "Checking…",
+      "recheck": "Check again (and start the browser once)"
+    },
+    "pager": {
+      "range": "{from}–{to} of {total}",
+      "prev": "Previous",
+      "next": "Next"
+    },
+    "remote": {
+      "login": "a sign-in",
+      "apply": "an application form",
+      "window": "a window",
+      "waiting": "A window waits for you: {what}",
+      "open": "Open the window"
+    },
+    "select": {
+      "placeholder": "Choose",
+      "none": "Nothing to choose"
+    },
+    "offline": "Cannot reach the service: it may be restarting, or it has stopped",
+    "collapse": "Hide the details",
+    "howCounted": "How it is counted",
+    "set": {
+      "top": "Saved with \"Save\" at the top right",
+      "own": "Saved with its own button",
+      "now": "Takes effect at once"
+    },
+    "close": "Close",
+    "techDetails": "Technical details",
+    "noData": "Nothing was read"
   }
 }

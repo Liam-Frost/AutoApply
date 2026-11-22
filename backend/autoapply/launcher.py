@@ -325,7 +325,7 @@ class Launcher:
         try:
             self.ov = self.server.get("/api/overview")
             try:
-                self.lang = "en" if self.server.get("/api/settings")["settings"].get("ui.lang") == "en" else "zh"
+                self.lang = "zh" if self.server.get("/api/settings")["settings"].get("ui.lang") == "zh" else "en"
             except Exception:  # noqa: BLE001
                 pass
         except Exception:  # noqa: BLE001

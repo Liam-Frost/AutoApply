@@ -6,9 +6,10 @@ let counter = 0   // ids for the label / listbox pairing: unique on the page, no
 // Drop-down that replaces the browser's own <select>. Used exactly like one - <AaSelect v-model="x"><option value="a">A</option></AaSelect> -
 // so the options stay readable in the template; they are read from the slot and drawn in the product's own style.
 import { Fragment, Static, computed, nextTick, onBeforeUnmount, ref, useAttrs, useSlots } from 'vue'
+import { t as T } from '../i18n/catalog'
 
 defineOptions({ inheritAttrs: false })
-const props = defineProps({ modelValue: { default: undefined }, value: { default: undefined }, placeholder: { type: String, default: '请选择' }, disabled: Boolean, small: Boolean })
+const props = defineProps({ modelValue: { default: undefined }, value: { default: undefined }, placeholder: { type: String, default: () => T('common.select.placeholder') }, disabled: Boolean, small: Boolean })
 const emit = defineEmits(['update:modelValue', 'change'])
 const slots = useSlots()
 const attrs = useAttrs()
@@ -129,7 +130,7 @@ const uid = 'sel' + ++counter
         <span>{{ o.label }}</span>
         <svg v-if="same(o.value, current)" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5 5L20 6" /></svg>
       </div>
-      <div v-if="!options.length" class="sel-opt disabled">没有可选项</div>
+      <div v-if="!options.length" class="sel-opt disabled">{{ $t('common.select.none') }}</div>
     </div>
   </Teleport>
 </template>

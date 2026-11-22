@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // In-page PDF viewer. The file is fetched as plain bytes and drawn onto canvases with pdf.js, so nothing
 // that looks like a PDF download ever reaches the browser (download managers grab those out of iframes).
 import * as pdfjs from 'pdfjs-dist'
@@ -43,7 +44,7 @@ async function render() {
     c.style.width = base.width * scale + 'px'
     c.className = 'pdf-page'
     c.setAttribute('role', 'img')
-    c.setAttribute('aria-label', `第 ${n} 页，共 ${doc.numPages} 页`)
+    c.setAttribute('aria-label', T('common.pdf.page', { n, of: doc.numPages }))
     task = page.render({ canvasContext: c.getContext('2d'), viewport: vp })
     try { await task.promise } catch (e) { if (mine !== drawing) return; throw e }
     if (mine !== drawing) return
@@ -75,7 +76,7 @@ async function load() {
   state.value = 'loading'; message.value = ''
   try {
     const r = await fetch(props.src)
-    if (!r.ok) throw new Error(r.status === 415 ? '这种文件不能在页面里预览，请下载后查看。' : '没能读取文件（' + r.status + '）')
+    if (!r.ok) throw new Error(r.status === 415 ? T('common.pdf.cannotPreview') : T('common.pdf.couldNotRead', { status: r.status }))
     const data = await r.arrayBuffer()
     if (mine !== token) return
     drawing++                                  // whatever was being drawn was of the file before
@@ -87,7 +88,7 @@ async function load() {
     await nextTick()
     await render()
   } catch (e) {
-    if (mine === token) { state.value = 'error'; message.value = e.message || '预览失败' }
+    if (mine === token) { state.value = 'error'; message.value = e.message || T('common.pdf.failed') }
   }
 }
 function setZoom(z) { zoom.value = clampZoom(z); render() }
@@ -105,16 +106,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="pdf">
     <div class="pdf-bar">
-      <span class="muted small">{{ state === 'ready' ? `共 ${pages} 页` : state === 'loading' ? '正在加载预览…' : '' }}</span>
+      <span class="muted small">{{ state === 'ready' ? $t('common.pdf.pages', { n: pages }, pages) : state === 'loading' ? $t('common.pdf.loading') : '' }}</span>
       <span class="grow"></span>
       <template v-if="state === 'ready'">
-        <button class="sm ghost" aria-label="缩小" @click="setZoom(zoom - 0.25)">−</button>
+        <button class="sm ghost" :aria-label="$t('common.pdf.zoomOut')" @click="setZoom(zoom - 0.25)">−</button>
         <span class="small muted" style="min-width: 44px; text-align: center">{{ Math.round(zoom * 100) }}%</span>
-        <button class="sm ghost" aria-label="放大" @click="setZoom(zoom + 0.25)">+</button>
-        <button class="sm ghost" @click="setZoom(1)">适合宽度</button>
+        <button class="sm ghost" :aria-label="$t('common.pdf.zoomIn')" @click="setZoom(zoom + 0.25)">+</button>
+        <button class="sm ghost" @click="setZoom(1)">{{ $t('common.pdf.fitWidth') }}</button>
       </template>
     </div>
-    <div v-if="state === 'error'" class="empty"><div class="t">没法预览</div><div>{{ message }}</div></div>
+    <div v-if="state === 'error'" class="empty"><div class="t">{{ $t('common.pdf.noPreview') }}</div><div>{{ message }}</div></div>
     <div v-show="state !== 'error'" ref="box" class="pdf-pages"></div>
   </div>
 </template>

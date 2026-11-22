@@ -133,10 +133,13 @@ def template(p: dict[str, Any]) -> dict[str, Any]:
 
 
 def describe(p: dict[str, Any]) -> str:
+    from .say import join
+
     st, fd = STAGES.get(p.get("stage") or "", {}), FIELDS.get(p.get("field") or "", {})
-    bits = [st.get("name", ""), fd.get("name", "").split("（")[0], (T("server.persona.goal") + "、".join(p["targets"])) if p.get("targets") else "",
-            (T("server.persona.region") + "、".join(p["countries"])) if p.get("countries") else "", T("server.persona.needsWorkVisaSponsorship") if p.get("sponsorship") else ""]
-    return "；".join(b for b in bits if b)
+    items = T("server.messages.listSep")
+    bits = [st.get("name", ""), fd.get("name", ""), (T("server.persona.goal") + join(items, p["targets"])) if p.get("targets") else "",
+            (T("server.persona.region") + join(items, p["countries"])) if p.get("countries") else "", T("server.persona.needsWorkVisaSponsorship") if p.get("sponsorship") else ""]
+    return join(T("server.persona.sep"), [b for b in bits if b])
 
 
 def note(p: dict[str, Any] | None = None) -> str:

@@ -111,7 +111,7 @@ function upload(ev) {
 const rename = () => act(async () => { await api.patch('/documents/' + cur.value.id, { name: newName.value }); renaming.value = false }, T('files.page.renamed'))
 const setKind = (k) => act(() => api.patch('/documents/' + cur.value.id, { kind: k }), T('files.page.purposeChanged'))
 const setActive = (on) => act(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? (isGen(cur.value) ? T('files.page.thisVersionIsNow') : T('files.page.turnedOnOtherFiles')) : T('files.page.turnedOffFutureDrafts'))
-const destroy = async () => (await ask(T('files.page.permanentlyDeleteTheFile', { p0: cur.value.name }))) && act(async () => { await api.del('/documents/' + cur.value.id + '?permanent=true'); cur.value = null }, T('files.page.deleted'))
+const destroy = async () => (await ask(T('files.page.permanentlyDeleteTheFile', { p0: cur.value.name }), { danger: true })) && act(async () => { await api.del('/documents/' + cur.value.id + '?permanent=true'); cur.value = null }, T('files.page.deleted'))
 async function bulk(action) {
   const ids = [...picked.value]
   if (action === 'delete' && !(await ask(t('files.deleteAsk', { n: ids.length }, ids.length)))) return

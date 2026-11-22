@@ -755,7 +755,7 @@
       "connected": "已接通",
       "notSetUpYet2": "还没配置",
       "savedToChangeIt": "已保存；要更换时在这里填新的",
-      "youGetThisAfter": "从 @BotFather 创建机器人后得到",
+      "youGetThisAfter": "从 {'@'}BotFather 创建机器人后得到",
       "createAnApplicationIn": "在 Discord 开发者后台新建应用，Bot 页里得到",
       "channelSettingsIntegrationsWebhooks": "频道设置 → 整合 → Webhook，复制链接",
       "changeSNotSaved": "有 {p0} 项改动还没保存",
@@ -1003,8 +1003,8 @@
       "rSum": "简历",
       "coverLetter": "求职信",
       "forExampleNamesOf": "例如：项目名、雇主名（用逗号分开）",
-      "onePerLineThe": "每行一个：显示的文字 | 链接，例如 careers@school.example | mailto:careers@school.example",
-      "onePerLineThe2": "每行一个：原来的文字 | 改成的文字",
+      "onePerLineThe": "每行一个：显示的文字 {'|'} 链接，例如 careers{'@'}school.example {'|'} mailto:careers{'@'}school.example",
+      "onePerLineThe2": "每行一个：原来的文字 {'|'} 改成的文字",
       "signInsToCareer": "招聘网站的登录",
       "mailbox": "收件邮箱",
       "whereNoticesGo": "发到哪里",
@@ -2385,7 +2385,7 @@
     "onlyThisJob": "只和这个岗位有关",
     "notInList": "列表里没有？直接输入",
     "optionsHint": "这里列出的是表单上的选项；也可以直接输入你的答案。",
-    "multiHint": "多选用 || 分隔；可选：{options}",
+    "multiHint": "多选用 {'|'}{'|'} 分隔；可选：{options}",
     "remember": "以后别的申请表上遇到这个问题，也这样回答",
     "rulePlaceholder": "（可选）补充说明，例如：只对加拿大的岗位这样填",
     "save": "保存",
@@ -2879,5 +2879,84 @@
     "jdNone": "这个岗位只有一句简介，没有岗位说明全文，所以没有详细概况，也没法重新评分。可以点“看原岗位”到官网查看。",
     "more": "展开全文",
     "less": "收起"
+  },
+  "common": {
+    "pdf": {
+      "page": "第 {n} 页，共 {of} 页",
+      "cannotPreview": "这种文件不能在页面里预览，请下载后查看。",
+      "couldNotRead": "没能读取文件（{status}）",
+      "failed": "预览失败",
+      "pages": "共 {n} 页",
+      "loading": "正在加载预览…",
+      "zoomOut": "缩小",
+      "zoomIn": "放大",
+      "fitWidth": "适合宽度",
+      "noPreview": "没法预览"
+    },
+    "failed": "操作没有成功",
+    "seeQueue": "看它排在哪",
+    "doneButNotRead": "已经做完了，但页面没能读到最新的内容：{error}",
+    "ok": "确定",
+    "delete": "删除",
+    "cancel": "取消",
+    "loading": "正在读取…",
+    "notRead": "{what}没有读出来",
+    "thisPage": "这一页的数据",
+    "retrying": "正在重试…",
+    "retry": "重试",
+    "stale": "连接不上服务。下面是 {time} 读到的内容，可能已经不是最新的。",
+    "model": {
+      "pick": "选一个模型",
+      "typeHow": "列表里没有你要的模型时用",
+      "type": "手动填写",
+      "loading": "正在读取模型列表…",
+      "name": "填写模型名称",
+      "fromList": "从列表选"
+    },
+    "unsaved": "还没保存的改动：{names}。",
+    "keepEditing": "继续编辑",
+    "discard": "放弃改动",
+    "save": "保存",
+    "chart": {
+      "item": "项目",
+      "asTable": "用表格看",
+      "count": "数量",
+      "date": "日期",
+      "total": "合计",
+      "toggle": "点一下，把这一项从图里拿掉或放回来"
+    },
+    "doctor": {
+      "title": "这台电脑的状况",
+      "sub": "程序完整工作需要的东西，这台电脑上有哪些、缺哪些。缺的每一项都给出了补上它的命令。",
+      "checking": "正在检查…",
+      "recheck": "重新检查（并实际启动一次浏览器）"
+    },
+    "pager": {
+      "range": "第 {from}–{to} 条，共 {total} 条",
+      "prev": "上一页",
+      "next": "下一页"
+    },
+    "remote": {
+      "login": "登录",
+      "apply": "申请表",
+      "window": "窗口",
+      "waiting": "有一个窗口在等你操作：{what}",
+      "open": "打开窗口"
+    },
+    "select": {
+      "placeholder": "请选择",
+      "none": "没有可选项"
+    },
+    "offline": "连接不上服务：它可能正在重启，或者已经停了",
+    "collapse": "收起明细",
+    "howCounted": "怎么算的",
+    "set": {
+      "top": "由右上角的“保存”保存",
+      "own": "用这里自己的按钮保存",
+      "now": "改了就生效"
+    },
+    "close": "关闭",
+    "techDetails": "技术细节",
+    "noData": "没有读到数据"
   }
 }

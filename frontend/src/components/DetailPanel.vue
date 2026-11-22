@@ -11,7 +11,7 @@ defineEmits(['close'])
   <section class="card an-detail" :aria-label="title">
     <div class="card-head">
       <span class="card-title">{{ title }}</span>
-      <button class="ghost sm" @click="$emit('close')"><Icon name="chevron_up" />收起明细</button>
+      <button class="ghost sm" @click="$emit('close')"><Icon name="chevron_up" />{{ $t('common.collapse') }}</button>
     </div>
     <p v-if="sub" class="card-sub">{{ sub }}</p>
     <slot />

@@ -10,11 +10,11 @@ defineEmits(['retry'])
 </script>
 
 <template>
-  <div v-if="s.phase === 'loading'" class="card data-wait" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>正在读取…</div>
+  <div v-if="s.phase === 'loading'" class="card data-wait" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>{{ $t('common.loading') }}</div>
   <div v-else-if="s.phase === 'error'" class="callout bad" role="alert"><Icon name="alert" />
-    <div><b>{{ what || '这一页的数据' }}没有读出来</b><div class="small">{{ s.error }}</div>
-      <button class="sm" style="margin-top: 8px" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? '正在重试…' : '重试' }}</button></div></div>
+    <div><b>{{ $t('common.notRead', { what: what || $t('common.thisPage') }) }}</b><div class="small">{{ s.error }}</div>
+      <button class="sm" style="margin-top: 8px" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? $t('common.retrying') : $t('common.retry') }}</button></div></div>
   <div v-else-if="s.phase === 'stale'" class="callout warn data-stale" role="status"><Icon name="alert" />
-    <span class="grow">连接不上服务。下面是 {{ clock(s.at) }} 读到的内容，可能已经不是最新的。</span>
-    <button class="sm" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? '正在重试…' : '重试' }}</button></div>
+    <span class="grow">{{ $t('common.stale', { time: clock(s.at) }) }}</span>
+    <button class="sm" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? $t('common.retrying') : $t('common.retry') }}</button></div>
 </template>

@@ -208,7 +208,7 @@ def applications(w: Window, bucket: str = "") -> dict[str, Any]:
             got = came_of(a.status, mine, been[a.id])
             progressed, decided, heard = got["progressed"], got["decided"], got["heard"]
             apps.append({
-                "status": a.status, "score": j.score, "direction": (j.direction or "未标注").split("/")[0].strip() or T("server.analytics.unlabeled"),
+                "status": a.status, "score": j.score, "direction": (j.direction or "").split("/")[0].strip() or T("server.analytics.unlabeled"),
                 "channel": "UBC PD Portal" if (j.ats == "pdportal" or j.channel == "PD Portal") else (humanize.ats_name(j.ats) if j.ats and j.ats != "generic" else T("server.analytics.employerWebsite")),
                 "auto": bool(a.auto_approved), "wait": (decisions[0] - sub_at).days if decisions else None,
                 "lead": (sub_at - _naive(j.first_seen)).days if j.first_seen else None, "month": _local(sub_at).strftime("%Y-%m"), "at": sub_at,

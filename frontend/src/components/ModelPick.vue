@@ -1,8 +1,9 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // Choose a model from the service's own list. Typing a name by hand stays possible (new models, private deployments).
 import { computed, ref, watch } from 'vue'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, models: { type: Array, default: () => [] }, loading: Boolean, allowEmpty: { type: String, default: '' }, placeholder: { type: String, default: '选一个模型' } })
+const props = defineProps({ modelValue: { type: String, default: '' }, models: { type: Array, default: () => [] }, loading: Boolean, allowEmpty: { type: String, default: '' }, placeholder: { type: String, default: () => T('common.model.pick') } })
 const emit = defineEmits(['update:modelValue'])
 const manual = ref(false)
 // a saved value that the list does not contain is still shown, not silently dropped
@@ -17,11 +18,11 @@ watch(() => props.models, (m) => { if (m.length) manual.value = false })
         <option v-if="allowEmpty" value="">{{ allowEmpty }}</option>
         <option v-for="m in options" :key="m" :value="m">{{ m }}</option>
       </AaSelect>
-      <button class="sm ghost nowrap" title="列表里没有你要的模型时用" @click="manual = true">手动填写</button>
+      <button class="sm ghost nowrap" :title="$t('common.model.typeHow')" @click="manual = true">{{ $t('common.model.type') }}</button>
     </template>
     <template v-else>
-      <input class="grow" :value="modelValue" :placeholder="loading ? '正在读取模型列表…' : '填写模型名称'" @input="emit('update:modelValue', $event.target.value)" />
-      <button v-if="options.length" class="sm ghost nowrap" @click="manual = false">从列表选</button>
+      <input class="grow" :value="modelValue" :placeholder="loading ? $t('common.model.loading') : $t('common.model.name')" @input="emit('update:modelValue', $event.target.value)" />
+      <button v-if="options.length" class="sm ghost nowrap" @click="manual = false">{{ $t('common.model.fromList') }}</button>
     </template>
   </div>
 </template>

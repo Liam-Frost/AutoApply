@@ -112,7 +112,7 @@ async function docAct(fn, ok) { const id = cur.value && cur.value.id; await run(
 const rename = () => docAct(async () => { await api.patch('/documents/' + cur.value.id, { name: newName.value }); renaming.value = false }, T('profile.renamed'))
 const setKind = (k) => docAct(() => api.patch('/documents/' + cur.value.id, { kind: k }), T('profile.purposeChanged'))
 const setActive = (on) => docAct(() => api.patch('/documents/' + cur.value.id, { active: on }), on ? T('profile.turnedOnOtherFiles') : T('profile.disabledDraftsWontUse'))
-const destroy = async () => (await ask(T('profile.permanentlyDeleteTheFile', { p0: cur.value.name }))) && docAct(() => api.del('/documents/' + cur.value.id + '?permanent=true'), T('profile.deleted'))
+const destroy = async () => (await ask(T('profile.permanentlyDeleteTheFile', { p0: cur.value.name }), { danger: true })) && docAct(() => api.del('/documents/' + cur.value.id + '?permanent=true'), T('profile.deleted'))
 async function init() {
   try { await startGen(notes.value) } catch (e) { toast(e.message, 'bad') }
 }

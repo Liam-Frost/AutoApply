@@ -1,4 +1,5 @@
 <script setup>
+import { t as T } from '../i18n/catalog'
 // Single-series column chart. data: [{ label, value, tip }]. One hue, baseline-anchored columns (max 24px),
 // hairline grid, a value only on the tallest and the last column, tooltip on hover, table view underneath.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -7,7 +8,7 @@ const props = defineProps({
   data: { type: Array, required: true },
   height: { type: Number, default: 150 },
   unit: { type: String, default: '' },
-  tableLabel: { type: String, default: '项目' },
+  tableLabel: { type: String, default: () => T('common.chart.item') },
   table: { type: Boolean, default: true },     // the "as a table" fold-out underneath; off where the page offers its own table view
 })
 const max = computed(() => Math.max(1, ...props.data.map((d) => d.value)))
@@ -49,8 +50,8 @@ const every = computed(() => {
     </div>
     <div class="xaxis"><span v-for="(d, i) in data" :key="i">{{ i % every === 0 ? d.label : '' }}</span></div>
     <details v-if="table" class="tech">
-      <summary>用表格看</summary>
-      <table style="margin-top: 6px"><thead><tr><th>{{ tableLabel }}</th><th>数量</th></tr></thead>
+      <summary>{{ $t('common.chart.asTable') }}</summary>
+      <table style="margin-top: 6px"><thead><tr><th>{{ tableLabel }}</th><th>{{ $t('common.chart.count') }}</th></tr></thead>
         <tbody><tr v-for="(d, i) in data" :key="i"><td>{{ d.tip || d.label }}</td><td>{{ d.value }}{{ unit }}</td></tr></tbody></table>
     </details>
   </div>
