@@ -356,3 +356,21 @@ def test_a_mail_taken_off_an_application_asks_again_which_it_is_about(world):
         assert s.query(MailEvent).filter_by(message_id="m-conf").one().application_id is None
         card = s.query(Todo).filter_by(kind="mail_unmatched", ref="mail:m-conf", status="open").one()
         assert card.payload["message_id"] == "m-conf" and "We received your application" in card.title
+
+
+def test_the_next_date_of_an_application_is_what_is_still_to_come_on_the_local_clock(world):
+    """The column showed an information request that had been answered as what came next, and its time eight hours off:
+    what is done is not next, and the time is the wall clock the calendar shows (no zone, never read as UTC)."""
+    from autoapply import applications
+    from autoapply.models import Todo
+
+    soon = (datetime.now() + timedelta(days=2)).replace(hour=17, minute=0, second=0, microsecond=0)
+    later = soon + timedelta(days=1, hours=-7)
+    with db.session() as s:
+        s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:info", title="Hooli - information", status="done", due_at=soon,
+                   payload={"application_id": world["talks"], "category": "info_request"}))
+        s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:interview", title="Hooli - interview", due_at=later,
+                   payload={"application_id": world["talks"], "category": "interview"}))
+    row = next(r for r in applications.listing() if r["id"] == world["talks"])
+    assert row["next_date"]["kind"] == "interview"
+    assert row["next_date"]["start"] == later.isoformat(timespec="minutes") and not row["next_date"]["start"].endswith("Z")

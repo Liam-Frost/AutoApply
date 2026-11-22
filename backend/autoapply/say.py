@@ -37,8 +37,14 @@ def _catalog(lang: str) -> dict[str, str]:
         return {}
 
 
+# What the program's Chinese wording was when its messages were given keys (2.0.2): text kept before that is found by
+# it, whatever the wording has become since. (The file is that release's server/zh.json, never changed.)
+KEPT_AS = "zh-2.0.2"
+
+
 def reload() -> None:
     _catalog.cache_clear()
+    _patterns.cache_clear()
 
 
 # --- plural forms: in the order of the language's categories (as the interface's catalog.js) ---------------------------
@@ -200,11 +206,15 @@ def loads(text: str) -> Any:
 
 # --- what was kept before messages had keys -------------------------------------------------------------------------------
 @lru_cache(maxsize=1)
-def _patterns() -> list[tuple[int, Any, str]]:
+def _patterns() -> list[tuple[int, Any, str, bool]]:
     """Every message's Chinese wording as a pattern, its values as groups - the longest wording first. A wording with
-    almost nothing of its own ("{what} · {company}") would take any text for itself: it is left out."""
+    almost nothing of its own ("{what} · {company}") would take any text for itself: it is left out. A message whose
+    wording has changed since its text was kept is found by the wording it had then as well."""
+    now = _catalog(SOURCE)
+    wordings = [(key, text, False) for key, text in now.items()]
+    wordings += [(key, text, True) for key, text in _catalog(KEPT_AS).items() if key in now and now[key] != text]
     out = []
-    for key, text in _catalog(SOURCE).items():
+    for key, text, old in wordings:
         if "|" in text:
             continue
         literal = re.sub(r"\{\w+\}", "", text)
@@ -221,7 +231,7 @@ def _patterns() -> list[tuple[int, Any, str]]:
 
         rx = re.sub(r"\\\{(\w+)\\\}", group, re.escape(text))
         try:
-            out.append((len(literal), re.compile(rx + r"\Z", re.S), key))
+            out.append((len(literal), re.compile(rx + r"\Z", re.S), key, old))
         except re.error:
             continue
     return sorted(out, key=lambda x: -x[0])
@@ -233,7 +243,7 @@ def recognise(text: str, depth: int = 0) -> Msg | None:
     applicant, an employer or the AI wrote it, or it was put together from several."""
     if not isinstance(text, str) or isinstance(text, Msg) or not re.search(r"[\u4e00-\u9fff]", text) or len(text) > 2000:
         return None
-    for _n, rx, key in _patterns():
+    for _n, rx, key, old in _patterns():
         m = rx.match(text)
         if m is None:
             continue
@@ -242,7 +252,7 @@ def recognise(text: str, depth: int = 0) -> Msg | None:
             inner = recognise(value, depth + 1) if depth < 2 else None
             params[name] = inner if inner is not None else value
         msg = say(key, **params)
-        if str(msg) == text:
+        if old or str(msg) == text:      # (an old wording was matched whole: said now, it reads differently)
             return msg
     return None
 

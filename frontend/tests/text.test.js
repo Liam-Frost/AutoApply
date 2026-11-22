@@ -53,9 +53,9 @@ describe('figures of the analytics page', () => {
   it('compares with the period before, and says nothing where there is nothing to compare with', () => {
     expect(change(10, 0)).toBe('')
     expect(change(null, 5)).toBe('')
-    expect(change(12, 10)).toBe('比上一段 +20%')
-    expect(change(8, 10)).toBe('比上一段 -20%')
-    expect(change(10.01, 10)).toBe('和上一段持平')
+    expect(change(12, 10)).toBe('较上一时段 +20%')
+    expect(change(8, 10)).toBe('较上一时段 -20%')
+    expect(change(10.01, 10)).toBe('与上一时段持平')
   })
   it('turns a range into a query', () => {
     const q = rangeQuery({ days: 30 }, { kind: 'execute' })

@@ -101,7 +101,7 @@ describe('in English', () => {
     expect(deadlineLabel('2026-11-17', at(12)).text).toBe('Closed')
     expect(t('todos.deadline.left', { n: 1 }, 1)).toBe('1 day left')
     expect(when(at(9, 5), at(15))).toMatch(/^Today 09:05$/)
-    expect(change(12, 10)).toBe('+20% on the period before')
+    expect(change(12, 10)).toBe('+20% vs the previous period')
   })
   it('a key a translation lacks is shown in English, not as its name', () => {
     i18n.global.setLocaleMessage('xx', { time: {} })

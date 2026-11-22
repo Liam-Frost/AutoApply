@@ -182,3 +182,33 @@ def test_a_third_language_is_only_its_catalogs():
     assert msg.in_lang("fr") == "1 question est encore en suspens" and say.say("server.applications.questionsOpen", n=3).in_lang("fr").startswith("3 questions sont")
     assert say.say("server.applications.questionsOpen", n=0).in_lang("fr").startswith("0 question est")      # (0 is singular in French)
     assert say.language_name("fr") == "French"
+
+
+def test_text_kept_in_an_older_wording_is_still_found_after_the_wording_changed(app_env, monkeypatch):
+    """The wording of 2.0.2 is kept beside the catalogs: a text written then is the message it was, however the message
+    is worded now."""
+    import json
+
+    from autoapply import say
+
+    kept = json.loads((say.catalog_dir() / f"{say.KEPT_AS}.json").read_text(encoding="utf-8"))
+    assert len(kept) > 1000
+    values = list(kept.values())
+    key = next(k for k, v in sorted(kept.items()) if "{" not in v and "|" not in v and len(v) >= 8 and values.count(v) == 1)      # (a wording only one message has)
+    old = kept[key]
+    real = say._catalog
+
+    def changed(lang):
+        d = dict(real(lang))
+        if lang == "zh":
+            d[key] = old + "了了"      # (the wording has moved on)
+        return d
+
+    monkeypatch.setattr(say, "_catalog", changed)
+    say._patterns.cache_clear()
+    try:
+        found = say.recognise(old)
+        assert found is not None and found.key == key and found.in_lang("en") == real("en")[key]
+    finally:
+        monkeypatch.undo()
+        say._patterns.cache_clear()

@@ -148,6 +148,8 @@ def context(s: Any, *, dates: bool = True) -> dict[str, Any]:
         try:
             for it in agenda.items(date.today(), date.today() + timedelta(days=120), kinds=("interview", "assessment", "offer", "info_request", "own")):
                 aid = (it.get("about") or {}).get("application_id")
+                if it.get("done"):      # (what was asked and has been done is not what comes next)
+                    continue
                 if aid and (aid not in nxt or str(it.get("start") or "") < str(nxt[aid]["start"] or "")):
                     nxt[aid] = {"kind": it.get("kind"), "title": it.get("title"), "start": it.get("start"), "all_day": bool(it.get("all_day"))}
         except Exception:  # noqa: BLE001 - a date the calendar cannot read leaves the column empty, not the page

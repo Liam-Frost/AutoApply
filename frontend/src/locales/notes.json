@@ -2830,5 +2830,11 @@
   "calendar.summary.interviewsHint": "Tooltip and list subtitle of Upcoming interviews.",
   "calendar.summary.overdueHint": "Tooltip and list subtitle of Overdue: what is counted.",
   "calendar.summary.hide": "Button that hides the line of counts (it comes back from the filter).",
-  "calendar.kbd": "At the bottom of the filter: the calendar's keyboard keys (the letters are the keys themselves; keep them)."
+  "calendar.kbd": "At the bottom of the filter: the calendar's keyboard keys (the letters are the keys themselves; keep them).",
+  "common.table.selectAll": "Accessible name of the checkbox in a table's header that ticks every row shown (DataTable); read by screen readers, not shown.",
+  "common.table.selectRow": "Accessible name of a row's checkbox in a table when the page gives no better one (DataTable); {n} is the row's number, from 1.",
+  "common.selected": "Bulk action bar (BulkBar): how many rows of a table are ticked. {n} is the count. Short; it stands before the action buttons.",
+  "common.clearSelection": "Bulk action bar (BulkBar): button that unticks every row. A verb phrase, as short as possible.",
+  "common.more": "Name (aria-label and tooltip) of the three-dots button that opens a menu of further actions for a row or card. One word.",
+  "common.moreInfo": "Default accessible name of the small (i) button that shows an explanation in a tooltip. Not shown as text; read by screen readers."
 }
