@@ -71,7 +71,8 @@ const sections = computed(() => GROUPS.find((g) => g[0] === group.value)[2])    
 const rules = ref(null)
 const loadRules = () => api.get('/rules').then((d) => (rules.value = d)).catch((e) => toast(e.message, 'bad'))
 watch(group, (g) => { if (g === 'overview') loadRules() }, { immediate: true })
-const WHO = { auto: [T('settings.page.theProgramDoesIt'), 'ok'], you: [T('settings.page.waitingForYou'), 'warn'], mixed: [T('settings.page.itDepends'), 'info'], off: [T('settings.page.notDone'), ''] }
+// (who does a step is a fact, not a success: no green here)
+const WHO = { auto: [T('settings.page.theProgramDoesIt'), 'info'], you: [T('settings.page.waitingForYou'), 'warn'], mixed: [T('settings.page.itDepends'), ''], off: [T('settings.page.notDone'), ''] }
 function settle() {
   // an address that names no group, or one that is not there (an old link): the first group
   if (route.params.group !== group.value) { router.replace('/settings/' + group.value); return }
@@ -533,7 +534,7 @@ onMounted(() => { load(); loadDiscord() })
             <template #after><Status :tone="dcState.cls" :label="dcState.text" /></template>
           </CardHead>
           <div class="kv">
-            <label for="f-dc">{{ $t('settings.page.botToken') }}</label><input id="f-dc" v-model="sec.discord_bot_token" type="password" autocomplete="off" :placeholder="info.secrets.discord_bot_token ? $t('settings.page.savedToChangeIt') : $t('settings.page.createAnApplicationIn')" />
+            <label for="f-dc">{{ $t('settings.page.botToken') }}<HelpPop :text="$t('settings.page.createAnApplicationIn')" /></label><input id="f-dc" v-model="sec.discord_bot_token" type="password" autocomplete="off" :placeholder="info.secrets.discord_bot_token ? $t('settings.page.savedToChangeIt') : ''" />
             <template v-if="dc && dc.token">
               <label>{{ $t('settings.page.bot') }}<HelpPop v-if="dc.bot && !dc.error" :text="$t('settings.page.aBotCanOnly')" /></label>
               <div class="set-val">

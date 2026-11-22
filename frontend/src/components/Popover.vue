@@ -61,7 +61,10 @@ function first() {
 async function show() {
   if (open.value) return
   open.value = true
-  at.value = { left: '0px', top: '0px' }
+  // Unseen and not pressable until it has been measured and placed: never a frame in the window's corner. (Opacity, not
+  // visibility: that is inherited, and under reduced motion every child would "fade" into view a frame late - and
+  // could not take the focus until then.)
+  at.value = { left: '0px', top: '0px', opacity: 0, pointerEvents: 'none' }
   await nextTick()
   if (!open.value || !box.value) return
   put()

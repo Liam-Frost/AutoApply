@@ -2,8 +2,10 @@
 // Lab: the three weights of saying what state something is in - a filled badge (.tag), a dot with words (Status), a
 // plain attribute (.meta) - and the dash for no value. Most things are the third; the first is for the few that must
 // be seen. Every value is made up.
+import DataTable from '../../../components/DataTable.vue'
 import Icon from '../../../components/Icon.vue'
 import Status from '../../../components/Status.vue'
+import Trunc from '../../../components/Trunc.vue'
 
 const TONES = [['', 'Archived'], ['ok', 'Offer'], ['warn', 'Waiting for a code'], ['bad', 'Failed'], ['info', 'Interview']]
 const STATES = [['ok', 'Auto sign-in ready'], ['ok', 'Session saved'], ['warn', 'Needs signing in again'], ['bad', 'Sign-in failed'], ['info', 'Signing in'], ['', 'Not used yet']]
@@ -12,6 +14,12 @@ const ROWS = [
   { site: 'Northwind · Workday', tag: ['info', 'Interview'], status: ['ok', 'Auto sign-in ready', ''], meta: 'Workday' },
   { site: 'Fjord Energy · Greenhouse', tag: ['bad', 'Overdue'], status: ['warn', 'Needs signing in again', 'The site asked for a code that was sent to your e-mail.'], meta: 'Greenhouse' },
   { site: 'Juniper Logistics', tag: null, status: ['', 'Not used yet', ''], meta: '' },
+]
+const COLS = [
+  { id: 'site', header: 'Site', min: 180 },
+  { id: 'tag', header: 'Stage', width: 120 },
+  { id: 'status', header: 'Sign-in', min: 180, max: 260 },
+  { id: 'meta', header: 'System', width: 120, priority: 1 },
 ]
 </script>
 
@@ -50,17 +58,10 @@ const ROWS = [
   </div>
 
   <p class="lab-note">The three in one table: only one thing in a row is filled</p>
-  <div class="table-wrap" style="max-height: none">
-    <table>
-      <thead><tr><th>Site</th><th>Stage</th><th>Sign-in</th><th>System</th></tr></thead>
-      <tbody>
-        <tr v-for="r in ROWS" :key="r.site">
-          <td><span class="t-primary">{{ r.site }}</span></td>
-          <td><span v-if="r.tag" class="tag" :class="r.tag[0]">{{ r.tag[1] }}</span><span v-else class="none">—</span></td>
-          <td><Status :tone="r.status[0]" :label="r.status[1]" :tip="r.status[2]" /></td>
-          <td><span v-if="r.meta" class="meta">{{ r.meta }}</span><span v-else class="none">—</span></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+  <DataTable :columns="COLS" :rows="ROWS" row-key="site" density="compact" label="States in a table">
+    <template #cell-site="{ row }"><Trunc class="t-primary" :text="row.site" /></template>
+    <template #cell-tag="{ row }"><span v-if="row.tag" class="tag" :class="row.tag[0]">{{ row.tag[1] }}</span><span v-else class="none">—</span></template>
+    <template #cell-status="{ row }"><Status :tone="row.status[0]" :label="row.status[1]" :tip="row.status[2]" /></template>
+    <template #cell-meta="{ row }"><span v-if="row.meta" class="meta">{{ row.meta }}</span><span v-else class="none">—</span></template>
+  </DataTable>
 </template>

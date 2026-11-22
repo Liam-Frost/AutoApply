@@ -22,7 +22,8 @@
 
 /* ── the menu ── */
 .menu-pop, .pop { position: fixed; left: 0; top: 0; z-index: var(--z-pop); overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md);
-  box-shadow: var(--shadow-lg); text-align: left; white-space: normal; font-weight: var(--fw-regular); animation: float-in var(--dur-fast) var(--ease); }
+  box-shadow: var(--shadow-lg); text-align: left; white-space: normal; font-weight: var(--fw-regular); animation: float-in var(--dur-fast) var(--ease);
+  transition: none; }      /* (where they are is never animated: under reduced motion every property otherwise moves one frame late) */
 .menu-pop:focus, .pop:focus { outline: none; }
 @keyframes float-in { from { opacity: 0; } }
 .menu-pop { width: max-content; min-width: 168px; max-width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 4px; }

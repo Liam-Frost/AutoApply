@@ -92,7 +92,7 @@ useRefresh(load, { every: 5000, when: waiting })
 onMounted(() => {
   load(); loadCarry(); fitAct()
   document.addEventListener('visibilitychange', unseen)
-  if (typeof ResizeObserver !== 'undefined' && probe.value) { probing = new ResizeObserver(fitAct); probing.observe(probe.value) }
+  if (typeof ResizeObserver !== 'undefined' && probe.value) { probing = new ResizeObserver(fitAct); probing.observe(probe.value); if (autoProbe.value) probing.observe(autoProbe.value) }
 })
 onUnmounted(() => { hideAll(); probing?.disconnect(); document.removeEventListener('visibilitychange', unseen) })
 
@@ -157,19 +157,32 @@ const removeCustom = async (p) => (await ask(T('accounts.removeProviderAsk', { n
 }, T('accounts.removed', { p0: p.name }))
 
 // ── the accounts table ───────────────────────────────────────────────────────────────────────────────────────────────
-// The last column holds "Sign in" and the menu. Its width is fixed like any other, but the button's words are as long
-// as the language makes them: the width is taken from the button itself (a copy nobody sees), whenever that changes.
+// Two columns are as wide as their words, which depend on the language: the last one ("Sign in" and the menu) and the
+// automation state (the longest of its labels - a state is read whole, not cut). Both widths are taken from copies
+// nobody sees, whenever those change.
 const probe = ref(null)
+const autoProbe = ref(null)
 const actWidth = ref(124)
-const fitAct = () => { if (probe.value && probe.value.offsetWidth) actWidth.value = probe.value.offsetWidth + 60 }      // + the gap, the menu and the cell's padding
+const autoWidth = ref(160)
+const PAD = 24      // a cell's padding, both sides (--dt-pad)
+function fitAct() {
+  if (probe.value && probe.value.offsetWidth) actWidth.value = probe.value.offsetWidth + 60      // + the gap, the menu and the padding
+  if (autoProbe.value) {
+    const widest = Math.max(0, ...[...autoProbe.value.children].map((e) => e.offsetWidth))
+    if (widest) autoWidth.value = Math.ceil(widest) + PAD
+  }
+}
 let probing = null
+// The site is what a row is read by: it takes the room that is left. The password is dots and a button (fixed), the
+// source a short word (bounded). On a narrow screen the source goes first, then the session, the account and the
+// password - each of them is in the row's details.
 const columns = computed(() => [
-  { id: 'site', header: T('accounts.website'), min: 160, flex: 1, max: 380 },
-  { id: 'login', header: T('accounts.loginNameOrE'), min: 124, flex: 2, max: 340 },
-  { id: 'cred', header: T('accounts.password'), width: 152 },
-  { id: 'auto', header: T('accounts.automation'), min: 150, flex: 3, max: 230, headerTip: T('accounts.automationHelp') },
-  { id: 'session', header: T('accounts.signInStatus'), width: 176, priority: 1, headerTip: T('accounts.sessionHelp') },
-  { id: 'source', header: T('accounts.howItGotHere'), width: 116, priority: 2 },
+  { id: 'site', header: T('accounts.website'), min: 220, flex: 1 },
+  { id: 'login', header: T('accounts.account'), min: 150, flex: 0.4, max: 220, priority: 2 },
+  { id: 'cred', header: T('accounts.colCredential'), width: 136, priority: 1 },
+  { id: 'auto', header: T('accounts.automation'), width: autoWidth.value, headerTip: T('accounts.automationHelp') },
+  { id: 'session', header: T('accounts.colSession'), width: 168, priority: 3, headerTip: T('accounts.sessionHelp') },
+  { id: 'source', header: T('accounts.howItGotHere'), min: 96, flex: 0.2, max: 128, priority: 4 },
   { id: 'act', header: '', width: actWidth.value, align: 'end' },
 ])
 const sources = computed(() => ({ agent: T('accounts.registeredByTheApp'), takeover: T('accounts.savedWhenYouSign'), manual: T('accounts.sourceManual'), chrome_csv: T('accounts.importFromChrome') }))
@@ -289,6 +302,7 @@ function importSession(ev) {
 
 <template>
   <button ref="probe" type="button" class="sm acc-probe" tabindex="-1" aria-hidden="true"><Icon name="login" />{{ $t('accounts.signIn') }}</button>
+  <div ref="autoProbe" class="acc-probe acc-probe-list" aria-hidden="true"><Status v-for="(v, k) in AUTO" :key="k" :tone="v[0]" :label="v[1]" tip="-" /></div>
   <PageHead :title="$t('accounts.siteAccounts')" :help="$t('accounts.pageHelp')">
     <Menu :label="$t('common.more')" :items="pageItems" @pick="onPage">
       <template #trigger="{ toggle, attrs }"><button type="button" v-bind="attrs" @click="toggle"><Icon name="more" />{{ $t('common.more') }}</button></template>
@@ -384,8 +398,8 @@ function importSession(ev) {
   <!-- an account: everything on record about it, and the raw text of what went wrong last -->
   <SideDrawer v-if="detail" :title="detail.site.name" :sub="detail.host" :wide="false" @close="closeDrawer">
     <dl class="acc-facts">
-      <div><dt>{{ $t('accounts.loginNameOrE') }}</dt><dd><Trunc v-if="detail.login_email" :text="detail.login_email" /><span v-else class="none">—</span></dd></div>
-      <div><dt>{{ $t('accounts.password') }}</dt><dd>
+      <div><dt>{{ $t('accounts.account') }}</dt><dd><Trunc v-if="detail.login_email" :text="detail.login_email" /><span v-else class="none">—</span></dd></div>
+      <div><dt>{{ $t('accounts.colCredential') }}</dt><dd>
         <CredentialCell :saved="detail.has_password" :value="shownOf(detail)" :loading="revealing === detail.tenant_key" @reveal="reveal(detail)" @hide="hide(detail.tenant_key)" @copy="copy(detail)" @add="openAdd(detail)" />
       </dd></div>
       <div><dt>{{ $t('accounts.automation') }}</dt><dd>
@@ -393,7 +407,7 @@ function importSession(ev) {
         <p v-if="automation(detail).tip" class="t-secondary acc-why">{{ automation(detail).tip }}</p>
       </dd></div>
       <div><dt>{{ $t('accounts.lastSignInOk') }}</dt><dd><span v-if="detail.last_login_ok" class="num">{{ fmt(detail.last_login_ok) }}</span><span v-else class="none">—</span></dd></div>
-      <div><dt>{{ $t('accounts.signInStatus') }}</dt><dd>
+      <div><dt>{{ $t('accounts.colSession') }}</dt><dd>
         <Status :tone="sessionState(detail.session).tone" :label="sessionState(detail.session).label" />
         <template v-if="detail.session">
           <p class="t-secondary acc-why num">{{ $t('accounts.saved2', { p0: fmt(detail.session.saved_at) }) }}</p>

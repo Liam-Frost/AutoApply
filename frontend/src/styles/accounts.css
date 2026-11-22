@@ -58,8 +58,9 @@
 .acc-raw { max-height: 320px; padding: var(--s2) var(--s3); overflow: auto; background: var(--surface-2); border-radius: var(--r-sm); color: var(--text-2); }
 .acc-drawer-acts { justify-content: flex-end; margin-top: var(--s4); }
 
-/* (a copy of the row's "Sign in" button that is only measured: the last column is as wide as it needs) */
+/* (copies that are only measured - the row's "Sign in" button, every automation state: those columns are as wide as they need) */
 .acc-probe { position: absolute; left: -9999px; top: 0; visibility: hidden; pointer-events: none; }
+.acc-probe-list { display: flex; flex-direction: column; align-items: flex-start; }
 
 /* (a phone: the section's "add" button keeps its plus and its name, and gives the title its room) */
 @media (max-width: 640px) { .acc-add-provider > span { display: none; } .acc-add-provider { width: var(--h-sm); padding: 0; } }

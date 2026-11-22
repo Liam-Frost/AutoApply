@@ -157,8 +157,11 @@ a.mark:hover { color: var(--primary); }
 .src-steps { margin: var(--s2) 0 var(--s3); padding-left: 20px; font-size: var(--fs-sm); line-height: 1.9; }
 .src-line { margin: 0 0 var(--s2); }
 .src-chips { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s3); font-size: var(--fs-sm); }
-.src-table { max-height: none; }
-.src-name { max-width: 260px; }
-.src-more > td { border-top: 0; padding-top: 0; }
+.dt-row.src-plain { cursor: default; }      /* (nothing more to open in this row) */
+.src-drop { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.src-drop > .cut { min-width: 0; flex: 0 1 auto; }
+.src-drop > button { flex: none; }
+.src-now { display: flex; flex-direction: column; min-width: 0; font-size: var(--fs-sm); }
+.src-error { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s2); font-size: var(--fs-sm); }
 .src-foot { margin-top: var(--s2); }
 .bad-text { color: var(--bad); }

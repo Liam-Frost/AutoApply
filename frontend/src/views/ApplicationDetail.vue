@@ -19,7 +19,7 @@ import Trunc from '../components/Trunc.vue'
 import { deadlineLabel, parseDeadline } from '../dates'
 import { renderMarkdown } from '../md'
 import { ask, fmtTime, run, toast } from '../ui'
-import { dateTimeOf, dayText, stampDay } from '../i18n/format'
+import { asDate, dateTimeOf, dayText, stampDay } from '../i18n/format'
 
 const props = defineProps({ id: { type: String, required: true } })
 const route = useRoute()
@@ -134,7 +134,9 @@ const blocked = computed(() => mainKeys.value.map((k) => (ACTIONS[k].disabled ? 
 function doAction(k) { ACTIONS[k].run() }
 
 // --- the forms under the status: what came back, a note, a correction of the record -----------------------------------
-const today = () => new Date().toISOString().slice(0, 10)
+// (a day in the applicant's own calendar: toISOString would give the UTC day, a day off in the evening west of Greenwich)
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const today = () => ymd(new Date())
 const outcome = ref({ status: 'interview', date: '', time: '', note: '' })
 const note = ref('')
 const fix = ref({ status: '', date: '', note: '' })
@@ -144,7 +146,7 @@ function openPanel(k) {
   panel.value = k
   if (k === 'outcome') outcome.value = { status: 'interview', date: today(), time: '', note: '' }
   if (k === 'note') note.value = a.value.note || ''
-  if (k === 'fix') fix.value = { status: a.value.sent || a.value.status === 'withdrawn' ? a.value.status : '', date: a.value.submitted_at ? a.value.submitted_at.slice(0, 10) : '', note: '' }
+  if (k === 'fix') fix.value = { status: a.value.sent || a.value.status === 'withdrawn' ? a.value.status : '', date: a.value.submitted_at ? ymd(asDate(a.value.submitted_at)) : '', note: '' }
 }
 async function saveOutcome() {
   if (await act(() => api.post(`/applications/${props.id}/outcome`, outcome.value), T('application.outcomeSaved'))) panel.value = ''

@@ -17,12 +17,12 @@ const LONG_HOST = 'careers.very-long-enterprise-solutions-north-america-universi
 const LONG_MAIL = 'alexander.chen.university-recruiting.co-op-applications-2027@students.northfield-university.example'
 
 const cols = [
-  { id: 'site', header: 'Site', min: 160, flex: 1, max: 380 },
-  { id: 'login', header: 'Username or email', min: 124, flex: 2, max: 340 },
-  { id: 'cred', header: 'Password', width: 152 },
-  { id: 'auto', header: 'Automation', min: 150, flex: 3, max: 230, headerTip: 'Worked out from what is saved, not checked with the site.' },
-  { id: 'session', header: 'Session', width: 176, priority: 1, headerTip: 'The saved cookies. "Expires by" is an upper bound.' },
-  { id: 'source', header: 'Source', width: 116, priority: 2 },
+  { id: 'site', header: 'Site', min: 220, flex: 1 },
+  { id: 'login', header: 'Account', min: 150, flex: 0.4, max: 220, priority: 2 },
+  { id: 'cred', header: 'Credentials', width: 136, priority: 1 },
+  { id: 'auto', header: 'Automation', width: 220, headerTip: 'Worked out from what is saved, not checked with the site.' },
+  { id: 'session', header: 'Sign-in session', width: 168, priority: 3, headerTip: 'The saved cookies. "Expires by" is an upper bound.' },
+  { id: 'source', header: 'Source', min: 96, flex: 0.2, max: 128, priority: 4 },
   { id: 'act', header: '', width: 144, align: 'end' },
 ]
 const rows = reactive([
@@ -86,11 +86,11 @@ function save(c, v) { c.p.email = v.email; did.value = 'save ' + c.p.name + ': '
 
   <p class="lab-note" style="margin-top: 16px">CredentialCell on its own, in boxes of 152px: saved, shown, shown and long, being read, not saved</p>
   <div class="lab-row" data-lab-acc="cred">
-    <div class="lab-box" style="width: 152px"><CredentialCell saved /></div>
-    <div class="lab-box" style="width: 152px"><CredentialCell saved value="hunter2-demo" /></div>
-    <div class="lab-box" style="width: 152px"><CredentialCell saved value="correct-horse-battery-staple-demo-0123456789" /></div>
-    <div class="lab-box" style="width: 152px"><CredentialCell saved loading /></div>
-    <div class="lab-box" style="width: 152px"><CredentialCell /></div>
+    <div class="lab-box" style="width: 136px"><CredentialCell saved /></div>
+    <div class="lab-box" style="width: 136px"><CredentialCell saved value="hunter2-demo" /></div>
+    <div class="lab-box" style="width: 136px"><CredentialCell saved value="correct-horse-battery-staple-demo-0123456789" /></div>
+    <div class="lab-box" style="width: 136px"><CredentialCell saved loading /></div>
+    <div class="lab-box" style="width: 136px"><CredentialCell /></div>
   </div>
 
   <p class="lab-note" style="margin-top: 16px">ProviderCard: saved with a long e-mail and a note, expired, none, its window open, last try failed with a long reason, a custom one with a long name, with a region. Four in a row here; every line at the same height in each card, the foot at the bottom.</p>

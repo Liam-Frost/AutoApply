@@ -35,12 +35,12 @@ const pending = computed(() => drafts.value.filter((x) => x.review_status === 'p
 // What waits for the applicant: to-dos first, then the records that wait for approval.
 const needs = computed(() => [
   ...todos.value.slice(0, 4).map((t) => ({ key: 't' + t.id, icon: 'bell', tone: 'warn', primary: todoText(t), secondary: (t.explained && t.explained.message) || '', to: '/todos', when: fmtTime(t.created_at), what: '' })),
-  ...pending.value.slice(0, 4).map((d) => ({ key: 'd' + d.id, icon: 'draft', tone: 'info', primary: d.company, secondary: d.title, to: '/drafts/' + d.id, when: shortDayText(d.deadline), what: d.unresolved ? T('home.questionsNeedYourAnswer', { p0: d.unresolved }) : T('home.draftReadyForYour') })),
+  ...pending.value.slice(0, 4).map((d) => ({ key: 'd' + d.id, icon: 'draft', tone: 'info', primary: d.company, secondary: d.title, to: '/drafts/' + d.id, when: shortDayText(d.deadline), what: d.unresolved ? T('home.questionsNeedYourAnswer', { n: d.unresolved }, d.unresolved) : T('home.draftReadyForYour') })),
 ])
-const NEED_COLS = [{ id: 'what', header: T('home.col.item'), min: 160, flex: 3 }, { id: 'state', header: T('home.col.state'), min: 120, max: 220, flex: 2, priority: 1 }, { id: 'when', header: T('home.col.date'), width: 112, align: 'end' }]
+const NEED_COLS = [{ id: 'what', header: T('home.col.item'), min: 160, flex: 3 }, { id: 'state', header: T('home.col.state'), min: 120, max: 220, flex: 2, priority: 1 }, { id: 'when', header: T('home.col.date'), width: 128, align: 'end' }]
 const CLOSING_COLS = [{ id: 'score', header: T('home.col.score'), width: 56 }, { id: 'job', header: T('home.col.posting'), min: 140 }, { id: 'deadline', header: T('home.col.deadline'), width: 128, align: 'end' }]
-const MAIL_COLS = [{ id: 'kind', header: T('home.col.kind'), min: 104, max: 200, flex: 2 }, { id: 'mail', header: T('home.col.email'), min: 140, flex: 3 }, { id: 'when', header: T('home.col.received'), width: 112, align: 'end', priority: 1 }]
-const RECENT_COLS = [{ id: 'stage', header: T('home.col.stage'), min: 104, max: 200, flex: 2 }, { id: 'job', header: T('home.col.posting'), min: 140, flex: 3 }, { id: 'when', header: T('home.col.applied'), width: 112, align: 'end', priority: 1 }]
+const MAIL_COLS = [{ id: 'kind', header: T('home.col.kind'), min: 104, max: 200, flex: 2 }, { id: 'mail', header: T('home.col.email'), min: 140, flex: 3 }, { id: 'when', header: T('home.col.received'), width: 128, align: 'end', priority: 1 }]
+const RECENT_COLS = [{ id: 'stage', header: T('home.col.stage'), min: 104, max: 200, flex: 2 }, { id: 'job', header: T('home.col.posting'), min: 140, flex: 3 }, { id: 'when', header: T('home.col.applied'), width: 128, align: 'end', priority: 1 }]
 const closing = computed(() => (ov.value.closing_soon || []).map((j) => ({ ...j, due: deadlineLabel(j.deadline) })))
 const mails = computed(() => (ov.value.mail_recent || []).slice(0, 5).map((m, i) => ({ ...m, key: i })))
 const recent = computed(() => (ov.value.recent_applications || []).slice(0, 7))

@@ -205,7 +205,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
           <label>{{ $t('settings.ai.mainModel') }}<HelpPop :text="$t('settings.ai.theAgentThatWorks')" /></label><ModelPick v-model="props.s['llm.model']" :models="models" :loading="loadingModels" />
           <label>{{ $t('settings.ai.modelForSimpleTasks') }}<HelpPop :text="$t('settings.ai.forSmallTasksLike')" /></label><ModelPick v-model="props.s['llm.small_model']" :models="models" :loading="loadingModels" />
           <label>{{ $t('settings.ai.thinkingDepth') }}</label><AaSelect v-model="props.s['llm.effort']"><option value="low">{{ $t('settings.ai.lowFast') }}</option><option value="medium">{{ $t('settings.ai.medium') }}</option><option value="high">{{ $t('settings.ai.high') }}</option><option value="xhigh">{{ $t('settings.ai.highestSlow') }}</option></AaSelect>
-          <label>{{ $t('settings.ai.longLivedTokenOptional') }}</label><input v-model="props.sec.claude_oauth_token" type="password" autocomplete="off" :placeholder="props.secrets.claude_oauth_token ? $t('settings.ai.savedToChangeIt') : $t('settings.ai.signInsExpireFor')" />
+          <label>{{ $t('settings.ai.longLivedTokenOptional') }}<HelpPop :text="$t('settings.ai.signInsExpireFor')" /></label><input v-model="props.sec.claude_oauth_token" type="password" autocomplete="off" :aria-label="$t('settings.ai.longLivedTokenOptional')" :placeholder="props.secrets.claude_oauth_token ? $t('settings.ai.savedToChangeIt') : ''" />
         </div>
         <p class="set-note">{{ $t('settings.ai.afterChangingTheModel') }}</p>
       </template>

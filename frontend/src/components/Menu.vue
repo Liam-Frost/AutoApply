@@ -33,18 +33,25 @@ const icons = computed(() => props.items.some((it) => it.icon))      // then eve
 // What a button given through the `trigger` slot needs to say about itself.
 const attrs = computed(() => ({ 'aria-haspopup': 'menu', 'aria-expanded': open.value ? 'true' : 'false', 'aria-controls': open.value ? uid : undefined }))
 let release = null
+let anchor = null      // where the button was when the list was placed
 let typed = '', typedAt = 0
 
 const rows = () => (list.value ? [...list.value.querySelectorAll('[role="menuitem"]:not([aria-disabled="true"])')] : [])
 function put() {
   const b = list.value
   if (!b || !root.value) return
-  const p = place(root.value.getBoundingClientRect(), { width: b.offsetWidth, height: b.offsetHeight }, windowSize(), { placement: props.placement, align: props.align, offset: 4 })
+  const r = root.value.getBoundingClientRect()
+  anchor = { left: r.left, top: r.top }
+  const p = place(r, { width: b.offsetWidth, height: b.offsetHeight }, windowSize(), { placement: props.placement, align: props.align, offset: 4 })
   at.value = { left: p.left + 'px', top: p.top + 'px', zIndex: zOver(root.value, '--z-pop') || undefined }
 }
 const outside = (e) => { if (!(list.value && list.value.contains(e.target)) && !root.value.contains(e.target)) close() }
-// (the page moved under it: what it belongs to is somewhere else now. A list that scrolls elsewhere is not our business.)
-const scrolled = (e) => { if (e.target === document || (e.target.contains && e.target.contains(root.value))) close() }
+// (the page moved under it: what it belongs to is somewhere else now. A list that scrolls elsewhere is not our business.
+// Only a scroll that really moved the button counts: the browser sends a scroll event a frame late, so a scroll that
+// ended just before the click - a wheel or a smooth scroll, the page bringing the button into view - closed the menu
+// as soon as it had opened.)
+const moved = () => { const r = root.value.getBoundingClientRect(); return !anchor || Math.abs(r.left - anchor.left) > 1 || Math.abs(r.top - anchor.top) > 1 }
+const scrolled = (e) => { if ((e.target === document || (e.target.contains && e.target.contains(root.value))) && moved()) close() }
 
 async function show() {
   if (open.value || props.disabled) return

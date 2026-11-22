@@ -49,7 +49,10 @@
 .skel.tall { height: 240px; }
 
 /* a figure's name with its (i) */
-.kpi .l > .info-tip, .kpi .l > .popover { margin: -2px 0 -2px var(--s1); vertical-align: middle; }
+/* (side by side: when the name wraps, the (i) stays beside its first line instead of falling onto a line of its own) */
+.kpi .l { display: flex; align-items: flex-start; gap: var(--s1); }
+.kpi .l > span { min-width: 0; }
+.kpi .l > .info-tip, .kpi .l > .popover { flex: none; margin-top: 0; }
 .kpi .d.cut { display: block; }
 /* figures inside a card: the tiles of a section, without a shadow of their own */
 .kpis.inner { margin-bottom: 0; }
@@ -165,7 +168,8 @@
 /* A field of the settings: `.kv` (label | control) with the control's cell laid out by .set-val - the control, its unit,
    and at most one line of hint, which always stands UNDER the control (never beside it, where it wrapped as the box
    narrowed). What needs more than a line is behind the (i) beside the label. */
-.set-sec .kv > label { display: flex; align-items: center; gap: var(--s1); overflow-wrap: break-word; }
+/* (the label stands level with the control's first line, not with the middle of a control and its hint) */
+.set-sec .kv > label { display: flex; align-items: center; gap: var(--s1); overflow-wrap: break-word; align-self: start; min-height: var(--h-md); }
 .set-sec .kv > label > .info-tip, .set-sec .kv > label > .popover { flex: none; }
 .set-sec .field > label { display: flex; align-items: center; gap: var(--s1); }
 .set-val { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s2); min-width: 0; }
@@ -248,7 +252,9 @@ input.w-num { width: 96px; } input.w-time { width: 124px; } input.w-short { widt
 .chain-pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.2fr); gap: var(--s2); }
 .chain-pick > .sel, .chain-pick .model-pick { width: 100%; }
 .chain-row .callout { margin: var(--s2) 0 0; }
-.chain .quota .qrow { grid-template-columns: 132px minmax(80px, 180px) minmax(0, max-content); }
+.chain .quota .qrow { grid-template-columns: 132px minmax(60px, 180px) max-content; }
+/* (a figure and its reset time are read as one: they never break inside) */
+.quota .qrow .val { white-space: nowrap; }
 .chain-warn { margin-top: var(--s1); color: var(--warn); font-size: var(--fs-xs); }
 @container (max-width: 760px) { .chain-pick { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) { .chain-row { grid-template-columns: minmax(0, 1fr); } }

@@ -96,3 +96,15 @@ main.content:has(.bulk-frame) { padding-bottom: calc(var(--s6) + var(--h-xl) + v
 @media (max-width: 1000px) { .bulk-frame { left: 0; right: 0; } }
 /* (a phone: the bar grows upwards onto a second line rather than hiding an action off its edge) */
 @media (max-width: 640px) { .bulk-frame > .bulkbar, .bulk-frame .actions { flex-wrap: wrap; flex-shrink: 1; overflow: visible; } .bulk-frame .bulk-clear { margin-left: auto; } }
+
+/* ───────────────────────── Tabs ───────────────────────── */
+/* Tabs.vue is a .seg.tabs (style.css: one line, scrolls sideways inside itself, no scroll bar). What it adds: the focus
+   ring drawn inside the track's padding (an outline outside it would be cut by the row's own scrolling); the row is the
+   box its tabs are measured from (Tabs.vue brings the selected one into view). */
+.aa-tabs { position: relative; }
+.aa-tabs > [role="tab"]:focus-visible { outline-offset: 0; }
+.aa-tabs > [role="tab"] { white-space: nowrap; }
+/* more tabs past an edge: that edge fades out (there is no scroll bar to say so) */
+.aa-tabs.more-right { mask-image: linear-gradient(to left, transparent, black 40px); }
+.aa-tabs.more-left { mask-image: linear-gradient(to right, transparent, black 40px); }
+.aa-tabs.more-left.more-right { mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent); }

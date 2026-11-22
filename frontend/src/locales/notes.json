@@ -1793,7 +1793,7 @@
   "files.page.deleted": "On the material library.",
   "files.page.deletedFiles": "On the material library. {p0} are values filled in by the page.",
   "files.page.disabledFiles": "On the material library. {p0} are values filled in by the page.",
-  "home.questionsNeedYourAnswer": "On the overview page. {p0} are values filled in by the page.",
+  "home.questionsNeedYourAnswer": "Overview, Action required list: state of a draft that still has unanswered questions. Plural on {n}.",
   "home.draftReadyForYour": "On the overview page.",
   "home.text": "On the overview page. {p0}, {p1} are values filled in by the page.",
   "home.checkYourEmail": "On the overview page.",
@@ -1844,8 +1844,6 @@
   "home.startCheckingEmail": "On the overview page.",
   "sources.signedIn": "On the sources page.",
   "sources.needsSigningInAgain": "On the sources page.",
-  "sources.lastRead": "On the sources page. {p0} are values filled in by the page.",
-  "sources.itHasNeverBeen": "On the sources page.",
   "sources.notFiltered": "On the sources page.",
   "sources.more": "On the sources page. {p0} are values filled in by the page.",
   "sources.collapse": "On the sources page.",
@@ -1886,8 +1884,6 @@
   "sources.whyTheRestWas": "On the sources page.",
   "sources.inTheLibraryNow": "On the sources page.",
   "sources.priority": "On the sources page.",
-  "sources.couldNotBeRead": "On the sources page. {p0} are values filled in by the page.",
-  "sources.timesInARow": "On the sources page. {p0} are values filled in by the page.",
   "sources.notReadYet": "On the sources page.",
   "sources.thisSourceIsNot": "On the sources page.",
   "sources.atTheLine": "On the sources page.",
@@ -2924,5 +2920,10 @@
   "settings.browser.allWork": "Shown in the 'Used for' column for an account rule, which always covers everything done on that site.",
   "settings.browser.engineOwn": "Option of a browser rule: the browser the app starts itself (Playwright).",
   "settings.browser.engineOrdinary": "Option of a browser rule: the user's ordinary Chrome or Edge, driven by nodriver.",
-  "settings.employers.openPage": "Name and tooltip of the small link icon beside a watched employer: opens its careers page in a new tab."
+  "settings.employers.openPage": "Name and tooltip of the small link icon beside a watched employer: opens its careers page in a new tab.",
+  "sources.col.passed": "Short column header of the sources report: how many postings passed the hard conditions. The long form is in its tooltip (sources.passedTheHardConditions).",
+  "sources.readFailed": "State under the last-read time of a source whose latest read failed; the failure itself is in the tooltip and the opened row.",
+  "sources.failedTimes": "State under the last-read time of a source whose last {n} reads in a row failed (n > 1). Keep it very short: it sits in a narrow table cell.",
+  "accounts.colCredential": "Column header on Site accounts and label in an account's details: the saved password of the account (saved / not saved, shown on request).",
+  "accounts.colSession": "Column header on Site accounts and label in an account's details: the cookies saved after a sign-in (saved at, expires by). Not 'signed in'."
 }

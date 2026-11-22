@@ -509,7 +509,7 @@ button.danger.solid { background: var(--bad); border-color: var(--bad); color: v
 .todo-sec { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-weight: var(--fw-semibold); font-size: var(--fs-sm); color: var(--text-2); }
 .todo-sec span { font-weight: var(--fw-medium); color: var(--text-3); }
 .todo-sec.u0, .todo-sec.u1 { color: var(--warn); }
-.todo.u0, .todo.u1 { border-left: 3px solid var(--warn); }
+.todo.u0, .todo.u1 { border-left: 3px solid var(--warn); padding-left: calc(var(--s5) - 2px); }      /* (the wider edge takes its room from the padding: icons and titles of every card line up) */
 .todo.u3 { opacity: 0.86; }
 .todo-job { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; margin: 2px 0 6px; padding: 3px 10px 3px 6px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text); font-size: var(--fs-sm); text-decoration: none; }
 .todo-job:hover { background: var(--primary-soft); text-decoration: none; }
@@ -735,9 +735,12 @@ details.card > summary { cursor: pointer; }
 .status-dot.down { background: var(--bad); }
 
 
-/* an action that is under way: the button that started it (ui.run) */
-[data-busy] { pointer-events: none; opacity: 0.6; position: relative; }
-[data-busy]::after { content: ""; width: 12px; height: 12px; margin-left: 6px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
+/* an action that is under way: the button that started it (ui.run). The spinner takes the label's place, over it: the
+   label keeps its room (unseen), so the button stays as large as it was and nothing beside it moves. The text is hidden
+   by its fill, not its colour, so that the spinner can still draw in the button's own colour (currentColor). */
+[data-busy] { pointer-events: none; opacity: 0.6; position: relative; -webkit-text-fill-color: transparent; }
+[data-busy] > svg { visibility: hidden; }
+[data-busy]::after { content: ""; position: absolute; inset: 0; width: 12px; height: 12px; margin: auto; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { [data-busy]::after { animation: none; } }
 .form-error { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--bad-soft); color: var(--bad); font-size: var(--fs-sm); }
 .toast a { color: inherit; text-decoration: underline; white-space: nowrap; }
@@ -837,6 +840,7 @@ textarea.prose { font-family: inherit; font-size: var(--fs-md); min-height: 0; }
 
 /* Overview */
 .home-stats { margin-bottom: var(--s4); }
+@media (max-width: 1000px) { .grid-4.home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }      /* four figures: two by two, not a column of four */
 .stat-box { position: relative; }
 .stat-box .stat-link { color: inherit; } .stat-box .stat-link:hover { text-decoration: none; }
 .stat-box .stat-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }      /* the whole tile is the link ... */
