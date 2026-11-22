@@ -25,7 +25,7 @@ const link = reactive({ at: null, down: false })
 
 // --- the navigation on a narrow screen -------------------------------------------------------------------------------
 const route = useRoute()
-const NAMES = [['/home', T('app.overview')], ['/todos', T('app.needsYou')], ['/drafts', T('app.drafts')], ['/jobs/sources', T('app.sourcesAndWatchedEmployers')], ['/jobs', T('app.postings')], ['/applications', T('app.myApplications')], ['/profile', T('app.profile')],
+const NAMES = [['/home', T('app.overview')], ['/todos', T('app.needsYou')], ['/jobs/sources', T('app.sourcesAndWatchedEmployers')], ['/jobs', T('app.postings')], ['/applications', T('app.applications')], ['/profile', T('app.profile')],
   ['/files', T('app.files')], ['/contacts', T('app.contactsReferrals')], ['/accounts', T('app.siteAccounts')], ['/analytics', T('app.analytics')], ['/runs', T('app.activity')], ['/settings', T('app.settings')], ['/about', T('about.nav')], ['/welcome', T('app.setupGuide')], ['/remote', T('app.remoteWindow')]]
 const pageName = computed(() => (NAMES.find(([p]) => route.path === p || route.path.startsWith(p + '/')) || ['', ''])[1])
 const menu = ref(false)
@@ -85,10 +85,8 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/home" class="nav"><Icon name="home" />{{ $t('app.overview') }}</router-link>
       <router-link to="/todos" class="nav"><Icon name="bell" />{{ $t('app.needsYou') }} <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
       <router-link to="/calendar" class="nav"><Icon name="clock" />{{ $t('calendar.nav') }}</router-link>
-      <router-link to="/drafts" class="nav"><Icon name="draft" />{{ $t('app.drafts') }} <span v-if="ov.pending_drafts" class="count">{{ ov.pending_drafts }}</span></router-link>
       <router-link to="/jobs" class="nav" active-class="" exact-active-class="router-link-active"><Icon name="briefcase" />{{ $t('app.postings') }}</router-link>
-      <router-link to="/jobs/sources" class="nav"><Icon name="search" />{{ $t('app.sourcesAndWatchedEmployers') }}</router-link>
-      <router-link to="/applications" class="nav"><Icon name="check" />{{ $t('app.myApplications') }}</router-link>
+      <router-link to="/applications" class="nav"><Icon name="check" />{{ $t('app.applications') }} <span v-if="ov.apps_need_me" class="count" :title="$t('app.applicationsWaiting')">{{ ov.apps_need_me }}</span></router-link>
 
       <div class="nav-label">{{ $t('app.myInfo') }}</div>
       <router-link to="/profile" class="nav"><Icon name="user" />{{ $t('app.profile') }}</router-link>

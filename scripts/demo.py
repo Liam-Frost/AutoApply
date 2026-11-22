@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -428,9 +427,9 @@ def shots(out: Path, lang: str, port: int = 8021, only: str = "") -> None:
 
             did = page.request.get(base + "/api/drafts").json()[0]["id"]
             snap("overview", "/home")
-            snap("jobs", "/jobs", before=lambda: page.locator(".seg button").filter(has_text=re.compile(r"^(全部|All)\s*\d+")).first.click())
+            snap("jobs", "/jobs?group=started")      # (the postings an application was begun for: each leads to it)
             page.set_viewport_size({"width": 1360, "height": 1180})
-            snap("draft", f"/drafts/{did}")
+            snap("draft", f"/drafts/{did}")      # (the application's page, at its record)
             snap("todos", "/todos")
             page.set_viewport_size({"width": 1360, "height": 860})
 

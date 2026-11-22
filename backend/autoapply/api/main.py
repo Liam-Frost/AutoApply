@@ -412,10 +412,25 @@ def _job_row(j: Job, a: Application | None) -> dict[str, Any]:
     }
 
 
+def _job_app(j: Job, a: Application | None, ctx: dict[str, Any]) -> dict[str, Any]:
+    """The posting's place on the postings page, and the application it leads to (its stage, as the applications page says it)."""
+    from .. import applications
+
+    out: dict[str, Any] = {"group": applications.job_group(j, a), "app": None}
+    if a is not None:
+        cards = ctx.get("cards", {}).get(a.id, set())
+        out["app"] = {"id": a.id, **applications.stage_of(a, j, waiting=bool(cards), budget="budget" in cards, work=ctx.get("work", {}).get(j.id, ""))}
+    return out
+
+
 @app.get("/api/jobs")
 def list_jobs() -> dict[str, Any]:
+    from .. import applications
+
     with db.session() as s:
-        rows = [{**_job_row(j, j.application), "archived": j.archived_at is not None} for j in s.query(Job).filter(Job.duplicate_of.is_(None)).all()]
+        ctx = applications.context(s, dates=False)
+        rows = [{**_job_row(j, j.application), **_job_app(j, j.application, ctx), "archived": j.archived_at is not None}
+                for j in s.query(Job).filter(Job.duplicate_of.is_(None)).all()]
         dup: dict[int, int] = {}
         for (main_id,) in s.query(Job.duplicate_of).filter(Job.duplicate_of.isnot(None)):
             dup[main_id] = dup.get(main_id, 0) + 1
@@ -447,6 +462,12 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["priority"] = _emp2.is_priority(j.company, j.source)
         out["contacts"] = _contacts_for(j.company)
         out["archived"] = j.archived_at is not None
+        from .. import applications as _apps
+
+        out.update(_job_app(j, a, _apps.context(s, dates=False)))
+        # what the applicant corrected, and what the source says now when that is different (theirs is kept)
+        out["edited"] = {k: (v if v != getattr(j, k, None) else None) for k, v in (j.edited or {}).items() if k in EDITABLE}
+        out["deletable"] = j.source == "manual" and a is None
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
         out.update(jd_text=j.jd_text, jd_partial=j.jd_partial if j.jd_partial in ("summary", "cut") else "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
@@ -458,8 +479,17 @@ def get_job(job_id: int) -> dict[str, Any]:
 
 @app.post("/api/jobs/bulk")
 def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """One action on many jobs: skip | restore | draft | score."""
+    """One action on many jobs: skip | restore | draft | score | archive | unarchive | mark_submitted."""
     action, ids = body.get("action"), [int(i) for i in body.get("ids", [])][:500]
+    if action == "mark_submitted":      # the applicant applied to these themselves
+        n = skipped = 0
+        for jid in ids:
+            try:
+                mark_job_submitted(jid)
+                n += 1
+            except HTTPException:
+                skipped += 1
+        return {"done": n, "skipped": skipped}
     if action in ("archive", "unarchive"):
         with db.session() as s:
             n = 0
@@ -512,11 +542,23 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"done": done, "skipped": skipped}
 
 
+EDITABLE = ("company", "title", "deadline", "apply_url", "jd_text")      # what the applicant may correct on a posting
+
+
 @app.patch("/api/jobs/{job_id}")
 def patch_job(job_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    allowed = {"status", "score", "note", "apply_url", "deadline", "company", "title", "jd_text"}
+    """Change a posting. A field the applicant corrects (EDITABLE) is theirs from then on: a scan does not write over it
+    and keeps what the source says instead, to show them (discover.upsert). ``use_source``: fields to take back from
+    the source."""
+    allowed = {"status", "score", "note", *EDITABLE}
     with db.session() as s:
         j = _404(s.get(Job, job_id))
+        edited = dict(j.edited or {})
+        for k in body.get("use_source") or []:
+            if k in edited:
+                if edited[k] not in (None, ""):
+                    setattr(j, k, edited[k])
+                edited.pop(k)
         for k, v in body.items():
             if k not in allowed:
                 continue
@@ -524,7 +566,30 @@ def patch_job(job_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 if not lifecycle.not_applying(j):
                     raise HTTPException(409, T("server.api.main.theApplicationForThis"))
                 continue
+            if k in EDITABLE:
+                v = str(v or "").strip() if k != "jd_text" else str(v or "")
+                if v == (getattr(j, k) or ""):
+                    continue
+                edited.setdefault(k, getattr(j, k) or "")      # (what the source said when the applicant first changed it)
             setattr(j, k, v)
+        if edited != (j.edited or {}):
+            j.edited = edited
+    return {"ok": True}
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: int) -> dict[str, Any]:
+    """Delete a posting the applicant added by hand and has not begun an application for. A posting a scan found is
+    not deleted - the next scan would bring it back: it is marked "not applying" instead."""
+    with db.session() as s:
+        j = _404(s.get(Job, job_id))
+        if j.source != "manual" or j.application is not None:
+            raise HTTPException(409, T("server.api.main.onlyManualDeletable"))
+        for other in s.query(Job).filter(Job.duplicate_of == j.id):
+            other.duplicate_of = None
+        for task in s.query(Task).filter(Task.ref == f"job:{job_id}", Task.status.in_(("queued", "waiting_human"))):
+            task.status = "cancelled"
+        s.delete(j)
     return {"ok": True}
 
 
@@ -766,19 +831,81 @@ def execute_again(draft_id: int, body: dict[str, Any] = Body(default={})) -> dic
 
 @app.get("/api/applications")
 def list_applications() -> dict[str, Any]:
-    """"My applications": what has gone out, and what waits for its outcome."""
+    """Every application, from the moment it was begun: where it stands, whose move it is, what to press."""
     from .. import applications
 
-    rows = applications.listing()
-    return {"applications": rows, "groups": [{"key": k, "label": lab} for k, lab in stages.GROUPS if any(r["group"] == k for r in rows)]}
+    return {"applications": applications.listing()}
 
 
 @app.get("/api/applications.csv")
-def applications_csv() -> Response:
+def applications_csv(ids: str = "") -> Response:
     from .. import applications
 
-    return Response(content=applications.as_csv(), media_type="text/csv; charset=utf-8",
+    picked = {int(x) for x in ids.split(",") if x.strip().isdigit()} or None
+    return Response(content=applications.as_csv(picked), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="applications-{now().date().isoformat()}.csv"', "Cache-Control": "no-store"})
+
+
+@app.get("/api/applications/review")
+def review_applications(ids: str = "") -> list[dict[str, Any]]:
+    """What has to be seen before these records are approved together (the answers the agent was not sure of, what
+    changed since the version before, questions still open)."""
+    from .. import applications
+
+    return applications.review([int(x) for x in ids.split(",") if x.strip().isdigit()][:100])
+
+
+@app.post("/api/applications/bulk")
+def bulk_applications(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .. import applications
+
+    try:
+        return applications.bulk(str(body.get("action") or ""), [int(i) for i in body.get("ids", [])])
+    except applications.NotAllowed as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/applications/{application_id}/withdraw")
+def withdraw_application(application_id: int) -> dict[str, Any]:
+    """Not applying after all: the application is withdrawn and the posting marked "not applying"."""
+    from .. import applications
+
+    try:
+        applications.withdraw(application_id)
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except applications.NotAllowed as e:
+        raise HTTPException(409, str(e)) from e
+    return {"ok": True}
+
+
+@app.put("/api/applications/{application_id}/note")
+def application_note(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant's own note on an application (for them; nothing reads it)."""
+    from .. import applications
+
+    try:
+        applications.set_note(application_id, str(body.get("note") or ""))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    return {"ok": True}
+
+
+@app.post("/api/applications/{application_id}/outcome")
+def application_outcome(application_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """What came back, recorded by the applicant: rejected, an assessment or interview arranged, an offer - with a date
+    and a line. An assessment or interview with a date goes on the calendar."""
+    from .. import applications
+
+    try:
+        out = applications.outcome(application_id, status=str(body.get("status") or ""), day=str(body.get("date") or ""), at=str(body.get("time") or ""),
+                                   note=str(body.get("note") or ""))
+    except KeyError as e:
+        raise HTTPException(404, "not found") from e
+    except applications.NotAllowed as e:
+        raise HTTPException(400, str(e)) from e
+    out["contacts"] = _contacts_for(out.get("company", ""))
+    return out
 
 
 @app.get("/api/applications/{application_id}")
@@ -1596,6 +1723,7 @@ def overview() -> dict[str, Any]:
             "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),
             "remote": _open_remote_windows(),
             "update": _newer_version(),
+            "apps_need_me": _apps_need_me(),
             "mail_recent": [_mail_row(s, m) for m in s.query(MailEvent).filter(MailEvent.category != "other").order_by(MailEvent.id.desc()).limit(10)],
             "stage_counts": _stage_counts(s),
             "weekly": _weekly(s),
@@ -1605,6 +1733,17 @@ def overview() -> dict[str, Any]:
                                      **stages.describe(stages.stage(a.job.status, bool(a.job.online), a.job.deadline or "", a.status))}
                                     for a in s.query(Application).filter(Application.submitted_at.isnot(None)).order_by(Application.submitted_at.desc()).limit(8)],
         }
+
+
+def _apps_need_me() -> int:
+    """Applications that wait for the applicant: the number on "Applications" in the menu."""
+    from .. import applications
+
+    try:
+        return applications.need_me()
+    except Exception:  # noqa: BLE001 - the overview is read every few seconds; a count that fails is not shown
+        log.exception("could not count the applications that wait")
+        return 0
 
 
 def _newer_version() -> str:

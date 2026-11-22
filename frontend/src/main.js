@@ -8,6 +8,7 @@ import { followServerLang, initI18n } from './i18n'
 import { i18n } from './i18n/catalog'
 import { installGuards } from './dirty'
 import { pairSoon } from './labels'
+import { api } from './api'
 import AnalyticsView from './views/AnalyticsView.vue'
 import FilesView from './views/FilesView.vue'
 import ContactsView from './views/ContactsView.vue'
@@ -16,8 +17,6 @@ import WelcomeView from './views/WelcomeView.vue'
 import JobsView from './views/JobsView.vue'
 import ApplicationsView from './views/ApplicationsView.vue'
 import ApplicationDetail from './views/ApplicationDetail.vue'
-import DraftsView from './views/DraftsView.vue'
-import DraftDetail from './views/DraftDetail.vue'
 import TodosView from './views/TodosView.vue'
 import MailOut from './views/MailOut.vue'
 import AccountsView from './views/AccountsView.vue'
@@ -53,8 +52,11 @@ const router = createRouter({
     { path: '/jobs', component: JobsView },
     { path: '/applications', component: ApplicationsView },
     { path: '/applications/:id', component: ApplicationDetail, props: true },
-    { path: '/drafts', component: DraftsView },
-    { path: '/drafts/:id', component: DraftDetail, props: true },
+    // The drafts page is the applications page's "waiting for you" group now, and a record is on its application's page.
+    { path: '/drafts', redirect: { path: '/applications', query: { group: 'me' } } },
+    { path: '/drafts/:id', component: ApplicationsView, beforeEnter: async (to) => {
+      try { return { path: '/applications/' + (await api.get('/drafts/' + to.params.id)).application.id, hash: '#record' } } catch { return { path: '/applications' } }
+    } },
     { path: '/todos', component: TodosView },
     { path: '/calendar', component: CalendarView },
     { path: '/mail/:id', component: MailOut, props: true },

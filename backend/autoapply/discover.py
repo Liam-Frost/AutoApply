@@ -66,11 +66,18 @@ def upsert(rows: Iterable[dict[str, Any]], *, source: str, scope: str | None = N
             # from before texts were marked has no mark, and its text may be a teaser like any other.
             partial = str(r.get("jd_partial") or "")
             keep_text = partial == "summary" and j.jd_partial in fulltext.FROM_PAGE and bool((j.jd_text or "").strip())
+            edited = dict(j.edited or {})
             for f in FIELDS:
                 v = r.get(f)
-                if v and not (f == "jd_text" and keep_text):
-                    setattr(j, f, v)
-            if r.get("jd_text") and not keep_text:
+                if not v or (f == "jd_text" and keep_text):
+                    continue
+                if f in edited:      # the applicant corrected it: theirs stays; what the source says now is kept to show them
+                    edited[f] = v
+                    continue
+                setattr(j, f, v)
+            if edited != (j.edited or {}):
+                j.edited = edited
+            if r.get("jd_text") and not keep_text and "jd_text" not in edited:
                 j.jd_partial = partial
             if scope and not j.tenant:
                 j.tenant = scope        # which listing it belongs to is how it is found again below
