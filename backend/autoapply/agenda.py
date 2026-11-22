@@ -63,6 +63,7 @@ def items(start: date, end: date, *, kinds: tuple[str, ...] = SHOWN, states: tup
           min_score: float = 0, all_deadlines: bool = False) -> list[dict[str, Any]]:
     """What falls between ``start`` (inclusive) and ``end`` (exclusive), local days."""
     from . import employers
+    from .discover import company_name
 
     lo, hi = datetime.combine(start, datetime.min.time()), datetime.combine(end, datetime.min.time())
     within = lambda d: d is not None and lo <= d < hi      # noqa: E731
@@ -81,12 +82,18 @@ def items(start: date, end: date, *, kinds: tuple[str, ...] = SHOWN, states: tup
             return False
         return True
 
+    named = employers.priority_names()
+
     def add(id_: str, kind: str, title: str, at: datetime, whole: bool, *, job: Job | None = None, app: Application | None = None, todo: Todo | None = None,
             link: str = "", note: str = "", contact_id: int | None = None, done: bool = False) -> None:
         links = list(((todo.payload or {}).get("links") or []) if todo is not None else [])
+        name = company_name(job.company) if job else ""
         out.append({"id": id_, "kind": kind, "title": title, "start": _iso(at), "all_day": whole, "link": link, "links": links, "note": note[:300], "done": done,
-                    "company": job.company if job else "", "subject": f"{job.company} · {job.title}" if job else "",
+                    "company": name, "subject": f"{name} · {job.title}" if job else "",
                     "state": state_of(app) if (job or app) else "", "score": job.score if job else None,
+                    "priority": bool(job and employers.is_priority(job.company, job.source, named)),
+                    # the time as the mail wrote it ("Tuesday 10am PT"): what the date was read from
+                    "due_text": str((todo.payload or {}).get("due_text") or "")[:200] if todo is not None else "",
                     "about": {"job_id": job.id if job else None, "application_id": app.id if app else None, "todo_id": todo.id if todo else None, "contact_id": contact_id}})
 
     with db.session() as s:

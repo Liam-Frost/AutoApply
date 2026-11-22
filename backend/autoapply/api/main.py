@@ -408,7 +408,7 @@ SOURCE_LABEL = {"pdportal": "UBC PD Portal", "manual": T("server.api.main.addedB
 
 def _job_row(j: Job, a: Application | None) -> dict[str, Any]:
     return {
-        "id": j.id, "source": j.source, "source_id": j.source_id, "company": j.company, "title": j.title, "direction": j.direction,
+        "id": j.id, "source": j.source, "source_id": j.source_id, "company": discover.company_name(j.company), "title": j.title, "direction": j.direction,
         "score": j.score, "term": j.term, "months": j.months, "salary": j.salary, "work_type": j.work_type or j.location,
         "deadline": j.deadline, "channel": j.channel, "status": j.status, "online": bool(j.online), "exclusion": j.exclusion,
         "location": j.location, "has_brief": bool(j.brief), "has_jd": len(j.jd_text or "") >= 200, "source": j.source, "source_label": SOURCE_LABEL.get(j.source, j.source),
@@ -1256,7 +1256,7 @@ def calendar_items(start: str, end: str, kinds: str = "", states: str = "", comp
                    all_deadlines: bool = False) -> dict[str, Any]:
     """Everything with a time between two local days (``end`` exclusive), in one shape (agenda.py). ``kinds`` and
     ``states``: comma-separated; no kinds - the ones shown unless asked otherwise."""
-    from datetime import date as _date
+    from datetime import date as _date, datetime
 
     from .. import agenda
 
@@ -1268,8 +1268,11 @@ def calendar_items(start: str, end: str, kinds: str = "", states: str = "", comp
         raise HTTPException(400, T("server.api.main.atMostDaysAt"))
     ks = tuple(k for k in kinds.split(",") if k in agenda.KINDS) or agenda.SHOWN
     ss = tuple(x for x in states.split(",") if x in agenda.STATES)
+    offset = datetime.now().astimezone().utcoffset()
     return {"items": agenda.items(lo, hi, kinds=ks, states=ss, company=company, priority=priority, min_score=min_score, all_deadlines=all_deadlines),
-            "kinds": list(agenda.KINDS), "shown": list(agenda.SHOWN)}
+            "kinds": list(agenda.KINDS), "shown": list(agenda.SHOWN),
+            # the times are this computer's wall clock: a page open elsewhere (remote access) can say so
+            "utc_offset": int(offset.total_seconds() // 60) if offset is not None else 0}
 
 
 @app.post("/api/calendar/items")
