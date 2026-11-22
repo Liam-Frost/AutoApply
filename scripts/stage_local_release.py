@@ -35,7 +35,7 @@ def main() -> None:
     for directory in ("backend", "scripts", "frontend/public", "frontend/src/i18n", "frontend/src/locales"):
         shutil.copytree(root / directory, release / directory, ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(build, release / "frontend/dist")
-    for filename in ("pyproject.toml", "uv.lock", "README.md", "LICENSE"):
+    for filename in ("pyproject.toml", "uv.lock", "README.md", "LICENSE", "CHANGELOG.md"):
         shutil.copy2(root / filename, release / filename)
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(release / ".venv")}
     subprocess.run([uv, "sync", "--locked", "--no-dev", "--all-extras"], cwd=release, env=env, check=True)
