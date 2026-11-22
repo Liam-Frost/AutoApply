@@ -48,7 +48,8 @@ RUN uv sync --frozen --no-dev --extra nodriver
 RUN playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/* && chmod -R a+rX /opt/browsers
 
 COPY scripts/ scripts/
-COPY frontend/src/i18n/ frontend/src/i18n/
+# what the server says, in every language (say.py reads these at run time)
+COPY frontend/src/locales/ frontend/src/locales/
 COPY frontend/public/ frontend/public/
 COPY --from=interface /src/frontend/dist/ frontend/dist/
 COPY CHANGELOG.md ./
