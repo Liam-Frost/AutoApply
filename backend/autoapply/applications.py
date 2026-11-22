@@ -123,8 +123,8 @@ def context(s: Any, *, dates: bool = True) -> dict[str, Any]:
     app_of_draft: dict[int, int] = {}
     for did, aid, review in s.query(Draft.id, Draft.application_id, Draft.review_status).order_by(Draft.version):
         app_of_draft[did] = aid
-        if review in ("pending", "approved") or aid not in drafts:
-            drafts[aid] = (did, review)
+        if review in ("pending", "approved") or drafts.get(aid, ("", ""))[1] not in ("pending", "approved"):
+            drafts[aid] = (did, review)      # (the one that counts; else the latest)
     cards: dict[int, set[str]] = {}
     for t in s.query(Todo).filter(Todo.status == "open", Todo.kind.in_(lifecycle.CARDS)):
         p = t.payload or {}
