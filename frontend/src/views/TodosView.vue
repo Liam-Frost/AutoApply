@@ -1,17 +1,26 @@
 <script setup>
 import { t as T } from '../i18n/catalog'
 import { computed, inject, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '../api'
 import EmptyState from '../components/EmptyState.vue'
+import HelpPop from '../components/HelpPop.vue'
 import Icon from '../components/Icon.vue'
+import IconButton from '../components/IconButton.vue'
+import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
+import Popover from '../components/Popover.vue'
+import Trunc from '../components/Trunc.vue'
+import DateTimeCell from '../components/cells/DateTimeCell.vue'
+import EntityCell from '../components/cells/EntityCell.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run as runAction, toast } from '../ui'
-import { t } from '../i18n/catalog'
+import { t, tag } from '../i18n/catalog'
 import { dateOf, dateTimeOf, dayText } from '../i18n/format'
 
+const router = useRouter()
 const todos = ref([])
 const saveCred = ref(true)
 const picked = ref({})      // to-do id -> the application chosen for an e-mail that names no posting
@@ -38,7 +47,7 @@ const VIEW = {
   },
   failed: { icon: 'alert', tone: 'bad', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
-  mail_unmatched: { icon: 'mail', tone: 'info', title: () => T('todos.anEmailDidntMatch'), what: (t) => `「${t.title}」${t.body ? ' — ' + t.body : ''}` },
+  mail_unmatched: { icon: 'mail', tone: 'info', title: () => T('todos.anEmailDidntMatch'), what: (t) => (t.body ? T('todos.what.mail', { subject: t.title, body: t.body }) : T('todos.what.mailOnly', { subject: t.title })) },
   // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
   // the applicant's own item with a date (added on the calendar page)
@@ -97,18 +106,18 @@ const left = (c) => (c.days_left == null ? '' : c.days_left < 0 ? t('todos.deadl
 const dueText = (c) => (c.due_at ? (c.date_only ? dateOf(new Date(c.due_at.slice(0, 10) + 'T00:00')) : dateTimeOf(new Date(c.due_at.slice(0, 16)))) : '')
 // how far away it is, next to the date: "today", "3 days left"
 const dueLeft = (c) => (c.days_left == null ? '' : c.days_left < 0 ? t('todos.due.past') : c.days_left === 0 ? t('todos.due.today') : t('todos.deadline.left', { n: c.days_left }, c.days_left))
+// (only what is late or about to be stands out: the rest is a plain date)
 const dueTone = (t) => (t.days_left == null ? '' : t.days_left < 0 ? 'bad' : t.days_left <= 1 ? 'warn' : '')
 // "show me this again": tomorrow morning, in three days, next Monday - or a day of the applicant's choosing
-const menu = ref(0)          // the card whose "later" choices are open
 const day = ref('')
 function at9(d) { d.setHours(9, 0, 0, 0); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:00` }
 function inDays(n) { const d = new Date(); d.setDate(d.getDate() + n); return at9(d) }
 function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return at9(d) }
-const snooze = (t, until) => { menu.value = 0; return act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? T('todos.snoozedTo', { day: dayText(until) }) : T('todos.backAmongTheTo')) }
+const snooze = (t, until) => act(() => api.post(`/todos/${t.id}/snooze`, { until }), until ? T('todos.snoozedTo', { day: dayText(until) }) : T('todos.backAmongTheTo'))
 const snoozeDay = (t) => (day.value ? snooze(t, day.value + 'T09:00') : null)
 const dueEdit = ref({ id: 0, value: '' })
 const openDue = (t) => { dueEdit.value = { id: t.id, value: t.due_at ? t.due_at.slice(0, 16) : '' } }
-const saveDue = (t) => act(async () => { await api.post(`/todos/${t.id}/due`, { due: dueEdit.value.value || null }); dueEdit.value = { id: 0, value: '' } }, T('todos.theDateIsUpdated'))
+const saveDue = (t) => { const due = dueEdit.value.value || null; return act(() => api.post(`/todos/${t.id}/due`, { due }), T('todos.theDateIsUpdated')) }
 const scoreCls = (x) => (x == null ? '' : x >= 9 ? 'hi' : x >= 7.5 ? 'mid' : '')
 
 // a card that says something is not set up (or no longer works): where that is put right
@@ -159,6 +168,89 @@ const tryAgain = (t) => act(() => tryAgainFor(t), T('todos.theAgentHasStarted'))
 const appliedMyself = (t) => act(() => api.post(`/jobs/${t.payload.job_id}/mark-submitted`), T('todos.markedAsAppliedWell'))
 const skipJob = (t) => act(async () => { await api.patch(`/jobs/${t.payload.job_id}`, { status: 'skipped' }); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }) }, T('todos.markedAsNotApplying'))
 const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application && t.application.id) || t.payload.application_id}/mark-submitted`), T('todos.markedAsAppliedWell'))
+// ── what a card offers: one main action, at most two beside it, the rest in its menu ("not now" among them). What
+// that is follows from the kind of card and from where its application stands - worked out here once, so that every
+// card is laid out the same way. An action is { label, icon, go | to | href, disabled?, danger? }.
+const listed = (xs) => new Intl.ListFormat(tag(), { style: 'short', type: 'conjunction' }).format(xs)
+const named = (t) => view(t).title(t).includes(t.job.company)      // the title already says which employer
+const A = (label, icon, how) => ({ label, icon, ...how })
+const follow = (a) => (a.to ? router.push(a.to) : a.href ? window.open(a.href, '_blank', 'noopener,noreferrer') : a.go())
+function acts(t) {
+  const p = t.payload || {}
+  const appId = (t.application && t.application.id) || p.application_id
+  const away = A(T('todos.dismiss'), 'x', { go: () => dismiss(t) })
+  const openApp = (label) => (appId ? [A(label || T('todos.openThisApplication'), 'external', { to: '/applications/' + appId })] : [])
+  const draft = p.draft_id ? [A(T('todos.viewDraft'), 'draft', { to: '/drafts/' + p.draft_id })] : []
+  const page = p.url ? [A(T('todos.openPage'), 'external', { href: p.url })] : []
+  const goOn = (go) => A(T('todos.doneContinue'), 'check', { go })
+  let main = null, beside = [], menu = [], more = {}
+  if (['takeover', 'login'].includes(t.kind) && p.tenant_key) {
+    main = A(p.provider ? T('todos.signInTo', { provider: p.provider }) : T('todos.signIn'), 'login', { go: () => takeover(t) })
+    menu = [away]
+    // what is kept of a sign-in is said where the button is; how to have the app sign in by itself is help
+    more = t.remembers ? { remember: true } : p.tenant_key.startsWith('idp:') ? { note: T('todos.onlyTheSignIn') } : { help: T('todos.inThisSignIn') }
+  } else if (t.kind === 'code') {
+    main = A(T('todos.giveItToThe'), 'check', { go: () => giveCode(t), disabled: !codes.value[t.id] })
+    menu = [away]; more = { note: T('todos.theAgentIsWaiting') }
+  } else if (t.kind === 'confirm') {
+    main = goOn(() => confirmed(t)); menu = [away]
+    more = { note: p.window ? T('todos.theBrowserWindowIs') : T('todos.onceYouHaveDone') }
+  } else if (t.kind === 'resume') {
+    const r = RESUME[p.need] || RESUME.confirm
+    main = A(r[1], 'refresh', { go: () => resumeNow(t) }); menu = [away]; more = { help: r[2] }
+  } else if (t.kind === 'facts_changed') {
+    const none = !factsPicked(t).length
+    main = A(T('todos.prepareTheTickedOnes'), 'refresh', { go: () => factsDecide(t, 'redo'), disabled: none })
+    beside = [A(T('todos.sendTheTickedOnes'), '', { go: () => factsDecide(t, 'keep'), disabled: none })]
+  } else if (t.kind === 'mail_out') {
+    main = A(T('todos.lookAtItAnd'), 'mail', { to: '/mail/' + p.outgoing_id }); beside = openApp()
+  } else if (t.kind === 'gone') {
+    main = A(T('todos.gotIt'), 'check', { go: () => dismiss(t) })
+    beside = t.job && t.job.url ? [A(T('todos.openThePostingsPage'), 'external', { href: t.job.url })] : []
+    menu = [...(t.job ? [A(T('todos.itIsStillThere'), 'refresh', { go: () => tryAgain(t) })] : []), ...(t.application ? openApp() : [])]
+  } else if (t.kind === 'blocked') {
+    const mine = A(T('todos.iveSubmittedIt'), 'check', { go: () => appliedMyself(t) })
+    main = p.url ? A(T('todos.openThePostingAnd'), 'external', { href: p.url }) : mine
+    beside = p.url ? [mine] : []
+    menu = [A(T('todos.letTheAppTry'), 'refresh', { go: () => done(t) }), A(T('todos.skipThisOne'), 'x', { go: () => skipJob(t) })]
+  } else if (t.kind === 'answer') {
+    main = p.draft_id ? A(p.review ? T('todos.viewTheApplicationsMaterials') : T('todos.answer'), 'edit', { to: '/drafts/' + p.draft_id }) : null
+    menu = [away]
+  } else if (t.kind === 'followup' || t.kind === 'note') {
+    const finish = A(T('todos.done'), 'check', { go: () => done(t) })
+    const open = p.link ? [A(T('calendar.open'), 'external', { href: p.link })] : []
+    const reply = p.outgoing_id ? [A(T('todos.lookAtTheReply'), 'mail', { to: '/mail/' + p.outgoing_id })]
+      : p.category === 'info_request' && p.message_id ? [A(T('todos.writeAReply'), 'edit', { go: () => writeReply(t) })] : []
+    // (a reply that is written is what to look at; else the link the item came with; else there is only "done")
+    const first = p.outgoing_id ? reply[0] : open[0] || finish
+    const rest = [...open, ...reply, finish].filter((x) => x !== first)
+    main = first; beside = rest.slice(0, 2)
+    menu = [...rest.slice(2), ...(p.application_id ? [A(T('todos.openThisApplicationAnd'), 'external', { to: '/applications/' + p.application_id })] : p.contact_id ? [A(T('todos.openContacts'), 'user', { to: '/contacts' })] : []),
+      A(T('todos.dismiss'), 'x', { go: () => dismiss(t) })]
+  } else if (['failed', 'submit'].includes(t.kind) && t.application && t.job) {
+    const other = t.can_retry_nodriver ? [A(T('todos.tryAgainWithNodriver'), 'globe', { go: () => act(() => tryAgainFor(t, 'nodriver'), T('todos.restarted')) })] : []
+    if (unknown(t)) {
+      main = A(T('todos.lookForTheConfirmation'), 'mail', { go: () => checkMail(t) })
+      beside = [A(T('todos.iveSubmittedIt'), 'check', { go: () => markSubmitted(t) })]
+      menu = [A(T('todos.itWasNotSubmitted'), 'refresh', { go: () => againNotSubmitted(t) }), ...openApp(), ...other, ...draft]
+    } else {
+      main = t.kind === 'submit' ? A(T('todos.iveSubmittedIt'), 'check', { go: () => markSubmitted(t) })
+        : p.budget ? A(T('todos.giveItAnotherBudget'), 'refresh', { go: () => moreBudget(t) }) : A(T('todos.haveTheAgentTry'), 'refresh', { go: () => tryAgain(t) })
+      beside = openApp()
+      menu = [...other, ...draft, A(T('todos.skipThisOne'), 'x', { go: () => notApplying(t) })]
+    }
+  } else if (t.kind === 'captcha') {
+    main = page[0] || goOn(() => done(t)); beside = page.length ? [goOn(() => done(t))] : []; menu = [away]
+  } else if (t.kind === 'mail_unmatched') {
+    main = A(T('todos.linkToThisApplication'), 'check', { go: () => linkMail(t), disabled: !picked.value[t.id] })
+    menu = [A(T('todos.notAboutAnApplication'), 'x', { go: () => dismiss(t) })]; more = { pick: true }
+  } else if (t.kind === 'config' && FIX[t.ref]) {
+    main = A(FIX[t.ref][1], 'settings', { to: FIX[t.ref][0] }); beside = [A(T('todos.itIsTakenCare'), 'check', { go: () => done(t) })]
+  } else {
+    main = goOn(() => done(t)); beside = page; menu = [...draft, away]
+  }
+  return { shown: [...(main ? [{ ...main, primary: true }] : []), ...beside], menu, ...more }
+}
 // (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
 const { st, load } = dataState(read)
 useRefresh(() => { loadRang(); return load() }, { every: 15000 })
@@ -169,16 +261,20 @@ onMounted(() => { load(); loadRang() })
 </script>
 
 <template>
-  <PageHead :title="$t('todos.needsYou')" :sub="$t('todos.thingsTheAppCant')" />
-  <div v-if="rang.length" class="callout" style="margin-bottom: 12px">
+  <PageHead :title="$t('todos.needsYou')" :help="$t('todos.thingsTheAppCant')" />
+  <div v-if="rang.length" class="callout rang">
     <Icon name="clock" />
     <div class="grow">
-      <b>{{ $t('calendar.rang.title') }}</b>
-      <div v-for="x in rang" :key="x.id" class="row small" style="gap: 8px; margin-top: 4px; flex-wrap: wrap">
-        <span>{{ x.subject || x.title }}<template v-if="x.subject"> · {{ x.title }}</template></span>
-        <span class="muted">{{ x.all_day ? dayText(x.start) : dateTimeOf(new Date(x.start)) }}</span>
-        <a v-if="x.link" :href="x.link" target="_blank" rel="noopener" class="btn sm primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
-        <router-link :to="{ path: '/calendar', query: { view: 'day', date: x.start.slice(0, 10) } }" class="btn sm ghost">{{ $t('calendar.rang.openDay') }}</router-link>
+      <div class="t-primary">{{ $t('calendar.rang.title') }}</div>
+      <div class="rows tight">
+        <div v-for="x in rang" :key="x.id" class="r">
+          <Trunc class="grow" :text="x.subject ? x.subject + ' · ' + x.title : x.title" />
+          <span class="end">
+            <span class="t-meta atomic">{{ x.all_day ? dayText(x.start) : dateTimeOf(new Date(x.start)) }}</span>
+            <router-link :to="{ path: '/calendar', query: { view: 'day', date: x.start.slice(0, 10) } }" class="btn sm ghost">{{ $t('calendar.rang.openDay') }}</router-link>
+            <a v-if="x.link" :href="x.link" target="_blank" rel="noopener" class="btn sm primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
+          </span>
+        </div>
       </div>
     </div>
   </div>
@@ -186,15 +282,15 @@ onMounted(() => { load(); loadRang() })
   <template v-if="st.at">
 
   <template v-if="todos.length">
-    <div class="seg" style="margin-bottom: 12px">
-      <button v-for="[k, l] in CATS" :key="k" :class="{ on: cat === k }" :disabled="k !== 'all' && !count(k)" @click="cat = k">{{ l }}<span class="n">{{ count(k) }}</span></button>
+    <div class="seg tabs page-tabs" role="tablist" :aria-label="$t('todos.needsYou')">
+      <button v-for="[k, l] in CATS" :key="k" role="tab" :aria-selected="cat === k" :class="{ on: cat === k }" :disabled="k !== 'all' && !count(k)" @click="cat = k">{{ l }}<span class="n">{{ count(k) }}</span></button>
     </div>
     <div class="filters">
-      <input v-model="q" :placeholder="$t('todos.searchCompaniesPostingsOr')" style="width: 240px" />
+      <input v-model="q" type="search" :placeholder="$t('todos.searchCompaniesPostingsOr')" :aria-label="$t('todos.searchCompaniesPostingsOr')" />
       <AaSelect :model-value="sort" :aria-label="$t('todos.sortBy')" @update:model-value="setSort"><option v-for="(l, k) in SORTS" :key="k" :value="k">{{ l }}</option></AaSelect>
       <span class="grow"></span>
       <button v-if="infoIds.length > 1" class="sm" @click="ackAll"><Icon name="check" />{{ $t('todos.allRead', { n: infoIds.length }, infoIds.length) }}</button>
-      <span class="muted small nowrap">{{ $t('todos.count', { n: shown.length }, shown.length) }}</span>
+      <span class="t-meta atomic">{{ $t('todos.count', { n: shown.length }, shown.length) }}</span>
     </div>
   </template>
 
@@ -202,166 +298,103 @@ onMounted(() => { load(); loadRang() })
   <div v-if="sec.label" class="todo-sec" :class="'u' + sec.u">{{ sec.label }}<span>{{ sec.rows.length }}</span></div>
   <div v-for="t in sec.rows" :key="t.id" class="card todo" :class="'u' + t.urgency">
     <div class="ico" :class="view(t).tone"><Icon :name="view(t).icon" /></div>
-    <div>
+    <div class="todo-body">
       <div class="head">
         <span class="title grow">{{ view(t).title(t) }}</span>
-        <span v-if="t.due_at" class="tag" :class="dueTone(t)" :title="t.payload && t.payload.due_text ? $t('todos.inTheMail', { text: t.payload.due_text }) : ''">{{ dueText(t) }}<template v-if="dueLeft(t)"> · {{ dueLeft(t) }}</template></span>
-        <span v-if="t.site && t.site.system" class="badge">{{ t.site.system }}</span>
-        <span class="small muted">{{ fmtTime(t.created_at) }}</span>
-      </div>
-      <router-link v-if="t.job" :to="{ path: '/jobs', query: { open: t.job.id } }" class="todo-job">
-        <span v-if="t.job.score != null" class="score" :class="scoreCls(t.job.score)">{{ t.job.score.toFixed(1) }}</span>
-        <span class="ell">{{ t.job.company }} · {{ t.job.title }}</span>
-        <span v-if="left(t)" class="tag" :class="t.days_left <= 3 ? 'warn' : ''">{{ left(t) }}</span>
-      </router-link>
-      <p class="what" style="white-space: pre-line">{{ view(t).what(t) }}</p>
-      <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>{{ $t('todos.siteCouldNotTell', { shown: t.payload.site.join('; ') }) }}</span></p>
-      <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="small muted">{{ $t('todos.theSendingEmployerWas') }}</p>
-      <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>{{ $t('todos.theSignInWindow') }}</span></p>
-      <p v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><span>{{ $t('todos.lastTryFailed', { why: t.payload.last_try }) }}</span></p>
-
-      <div class="acts">
-        <template v-if="['takeover', 'login'].includes(t.kind) && t.payload && t.payload.tenant_key">
-          <button class="primary" @click="takeover(t)"><Icon name="login" />{{ t.payload.provider ? $t('todos.signInTo', { provider: t.payload.provider }) : $t('todos.signIn') }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.notNow') }}</button>
-          <label v-if="t.remembers" class="small muted" style="margin-left: 8px"><input v-model="saveCred" type="checkbox" /> {{ $t('todos.rememberMyPasswordAnd') }}</label>
-          <span v-else-if="t.payload.tenant_key.startsWith('idp:')" class="small muted" style="margin-left: 8px">{{ $t('todos.onlyTheSignIn') }}</span>
-          <span v-else class="small muted" style="margin-left: 8px">{{ $t('todos.inThisSignIn') }}</span>
-        </template>
-        <template v-else-if="t.kind === 'code'">
-          <input v-model="codes[t.id]" :placeholder="$t('todos.enterTheCodeHere')" inputmode="numeric" autocomplete="one-time-code" style="width: 180px" @keyup.enter="codes[t.id] && giveCode(t)" />
-          <button class="primary" :disabled="!codes[t.id]" @click="giveCode(t)"><Icon name="check" />{{ $t('todos.giveItToThe') }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.iCantRightNow') }}</button>
-          <span class="small muted" style="margin-left: 8px">{{ $t('todos.theAgentIsWaiting') }}</span>
-        </template>
-        <template v-else-if="t.kind === 'confirm'">
-          <button class="primary" @click="confirmed(t)"><Icon name="check" />{{ $t('todos.doneGoOn') }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.iCantRightNow') }}</button>
-          <span v-if="t.payload && t.payload.window" class="small muted" style="margin-left: 8px">{{ $t('todos.theBrowserWindowIs') }}</span>
-          <span v-else class="small muted" style="margin-left: 8px">{{ $t('todos.onceYouHaveDone') }}</span>
-        </template>
-        <template v-else-if="t.kind === 'resume'">
-          <button class="primary" @click="resumeNow(t)"><Icon name="refresh" />{{ (RESUME[t.payload.need] || RESUME.confirm)[1] }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.notNow') }}</button>
-          <span class="small muted" style="margin-left: 8px">{{ (RESUME[t.payload.need] || RESUME.confirm)[2] }}</span>
-        </template>
-        <template v-else-if="t.kind === 'facts_changed'">
-          <div style="width: 100%">
-            <div class="small" style="margin-bottom: 8px">
-              <div v-for="(c, i) in t.payload.changes || []" :key="i"><span class="muted">{{ c.key || $t('todos.thisLine') }}: </span><s class="muted">{{ c.old }}</s> → <b>{{ c.new || $t('todos.removed') }}</b></div>
-            </div>
-            <div v-for="r in factsLeft(t)" :key="r.application_id" style="margin-bottom: 8px">
-              <label class="row" style="gap: 6px"><input type="checkbox" :checked="(factPick[t.id] || {})[r.application_id] !== false" @change="factTick(t, r.application_id, $event.target.checked)" />
-                <router-link :to="'/applications/' + r.application_id">{{ r.title }}</router-link>
-                <span v-if="r.told_while_working" class="tag">{{ $t('todos.beingWorkedItHas') }}</span></label>
-              <ul class="small muted" style="margin: 2px 0 0 22px"><li v-for="(a, j) in r.answers" :key="j">{{ a.label }}：{{ a.value }}</li></ul>
-            </div>
-            <p v-if="(t.payload.sent || []).length" class="small muted">{{ $t('todos.sentUsedOld', { n: t.payload.sent.length, titles: sentTitles(t) }, t.payload.sent.length) }}</p>
-            <div class="row" style="margin-top: 6px">
-              <button class="primary" :disabled="!factsPicked(t).length" @click="factsDecide(t, 'redo')"><Icon name="refresh" />{{ $t('todos.prepareTheTickedOnes') }}</button>
-              <button :disabled="!factsPicked(t).length" @click="factsDecide(t, 'keep')">{{ $t('todos.sendTheTickedOnes') }}</button>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="t.kind === 'mail_out'">
-          <router-link :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />{{ $t('todos.lookAtItAnd') }}</router-link>
-          <router-link v-if="t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">{{ $t('todos.openThisApplication') }}</router-link>
-        </template>
-        <template v-else-if="t.kind === 'gone'">
-          <button class="primary" @click="dismiss(t)"><Icon name="check" />{{ $t('todos.gotIt') }}</button>
-          <a v-if="t.job && t.job.url" :href="t.job.url" target="_blank" rel="noopener noreferrer" class="btn"><Icon name="external" />{{ $t('todos.openThePostingsPage') }}</a>
-          <button v-if="t.job" @click="tryAgain(t)"><Icon name="refresh" />{{ $t('todos.itIsStillThere') }}</button>
-          <router-link v-if="t.application" :to="'/applications/' + t.application.id" class="btn">{{ $t('todos.openThisApplication') }}</router-link>
-        </template>
-        <template v-else-if="t.kind === 'blocked'">
-          <a v-if="t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('todos.openThePostingAnd') }}</a>
-          <button @click="appliedMyself(t)"><Icon name="check" />{{ $t('todos.iveSubmittedIt') }}</button>
-          <button @click="done(t)"><Icon name="refresh" />{{ $t('todos.letTheAppTry') }}</button>
-          <button class="ghost" @click="skipJob(t)">{{ $t('todos.skipThisOne') }}</button>
-        </template>
-        <template v-else-if="t.kind === 'answer'">
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn primary"><Icon name="edit" /><span v-if="t.payload.review">{{ $t('todos.viewTheApplicationsMaterials') }}</span><span v-else>{{ $t('todos.answer') }}</span></router-link>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.close') }}</button>
-        </template>
-        <template v-else-if="t.kind === 'followup' || t.kind === 'note'">
-          <a v-if="t.payload && t.payload.link" :href="t.payload.link" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
-          <router-link v-if="t.payload && t.payload.outgoing_id" :to="'/mail/' + t.payload.outgoing_id" class="btn primary"><Icon name="mail" />{{ $t('todos.lookAtTheReply') }}</router-link>
-          <button v-else-if="t.payload && t.payload.category === 'info_request' && t.payload.message_id" @click="writeReply(t)"><Icon name="edit" />{{ $t('todos.writeAReply') }}</button>
-          <button :class="{ primary: !(t.payload && t.payload.outgoing_id) }" @click="done(t)"><Icon name="check" />{{ $t('todos.done') }}</button>
-          <button @click="openDue(t)"><Icon name="edit" />{{ t.due_at ? $t('calendar.move') : $t('todos.addDate') }}</button>
-          <router-link v-if="t.payload && t.payload.application_id" :to="'/applications/' + t.payload.application_id" class="btn">{{ $t('todos.openThisApplicationAnd') }}</router-link>
-          <router-link v-else-if="t.payload && t.payload.contact_id" to="/contacts" class="btn">{{ $t('todos.openContacts') }}</router-link>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.leaveItClose') }}</button>
-        </template>
-        <template v-else-if="['failed', 'submit'].includes(t.kind) && t.application && t.job">
-          <template v-if="unknown(t)">
-            <button class="primary" @click="checkMail(t)"><Icon name="mail" />{{ $t('todos.lookForTheConfirmation') }}</button>
-            <button @click="markSubmitted(t)"><Icon name="check" />{{ $t('todos.iveSubmittedIt') }}</button>
-            <button class="ghost" @click="againNotSubmitted(t)">{{ $t('todos.itWasNotSubmitted') }}</button>
+        <span class="todo-meta">
+          <template v-if="t.due_at">
+            <span v-tip="t.payload && t.payload.due_text ? $t('todos.inTheMail', { text: t.payload.due_text }) : ''" :class="dueTone(t) ? 'tag ' + dueTone(t) : 'meta'">{{ dueText(t) }}<template v-if="dueLeft(t)"> · {{ dueLeft(t) }}</template></span>
           </template>
-          <button v-else-if="t.kind === 'submit'" class="primary" @click="markSubmitted(t)"><Icon name="check" />{{ $t('todos.iveSubmittedIt') }}</button>
-          <button v-else-if="t.payload.budget" class="primary" @click="moreBudget(t)"><Icon name="refresh" />{{ $t('todos.giveItAnotherBudget') }}</button>
-          <button v-else class="primary" @click="tryAgain(t)"><Icon name="refresh" />{{ $t('todos.haveTheAgentTry') }}</button>
-          <button v-if="t.can_retry_nodriver" @click="act(() => tryAgainFor(t, 'nodriver'), $t('todos.restarted'))">{{ $t('todos.tryAgainWithNodriver') }}</button>
-          <router-link :to="'/applications/' + t.application.id" class="btn">{{ $t('todos.openThisApplication') }}</router-link>
-          <router-link v-if="t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">{{ $t('todos.viewDraft') }}</router-link>
-          <button v-if="!unknown(t)" class="ghost" @click="notApplying(t)">{{ $t('todos.dontApplyClose') }}</button>
-        </template>
-        <template v-else-if="t.kind === 'captcha'">
-          <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn primary"><Icon name="external" />{{ $t('todos.openPage') }}</a>
-          <button @click="done(t)">{{ $t('todos.imDoneContinue') }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.close') }}</button>
-        </template>
-        <template v-else-if="t.kind === 'mail_unmatched'">
-          <AaSelect v-model="picked[t.id]" :placeholder="$t('todos.whichApplicationIsThis')" style="max-width: 460px">
-            <option v-for="c in t.candidates || []" :key="c.id" :value="c.id">{{ c.label }}{{ c.site_status ? $t('todos.onTheSite', { status: c.site_status }) : '' }}</option>
-          </AaSelect>
-          <button class="primary" :disabled="!picked[t.id]" @click="linkMail(t)"><Icon name="check" />{{ $t('todos.linkToThisApplication') }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.notAboutAnApplication') }}</button>
-        </template>
-        <template v-else-if="t.kind === 'config' && FIX[t.ref]">
-          <router-link :to="FIX[t.ref][0]" class="btn primary"><Icon name="settings" />{{ FIX[t.ref][1] }}</router-link>
-          <button @click="done(t)">{{ $t('todos.itIsTakenCare') }}</button>
-        </template>
-        <template v-else>
-          <a v-if="t.payload && t.payload.url" :href="t.payload.url" target="_blank" rel="noopener" class="btn"><Icon name="external" />{{ $t('todos.openPage') }}</a>
-          <router-link v-if="t.payload && t.payload.draft_id" :to="'/drafts/' + t.payload.draft_id" class="btn">{{ $t('todos.viewDraft') }}</router-link>
-          <button @click="done(t)">{{ $t('todos.doneContinue') }}</button>
-          <button class="ghost" @click="dismiss(t)">{{ $t('todos.close') }}</button>
-        </template>
+          <!-- the date of an item that has one of its own can be set here -->
+          <Popover v-if="t.kind === 'followup' || t.kind === 'note'" :label="$t('todos.whenThisIsFor')" :width="300" align="end" @open="openDue(t)">
+            <template #trigger="{ toggle, attrs }">
+              <IconButton v-if="t.due_at" icon="edit" size="sm" :label="$t('calendar.move')" v-bind="attrs" @click="toggle" />
+              <button v-else class="ghost sm" v-bind="attrs" @click="toggle"><Icon name="calendar" />{{ $t('todos.addDate') }}</button>
+            </template>
+            <template #default="{ close }">
+              <div class="field"><label :for="'due-' + t.id">{{ $t('todos.whenThisIsFor') }}</label><input :id="'due-' + t.id" v-model="dueEdit.value" class="w-full" type="datetime-local" /></div>
+              <div class="actions pop-acts">
+                <button v-if="t.due_at" class="sm ghost" @click="dueEdit.value = ''; saveDue(t); close()">{{ $t('todos.removeTheDate') }}</button>
+                <span class="grow"></span>
+                <button class="sm" @click="close()">{{ $t('todos.cancel') }}</button>
+                <button class="sm primary" @click="saveDue(t); close()">{{ $t('todos.save') }}</button>
+              </div>
+            </template>
+          </Popover>
+          <span v-if="t.site && t.site.system" class="meta">{{ t.site.system }}</span>
+          <span class="t-meta atomic">{{ fmtTime(t.created_at) }}</span>
+        </span>
       </div>
-      <div v-if="dueEdit.id === t.id" class="row" style="margin-top: 8px; flex-wrap: wrap">
-        <label :for="'due-' + t.id" class="small muted">{{ $t('todos.whenThisIsFor') }}</label>
-        <input :id="'due-' + t.id" v-model="dueEdit.value" type="datetime-local" style="width: 220px" />
-        <button class="sm primary" @click="saveDue(t)">{{ $t('todos.save') }}</button>
-        <button v-if="t.due_at" class="sm ghost" @click="dueEdit.value = ''; saveDue(t)">{{ $t('todos.removeTheDate') }}</button>
-        <button class="sm ghost" @click="dueEdit = { id: 0, value: '' }">{{ $t('todos.cancel') }}</button>
+      <!-- (the posting, when the title does not already name it) -->
+      <router-link v-if="t.job && !named(t)" :to="{ path: '/jobs', query: { open: t.job.id } }" class="todo-job">
+        <span v-if="t.job.score != null" class="score" :class="scoreCls(t.job.score)">{{ t.job.score.toFixed(1) }}</span>
+        <Trunc :text="t.job.company + ' · ' + t.job.title" />
+        <span v-if="left(t) && !t.due_at" class="meta small" :class="{ soon: t.days_left <= 3 }">{{ left(t) }}</span>
+      </router-link>
+      <p v-if="view(t).what(t)" class="what">{{ view(t).what(t) }}</p>
+      <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>{{ $t('todos.siteCouldNotTell', { shown: listed(t.payload.site) }) }}</span></p>
+      <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="t-secondary">{{ $t('todos.theSendingEmployerWas') }}</p>
+      <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>{{ $t('todos.theSignInWindow') }}</span></p>
+      <div v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><div><div>{{ $t('todos.lastTryDidNotWork') }}</div><TechDetails :text="t.payload.last_try" /></div></div>
+
+      <!-- what a "profile changed" card asks about: the lines that changed, and the applications that still say the old thing -->
+      <div v-if="t.kind === 'facts_changed'" class="facts-changed">
+        <div v-for="(c, i) in t.payload.changes || []" :key="i" class="fc-line"><span class="meta">{{ c.key || $t('todos.thisLine') }}</span> <s class="muted">{{ c.old }}</s> → <span class="t-primary">{{ c.new || $t('todos.removed') }}</span></div>
+        <div v-for="r in factsLeft(t)" :key="r.application_id" class="fc-app">
+          <label><input type="checkbox" :checked="(factPick[t.id] || {})[r.application_id] !== false" @change="factTick(t, r.application_id, $event.target.checked)" />
+            <router-link :to="'/applications/' + r.application_id">{{ r.title }}</router-link>
+            <span v-if="r.told_while_working" class="meta small">{{ $t('todos.beingWorkedItHas') }}</span></label>
+          <dl><template v-for="(a, j) in r.answers" :key="j"><dt>{{ a.label }}</dt><dd>{{ a.value }}</dd></template></dl>
+        </div>
+        <p v-if="(t.payload.sent || []).length" class="t-secondary">{{ $t('todos.sentUsedOld', { n: t.payload.sent.length, titles: sentTitles(t) }, t.payload.sent.length) }}</p>
       </div>
-      <!-- "not now": out of the way until a day of the applicant's choosing, then shown and said again -->
-      <div class="row" style="margin-top: 8px; flex-wrap: wrap">
-        <button v-if="menu !== t.id" class="sm ghost" @click="menu = t.id; day = ''"><Icon name="clock" />{{ $t('todos.remindMeLater') }}</button>
-        <template v-else>
-          <span class="small muted">{{ $t('todos.remindMeAgain') }}</span>
-          <button class="sm" @click="snooze(t, inDays(1))">{{ $t('todos.tomorrow') }}</button>
-          <button class="sm" @click="snooze(t, inDays(3))">{{ $t('todos.inDays') }}</button>
-          <button class="sm" @click="snooze(t, nextMonday())">{{ $t('todos.nextMonday') }}</button>
-          <input v-model="day" type="date" :aria-label="$t('todos.chooseADay')" style="width: 150px" />
-          <button class="sm" :disabled="!day" @click="snoozeDay(t)">{{ $t('todos.onThisDay') }}</button>
-          <button class="sm ghost" @click="menu = 0">{{ $t('todos.cancel') }}</button>
+
+      <!-- one main action, at most two beside it; the rest is in the menu; "later" is the clock -->
+      <div class="actions todo-acts">
+        <input v-if="t.kind === 'code'" v-model="codes[t.id]" class="w-short" :placeholder="$t('todos.enterTheCodeHere')" :aria-label="$t('todos.enterTheCodeHere')" inputmode="numeric" autocomplete="one-time-code" @keyup.enter="codes[t.id] && giveCode(t)" />
+        <AaSelect v-if="acts(t).pick" v-model="picked[t.id]" class="todo-pick" :placeholder="$t('todos.whichApplicationIsThis')" :aria-label="$t('todos.whichApplicationIsThis')">
+          <option v-for="c in t.candidates || []" :key="c.id" :value="c.id">{{ c.label }}{{ c.site_status ? ' ' + $t('todos.onTheSite', { status: c.site_status }) : '' }}</option>
+        </AaSelect>
+        <template v-for="(a, i) in acts(t).shown" :key="i">
+          <router-link v-if="a.to" :to="a.to" class="btn" :class="{ primary: a.primary }"><Icon v-if="a.icon" :name="a.icon" />{{ a.label }}</router-link>
+          <a v-else-if="a.href" :href="a.href" target="_blank" rel="noopener noreferrer" class="btn" :class="{ primary: a.primary }"><Icon v-if="a.icon" :name="a.icon" />{{ a.label }}</a>
+          <button v-else :class="{ primary: a.primary }" :disabled="a.disabled" @click="a.go()"><Icon v-if="a.icon" :name="a.icon" />{{ a.label }}</button>
         </template>
+        <label v-if="acts(t).remember" class="meta todo-check"><input v-model="saveCred" type="checkbox" /> {{ $t('todos.rememberMyPasswordAnd') }}</label>
+        <HelpPop v-if="acts(t).help" :label="view(t).title(t)" :text="acts(t).help" />
+        <span class="grow"></span>
+        <Popover :label="$t('todos.remindMeLater')" :width="300" align="end" @open="day = ''">
+          <template #trigger="{ toggle, attrs }"><IconButton icon="clock" :label="$t('todos.remindMeLater')" v-bind="attrs" @click="toggle" /></template>
+          <template #default="{ close }">
+            <div class="snooze">
+              <div class="t-meta">{{ $t('todos.remindMeLater') }}</div>
+              <div class="actions">
+                <button class="sm" @click="close(); snooze(t, inDays(1))">{{ $t('todos.tomorrow') }}</button>
+                <button class="sm" @click="close(); snooze(t, inDays(3))">{{ $t('todos.inDays') }}</button>
+                <button class="sm" @click="close(); snooze(t, nextMonday())">{{ $t('todos.nextMonday') }}</button>
+              </div>
+              <div class="actions">
+                <input v-model="day" class="grow" type="date" :aria-label="$t('todos.chooseADay')" />
+                <button class="sm" :disabled="!day" @click="close(); snoozeDay(t)">{{ $t('todos.onThisDay') }}</button>
+              </div>
+            </div>
+          </template>
+        </Popover>
+        <Menu v-if="acts(t).menu.length" :label="$t('common.more')" :items="acts(t).menu.map((a, i) => ({ id: i, label: a.label, icon: a.icon, danger: a.danger }))" @pick="(i) => follow(acts(t).menu[i])" />
       </div>
+      <p v-if="acts(t).note" class="t-meta todo-note">{{ acts(t).note }}</p>
       <TechDetails :text="t.explained.detail" />
     </div>
   </div>
   </template>
 
   <div v-if="later.length" class="card">
-    <button class="ghost" @click="showLater = !showLater">{{ $t('todos.later', { n: later.length }) }} {{ showLater ? $t('todos.hide') : $t('todos.show') }}</button>
-    <div v-if="showLater" class="list" style="margin-top: 8px">
-      <div v-for="t in later" :key="t.id" class="item">
-        <span class="badge" style="min-width: 96px; justify-content: center">{{ dayText(t.snoozed_until) }}</span>
-        <div><div class="main">{{ view(t).title(t) }}</div><div v-if="t.due_at" class="sub">{{ $t('todos.when', { when: dueText(t) }) }}</div></div>
-        <div class="right"><button class="sm" @click="snooze(t, null)">{{ $t('todos.showItNow') }}</button></div>
+    <button class="ghost later-toggle" :aria-expanded="showLater" @click="showLater = !showLater"><Icon :name="showLater ? 'chevron_up' : 'chevron'" />{{ $t('todos.later', { n: later.length }) }}</button>
+    <div v-if="showLater" class="rows">
+      <div v-for="t in later" :key="t.id" class="r">
+        <DateTimeCell class="lead" :primary="dayText(t.snoozed_until)" />
+        <EntityCell :primary="view(t).title(t)" :secondary="t.due_at ? $t('todos.when', { when: dueText(t) }) : ''" />
+        <span class="end"><button class="ghost sm" @click="snooze(t, null)">{{ $t('todos.showItNow') }}</button></span>
       </div>
     </div>
   </div>

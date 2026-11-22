@@ -3,10 +3,13 @@ import { t as T } from '../i18n/catalog'
 // Which mailbox the program reads (read-only): verification codes and links, confirmations, interview invitations, rejections.
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
-import { run, toast } from '../ui'
+import { ask, run, toast } from '../ui'
 import { clone, same, useUnsaved } from '../dirty'
+import CardHead from './CardHead.vue'
 import FileButton from './FileButton.vue'
+import HelpPop from './HelpPop.vue'
 import Icon from './Icon.vue'
+import Status from './Status.vue'
 
 const d = ref(null)
 const pick = ref('gmail_api')   // gmail_api | <imap preset>
@@ -50,7 +53,7 @@ async function outlookAuth() {
   } catch (e) { toast(e.message, 'bad') }
   busy.value = false
 }
-const outlookForget = () => run(() => api.del('/mailbox/outlook'), T('settings.mailbox.outlookAuthorizationRemoved'), load)
+const outlookForget = async () => (await ask(T('settings.mailbox.removeAccessAsk'), { ok: T('settings.mailbox.removeAccess'), danger: true })) && run(() => api.del('/mailbox/outlook'), T('settings.mailbox.outlookAuthorizationRemoved'), load)
 const imapBody = () => ({ preset: pick.value, host: form.value.host, port: form.value.port, user: form.value.user })
 async function test() {
   busy.value = true; result.value = null
@@ -86,55 +89,59 @@ onMounted(load)
 
 <template>
   <div v-if="d" class="card">
-    <div class="row"><span class="card-title grow">{{ $t('settings.mailbox.email') }}</span><span class="badge" :class="d.ready ? 'ok' : 'warn'">{{ d.ready ? $t('settings.mailbox.connected') : $t('settings.mailbox.notConnectedYet') }}</span></div>
-    <p class="muted">{{ $t('settings.mailbox.readingCodesAndActivation') }}</p>
+    <CardHead :title="$t('settings.mailbox.email')" :help="$t('settings.mailbox.readingCodesAndActivation')">
+      <template #after><Status :tone="d.ready ? 'ok' : 'warn'" :label="d.ready ? $t('settings.mailbox.connected') : $t('settings.mailbox.notConnectedYet')" /></template>
+    </CardHead>
     <div class="kv">
       <label>{{ $t('settings.mailbox.emailType') }}</label>
       <AaSelect v-model="pick" @change="fill">
         <option value="gmail_api">{{ $t('settings.mailbox.gmailGoogleAuthorizationReads') }}</option>
         <option v-for="p in d.presets" :key="p.key" :value="p.key">{{ p.name }}</option>
       </AaSelect>
-    </div>
 
-    <template v-if="pick === 'gmail_api'">
-      <p class="hint" style="margin: 12px 0">{{ $t('settings.mailbox.authorizingAsksForReading') }}</p>
-      <div class="row">
-        <FileButton accept=".json" @change="gmailClient"><Icon name="inbox" />{{ $t('settings.mailbox.chooseJsonFile') }}</FileButton>
-        <button :disabled="!d.client" @click="gmailAuth">{{ $t('settings.mailbox.authorize') }}</button>
-        <span class="badge" :class="d.authorized ? 'ok' : ''">{{ d.authorized ? $t('settings.mailbox.authorized') : d.reconnect ? $t('settings.mailbox.theAuthorizationIsNo') : d.client ? $t('settings.mailbox.fileUploadedNotYet') : $t('settings.mailbox.noFilesUploadedYet') }}</span>
-        <span v-if="d.authorized" class="badge" :class="d.can_send ? 'ok' : 'warn'">{{ d.can_send ? $t('settings.mailbox.canSend') : $t('settings.mailbox.readingOnlyAuthorizeOnce') }}</span>
-      </div>
-      <details class="tech"><summary>{{ $t('settings.mailbox.howToGetThis') }}</summary><pre>{{ $t('settings.mailbox.inGoogleCloudCreate') }}</pre></details>
-    </template>
-    <template v-else>
-      <p class="callout" style="margin-top: 12px"><Icon name="info" /><span>{{ preset.how }}</span></p>
-      <div class="kv">
+      <template v-if="pick === 'gmail_api'">
+        <label>{{ $t('settings.mailbox.authorize') }}<HelpPop :text="$t('settings.mailbox.authorizingAsksForReading')" :label="$t('settings.mailbox.authorize')" /></label>
+        <div class="set-val">
+          <FileButton accept=".json" @change="gmailClient"><Icon name="inbox" />{{ $t('settings.mailbox.chooseJsonFile') }}</FileButton>
+          <button :disabled="!d.client" @click="gmailAuth">{{ $t('settings.mailbox.authorize') }}</button>
+          <Status :tone="d.authorized ? 'ok' : d.reconnect ? 'warn' : ''" :label="d.authorized ? $t('settings.mailbox.authorized') : d.reconnect ? $t('settings.mailbox.theAuthorizationIsNo') : d.client ? $t('settings.mailbox.fileUploadedNotYet') : $t('settings.mailbox.noFilesUploadedYet')" />
+          <Status v-if="d.authorized" :tone="d.can_send ? 'ok' : 'warn'" :label="d.can_send ? $t('settings.mailbox.canSend') : $t('settings.mailbox.readingOnlyAuthorizeOnce')" />
+        </div>
+      </template>
+      <template v-else>
         <template v-if="pick === 'custom'">
-          <label>{{ $t('settings.mailbox.imapServer') }}</label><div class="row" style="flex-wrap: nowrap"><input v-model="form.host" class="grow" placeholder="imap.example.com" /><input v-model.number="form.port" type="number" style="width: 90px" :aria-label="$t('settings.mailbox.port')" /></div>
+          <label>{{ $t('settings.mailbox.imapServer') }}</label>
+          <div class="set-val"><input v-model="form.host" class="w-short" placeholder="imap.example.com" :aria-label="$t('settings.mailbox.imapServer')" /><input v-model.number="form.port" class="w-num" type="number" :aria-label="$t('settings.mailbox.port')" /></div>
         </template>
         <label>{{ $t('settings.mailbox.emailAddress') }}</label><input v-model="form.user" placeholder="you@example.com" autocomplete="off" />
         <template v-if="isOutlook">
           <label>{{ $t('settings.mailbox.applicationClientId') }}</label><input v-model="clientId" :placeholder="d.outlook.client_id ? $t('settings.mailbox.savedToChangeIt') : $t('settings.mailbox.formatXxxxxxxxXxxxXxxx')" autocomplete="off" />
           <label>{{ $t('settings.mailbox.authorize') }}</label>
-          <div>
-            <div class="row"><button :disabled="busy || !form.user || (!clientId.trim() && !d.outlook.client_id)" @click="outlookAuth"><Icon name="login" />{{ d.outlook.authorized ? $t('settings.mailbox.reauthorize') : $t('settings.mailbox.authorize') }}</button>
-              <span class="badge" :class="d.outlook.authorized ? 'ok' : ''">{{ d.outlook.authorized ? $t('settings.mailbox.authorized') : $t('settings.mailbox.notAuthorizedYet') }}</span>
-              <button v-if="d.outlook.authorized" class="sm ghost danger" @click="outlookForget">{{ $t('settings.mailbox.removeAccess') }}</button></div>
-            <p v-if="d.outlook.flow.state === 'waiting'" class="callout" style="margin-top: 8px"><Icon name="info" /><span>{{ $t('settings.mailbox.open') }} <a :href="d.outlook.flow.url" target="_blank" rel="noopener">{{ d.outlook.flow.url }}</a>{{ $t('settings.mailbox.enterTheCode') }} <b style="font-size: 16px; letter-spacing: 1px">{{ d.outlook.flow.code }}</b>{{ $t('settings.mailbox.signInWithYour') }}</span></p>
-            <p v-else-if="d.outlook.flow.state === 'failed'" class="small" style="color: var(--bad); margin-top: 6px">{{ $t('settings.mailbox.didntWork', { p0: d.outlook.flow.error }) }}</p>
+          <div class="set-val">
+            <button :disabled="busy || !form.user || (!clientId.trim() && !d.outlook.client_id)" @click="outlookAuth"><Icon name="login" />{{ d.outlook.authorized ? $t('settings.mailbox.reauthorize') : $t('settings.mailbox.authorize') }}</button>
+            <Status :tone="d.outlook.authorized ? 'ok' : ''" :label="d.outlook.authorized ? $t('settings.mailbox.authorized') : $t('settings.mailbox.notAuthorizedYet')" />
+            <button v-if="d.outlook.authorized" class="sm ghost" @click="outlookForget">{{ $t('settings.mailbox.removeAccess') }}</button>
+            <span v-if="d.outlook.flow.state === 'failed'" class="form-note bad">{{ $t('settings.mailbox.didntWork', { p0: d.outlook.flow.error }) }}</span>
           </div>
         </template>
         <template v-else>
-          <label>{{ $t('settings.mailbox.authorizationCodeAppPassword') }}</label><input v-model="form.password" type="password" autocomplete="new-password" :placeholder="d.imap.has_password && inUse ? $t('settings.mailbox.savedLeaveBlankTo') : $t('settings.mailbox.notYourEmailLogin')" />
+          <label>{{ $t('settings.mailbox.authorizationCodeAppPassword') }}<HelpPop :text="$t('settings.mailbox.authorizationCodesAndTokens')" /></label><input v-model="form.password" type="password" autocomplete="new-password" :placeholder="d.imap.has_password && inUse ? $t('settings.mailbox.savedLeaveBlankTo') : $t('settings.mailbox.notYourEmailLogin')" />
         </template>
-      </div>
-      <p class="hint" style="margin-top: 8px">{{ $t('settings.mailbox.authorizationCodesAndTokens') }}</p>
+      </template>
+    </div>
+
+    <details v-if="pick === 'gmail_api'" class="tech"><summary>{{ $t('settings.mailbox.howToGetThis') }}</summary><pre>{{ $t('settings.mailbox.inGoogleCloudCreate') }}</pre></details>
+    <template v-else>
+      <p v-if="isOutlook && d.outlook.flow.state === 'waiting'" class="callout after-form"><Icon name="info" /><span>{{ $t('settings.mailbox.open') }} <a :href="d.outlook.flow.url" target="_blank" rel="noopener">{{ d.outlook.flow.url }}</a>{{ $t('settings.mailbox.enterTheCode') }} <b class="set-code">{{ d.outlook.flow.code }}</b>{{ $t('settings.mailbox.signInWithYour') }}</span></p>
+      <p v-if="preset && preset.how" class="callout after-form"><Icon name="info" /><span>{{ preset.how }}</span></p>
     </template>
 
-    <div class="row" style="margin-top: 12px">
+    <div class="set-actions">
       <button :disabled="busy" @click="test"><Icon name="refresh" />{{ busy ? $t('settings.mailbox.pleaseWait') : $t('settings.mailbox.testIfItCan') }}</button>
       <button class="primary" :disabled="busy || (pick !== 'gmail_api' && !form.user)" @click="save"><Icon name="check" />{{ inUse ? $t('settings.mailbox.save') : $t('settings.mailbox.saveAndSwitchTo') }}</button>
-      <span v-if="result" class="small" :style="result.ok ? 'color: var(--ok)' : 'color: var(--bad)'">{{ result.text }}</span>
+      <Status v-if="dirty" tone="warn" :label="$t('settings.page.unsavedChanges')" />
+      <span v-if="result" class="result" :class="result.ok ? 'ok' : 'bad'" role="status">{{ result.text }}</span>
     </div>
+    <p class="set-note">{{ $t('settings.page.howOftenTheMailbox') }}<router-link to="/settings/automation/schedule">{{ $t('settings.page.plan') }}</router-link>{{ $t('settings.page.text') }}</p>
   </div>
 </template>

@@ -1,2 +1,270 @@
 /* The analysis page and the settings: rules added by the design-system work (older ones are in ../style.css, section 7).
    Tokens are in ../style.css; rules of use in docs/component-guidelines.md. */
+
+/* ───────────────────────── The head of a card (CardHead.vue) ───────────────────────── */
+/* The title with its (i) and its note at the left, the card's controls at the right. The title is cut with an
+   ellipsis and is never squeezed: it asks for 11em, and when the controls leave it less they go under it as a group.
+   Every head is one control high, so the titles of the cards of a row stand on one line whether or not a card has
+   controls. */
+.card-head { display: flex; align-items: center; gap: var(--s2) var(--s3); flex-wrap: wrap; min-height: var(--h-md); margin-bottom: var(--s2); }
+.card-head:has(+ .card-sub) { margin-bottom: 0; }
+.card-head-main { display: flex; align-items: center; gap: 6px; flex: 1 1 11em; min-width: 0; }
+.card-head-main > .card-title { flex: 0 1 auto; min-width: 0; }
+.card-head-main > .meta { flex: none; margin-left: 2px; font-variant-numeric: tabular-nums; }
+.card-head > .card-title { flex: 1 1 11em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }      /* (DetailPanel: a title alone) */
+.card-tools { display: flex; align-items: center; gap: var(--s2); flex: none; max-width: 100%; }
+.card-tools .seg { flex-wrap: nowrap; }
+.card-tools .sel { max-width: 180px; }
+/* (a phone: the controls themselves may go onto two lines rather than off the card) */
+@media (max-width: 640px) { .card-tools { flex-wrap: wrap; } }
+
+/* what a HelpPop opens: sentences, at a reading width */
+.help-pop { color: var(--text); line-height: 1.55; }
+.help-pop p { margin: 0 0 var(--s2); }
+.help-pop ul, .help-pop ol { margin: 0 0 var(--s2); padding-left: 18px; }
+.help-pop li { margin-bottom: 2px; }
+.help-pop h4 { margin: var(--s3) 0 var(--s1); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.help-pop h4:first-child { margin-top: 0; }
+.help-pop > :last-child { margin-bottom: 0; }
+.help-pop code { overflow-wrap: anywhere; }
+
+/* ───────────────────────── Analysis page ───────────────────────── */
+/* The page's toolbar: the views at the left; the time scale, the period and what the view counts at the right. One row
+   of controls of one height. Each group stays whole: where the row is too narrow for both (custom dates in a small
+   window), the right group goes under the views as one line. */
+.an-toolbar { display: flex; align-items: center; gap: var(--s2) var(--s4); flex-wrap: wrap; margin-bottom: var(--s4); }
+.an-toolbar > .seg { flex: 0 1 auto; }
+.an-tools { display: flex; align-items: center; gap: var(--s2); flex: none; max-width: 100%; margin-left: auto; }
+.an-tools > .sel { flex: none; }
+.an-dates { display: flex; align-items: center; gap: var(--s1); }
+.an-dates input[type=date] { width: 136px; padding: 0 var(--s2); }
+@media (max-width: 640px) { .an-tools { flex-wrap: wrap; margin-left: 0; } }
+/* (a row of two cards that hold tables needs more room than two charts: it becomes one column sooner) */
+@container (max-width: 1040px) { .an-row.c11.wide { grid-template-columns: minmax(0, 1fr); } }
+/* a view's own filters, and a label before them */
+.an-bar { margin-bottom: var(--s3); }
+.an-view { transition: opacity var(--dur) var(--ease); }
+.an-view.loading { opacity: 0.55; }
+.skel.tile { height: 84px; margin: 0; }
+.skel.tall { height: 240px; }
+
+/* a figure's name with its (i) */
+.kpi .l > .info-tip, .kpi .l > .popover { margin: -2px 0 -2px var(--s1); vertical-align: middle; }
+.kpi .d.cut { display: block; }
+/* figures inside a card: the tiles of a section, without a shadow of their own */
+.kpis.inner { margin-bottom: 0; }
+.kpis.inner > .kpi { box-shadow: none; }
+.kpis.inner + .an-pair { margin-top: var(--s4); }
+.figs .k { display: flex; align-items: flex-start; gap: var(--s1); }
+.figs .k > span { min-width: 0; }
+.figs .k > .info-tip { margin-top: -2px; }
+
+/* a small heading over a part of a card, a line of plain facts, two parts side by side */
+.an-label { margin-bottom: 6px; color: var(--text-2); font-size: var(--fs-xs); }
+.an-label.gap { margin-top: var(--s4); }
+.an-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s4); margin-bottom: var(--s3); }
+.an-facts b { color: var(--text); font-weight: var(--fw-semibold); }
+.an-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: var(--s4); align-items: start; }
+.an-pair > * { min-width: 0; }
+/* a short list of links, each with a figure at its end */
+.an-links > a { display: flex; align-items: baseline; gap: var(--s2); padding: 3px 0; font-size: var(--fs-sm); }
+.an-links > a > .cut { flex: 1 1 auto; }
+.site-notes, .plain-list { margin: var(--s1) 0 0; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.6; white-space: normal; }
+.plain-list { max-height: 240px; overflow: auto; }
+
+/* bars by category: the width of the label column, and the second figure after the first */
+.hbars.lab-sm { --lab: 5.5em; } .hbars.lab-md { --lab: 9em; } .hbars.lab-xl { --lab: 13em; }
+.hbars .num .of { color: var(--text-2); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.hbars .track[aria-describedby] .fill { opacity: 0.85; }
+/* the legend of a chart: a long series name is cut, the figure after it stays */
+.legend > span > .cut, .legend > button > .cut { flex: 0 1 auto; min-width: 0; }
+.legend > span { min-width: 0; max-width: 100%; }
+.legend > button { max-width: 100%; }
+.legend > span > b { flex: none; }
+.chart .tip.multi .r.sum { margin-top: 2px; font-weight: var(--fw-semibold); }
+.chart .tip.multi .note { opacity: 0.8; }
+/* the postings that were missed: the score, what it was, what became of it */
+.missed a > .when { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
+.reason.head { border: 0; }
+
+/* ── Compact figure tables (.an-table) ──
+   The columns belong to the table, not to what is in them: fixed layout, widths written as <col> classes. The name
+   column (a <col> without a class) takes what is left and cuts its text (Trunc); figures stand right-aligned in
+   columns of a bounded width, so a long name can never push a figure out of the card. Every row of a table is one
+   height: 40px, or 52px where the name has a second line (.two). Columns marked .opt-a / .opt-b / .opt-c (on the
+   <col>, the <th> and the <td>) leave when the table's own box is too narrow for them - by the box, not the window;
+   past that the table keeps a least width (--min) and scrolls inside its box. */
+.an-scroll { overflow-x: auto; container-type: inline-size; }
+.an-table { table-layout: fixed; width: 100%; min-width: var(--min, 300px); font-size: var(--fs-sm); }
+.an-table col.w-xs { width: 60px; }
+.an-table col.w-n { width: 78px; }
+.an-table col.w-num { width: 92px; }
+.an-table col.w-wide { width: 116px; }
+.an-table col.w-date { width: 132px; }
+.an-table col.w-state { width: 136px; }
+.an-table col.w-dur { width: 104px; }
+.an-table col.w-bar { width: 200px; }
+.an-table col.w-note { width: 24%; }
+.an-table col.w-ans { width: 30%; }
+.an-table col.w-do { width: 150px; }
+.an-table col.w-act { width: 44px; }
+.an-table th { position: static; padding: var(--s2); background: transparent; border-bottom: 1px solid var(--border-strong); vertical-align: bottom; line-height: 1.3; white-space: normal; overflow-wrap: break-word; }
+.an-table td { height: var(--row-compact); padding: var(--s1) var(--s2); overflow: hidden; vertical-align: middle; line-height: 1.4; }
+.an-table.two td { height: 52px; }
+.an-table th.num, .an-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.an-table td.num, .an-table td.atomic { white-space: nowrap; }
+.an-table td.sum { font-weight: var(--fw-semibold); }
+.an-table td.act { text-align: right; white-space: nowrap; }
+.an-table .t-name { display: block; color: var(--text); font-weight: var(--fw-medium); line-height: 20px; }
+.an-table .t-sub { display: block; color: var(--text-2); font-size: var(--fs-xs); line-height: 16px; }
+.an-table .t-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.an-table .t-line > .t-name { flex: 0 1 auto; min-width: 0; }
+.an-table .t-line > .tag { flex: none; }
+.an-table .status { font-size: var(--fs-xs); line-height: 16px; }
+.an-table td > .status:only-child { font-size: var(--fs-sm); line-height: 20px; }
+.an-table .cut2 { line-height: 1.35; }
+.an-table .splitbar { height: 8px; margin-bottom: 4px; }
+.an-table td.num > .info-tip { margin: -2px 2px -2px 0; }
+.an-table tr.clickable:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.an-table tr.clickable:focus-visible td, .an-table tr.picked td { background: var(--surface-2); }
+.an-table tr.picked .t-name { color: var(--primary); }
+/* a figure that opens what it counts */
+.fig-link { all: unset; box-sizing: border-box; padding: 0 2px; border-radius: 3px; color: var(--primary); font-variant-numeric: tabular-nums; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.fig-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* a table that is a small form (the price list): a field fills its column */
+.an-table.form td { padding: var(--s1); }
+.an-table.form input { width: 100%; min-width: 0; }
+.an-table.series { min-width: var(--min, 300px); }
+@container (max-width: 1000px) { .an-table .opt-a { display: none; } }
+@container (max-width: 800px) { .an-table .opt-b { display: none; } }
+@container (max-width: 560px) { .an-table .opt-c { display: none; } }
+/* (the chart's own "as a table": under the chart, not wider than it needs) */
+.chart details.tech > .an-table { margin-top: 6px; max-width: 420px; }
+
+/* one run in the drawer */
+.run-facts { margin-bottom: var(--s4); }
+.run-title { margin: var(--s1) 0 var(--s2); font-size: var(--fs-md); font-weight: var(--fw-semibold); }
+
+/* ───────────────────────── Settings ───────────────────────── */
+/* The groups: one line of tabs (it scrolls sideways in a narrow window, it never wraps). */
+.set-nav { margin-bottom: var(--s3); }
+.set-nav .seg-link { padding: 0 10px; }
+.set-nav.more-right { mask-image: linear-gradient(to left, transparent, black 48px); }
+.set-nav.more-left { mask-image: linear-gradient(to right, transparent, black 48px); }
+.set-nav.more-left.more-right { mask-image: linear-gradient(to right, transparent, black 48px, black calc(100% - 48px), transparent); }
+/* the sections of the open group, as links; and in a section's head the (i) stands right after its title */
+.set-toc { margin: 0 0 var(--s2); }
+.set-head > h3 { order: -2; }
+.set-head > .info-tip, .set-head > .popover { order: -1; margin-left: -4px; }
+/* A section's cards, and - where a section is two things side by side - a grid that becomes one column by its own width. */
+.set-sec > .card:last-child, .set-sec > .pr:last-child { margin-bottom: var(--s2); }
+.set-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); align-items: start; container-type: inline-size; }
+.set-cols > .card { margin: 0; container-type: inline-size; }
+@media (max-width: 1100px) { .set-cols { grid-template-columns: minmax(0, 1fr); } }
+
+/* A field of the settings: `.kv` (label | control) with the control's cell laid out by .set-val - the control, its unit,
+   and at most one line of hint, which always stands UNDER the control (never beside it, where it wrapped as the box
+   narrowed). What needs more than a line is behind the (i) beside the label. */
+.set-sec .kv > label { display: flex; align-items: center; gap: var(--s1); overflow-wrap: break-word; }
+.set-sec .kv > label > .info-tip, .set-sec .kv > label > .popover { flex: none; }
+.set-sec .field > label { display: flex; align-items: center; gap: var(--s1); }
+.set-val { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s2); min-width: 0; }
+.set-val > .hint, .set-val > .form-note { flex: 1 1 100%; margin: 0; }
+.set-val > .unit { color: var(--text-2); white-space: nowrap; }
+.set-val > label { display: inline-flex; align-items: center; gap: 6px; }
+.set-val > .sel { max-width: 100%; }
+.set-val > .form-note.bad { color: var(--bad); font-size: var(--fs-sm); }
+.set-sec textarea.plain { font-family: inherit; font-size: var(--fs-md); }
+.set-sec .field.last { margin-bottom: 0; }
+.set-sec .field + .kv, .kv.after-choice, .kv.in-details { margin-top: var(--s4); }
+.set-actions.flush { margin: var(--s2) 0 var(--s4); }
+.set-actions.flush:last-child { margin-bottom: 0; }
+.callout.after-form { margin: var(--s3) 0 0; }
+.set-sec .card > .callout + .kv, .set-sec .card > .t-secondary { margin-top: 0; }
+.set-sec .card > p.t-secondary { margin-bottom: var(--s2); }
+/* widths of fields by what they hold: a number, a time, a short text, a line; a drop-down in a form is as wide as a line */
+input.w-num { width: 96px; } input.w-time { width: 124px; } input.w-short { width: min(100%, 220px); } input.w-line, .sel.w-line { width: min(100%, 420px); } input.w-full, .sel.w-full { width: 100%; }
+.set-sec .kv > .sel, .set-sec .kv > input:not([type=checkbox]):not([type=radio]), .set-sec .kv > .set-val > .sel:only-child { width: min(100%, 420px); justify-self: start; }
+/* one line of consequence under a form, an option with its (i), a row of options */
+.set-note { margin: var(--s3) 0 0; color: var(--text-2); font-size: var(--fs-xs); }
+.set-check { display: flex; align-items: center; gap: 6px; min-height: var(--h-sm); }
+.set-check > label { display: inline-flex; align-items: center; gap: var(--s2); }
+.set-check + .set-check { margin-top: var(--s1); }
+.set-opts { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); }
+.set-opts > label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* what a card ends with: its own buttons - the main one last - and, before them, what came of the last press */
+.set-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s4); }
+.set-actions > .grow { min-width: 0; }
+.set-actions > .result { min-width: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.set-actions > .result.ok { color: var(--ok); } .set-actions > .result.bad { color: var(--bad); }
+.card > .choice:first-child { margin-top: 0; }
+.card-head + .choice { margin-top: 0; }
+.choice label > div { min-width: 0; }
+.choice label b { font-weight: var(--fw-medium); }
+
+/* the overview: who does what now */
+.rule-list > li > .status { flex: none; width: 132px; margin-top: 1px; }
+.rule-list > li > .meta { flex: none; width: 96px; margin-top: 1px; color: var(--text-3); font-size: var(--fs-xs); }
+.rule-list .t-meta { display: block; }
+.rule-list ul { margin: var(--s1) 0 0 18px; padding: 0; color: var(--text-2); font-size: var(--fs-xs); }
+
+/* the notification matrix: a compact table as wide as its columns */
+.set-matrix { width: auto; table-layout: auto; }
+.set-matrix th, .set-matrix td { padding: 6px var(--s3); background: transparent; position: static; }
+.set-matrix th:not(:first-child), .set-matrix td:not(:first-child) { text-align: center; }
+.set-code { font-size: var(--fs-lg); letter-spacing: 2px; }
+
+/* the "try it" list of the intake conditions: the verdict in a fixed slot, the title cut, the reason at the end */
+.try-list { display: grid; margin-top: var(--s2); }
+.try-list > div { display: grid; grid-template-columns: 76px minmax(0, 1fr) minmax(0, 40%); gap: var(--s3); align-items: center; min-height: var(--row-compact); border-bottom: 1px solid var(--border); }
+.try-list > div:last-child { border-bottom: 0; }
+
+/* backup: where the data is, the two exports, and what came of them */
+.path-list { display: grid; gap: 2px; margin: 0 0 var(--s3); }
+.path-list code { overflow-wrap: anywhere; }
+
+/* ── the AI service and the prompts: a list at the left, the chosen one at the right ── */
+.pr-nav .ell { flex: 1 1 auto; text-align: left; }
+.pr-nav .meta { flex: none; }
+.pr-nav button.on .meta { color: inherit; }
+.pr-foot { display: flex; align-items: center; gap: var(--s3); margin-top: 6px; color: var(--text-2); font-size: var(--fs-xs); }
+.pr-foot .bad { color: var(--bad); }
+.pr-used { margin: 0 0 var(--s3); color: var(--text-2); font-size: var(--fs-sm); }
+/* choosing a model: the list (or the field) takes the room, "type it" keeps its own */
+.model-pick { display: flex; align-items: center; gap: 6px; min-width: 0; width: min(100%, 420px); }
+.model-pick > .model-sel, .model-pick > input { flex: 1 1 auto; min-width: 0; width: auto; }
+.model-sel { display: flex; }
+.model-sel > .sel { flex: 1 1 auto; width: 100%; }
+.pr-head { margin: 0 0 var(--s2); }
+.pr-history { max-width: 200px; }
+.pr > .chain-card { grid-column: 1 / -1; container-type: inline-size; }
+/* the services in the order they are tried */
+.chain { display: grid; margin-top: var(--s2); }
+.chain-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: var(--s3); align-items: start; padding: var(--s3) 0; border-bottom: 1px solid var(--border); }
+.chain-row:last-child { border-bottom: 0; }
+.chain-row > .meta { line-height: var(--h-md); }
+.chain-row > .actions { min-height: var(--h-md); }
+.chain-name { display: flex; align-items: center; gap: var(--s2); min-height: var(--h-md); min-width: 0; }
+.chain-pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.2fr); gap: var(--s2); }
+.chain-pick > .sel, .chain-pick .model-pick { width: 100%; }
+.chain-row .callout { margin: var(--s2) 0 0; }
+.chain .quota .qrow { grid-template-columns: 132px minmax(80px, 180px) minmax(0, max-content); }
+.chain-warn { margin-top: var(--s1); color: var(--warn); font-size: var(--fs-xs); }
+@container (max-width: 760px) { .chain-pick { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .chain-row { grid-template-columns: minmax(0, 1fr); } }
+.quota-warn { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s4); margin-top: var(--s3); font-size: var(--fs-sm); }
+.quota-warn > label, .quota-warn > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* the browser rules: one rule a row - what it is for, which browser, for which work - and its menu */
+.rule-rows { display: grid; margin-top: var(--s2); }
+.rule-row { display: grid; grid-template-columns: 156px minmax(140px, 1.4fr) 190px minmax(0, 2fr) var(--h-sm); gap: var(--s2); align-items: center; min-height: 48px; border-bottom: 1px solid var(--border); }
+.rule-row:last-child { border-bottom: 0; }
+.rule-row > .sel, .rule-row > input { width: 100%; min-width: 0; }
+.rule-row.head { min-height: var(--h-md); color: var(--text-2); font-size: var(--fs-xs); font-weight: var(--fw-medium); border-bottom-color: var(--border-strong); }
+@container (max-width: 760px) { .rule-row { grid-template-columns: 148px minmax(0, 1fr) 170px var(--h-sm); padding: var(--s2) 0; } .rule-row > .set-opts { grid-column: 1 / 4; grid-row: 2; } .rule-row.head > :nth-child(4) { display: none; } }
+
+/* watched employers: the row to add one, the ones ready to add */
+.emp-add > input.w-short { flex: none; }
+.emp-cat .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.emp-table { margin-top: var(--s4); }
+.emp-off .entity, .emp-off .dt-cell > .meta, .emp-off .dt-cell > .num { opacity: 0.55; }

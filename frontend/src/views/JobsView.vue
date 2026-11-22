@@ -1,22 +1,31 @@
 <script setup>
-import { t as T } from '../i18n/catalog'
+import { t as T, lang } from '../i18n/catalog'
 // Postings: what is out there and whether to apply (plan §8.3). A posting is here until an application is begun; then
 // it only leads to that application (the applications page follows it from there).
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, fmt } from '../api'
+import BulkBar from '../components/BulkBar.vue'
 import DataState from '../components/DataState.vue'
+import DataTable from '../components/DataTable.vue'
+import DateTimeCell from '../components/cells/DateTimeCell.vue'
 import EmptyState from '../components/EmptyState.vue'
+import EntityCell from '../components/cells/EntityCell.vue'
 import Icon from '../components/Icon.vue'
+import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
+import Popover from '../components/Popover.vue'
+import SectionHead from '../components/SectionHead.vue'
 import SideDrawer from '../components/SideDrawer.vue'
+import Status from '../components/Status.vue'
 import TechDetails from '../components/TechDetails.vue'
+import Trunc from '../components/Trunc.vue'
 import { dataState, useRefresh } from '../data'
-import { daysUntil, deadlineLabel, isPast, keepVisible } from '../dates'
+import { daysUntil, deadlineLabel, isPast, keepVisible, parseDeadline } from '../dates'
 import { renderMarkdown } from '../md'
 import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { ask, persona, run, toast } from '../ui'
-import { dayText, shortDayText } from '../i18n/format'
+import { dateTimeOf, dayOf, dayText } from '../i18n/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,10 +42,11 @@ const add = ref({ url: '', company: '', title: '' })
 
 // Optional columns. The fixed ones (score, job, deadline, application) answer "what is it, how good, how urgent, did I
 // begin"; the rest is detail that lives in the drawer unless the applicant asks for it here.
-const COLS = { source: 'postings.col.source', direction: 'postings.col.direction', salary: 'postings.col.salary', channel: 'postings.col.channel', posted: 'postings.col.posted', first_seen: 'postings.col.firstSeen' }
+const COLS = { place: 'postings.col.place', source: 'postings.col.source', direction: 'postings.col.direction', salary: 'postings.col.salary', channel: 'postings.col.channel', posted: 'postings.col.posted', first_seen: 'postings.col.firstSeen' }
 let saved = null
 try { saved = JSON.parse(localStorage.getItem('jobs.cols') || 'null') } catch { /* private window */ }
-const cols = ref(new Set(Array.isArray(saved) ? saved : persona.features.job_columns || ['source']))
+// (the place stood under every title before it was a column: it is shown unless the applicant has chosen the columns)
+const cols = ref(new Set(Array.isArray(saved) ? saved : ['place', ...(persona.features.job_columns || ['source'])]))
 function toggleCol(k) {
   const s = new Set(cols.value); s.has(k) ? s.delete(k) : s.add(k); cols.value = s
   try { localStorage.setItem('jobs.cols', JSON.stringify([...s])) } catch { /* ignore */ }
@@ -46,7 +56,9 @@ function toggleCol(k) {
 const F0 = { q: '', minScore: 0, direction: '', term: '', channel: '', deadline: '', link: false, prio: false }
 const f = reactive({ ...F0 })
 const DEADLINES = { '': 'postings.deadline.any', 3: 'postings.deadline.in3', 7: 'postings.deadline.in7', 14: 'postings.deadline.in14', none: 'postings.deadline.none' }
-const activeFilters = computed(() => ['q', 'direction', 'term', 'channel', 'deadline'].filter((k) => f[k]).length + (f.minScore ? 1 : 0) + (f.link ? 1 : 0) + (f.prio ? 1 : 0))
+// the conditions that are used now and then are behind "Filters": how many of them are set is said on its button
+const behind = computed(() => ['term', 'channel'].filter((k) => f[k]).length + (f.minScore ? 1 : 0) + (f.link ? 1 : 0) + (f.prio ? 1 : 0))
+const activeFilters = computed(() => ['q', 'direction', 'deadline'].filter((k) => f[k]).length + behind.value)
 function clearFilters() { Object.assign(f, F0) }
 
 const inScope = computed(() => jobs.value.filter((j) => j.group === group.value))
@@ -87,18 +99,52 @@ const rows = computed(() => {
     return (x > y ? 1 : x < y ? -1 : 0) * sortDir.value || Number(b.priority) - Number(a.priority) || (b.score ?? -1) - (a.score ?? -1)
   })
 })
-function sortBy(k) { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = k === 'score' ? -1 : 1 } }
-const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? ' ↑' : ' ↓') : '')
-const sorted = (k) => (sortKey.value === k ? (sortDir.value > 0 ? 'ascending' : 'descending') : 'none')       // (what a screen reader is told; the arrow is for the eye)
+// The table's sort is this page's (kept in the address): a header pressed for the first time sorts upwards - the score
+// downwards, the best first - and turns round when pressed again.
+const SORT_OF = { job: 'company' }
+const sort = computed({
+  get: () => ({ by: Object.keys(SORT_OF).find((c) => SORT_OF[c] === sortKey.value) || sortKey.value, dir: sortDir.value > 0 ? 'asc' : 'desc' }),
+  set: (v) => { const k = SORT_OF[v.by] || v.by; if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = k === 'score' ? -1 : 1 } },
+})
 const scoreCls = (s) => (s == null ? '' : s >= 9 ? 'hi' : s >= 7.5 ? 'mid' : s < 6 ? 'lo' : '')
 const fmtScore = (s) => (s == null ? '—' : s.toFixed(1))
+
+// --- the columns: score, posting, deadline and the application always; what the applicant chose besides goes first
+// when the table is narrow (the highest priority first). Nothing a cell holds changes a width.
+const columns = computed(() => {
+  const latin = !/^(zh|ja|ko)/.test(lang.value)
+  const more = [
+    { id: 'place', min: 120, max: 200, priority: 1 },
+    { id: 'source', min: 104, max: 160, priority: 2 },
+    { id: 'direction', min: 104, max: 180, priority: 3 },
+    { id: 'salary', min: 104, max: 180, priority: 4 },
+    { id: 'channel', min: 104, max: 160, priority: 5 },
+    { id: 'posted', min: 104, max: 120, flex: 0, priority: 6, sortable: true },
+    { id: 'first_seen', min: 104, max: 120, flex: 0, priority: 7, sortable: true },
+  ].filter((c) => cols.value.has(c.id)).map((c) => ({ ...c, header: T(COLS[c.id]) }))
+  return [
+    { id: 'score', header: T('postings.col.score'), width: latin ? 76 : 68, align: 'end', sortable: true },
+    { id: 'job', header: T('postings.col.job'), min: 220, max: 440, flex: 4, sortable: true },
+    ...more,
+    { id: 'deadline', header: T('postings.col.deadline'), min: latin ? 128 : 116, max: 148, flex: 0, sortable: true },
+    { id: 'app', header: T('postings.col.application'), min: latin ? 176 : 132, max: 220, flex: 1 },
+    { id: 'more', header: '', width: 44, align: 'end' },
+  ]
+})
+const placeOf = (j) => j.location || j.work_type || ''
+const termOf = (j) => (persona.features.term ? [j.term, j.months ? T('postings.months', { n: j.months }) : ''].filter(Boolean).join(' · ') : '')
+function dueOf(j) {
+  const d = parseDeadline(j.deadline)
+  if (!d) return null
+  const tip = T('postings.dueTip', { when: dateTimeOf(d) })
+  if (isSent(j)) return { primary: dayOf(d), tone: 'muted', tip }      // (applied: how many days are left no longer matters)
+  const dl = deadlineLabel(j.deadline)
+  return { primary: dayOf(d), secondary: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '', tip }
+}
 
 // selection: of the rows that are shown. A filter, a search or a reload that takes a row off the page unticks it -
 // a batch never acts on what cannot be seen.
 watch(() => rows.value, (now) => { picked.value = keepVisible(picked.value, now) })
-const allPicked = computed(() => rows.value.length > 0 && rows.value.every((j) => picked.value.has(j.id)))
-function togglePick(id) { const s = new Set(picked.value); s.has(id) ? s.delete(id) : s.add(id); picked.value = s }
-function toggleAll() { picked.value = allPicked.value ? new Set() : new Set(rows.value.map((j) => j.id)) }
 const BULK = {
   draft: ['postings.bulk.start', 'postings.bulkDone.start', 'postings.bulkSkipped.start'],
   mark_submitted: ['postings.bulk.markSubmitted', 'postings.bulkDone.markSubmitted', 'postings.bulkSkipped.markSubmitted'],
@@ -129,9 +175,10 @@ function closeSel() {
   delete q.open
   router.replace({ query: q })
 }
+let editNext = false      // "Edit" in a row's menu: the posting opens with its form
 async function show(id) {
   if (!id) { sel.value = null; editing.value = null; return }
-  try { sel.value = await api.get('/jobs/' + id); showJd.value = false } catch (e) { toast(e.message, 'bad'); closeSel() }
+  try { sel.value = await api.get('/jobs/' + id); showJd.value = false; if (editNext) startEdit() } catch (e) { toast(e.message, 'bad'); closeSel() } finally { editNext = false }
 }
 const refreshSel = async () => { if (sel.value) sel.value = await api.get('/jobs/' + sel.value.id) }
 const briefing = ref(false)
@@ -141,21 +188,56 @@ async function writeBrief() {
 }
 const act = (fn, ok) => run(fn, ok, async () => { await load(); await refreshSel() })
 
-// --- one posting ------------------------------------------------------------------------------------------------------
+// --- one posting: from its row (the row's button and menu) or from its drawer - the same actions, on the posting given
 const appEnded = (a) => !a || ['withdrawn', 'returned'].includes(a.stage)
-const sent = computed(() => !!sel.value && ['submitted', 'confirmed', 'rejected', 'interview', 'assessment', 'offer'].includes(sel.value.app_status))
-const start = () => act(() => api.post(`/jobs/${sel.value.id}/draft`), T('postings.started'))
-const startRow = (j) => run(() => api.post(`/jobs/${j.id}/draft`), T('postings.started'), load)
-const rescore = () => act(() => api.post(`/jobs/${sel.value.id}/score`), T('postings.scoring'))
-const setStatus = (s) => act(() => api.patch(`/jobs/${sel.value.id}`, { status: s }), s === 'skipped' ? T('postings.skipped') : T('postings.restored'))
-const setArchived = (on) => act(() => api.post('/jobs/bulk', { action: on ? 'archive' : 'unarchive', ids: [sel.value.id] }), on ? T('postings.archived') : T('postings.unarchived'))
-async function markSubmitted() {
+const live = (j) => !!j.app && !appEnded(j.app)
+const isSent = (j) => ['submitted', 'confirmed', 'rejected', 'interview', 'assessment', 'offer'].includes(j.app_status)
+const canStart = (j) => !live(j) && !!j.apply_url && j.online
+const start = (j) => act(() => api.post(`/jobs/${j.id}/draft`), T('postings.started'))
+const rescore = (j) => act(() => api.post(`/jobs/${j.id}/score`), T('postings.scoring'))
+const setStatus = (j, s) => act(() => api.patch(`/jobs/${j.id}`, { status: s }), s === 'skipped' ? T('postings.skipped') : T('postings.restored'))
+const setArchived = (j, on) => act(() => api.post('/jobs/bulk', { action: on ? 'archive' : 'unarchive', ids: [j.id] }), on ? T('postings.archived') : T('postings.unarchived'))
+async function markSubmitted(j) {
   if (!(await ask(T('postings.markAsk'), { ok: T('postings.do.markSubmitted') }))) return
-  await act(() => api.post(`/jobs/${sel.value.id}/mark-submitted`), T('postings.markedSubmitted'))
+  await act(() => api.post(`/jobs/${j.id}/mark-submitted`), T('postings.markedSubmitted'))
 }
-async function remove() {
-  if (!(await ask(T('postings.deleteAsk', { name: `${sel.value.company} · ${sel.value.title}` }), { ok: T('postings.do.delete'), danger: true }))) return
-  if (await run(() => api.del('/jobs/' + sel.value.id), T('postings.deleted'), load)) closeSel()
+async function remove(j) {
+  if (!(await ask(T('postings.deleteAsk', { name: `${j.company} · ${j.title}` }), { ok: T('postings.do.delete'), danger: true }))) return
+  if ((await run(() => api.del('/jobs/' + j.id), T('postings.deleted'), load)) && sel.value && sel.value.id === j.id) closeSel()
+}
+function edit(j) {
+  if (sel.value && sel.value.id === j.id) return editing.value ? (editing.value = null) : startEdit()
+  editNext = true
+  open(j)
+}
+// What can be done with a posting besides its main action (the row's button, the drawer's first two buttons): the
+// same list in the row's menu and in the drawer's - what does not apply now is left out or shown as not available.
+function menuOf(j, inDrawer = false) {
+  const deletable = j.deletable ?? (j.source === 'manual' && !j.app_id)      // (only a posting the applicant added, with nothing begun)
+  const startShown = inDrawer || (j.group === 'todo' && canStart(j))          // (it is the button beside the menu)
+  return [
+    ...(!inDrawer && live(j) ? [{ id: 'application', label: T('postings.do.openApplication'), icon: 'forward' }] : []),
+    ...(!inDrawer && j.apply_url ? [{ id: 'link', label: T('postings.do.seePosting'), icon: 'external' }] : []),
+    ...(!startShown && !live(j) ? [{ id: 'start', label: T('postings.do.start'), icon: 'draft', disabled: !canStart(j) }] : []),
+    ...(!isSent(j) ? [{ id: 'mark', label: T('postings.do.markSubmitted'), icon: 'check' }] : []),
+    j.status !== 'skipped' ? { id: 'skip', label: T('postings.do.skip'), icon: 'x', disabled: isSent(j) } : { id: 'restore', label: T('postings.do.restore'), icon: 'back' },
+    { id: 'score', label: T('postings.do.score'), icon: 'refresh', disabled: !j.has_jd, hint: j.has_jd ? '' : T('postings.noJdToScore') },
+    { id: 'edit', label: T('postings.do.edit'), icon: 'edit' },
+    j.archived ? { id: 'unarchive', label: T('postings.do.unarchive'), icon: 'inbox' } : { id: 'archive', label: T('postings.do.archive'), icon: 'inbox', hint: T('postings.archiveHow') },
+    ...(deletable ? [{ divider: true }, { id: 'delete', label: T('postings.do.delete'), icon: 'trash', danger: true }] : []),
+  ]
+}
+function onMenu(j, id) {
+  if (id === 'application') return router.push('/applications/' + j.app.id)
+  if (id === 'link') return window.open(j.apply_url, '_blank', 'noopener')
+  if (id === 'start') return start(j)
+  if (id === 'mark') return markSubmitted(j)
+  if (id === 'skip') return setStatus(j, 'skipped')
+  if (id === 'restore') return setStatus(j, 'scored')
+  if (id === 'score') return rescore(j)
+  if (id === 'edit') return edit(j)
+  if (id === 'archive' || id === 'unarchive') return setArchived(j, id === 'archive')
+  if (id === 'delete') return remove(j)
 }
 
 // Correcting a posting: what the applicant changes stays theirs - the next scan does not write over it, and says what
@@ -176,9 +258,10 @@ const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), T('postin
 const facts = computed(() => {
   const j = sel.value
   if (!j) return []
+  const due = parseDeadline(j.deadline)
   return [['postings.fact.term', j.term], ['postings.fact.months', j.months ? T('postings.months', { n: j.months }) : ''], ['postings.fact.salary', j.salary], ['postings.fact.location', j.location || j.work_type],
-    ['postings.fact.deadline', j.deadline], ['postings.fact.where', j.channel_label], ['postings.fact.docs', j.docs_required], ['postings.fact.direction', j.direction],
-    ['postings.fact.source', j.source_label], ['postings.fact.posted', j.posted], ['postings.fact.id', j.source_id && j.source_id.length <= 12 ? j.source_id : '']].filter((x) => x[1])
+    ['postings.fact.deadline', due ? dateTimeOf(due) : j.deadline], ['postings.fact.where', j.channel_label], ['postings.fact.docs', j.docs_required], ['postings.fact.direction', j.direction],
+    ['postings.fact.source', j.source_label], ['postings.fact.posted', dayText(j.posted) || j.posted], ['postings.fact.id', j.source_id && j.source_id.length <= 12 ? j.source_id : '']].filter((x) => x[1])
 })
 watch(() => route.query.open, (id, was) => { if (id && !was) stepped = true; show(id) })      // (opened from within the page: a step that Back, or closing, takes back)
 
@@ -212,10 +295,10 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
 </script>
 
 <template>
-  <PageHead :title="$t('postings.title')" :sub="$t('postings.sub')">
-    <router-link to="/jobs/sources" class="btn primary"><Icon name="search" />{{ $t('postings.sources') }}</router-link>
-    <button @click="scan"><Icon name="refresh" />{{ $t('postings.scan') }}</button>
-    <button class="ghost" @click="adding = !adding"><Icon name="edit" />{{ $t('postings.addByHand') }}</button>
+  <PageHead :title="$t('postings.title')" :help="$t('postings.help')">
+    <router-link to="/jobs/sources" class="btn ghost"><Icon name="search" />{{ $t('postings.sources') }}</router-link>
+    <button :aria-expanded="adding" @click="adding = !adding"><Icon name="plus" />{{ $t('postings.addByHand') }}</button>
+    <button class="primary" @click="scan"><Icon name="refresh" />{{ $t('postings.scan') }}</button>
   </PageHead>
   <DataState :s="st" :what="$t('postings.what')" @retry="load" />
   <template v-if="st.at">
@@ -228,85 +311,83 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
       <label for="add-title">{{ $t('postings.addJobTitle') }}</label><input id="add-title" v-model="add.title" :placeholder="$t('postings.optional')" />
     </div>
     <p class="hint">{{ $t('postings.addHint') }}</p>
-    <div class="row"><button class="primary" :disabled="!add.url" @click="addJob">{{ $t('postings.add') }}</button><button class="ghost" @click="adding = false">{{ $t('postings.cancel') }}</button></div>
+    <div class="actions"><button class="primary" :disabled="!add.url" @click="addJob">{{ $t('postings.add') }}</button><button class="ghost" @click="adding = false">{{ $t('postings.cancel') }}</button></div>
   </div>
 
-  <div class="seg" style="margin-bottom: 12px" role="group" :aria-label="$t('postings.groupsLabel')">
-    <button v-for="g in GROUPS" :key="g" :class="{ on: group === g }" @click="pickGroup(g)">{{ $t('postings.group.' + g) }}<span class="n">{{ groupCount(g) }}</span></button>
+  <div class="seg tabs list-tabs" role="group" :aria-label="$t('postings.groupsLabel')">
+    <button v-for="g in GROUPS" :key="g" :class="{ on: group === g }" :aria-pressed="group === g" @click="pickGroup(g)">{{ $t('postings.group.' + g) }}<span class="n">{{ groupCount(g) }}</span></button>
   </div>
 
-  <div class="filters">
-    <input v-model="f.q" :placeholder="$t('postings.search')" :aria-label="$t('postings.search')" style="width: 240px" />
+  <div class="filters" role="group" :aria-label="$t('postings.filter.more')">
+    <input v-model="f.q" class="search" type="search" :placeholder="$t('postings.search')" :aria-label="$t('postings.search')" />
     <AaSelect v-model="f.direction" :aria-label="$t('postings.filter.direction')"><option value="">{{ $t('postings.filter.allDirections') }}</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }} ({{ n }})</option></AaSelect>
-    <AaSelect v-if="persona.features.term" v-model="f.term" :aria-label="$t('postings.filter.term')"><option value="">{{ $t('postings.filter.allTerms') }}</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }} ({{ n }})</option></AaSelect>
-    <AaSelect v-model="f.channel" :aria-label="$t('postings.filter.channel')"><option value="">{{ $t('postings.filter.anyChannel') }}</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }} ({{ n }})</option></AaSelect>
     <AaSelect v-model="f.deadline" :aria-label="$t('postings.filter.deadline')"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ $t(l) }}</option></AaSelect>
-    <label class="muted nowrap">{{ $t('postings.filter.minScore') }} <input v-model.number="f.minScore" type="number" min="0" max="10" step="0.5" style="width: 68px" /></label>
-    <label class="muted nowrap"><input v-model="f.link" type="checkbox" /> {{ $t('postings.filter.withLink') }}</label>
-    <label v-if="jobs.some((j) => j.priority)" class="muted nowrap"><input v-model="f.prio" type="checkbox" /> {{ $t('postings.filter.priority') }}</label>
-    <button v-if="activeFilters" class="ghost sm" @click="clearFilters"><Icon name="x" />{{ $t('postings.filter.clear') }}</button>
+    <!-- what is used now and then: behind one button, which says how many of them are set -->
+    <Popover :label="$t('postings.filter.more')" :width="280">
+      <template #trigger="{ toggle, attrs }"><button v-bind="attrs" @click="toggle"><Icon name="filter" />{{ behind ? $t('postings.filter.moreActive', { n: behind }) : $t('postings.filter.more') }}</button></template>
+      <div class="pop-form">
+        <label v-if="persona.features.term">{{ $t('postings.filter.term') }}
+          <AaSelect v-model="f.term"><option value="">{{ $t('postings.filter.allTerms') }}</option><option v-for="[v, n] in terms" :key="v" :value="v">{{ v }} ({{ n }})</option></AaSelect></label>
+        <label>{{ $t('postings.filter.channel') }}
+          <AaSelect v-model="f.channel"><option value="">{{ $t('postings.filter.anyChannel') }}</option><option v-for="[v, n] in channels" :key="v" :value="v">{{ v }} ({{ n }})</option></AaSelect></label>
+        <label>{{ $t('postings.filter.minScore') }}<input v-model.number="f.minScore" type="number" min="0" max="10" step="0.5" /></label>
+        <label class="check"><input v-model="f.link" type="checkbox" />{{ $t('postings.filter.withLink') }}</label>
+        <label v-if="jobs.some((j) => j.priority)" class="check"><input v-model="f.prio" type="checkbox" />{{ $t('postings.filter.priority') }}</label>
+      </div>
+    </Popover>
+    <button v-if="activeFilters" class="ghost" @click="clearFilters"><Icon name="x" />{{ $t('postings.filter.clear') }}</button>
     <span class="grow"></span>
-    <span class="muted small nowrap">{{ $t('postings.count', { n: rows.length }, rows.length) }}</span>
-    <details class="colpick">
-      <summary class="btn sm ghost">{{ $t('postings.columns') }}</summary>
-      <div class="menu"><label v-for="(l, k) in COLS" :key="k"><input type="checkbox" :checked="cols.has(k)" @change="toggleCol(k)" /> {{ $t(l) }}</label></div>
-    </details>
+    <span class="count">{{ $t('postings.count', { n: rows.length }, rows.length) }}</span>
+    <Popover :label="$t('postings.columns')" align="end" :width="220">
+      <template #trigger="{ toggle, attrs }"><button class="ghost" v-bind="attrs" @click="toggle"><Icon name="table" />{{ $t('postings.columns') }}</button></template>
+      <div class="pop-form"><label v-for="(l, k) in COLS" :key="k" class="check"><input type="checkbox" :checked="cols.has(k)" @change="toggleCol(k)" />{{ $t(l) }}</label></div>
+    </Popover>
   </div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 36px"><input type="checkbox" :checked="allPicked" :aria-label="$t('postings.pickAll')" @change="toggleAll" /></th>
-          <th :aria-sort="sorted('score')"><button type="button" class="th-sort" @click="sortBy('score')">{{ $t('postings.col.score') }}{{ arrow('score') }}</button></th>
-          <th :aria-sort="sorted('company')"><button type="button" class="th-sort" @click="sortBy('company')">{{ $t('postings.col.job') }}{{ arrow('company') }}</button></th>
-          <th v-if="cols.has('source')" class="col-more">{{ $t('postings.col.source') }}</th>
-          <th v-if="cols.has('direction')" class="col-more">{{ $t('postings.col.direction') }}</th>
-          <th v-if="cols.has('salary')" class="col-more">{{ $t('postings.col.salary') }}</th>
-          <th v-if="cols.has('channel')" class="col-more">{{ $t('postings.col.channel') }}</th>
-          <th v-if="cols.has('posted')" class="col-more" :aria-sort="sorted('posted')"><button type="button" class="th-sort" @click="sortBy('posted')">{{ $t('postings.col.posted') }}{{ arrow('posted') }}</button></th>
-          <th v-if="cols.has('first_seen')" class="col-more" :aria-sort="sorted('first_seen')"><button type="button" class="th-sort" @click="sortBy('first_seen')">{{ $t('postings.col.firstSeen') }}{{ arrow('first_seen') }}</button></th>
-          <th :aria-sort="sorted('deadline')"><button type="button" class="th-sort" @click="sortBy('deadline')">{{ $t('postings.col.deadline') }}{{ arrow('deadline') }}</button></th>
-          <th>{{ $t('postings.col.application') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="j in rows" :key="j.id" class="clickable" @click="open(j)">
-          <td @click.stop><input type="checkbox" :checked="picked.has(j.id)" :aria-label="$t('postings.pick', { name: j.company })" @change="togglePick(j.id)" /></td>
-          <td><span class="score" :class="scoreCls(j.score)">{{ fmtScore(j.score) }}</span></td>
-          <td class="jobcell">
-            <div><span v-if="j.priority" class="star on" :title="$t('postings.priority')" style="cursor: default">★</span><router-link class="rowlink" :to="{ path: '/jobs', query: { ...$route.query, open: j.id } }" :aria-label="$t('postings.openRow', { company: j.company, title: j.title })" @click.stop><b>{{ j.company }}</b></router-link>
-              <span v-if="j.source === 'manual'" class="tag" style="margin-left: 4px">{{ $t('postings.manual') }}</span>
-              <span v-if="j.also_listed" class="tag" :title="$t('postings.alsoListedHow')">{{ $t('postings.alsoListed', { n: j.also_listed }) }}</span></div>
-            <div>{{ j.title }} <a v-if="j.apply_url" :href="j.apply_url" target="_blank" rel="noopener" :title="$t('postings.openLink')" @click.stop>↗</a></div>
-            <div class="small muted">{{ [j.location, persona.features.term ? j.term : '', persona.features.term && j.months ? $t('postings.months', { n: j.months }) : ''].filter(Boolean).join(' · ') }}</div>
-          </td>
-          <td v-if="cols.has('source')" class="small nowrap col-more">{{ j.source_label }}</td>
-          <td v-if="cols.has('direction')" class="small col-more">{{ j.direction }}</td>
-          <td v-if="cols.has('salary')" class="small col-more">{{ j.salary }}</td>
-          <td v-if="cols.has('channel')" class="small nowrap col-more">{{ j.channel_label }}</td>
-          <td v-if="cols.has('posted')" class="small nowrap col-more">{{ dayText(j.posted) || '—' }}</td>
-          <td v-if="cols.has('first_seen')" class="small nowrap col-more">{{ j.first_seen || '—' }}</td>
-          <td class="small nowrap" :title="deadlineLabel(j.deadline).text">{{ shortDayText(j.deadline) || '—' }}<span v-if="deadlineLabel(j.deadline).tone === 'soon'" class="tag warn" style="margin-left: 6px">{{ daysUntil(j.deadline) === 0 ? $t('postings.today') : $t('postings.tomorrow') }}</span></td>
-          <td class="nowrap" @click.stop>
-            <router-link v-if="j.app && !appEnded(j.app)" :to="'/applications/' + j.app.id" class="tag" :class="j.app.tone">{{ j.app.stage_label }} →</router-link>
-            <span v-else-if="j.group === 'skip'" class="tag" :title="j.exclusion">{{ j.exclusion ? $t('postings.byRule', { rule: j.exclusion }) : $t('postings.byYou') }}</span>
-            <span v-else-if="j.group === 'closed'" class="tag">{{ j.online ? $t('postings.deadlinePassed') : $t('postings.takenDown') }}</span>
-            <button v-else-if="j.group === 'todo' && j.apply_url" class="sm" @click="startRow(j)">{{ $t('postings.do.start') }}</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <div v-if="elsewhere" class="callout" style="margin: 10px 0 0">
-      <Icon name="info" /><div>{{ $t('postings.elsewhere', { n: elsewhere }, elsewhere) }}</div>
-    </div>
-    <EmptyState v-if="!rows.length" icon="briefcase" :title="$t('postings.empty')" :text="activeFilters ? $t('postings.emptyFiltered') : $t('postings.emptyHint')">
-      <button v-if="activeFilters" @click="clearFilters">{{ $t('postings.filter.clear') }}</button>
-    </EmptyState>
-  </div>
+  <DataTable v-model:selected="picked" v-model:sort="sort" :columns="columns" :rows="rows" row-key="id" density="comfortable" selectable clickable :label="$t('postings.title')"
+             :select-all-label="$t('postings.pickAll')" :select-label="(j) => $t('postings.pick', { name: j.company })" @row="open">
+    <template #cell-score="{ row }"><span v-tip="row.score == null ? $t('postings.notScored') : ''" class="score-num" :class="scoreCls(row.score)">{{ fmtScore(row.score) }}</span></template>
+    <template #cell-job="{ row }">
+      <EntityCell :primary="row.company" :secondary="row.title" :to="{ path: '/jobs', query: { ...$route.query, open: row.id } }">
+        <template v-if="row.priority || row.source === 'manual' || row.also_listed" #after>
+          <span v-if="row.priority" v-tip="$t('postings.priority')" class="mark prio" role="img" :aria-label="$t('postings.priority')"><Icon name="star" /></span>
+          <span v-if="row.source === 'manual'" v-tip="$t('postings.manual')" class="mark" role="img" :aria-label="$t('postings.manual')"><Icon name="edit" /></span>
+          <span v-if="row.also_listed" v-tip="$t('postings.alsoListedHow')" class="mark num">{{ $t('postings.alsoListed', { n: row.also_listed }) }}</span>
+        </template>
+      </EntityCell>
+    </template>
+    <template #cell-place="{ row }">
+      <div v-if="placeOf(row) || termOf(row)" class="entity"><Trunc as="div" class="t-secondary" :text="placeOf(row) || termOf(row)" /><Trunc v-if="placeOf(row) && termOf(row)" as="div" class="t-meta" :text="termOf(row)" /></div>
+      <span v-else class="none">—</span>
+    </template>
+    <template #cell-source="{ row }"><Trunc v-if="row.source_label" class="t-secondary" :text="row.source_label" /><span v-else class="none">—</span></template>
+    <template #cell-direction="{ row }"><Trunc v-if="row.direction" class="t-secondary" :text="row.direction" /><span v-else class="none">—</span></template>
+    <template #cell-salary="{ row }"><Trunc v-if="row.salary" class="t-secondary" :text="row.salary" /><span v-else class="none">—</span></template>
+    <template #cell-channel="{ row }"><Trunc v-if="row.channel_label" class="t-secondary" :text="row.channel_label" /><span v-else class="none">—</span></template>
+    <template #cell-posted="{ row }"><span v-if="dayText(row.posted)" class="t-secondary num atomic">{{ dayText(row.posted) }}</span><span v-else class="none">—</span></template>
+    <template #cell-first_seen="{ row }"><span v-if="dayText(row.first_seen)" class="t-secondary num atomic">{{ dayText(row.first_seen) }}</span><span v-else class="none">—</span></template>
+    <template #cell-deadline="{ row }">
+      <DateTimeCell v-if="dueOf(row)" v-bind="dueOf(row)" />
+      <span v-else v-tip="$t('postings.noDeadline')" class="none">—</span>
+    </template>
+    <!-- the application it led to; else why nothing is begun; else the one thing to do with it -->
+    <template #cell-app="{ row }">
+      <router-link v-if="live(row)" :to="'/applications/' + row.app.id" class="app-link"><Status :tone="row.app.tone" :label="row.app.stage_label" /><Icon name="chevron_right" /></router-link>
+      <Status v-else-if="row.group === 'skip'" :label="row.exclusion ? $t('postings.byRule', { rule: row.exclusion }) : $t('postings.byYou')" />
+      <Status v-else-if="row.group === 'closed'" :label="row.online ? $t('postings.deadlinePassed') : $t('postings.takenDown')" />
+      <button v-else-if="row.group === 'todo' && canStart(row)" class="sm" @click="start(row)">{{ $t('postings.do.start') }}</button>
+      <span v-else class="none">—</span>
+    </template>
+    <template #cell-more="{ row }"><Menu :label="$t('postings.row.menu')" :items="menuOf(row)" @pick="(id) => onMenu(row, id)" /></template>
+    <template #empty>
+      <EmptyState icon="briefcase" :title="$t('postings.empty')" :text="activeFilters ? $t('postings.emptyFiltered') : $t('postings.emptyHint')">
+        <button v-if="activeFilters" @click="clearFilters">{{ $t('postings.filter.clear') }}</button>
+      </EmptyState>
+    </template>
+  </DataTable>
+  <div v-if="elsewhere" class="callout list-note"><Icon name="info" /><div>{{ $t('postings.elsewhere', { n: elsewhere }, elsewhere) }}</div></div>
 
-  <div v-if="picked.size" class="bulkbar">
-    <b>{{ $t('postings.picked', { n: picked.size }, picked.size) }}</b>
+  <BulkBar :count="picked.size" @clear="picked = new Set()">
     <template v-if="group === 'archived'"><button class="sm" @click="bulk('unarchive')">{{ $t(BULK.unarchive[0]) }}</button></template>
     <template v-else>
       <button v-if="['todo', 'skip'].includes(group)" class="sm primary" @click="bulk('draft')">{{ $t(BULK.draft[0]) }}</button>
@@ -316,53 +397,45 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
       <button class="sm" @click="bulk('score')">{{ $t(BULK.score[0]) }}</button>
       <button class="sm" @click="bulk('archive')">{{ $t(BULK.archive[0]) }}</button>
     </template>
-    <button class="sm ghost" style="border-color: transparent" @click="picked = new Set()">{{ $t('postings.unpick') }}</button>
-  </div>
+  </BulkBar>
 
   <!-- one posting -->
   <SideDrawer v-if="sel" :title="sel.company" :sub="sel.title" :wide="false" @close="closeSel">
-    <div class="row" style="margin: 12px 0; flex-wrap: wrap">
-      <span class="score" :class="scoreCls(sel.score)">{{ sel.score == null ? $t('postings.notScored') : $t('postings.scoreIs', { n: sel.score }) }}</span>
+    <div class="job-state">
+      <span class="score-num" :class="scoreCls(sel.score)">{{ sel.score == null ? $t('postings.notScored') : $t('postings.scoreIs', { n: sel.score }) }}</span>
       <span v-if="!sel.online" class="tag">{{ $t('postings.takenDown') }}</span>
-      <span v-if="sel.exclusion" class="tag bad">{{ sel.exclusion }}</span>
-      <span v-if="sel.status === 'skipped' && !sel.exclusion" class="tag">{{ $t('postings.group.skip') }}</span>
-      <span v-if="sel.archived" class="tag">{{ $t('postings.group.archived') }}</span>
-      <span v-if="sel.source === 'manual'" class="tag">{{ $t('postings.manual') }}</span>
+      <Trunc v-if="sel.exclusion" class="tag bad" :text="sel.exclusion" />
+      <span v-if="sel.status === 'skipped' && !sel.exclusion" class="meta">{{ $t('postings.group.skip') }}</span>
+      <span v-if="sel.archived" class="meta">{{ $t('postings.group.archived') }}</span>
+      <span v-if="sel.source === 'manual'" class="meta">{{ $t('postings.manual') }}</span>
     </div>
 
-    <div v-if="sel.app && !appEnded(sel.app)" class="callout" style="display: flex; margin-bottom: 12px">
-      <Icon name="check" /><div class="grow">{{ $t('postings.hasApplication') }} <span class="tag" :class="sel.app.tone">{{ sel.app.stage_label }}</span></div>
+    <div v-if="live(sel)" class="callout job-has-app">
+      <Icon name="check" /><div class="grow">{{ $t('postings.hasApplication') }} <Status :tone="sel.app.tone" :label="sel.app.stage_label" /></div>
       <router-link :to="'/applications/' + sel.app.id" class="btn sm primary">{{ $t('postings.do.openApplication') }}</router-link>
     </div>
 
-    <div class="row" style="margin-bottom: 16px; flex-wrap: wrap; gap: 8px">
-      <button v-if="!sel.app || appEnded(sel.app)" class="primary" :disabled="!sel.apply_url || !sel.online" @click="start"><Icon name="draft" />{{ $t('postings.do.start') }}</button>
+    <!-- the two things done most, then everything else in one menu (the destructive one last) -->
+    <div class="actions job-acts">
+      <button v-if="!live(sel)" class="primary" :disabled="!canStart(sel)" @click="start(sel)"><Icon name="draft" />{{ $t('postings.do.start') }}</button>
       <a v-if="sel.apply_url" :href="sel.apply_url" target="_blank" rel="noopener" class="btn"><Icon name="external" />{{ $t('postings.do.seePosting') }}</a>
-      <button v-if="!sent" @click="markSubmitted">{{ $t('postings.do.markSubmitted') }}</button>
-      <button v-if="sel.status !== 'skipped'" :disabled="sent" @click="setStatus('skipped')">{{ $t('postings.do.skip') }}</button>
-      <button v-else @click="setStatus('scored')">{{ $t('postings.do.restore') }}</button>
-      <button :disabled="!sel.has_jd" :title="sel.has_jd ? '' : $t('postings.noJdToScore')" @click="rescore">{{ $t('postings.do.score') }}</button>
-      <button @click="editing ? (editing = null) : startEdit()"><Icon name="edit" />{{ $t('postings.do.edit') }}</button>
-      <button v-if="!sel.archived" :title="$t('postings.archiveHow')" @click="setArchived(true)">{{ $t('postings.do.archive') }}</button>
-      <button v-else @click="setArchived(false)">{{ $t('postings.do.unarchive') }}</button>
-      <button v-if="sel.deletable" class="danger" @click="remove">{{ $t('postings.do.delete') }}</button>
+      <Menu :label="$t('postings.row.menu')" :items="menuOf(sel, true)" align="start" @pick="(id) => onMenu(sel, id)" />
     </div>
     <p v-if="!sel.apply_url" class="callout warn"><Icon name="alert" /><span>{{ $t('postings.noLink') }}</span></p>
 
     <div v-if="editing" class="card">
-      <div class="card-title">{{ $t('postings.editTitle') }}</div>
-      <p class="hint" style="margin-top: 0">{{ $t('postings.editHow') }}</p>
+      <SectionHead :title="$t('postings.editTitle')" :help="$t('postings.editHow')" />
       <div class="kv">
         <template v-for="k in EDIT" :key="k">
           <label :for="'edit-' + k">{{ $t('postings.edit.' + k) }}</label>
-          <div>
-            <textarea v-if="k === 'jd_text'" :id="'edit-' + k" v-model="editing[k]" rows="6" style="width: 100%; font-family: inherit"></textarea>
-            <input v-else :id="'edit-' + k" v-model="editing[k]" style="width: 100%" :placeholder="k === 'deadline' ? 'YYYY-MM-DD HH:MM' : ''" />
-            <div v-if="sourceSays(k)" class="hint">{{ $t('postings.sourceSays', { v: k === 'jd_text' ? sourceSays(k).slice(0, 80) + '…' : sourceSays(k) }) }} <a href="#" @click.prevent="useSource(k)">{{ $t('postings.useSource') }}</a></div>
+          <div class="job-edit">
+            <textarea v-if="k === 'jd_text'" :id="'edit-' + k" v-model="editing[k]" rows="6"></textarea>
+            <input v-else :id="'edit-' + k" v-model="editing[k]" :placeholder="k === 'deadline' ? 'YYYY-MM-DD HH:MM' : ''" />
+            <div v-if="sourceSays(k)" class="hint"><Trunc v-if="k !== 'jd_text'" as="div" :text="$t('postings.sourceSays', { v: sourceSays(k) })" /><template v-else>{{ $t('postings.sourceSaysJd') }}</template> <a href="#" @click.prevent="useSource(k)">{{ $t('postings.useSource') }}</a></div>
           </div>
         </template>
       </div>
-      <div class="row" style="margin-top: 12px"><button class="primary" @click="saveEdit">{{ $t('postings.save') }}</button><button class="ghost" @click="editing = null">{{ $t('postings.cancel') }}</button></div>
+      <div class="actions job-form-acts"><button class="primary" @click="saveEdit">{{ $t('postings.save') }}</button><button class="ghost" @click="editing = null">{{ $t('postings.cancel') }}</button></div>
     </div>
 
     <div class="card">
@@ -371,70 +444,66 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
       </div>
     </div>
 
-    <div v-if="sel.contacts && sel.contacts.length" class="callout">
-      <Icon name="user" />
-      <div>
-        <b>{{ $t('postings.contacts', { n: sel.contacts.length }, sel.contacts.length) }}</b>
-        <div v-for="c in sel.contacts" :key="c.id" class="small" style="margin-top: 4px">{{ c.name }}<span v-if="c.role" class="muted"> ({{ c.role }})</span><span v-if="c.relation"> · {{ c.relation }}</span><span v-if="c.status === 'referred'" class="tag ok" style="margin-left: 6px">{{ $t('postings.referred') }}</span></div>
-        <router-link to="/contacts" class="small">{{ $t('postings.toContacts') }}</router-link>
+    <template v-if="sel.contacts && sel.contacts.length">
+      <SectionHead :title="$t('postings.contacts', { n: sel.contacts.length }, sel.contacts.length)"><router-link to="/contacts" class="btn sm ghost">{{ $t('postings.toContacts') }}</router-link></SectionHead>
+      <div class="card job-list">
+        <div v-for="c in sel.contacts" :key="c.id">{{ c.name }}<span v-if="c.role" class="muted"> ({{ c.role }})</span><span v-if="c.relation"> · {{ c.relation }}</span> <Status v-if="c.status === 'referred'" tone="ok" :label="$t('postings.referred')" /></div>
       </div>
-    </div>
+    </template>
 
-    <div v-if="sel.duplicates && sel.duplicates.length" class="callout">
-      <Icon name="link" />
-      <div>
-        <b>{{ $t('postings.duplicates', { source: sel.source_label }) }}</b>
-        <div v-for="dup in sel.duplicates" :key="dup.id" class="small" style="margin-top: 4px">
+    <template v-if="sel.duplicates && sel.duplicates.length">
+      <SectionHead :title="$t('postings.duplicates', { source: sel.source_label })" />
+      <div class="card job-list">
+        <div v-for="dup in sel.duplicates" :key="dup.id">
           {{ dup.source_label }}: <a v-if="dup.apply_url" :href="dup.apply_url" target="_blank" rel="noopener">{{ dup.title }}</a><span v-else>{{ dup.title }}</span><span v-if="!dup.online" class="muted"> ({{ $t('postings.takenDown') }})</span>
         </div>
       </div>
-    </div>
+    </template>
 
-    <div v-if="sel.history && sel.history.length" class="callout">
-      <Icon name="activity" />
-      <div>
-        <b>{{ $t('postings.history') }}</b>
-        <div v-for="h in sel.history" :key="h.id" class="small" style="margin-top: 4px">
-          {{ h.first_seen.slice(0, 7) }} · <a href="#" @click.prevent="open(h)">{{ h.title }}</a><span v-if="h.term" class="muted"> ({{ h.term }})</span>
-          <span class="tag" :class="h.stage_tone" style="margin-left: 6px">{{ h.applied ? $t('postings.appliedBefore', { stage: h.stage_label }) : h.stage_label }}</span>
+    <template v-if="sel.history && sel.history.length">
+      <SectionHead :title="$t('postings.history')" />
+      <div class="card job-list">
+        <div v-for="h in sel.history" :key="h.id">
+          <span class="num">{{ h.first_seen.slice(0, 7) }}</span> · <a href="#" @click.prevent="open(h)">{{ h.title }}</a><span v-if="h.term" class="muted"> ({{ h.term }})</span>
+          <Status :tone="h.stage_tone" :label="h.applied ? $t('postings.appliedBefore', { stage: h.stage_label }) : h.stage_label" />
         </div>
       </div>
-    </div>
+    </template>
 
     <template v-if="sel.app_status && sel.app_explained && sel.app_explained.message">
-      <h3>{{ $t('postings.progress') }}</h3>
+      <SectionHead :title="$t('postings.progress')" />
       <div class="card">
         <div>{{ sel.app_explained.message }}</div>
-        <div v-if="sel.submitted_at" class="muted small" style="margin-top: 4px">{{ $t('postings.submittedAt', { at: fmt(sel.submitted_at) }) }}</div>
+        <div v-if="sel.submitted_at" class="t-meta">{{ $t('postings.submittedAt', { at: fmt(sel.submitted_at) }) }}</div>
         <TechDetails :text="sel.app_explained.detail" />
       </div>
     </template>
 
     <template v-if="sel.score_reason">
-      <h3>{{ $t('postings.whyScore') }}</h3>
+      <SectionHead :title="$t('postings.whyScore')" />
       <div class="card">{{ sel.score_reason }}</div>
     </template>
 
     <template v-if="sel.brief">
-      <h3>{{ $t('postings.brief') }}</h3>
+      <SectionHead :title="$t('postings.brief')" />
       <div class="card md" v-html="renderMarkdown(sel.brief)"></div>
     </template>
-    <p v-else-if="sel.has_jd !== false && sel.score != null" class="small muted">
+    <p v-else-if="sel.has_jd !== false && sel.score != null" class="t-secondary">
       {{ $t('postings.noBriefWritten') }}
       <button class="sm ghost" :disabled="briefing" @click="writeBrief">{{ briefing ? $t('postings.writing') : $t('postings.writeBrief') }}</button>
     </p>
 
-    <h3>{{ $t('postings.jd') }}</h3>
+    <SectionHead :title="$t('postings.jd')" />
     <div class="card">
-      <p v-if="sel.jd_partial === 'summary'" class="callout warn small" style="display: block; margin: 0 0 10px">{{ $t('postings.jdSummary') }}</p>
-      <p v-else-if="sel.jd_partial === 'cut'" class="callout small" style="display: block; margin: 0 0 10px">{{ $t('postings.jdCut') }}</p>
+      <p v-if="sel.jd_partial === 'summary'" class="callout warn job-jd-note">{{ $t('postings.jdSummary') }}</p>
+      <p v-else-if="sel.jd_partial === 'cut'" class="callout job-jd-note">{{ $t('postings.jdCut') }}</p>
       <template v-if="sel.jd_text && sel.jd_text.length >= 200">
-        <pre style="font-family: inherit; font-size: 13.5px; line-height: 1.6" :style="showJd || sel.jd_text.length < 900 ? '' : 'max-height: 200px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent)'">{{ sel.jd_text }}</pre>
-        <button v-if="sel.jd_text.length >= 900" class="ghost sm" style="margin-top: 6px" @click="showJd = !showJd">{{ showJd ? $t('postings.less') : $t('postings.more') }}</button>
+        <pre class="job-jd" :class="{ folded: !showJd && sel.jd_text.length >= 900 }">{{ sel.jd_text }}</pre>
+        <button v-if="sel.jd_text.length >= 900" class="ghost sm" @click="showJd = !showJd">{{ showJd ? $t('postings.less') : $t('postings.more') }}</button>
       </template>
       <template v-else>
-        <p v-if="sel.summary || sel.note || sel.jd_text" style="margin-bottom: 8px">{{ sel.jd_text || sel.summary || sel.note }}</p>
-        <p class="muted small" style="margin: 0">{{ $t('postings.jdNone') }}</p>
+        <p v-if="sel.summary || sel.note || sel.jd_text">{{ sel.jd_text || sel.summary || sel.note }}</p>
+        <p class="t-meta">{{ $t('postings.jdNone') }}</p>
       </template>
     </div>
   </SideDrawer>

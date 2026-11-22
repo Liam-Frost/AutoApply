@@ -7,7 +7,7 @@ import { t as T, lang } from '../i18n/catalog'
 // A column says one thing: the stage is where the hiring stands, the next step is what to do (and whose move it is),
 // the next event is a dated point, the latest is what happened last - in a few words; the application's page has the
 // whole of each.
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ROOT } from '../api'
 import BulkBar from '../components/BulkBar.vue'
@@ -55,16 +55,29 @@ const shown = computed(() => {
 function pickGroup(g) { f.group = g; picked.value = new Set() }
 
 // --- the columns: what must stay, and what goes first when the table is narrow (the highest priority first). Words in
-// a Latin script take more room than the same in Chinese: the columns that hold phrases get more.
+// a Latin script take more room than the same in Chinese: there the columns that hold phrases get their comfortable
+// width when the box has room for it (the optional columns give way), and a tighter one in a narrow window.
+const box = ref(null)
+const boxWidth = ref(0)
+let sized = null
+watch(box, (el) => {
+  sized?.disconnect()
+  if (!el || typeof ResizeObserver === 'undefined') return
+  sized = new ResizeObserver(() => { boxWidth.value = el.clientWidth })
+  sized.observe(el)
+})
+onBeforeUnmount(() => sized?.disconnect())
 const columns = computed(() => {
-  const roomy = !/^(zh|ja|ko)/.test(lang.value)
+  const latin = !/^(zh|ja|ko)/.test(lang.value)
+  const wide = latin && boxWidth.value >= 900
+  const [job, stage, next, schedule] = !latin ? [232, 96, 160, 140] : wide ? [240, 168, 172, 148] : [204, 120, 164, 144]
   return [
-    { id: 'job', header: T('applications.col.job'), min: 240, max: 360, flex: 3 },
-    { id: 'stage', header: T('applications.col.stage'), min: roomy ? 124 : 96, max: roomy ? 168 : 112, flex: 1 },
-    { id: 'next', header: T('applications.col.next'), min: roomy ? 172 : 160, max: 220, flex: 1 },
-    { id: 'schedule', header: T('applications.col.schedule'), min: roomy ? 148 : 140, max: 168, flex: 1 },
+    { id: 'job', header: T('applications.col.job'), min: job, max: 360, flex: 2 },
+    { id: 'stage', header: T('applications.col.stage'), min: stage, max: latin ? 200 : 140, flex: 6 },      // (the first to take what room is left: a stage cut short says little)
+    { id: 'next', header: T('applications.col.next'), min: next, max: 220, flex: 1 },
+    { id: 'schedule', header: T('applications.col.schedule'), min: schedule, max: 168, flex: 1 },
     { id: 'sent', header: T('applications.col.sent'), min: 104, max: 120, flex: 0, priority: 1 },
-    { id: 'latest', header: T('applications.col.latest'), min: 160, max: 240, flex: 2, priority: 3 },
+    { id: 'latest', header: T('applications.col.latest'), min: 160, max: 240, flex: 1, priority: 3 },
     { id: 'updated', header: T('applications.col.updated'), min: 112, max: 136, flex: 0, priority: 2 },
     { id: 'more', header: '', width: 44, align: 'end' },
   ]
@@ -180,6 +193,7 @@ onMounted(async () => {
       <span class="count">{{ $t('applications.count', { n: shown.length }, shown.length) }}</span>
     </div>
 
+    <div ref="box">
     <DataTable v-model:selected="picked" :columns="columns" :rows="shown" row-key="id" density="comfortable" selectable clickable :label="$t('applications.title')"
                :select-all-label="$t('applications.pickAll')" :select-label="(r) => $t('applications.pick', { name: r.company })" @row="(r) => router.push('/applications/' + r.id)">
       <template #cell-job="{ row }"><EntityCell :primary="row.company" :secondary="row.title" :to="'/applications/' + row.id" /></template>
@@ -209,6 +223,7 @@ onMounted(async () => {
         <EmptyState v-else icon="check" :title="$t('applications.groupEmpty.' + f.group)" :text="f.q || f.who || f.ats ? $t('applications.filteredOut') : ''" />
       </template>
     </DataTable>
+    </div>
 
     <BulkBar :count="picked.size" @clear="picked = new Set()">
       <button v-if="f.group === 'me'" class="sm primary" @click="openReview">{{ $t('applications.bulk.approve') }}</button>

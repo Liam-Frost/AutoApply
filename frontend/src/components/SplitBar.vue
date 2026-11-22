@@ -19,10 +19,10 @@ const pc = (v) => (total.value ? Math.round((v / total.value) * 100) : 0)
 <template>
   <div>
     <div class="splitbar" :class="{ empty: !total }">
-      <i v-for="p in drawn" :key="p.key" :style="{ flex: p.value + ' 0 0', background: p.color }" :title="`${p.label}：${format(p.value)}（${pc(p.value)}%）`"></i>
+      <i v-for="p in drawn" :key="p.key" v-tip="$t('common.chart.part', { label: p.label, value: format(p.value), pc: pc(p.value) })" :style="{ flex: p.value + ' 0 0', background: p.color }"></i>
     </div>
     <div v-if="legend" class="legend" :class="{ rows: rows || single, single }">
-      <span v-for="p in parts" :key="p.key"><i :style="{ background: p.color }"></i>{{ p.label }} <b>{{ format(p.value) }}</b><template v-if="share && total && p.value"> · {{ pc(p.value) }}%</template></span>
+      <span v-for="p in parts" :key="p.key"><i :style="{ background: p.color }"></i><span v-tip.overflow class="cut">{{ p.label }}</span> <b>{{ format(p.value) }}</b><template v-if="share && total && p.value"> · {{ pc(p.value) }}%</template></span>
     </div>
   </div>
 </template>

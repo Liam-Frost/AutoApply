@@ -387,7 +387,7 @@
  "server.bots.thingsAreWaitingFor": "{p0} items need action:",
  "server.bots.usageAppCompanyName": "Usage: /app company name",
  "server.bots.workingOn": "Working on:",
- "server.browser.aPasskeyOrTwo": "A passkey or two-step sign-in both work - complete it in the window as usual; if the sign-in is refused, switch the browser above to nodriver and try again.",
+ "server.browser.aPasskeyOrTwo": "A passkey or two-step sign-in both work: complete it in the window as usual. If the sign-in is refused, open More → Sign-in settings on this card, switch the browser to this computer’s Chrome or Edge (nodriver) and try again.",
  "server.browser.appleRequiresTwoFactor": "Apple requires two-factor authentication every time you sign in from a new browser, so you’ll need to enter the code yourself.",
  "server.browser.australiaNewZealand": "Australia, New Zealand",
  "server.browser.germanSpeakingRegion": "German-speaking region",

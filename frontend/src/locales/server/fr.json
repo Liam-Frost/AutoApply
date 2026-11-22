@@ -387,7 +387,7 @@
  "server.bots.thingsAreWaitingFor": "{p0} choses vous attendent :",
  "server.bots.usageAppCompanyName": "Usage : /app nom de l’entreprise",
  "server.bots.workingOn": "En cours :",
- "server.browser.aPasskeyOrTwo": "Une clé d’accès ou une connexion en deux étapes fonctionnent toutes deux - terminez-la dans la fenêtre comme d’habitude ; si la connexion est refusée, passez le navigateur ci-dessus à nodriver et réessayez.",
+ "server.browser.aPasskeyOrTwo": "Une clé d’accès ou une connexion en deux étapes fonctionnent : terminez-la dans la fenêtre comme d’habitude. Si la connexion est refusée, ouvrez Plus → Paramètres de connexion sur cette carte, choisissez Chrome ou Edge de cet ordinateur (nodriver) et réessayez.",
  "server.browser.appleRequiresTwoFactor": "Apple exige une authentification à deux facteurs à chaque connexion depuis un nouveau navigateur : vous devrez donc saisir le code vous-même.",
  "server.browser.australiaNewZealand": "Australie, Nouvelle-Zélande",
  "server.browser.germanSpeakingRegion": "Régions germanophones",

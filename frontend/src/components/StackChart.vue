@@ -46,14 +46,14 @@ const tipSide = (i) => (i < props.buckets.length / 2 ? { left: '0', transform: '
         <div v-if="tip === i" class="tip multi" :style="{ bottom: 'calc(' + (sum(b) / top) * 100 + '% + 10px)', top: 'auto', ...tipSide(i) }">
           <div class="h">{{ b.tip || b.label }}</div>
           <div v-for="s in shown.filter((x) => b.values[x.key] > 0)" :key="s.key" class="r"><span><i :style="{ background: s.color }"></i>{{ s.label }}</span><span>{{ format(b.values[s.key]) }}</span></div>
-          <div v-if="shown.length > 1" class="r" style="margin-top: 2px; font-weight: 650"><span>{{ $t('common.chart.total') }}</span><span>{{ format(sum(b)) }}</span></div>
-          <div v-if="b.note" style="opacity: 0.8">{{ b.note }}</div>
+          <div v-if="shown.length > 1" class="r sum"><span>{{ $t('common.chart.total') }}</span><span>{{ format(sum(b)) }}</span></div>
+          <div v-if="b.note" class="note">{{ b.note }}</div>
         </div>
       </div>
     </div>
     <div class="xaxis"><span v-for="(b, i) in buckets" :key="b.key">{{ i % every === 0 || (i === buckets.length - 1 && i % every >= every / 2) ? b.label : '' }}</span></div>
     <div v-if="series.length > 1" class="legend">
-      <button v-for="s in series" :key="s.key" type="button" :class="{ off: off.has(s.key) }" :title="$t('common.chart.toggle')" @click="toggle(s.key)"><i :style="{ background: s.color }"></i>{{ s.label }}</button>
+      <button v-for="s in series" :key="s.key" v-tip="$t('common.chart.toggle')" type="button" :class="{ off: off.has(s.key) }" :aria-pressed="!off.has(s.key)" @click="toggle(s.key)"><i :style="{ background: s.color }"></i><span class="cut">{{ s.label }}</span></button>
     </div>
   </div>
 </template>

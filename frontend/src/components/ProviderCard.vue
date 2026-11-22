@@ -37,7 +37,7 @@ const waiting = computed(() => props.state === 'trying')
 // The state of the saved session. A saved session is not "signed in": the site may have ended it since.
 const status = computed(() => {
   const s = session.value
-  if (waiting.value) return { tone: 'info', label: T('accounts.signInWindowIs') }
+  if (waiting.value) return { tone: 'info', label: T('accounts.waitingForSignIn'), tip: T('accounts.signInWindowIs') }
   if (props.state) return { tone: 'bad', label: T('accounts.lastSignInFailed'), tip: T('accounts.lastAttemptFailed', { p0: props.state }) }
   if (!s) return { tone: '', label: T('accounts.notSignedIn') }
   if (s.expired) return { tone: 'warn', label: T('accounts.sessionExpired'), tip: T('accounts.sessionExpiredTip') }
@@ -101,7 +101,7 @@ function save(close) {
             <input :id="uid + '-e'" v-model="form.email" type="email" autocomplete="off" placeholder="name@example.com" @keydown.enter="save(close)" />
             <span class="hint">{{ $t('accounts.providerEmailHint') }}</span>
           </div>
-          <div class="actions pop-actions">
+          <div class="actions acc-pop-acts">
             <button type="button" class="sm" @click="close()">{{ $t('common.cancel') }}</button>
             <button type="button" class="sm primary" @click="save(close)">{{ $t('common.save') }}</button>
           </div>

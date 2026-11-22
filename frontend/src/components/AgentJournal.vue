@@ -4,6 +4,9 @@ import { t as T } from '../i18n/catalog'
 // a word to the agent (it hears it with its next action) and "stop".
 import { onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
+import InfoTip from './InfoTip.vue'
+import SectionHead from './SectionHead.vue'
+import Status from './Status.vue'
 import { fmtTime, run } from '../ui'
 
 const props = defineProps({
@@ -35,18 +38,18 @@ const stop = () => run(() => api.post(`/tasks/${props.runningTask}/stop`), T('jo
 </script>
 
 <template>
-  <div v-if="journal.length || runningTask" class="panel" style="margin-bottom: 16px">
-    <div class="row"><h3 class="grow" style="margin: 0">{{ $t('journal.title') }}</h3>
-      <span v-if="runningTask" class="badge warn">{{ $t('journal.working') }}</span>
-      <span v-if="spent && spent.runs" class="muted small">{{ $t('journal.spent', { steps: spent.steps, of: spent.of_steps, minutes: spent.minutes, runs: spent.runs }) }}</span></div>
-    <div v-if="note" class="muted small">{{ note }}</div>
+  <div v-if="journal.length || runningTask" class="panel journal-panel">
+    <SectionHead :title="$t('journal.title')" :help="note">
+      <Status v-if="runningTask" tone="info" :label="$t('journal.working')" />
+      <span v-if="spent && spent.runs" class="meta small">{{ $t('journal.spent', { steps: spent.steps, of: spent.of_steps, minutes: spent.minutes, runs: spent.runs }) }}</span>
+    </SectionHead>
     <ul v-if="journal.length" class="journal">
       <li v-for="(e, i) in journal" :key="i" :class="'j-' + e.kind">
-        <span class="muted small nowrap">{{ fmtTime(e.at) }}</span>
-        <span v-if="e.kind === 'run'" class="badge">{{ $t('journal.run') }}</span>
+        <span class="t-meta num atomic">{{ fmtTime(e.at) }}</span>
+        <span v-if="e.kind === 'run'" class="meta small">{{ $t('journal.run') }}</span>
         <span v-else-if="e.kind === 'ask'" class="j-strong">{{ $t('journal.asked', { text: e.text }) }}</span>
         <span v-else-if="e.kind === 'said'" class="j-strong">{{ $t('journal.said', { text: e.text }) }}</span>
-        <span v-else-if="e.kind === 'said_waiting'" class="j-strong">{{ $t('journal.said', { text: e.text }) }}<span class="muted" style="font-weight: 400">{{ $t('journal.hearsNext') }}</span></span>
+        <span v-else-if="e.kind === 'said_waiting'" class="j-strong">{{ $t('journal.said', { text: e.text }) }}<span class="t-meta">{{ $t('journal.hearsNext') }}</span></span>
         <span v-else-if="e.kind === 'waits'" class="j-strong">{{ $t('journal.waits', { text: e.text }) }}</span>
         <span v-else-if="e.kind === 'sending'" class="j-strong">{{ $t('journal.sending', { text: e.text }) }}</span>
         <span v-else-if="e.kind === 'report'">{{ $t('journal.ended', { n: e.calls, text: e.text }, e.calls) }}</span>
@@ -56,12 +59,13 @@ const stop = () => run(() => api.post(`/tasks/${props.runningTask}/stop`), T('jo
       </li>
     </ul>
     <template v-if="runningTask">
-      <div class="row" style="margin-top: 10px">
+      <!-- a word to the agent, and - last, apart - the way to stop it; how both are heard is behind the (i) -->
+      <div class="journal-say">
         <input v-model="word" class="grow" maxlength="2000" :aria-label="$t('journal.sayLabel')" :placeholder="$t('journal.sayPlaceholder')" @keyup.enter="say" />
+        <InfoTip :text="$t('journal.howItHears')" />
         <button :disabled="!word.trim()" @click="say">{{ $t('journal.tell') }}</button>
         <button class="ghost danger" @click="stop">{{ $t('journal.stop') }}</button>
       </div>
-      <div class="muted small" style="margin-top: 6px">{{ $t('journal.howItHears') }}</div>
     </template>
   </div>
 </template>

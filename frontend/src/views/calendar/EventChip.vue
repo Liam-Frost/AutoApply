@@ -17,7 +17,7 @@ const time = computed(() => (props.item.all_day || props.hideTime || (props.item
 </script>
 
 <template>
-  <button type="button" class="ev" :class="[family(item), 'st-' + st, { timed: variant === 'block', short, sel: selected }]" :title="fullName(item)"
+  <button type="button" class="ev" :class="[family(item), 'st-' + st, { timed: variant === 'block', short, sel: selected }]" v-tip="fullName(item)"
           :aria-label="fullName(item)" :aria-pressed="selected" @click.stop="emit('open', item)">
     <template v-if="variant === 'block'">
       <span class="ev-time">{{ time }}</span>

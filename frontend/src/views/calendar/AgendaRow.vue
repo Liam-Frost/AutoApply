@@ -18,7 +18,7 @@ const when = computed(() => (props.withDay ? t('time.dayAt', { day: dayOf(at(x.v
 </script>
 
 <template>
-  <button type="button" class="ev-row" :class="[family(x), 'st-' + st, { sel: selected }]" :aria-pressed="selected" :title="fullName(x)" @click="emit('open', x)">
+  <button type="button" class="ev-row" :class="[family(x), 'st-' + st, { sel: selected }]" :aria-pressed="selected" v-tip="fullName(x)" @click="emit('open', x)">
     <span class="ev-mark" aria-hidden="true"></span>
     <span class="ev-row-main">
       <span class="ev-row-title">{{ titleOf(x) }}</span>

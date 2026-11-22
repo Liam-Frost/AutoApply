@@ -8,13 +8,18 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import AgentJournal from '../components/AgentJournal.vue'
 import Icon from '../components/Icon.vue'
+import IconButton from '../components/IconButton.vue'
+import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
 import RecordPanel from '../components/RecordPanel.vue'
+import SectionHead from '../components/SectionHead.vue'
+import Status from '../components/Status.vue'
 import TechDetails from '../components/TechDetails.vue'
-import { deadlineLabel } from '../dates'
+import Trunc from '../components/Trunc.vue'
+import { deadlineLabel, parseDeadline } from '../dates'
 import { renderMarkdown } from '../md'
 import { ask, fmtTime, run, toast } from '../ui'
-import { stampDay } from '../i18n/format'
+import { dateTimeOf, dayText, stampDay } from '../i18n/format'
 
 const props = defineProps({ id: { type: String, required: true } })
 const route = useRoute()
@@ -23,7 +28,6 @@ const a = ref(null)
 const d = ref(null)              // the record (the draft that counts), when there is one
 const failed = ref('')
 const panel = ref('')            // the form open under the status: outcome | note | fix
-const more = ref(false)
 const others = ref(null)         // mails the program could not put on any application
 const showJd = ref(false)
 
@@ -56,9 +60,11 @@ const tabCount = (k) => (!a.value ? 0 : k === 'mail' ? a.value.mails.length : k 
 const pending = computed(() => !!d.value && d.value.review_status === 'pending')
 const notOut = computed(() => !!a.value && !a.value.sent && !a.value.unknown && a.value.status !== 'withdrawn')
 const WHO = { me: 'application.who.me', agent: 'application.who.agent', them: 'application.who.them' }
+// a dated step of the hiring wears the calendar's colour of its kind, as in the list
+const EV = { interview: 'ev-interview', assessment: 'ev-assessment', offer: 'ev-offer' }
 
 async function withdraw() {
-  if (!(await ask(T('application.withdrawAsk'), { ok: T('application.do.withdraw') }))) return
+  if (!(await ask(T('application.withdrawAsk'), { ok: T('application.do.withdraw'), danger: true }))) return
   await act(() => api.post(`/applications/${props.id}/withdraw`), T('application.withdrawn'))
 }
 async function notSubmitted() {
@@ -66,7 +72,7 @@ async function notSubmitted() {
   await act(() => api.post(`/applications/${props.id}/not-submitted`), T('application.rerunStarted'))
 }
 async function discard() {
-  if (!(await ask(T('application.discardAsk'), { ok: T('application.do.discard') }))) return
+  if (!(await ask(T('application.discardAsk'), { ok: T('application.do.discard'), danger: true }))) return
   await act(() => api.post(`/drafts/${d.value.id}/reject`, { withdraw: false }), T('application.discarded'))
 }
 function answer() { openTab('record') }
@@ -113,8 +119,19 @@ const mainKeys = computed(() => {
   else keys = []
   return keys.filter((k) => ACTIONS[k].when()).slice(0, 3)
 })
-const moreKeys = computed(() => (a.value ? Object.keys(ACTIONS).filter((k) => ACTIONS[k].when()) : []))
-function doAction(k) { more.value = false; ACTIONS[k].run() }
+// Everything else that can be done, in one menu: not again what stands beside it as a button, and what takes the
+// application or its record away last, apart.
+const LAST = ['withdraw', 'discard']
+const menuItems = computed(() => {
+  if (!a.value) return []
+  const keys = Object.keys(ACTIONS).filter((k) => ACTIONS[k].when() && !mainKeys.value.includes(k))
+  const item = (k) => ({ id: k, label: ACTIONS[k].label(), disabled: !!(ACTIONS[k].disabled && ACTIONS[k].disabled()), danger: LAST.includes(k) })
+  const calm = keys.filter((k) => !LAST.includes(k)), last = keys.filter((k) => LAST.includes(k))
+  return [...calm.map(item), ...(calm.length && last.length ? [{ divider: true }] : []), ...last.map(item)]
+})
+// why a button that matters now cannot be pressed (a button that is off says nothing to a keyboard or a finger)
+const blocked = computed(() => mainKeys.value.map((k) => (ACTIONS[k].disabled ? ACTIONS[k].disabled() : '')).find(Boolean) || '')
+function doAction(k) { ACTIONS[k].run() }
 
 // --- the forms under the status: what came back, a note, a correction of the record -----------------------------------
 const today = () => new Date().toISOString().slice(0, 10)
@@ -160,8 +177,9 @@ const due = computed(() => (a.value && a.value.deadline ? deadlineLabel(a.value.
 const facts = computed(() => {
   const j = a.value && a.value.job
   if (!j) return []
+  const end = parseDeadline(j.deadline)
   return [['application.job.term', j.term], ['application.job.months', j.months], ['application.job.salary', j.salary], ['application.job.location', j.location],
-    ['application.job.deadline', j.deadline], ['application.job.direction', j.direction], ['application.job.where', j.ats_label], ['application.job.posted', j.posted]].filter((x) => x[1])
+    ['application.job.deadline', end ? dateTimeOf(end) : j.deadline], ['application.job.direction', j.direction], ['application.job.where', j.ats_label], ['application.job.posted', dayText(j.posted) || j.posted]].filter((x) => x[1])
 })
 
 watch(() => props.id, async () => { a.value = null; await load(); tab.value = firstTab() })
@@ -171,87 +189,88 @@ onMounted(async () => { await load(); tab.value = firstTab() })
 <template>
   <div v-if="!a && !failed" class="empty"><div class="t">{{ $t('application.loading') }}</div></div>
   <div v-else-if="failed" class="empty"><div class="t">{{ $t('application.couldNotLoad') }}</div><div class="muted">{{ failed }}</div>
-    <div class="row" style="justify-content: center; margin-top: 8px"><button @click="load">{{ $t('application.tryAgain') }}</button><button class="ghost" @click="router.push('/applications')">{{ $t('application.backToList') }}</button></div>
+    <div class="row empty-acts"><button @click="load">{{ $t('application.tryAgain') }}</button><button class="ghost" @click="router.push('/applications')">{{ $t('application.backToList') }}</button></div>
   </div>
   <template v-else>
-    <PageHead :title="a.company + ' · ' + a.title">
+    <PageHead :title="a.company">
       <template #sub>
-        <router-link to="/applications">{{ $t('application.backToList') }}</router-link>
-        <template v-if="a.ats_label"> · {{ a.ats_label }}</template>
-        <template v-if="a.location"> · {{ a.location }}</template>
-        <template v-if="due && due.text"> · <span :class="{ 'warn-text': due.tone === 'soon' }">{{ due.text }}</span></template>
-        <template v-if="a.apply_url"> · <a :href="a.apply_url" target="_blank" rel="noopener">{{ $t('application.posting') }} ↗</a></template>
+        <div class="app-sub">
+          <router-link to="/applications" class="app-back"><Icon name="back" />{{ $t('application.backToList') }}</router-link>
+          <Trunc v-if="a.title" class="app-job" :text="a.title" />
+          <span v-if="a.ats_label" class="meta">{{ a.ats_label }}</span>
+          <Trunc v-if="a.location" class="meta app-place" :text="a.location" />
+          <span v-if="due && due.text" class="meta" :class="{ 'warn-text': due.tone === 'soon' }">{{ due.text }}</span>
+        </div>
       </template>
+      <a v-if="a.apply_url" :href="a.apply_url" target="_blank" rel="noopener" class="btn ghost"><Icon name="external" />{{ $t('application.posting') }}</a>
     </PageHead>
 
     <!-- where it stands, whose move it is, and what can be done now -->
     <div class="card status-card" :class="'edge-' + (a.tone || 'none')">
-      <div class="row" style="flex-wrap: wrap; gap: 8px; align-items: baseline">
-        <span class="tag" :class="a.tone" style="font-size: 14px">{{ a.stage_label }}</span>
-        <span v-if="a.who">{{ $t(WHO[a.who]) }}</span>
-        <span v-if="a.submitted_at" class="muted small">{{ $t('application.sentOn', { day: stampDay(a.submitted_at) }) }}</span>
-        <span v-if="a.auto_approved" class="muted small">· {{ $t('application.autoApproved') }}</span>
-        <span v-if="a.archived" class="tag">{{ $t('application.archived') }}</span>
+      <div class="status-line">
+        <span v-if="EV[a.stage]" class="tag ev-tag" :class="EV[a.stage]">{{ a.stage_label }}</span>
+        <span v-else class="tag" :class="a.tone">{{ a.stage_label }}</span>
+        <span v-if="a.archived" class="meta">{{ $t('application.archived') }}</span>
+        <span v-if="a.who" class="t-secondary">{{ $t(WHO[a.who]) }}</span>
+        <span v-if="a.submitted_at" class="t-meta atomic">{{ $t('application.sentOn', { day: stampDay(a.submitted_at) }) }}</span>
+        <span v-if="a.auto_approved" class="t-meta atomic">{{ $t('application.autoApproved') }}</span>
       </div>
-      <p v-if="a.next" style="margin: 10px 0 0">{{ a.next }}</p>
-      <div v-if="a.explained.message" class="muted" style="margin-top: 6px">{{ a.explained.message }}</div>
+      <p v-if="a.next" class="status-next">{{ a.next }}</p>
+      <p v-if="a.next_why" class="status-why">{{ a.next_why }}</p>
+      <p v-if="a.explained.message" class="status-why">{{ a.explained.message }}</p>
       <TechDetails :text="a.explained.detail" />
-      <div v-if="a.cards.length" style="margin-top: 10px">
-        <span class="small muted">{{ $t('application.waitingForYou') }}</span>
-        <router-link v-for="c in a.cards" :key="c.id" to="/todos" class="tag warn" style="margin: 4px 6px 0 0">{{ c.title }}</router-link>
+      <div v-if="a.cards.length" class="status-cards">
+        <span class="t-meta">{{ $t('application.waitingForYou') }}</span>
+        <router-link v-for="c in a.cards" :key="c.id" to="/todos" class="tag warn cut" v-tip.overflow>{{ c.title }}</router-link>
       </div>
-      <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
-        <button v-for="(k, i) in mainKeys" :key="k" :class="{ primary: i === 0 }" :disabled="!!(ACTIONS[k].disabled && ACTIONS[k].disabled())" :title="ACTIONS[k].disabled ? ACTIONS[k].disabled() : ''" @click="doAction(k)">{{ ACTIONS[k].label() }}</button>
-        <div class="more-wrap">
-          <button class="ghost" :aria-expanded="more" @click="more = !more">{{ $t('application.more') }} ▾</button>
-          <div v-if="more" class="menu-backdrop" @click="more = false"></div>
-          <div v-if="more" class="more-menu" role="menu" @keydown.esc="more = false">
-            <button v-for="k in moreKeys" :key="k" role="menuitem" :disabled="!!(ACTIONS[k].disabled && ACTIONS[k].disabled())" @click="doAction(k)">{{ ACTIONS[k].label() }}</button>
-          </div>
-        </div>
+      <!-- at most three that matter now, the first the main one; everything else in the menu, what cannot be undone last -->
+      <div class="actions status-acts">
+        <button v-for="(k, i) in mainKeys" :key="k" :class="{ primary: i === 0 }" :disabled="!!(ACTIONS[k].disabled && ACTIONS[k].disabled())" @click="doAction(k)">{{ ACTIONS[k].label() }}</button>
+        <Menu v-if="menuItems.length" :label="$t('application.more')" :items="menuItems" align="start" @pick="doAction">
+          <template #trigger="{ toggle, attrs }"><button class="ghost" v-bind="attrs" @click="toggle">{{ $t('application.more') }}<Icon name="chevron" /></button></template>
+        </Menu>
       </div>
+      <p v-if="blocked" class="t-meta status-blocked">{{ blocked }}</p>
     </div>
 
     <div v-if="panel === 'outcome'" class="card">
-      <div class="card-title">{{ $t('application.outcomeTitle') }}</div>
-      <p class="muted" style="margin-top: 0">{{ $t('application.outcomeHow') }}</p>
+      <SectionHead :title="$t('application.outcomeTitle')" :help="$t('application.outcomeHow')" />
       <div class="kv">
         <label for="o-status">{{ $t('application.outcomeWhat') }}</label>
         <AaSelect id="o-status" v-model="outcome.status"><option v-for="k in OUTCOMES" :key="k" :value="k">{{ $t('application.status.' + k) }}</option></AaSelect>
         <label for="o-date">{{ $t('application.outcomeWhen') }}</label>
-        <div class="row" style="gap: 6px"><input id="o-date" v-model="outcome.date" type="date" style="width: 170px" /><input v-model="outcome.time" type="time" :aria-label="$t('application.outcomeTime')" style="width: 120px" />
+        <div class="form-line"><input id="o-date" v-model="outcome.date" type="date" /><input v-model="outcome.time" type="time" :aria-label="$t('application.outcomeTime')" />
           <span v-if="['assessment', 'interview'].includes(outcome.status)" class="hint">{{ $t('application.outcomeCalendar') }}</span></div>
         <label for="o-note">{{ $t('application.outcomeNote') }}</label>
         <input id="o-note" v-model="outcome.note" maxlength="240" :placeholder="$t('application.outcomeNotePlaceholder')" />
       </div>
-      <div class="row" style="margin-top: 12px"><button class="primary" @click="saveOutcome">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
+      <div class="actions form-acts"><button class="primary" @click="saveOutcome">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
     </div>
 
     <div v-if="panel === 'note'" class="card">
-      <div class="card-title">{{ $t('application.noteTitle') }}</div>
-      <textarea v-model="note" rows="4" maxlength="4000" :placeholder="$t('application.notePlaceholder')" style="font-family: inherit"></textarea>
-      <div class="row" style="margin-top: 8px"><button class="primary" @click="saveNote">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
+      <SectionHead :title="$t('application.noteTitle')" />
+      <textarea v-model="note" class="note-text" rows="4" maxlength="4000" :aria-label="$t('application.noteTitle')" :placeholder="$t('application.notePlaceholder')"></textarea>
+      <div class="actions form-acts"><button class="primary" @click="saveNote">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
     </div>
     <div v-else-if="a.note" class="card note-card">
-      <div class="row"><span class="card-title grow">{{ $t('application.noteTitle') }}</span><button class="ghost sm" @click="openPanel('note')"><Icon name="edit" />{{ $t('application.do.editNote') }}</button></div>
-      <div style="white-space: pre-wrap">{{ a.note }}</div>
+      <SectionHead :title="$t('application.noteTitle')"><IconButton icon="edit" :label="$t('application.do.editNote')" @click="openPanel('note')" /></SectionHead>
+      <div class="note-body">{{ a.note }}</div>
     </div>
 
     <div v-if="panel === 'fix'" class="card">
-      <div class="card-title">{{ $t('application.do.fix') }}</div>
-      <p class="muted" style="margin-top: 0">{{ $t('application.fixHow') }}</p>
+      <SectionHead :title="$t('application.do.fix')" :help="$t('application.fixHow')" />
       <div class="kv">
         <label for="fix-status">{{ $t('application.fixStatus') }}</label>
         <AaSelect id="fix-status" v-model="fix.status"><option value="">{{ $t('application.fixNoChange') }}</option><option v-for="k in BY_HAND" :key="k" :value="k">{{ $t('application.status.' + k) }}</option></AaSelect>
         <label for="fix-date">{{ $t('application.fixDate') }}</label>
-        <div><input id="fix-date" v-model="fix.date" type="date" style="width: 180px" /> <span class="hint">{{ $t('application.fixDateHint') }}</span></div>
+        <div class="form-line"><input id="fix-date" v-model="fix.date" type="date" /><span class="hint">{{ $t('application.fixDateHint') }}</span></div>
         <label for="fix-note">{{ $t('application.fixNote') }}</label>
         <input id="fix-note" v-model="fix.note" maxlength="300" :placeholder="$t('application.fixNotePlaceholder')" />
       </div>
-      <div class="row" style="margin-top: 12px"><button class="primary" @click="saveFix">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
+      <div class="actions form-acts"><button class="primary" @click="saveFix">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
     </div>
 
-    <div class="seg tabs" role="tablist" style="margin: 16px 0 12px">
+    <div class="seg tabs app-tabs" role="tablist">
       <button v-for="k in TABS" :key="k" role="tab" :aria-selected="tab === k" :class="{ on: tab === k }" @click="openTab(k)">{{ $t('application.tab.' + k) }}<span v-if="tabCount(k)" class="n">{{ tabCount(k) }}</span></button>
     </div>
 
@@ -268,40 +287,38 @@ onMounted(async () => { await load(); tab.value = firstTab() })
     <section v-else-if="tab === 'materials'" class="cols">
       <div>
         <div class="card">
-          <div class="card-title">{{ $t('application.materials') }}</div>
-          <template v-if="a.materials.length">
-            <div v-for="(m, i) in a.materials" :key="i" class="row" style="justify-content: space-between; padding: 4px 0">
-              <span><span v-if="m.slot" class="muted">{{ m.slot }}: </span>
-                <a v-if="m.document_id && m.exists" :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener" data-notr>{{ m.name }}</a>
-                <span v-else data-notr>{{ m.name }}<span v-if="!m.exists" class="muted">{{ $t('application.fileGone') }}</span></span>
-              </span>
+          <SectionHead :title="$t('application.materials')"><router-link v-if="a.materials.length" to="/files" class="btn sm ghost">{{ $t('application.inFiles') }}</router-link></SectionHead>
+          <div v-if="a.materials.length" class="plain-list">
+            <div v-for="(m, i) in a.materials" :key="i" class="file-line">
+              <span v-if="m.slot" class="meta">{{ m.slot }}</span>
+              <Trunc v-if="m.document_id && m.exists" as="a" :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener" data-notr :text="m.name" />
+              <template v-else><Trunc data-notr :text="m.name" /><span v-if="!m.exists" class="t-meta atomic">{{ $t('application.fileGone') }}</span></template>
             </div>
-            <router-link to="/files" class="small">{{ $t('application.inFiles') }}</router-link>
-          </template>
+          </div>
           <div v-else class="muted">{{ $t('application.noMaterials') }}</div>
         </div>
         <div class="card">
-          <div class="card-title">{{ $t('application.contacts') }}</div>
-          <template v-if="a.contacts.length">
-            <div v-for="c in a.contacts" :key="c.id" style="padding: 4px 0"><b>{{ c.name }}</b> <span class="muted">{{ [c.role, c.relation].filter(Boolean).join(' · ') }}</span>
-              <span v-if="c.follow_up" class="tag" style="margin-left: 6px">{{ $t('application.followUp', { day: c.follow_up }) }}</span>
-              <div v-if="c.note" class="small muted">{{ c.note }}</div>
+          <SectionHead :title="$t('application.contacts')" />
+          <div v-if="a.contacts.length" class="plain-list">
+            <div v-for="c in a.contacts" :key="c.id"><span class="t-primary">{{ c.name }}</span> <span class="t-secondary">{{ [c.role, c.relation].filter(Boolean).join(' · ') }}</span>
+              <span v-if="c.follow_up" class="meta small"> · {{ $t('application.followUp', { day: dayText(c.follow_up) || c.follow_up }) }}</span>
+              <div v-if="c.note" class="t-meta">{{ c.note }}</div>
             </div>
-          </template>
+          </div>
           <div v-else class="muted">{{ $t('application.noContacts') }} <router-link to="/contacts">{{ $t('application.addContact') }}</router-link></div>
         </div>
       </div>
       <div>
         <div class="card">
-          <div class="card-title">{{ $t('application.evidence') }}</div>
+          <SectionHead :title="$t('application.evidence')" />
           <template v-if="a.evidence.text || a.evidence.url || a.evidence.mail_ids.length || a.evidence.by_user">
             <div v-if="a.evidence.text || a.evidence.url">
-              <div class="small muted">{{ a.evidence.already_applied ? $t('application.evidenceAlready') : $t('application.evidencePage') }}<template v-if="a.evidence.read_by === 'model'">{{ $t('application.evidenceByAi') }}</template></div>
-              <details class="tech" open><summary>{{ a.evidence.url || $t('application.evidencePageText') }}</summary><pre>{{ a.evidence.text }}</pre></details>
-              <div v-if="a.evidence.has_screenshot" class="small" style="margin-top: 6px"><a :href="`api/applications/${a.id}/confirmation.png`" target="_blank" rel="noopener">{{ $t('application.evidenceShot') }}</a></div>
+              <div class="t-meta">{{ a.evidence.already_applied ? $t('application.evidenceAlready') : $t('application.evidencePage') }}<template v-if="a.evidence.read_by === 'model'">{{ $t('application.evidenceByAi') }}</template></div>
+              <details class="tech" open><summary><Trunc :text="a.evidence.url || $t('application.evidencePageText')" /></summary><pre>{{ a.evidence.text }}</pre></details>
+              <div v-if="a.evidence.has_screenshot" class="evidence-line"><a :href="`api/applications/${a.id}/confirmation.png`" target="_blank" rel="noopener">{{ $t('application.evidenceShot') }}</a></div>
             </div>
-            <div v-if="a.evidence.mail_ids.length" class="small" style="margin-top: 8px">{{ $t('application.evidenceMails', { n: a.evidence.mail_ids.length }, a.evidence.mail_ids.length) }}</div>
-            <div v-if="a.evidence.by_user" class="small" style="margin-top: 8px">{{ $t('application.evidenceByYou') }}</div>
+            <div v-if="a.evidence.mail_ids.length" class="evidence-line">{{ $t('application.evidenceMails', { n: a.evidence.mail_ids.length }, a.evidence.mail_ids.length) }}</div>
+            <div v-if="a.evidence.by_user" class="evidence-line">{{ $t('application.evidenceByYou') }}</div>
           </template>
           <div v-else class="muted">{{ a.sent ? $t('application.evidenceNone') : $t('application.notSentYet') }}</div>
         </div>
@@ -312,41 +329,42 @@ onMounted(async () => { await load(); tab.value = firstTab() })
       <div class="card">
         <template v-if="a.mails.length">
           <div v-for="m in a.mails" :key="m.message_id" class="mail-row">
-            <div class="row" style="justify-content: space-between; align-items: baseline">
-              <span><span class="tag" :class="m.is_evidence ? 'ok' : ''">{{ m.label }}</span> <b>{{ m.subject }}</b></span>
-              <span class="small muted nowrap">{{ fmtTime(m.received_at) }}</span>
+            <div class="mail-head">
+              <Status :tone="m.is_evidence ? 'ok' : ''" :label="m.label" />
+              <Trunc class="t-primary mail-subject" :text="m.subject" />
+              <span class="t-meta num atomic">{{ fmtTime(m.received_at) }}</span>
+              <Menu :label="$t('application.more')" :items="[{ id: 'unlink', label: $t('application.unlinkOk'), icon: 'x' }]" @pick="unlink(m)" />
             </div>
-            <div class="small muted">{{ m.sender }}<template v-if="m.linked_by === 'user'"> · {{ $t('application.linkedByYou') }}</template><template v-else-if="m.linked_by === 'site'"> · {{ $t('application.linkedBySite') }}</template></div>
-            <div class="small" style="margin-top: 2px">{{ m.summary }}</div>
-            <button class="sm ghost" style="margin-top: 4px" @click="unlink(m)">{{ $t('application.unlinkOk') }}</button>
+            <div class="t-meta"><Trunc :text="m.sender" /><template v-if="m.linked_by === 'user'"> · {{ $t('application.linkedByYou') }}</template><template v-else-if="m.linked_by === 'site'"> · {{ $t('application.linkedBySite') }}</template></div>
+            <div class="mail-summary">{{ m.summary }}</div>
           </div>
         </template>
         <div v-else class="muted">{{ $t('application.noMail') }}</div>
-        <div style="margin-top: 10px">
+        <div class="mail-others">
           <button v-if="others === null" class="sm" @click="showOthers">{{ $t('application.otherMail') }}</button>
           <template v-else>
-            <div class="small muted">{{ $t('application.otherMailList') }}</div>
-            <div v-for="m in others" :key="m.message_id" class="row" style="justify-content: space-between; padding: 4px 0">
-              <span class="small"><span class="tag">{{ m.label }}</span> {{ m.subject }} <span class="muted">{{ fmtTime(m.received_at) }}</span></span>
+            <div class="t-meta">{{ $t('application.otherMailList') }}</div>
+            <div v-for="m in others" :key="m.message_id" class="mail-head">
+              <Status :label="m.label" /><Trunc class="mail-subject" :text="m.subject" /><span class="t-meta num atomic">{{ fmtTime(m.received_at) }}</span>
               <button class="sm" @click="link(m)">{{ $t('application.isThisOne') }}</button>
             </div>
-            <div v-if="!others.length" class="small muted">{{ $t('application.noOtherMail') }}</div>
+            <div v-if="!others.length" class="t-meta">{{ $t('application.noOtherMail') }}</div>
           </template>
         </div>
-        <p class="small muted" style="margin-bottom: 0">{{ $t('application.mailWritten') }} <router-link to="/todos">{{ $t('application.openTodos') }}</router-link></p>
+        <p class="t-meta mail-foot">{{ $t('application.mailWritten') }} <router-link to="/todos">{{ $t('application.openTodos') }}</router-link></p>
       </div>
     </section>
 
     <section v-else-if="tab === 'timeline'">
       <div class="card">
-        <div v-for="(e, i) in a.timeline" :key="i" class="row" style="align-items: baseline; padding: 4px 0; gap: 10px">
-          <span class="small muted nowrap" style="min-width: 118px">{{ fmtTime(e.at) }}</span>
-          <span v-if="e.kind === 'status'" class="small">
-            <template v-if="e.old !== e.new">{{ e.old || $t('application.created') }} → <b>{{ e.new }}</b></template><template v-else>{{ e.note }}</template>
+        <div v-for="(e, i) in a.timeline" :key="i" class="tl-row">
+          <span class="t-meta num atomic tl-when">{{ fmtTime(e.at) }}</span>
+          <span v-if="e.kind === 'status'" class="tl-what">
+            <template v-if="e.old !== e.new">{{ e.old || $t('application.created') }} → <span class="t-primary">{{ e.new }}</span></template><template v-else>{{ e.note }}</template>
             <span v-if="e.by" class="muted">{{ $t('application.by', { who: e.by }) }}</span><span v-if="e.note && e.old !== e.new" class="muted"> {{ e.note }}</span>
           </span>
-          <span v-else-if="e.kind === 'run'" class="small">{{ e.what }}: <span :class="e.ok ? '' : 'muted'">{{ e.ok ? $t('application.runDone') : $t('application.runNotDone') }}</span><span v-if="e.said" class="muted" data-notr> {{ e.said }}</span> <router-link to="/runs" class="muted">{{ $t('application.runRecord') }}</router-link></span>
-          <span v-else class="small">{{ $t('application.mailEvent', { label: e.label }) }} <span class="muted">{{ e.subject }}</span></span>
+          <span v-else-if="e.kind === 'run'" class="tl-what">{{ e.what }}: <span :class="e.ok ? '' : 'muted'">{{ e.ok ? $t('application.runDone') : $t('application.runNotDone') }}</span><span v-if="e.said" class="muted" data-notr> {{ e.said }}</span> <router-link to="/runs" class="muted">{{ $t('application.runRecord') }}</router-link></span>
+          <span v-else class="tl-what">{{ $t('application.mailEvent', { label: e.label }) }} <span class="muted">{{ e.subject }}</span></span>
         </div>
         <div v-if="!a.timeline.length" class="muted">{{ $t('application.noTimeline') }}</div>
       </div>
@@ -354,39 +372,22 @@ onMounted(async () => { await load(); tab.value = firstTab() })
 
     <section v-else-if="tab === 'job'">
       <div class="card">
-        <div class="row" style="gap: 10px; flex-wrap: wrap">
-          <span class="score">{{ a.job.score == null ? $t('application.job.noScore') : $t('application.job.score', { n: a.job.score }) }}</span>
+        <div class="job-state">
+          <span class="score-num">{{ a.job.score == null ? $t('application.job.noScore') : $t('application.job.score', { n: a.job.score }) }}</span>
+          <span class="grow"></span>
           <router-link :to="{ path: '/jobs', query: { open: a.job_id } }" class="btn sm">{{ $t('application.do.openJob') }}</router-link>
-          <a v-if="a.apply_url" :href="a.apply_url" target="_blank" rel="noopener" class="btn sm"><Icon name="external" />{{ $t('application.posting') }}</a>
         </div>
-        <div class="facts" style="margin-top: 12px">
+        <div class="facts">
           <div v-for="[k, v] in facts" :key="k"><div class="k">{{ $t(k) }}</div><div class="v">{{ v }}</div></div>
         </div>
-        <p v-if="a.job.score_reason" class="small" style="margin-top: 12px">{{ a.job.score_reason }}</p>
+        <p v-if="a.job.score_reason" class="t-secondary job-why">{{ a.job.score_reason }}</p>
       </div>
       <div v-if="a.job.brief" class="card md" v-html="renderMarkdown(a.job.brief)"></div>
       <div v-if="a.job.jd_text" class="card">
-        <div class="card-title">{{ $t('application.job.text') }}</div>
-        <pre style="font-family: inherit; font-size: 13.5px; line-height: 1.6" :style="showJd || a.job.jd_text.length < 900 ? '' : 'max-height: 200px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent)'">{{ a.job.jd_text }}</pre>
-        <button v-if="a.job.jd_text.length >= 900" class="ghost sm" style="margin-top: 6px" @click="showJd = !showJd">{{ showJd ? $t('application.job.less') : $t('application.job.more') }}</button>
+        <SectionHead :title="$t('application.job.text')" />
+        <pre class="job-jd" :class="{ folded: !showJd && a.job.jd_text.length >= 900 }">{{ a.job.jd_text }}</pre>
+        <button v-if="a.job.jd_text.length >= 900" class="ghost sm" @click="showJd = !showJd">{{ showJd ? $t('application.job.less') : $t('application.job.more') }}</button>
       </div>
     </section>
   </template>
 </template>
-
-<style scoped>
-.status-card { border-left: 3px solid var(--border); }
-.status-card.edge-warn { border-left-color: var(--warn); }
-.status-card.edge-bad { border-left-color: var(--bad); }
-.status-card.edge-ok { border-left-color: var(--ok); }
-.status-card.edge-info { border-left-color: var(--info); }
-.more-wrap { position: relative; }
-.menu-backdrop { position: fixed; inset: 0; z-index: 19; }
-.more-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
-  box-shadow: var(--shadow-md); padding: 4px; display: flex; flex-direction: column; }
-.more-menu button { justify-content: flex-start; border: 0; background: transparent; text-align: left; }
-.more-menu button:hover { background: var(--surface-2); }
-.mail-row { padding: 6px 0; border-bottom: 1px solid var(--border); }
-.warn-text { color: var(--warn); }
-.note-card { background: var(--surface-2); }
-</style>

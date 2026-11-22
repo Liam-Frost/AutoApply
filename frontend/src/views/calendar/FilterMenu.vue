@@ -57,7 +57,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', outside))
       </fieldset>
       <fieldset>
         <legend>{{ $t('calendar.filter.display') }}</legend>
-        <label :title="$t('calendar.allDeadlinesHint')"><input type="checkbox" :checked="f.all" @change="emit('set', { all: !f.all })" />{{ $t('calendar.allDeadlines') }}</label>
+        <label v-tip="$t('calendar.allDeadlinesHint')"><input type="checkbox" :checked="f.all" @change="emit('set', { all: !f.all })" />{{ $t('calendar.allDeadlines') }}</label>
         <div class="hint" style="margin: 0 0 4px 24px">{{ $t('calendar.allDeadlinesHint') }}</div>
         <label><input type="checkbox" :checked="!f.hideDone" @change="emit('set', { hideDone: !f.hideDone })" />{{ $t('calendar.filter.showDone') }}</label>
         <label><input type="checkbox" :checked="summary" @change="emit('summary', !summary)" />{{ $t('calendar.filter.summary') }}</label>

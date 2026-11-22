@@ -142,8 +142,9 @@ def latest(text: str | None) -> Any:
     said = humanize.explain(text)["message"]
     if isinstance(said, Msg):
         return said
-    # (a full stop ends a sentence only before a new one: "Labs Inc. is not ..." is not two)
-    return re.split(r"(?<=[。！？!?])|(?<=\.)\s+(?=[A-Z一-鿿])|\n", str(said).strip(), maxsplit=1)[0].strip()
+    # (a full stop ends a sentence only before a new one - a capital, or a script without capitals: "Labs Inc. is
+    # not ..." is not two)
+    return re.split(r"(?<=[。！？!?])|(?<=\.)\s+(?=[^\Wa-z0-9_])|\n", str(said).strip(), maxsplit=1)[0].strip()
 
 
 def job_group(j: Job, a: Application | None) -> str:

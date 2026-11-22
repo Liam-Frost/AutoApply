@@ -8,15 +8,22 @@ import { t as T } from '../../i18n/catalog'
 import { computed, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../../api'
 import { change, colorOf, compact, money, ms, pct, share } from '../../analytics'
+import CardHead from '../../components/CardHead.vue'
 import DetailPanel from '../../components/DetailPanel.vue'
 import EmptyState from '../../components/EmptyState.vue'
+import HelpPop from '../../components/HelpPop.vue'
 import Icon from '../../components/Icon.vue'
+import IconButton from '../../components/IconButton.vue'
+import InfoTip from '../../components/InfoTip.vue'
 import Pager from '../../components/Pager.vue'
 import SeriesTable from '../../components/SeriesTable.vue'
 import SideDrawer from '../../components/SideDrawer.vue'
 import SplitBar from '../../components/SplitBar.vue'
 import StackChart from '../../components/StackChart.vue'
+import Status from '../../components/Status.vue'
+import Trunc from '../../components/Trunc.vue'
 import { run } from '../../ui'
+import Kpi from './Kpi.vue'
 import RunDetail from './RunDetail.vue'
 
 const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, required: true } })
@@ -46,6 +53,8 @@ const headline = computed(() => {
   const per = hasCost.value && t.value.calls ? Math.round(t.value.cost / t.value.calls) : null
   return { value: money(per), label: T('analytics.cost.avgPerCall'), sub: T('analytics.cost.calls2', { p0: t.value.calls }), tip: T('analytics.cost.estimatedCostCallsOne') }
 })
+// where a model's cost figure comes from: said when the pointer rests on it
+const costSource = (m) => (m.cost == null ? '' : m.reported ? T('analytics.cost.costReportedByThe') : m.price && m.price.source === 'user_price' ? T('analytics.cost.estimatedFromThePrice2') : T('analytics.cost.estimatedFromTheBuilt'))
 const cacheShare = computed(() => pct(t.value.tokens.cache_read, t.value.tokens_total))
 const rate = (v) => (v == null ? '—' : Math.round(v * 100) + '%')
 const filtered = computed(() => props.params.provider || props.params.model || props.params.feature)
@@ -90,55 +99,48 @@ async function savePrices() {
 <template>
   <div v-if="t.unpriced_requests" class="callout warn">
     <Icon name="alert" />
-    <div>{{ $t('analytics.cost.requestsUsedAModel', { p0: t.unpriced_requests }) }}<template v-if="d.pricing.missing.length">：<span data-notr>{{ d.pricing.missing.join('、') }}</span></template>。
-      <button class="sm" style="margin-left: 6px" @click="editPrices">{{ $t('analytics.cost.enterPrices') }}</button></div>
+    <div class="grow">{{ $t('analytics.cost.requestsUsedAModel', { p0: t.unpriced_requests }) }}<Trunc v-if="d.pricing.missing.length" as="div" class="t-meta" data-notr :text="d.pricing.missing.join(', ')" /></div>
+    <button class="sm" @click="editPrices">{{ $t('analytics.cost.enterPrices') }}</button>
   </div>
 
-  <div class="an-bar" style="margin-bottom: 12px">
-    <AaSelect v-model="params.provider" small><option value="">{{ $t('analytics.cost.allServices') }}</option><option v-for="o in d.filters.providers" :key="o.key" :value="o.key">{{ o.label }}</option></AaSelect>
-    <AaSelect v-model="params.model" small><option value="">{{ $t('analytics.cost.allModels') }}</option><option v-for="o in d.filters.models" :key="o.key" :value="o.key">{{ o.label }}</option></AaSelect>
-    <AaSelect v-model="params.feature" small><option value="">{{ $t('analytics.cost.allFeatures') }}</option><option v-for="o in d.filters.features" :key="o.key" :value="o.key">{{ o.label }}</option></AaSelect>
+  <div class="an-bar">
+    <AaSelect v-model="params.provider" small :aria-label="$t('analytics.cost.service')"><option value="">{{ $t('analytics.cost.allServices') }}</option><option v-for="o in d.filters.providers" :key="o.key" :value="o.key">{{ o.label }}</option></AaSelect>
+    <AaSelect v-model="params.model" small :aria-label="$t('analytics.cost.model')"><option value="">{{ $t('analytics.cost.allModels') }}</option><option v-for="o in d.filters.models" :key="o.key" :value="o.key">{{ o.label }}</option></AaSelect>
+    <AaSelect v-model="params.feature" small :aria-label="$t('analytics.cost.feature')"><option value="">{{ $t('analytics.cost.allFeatures') }}</option><option v-for="o in d.filters.features" :key="o.key" :value="o.key">{{ o.label }}</option></AaSelect>
     <button v-if="filtered" class="ghost sm" @click="clear">{{ $t('analytics.cost.clearFilters') }}</button>
   </div>
 
   <template v-if="t.requests">
     <div class="kpis">
-      <div class="kpi" :title="$t('analytics.cost.estimatedFromThePrice')">
-        <div class="n" :class="{ na: !hasCost }">{{ money(t.cost, hasCost && t.unpriced_requests > 0) }}</div><div class="l">{{ $t('analytics.cost.estCost') }}</div>
+      <Kpi :value="money(t.cost, hasCost && t.unpriced_requests > 0)" :tone="hasCost ? '' : 'na'" :label="$t('analytics.cost.estCost')" :help="$t('analytics.cost.estimatedFromThePrice')">
         <div class="d">{{ hasCost ? $t('analytics.cost.payAsYouGo', { p0: money(metered), p1: money(included) }) : $t('analytics.cost.noCostCanBe') }}</div>
-        <div v-if="d.previous && hasCost" class="d">{{ change(t.cost, d.previous.cost) }}</div></div>
-      <div class="kpi" :title="$t('analytics.cost.oneRequestOneCall')">
-        <div class="n">{{ compact(t.requests) }}</div><div class="l">{{ $t('analytics.cost.aiRequests') }}</div>
+        <div v-if="d.previous && hasCost" class="d">{{ change(t.cost, d.previous.cost) }}</div></Kpi>
+      <Kpi :value="compact(t.requests)" :label="$t('analytics.cost.aiRequests')" :help="$t('analytics.cost.oneRequestOneCall')">
         <div class="d">{{ $t('analytics.cost.modelTurnsNotSuccessful', { p0: compact(t.turns), p1: t.failed_requests }) }}</div>
-        <div v-if="d.previous" class="d">{{ change(t.requests, d.previous.requests) }}</div></div>
-      <div class="kpi" :title="$t('analytics.cost.inputCacheReadCache')">
-        <div class="n">{{ compact(t.tokens_total) }}</div><div class="l">Token</div>
+        <div v-if="d.previous" class="d">{{ change(t.requests, d.previous.requests) }}</div></Kpi>
+      <Kpi :value="compact(t.tokens_total)" :label="$t('analytics.page.tokens')" :help="$t('analytics.cost.inputCacheReadCache')">
         <div class="d">{{ $t('analytics.cost.readFromTheCache', { p0: cacheShare }) }}<template v-if="t.no_usage_requests"> {{ $t('analytics.cost.requestsWithoutUsage', { p0: t.no_usage_requests }) }}</template></div>
-        <div v-if="d.previous" class="d">{{ change(t.tokens_total, d.previous.tokens_total) }}</div></div>
-      <div class="kpi" :title="headline.tip"><div class="n" :class="{ na: headline.value === '—' }">{{ headline.value }}</div><div class="l">{{ headline.label }}</div><div class="d">{{ headline.sub }}</div></div>
+        <div v-if="d.previous" class="d">{{ change(t.tokens_total, d.previous.tokens_total) }}</div></Kpi>
+      <Kpi :value="headline.value" :tone="headline.value === '—' ? 'na' : ''" :label="headline.label" :help="headline.tip"><div class="d">{{ headline.sub }}</div></Kpi>
     </div>
 
     <div class="an-row c21">
       <div class="card">
-        <div class="card-title">{{ trendTitle }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.clickALegendEntry', { p0: BUCKET[d.bucket] }) }}</p>
-        <div class="an-bar" style="margin-bottom: 14px; gap: 8px">
-          <div class="seg"><button :class="{ on: metric === 'cost' }" :disabled="!hasCost" @click="metric = 'cost'">{{ $t('analytics.cost.cost') }}</button><button :class="{ on: metric === 'tokens' }" @click="metric = 'tokens'">Token</button></div>
-          <div class="seg"><button v-for="[k, l] in [['model', $t('analytics.cost.byModel')], ['feature', $t('analytics.cost.byFeature')], ['provider', $t('analytics.cost.byService')]]" :key="k" :class="{ on: params.group === k }" @click="params.group = k">{{ l }}</button></div>
-          <div class="seg"><button v-for="[k, l] in [['', $t('analytics.cost.auto')], ['day', $t('analytics.cost.day')], ['week', $t('analytics.cost.week')], ['month', $t('analytics.cost.month')]]" :key="k" :class="{ on: params.bucket === k }" @click="params.bucket = k">{{ l }}</button></div>
-        </div>
+        <CardHead :title="trendTitle" :help="$t('analytics.cost.clickALegendEntry', { p0: BUCKET[d.bucket] })">
+          <div class="seg" role="group" :aria-label="$t('analytics.cost.trendShows')"><button :class="{ on: metric === 'cost' }" :aria-pressed="metric === 'cost'" :disabled="!hasCost" @click="metric = 'cost'">{{ $t('analytics.cost.cost') }}</button><button :class="{ on: metric === 'tokens' }" :aria-pressed="metric === 'tokens'" @click="metric = 'tokens'">{{ $t('analytics.page.tokens') }}</button></div>
+          <AaSelect v-model="params.group" class="an-group" :aria-label="$t('analytics.cost.groupBy')"><option v-for="[k, l] in [['model', $t('analytics.cost.byModel')], ['feature', $t('analytics.cost.byFeature')], ['provider', $t('analytics.cost.byService')]]" :key="k" :value="k">{{ l }}</option></AaSelect>
+        </CardHead>
         <StackChart :buckets="trend" :series="series" :format="fmtTrend" :height="190" />
         <div class="card-foot">
           <button class="ghost sm" :aria-expanded="table" @click="table = !table"><Icon :name="table ? 'chevron_up' : 'table'" />{{ table ? $t('analytics.cost.hideDetail') : $t('analytics.cost.showTheDataTable') }}</button>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">{{ $t('analytics.cost.tokenBreakdown') }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.countAndCostAre') }}</p>
-        <div class="small muted" style="margin-bottom: 4px">{{ $t('analytics.cost.byCount') }}</div>
+        <CardHead :title="$t('analytics.cost.tokenBreakdown')" :help="$t('analytics.cost.countAndCostAre')" />
+        <div class="an-label">{{ $t('analytics.cost.byCount') }}</div>
         <SplitBar :parts="tokenParts" :format="compact" single />
         <template v-if="costParts.length">
-          <div class="small muted" style="margin: 16px 0 4px">{{ $t('analytics.cost.byCost') }}</div>
+          <div class="an-label gap">{{ $t('analytics.cost.byCost') }}</div>
           <SplitBar :parts="costParts" :format="(v) => money(v)" single />
         </template>
         <div class="card-foot"><span class="hint">{{ costParts.length ? $t('analytics.cost.costIsDividedIn', { p0: d.token_cost_requests }) : $t('analytics.cost.theseRequestsHaveNo') }}</span></div>
@@ -152,35 +154,36 @@ async function savePrices() {
 
     <div class="an-row c32">
       <div class="card">
-        <div class="card-head"><span class="card-title">{{ $t('analytics.cost.models') }}</span><button class="ghost sm" @click="editPrices"><Icon name="edit" />{{ $t('analytics.cost.prices') }}</button></div>
-        <p class="card-sub">{{ $t('analytics.cost.modelNamesComeFrom') }}</p>
+        <CardHead :title="$t('analytics.cost.models')" :help="$t('analytics.cost.modelNamesComeFrom')">
+          <button class="ghost sm" @click="editPrices"><Icon name="edit" />{{ $t('analytics.cost.prices') }}</button>
+        </CardHead>
         <div class="an-scroll">
-          <table class="an-table">
-            <thead><tr><th class="grow">{{ $t('analytics.cost.model') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">Token</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.share') }}</th><th class="num">{{ $t('analytics.cost.avgPerRequest') }}</th><th class="num">{{ $t('analytics.cost.typicalTime') }}</th></tr></thead>
+          <table class="an-table two">
+            <colgroup><col /><col class="w-n" /><col class="w-n" /><col class="w-wide" /><col class="w-xs" /><col class="w-num opt-b" /><col class="w-num opt-b" /></colgroup>
+            <thead><tr><th>{{ $t('analytics.cost.model') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.share') }}</th><th class="num opt-b">{{ $t('analytics.cost.avgPerRequest') }}</th><th class="num opt-b">{{ $t('analytics.cost.typicalTime') }}</th></tr></thead>
             <tbody>
               <tr v-for="m in d.by_model" :key="m.provider + m.model">
-                <td class="grow"><span class="one" style="font-weight: 550" :title="m.model" data-notr>{{ m.model || '—' }}</span><span class="one small muted"><span>{{ m.provider_label }}</span> · <span>{{ m.billing_label }}</span></span></td>
+                <td><Trunc as="div" class="t-name" data-notr :text="m.model || '—'" /><Trunc as="div" class="t-sub" :text="m.provider_label + ' · ' + m.billing_label" /></td>
                 <td class="num">{{ compact(m.requests) }}</td>
                 <td class="num">{{ compact(m.tokens) }}</td>
-                <td class="num" :title="m.cost == null ? $t('analytics.cost.thisModelHasNo') : m.reported ? $t('analytics.cost.costReportedByThe') : m.price && m.price.source === 'user_price' ? $t('analytics.cost.estimatedFromThePrice2') : $t('analytics.cost.estimatedFromTheBuilt')">{{ money(m.cost, m.cost != null && m.unpriced_requests > 0) }}</td>
+                <td class="num"><InfoTip v-if="m.cost == null || m.unpriced_requests > 0" :text="m.cost == null ? $t('analytics.cost.thisModelHasNo') : $t('analytics.cost.someRequestsHaveNo')" /><span v-tip="costSource(m)">{{ money(m.cost, m.cost != null && m.unpriced_requests > 0) }}</span></td>
                 <td class="num">{{ share(m.share) }}</td>
-                <td class="num">{{ money(m.avg_cost) }}</td>
-                <td class="num">{{ ms(m.median_ms) }}</td>
+                <td class="num opt-b">{{ money(m.avg_cost) }}</td>
+                <td class="num opt-b">{{ ms(m.median_ms) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">{{ $t('analytics.cost.servicesAndHowThey') }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.aSubscriptionIsA') }}</p>
+        <CardHead :title="$t('analytics.cost.servicesAndHowThey')" :help="$t('analytics.cost.aSubscriptionIsA')" />
         <div class="an-scroll">
-          <table class="an-table">
-            <thead><tr><th class="grow">{{ $t('analytics.cost.service') }}</th><th>{{ $t('analytics.cost.paidBy') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.cost.estCost') }}</th></tr></thead>
+          <table class="an-table two">
+            <colgroup><col /><col class="w-n" /><col class="w-num" /></colgroup>
+            <thead><tr><th>{{ $t('analytics.cost.service') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.cost.estCost') }}</th></tr></thead>
             <tbody>
               <tr v-for="p in d.by_provider" :key="p.provider">
-                <td class="grow"><span class="one" style="font-weight: 550">{{ p.provider_label }}</span></td>
-                <td><span class="badge" :class="p.billing === 'metered' ? 'warn' : p.billing === 'unknown' ? '' : 'ok'">{{ p.billing_label }}</span></td>
+                <td><Trunc as="div" class="t-name" :text="p.provider_label" /><Status :tone="p.billing === 'metered' ? 'warn' : p.billing === 'unknown' ? '' : 'ok'" :label="p.billing_label" /></td>
                 <td class="num">{{ compact(p.requests) }}</td>
                 <td class="num">{{ money(p.cost, p.cost != null && p.unpriced_requests > 0) }}</td>
               </tr>
@@ -188,27 +191,27 @@ async function savePrices() {
           </table>
         </div>
         <template v-if="billParts.length">
-          <div class="small muted" style="margin: 16px 0 4px">{{ $t('analytics.cost.estimatedCostByHow') }}</div>
+          <div class="an-label gap">{{ $t('analytics.cost.estimatedCostByHow') }}</div>
           <SplitBar :parts="billParts" :format="(v) => money(v)" single />
         </template>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">{{ $t('analytics.cost.costByFeature') }}</div>
-      <p class="card-sub">{{ $t('analytics.cost.oneCallCanContain') }}</p>
+      <CardHead :title="$t('analytics.cost.costByFeature')" :help="$t('analytics.cost.oneCallCanContain')" />
       <div class="an-scroll">
         <table class="an-table">
-          <thead><tr><th class="grow">{{ $t('analytics.cost.feature') }}</th><th class="num">{{ $t('analytics.cost.calls') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.cost.successRate') }}</th><th class="num">Token</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th style="width: 190px">{{ $t('analytics.cost.shareOfAllCost') }}</th><th class="num">{{ $t('analytics.cost.avgPerCall') }}</th></tr></thead>
+          <colgroup><col /><col class="w-xs" /><col class="w-n opt-a" /><col class="w-n" /><col class="w-n opt-b" /><col class="w-num" /><col class="w-bar opt-b" /><col class="w-num" /></colgroup>
+          <thead><tr><th>{{ $t('analytics.cost.feature') }}</th><th class="num">{{ $t('analytics.cost.calls') }}</th><th class="num opt-a">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.cost.successRate') }}</th><th class="num opt-b">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="opt-b">{{ $t('analytics.cost.shareOfAllCost') }}</th><th class="num">{{ $t('analytics.cost.avgPerCall') }}</th></tr></thead>
           <tbody>
-            <tr v-for="f in d.by_feature" :key="f.feature" class="clickable" tabindex="0" @click="params.feature = params.feature === f.feature ? '' : f.feature" @keydown.enter="params.feature = params.feature === f.feature ? '' : f.feature">
-              <td class="grow"><span class="one" style="font-weight: 550" :title="f.label">{{ f.label }}</span></td>
+            <tr v-for="f in d.by_feature" :key="f.feature" class="clickable" :class="{ picked: params.feature === f.feature }" tabindex="0" @click="params.feature = params.feature === f.feature ? '' : f.feature" @keydown.enter="params.feature = params.feature === f.feature ? '' : f.feature">
+              <td><Trunc as="div" class="t-name" :text="f.label" /></td>
               <td class="num">{{ compact(f.calls) }}</td>
-              <td class="num">{{ compact(f.requests) }}</td>
+              <td class="num opt-a">{{ compact(f.requests) }}</td>
               <td class="num">{{ rate(f.ok_rate) }}</td>
-              <td class="num">{{ compact(f.tokens) }}</td>
+              <td class="num opt-b">{{ compact(f.tokens) }}</td>
               <td class="num">{{ money(f.cost, f.cost != null && f.unpriced_requests > 0) }}</td>
-              <td><div v-if="f.share != null" class="sharecell"><span class="share"><i :style="{ width: Math.max(f.share ? 2 : 0, Math.round(f.share * 100)) + '%' }"></i></span><span class="pc">{{ share(f.share) }}</span></div><template v-else>—</template></td>
+              <td class="opt-b"><div v-if="f.share != null" class="sharecell"><span class="share"><i :style="{ width: Math.max(f.share ? 2 : 0, Math.round(f.share * 100)) + '%' }"></i></span><span class="pc">{{ share(f.share) }}</span></div><span v-else class="none">—</span></td>
               <td class="num">{{ money(f.avg_cost_per_call) }}</td>
             </tr>
           </tbody>
@@ -216,19 +219,19 @@ async function savePrices() {
       </div>
     </div>
 
-    <div class="an-row c11">
+    <div class="an-row c11 wide">
       <div class="card">
-        <div class="card-title">{{ $t('analytics.cost.costPerResult') }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.everythingAKindOf') }}</p>
+        <CardHead :title="$t('analytics.cost.costPerResult')" :help="$t('analytics.cost.everythingAKindOf')" />
         <div v-if="d.units.length" class="an-scroll">
-          <table class="an-table">
-            <thead><tr><th class="grow">{{ $t('analytics.cost.task') }}</th><th class="num">{{ $t('analytics.cost.runs') }}</th><th class="num">{{ $t('analytics.cost.failed') }}</th><th class="num">{{ $t('analytics.cost.results') }}</th><th class="num">{{ $t('analytics.cost.aiCost') }}</th><th class="num">{{ $t('analytics.cost.perResult') }}</th></tr></thead>
+          <table class="an-table two">
+            <colgroup><col /><col class="w-xs" /><col class="w-xs opt-c" /><col class="w-xs" /><col class="w-num" /><col class="w-wide" /></colgroup>
+            <thead><tr><th>{{ $t('analytics.cost.task') }}</th><th class="num">{{ $t('analytics.cost.runs') }}</th><th class="num opt-c">{{ $t('analytics.cost.failed') }}</th><th class="num">{{ $t('analytics.cost.results') }}</th><th class="num">{{ $t('analytics.cost.aiCost') }}</th><th class="num">{{ $t('analytics.cost.perResult') }}</th></tr></thead>
             <tbody>
               <tr v-for="u in d.units" :key="u.kind">
-                <td class="grow"><span class="one" style="font-weight: 550" :title="u.label">{{ u.label }}</span><span class="one small muted" :title="u.unit">{{ u.unit }}</span></td>
-                <td class="num">{{ u.runs }}</td><td class="num">{{ u.failed_runs }}</td><td class="num">{{ u.results }}</td>
+                <td><Trunc as="div" class="t-name" :text="u.label" /><Trunc as="div" class="t-sub" :text="u.unit" /></td>
+                <td class="num">{{ u.runs }}</td><td class="num opt-c">{{ u.failed_runs }}</td><td class="num">{{ u.results }}</td>
                 <td class="num">{{ money(u.cost, u.partial) }}</td>
-                <td class="num" :title="u.partial ? $t('analytics.cost.someRequestsHaveNo') : !u.results ? $t('analytics.cost.noResultsInThis') : ''">{{ money(u.per_result, u.partial) }}</td>
+                <td class="num"><InfoTip v-if="u.partial || !u.results" :text="u.partial ? $t('analytics.cost.someRequestsHaveNo') : $t('analytics.cost.noResultsInThis')" />{{ money(u.per_result, u.partial) }}</td>
               </tr>
             </tbody>
           </table>
@@ -236,20 +239,19 @@ async function savePrices() {
         <EmptyState v-else icon="activity" :title="$t('analytics.cost.noTaskUsedA')" :text="$t('analytics.cost.callsOutsideATask')" />
       </div>
       <div class="card">
-        <div class="card-title">{{ $t('analytics.cost.spentOnFailuresAnd') }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.whatFailedRequestsRetries') }}</p>
+        <CardHead :title="$t('analytics.cost.spentOnFailuresAnd')" :help="$t('analytics.cost.whatFailedRequestsRetries')" />
         <template v-if="anyWaste">
           <div class="figs two">
-            <div :title="$t('analytics.cost.requestsThatDidNot')"><div class="v" :class="{ na: W.failed_requests.cost == null }">{{ money(W.failed_requests.cost) }}</div><div class="k">{{ $t('analytics.cost.requestsThatDidNot2', { p0: W.failed_requests.requests }) }}<template v-if="W.failed_requests.unknown">{{ $t('analytics.cost.withUnknownCost', { p0: W.failed_requests.unknown }) }}</template></div></div>
-            <div :title="$t('analytics.cost.requestsMadeAgainOn')"><div class="v" :class="{ na: W.backup_attempts.cost == null }">{{ money(W.backup_attempts.cost) }}</div><div class="k">{{ $t('analytics.cost.repeatedOnABackup', { p0: W.backup_attempts.requests }) }}</div></div>
-            <div :title="$t('analytics.cost.everyRequestMadeBy')"><div class="v" :class="{ na: W.failed_tasks.cost == null }">{{ money(W.failed_tasks.cost) }}</div><div class="k">{{ $t('analytics.cost.requestsBelongToFailed', { p0: W.failed_tasks.requests }) }}</div></div>
-            <div :title="$t('analytics.cost.requestsMadeByTasks')"><div class="v" :class="{ na: W.repeated_tasks.cost == null }">{{ money(W.repeated_tasks.cost) }}</div><div class="k">{{ $t('analytics.cost.requestsBelongToRepeated', { p0: W.repeated_tasks.requests }) }}</div></div>
+            <div><div class="v" :class="{ na: W.failed_requests.cost == null }">{{ money(W.failed_requests.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsThatDidNot2', { p0: W.failed_requests.requests }) }}<template v-if="W.failed_requests.unknown">{{ $t('analytics.cost.withUnknownCost', { p0: W.failed_requests.unknown }) }}</template></span><InfoTip :text="$t('analytics.cost.requestsThatDidNot')" /></div></div>
+            <div><div class="v" :class="{ na: W.backup_attempts.cost == null }">{{ money(W.backup_attempts.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.repeatedOnABackup', { p0: W.backup_attempts.requests }) }}</span><InfoTip :text="$t('analytics.cost.requestsMadeAgainOn')" /></div></div>
+            <div><div class="v" :class="{ na: W.failed_tasks.cost == null }">{{ money(W.failed_tasks.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsBelongToFailed', { p0: W.failed_tasks.requests }) }}</span><InfoTip :text="$t('analytics.cost.everyRequestMadeBy')" /></div></div>
+            <div><div class="v" :class="{ na: W.repeated_tasks.cost == null }">{{ money(W.repeated_tasks.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsBelongToRepeated', { p0: W.repeated_tasks.requests }) }}</span><InfoTip :text="$t('analytics.cost.requestsMadeByTasks')" /></div></div>
           </div>
           <template v-if="W.by_feature.length">
-            <div class="small muted" style="margin: 16px 0 8px">{{ $t('analytics.cost.whereFailedTasksSpent') }}</div>
-            <div class="hbars tight even" style="--lab: 9em">
+            <div class="an-label gap">{{ $t('analytics.cost.whereFailedTasksSpent') }}</div>
+            <div class="hbars tight even lab-md">
               <template v-for="f in W.by_feature" :key="f.feature">
-                <span class="lab" :title="f.label">{{ f.label }}</span>
+                <Trunc class="lab" :text="f.label" />
                 <div class="track"><div class="fill bad" :style="{ width: pct(f.cost || 0, W.by_feature[0].cost || 1) + '%' }"></div></div>
                 <span class="num">{{ money(f.cost) }}</span>
               </template>
@@ -261,18 +263,18 @@ async function savePrices() {
       </div>
     </div>
 
-    <div class="an-row c11">
+    <div class="an-row c11 wide">
       <div class="card">
-        <div class="card-title">{{ $t('analytics.cost.mostExpensiveRuns') }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.highWellAboveMost') }}</p>
+        <CardHead :title="$t('analytics.cost.mostExpensiveRuns')" :help="$t('analytics.cost.highWellAboveMost')" />
         <div v-if="d.costly.length" class="an-scroll">
-          <table class="an-table">
-            <thead><tr><th class="grow">{{ $t('analytics.cost.task') }}</th><th>{{ $t('analytics.cost.start') }}</th><th class="num">Token</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
+          <table class="an-table two">
+            <colgroup><col /><col class="w-date opt-c" /><col class="w-n opt-c" /><col class="w-num" /><col class="w-n" /></colgroup>
+            <thead><tr><th>{{ $t('analytics.cost.task') }}</th><th class="opt-c">{{ $t('analytics.cost.start') }}</th><th class="num opt-c">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
             <tbody>
               <tr v-for="c in d.costly.slice(0, TOP)" :key="c.task_id" class="clickable" tabindex="0" @click="openRun(c)" @keydown.enter="openRun(c)">
-                <td class="grow"><span class="one" style="font-weight: 550">{{ c.label }}<span v-if="c.outlier" class="badge warn" style="margin-left: 6px">{{ $t('analytics.cost.high') }}</span></span><span class="one small muted" :title="c.subject">{{ c.subject || '—' }}</span></td>
-                <td class="nowrap">{{ fmt(c.at) }}</td>
-                <td class="num" :title="$t('analytics.cost.requests2', { p0: c.requests })">{{ compact(c.tokens) }}</td><td class="num">{{ money(c.cost) }}</td>
+                <td><div class="t-line"><Trunc class="t-name" :text="c.label" /><span v-if="c.outlier" class="tag warn">{{ $t('analytics.cost.high') }}</span></div><Trunc as="div" class="t-sub" :text="c.subject || '—'" /></td>
+                <td class="atomic opt-c">{{ fmt(c.at) }}</td>
+                <td class="num opt-c"><span v-tip="$t('analytics.cost.requests2', { p0: c.requests })">{{ compact(c.tokens) }}</span></td><td class="num">{{ money(c.cost) }}</td>
                 <td class="num">{{ c.times_median == null ? '—' : $t('analytics.cost.times', { p0: c.times_median }) }}</td>
               </tr>
             </tbody>
@@ -282,15 +284,15 @@ async function savePrices() {
         <div v-if="d.costly.length > TOP" class="card-foot"><button class="ghost sm" @click="openList('costly')"><Icon name="table" />{{ $t('analytics.cost.showAll', { p0: d.costly.length }) }}</button></div>
       </div>
       <div class="card">
-        <div class="card-title">{{ $t('analytics.cost.requestsThatUsedUnusually') }}</div>
-        <p class="card-sub">{{ $t('analytics.cost.comparedWithOtherRequests') }}</p>
+        <CardHead :title="$t('analytics.cost.requestsThatUsedUnusually')" :help="$t('analytics.cost.comparedWithOtherRequests')" />
         <div v-if="d.heavy.length" class="an-scroll">
-          <table class="an-table">
-            <thead><tr><th class="grow">{{ $t('analytics.cost.feature') }}</th><th>{{ $t('analytics.cost.time') }}</th><th class="num">Token</th><th class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
+          <table class="an-table two">
+            <colgroup><col /><col class="w-date opt-c" /><col class="w-n" /><col class="w-num" /><col class="w-num" /></colgroup>
+            <thead><tr><th>{{ $t('analytics.cost.feature') }}</th><th class="opt-c">{{ $t('analytics.cost.time') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
             <tbody>
               <tr v-for="h in d.heavy.slice(0, TOP)" :key="h.id" :class="{ clickable: h.task_id }" :tabindex="h.task_id ? 0 : -1" @click="openRun(h)" @keydown.enter="openRun(h)">
-                <td class="grow"><span class="one" style="font-weight: 550">{{ h.label }}</span><span class="one small muted" data-notr :title="h.model">{{ h.model || '—' }}</span></td>
-                <td class="nowrap">{{ fmt(h.at) }}</td>
+                <td><Trunc as="div" class="t-name" :text="h.label" /><Trunc as="div" class="t-sub" data-notr :text="h.model || '—'" /></td>
+                <td class="atomic opt-c">{{ fmt(h.at) }}</td>
                 <td class="num">{{ compact(h.tokens) }}</td><td class="num">{{ compact(h.median) }}</td><td class="num">{{ money(h.cost) }}</td>
               </tr>
             </tbody>
@@ -316,13 +318,14 @@ async function savePrices() {
   </SideDrawer>
   <SideDrawer v-else-if="drawer.kind === 'costly'" :title="$t('analytics.cost.mostExpensiveRuns')" :sub="$t('analytics.cost.inAllMostExpensive', { p0: d.costly.length })" @close="close">
     <div class="an-scroll">
-      <table class="an-table">
-        <thead><tr><th class="grow">{{ $t('analytics.cost.task') }}</th><th>{{ $t('analytics.cost.start') }}</th><th>{{ $t('analytics.cost.result') }}</th><th class="num">Token</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
+      <table class="an-table two">
+        <colgroup><col /><col class="w-date" /><col class="w-state opt-b" /><col class="w-n" /><col class="w-num" /><col class="w-n" /></colgroup>
+        <thead><tr><th>{{ $t('analytics.cost.task') }}</th><th>{{ $t('analytics.cost.start') }}</th><th class="opt-b">{{ $t('analytics.cost.result') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
         <tbody>
           <tr v-for="c in d.costly.slice(drawer.page * SIZE, (drawer.page + 1) * SIZE)" :key="c.task_id" class="clickable" tabindex="0" @click="openRun(c, true)" @keydown.enter="openRun(c, true)">
-            <td class="grow"><span class="one" style="font-weight: 550">{{ c.label }}<span v-if="c.outlier" class="badge warn" style="margin-left: 6px">{{ $t('analytics.cost.high') }}</span></span><span class="one small muted" :title="c.subject">{{ c.subject || '—' }}</span></td>
-            <td class="nowrap">{{ fmt(c.at) }}</td>
-            <td><span class="badge" :class="{ success: 'ok', failed: 'bad', interrupted: 'bad' }[c.outcome] || 'warn'">{{ c.outcome_label }}</span></td>
+            <td><div class="t-line"><Trunc class="t-name" :text="c.label" /><span v-if="c.outlier" class="tag warn">{{ $t('analytics.cost.high') }}</span></div><Trunc as="div" class="t-sub" :text="c.subject || '—'" /></td>
+            <td class="atomic">{{ fmt(c.at) }}</td>
+            <td class="opt-b"><Status :tone="{ success: 'ok', failed: 'bad', interrupted: 'bad' }[c.outcome] || 'warn'" :label="c.outcome_label" /></td>
             <td class="num">{{ compact(c.tokens) }}</td><td class="num">{{ money(c.cost) }}</td>
             <td class="num">{{ c.times_median == null ? '—' : $t('analytics.cost.times', { p0: c.times_median }) }}</td>
           </tr>
@@ -333,13 +336,14 @@ async function savePrices() {
   </SideDrawer>
   <SideDrawer v-else-if="drawer.kind === 'heavy'" :title="$t('analytics.cost.requestsThatUsedUnusually')" :sub="$t('analytics.cost.inAllLargestFirst', { p0: d.heavy.length })" @close="close">
     <div class="an-scroll">
-      <table class="an-table">
-        <thead><tr><th class="grow">{{ $t('analytics.cost.feature') }}</th><th>{{ $t('analytics.cost.time') }}</th><th class="num">{{ $t('analytics.cost.turns') }}</th><th class="num">Token</th><th class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
+      <table class="an-table two">
+        <colgroup><col /><col class="w-date" /><col class="w-xs opt-b" /><col class="w-n" /><col class="w-num" /><col class="w-num" /></colgroup>
+        <thead><tr><th>{{ $t('analytics.cost.feature') }}</th><th>{{ $t('analytics.cost.time') }}</th><th class="num opt-b">{{ $t('analytics.cost.turns') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
         <tbody>
           <tr v-for="h in d.heavy.slice(drawer.page * SIZE, (drawer.page + 1) * SIZE)" :key="h.id" :class="{ clickable: h.task_id }" :tabindex="h.task_id ? 0 : -1" @click="openRun(h, true)" @keydown.enter="openRun(h, true)">
-            <td class="grow"><span class="one" style="font-weight: 550">{{ h.label }}</span><span class="one small muted" data-notr :title="h.model">{{ h.model || '—' }}</span></td>
-            <td class="nowrap">{{ fmt(h.at) }}</td>
-            <td class="num">{{ h.turns }}</td><td class="num">{{ compact(h.tokens) }}</td><td class="num">{{ compact(h.median) }}</td><td class="num">{{ money(h.cost) }}</td>
+            <td><Trunc as="div" class="t-name" :text="h.label" /><Trunc as="div" class="t-sub" data-notr :text="h.model || '—'" /></td>
+            <td class="atomic">{{ fmt(h.at) }}</td>
+            <td class="num opt-b">{{ h.turns }}</td><td class="num">{{ compact(h.tokens) }}</td><td class="num">{{ compact(h.median) }}</td><td class="num">{{ money(h.cost) }}</td>
           </tr>
         </tbody>
       </table>
@@ -347,26 +351,29 @@ async function savePrices() {
     <Pager v-model:page="drawer.page" :size="SIZE" :total="d.heavy.length" />
   </SideDrawer>
   <SideDrawer v-else-if="drawer.kind === 'prices'" :title="$t('analytics.cost.modelPrices')" @close="close">
-    <p class="card-sub">{{ $t('analytics.cost.usDollarsPerMillion', { p0: d.pricing.version }) }}</p>
-    <div class="an-scroll">
-      <table class="an-table">
-        <thead><tr><th>{{ $t('analytics.cost.modelNameAsIn') }}</th><th>{{ $t('analytics.cost.input') }}</th><th>{{ $t('analytics.cost.output') }}</th><th>{{ $t('analytics.cost.cacheRead') }}</th><th>{{ $t('analytics.cost.cacheWrite') }}</th><th></th></tr></thead>
+    <div class="an-bar"><span class="t-secondary">{{ $t('analytics.cost.pricesUnit') }}</span><HelpPop :text="$t('analytics.cost.usDollarsPerMillion', { p0: d.pricing.version })" :label="$t('analytics.cost.modelPrices')" /></div>
+    <div v-if="prices.rows.length" class="an-scroll">
+      <table class="an-table form">
+        <colgroup><col /><col class="w-wide" /><col class="w-wide" /><col class="w-wide" /><col class="w-wide" /><col class="w-act" /></colgroup>
+        <thead><tr><th>{{ $t('analytics.cost.modelNameAsIn') }}</th><th>{{ $t('analytics.cost.input') }}</th><th>{{ $t('analytics.cost.output') }}</th><th>{{ $t('analytics.cost.cacheRead') }}</th><th>{{ $t('analytics.cost.cacheWrite') }}</th><th :aria-label="$t('analytics.cost.remove')"></th></tr></thead>
         <tbody>
           <tr v-for="(r, i) in prices.rows" :key="i">
-            <td><input v-model.trim="r.model" :placeholder="$t('analytics.cost.modelName')" style="width: 220px" /></td>
-            <td><input v-model="r.input" type="number" min="0" step="any" style="width: 90px" :aria-label="$t('analytics.cost.inputPrice')" /></td>
-            <td><input v-model="r.output" type="number" min="0" step="any" style="width: 90px" :aria-label="$t('analytics.cost.outputPrice')" /></td>
-            <td><input v-model="r.cache_read" type="number" min="0" step="any" style="width: 90px" :aria-label="$t('analytics.cost.cacheReadPrice')" /></td>
-            <td><input v-model="r.cache_write" type="number" min="0" step="any" style="width: 90px" :aria-label="$t('analytics.cost.cacheWritePrice')" /></td>
-            <td><button class="ghost sm" @click="prices.rows.splice(i, 1)">{{ $t('analytics.cost.remove') }}</button></td>
+            <td><input v-model.trim="r.model" :placeholder="$t('analytics.cost.modelName')" :aria-label="$t('analytics.cost.modelName')" /></td>
+            <td><input v-model="r.input" type="number" min="0" step="any" :aria-label="$t('analytics.cost.inputPrice')" /></td>
+            <td><input v-model="r.output" type="number" min="0" step="any" :aria-label="$t('analytics.cost.outputPrice')" /></td>
+            <td><input v-model="r.cache_read" type="number" min="0" step="any" :aria-label="$t('analytics.cost.cacheReadPrice')" /></td>
+            <td><input v-model="r.cache_write" type="number" min="0" step="any" :aria-label="$t('analytics.cost.cacheWritePrice')" /></td>
+            <td class="act"><IconButton icon="trash" :label="$t('analytics.cost.remove')" @click="prices.rows.splice(i, 1)" /></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <EmptyState v-if="!prices.rows.length" icon="edit" :title="$t('analytics.cost.noPricesOfYour')" :text="$t('analytics.cost.addAModelAnd')" />
-    <div class="row" style="margin-top: 12px">
-      <button @click="prices.rows.push({ model: '', input: '', output: '', cache_read: '', cache_write: '' })">{{ $t('analytics.cost.addAModel') }}</button>
-      <button class="primary" @click="savePrices">{{ $t('analytics.cost.savePrices') }}</button>
-    </div>
+    <EmptyState v-else icon="edit" :title="$t('analytics.cost.noPricesOfYour')" :text="$t('analytics.cost.addAModelAnd')" />
+    <template #footer>
+      <div class="actions">
+        <button @click="prices.rows.push({ model: '', input: '', output: '', cache_read: '', cache_write: '' })"><Icon name="plus" />{{ $t('analytics.cost.addAModel') }}</button>
+        <button class="primary" @click="savePrices"><Icon name="check" />{{ $t('analytics.cost.savePrices') }}</button>
+      </div>
+    </template>
   </SideDrawer>
 </template>

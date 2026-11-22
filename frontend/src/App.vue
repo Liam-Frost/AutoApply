@@ -6,6 +6,8 @@ import { hold } from './focus'
 import { clock } from './data'
 import { api, auth } from './api'
 import Icon from './components/Icon.vue'
+import IconButton from './components/IconButton.vue'
+import Popover from './components/Popover.vue'
 import BrandLogo from './components/BrandLogo.vue'
 import RemoteBanner from './components/RemoteBanner.vue'
 import { LANGS, lang, setLang } from './i18n'
@@ -87,7 +89,7 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/todos" class="nav"><Icon name="bell" />{{ $t('app.needsYou') }} <span v-if="ov.open_todos" class="count">{{ ov.open_todos }}</span></router-link>
       <router-link to="/calendar" class="nav"><Icon name="clock" />{{ $t('calendar.nav') }}</router-link>
       <router-link to="/jobs" class="nav" active-class="" exact-active-class="router-link-active"><Icon name="briefcase" />{{ $t('app.postings') }}</router-link>
-      <router-link to="/applications" class="nav"><Icon name="check" />{{ $t('app.applications') }} <span v-if="ov.apps_need_me" class="count" :title="$t('app.applicationsWaiting')">{{ ov.apps_need_me }}</span></router-link>
+      <router-link to="/applications" class="nav"><Icon name="check" />{{ $t('app.applications') }} <span v-if="ov.apps_need_me" v-tip="$t('app.applicationsWaiting')" class="count">{{ ov.apps_need_me }}</span></router-link>
 
       <div class="nav-label">{{ $t('app.myInfo') }}</div>
       <router-link to="/profile" class="nav"><Icon name="user" />{{ $t('app.profile') }}</router-link>
@@ -99,22 +101,34 @@ onUnmounted(() => clearInterval(timer))
       <router-link to="/analytics" class="nav"><Icon name="search" />{{ $t('app.analytics') }}</router-link>
       <router-link to="/runs" class="nav"><Icon name="activity" />{{ $t('app.activity') }}</router-link>
       <router-link to="/settings" class="nav"><Icon name="settings" />{{ $t('app.settings') }}</router-link>
-      <router-link to="/about" class="nav"><Icon name="info" />{{ $t('about.nav') }}<span v-if="ov.update" class="tag ok" style="margin-left: auto" :title="$t('about.newVersionDot', { v: ov.update })">{{ $t('about.new') }}</span></router-link>
+      <router-link to="/about" class="nav"><Icon name="info" />{{ $t('about.nav') }}<span v-if="ov.update" v-tip="$t('about.newVersionDot', { v: ov.update })" class="tag ok nav-tag">{{ $t('about.new') }}</span></router-link>
 
       <div class="side-foot">
         <div v-if="link.down" role="status"><span class="status-dot down"></span>{{ $t('app.cannotReachTheService') }}<template v-if="link.at">{{ $t('app.lastUpdated', { p0: clock(link.at) }) }}</template></div>
-        <div v-else-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" style="color: inherit">{{ ov.stopped ? $t('app.stoppedItCanBe') : $t('app.finishingNoNewTask') }}</router-link></div>
+        <div v-else-if="ov.draining"><span class="status-dot paused"></span><router-link to="/runs" class="foot-link">{{ ov.stopped ? $t('app.stoppedItCanBe') : $t('app.finishingNoNewTask') }}</router-link></div>
         <div v-else-if="ov.paused"><span class="status-dot paused"></span>{{ $t('app.pausedWontRunAutomatically') }}</div>
         <div v-else-if="ov.running && ov.running.length"><span class="status-dot busy"></span>{{ $t('app.text', { p0: ov.running[0].label }) }}</div>
         <div v-else><span class="status-dot"></span>{{ $t('app.runningIdleRightNow') }}</div>
-        <div class="theme-seg" role="group" :aria-label="$t('app.appearance')">
-          <button :class="{ on: theme.value === 'light' }" @click="setTheme('light')">{{ $t('app.light') }}</button>
-          <button :class="{ on: theme.value === 'dark' }" @click="setTheme('dark')">{{ $t('app.dark') }}</button>
-          <button :class="{ on: theme.value === 'system' }" @click="setTheme('system')">{{ $t('app.matchSystem') }}</button>
-        </div>
-        <div class="seg lang" data-notr :aria-label="$t('app.language')"><button v-for="(l, k) in LANGS" :key="k" :class="{ on: lang.value === k }" @click="lang.value !== k && setLang(k)">{{ isBeta(k) ? $t('language.beta', { name: l }) : l }}</button></div>
         <button class="sm" @click="togglePause"><Icon :name="ov.paused ? 'play' : 'pause'" />{{ ov.paused ? $t('app.resumeAutoRun') : $t('app.pauseAutoRun') }}</button>
-        <button v-if="session.user" class="sm ghost" :title="session.user" @click="signOut"><Icon name="login" />{{ $t('app.signOut') }}</button>
+        <!-- what is set once - the theme, the language - is behind one button, not eight controls that are always there -->
+        <Popover :label="$t('app.look')" placement="top" :width="248">
+          <template #trigger="{ toggle, attrs }"><button class="sm ghost w-full" v-bind="attrs" @click="toggle"><Icon name="globe" />{{ $t('app.look') }}</button></template>
+          <div class="look-pop">
+            <div>
+              <div id="look-theme" class="k">{{ $t('app.appearance') }}</div>
+              <div class="theme-seg" role="group" aria-labelledby="look-theme">
+                <button :class="{ on: theme.value === 'light' }" :aria-pressed="theme.value === 'light'" @click="setTheme('light')">{{ $t('app.light') }}</button>
+                <button :class="{ on: theme.value === 'dark' }" :aria-pressed="theme.value === 'dark'" @click="setTheme('dark')">{{ $t('app.dark') }}</button>
+                <button :class="{ on: theme.value === 'system' }" :aria-pressed="theme.value === 'system'" @click="setTheme('system')">{{ $t('app.matchSystem') }}</button>
+              </div>
+            </div>
+            <div>
+              <div id="look-lang" class="k" data-notr>{{ $t('app.language') }}</div>
+              <div class="seg lang" role="group" data-notr aria-labelledby="look-lang"><button v-for="(l, k) in LANGS" :key="k" :class="{ on: lang.value === k }" :aria-pressed="lang.value === k" @click="lang.value !== k && setLang(k)">{{ isBeta(k) ? $t('language.beta', { name: l }) : l }}</button></div>
+            </div>
+          </div>
+        </Popover>
+        <button v-if="session.user" v-tip="session.user" class="sm ghost" @click="signOut"><Icon name="login" />{{ $t('app.signOut') }}</button>
       </div>
     </nav>
     <main class="content"><RemoteBanner /><router-view :key="$route.path.startsWith('/remote/') ? $route.path : undefined" /></main>
@@ -124,7 +138,7 @@ onUnmounted(() => clearInterval(timer))
   <div class="toasts" role="status" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
       <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link></span>
-      <button :aria-label="$t('app.close')" @click="dismissToast(t.id)">✕</button>
+      <IconButton icon="x" size="sm" :label="$t('app.close')" @click="dismissToast(t.id)" />
     </div>
   </div>
 </template>

@@ -57,7 +57,7 @@ const weekend = (d) => d.getDay() === 0 || d.getDay() === 6
          @click="emit('select', d)" @dblclick="emit('day', d)">
       <div class="cal-cell-head">
         <button type="button" class="cal-num" :aria-label="longDate(d)" :aria-current="isToday(d) ? 'date' : undefined" @click.stop="emit('select', d)" @dblclick.stop="emit('day', d)">{{ d.getDate() }}</button>
-        <button type="button" class="cal-add" :aria-label="$t('calendar.addOn', { day: longDate(d) })" :title="$t('calendar.addOn', { day: longDate(d) })" @click.stop="emit('create', d)"><Icon name="plus" /></button>
+        <button type="button" class="cal-add" :aria-label="$t('calendar.addOn', { day: longDate(d) })" v-tip="$t('calendar.addOn', { day: longDate(d) })" @click.stop="emit('create', d)"><Icon name="plus" /></button>
       </div>
       <div v-if="narrow" class="cal-dots" @click.stop="count(d) && emit('list', d, '')">
         <i v-for="x in dots(d)" :key="x.id" :class="'ev-' + FAMILY[x.kind]"></i>

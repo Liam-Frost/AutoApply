@@ -89,8 +89,12 @@ const run = (fn, ok, opts) => runAction(fn, ok, load, opts)
 const watchUntil = ref(0)
 const waiting = () => Object.values(idpState.value).includes('trying') || Date.now() < watchUntil.value
 useRefresh(load, { every: 5000, when: waiting })
-onMounted(() => { load(); loadCarry(); document.addEventListener('visibilitychange', unseen) })
-onUnmounted(() => { hideAll(); document.removeEventListener('visibilitychange', unseen) })
+onMounted(() => {
+  load(); loadCarry(); fitAct()
+  document.addEventListener('visibilitychange', unseen)
+  if (typeof ResizeObserver !== 'undefined' && probe.value) { probing = new ResizeObserver(fitAct); probing.observe(probe.value) }
+})
+onUnmounted(() => { hideAll(); probing?.disconnect(); document.removeEventListener('visibilitychange', unseen) })
 
 // ── the browser a sign-in is made in (settings: browser.rules, one rule per site or provider) ─────────────────────────
 const backendFor = (tenant) => browserRules.value.find((r) => r.tenant === tenant)?.backend || ''
@@ -153,14 +157,20 @@ const removeCustom = async (p) => (await ask(T('accounts.removeProviderAsk', { n
 }, T('accounts.removed', { p0: p.name }))
 
 // ── the accounts table ───────────────────────────────────────────────────────────────────────────────────────────────
+// The last column holds "Sign in" and the menu. Its width is fixed like any other, but the button's words are as long
+// as the language makes them: the width is taken from the button itself (a copy nobody sees), whenever that changes.
+const probe = ref(null)
+const actWidth = ref(124)
+const fitAct = () => { if (probe.value && probe.value.offsetWidth) actWidth.value = probe.value.offsetWidth + 60 }      // + the gap, the menu and the cell's padding
+let probing = null
 const columns = computed(() => [
-  { id: 'site', header: T('accounts.website'), min: 170, flex: 2, max: 380 },
-  { id: 'login', header: T('accounts.account'), min: 130, flex: 2, max: 340 },
-  { id: 'cred', header: T('accounts.credential'), width: 152 },
-  { id: 'auto', header: T('accounts.automation'), min: 150, flex: 1, max: 230, headerTip: T('accounts.automationHelp') },
+  { id: 'site', header: T('accounts.website'), min: 160, flex: 1, max: 380 },
+  { id: 'login', header: T('accounts.loginNameOrE'), min: 124, flex: 2, max: 340 },
+  { id: 'cred', header: T('accounts.password'), width: 152 },
+  { id: 'auto', header: T('accounts.automation'), min: 150, flex: 3, max: 230, headerTip: T('accounts.automationHelp') },
   { id: 'session', header: T('accounts.signInStatus'), width: 176, priority: 1, headerTip: T('accounts.sessionHelp') },
-  { id: 'source', header: T('accounts.howItGotHere'), width: 112, priority: 2 },
-  { id: 'act', header: '', width: 112, align: 'end' },
+  { id: 'source', header: T('accounts.howItGotHere'), width: 116, priority: 2 },
+  { id: 'act', header: '', width: actWidth.value, align: 'end' },
 ])
 const sources = computed(() => ({ agent: T('accounts.registeredByTheApp'), takeover: T('accounts.savedWhenYouSign'), manual: T('accounts.sourceManual'), chrome_csv: T('accounts.importFromChrome') }))
 
@@ -278,6 +288,7 @@ function importSession(ev) {
 </script>
 
 <template>
+  <button ref="probe" type="button" class="sm acc-probe" tabindex="-1" aria-hidden="true"><Icon name="login" />{{ $t('accounts.signIn') }}</button>
   <PageHead :title="$t('accounts.siteAccounts')" :help="$t('accounts.pageHelp')">
     <Menu :label="$t('common.more')" :items="pageItems" @pick="onPage">
       <template #trigger="{ toggle, attrs }"><button type="button" v-bind="attrs" @click="toggle"><Icon name="more" />{{ $t('common.more') }}</button></template>
@@ -308,14 +319,14 @@ function importSession(ev) {
   <template v-if="st.at">
     <SectionHead :title="$t('accounts.accountsUsedToSign')" :help="$t('accounts.providersHelp')">
       <Popover :label="$t('accounts.notHereAddYour')" :width="340" align="end">
-        <template #trigger="{ toggle, attrs }"><button type="button" class="sm" v-bind="attrs" @click="toggle"><Icon name="plus" />{{ $t('accounts.notHereAddYour') }}</button></template>
+        <template #trigger="{ toggle, attrs }"><button type="button" class="sm acc-add-provider" :aria-label="$t('accounts.notHereAddYour')" v-bind="attrs" @click="toggle"><Icon name="plus" /><span>{{ $t('accounts.notHereAddYour') }}</span></button></template>
         <template #default="{ close }">
           <div class="field"><label for="acc-cp-name">{{ $t('accounts.providerName') }}</label><input id="acc-cp-name" v-model="custom.name" :placeholder="$t('accounts.nameEGUniversity')" /></div>
           <div class="field"><label for="acc-cp-url">{{ $t('accounts.itsSignInPage') }}</label><input id="acc-cp-url" v-model="custom.url" type="url" placeholder="https://login.example.edu/" /></div>
           <div class="field"><label for="acc-cp-dom">{{ $t('accounts.itsDomainOptional') }}</label><input id="acc-cp-dom" v-model="custom.domains" placeholder="example.edu" /></div>
           <p class="hint">{{ $t('accounts.afterAddingItClick') }}</p>
           <FormError name="provider" />
-          <div class="actions pop-actions">
+          <div class="actions acc-pop-acts">
             <button type="button" class="sm" @click="close()">{{ $t('common.cancel') }}</button>
             <button type="button" class="sm primary" :disabled="!custom.name.trim() || !custom.url.trim()" @click="addCustom(close)">{{ $t('accounts.add') }}</button>
           </div>
@@ -345,7 +356,7 @@ function importSession(ev) {
       </template>
       <template #cell-auto="{ row }"><Status :tone="automation(row).tone" :label="automation(row).label" :tip="automation(row).tip" /></template>
       <template #cell-session="{ row }"><DateTimeCell v-bind="sessionCell(row.session)" /></template>
-      <template #cell-source="{ row }"><span v-if="sources[row.created_by]" class="meta">{{ sources[row.created_by] }}</span><span v-else class="none">—</span></template>
+      <template #cell-source="{ row }"><Trunc v-if="sources[row.created_by]" class="meta" :text="sources[row.created_by]" /><span v-else class="none">—</span></template>
       <template #cell-act="{ row }">
         <button v-if="row.host" type="button" class="sm" @click="takeover(row)"><Icon name="login" />{{ $t('accounts.signIn') }}</button>
         <Popover :ref="(el) => setPop(row.tenant_key, el)" :label="$t('accounts.signInBrowser')" :width="300" align="end">
@@ -359,7 +370,7 @@ function importSession(ev) {
                 <option value="nodriver">{{ $t('accounts.browserOrdinary') }}</option>
               </AaSelect>
             </div>
-            <div class="actions pop-actions">
+            <div class="actions acc-pop-acts">
               <button type="button" class="sm" @click="close()">{{ $t('common.cancel') }}</button>
               <button type="button" class="sm primary" @click="saveBrowser(row, close)">{{ $t('common.save') }}</button>
             </div>
@@ -373,8 +384,8 @@ function importSession(ev) {
   <!-- an account: everything on record about it, and the raw text of what went wrong last -->
   <SideDrawer v-if="detail" :title="detail.site.name" :sub="detail.host" :wide="false" @close="closeDrawer">
     <dl class="acc-facts">
-      <div><dt>{{ $t('accounts.account') }}</dt><dd><Trunc v-if="detail.login_email" :text="detail.login_email" /><span v-else class="none">—</span></dd></div>
-      <div><dt>{{ $t('accounts.credential') }}</dt><dd>
+      <div><dt>{{ $t('accounts.loginNameOrE') }}</dt><dd><Trunc v-if="detail.login_email" :text="detail.login_email" /><span v-else class="none">—</span></dd></div>
+      <div><dt>{{ $t('accounts.password') }}</dt><dd>
         <CredentialCell :saved="detail.has_password" :value="shownOf(detail)" :loading="revealing === detail.tenant_key" @reveal="reveal(detail)" @hide="hide(detail.tenant_key)" @copy="copy(detail)" @add="openAdd(detail)" />
       </dd></div>
       <div><dt>{{ $t('accounts.automation') }}</dt><dd>

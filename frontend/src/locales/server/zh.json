@@ -387,7 +387,7 @@
  "server.bots.thingsAreWaitingFor": "待处理 {p0} 项：",
  "server.bots.usageAppCompanyName": "用法：/app 公司名",
  "server.bots.workingOn": "正在处理：",
- "server.browser.aPasskeyOrTwo": "用 passkey 或两步验证登录都可以，在打开的窗口里照常完成就行；登录不上时，把上面的浏览器换成 nodriver 再试。",
+ "server.browser.aPasskeyOrTwo": "用 passkey 或两步验证登录都可以，在打开的窗口里照常完成即可；无法登录时，在这张卡片的“更多 → 登录设置”中把浏览器换成本机的 Chrome 或 Edge（nodriver）后重试。",
  "server.browser.appleRequiresTwoFactor": "Apple 每次在新浏览器里登录都要双重认证，验证码请你自己输入。",
  "server.browser.australiaNewZealand": "澳大利亚、新西兰",
  "server.browser.germanSpeakingRegion": "德语区",

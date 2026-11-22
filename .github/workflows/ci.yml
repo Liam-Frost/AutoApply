@@ -34,7 +34,11 @@ jobs:
           npm ci
           npm test
           npm run build
+      # (the interface was built and the browser installed above: the layout tests - tests/test_ui_layout.py - may not
+      # be skipped here for want of either)
       - name: Tests
+        env:
+          AUTOAPPLY_REQUIRE_UI_TESTS: "1"
         run: uv run pytest -q
       # A site's work is done in the browser its sign-in lives in, so whatever the program does to a form or a sign-in
       # has to work in the ordinary browser as well as the automated one: every test that drives one, once more, there.

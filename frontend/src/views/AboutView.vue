@@ -8,7 +8,7 @@ import BrandLogo from '../components/BrandLogo.vue'
 import DataTable from '../components/DataTable.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
-import SectionHead from '../components/SectionHead.vue'
+import CardHead from '../components/CardHead.vue'
 import Status from '../components/Status.vue'
 import Trunc from '../components/Trunc.vue'
 import { renderMarkdown } from '../md'
@@ -82,7 +82,7 @@ async function switchNow(back = false) {
   </div>
 
   <div v-if="up" class="card">
-    <SectionHead :title="$t('about.updates')" />
+    <CardHead :title="$t('about.updates')" />
     <p class="about-state">
       <template v-if="busy">
         <span>{{ up.status === 'downloading' ? $t('about.downloading', { v: up.latest, p: up.progress }) : $t('about.preparing', { v: up.latest }) }}</span>
@@ -109,7 +109,7 @@ async function switchNow(back = false) {
       <div class="md" v-html="renderMarkdown(up.notes)"></div>
     </details>
 
-    <SectionHead :title="$t('about.byItself')" :help="$t('about.howSwitch')" />
+    <CardHead class="about-sub" :title="$t('about.byItself')" :help="$t('about.howSwitch')" />
     <div class="about-modes" role="radiogroup" :aria-label="$t('about.byItself')">
       <label v-for="[k, name, how] in MODES" :key="k" class="about-mode" :class="{ on: mode === k }">
         <input v-model="mode" type="radio" :value="k" @change="saveSetting('update.mode', k)" />
@@ -144,7 +144,7 @@ async function switchNow(back = false) {
   </div>
 
   <div v-if="about" class="card">
-    <SectionHead :title="$t('about.components')" :count="about.components.length" :help="$t('about.componentsHint')" />
+    <CardHead :title="$t('about.components')" :note="about.components.length" :help="$t('about.componentsHint')" />
     <DataTable class="bare" :columns="PARTS" :rows="about.components" row-key="name" density="compact" :label="$t('about.components')" />
   </div>
 </template>
@@ -165,6 +165,7 @@ async function switchNow(back = false) {
 .about-notes { margin-top: 10px; }
 .about-notes summary { cursor: pointer; }
 .about-acts { flex-wrap: wrap; }
+.about-sub { margin-top: var(--s5); }
 .about-how, .about-privacy { margin-top: var(--s3); max-width: 86ch; }
 .about-set { margin-top: var(--s3); }
 .about-changes { margin-top: var(--s2); }

@@ -7,9 +7,9 @@ import ColumnChart from '../components/ColumnChart.vue'
 import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Icon from '../components/Icon.vue'
+import CardHead from '../components/CardHead.vue'
+import HelpPop from '../components/HelpPop.vue'
 import PageHead from '../components/PageHead.vue'
-import Popover from '../components/Popover.vue'
-import SectionHead from '../components/SectionHead.vue'
 import Status from '../components/Status.vue'
 import DataState from '../components/DataState.vue'
 import DateTimeCell from '../components/cells/DateTimeCell.vue'
@@ -37,10 +37,10 @@ const needs = computed(() => [
   ...todos.value.slice(0, 4).map((t) => ({ key: 't' + t.id, icon: 'bell', tone: 'warn', primary: todoText(t), secondary: (t.explained && t.explained.message) || '', to: '/todos', when: fmtTime(t.created_at), what: '' })),
   ...pending.value.slice(0, 4).map((d) => ({ key: 'd' + d.id, icon: 'draft', tone: 'info', primary: d.company, secondary: d.title, to: '/drafts/' + d.id, when: shortDayText(d.deadline), what: d.unresolved ? T('home.questionsNeedYourAnswer', { p0: d.unresolved }) : T('home.draftReadyForYour') })),
 ])
-const NEED_COLS = [{ id: 'what', header: T('home.col.item'), min: 180 }, { id: 'state', header: T('home.col.state'), min: 110, max: 190, priority: 1 }, { id: 'when', header: T('home.col.date'), width: 112, align: 'end' }]
-const CLOSING_COLS = [{ id: 'score', header: T('home.col.score'), width: 60 }, { id: 'job', header: T('home.col.posting'), min: 160 }, { id: 'deadline', header: T('home.col.deadline'), width: 128, align: 'end' }]
-const MAIL_COLS = [{ id: 'kind', header: T('home.col.kind'), min: 104, max: 168 }, { id: 'mail', header: T('home.col.email'), min: 160, flex: 3 }, { id: 'when', header: T('home.col.received'), width: 112, align: 'end' }]
-const RECENT_COLS = [{ id: 'stage', header: T('home.col.stage'), min: 104, max: 168 }, { id: 'job', header: T('home.col.posting'), min: 160, flex: 3 }, { id: 'when', header: T('home.col.applied'), width: 112, align: 'end' }]
+const NEED_COLS = [{ id: 'what', header: T('home.col.item'), min: 160, flex: 3 }, { id: 'state', header: T('home.col.state'), min: 120, max: 220, flex: 2, priority: 1 }, { id: 'when', header: T('home.col.date'), width: 112, align: 'end' }]
+const CLOSING_COLS = [{ id: 'score', header: T('home.col.score'), width: 56 }, { id: 'job', header: T('home.col.posting'), min: 140 }, { id: 'deadline', header: T('home.col.deadline'), width: 128, align: 'end' }]
+const MAIL_COLS = [{ id: 'kind', header: T('home.col.kind'), min: 104, max: 200, flex: 2 }, { id: 'mail', header: T('home.col.email'), min: 140, flex: 3 }, { id: 'when', header: T('home.col.received'), width: 112, align: 'end', priority: 1 }]
+const RECENT_COLS = [{ id: 'stage', header: T('home.col.stage'), min: 104, max: 200, flex: 2 }, { id: 'job', header: T('home.col.posting'), min: 140, flex: 3 }, { id: 'when', header: T('home.col.applied'), width: 112, align: 'end', priority: 1 }]
 const closing = computed(() => (ov.value.closing_soon || []).map((j) => ({ ...j, due: deadlineLabel(j.deadline) })))
 const mails = computed(() => (ov.value.mail_recent || []).slice(0, 5).map((m, i) => ({ ...m, key: i })))
 const recent = computed(() => (ov.value.recent_applications || []).slice(0, 7))
@@ -99,8 +99,7 @@ onMounted(load)
     <div class="stat stat-box">
       <router-link to="/applications" class="stat-link"><div class="n">{{ sent.sent }}</div></router-link>
       <div class="l">{{ $t('home.submitted') }}
-        <Popover :label="$t('home.howSentAcknowledgedAnd')" :width="380" placement="bottom" align="end">
-          <template #trigger="{ toggle, attrs }"><button v-tip="$t('home.howSentAcknowledgedAnd')" type="button" class="info-tip" v-bind="attrs" :aria-label="$t('home.howSentAcknowledgedAnd')" @click="toggle"><Icon name="help" /></button></template>
+        <HelpPop :label="$t('home.howSentAcknowledgedAnd')" :width="380">
           <p>{{ $t('home.sentEveryApplicationThat', { p0: sent.sent, p1: sent.heard, p2: sent.decided }) }}</p>
           <p v-if="sent.archived">{{ $t('home.thePostingsOfOf', { p0: sent.archived, p1: sent.sent - sent.archived }) }}</p>
           <i18n-t :keypath="sent.undated ? 'home.analyticsCountsUndated' : 'home.analyticsCounts'" tag="p" scope="global">
@@ -108,18 +107,18 @@ onMounted(load)
             <template #dated>{{ sent.dated }}</template>
             <template #undated>{{ sent.undated }}</template>
           </i18n-t>
-        </Popover>
+        </HelpPop>
       </div>
       <div class="d">{{ $t('home.rates', { heard: share(sent.heard), decided: share(sent.decided) }) }}</div>
     </div>
   </div>
 
-  <div class="cols">
+  <div class="cols fit">
     <div class="card">
-      <SectionHead :title="$t('home.needsYourAction')">
+      <CardHead :title="$t('home.needsYourAction')">
         <router-link :to="{ path: '/runs', query: { tab: 'notes' } }" class="btn ghost sm">{{ $t('home.recentNotices') }}</router-link>
         <router-link v-if="todos.length" to="/todos" class="btn ghost sm">{{ $t('home.all') }}</router-link>
-      </SectionHead>
+      </CardHead>
       <DataTable v-if="needs.length" class="bare" :columns="NEED_COLS" :rows="needs" row-key="key" clickable :label="$t('home.needsYourAction')" @row="(r) => router.push(r.to)">
         <template #cell-what="{ row }"><Icon :name="row.icon" class="home-ico" :class="row.tone" /><EntityCell :primary="row.primary" :secondary="row.secondary" :to="row.to" /></template>
         <template #cell-state="{ row }"><Status v-if="row.what" tone="info" :label="row.what" /><span v-else class="none">—</span></template>
@@ -129,9 +128,9 @@ onMounted(load)
     </div>
 
     <div class="card">
-      <SectionHead :title="$t('home.postingsClosingSoon')">
+      <CardHead :title="$t('home.postingsClosingSoon')">
         <router-link to="/jobs" class="btn ghost sm">{{ $t('home.allNotApplied') }}</router-link>
-      </SectionHead>
+      </CardHead>
       <DataTable v-if="closing.length" class="bare" :columns="CLOSING_COLS" :rows="closing" clickable :label="$t('home.postingsClosingSoon')" @row="(j) => openJob(j.id)">
         <template #cell-score="{ row }"><span class="score num" :class="row.score >= 7.5 ? 'hi' : row.score >= 6 ? 'mid' : 'lo'">{{ row.score == null ? '—' : row.score.toFixed(1) }}</span></template>
         <template #cell-job="{ row }">
@@ -143,15 +142,15 @@ onMounted(load)
     </div>
   </div>
 
-  <div class="cols">
+  <div class="cols fit">
     <div class="card">
-      <SectionHead :title="$t('home.applicationsPerWeek')" />
+      <CardHead :title="$t('home.applicationsPerWeek')" />
       <p class="card-sub">{{ $t('home.inTheLastWeeks', { p0: weekTotal, p1: thisWeek }) }}</p>
       <ColumnChart v-if="weekly.length" :data="weekly" :unit="$t('home.items')" :table-label="$t('home.week')" />
     </div>
 
     <div class="card">
-      <SectionHead :title="$t('home.whereYourApplicationsStand')" />
+      <CardHead :title="$t('home.whereYourApplicationsStand')" />
       <p class="card-sub">{{ $t('home.totalMoreBeingPrepared', { p0: sentTotal, p1: n('drafting', 'needs_input', 'draft_ready', 'applying', 'needs_you', 'failed') }) }}</p>
       <div class="hbars">
         <template v-for="r in pipeline" :key="r.key">
@@ -164,9 +163,9 @@ onMounted(load)
     </div>
   </div>
 
-  <div class="cols">
+  <div class="cols fit">
     <div class="card">
-      <SectionHead :title="$t('home.recentEmailActivity')" />
+      <CardHead :title="$t('home.recentEmailActivity')" />
       <DataTable v-if="mails.length" class="bare" :columns="MAIL_COLS" :rows="mails" row-key="key" :label="$t('home.recentEmailActivity')">
         <template #cell-kind="{ row }">
           <span v-if="MAIL_KIND[row.category] && row.event !== 'cancelled'" v-tip.overflow class="ev-kind cut" :class="MAIL_KIND[row.category]">{{ row.label }}</span>
@@ -179,7 +178,7 @@ onMounted(load)
     </div>
 
     <div class="card">
-      <SectionHead :title="$t('home.recentApplications')" />
+      <CardHead :title="$t('home.recentApplications')" />
       <DataTable v-if="recent.length" class="bare" :columns="RECENT_COLS" :rows="recent" row-key="job_id" clickable :label="$t('home.recentApplications')" @row="(a) => openJob(a.job_id)">
         <template #cell-stage="{ row }"><Status :tone="row.stage_tone" :label="row.stage_label" /></template>
         <template #cell-job="{ row }"><EntityCell :primary="row.company" :secondary="row.title" :to="jobTo(row.job_id)" /></template>

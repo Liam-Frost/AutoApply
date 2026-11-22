@@ -38,7 +38,8 @@ async function submit() {
         <div class="card-title">{{ $t('login.noAdministratorAccountYet') }}</div>
         <p class="muted">{{ $t('login.theFirstSetUp') }}</p>
         <p class="muted">{{ $t('login.ifThatComputerIs') }}</p>
-        <p><code data-notr>autoapply set-admin</code>　<span class="muted">Docker：</span><code data-notr>docker compose exec autoapply autoapply set-admin</code></p>
+        <p class="door-cmd"><code data-notr>autoapply set-admin</code></p>
+        <p class="door-cmd"><span class="muted">{{ $t('login.inDocker') }}</span> <code data-notr>docker compose exec autoapply autoapply set-admin</code></p>
       </template>
       <template v-else>
         <div class="card-title">{{ setup ? $t('login.setUpTheAdministrator') : $t('login.signIn') }}</div>

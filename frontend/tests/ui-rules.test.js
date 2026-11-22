@@ -64,63 +64,21 @@ function stylesOf(text) {
 const PENDING = {
   // title="…" on an element: the browser's own tooltip. Use v-tip / <Trunc> / <InfoTip> / <IconButton label>.
   title: {
-    'App.vue': 3,
-    'components/AiPanel.vue': 2,
-    'components/EmployersPanel.vue': 3,
-    'components/ModelPick.vue': 1,
-    'components/RecordPanel.vue': 2,
     // SHARED, reported to the lead: AaSelect hands a caller's `title` on to its button as the browser's tooltip
     // (`:title="attrs.title"`). It should say it with v-tip and keep `attrs.title` only as the accessible name.
     'components/Select.vue': 1,
-    'components/SplitBar.vue': 1,
-    'components/StackChart.vue': 1,
-    'views/ApplicationDetail.vue': 1,
-    'views/ApplicationsView.vue': 1,
-    'views/CalendarView.vue': 12,
-    'views/FilesView.vue': 5,
-    'views/HomeView.vue': 2,
-    'views/JobsView.vue': 7,
-    'views/ProfileView.vue': 1,
-    'views/RemoteView.vue': 2,
-    'views/RunsView.vue': 1,
-    'views/SettingsView.vue': 1,
-    'views/TodosView.vue': 1,
-    'views/analytics/AppsPanel.vue': 7,
-    'views/analytics/AutoPanel.vue': 9,
-    'views/analytics/CostPanel.vue': 20,
-    'views/analytics/RunDetail.vue': 1,
-    'views/calendar/AgendaRow.vue': 1,
-    'views/calendar/EventChip.vue': 1,
-    'views/calendar/FilterMenu.vue': 1,
-    'views/calendar/MonthView.vue': 1,
-    'views/calendar/WeekView.vue': 2,
   },
   // a hex colour or `font-size: NNpx` in a <style> block or a style attribute. Use the tokens (var(--text-2),
   // var(--fs-sm)) or the text classes (.t-primary / .t-secondary / .t-meta).
-  tokens: {
-    'components/MailboxPanel.vue': 1,
-    'components/RecordPanel.vue': 1,
-    'views/ApplicationDetail.vue': 3,
-    'views/JobsView.vue': 2,
-    'views/ProfileView.vue': 1,
-  },
+  tokens: {},
   // a <table> for a list of records. Use <DataTable>.
   table: {
-    'components/EmployersPanel.vue': 1,
-    'components/RecordPanel.vue': 1,
-    'views/AccountsView.vue': 1,
-    'views/ApplicationsView.vue': 1,
-    'views/ContactsView.vue': 1,
-    'views/JobsView.vue': 1,
-    'views/RunsView.vue': 1,
+    'components/RecordPanel.vue': 1,            // the questions and answers of an application's record
     'views/SourcesView.vue': 1,
-    'views/analytics/SitesPanel.vue': 1,
     'views/lab/sections/04-Status.vue': 1,      // the lab's "three weights in one table": to be shown in a DataTable like every other list
   },
   // a button or link that holds an icon alone and has no name. Use <IconButton icon label>, or give it an aria-label.
-  name: {
-    'views/RemoteView.vue': 2,
-  },
+  name: {},
 }
 
 // Where a <table> is the right thing: figures set out in rows and columns, not a list of records to work through.
@@ -223,7 +181,8 @@ const found = Object.fromEntries(Object.keys(RULES).map((rule) => [rule, new Map
 
 if (process.env.UI_RULES_REPORT) {
   for (const rule of Object.keys(RULES)) {
-    console.log(`  ${rule}: {\n` + [...found[rule]].map(([name, v]) => `    '${name}': ${v.length},`).join('\n') + '\n  },')
+    // (written straight out: the test runner keeps what a passing file logs to itself)
+    process.stdout.write((found[rule].size ? `  ${rule}: {\n` + [...found[rule]].map(([name, v]) => `    '${name}': ${v.length},`).join('\n') + '\n  },' : `  ${rule}: {},`) + '\n')
   }
 }
 

@@ -87,10 +87,9 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
 
     <div class="an-row c32 tight">
       <div class="card">
-        <CardHead :title="TITLE[d.bucket]" :help="$t('analytics.auto.byTheDayA')">
-          <button class="ghost sm" :aria-expanded="table" @click="table = !table"><Icon :name="table ? 'chevron_up' : 'table'" />{{ table ? $t('analytics.auto.hideDetail') : $t('analytics.auto.showTheDataTable') }}</button>
-        </CardHead>
+        <CardHead :title="TITLE[d.bucket]" :help="$t('analytics.auto.byTheDayA')" />
         <StackChart :buckets="trend" :series="SERIES" :format="count" :height="168" />
+        <div class="card-foot"><button class="ghost sm" :aria-expanded="table" @click="table = !table"><Icon :name="table ? 'chevron_up' : 'table'" />{{ table ? $t('analytics.auto.hideDetail') : $t('analytics.auto.showTheDataTable') }}</button></div>
       </div>
       <div class="card">
         <CardHead :title="$t('analytics.auto.mainReasonsForFailure')" :help="$t('analytics.auto.groupedByReasonMost')" :note="$t('analytics.auto.failures', { p0: failed })" />
@@ -119,7 +118,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </CardHead>
       <div class="an-scroll">
         <table class="an-table two">
-          <colgroup><col /><col class="w-xs" /><col class="w-bar" /><col class="w-n" /><col class="w-num" /><col class="w-n opt-a" /><col class="w-n opt-a" /><col class="w-wide" /><col class="w-wide opt-b" /></colgroup>
+          <colgroup><col /><col class="w-xs" /><col class="w-bar" /><col class="w-n" /><col class="w-wide" /><col class="w-n opt-a" /><col class="w-n opt-a" /><col class="w-wide" /><col class="w-wide opt-b" /></colgroup>
           <thead><tr><th>{{ $t('analytics.auto.task') }}</th><th class="num">{{ $t('analytics.auto.runs') }}</th><th>{{ $t('analytics.auto.result') }}</th><th class="num">{{ $t('analytics.auto.successRate') }}</th><th class="num">{{ $t('analytics.auto.typicalTime') }}</th><th class="num opt-a">{{ $t('analytics.auto.restarted') }}</th><th class="num opt-a">{{ $t('analytics.auto.aiRequests') }}</th><th class="num">{{ $t('analytics.auto.aiCost') }}</th><th class="num opt-b">{{ $t('analytics.auto.costPerSuccess') }}</th></tr></thead>
           <tbody>
             <tr v-for="k in d.by_kind" :key="k.kind">
@@ -181,7 +180,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
           <div class="an-label">{{ $t('analytics.auto.upToReadyTo') }}</div>
           <div class="an-scroll">
             <table class="an-table">
-              <colgroup><col /><col class="w-xs" /><col class="w-xs" /><col class="w-n" /><col class="w-n" /></colgroup>
+              <colgroup><col /><col class="w-xs" /><col class="w-xs" /><col class="w-n" /><col class="w-dur" /></colgroup>
               <thead><tr><th>{{ $t('analytics.auto.applicantTrackingSystem') }}</th><th class="num">{{ $t('analytics.auto.apply') }}</th><th class="num">{{ $t('analytics.auto.done') }}</th><th class="num">{{ $t('analytics.auto.stepsMedian') }}</th><th class="num">{{ $t('analytics.auto.timeMedian') }}</th></tr></thead>
               <tbody><tr v-for="r in d.agent_runs.by_system" :key="r.key"><td><Trunc :text="r.label" /></td><td class="num">{{ r.apps }}</td><td class="num">{{ r.done }}</td>
                 <td class="num">{{ r.median_steps ?? '—' }}</td><td class="num">{{ r.median_seconds == null ? '—' : dur(r.median_seconds) }}</td></tr></tbody>
@@ -237,7 +236,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </CardHead>
       <div class="an-scroll">
         <table class="an-table two">
-          <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-n" /><col class="w-n opt-a" /><col class="w-n opt-a" /><col class="w-num" /><col class="w-note opt-b" /></colgroup>
+          <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-dur" /><col class="w-n opt-a" /><col class="w-n opt-a" /><col class="w-num" /><col class="w-note opt-b" /></colgroup>
           <thead><tr><th>{{ $t('analytics.auto.task') }}</th><th>{{ $t('analytics.auto.start') }}</th><th>{{ $t('analytics.auto.result') }}</th><th class="num">{{ $t('analytics.auto.duration') }}</th><th class="num opt-a">{{ $t('analytics.auto.aiRequests') }}</th><th class="num opt-a">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.auto.aiCost') }}</th><th class="opt-b">{{ $t('analytics.auto.whyItDidNot') }}</th></tr></thead>
           <tbody>
             <tr v-for="r in d.recent" :key="r.id" class="clickable" tabindex="0" @click="openRun(r)" @keydown.enter="openRun(r)">
@@ -284,7 +283,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
     <template v-else>
       <div class="an-scroll">
         <table class="an-table two">
-          <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-n" /><col class="w-n opt-b" /><col class="w-num" /></colgroup>
+          <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-dur" /><col class="w-n opt-b" /><col class="w-num" /></colgroup>
           <thead><tr><th>{{ $t('analytics.auto.task') }}</th><th>{{ $t('analytics.auto.start') }}</th><th>{{ $t('analytics.auto.result') }}</th><th class="num">{{ $t('analytics.auto.duration') }}</th><th class="num opt-b">{{ $t('analytics.auto.aiRequests') }}</th><th class="num">{{ $t('analytics.auto.aiCost') }}</th></tr></thead>
           <tbody>
             <tr v-for="r in drawer.rows" :key="r.id" class="clickable" tabindex="0" @click="openRun(r, true)" @keydown.enter="openRun(r, true)">
