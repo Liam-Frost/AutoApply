@@ -54,7 +54,7 @@ defineExpose({ load })
       <div class="an-scroll">
         <table class="an-table">
           <colgroup><col /><col class="w-state" /><col class="w-n" /></colgroup>
-          <thead><tr><th>{{ $t('settings.network.connectTo') }}</th><th>{{ $t('settings.network.result') }}</th><th class="num">{{ $t('settings.network.timeTaken') }}</th></tr></thead>
+          <thead><tr><th v-tip.overflow>{{ $t('settings.network.connectTo') }}</th><th v-tip.overflow>{{ $t('settings.network.result') }}</th><th v-tip.overflow class="num">{{ $t('settings.network.timeTaken') }}</th></tr></thead>
           <tbody>
             <tr v-for="r in results" :key="r.name">
               <td><Trunc :text="r.name" /></td>

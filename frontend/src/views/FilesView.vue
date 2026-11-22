@@ -16,7 +16,8 @@ import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import PdfView from '../components/PdfView.vue'
 import { fmtTime, run, toast, ask, persona } from '../ui'
-import { t, tag } from '../i18n/catalog'
+import { t } from '../i18n/catalog'
+import { listed } from '../i18n/format'
 
 const docs = ref([])
 const folder = ref('base') // base | generated | all | kind:<k> | job:<id>
@@ -90,7 +91,6 @@ const shown = computed(() => {
 const inactiveCount = computed(() => docs.value.filter((d) => !d.active).length)
 const totalSize = computed(() => docs.value.reduce((a, d) => a + (d.size || 0), 0))
 // several things in one line, joined the way the language joins them
-const listed = (xs) => new Intl.ListFormat(tag(), { style: 'short', type: 'conjunction' }).format(xs)
 // A row's second line (what the file is, for which posting, since when) and its one state. Of the states only a
 // missing file is loud (a .tag, in the template); the others are ordinary, the reason behind an (i).
 const subOf = (d) => [(KINDS[d.kind] || d.kind) + (d.version ? ' ' + T('files.page.version', { p0: d.version }) : ''), d.for_job && !folder.value.startsWith('job:') ? d.for_job : '', fmtTime(d.created_at)].filter(Boolean).join(' · ')

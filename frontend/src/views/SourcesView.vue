@@ -10,7 +10,9 @@ import EmployersPanel from '../components/EmployersPanel.vue'
 import EntityCell from '../components/cells/EntityCell.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
-import SectionHead from '../components/SectionHead.vue'
+import CardHead from '../components/CardHead.vue'
+import DataState from '../components/DataState.vue'
+import { dataState } from '../data'
 import Status from '../components/Status.vue'
 import TechDetails from '../components/TechDetails.vue'
 import Trunc from '../components/Trunc.vue'
@@ -21,8 +23,10 @@ const rep = ref({ at: null, sources: [], total: { read: 0, kept: 0, new: 0, drop
 const open = ref(null)        // the source whose failure and reasons are shown in full (its row opened)
 const bm = ref({ href: '' })
 const portal = ref({ on: false, base: '', account: null })
+// (data.js: the report being read, not read, or read earlier - said the same way as on every page)
+const { st, load: loadReport } = dataState(async () => { rep.value = await api.get('/sources/report') })
 async function load() {
-  api.get('/sources/report').then((c) => (rep.value = c)).catch((e) => toast(e.message, 'bad'))
+  loadReport()
   if (persona.features.portal !== 'ubc') return
   api.get('/import/pdportal/bookmarklet').then((c) => (bm.value = c)).catch(() => {})
   const [st, accounts] = await Promise.all([api.get('/settings'), api.get('/accounts').catch(() => [])])
@@ -54,18 +58,18 @@ function lastOf(r) {
 
 <template>
   <PageHead :title="$t('sources.sourcesAndWatchedEmployers')" :help="$t('sources.thePostingsAreRead')">
-    <router-link to="/jobs" class="btn ghost"><Icon name="back" />{{ $t('sources.backToPostings') }}</router-link>
+    <template #sub><router-link to="/jobs" class="app-back"><Icon name="back" />{{ $t('sources.backToPostings') }}</router-link></template>
     <button class="primary" @click="scanNow"><Icon name="refresh" />{{ $t('sources.scanNow') }}</button>
   </PageHead>
 
   <EmployersPanel />
 
   <div v-if="persona.features.portal === 'ubc'" class="card">
-    <SectionHead title="UBC PD Portal" :help="$t('sources.theProgramReadsThe')">
+    <CardHead title="UBC PD Portal" :help="$t('sources.theProgramReadsThe')">
       <Status v-if="portal.account" :tone="portal.account.status === 'ok' ? 'ok' : 'warn'" :label="portal.account.status === 'ok' ? $t('sources.signedIn') : $t('sources.needsSigningInAgain')" />
       <Status v-else tone="warn" :label="$t('sources.neverSignedIn')" />
       <button @click="portalLogin"><Icon name="login" />{{ $t('sources.signInToPd') }}</button>
-    </SectionHead>
+    </CardHead>
     <label class="src-toggle"><input type="checkbox" :checked="portal.on" @change="setPortal($event.target.checked)" /> {{ $t('sources.readPdPortalWhen') }} <span class="hint">{{ $t('sources.appliedAsYouChange') }}</span></label>
     <p class="hint">{{ $t('sources.whenThePortalRefuses') }}<router-link to="/settings/system/browser">{{ $t('sources.settingsSystemAndData') }}</router-link>{{ $t('sources.andTurnTheOrdinary') }}</p>
     <details class="tech"><summary>{{ $t('sources.orImportFromYour') }}</summary>
@@ -77,8 +81,9 @@ function lastOf(r) {
       <pre>{{ $t('sources.ifTheBookmarksBar', { p0: portal.base }) }}</pre></details>
   </div>
 
-  <div class="card">
-    <SectionHead :title="$t('sources.whatEachSourceGave')"><router-link to="/settings/automation/schedule" class="btn sm ghost">{{ $t('sources.howOftenToScan') }}</router-link></SectionHead>
+  <DataState :s="st" :what="$t('sources.whatEachSourceGave')" @retry="loadReport" />
+  <div v-if="st.at" class="card">
+    <CardHead :title="$t('sources.whatEachSourceGave')"><router-link to="/settings/automation/schedule" class="btn sm ghost">{{ $t('sources.howOftenToScan') }}</router-link></CardHead>
     <p v-if="!rep.at" class="muted">{{ $t('sources.notScannedYet') }}</p>
     <template v-else>
       <p class="t-secondary src-line">{{ $t('sources.latestScanPostingsWere', { p0: fmtTime(rep.at), p1: rep.total.read, p2: rep.total.kept, p3: rep.total.new }) }}</p>

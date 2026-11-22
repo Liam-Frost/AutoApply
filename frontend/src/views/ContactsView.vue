@@ -71,7 +71,7 @@ onMounted(load)
         <span v-if="due" class="tag warn">{{ $t('contacts.dueForFollowUp', { p0: due }) }}</span>
         <span class="grow"></span><span class="t-meta atomic">{{ $t('contacts.count', { n: shown.length }, shown.length) }}</span>
       </div>
-      <DataTable :columns="COLS" :rows="shown" clickable :label="$t('contacts.contactsReferrals')" @row="edit">
+      <DataTable :columns="COLS" :rows="shown" density="comfortable" clickable :label="$t('contacts.contactsReferrals')" @row="edit">
         <template #cell-name="{ row }"><EntityCell :primary="row.name" :secondary="row.role" /></template>
         <template #cell-company="{ row }">
           <EntityCell :primary="row.company" :secondary="row.open_jobs ? $t('contacts.openJobs', { n: row.open_jobs }, row.open_jobs) : ''" :to="row.open_jobs ? { path: '/jobs', query: { q: row.company } } : null" />
@@ -87,15 +87,16 @@ onMounted(load)
   </template>
 
   <SideDrawer v-if="editing" :title="form.id ? $t('contacts.editContact') : $t('contacts.addContact')" :wide="false" @close="editing = false">
-    <form id="contact-form" class="kv" @submit.prevent="save">
-      <label for="ct-name">{{ $t('contacts.name') }}</label><input id="ct-name" v-model="form.name" class="w-full" required />
-      <label for="ct-company">{{ $t('contacts.company') }} <InfoTip :text="$t('contacts.mustMatchTheCompany')" /></label><input id="ct-company" v-model="form.company" class="w-full" required />
-      <label for="ct-role">{{ $t('contacts.job') }}</label><input id="ct-role" v-model="form.role" class="w-full" :placeholder="$t('contacts.optional')" />
-      <label for="ct-relation">{{ $t('contacts.howYouMet') }}</label><input id="ct-relation" v-model="form.relation" class="w-full" :placeholder="$t('contacts.eGAlumniFormer')" />
-      <label for="ct-how">{{ $t('contacts.contactDetails') }}</label><input id="ct-how" v-model="form.how" class="w-full" :placeholder="$t('contacts.emailLinkedinLinkEtc')" />
-      <label>{{ $t('contacts.progress') }}</label><AaSelect v-model="form.status" class="w-full"><option v-for="(v, k) in STATUS" :key="k" :value="k">{{ v[0] }}</option></AaSelect>
-      <label for="ct-follow">{{ $t('contacts.followUpDate') }} <InfoTip :text="$t('contacts.onThisDateOverview')" /></label><input id="ct-follow" v-model="form.follow_up" type="date" />
-      <label for="ct-note">{{ $t('contacts.notes') }}</label><textarea id="ct-note" v-model="form.note" class="prose" rows="4"></textarea>
+    <!-- (a form is .fields: the words above the control, as in every other form of the program) -->
+    <form id="contact-form" class="fields" @submit.prevent="save">
+      <label class="f">{{ $t('contacts.name') }}<input id="ct-name" v-model="form.name" required /></label>
+      <div class="f"><span class="f-label"><label for="ct-company">{{ $t('contacts.company') }}</label> <InfoTip :text="$t('contacts.mustMatchTheCompany')" /></span><input id="ct-company" v-model="form.company" required /></div>
+      <label class="f">{{ $t('contacts.job') }}<input id="ct-role" v-model="form.role" :placeholder="$t('contacts.optional')" /></label>
+      <label class="f">{{ $t('contacts.howYouMet') }}<input id="ct-relation" v-model="form.relation" :placeholder="$t('contacts.eGAlumniFormer')" /></label>
+      <label class="f">{{ $t('contacts.contactDetails') }}<input id="ct-how" v-model="form.how" :placeholder="$t('contacts.emailLinkedinLinkEtc')" /></label>
+      <div class="f"><span id="ct-status-l">{{ $t('contacts.progress') }}</span><AaSelect v-model="form.status" aria-labelledby="ct-status-l"><option v-for="(v, k) in STATUS" :key="k" :value="k">{{ v[0] }}</option></AaSelect></div>
+      <div class="f"><span class="f-label"><label for="ct-follow">{{ $t('contacts.followUpDate') }}</label> <InfoTip :text="$t('contacts.onThisDateOverview')" /></span><input id="ct-follow" v-model="form.follow_up" type="date" /></div>
+      <label class="f all">{{ $t('contacts.notes') }}<textarea id="ct-note" v-model="form.note" class="prose" rows="4"></textarea></label>
     </form>
     <FormError name="contact" />
     <template #footer>

@@ -160,7 +160,7 @@ async function savePrices() {
         <div class="an-scroll">
           <table class="an-table two">
             <colgroup><col /><col class="w-n" /><col class="w-n" /><col class="w-wide" /><col class="w-xs" /><col class="w-num opt-b" /><col class="w-num opt-b" /></colgroup>
-            <thead><tr><th>{{ $t('analytics.cost.model') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.share') }}</th><th class="num opt-b">{{ $t('analytics.cost.avgPerRequest') }}</th><th class="num opt-b">{{ $t('analytics.cost.typicalTime') }}</th></tr></thead>
+            <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.model') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.requests') }}</th><th v-tip.overflow class="num">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.cost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.share') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.cost.avgPerRequest') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.cost.typicalTime') }}</th></tr></thead>
             <tbody>
               <tr v-for="m in d.by_model" :key="m.provider + m.model">
                 <td><Trunc as="div" class="t-name" data-notr :text="m.model || '—'" /><Trunc as="div" class="t-sub" :text="m.provider_label + ' · ' + m.billing_label" /></td>
@@ -180,7 +180,7 @@ async function savePrices() {
         <div class="an-scroll">
           <table class="an-table two">
             <colgroup><col /><col class="w-n" /><col class="w-num" /></colgroup>
-            <thead><tr><th>{{ $t('analytics.cost.service') }}</th><th class="num">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.cost.estCost') }}</th></tr></thead>
+            <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.service') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.requests') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.estCost') }}</th></tr></thead>
             <tbody>
               <tr v-for="p in d.by_provider" :key="p.provider">
                 <td><Trunc as="div" class="t-name" :text="p.provider_label" /><Status :tone="p.billing === 'metered' ? 'warn' : p.billing === 'unknown' ? '' : 'ok'" :label="p.billing_label" /></td>
@@ -201,8 +201,8 @@ async function savePrices() {
       <CardHead :title="$t('analytics.cost.costByFeature')" :help="$t('analytics.cost.oneCallCanContain')" />
       <div class="an-scroll">
         <table class="an-table">
-          <colgroup><col /><col class="w-xs" /><col class="w-n opt-a" /><col class="w-n" /><col class="w-n opt-b" /><col class="w-num" /><col class="w-bar opt-b" /><col class="w-num" /></colgroup>
-          <thead><tr><th>{{ $t('analytics.cost.feature') }}</th><th class="num">{{ $t('analytics.cost.calls') }}</th><th class="num opt-a">{{ $t('analytics.cost.requests') }}</th><th class="num">{{ $t('analytics.cost.successRate') }}</th><th class="num opt-b">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="opt-b">{{ $t('analytics.cost.shareOfAllCost') }}</th><th class="num">{{ $t('analytics.cost.avgPerCall') }}</th></tr></thead>
+          <colgroup><col /><col class="w-xs" /><col class="w-n opt-a" /><col class="w-wide" /><col class="w-n opt-b" /><col class="w-num" /><col class="w-bar opt-b" /><col class="w-l" /></colgroup>
+          <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.feature') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.calls') }}</th><th v-tip.overflow class="num opt-a">{{ $t('analytics.cost.requests') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.successRate') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.cost') }}</th><th v-tip.overflow class="opt-b">{{ $t('analytics.cost.shareOfAllCost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.avgPerCall') }}</th></tr></thead>
           <tbody>
             <tr v-for="f in d.by_feature" :key="f.feature" class="clickable" :class="{ picked: params.feature === f.feature }" tabindex="0" @click="params.feature = params.feature === f.feature ? '' : f.feature" @keydown.enter="params.feature = params.feature === f.feature ? '' : f.feature">
               <td><Trunc as="div" class="t-name" :text="f.label" /></td>
@@ -224,8 +224,8 @@ async function savePrices() {
         <CardHead :title="$t('analytics.cost.costPerResult')" :help="$t('analytics.cost.everythingAKindOf')" />
         <div v-if="d.units.length" class="an-scroll">
           <table class="an-table two">
-            <colgroup><col /><col class="w-xs" /><col class="w-xs opt-c" /><col class="w-xs" /><col class="w-num" /><col class="w-wide" /></colgroup>
-            <thead><tr><th>{{ $t('analytics.cost.task') }}</th><th class="num">{{ $t('analytics.cost.runs') }}</th><th class="num opt-c">{{ $t('analytics.cost.failed') }}</th><th class="num">{{ $t('analytics.cost.results') }}</th><th class="num">{{ $t('analytics.cost.aiCost') }}</th><th class="num">{{ $t('analytics.cost.perResult') }}</th></tr></thead>
+            <colgroup><col /><col class="w-m" /><col class="w-n opt-c" /><col class="w-n" /><col class="w-num" /><col class="w-wide" /></colgroup>
+            <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.task') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.runs') }}</th><th v-tip.overflow class="num opt-c">{{ $t('analytics.cost.failed') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.results') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.aiCost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.perResult') }}</th></tr></thead>
             <tbody>
               <tr v-for="u in d.units" :key="u.kind">
                 <td><Trunc as="div" class="t-name" :text="u.label" /><Trunc as="div" class="t-sub" :text="u.unit" /></td>
@@ -268,8 +268,8 @@ async function savePrices() {
         <CardHead :title="$t('analytics.cost.mostExpensiveRuns')" :help="$t('analytics.cost.highWellAboveMost')" />
         <div v-if="d.costly.length" class="an-scroll">
           <table class="an-table two">
-            <colgroup><col /><col class="w-date opt-c" /><col class="w-n opt-c" /><col class="w-num" /><col class="w-n" /></colgroup>
-            <thead><tr><th>{{ $t('analytics.cost.task') }}</th><th class="opt-c">{{ $t('analytics.cost.start') }}</th><th class="num opt-c">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
+            <colgroup><col /><col class="w-date opt-c" /><col class="w-n opt-c" /><col class="w-num" /><col class="w-l" /></colgroup>
+            <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.task') }}</th><th v-tip.overflow class="opt-c">{{ $t('analytics.cost.start') }}</th><th v-tip.overflow class="num opt-c">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.cost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
             <tbody>
               <tr v-for="c in d.costly.slice(0, TOP)" :key="c.task_id" class="clickable" tabindex="0" @click="openRun(c)" @keydown.enter="openRun(c)">
                 <td><div class="t-line"><Trunc class="t-name" :text="c.label" /><span v-if="c.outlier" class="tag warn">{{ $t('analytics.cost.high') }}</span></div><Trunc as="div" class="t-sub" :text="c.subject || '—'" /></td>
@@ -287,8 +287,8 @@ async function savePrices() {
         <CardHead :title="$t('analytics.cost.requestsThatUsedUnusually')" :help="$t('analytics.cost.comparedWithOtherRequests')" />
         <div v-if="d.heavy.length" class="an-scroll">
           <table class="an-table two">
-            <colgroup><col /><col class="w-date opt-c" /><col class="w-n" /><col class="w-num" /><col class="w-num" /></colgroup>
-            <thead><tr><th>{{ $t('analytics.cost.feature') }}</th><th class="opt-c">{{ $t('analytics.cost.time') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
+            <colgroup><col /><col class="w-date opt-c" /><col class="w-n" /><col class="w-l" /><col class="w-num" /></colgroup>
+            <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.feature') }}</th><th v-tip.overflow class="opt-c">{{ $t('analytics.cost.time') }}</th><th v-tip.overflow class="num">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
             <tbody>
               <tr v-for="h in d.heavy.slice(0, TOP)" :key="h.id" :class="{ clickable: h.task_id }" :tabindex="h.task_id ? 0 : -1" @click="openRun(h)" @keydown.enter="openRun(h)">
                 <td><Trunc as="div" class="t-name" :text="h.label" /><Trunc as="div" class="t-sub" data-notr :text="h.model || '—'" /></td>
@@ -320,7 +320,7 @@ async function savePrices() {
     <div class="an-scroll">
       <table class="an-table two">
         <colgroup><col /><col class="w-date" /><col class="w-state opt-b" /><col class="w-n" /><col class="w-num" /><col class="w-n" /></colgroup>
-        <thead><tr><th>{{ $t('analytics.cost.task') }}</th><th>{{ $t('analytics.cost.start') }}</th><th class="opt-b">{{ $t('analytics.cost.result') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th><th class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
+        <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.task') }}</th><th v-tip.overflow>{{ $t('analytics.cost.start') }}</th><th v-tip.overflow class="opt-b">{{ $t('analytics.cost.result') }}</th><th v-tip.overflow class="num">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.cost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.timesTheMedian') }}</th></tr></thead>
         <tbody>
           <tr v-for="c in d.costly.slice(drawer.page * SIZE, (drawer.page + 1) * SIZE)" :key="c.task_id" class="clickable" tabindex="0" @click="openRun(c, true)" @keydown.enter="openRun(c, true)">
             <td><div class="t-line"><Trunc class="t-name" :text="c.label" /><span v-if="c.outlier" class="tag warn">{{ $t('analytics.cost.high') }}</span></div><Trunc as="div" class="t-sub" :text="c.subject || '—'" /></td>
@@ -338,7 +338,7 @@ async function savePrices() {
     <div class="an-scroll">
       <table class="an-table two">
         <colgroup><col /><col class="w-date" /><col class="w-xs opt-b" /><col class="w-n" /><col class="w-num" /><col class="w-num" /></colgroup>
-        <thead><tr><th>{{ $t('analytics.cost.feature') }}</th><th>{{ $t('analytics.cost.time') }}</th><th class="num opt-b">{{ $t('analytics.cost.turns') }}</th><th class="num">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
+        <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.feature') }}</th><th v-tip.overflow>{{ $t('analytics.cost.time') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.cost.turns') }}</th><th v-tip.overflow class="num">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.medianOfItsKind') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.cost') }}</th></tr></thead>
         <tbody>
           <tr v-for="h in d.heavy.slice(drawer.page * SIZE, (drawer.page + 1) * SIZE)" :key="h.id" :class="{ clickable: h.task_id }" :tabindex="h.task_id ? 0 : -1" @click="openRun(h, true)" @keydown.enter="openRun(h, true)">
             <td><Trunc as="div" class="t-name" :text="h.label" /><Trunc as="div" class="t-sub" data-notr :text="h.model || '—'" /></td>
@@ -355,7 +355,7 @@ async function savePrices() {
     <div v-if="prices.rows.length" class="an-scroll">
       <table class="an-table form">
         <colgroup><col /><col class="w-wide" /><col class="w-wide" /><col class="w-wide" /><col class="w-wide" /><col class="w-act" /></colgroup>
-        <thead><tr><th>{{ $t('analytics.cost.modelNameAsIn') }}</th><th>{{ $t('analytics.cost.input') }}</th><th>{{ $t('analytics.cost.output') }}</th><th>{{ $t('analytics.cost.cacheRead') }}</th><th>{{ $t('analytics.cost.cacheWrite') }}</th><th :aria-label="$t('analytics.cost.remove')"></th></tr></thead>
+        <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.modelNameAsIn') }}</th><th v-tip.overflow>{{ $t('analytics.cost.input') }}</th><th v-tip.overflow>{{ $t('analytics.cost.output') }}</th><th v-tip.overflow>{{ $t('analytics.cost.cacheRead') }}</th><th v-tip.overflow>{{ $t('analytics.cost.cacheWrite') }}</th><th v-tip.overflow :aria-label="$t('analytics.cost.remove')"></th></tr></thead>
         <tbody>
           <tr v-for="(r, i) in prices.rows" :key="i">
             <td><input v-model.trim="r.model" :placeholder="$t('analytics.cost.modelName')" :aria-label="$t('analytics.cost.modelName')" /></td>

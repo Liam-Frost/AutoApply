@@ -37,20 +37,31 @@ THEMES = ["light", "dark"]
 LANGS = ["zh", "en"]
 LAB_WIDTHS = [1440, 640]
 
-# name -> address. ({application} is the first application the instance has.)
+# name -> address: every page with each of its views and groups (the same walk as tests/test_ui_pages.py routes()).
+# ({application} is the first application the instance has.)
 PAGES = {
     "home": "/home",
     "todos": "/todos",
     "calendar": "/calendar",
+    "calendar-week": "/calendar?view=week",
+    "calendar-day": "/calendar?view=day",
     "jobs": "/jobs",
+    "jobs-started": "/jobs?group=started",
+    "jobs-skip": "/jobs?group=skip",
+    "jobs-closed": "/jobs?group=closed",
     "sources": "/jobs/sources",
     "applications": "/applications",
+    "applications-agent": "/applications?group=agent",
+    "applications-sent": "/applications?group=sent",
+    "applications-progress": "/applications?group=progress",
+    "applications-ended": "/applications?group=ended",
+    "applications-archived": "/applications?group=archived",
     "application": "/applications/{application}",
     "profile": "/profile",
     "files": "/files",
     "contacts": "/contacts",
     "accounts": "/accounts",
-    "analytics-apps": "/analytics?view=apps",
+    "analytics": "/analytics?view=apps",
     "analytics-auto": "/analytics?view=auto",
     "analytics-sites": "/analytics?view=sites",
     "analytics-ai": "/analytics?view=ai",
@@ -147,7 +158,8 @@ def take(a: argparse.Namespace) -> list[Path]:
 
 def compare(out: Path, other: Path, taken: list[Path], *, threshold: int, min_ratio: float) -> None:
     """Each picture beside the one of the same name in `other`: how much of it differs, and a side-by-side for a person
-    to look at when it does."""
+    to look at when it does. `other` may also hold pictures of one size and look named by the page alone (home.png,
+    applications-sent.png - a set taken by hand): a picture is then compared with the one of its page."""
     from PIL import Image, ImageChops
 
     names = sorted(p.name for p in taken) if taken else sorted(p.name for p in out.glob("*.png"))
@@ -155,11 +167,14 @@ def compare(out: Path, other: Path, taken: list[Path], *, threshold: int, min_ra
     diff_dir = out / "diff"
     diff_dir.mkdir(exist_ok=True)
     rows: list[tuple[float, str, str]] = []
+    used: set[str] = set()
     for name in names:
-        if name not in there:
+        match = name if name in there else name.split("__")[0] + ".png" if name.split("__")[0] + ".png" in there else None
+        if match is None:
             rows.append((1.0, name, "new: not in " + str(other)))
             continue
-        new, old = Image.open(out / name).convert("RGB"), Image.open(other / name).convert("RGB")
+        used.add(match)
+        new, old = Image.open(out / name).convert("RGB"), Image.open(other / match).convert("RGB")
         note = "" if new.size == old.size else f"size {old.size[0]}x{old.size[1]} -> {new.size[0]}x{new.size[1]}"
         w, h = max(new.width, old.width), max(new.height, old.height)
 
@@ -180,7 +195,7 @@ def compare(out: Path, other: Path, taken: list[Path], *, threshold: int, min_ra
             for i, im in enumerate((old, new, marked)):
                 side.paste(im, (i * (w + 16), 0))
             side.save(diff_dir / name)
-    gone = sorted(there - set(names)) if not taken else []
+    gone = sorted(there - used) if not taken else []
     rows.sort(reverse=True)
     differ = [r for r in rows if r[0] > min_ratio or r[2]]
     lines = [f"{ratio * 100:7.3f}%  {name}  {note}".rstrip() for ratio, name, note in rows]

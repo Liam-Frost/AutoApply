@@ -15,9 +15,14 @@ function dtf(opts) {
 const HM = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
 export const clockOf = (d) => dtf(HM).format(d)                                      // 15:05
 export const dayOf = (d) => dtf({ month: 'short', day: 'numeric' }).format(d)         // 11月20日 / Nov 20 / 20 nov.
-export const shortDayOf = (d) => dtf({ month: 'numeric', day: 'numeric' }).format(d)  // 11/20 / 20/11
-export const dateOf = (d) => dtf({ year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
-export const dateTimeOf = (d) => dtf({ year: 'numeric', month: '2-digit', day: '2-digit', ...HM }).format(d)
+export const shortDayOf = (d) => dtf({ month: 'numeric', day: 'numeric' }).format(d)  // 11/20 / 20/11 (a chart's axis)
+// A day, the same way on every page: "11月20日" / "Nov 20" this year, with the year otherwise ("2027年1月20日" /
+// "Jan 20, 2027"). A scheduled thing (a deadline, a follow-up, an expiry) is always written so; a moment of what
+// happened is `when` (today / yesterday / a day).
+const DAY_YEAR = { year: 'numeric', month: 'short', day: 'numeric' }
+const thisYear = (d) => d.getFullYear() === new Date().getFullYear()
+export const dateOf = (d) => dtf(thisYear(d) ? { month: 'short', day: 'numeric' } : DAY_YEAR).format(d)
+export const dateTimeOf = (d) => t('time.dayAt', { day: dateOf(d), time: clockOf(d) })      // as `when` writes a day and a time
 export const dayRange = (a, b) => t('time.range', { from: dayOf(a), to: dayOf(b) })
 
 const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
@@ -27,9 +32,9 @@ export function localDay(s) {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(s || ''))
   return m ? new Date(+m[1], +m[2] - 1, +m[3], 12) : null
 }
-// such a day for a list ("" when there is none): the full date, or the short one in a narrow column
+// such a day for a list ("" when there is none)
 export const dayText = (s) => { const d = localDay(s); return d ? dateOf(d) : '' }
-export const shortDayText = (s) => { const d = localDay(s); return d ? shortDayOf(d) : '' }
+export const shortDayText = dayText      // (was "11/20": one form of a day everywhere)
 // a server timestamp (UTC) as its local day
 export const stampDay = (iso) => (iso ? dateOf(asDate(iso)) : '')
 
@@ -41,6 +46,9 @@ export function when(d, now = new Date()) {
   if (days === 1) return t('time.yesterday', { time })
   return t('time.dayAt', { day: dayOf(d), time })
 }
+
+// Several names as one phrase in the interface language ("A, B and C", "A、B 和 C") - never a typed separator.
+export const listed = (xs) => new Intl.ListFormat(tag(), { style: 'short', type: 'conjunction' }).format(xs)
 
 export const num = (v, opts) => new Intl.NumberFormat(tag(), opts).format(v)
 // an amount in US dollars (what the model services charge in)

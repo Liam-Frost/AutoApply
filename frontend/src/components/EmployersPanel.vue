@@ -39,7 +39,6 @@ watch(() => form.value.url, (u) => {
 const add = () => run(async () => { const r = await api.post('/employers', form.value); form.value = { name: '', url: '', priority: true }; hint.value = null; return r }, (r) => T('settings.employers.addedItllBeRead', { p0: r.name, p1: r.kind_label }), load)
 const patch = (e, body) => run(() => api.patch('/employers/' + e.id, body), '', load)
 const remove = async (e) => (await ask(T('settings.employers.stopFollowingPostingsAlready', { p0: e.name }), { ok: T('settings.employers.remove'), danger: true })) && run(() => api.del('/employers/' + e.id), T('settings.employers.removed', { p0: e.name }), load)
-const scan = () => run(() => api.post('/tasks', { kind: 'discover' }), T('settings.employers.scanningWellNotifyYou'))
 onMounted(load)
 </script>
 
@@ -50,7 +49,6 @@ onMounted(load)
         <p>{{ $t('settings.employers.companiesYouWantTo') }}</p>
         <p>{{ $t('settings.employers.addingRemovingAndThe') }}<router-link to="/settings/automation/prepare">{{ $t('settings.employers.settingsPrepareDraftsAutomatically') }}</router-link>{{ $t('settings.employers.whatIsSearchedFor') }}<router-link to="/settings/goals/search">{{ $t('settings.employers.settingsWhatToSearch') }}</router-link>{{ $t('settings.page.text') }}</p>
       </template>
-      <button @click="scan"><Icon name="search" />{{ $t('settings.employers.scanNow') }}</button>
     </CardHead>
 
     <div class="emp-add">

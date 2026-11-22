@@ -781,7 +781,8 @@ textarea.prose { font-family: inherit; font-size: var(--fs-md); min-height: 0; }
 /* a field with its label above it, in a row of such fields (salary, a referee) */
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: var(--s3) var(--s3); align-items: end; }
 .fields > .f { display: grid; gap: 4px; min-width: 0; font-size: var(--fs-xs); color: var(--text-2); }
-.fields > .f > input, .fields > .f > .sel { width: 100%; }
+.fields > .f > input, .fields > .f > .sel, .fields > .f > textarea { width: 100%; font-size: var(--fs-md); color: var(--text); }      /* (the label's small size is not the control's) */
+.fields > .f > .f-label { display: flex; align-items: center; gap: 4px; }      /* (a label with an (i) beside it) */
 .fields > .f.span2 { grid-column: span 2; } .fields > .f.all { grid-column: 1 / -1; }
 .fields > .check { display: flex; align-items: center; gap: 6px; min-height: var(--h-md); font-size: var(--fs-sm); }
 @container (max-width: 420px) { .fields > .f.span2 { grid-column: auto; } }
@@ -918,6 +919,7 @@ textarea.editor.tall, .editor-preview.tall { height: 68vh; }
 .wiz-acts { margin-top: var(--s5); }
 .wiz-lead { margin-bottom: 0; }
 .wiz-choice { margin-top: var(--s1); }
+.wiz-tried > .item { grid-template-columns: 6.5em minmax(0, 1fr); }      /* (keep / discard in a column of its own width: the titles line up) */
 .wiz-facts { margin: var(--s3) 0 var(--s4); }
 .actions > .grow { flex: 1 1 auto; }      /* (what pushes the main action to the far end of a form's row) */
 .todo-acts { margin-top: var(--s2); }

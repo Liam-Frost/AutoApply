@@ -11,6 +11,7 @@ import EmptyState from '../components/EmptyState.vue'
 import HelpPop from '../components/HelpPop.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import Tabs from '../components/Tabs.vue'
 import AppsPanel from './analytics/AppsPanel.vue'
 import AutoPanel from './analytics/AutoPanel.vue'
 import CostPanel from './analytics/CostPanel.vue'
@@ -76,9 +77,7 @@ const scaled = computed(() => (view.value === 'apps' || view.value === 'ai') && 
   <PageHead :title="$t('analytics.page.analytics')" />
 
   <div class="an-toolbar">
-    <div class="seg" role="tablist" :aria-label="$t('analytics.page.views')">
-      <button v-for="[v, l] in VIEWS" :key="v" role="tab" :aria-selected="view === v" :class="{ on: view === v }" @click="pick(v)">{{ l }}</button>
-    </div>
+    <Tabs :model-value="view" :label="$t('analytics.page.views')" :items="VIEWS.map(([id, label]) => ({ id, label }))" @update:model-value="pick" />
     <div class="an-tools">
       <AaSelect v-if="scaled" v-model="params[view].bucket" :aria-label="$t('analytics.page.scale')"><option v-for="[k, l] in SCALES" :key="k" :value="k">{{ l }}</option></AaSelect>
       <div v-if="range.mode === 'custom'" class="an-dates">

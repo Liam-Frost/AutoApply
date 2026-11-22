@@ -194,7 +194,7 @@ Additional information / Informations complémentaires · 联系跟进 Follow-up
 
 | Concept | zh | en | fr |
 | --- | --- | --- | --- |
-| Columns | 网站 · 登录名或邮箱 · 密码 · 状态 · 会话 · 来源 | Site · Username or email · Password · Status · Session · Source | Site · Identifiant ou courriel · Mot de passe · Statut · Session · Source |
+| Columns | 网站 · 账号 · 凭据 · 自动化状态 · 登录会话 · 来源 | Site · Account · Credentials · Automation · Sign-in session · Source | Site · Compte · Identifiants · Automatisation · Session de connexion · Source |
 | Password / session kept or not | 已保存 · 未保存 | Saved · Not saved | Enregistré · Non enregistré |
 | A provider's session is stored | 会话已保存 · 未保存会话 | Session saved · No session saved | Session enregistrée · Aucune session |
 | Status `ok` | 支持自动登录 | Auto sign-in ready | Connexion automatique prête |
@@ -203,7 +203,7 @@ Additional information / Informations complémentaires · 联系跟进 Follow-up
 | Status `locked` · `unknown` · `not_needed` | 已锁定 · 从未登录 · 无需登录 | Locked · Never signed in · No sign-in needed | Verrouillé · Jamais connecté · Connexion non requise |
 | Source `agent` | 自动注册 | Auto-registered | Inscription automatique |
 | Source `takeover` | 手动登录 | Manual sign-in | Connexion manuelle |
-| Source `manual` · `chrome_csv` | 手动添加 · Chrome 导入 | Manual entry · Chrome import | Ajout manuel · Import Chrome |
+| Source `manual` · `chrome_csv` | 手动添加 · Chrome 导入 | Added manually · Chrome import | Ajout manuel · Import Chrome |
 | Browser choice follows the site rule | 站点默认 | Site default | Par défaut du site |
 | Buttons | 登录 · 重新登录 · 清除会话 · 添加自定义提供商 | Sign in · Sign in again · Clear session · Add custom provider | Se connecter · Se reconnecter · Effacer la session · Ajouter un fournisseur personnalisé |
 
@@ -237,16 +237,12 @@ subscription). A stored cookie jar is "会话已保存": it may have expired on 
 
 ## 5. Known gaps (for the page owners)
 
-- `calendar.*` was left untouched and still says 不投 / 未投 / 已投 / 有进展 ("Sent", "Moving forward") in its filter
-  of application states, and "待办页 / to-do page" in `calendar.alarm.hint`; the rest of the program now says 不投递 /
-  未投递 / 已投递 / 招聘进展 and 待处理 / Action required.
 - 草案 / draft survives in settings, welcome, analytics and several server messages for what the applications pages
   call 申请记录 / record. New keys use 申请记录.
-- `accounts.addManually` is one key for a section title and a source value ("手动添加 / Manual entry"); split it when
-  the page is rebuilt (`…source.manual`: 手动添加 / Added manually).
-- `accounts.manyJobSitesLet` + `accounts.passwordsForTheseAccounts`, `accounts.onceThisIsOpen` + link +
-  `accounts.thereIsUsuallyNothing`, `home.usesTheSameThree` …, `runs.theLimitIsChanged` … are fragments joined in
-  templates (one with a hard-coded "。"): replace with whole sentences when those pages are rebuilt.
+- A few sentences are still joined from fragments around links in templates (the help of watched employers,
+  `settings.employers.addingRemovingAndThe` + link + …; the PD Portal hint, `sources.whenThePortalRefuses` + link +
+  `sources.andTurnTheOrdinary`; several Settings hints): make them one key with `<i18n-t>` slots when those parts are
+  next touched.
 - Long hints of Settings, Welcome and the cost panel were given the term changes only, not rewritten one by one.
 - French follows the term table in the keys touched by this pass; values that only needed tightening in zh / en were
   left as they were in fr.

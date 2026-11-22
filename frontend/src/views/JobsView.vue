@@ -2,7 +2,7 @@
 import { t as T, lang } from '../i18n/catalog'
 // Postings: what is out there and whether to apply (plan §8.3). A posting is here until an application is begun; then
 // it only leads to that application (the applications page follows it from there).
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, fmt } from '../api'
 import BulkBar from '../components/BulkBar.vue'
@@ -18,6 +18,7 @@ import Popover from '../components/Popover.vue'
 import SectionHead from '../components/SectionHead.vue'
 import SideDrawer from '../components/SideDrawer.vue'
 import Status from '../components/Status.vue'
+import Tabs from '../components/Tabs.vue'
 import TechDetails from '../components/TechDetails.vue'
 import Trunc from '../components/Trunc.vue'
 import { dataState, useRefresh } from '../data'
@@ -25,7 +26,7 @@ import { daysUntil, deadlineLabel, isPast, keepVisible, parseDeadline } from '..
 import { renderMarkdown } from '../md'
 import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { ask, persona, run, toast } from '../ui'
-import { dateTimeOf, dayOf, dayText } from '../i18n/format'
+import { dateOf, dateTimeOf, dayText } from '../i18n/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -111,6 +112,16 @@ const fmtScore = (s) => (s == null ? '—' : s.toFixed(1))
 
 // --- the columns: score, posting, deadline and the application always; what the applicant chose besides goes first
 // when the table is narrow (the highest priority first). Nothing a cell holds changes a width.
+// The row's action ("Start an application") is never cut: the column is at least as wide as its words in the language
+// shown, measured on a copy nobody sees (as the accounts page does) - "Commencer une candidature" is twice "开始申请".
+const startProbe = ref(null)
+const startW = ref(0)
+function fitStart() { if (startProbe.value && startProbe.value.offsetWidth) startW.value = Math.ceil(startProbe.value.offsetWidth) + 24 + 2 }      // + the cell's padding; +2 for fractions
+watch(() => lang.value, () => nextTick(fitStart))
+// (measured again whenever the copy changes size: the web font arriving, the language changing)
+let sizedStart = null
+onMounted(() => { fitStart(); if (typeof ResizeObserver !== 'undefined' && startProbe.value) { sizedStart = new ResizeObserver(fitStart); sizedStart.observe(startProbe.value) } })
+onBeforeUnmount(() => sizedStart && sizedStart.disconnect())
 const columns = computed(() => {
   const latin = !/^(zh|ja|ko)/.test(lang.value)
   const more = [
@@ -127,7 +138,7 @@ const columns = computed(() => {
     { id: 'job', header: T('postings.col.job'), min: 200, max: 440, flex: 4, sortable: true },
     ...more,
     { id: 'deadline', header: T('postings.col.deadline'), min: latin ? 128 : 116, max: 148, flex: 0, sortable: true },
-    { id: 'app', header: T('postings.col.application'), min: latin ? 176 : 132, max: 220, flex: 1 },
+    { id: 'app', header: T('postings.col.application'), min: Math.max(latin ? 176 : 132, startW.value), max: Math.max(220, startW.value), flex: 1 },
     { id: 'more', header: '', width: 44, align: 'end' },
   ]
 })
@@ -137,9 +148,9 @@ function dueOf(j) {
   const d = parseDeadline(j.deadline)
   if (!d) return null
   const tip = T('postings.dueTip', { when: dateTimeOf(d) })
-  if (isSent(j)) return { primary: dayOf(d), tone: 'muted', tip }      // (applied: how many days are left no longer matters)
+  if (isSent(j)) return { primary: dateOf(d), tone: 'muted', tip }      // (applied: how many days are left no longer matters)
   const dl = deadlineLabel(j.deadline)
-  return { primary: dayOf(d), secondary: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '', tip }
+  return { primary: dateOf(d), secondary: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '', tip }
 }
 
 // selection: of the rows that are shown. A filter, a search or a reload that takes a row off the page unticks it -
@@ -295,6 +306,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
 </script>
 
 <template>
+  <button ref="startProbe" type="button" class="sm ghost acc-probe" tabindex="-1" aria-hidden="true"><Icon name="draft" />{{ $t('postings.do.start') }}</button>
   <PageHead :title="$t('postings.title')" :help="$t('postings.help')">
     <router-link to="/jobs/sources" class="btn ghost"><Icon name="search" />{{ $t('postings.sources') }}</router-link>
     <button :aria-expanded="adding" @click="adding = !adding"><Icon name="plus" />{{ $t('postings.addByHand') }}</button>
@@ -314,9 +326,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
     <div class="actions"><button class="primary" :disabled="!add.url" @click="addJob">{{ $t('postings.add') }}</button><button class="ghost" @click="adding = false">{{ $t('postings.cancel') }}</button></div>
   </div>
 
-  <div class="seg tabs list-tabs" role="group" :aria-label="$t('postings.groupsLabel')">
-    <button v-for="g in GROUPS" :key="g" :class="{ on: group === g }" :aria-pressed="group === g" @click="pickGroup(g)">{{ $t('postings.group.' + g) }}<span class="n">{{ groupCount(g) }}</span></button>
-  </div>
+  <Tabs class="list-tabs" :model-value="group" :label="$t('postings.groupsLabel')" :items="GROUPS.map((g) => ({ id: g, label: $t('postings.group.' + g), count: groupCount(g) }))" @update:model-value="pickGroup" />
 
   <div class="filters" role="group" :aria-label="$t('postings.filter.more')">
     <input v-model="f.q" class="search" type="search" :placeholder="$t('postings.search')" :aria-label="$t('postings.search')" />
@@ -375,7 +385,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
       <router-link v-if="live(row)" :to="'/applications/' + row.app.id" class="app-link"><Status :tone="row.app.tone" :label="row.app.stage_label" /><Icon name="chevron_right" /></router-link>
       <Status v-else-if="row.group === 'skip'" :label="row.exclusion ? $t('postings.byRule', { rule: row.exclusion }) : $t('postings.byYou')" />
       <Status v-else-if="row.group === 'closed'" :label="row.online ? $t('postings.deadlinePassed') : $t('postings.takenDown')" />
-      <button v-else-if="row.group === 'todo' && canStart(row)" class="sm" @click="start(row)">{{ $t('postings.do.start') }}</button>
+      <button v-else-if="row.group === 'todo' && canStart(row)" class="sm ghost" @click="start(row)"><Icon name="draft" />{{ $t('postings.do.start') }}</button>
       <span v-else class="none">—</span>
     </template>
     <template #cell-more="{ row }"><Menu :label="$t('postings.row.menu')" :items="menuOf(row)" @pick="(id) => onMenu(row, id)" /></template>

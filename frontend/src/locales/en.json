@@ -637,8 +637,8 @@
       "any": "All application statuses",
       "unapplied": "Not applied",
       "in_progress": "In progress",
-      "sent": "Sent",
-      "progressed": "Moving forward"
+      "sent": "Submitted",
+      "progressed": "Hiring progress"
     },
     "company": "Company",
     "priority": "Priority employers only",
@@ -690,7 +690,7 @@
       "remove": "Remove this reminder",
       "customLabel": "Minutes before",
       "customUnit": "minutes before",
-      "hint": "Reminders go to your Telegram or Discord and appear at the top of the to-do page. When the date moves, they move with it.",
+      "hint": "Reminders go to your Telegram or Discord and appear at the top of Action required. When the date moves, they move with it.",
       "hintAllDay": "This item is for a whole day: its reminders come in the morning (the hour is in the settings)."
     },
     "share": {
@@ -749,7 +749,7 @@
       "chipDoneHidden": "Completed hidden",
       "noKinds": "No event type is selected."
     },
-    "allDeadlinesHint": "Also postings already applied to, not applied to, closed or archived.",
+    "allDeadlinesHint": "Also postings already submitted, not applying, taken down or archived.",
     "group": {
       "overdue": "Overdue",
       "deadlines": "Application deadlines",
@@ -1126,7 +1126,7 @@
       "unlinkAsk": "Unlink your Discord account? The bot stops taking your replies and commands until you link it again."
     },
     "ai": {
-      "thisServiceDidntReturn": "This service didn't return a list of models. Please enter the model name yourself.",
+      "thisServiceDidntReturn": "This service didn't return a list of models. Enter the model name yourself.",
       "onceYouEnterAn": "Once you enter an API key, this provider's model list loads automatically.",
       "dontSwitchYet": "(Don't switch yet)",
       "checking": "Checking…",
@@ -1443,7 +1443,6 @@
       "removePriority": "Remove priority",
       "markAsPriority": "Mark as priority",
       "employersYouFollow": "Watched employers",
-      "scanNow": "Scan now",
       "companiesYouWantTo": "Companies you want to keep an eye on. Just paste their careers page URL. If a company uses a common applicant tracking system, the app reads its job list directly. For other sites, AI opens the careers page and finds the postings. Only postings that meet your intake rules are kept.",
       "priority": "Priority",
       "add": "Add",
@@ -1466,7 +1465,6 @@
       "addedItllBeRead": "Added {p0} ({p1}). It'll be read on the next scan",
       "stopFollowingPostingsAlready": "Stop following {p0}? Postings already found are kept, but no new ones will be loaded.",
       "removed": "Removed {p0}",
-      "scanningWellNotifyYou": "Scanning. You’ll be notified when it’s done",
       "enableName": "Watch {name}",
       "openPage": "Open the careers page"
     }
@@ -2042,7 +2040,7 @@
     "importFromChrome": "Chrome import",
     "deleteTheAccountRecord": "Delete the account record for {p0}? Its saved password and session are deleted with it and cannot be restored. The account on the site itself is not touched.",
     "showThePasswordFor": "Show the password for {p0} on screen?",
-    "importedAccountsForJob": "Imported accounts for {p0} job sites (skipped {p1} unrelated entries). Please delete the exported CSV file.",
+    "importedAccountsForJob": "Imported accounts for {p0} job sites (skipped {p1} unrelated entries). Delete the exported CSV file now.",
     "theSignInWindow": "The sign-in window is open. If the app runs on a computer without a screen, the window is offered at the top of the page",
     "nothingWasExported": "Nothing was exported",
     "exportedTakeTheFile": "Exported. Take the file and the passphrase to the other computer and import them under Site accounts there; delete the file afterwards.",
@@ -2197,7 +2195,7 @@
     "more": "{p0} more",
     "collapse": "Collapse",
     "dragItToThe": "Drag it to the bookmarks bar; do not click it",
-    "backToPostings": "Back to postings",
+    "backToPostings": "Postings",
     "scanNow": "Scan now",
     "neverSignedIn": "Never signed in",
     "theProgramReadsThe": "The app reads the portal’s postings itself when it scans. The portal uses your university sign-in (CWL + Duo): sign in here once and the session is saved; when it expires, a “Sign in to PD Portal” to-do appears.",
@@ -2616,9 +2614,6 @@
     "stopped": "Stopped: the agent halts before its next action"
   },
   "application": {
-    "loading": "Loading…",
-    "couldNotLoad": "Could not load this application",
-    "tryAgain": "Retry",
     "backToList": "Applications",
     "posting": "Posting",
     "sentOn": "submitted {day}",
@@ -2759,7 +2754,8 @@
       "text": "Original job description",
       "more": "Show more",
       "less": "Show less"
-    }
+    },
+    "tabsLabel": "Parts of the application"
   },
   "applications": {
     "title": "Applications",
@@ -2931,7 +2927,7 @@
     "emptyFiltered": "Try clearing the filters.",
     "emptyHint": "Try another group, or scan for new postings.",
     "bulk": {
-      "start": "Start applying",
+      "start": "Start applications",
       "markSubmitted": "I applied myself",
       "skip": "Not applying",
       "restore": "Restore",
@@ -3112,7 +3108,6 @@
     "collapse": "Hide details",
     "howCounted": "How it is counted",
     "set": {
-      "top": "Saved with \"Save\" at the top right",
       "own": "Saved with its own button",
       "now": "Takes effect immediately"
     },

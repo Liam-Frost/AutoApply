@@ -255,7 +255,7 @@
       "oneCallCanContain": "Un appel peut contenir plusieurs requêtes. Un appel est réussi quand sa dernière tentative a réussi. Cliquez sur une ligne pour n’afficher que cette fonction.",
       "feature": "Fonction",
       "calls": "Appels",
-      "successRate": "Taux de réussite",
+      "successRate": "Réussite",
       "shareOfAllCost": "Part du coût total",
       "avgPerCall": "Moyenne par appel",
       "costPerResult": "Coût par résultat",
@@ -278,7 +278,7 @@
       "requestsThatUsedUnusually": "Requêtes qui ont utilisé un nombre inhabituel de jetons",
       "comparedWithOtherRequests": "Comparées aux autres requêtes de la même fonction, selon la même règle ; jugé seulement quand une fonction compte au moins 8 requêtes.",
       "time": "Heure",
-      "medianOfItsKind": "Médiane de son type",
+      "medianOfItsKind": "Médiane du type",
       "result": "Résultat",
       "turns": "Tours",
       "modelNameAsIn": "Nom du modèle (comme dans les journaux d’appels)",
@@ -365,7 +365,7 @@
     },
     "auto": {
       "taskRuns": "exécutions de tâches",
-      "successRate": "Taux de réussite",
+      "successRate": "Réussite",
       "completedRanToAn": "Terminées ÷ arrivées à une fin par elles-mêmes (terminées + échouées + interrompues). Ce qui vous attend ou tourne encore n’est pas au dénominateur : il n’y a pas encore de résultat. Pour « remplir le formulaire », terminée signifie que cette exécution a fait envoyer la candidature ; une tâche qui a trouvé la candidature déjà envoyée et n’a rien fait ne compte ni comme réussite ni comme échec. C’est le taux de réussite des tâches, pas l’issue des candidatures : pour cela, voir « Issues ».",
       "notFinishedNotFailures": "non terminées (pas des échecs)",
       "failed": "échouées",
@@ -403,7 +403,7 @@
       "toolCallsOfEvery": "Appels d’outils de chaque exécution après la première ÷ tous les appels d’outils. Plus c’est bas, mieux c’est : des candidatures faites surtout en une exécution, ou reprises sans tout recommencer.",
       "howEachRunEnded": "Comment chaque exécution s’est terminée",
       "upToReadyTo": "Jusqu’à prête à envoyer, par système de recrutement",
-      "applicantTrackingSystem": "Système de suivi des candidatures",
+      "applicantTrackingSystem": "Système de recrutement",
       "apply": "Postuler",
       "done": "Faites",
       "stepsMedian": "Étapes (médiane)",
@@ -638,7 +638,7 @@
       "unapplied": "Pas de candidature",
       "in_progress": "En cours",
       "sent": "Envoyée",
-      "progressed": "En progression"
+      "progressed": "Recrutement en cours"
     },
     "company": "Entreprise",
     "priority": "Employeurs prioritaires uniquement",
@@ -666,7 +666,7 @@
     "movedMsg": "Date modifiée",
     "linkSaved": "Lien enregistré",
     "started": "L’agent commence la candidature",
-    "skipped": "Marquée comme « ne pas postuler »",
+    "skipped": "Marquée « ne pas postuler »",
     "added": "Ajouté",
     "form": {
       "title": "Titre",
@@ -749,7 +749,7 @@
       "chipDoneHidden": "Terminés masqués",
       "noKinds": "Aucun type d’événement n’est sélectionné."
     },
-    "allDeadlinesHint": "Y compris les annonces déjà postulées, écartées, fermées ou archivées.",
+    "allDeadlinesHint": "Y compris les annonces déjà envoyées, écartées, retirées ou archivées.",
     "group": {
       "overdue": "En retard",
       "deadlines": "Dates limites de candidature",
@@ -918,7 +918,7 @@
       "readTheLastFew": "Relire le courrier des derniers jours",
       "switchesItOffThe": "0 désactive cette option. Le filet de sécurité sous l’option précédente : le courrier arrivé pendant que le programme était fermé, ou qui n’a pas été reconnu à ce moment-là, est rattrapé par ce passage. Les autres boîtes mail (IMAP) n’ont que celui-ci. La boîte mail lue se règle dans Comptes et connexions.",
       "pause": "Pause",
-      "isAtTheBottom": " se trouve en bas de la barre latérale (« Mettre en pause l’exécution automatique »). Elle n’arrête que ce que le programme lance de lui-même : recherches planifiées, notation, préparation des brouillons, nouvelles tentatives. Ce que vous lancez à la main tourne toujours, et la tâche en cours est terminée. Ce qui est en file maintenant, et dans quel ordre, se trouve dans",
+      "isAtTheBottom": " se trouve en bas de la barre latérale (« Mettre en pause »). Elle n’arrête que ce que le programme lance de lui-même : recherches planifiées, notation, préparation des brouillons, nouvelles tentatives. Ce que vous lancez à la main tourne toujours, et la tâche en cours est terminée. Ce qui est en file maintenant, et dans quel ordre, se trouve dans",
       "activityWorkPlan": "Activité → Plan de travail",
       "usageAndPaceAdvanced": "Consommation et rythme (avancé)",
       "maxPostingsForAi": "Nombre maximal d’annonces notées par l’IA à la fois",
@@ -1443,7 +1443,6 @@
       "removePriority": "Retirer la priorité",
       "markAsPriority": "Marquer comme prioritaire",
       "employersYouFollow": "Employeurs que vous suivez",
-      "scanNow": "Rechercher maintenant",
       "companiesYouWantTo": "Les entreprises que vous voulez surveiller. Collez simplement l’URL de leur page carrières. Si une entreprise utilise un système de recrutement courant, le programme lit directement sa liste d’offres. Pour les autres sites, l’IA ouvre la page carrières et trouve les annonces. Seules les annonces qui respectent vos règles de prise en compte sont gardées.",
       "priority": "Prioritaire",
       "add": "Ajouter",
@@ -1466,7 +1465,6 @@
       "addedItllBeRead": "{p0} ajouté ({p1}). Il sera lu à la prochaine recherche",
       "stopFollowingPostingsAlready": "Ne plus suivre {p0} ? Les annonces déjà trouvées sont gardées, mais aucune nouvelle ne sera chargée.",
       "removed": "{p0} retiré",
-      "scanningWellNotifyYou": "Recherche en cours ; vous serez prévenu à la fin",
       "enableName": "Suivre {name}",
       "openPage": "Ouvrir la page carrières"
     }
@@ -2197,7 +2195,7 @@
     "more": "{p0} de plus",
     "collapse": "Replier",
     "dragItToThe": "Faites-le glisser dans la barre de favoris, ne cliquez pas dessus",
-    "backToPostings": "Retour aux annonces",
+    "backToPostings": "Annonces",
     "scanNow": "Rechercher maintenant",
     "neverSignedIn": "Jamais connecté",
     "theProgramReadsThe": "Le programme lit lui-même les annonces du portail lors de ses recherches. Le portail utilise votre connexion universitaire (CWL + Duo) : connectez-vous ici une fois et la session est gardée ; quand elle expire, une tâche « Se connecter à PD Portal » apparaît.",
@@ -2261,8 +2259,8 @@
     "menu": "Menu",
     "stoppedItCanBe": "Arrêté. Peut être fermé ou redémarré",
     "finishingNoNewTask": "Finalisation en cours. Aucune nouvelle tâche ne démarre",
-    "resumeAutoRun": "Reprendre l’exécution automatique",
-    "pauseAutoRun": "Suspendre l’exécution automatique",
+    "resumeAutoRun": "Reprendre",
+    "pauseAutoRun": "Mettre en pause",
     "thingSNeedYou": "{p0} élément(s) à traiter",
     "cannotReachTheService": "Impossible de joindre le service",
     "pausedWontRunAutomatically": "Exécution automatique en pause",
@@ -2616,9 +2614,6 @@
     "stopped": "Arrêté : l’agent s’interrompt avant sa prochaine action"
   },
   "application": {
-    "loading": "Chargement…",
-    "couldNotLoad": "Impossible de charger cette candidature",
-    "tryAgain": "Réessayer",
     "backToList": "Candidatures",
     "posting": "Annonce",
     "sentOn": "envoyée le {day}",
@@ -2759,7 +2754,8 @@
       "text": "Description d’origine",
       "more": "Afficher plus",
       "less": "Afficher moins"
-    }
+    },
+    "tabsLabel": "Volets de la candidature"
   },
   "applications": {
     "title": "Candidatures",
@@ -2931,7 +2927,7 @@
     "emptyFiltered": "Essayez d’effacer les filtres.",
     "emptyHint": "Regardez un autre groupe, ou recherchez de nouvelles annonces.",
     "bulk": {
-      "start": "Commencer à postuler",
+      "start": "Commencer les candidatures",
       "markSubmitted": "J’ai postulé moi-même",
       "skip": "Ne pas postuler",
       "restore": "Rétablir",
@@ -3112,7 +3108,6 @@
     "collapse": "Masquer le détail",
     "howCounted": "Comment c’est compté",
     "set": {
-      "top": "Enregistré avec « Enregistrer » en haut à droite",
       "own": "Enregistré avec son propre bouton",
       "now": "Prend effet immédiatement"
     },

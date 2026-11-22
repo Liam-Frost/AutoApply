@@ -21,13 +21,14 @@ import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
 import SideDrawer from '../components/SideDrawer.vue'
 import Status from '../components/Status.vue'
+import Tabs from '../components/Tabs.vue'
 import Trunc from '../components/Trunc.vue'
 import { at } from '../calendar'
 import { dataState, useRefresh } from '../data'
 import { deadlineLabel, keepVisible, parseDeadline } from '../dates'
 import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { ask, fmtTime, run } from '../ui'
-import { clockOf, dateTimeOf, dayOf, stampDay } from '../i18n/format'
+import { dateOf, dateTimeOf, stampDay } from '../i18n/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -101,12 +102,12 @@ function eventOf(r) {
     const d = at(x)
     const kind = T('calendar.kind.' + x.kind)
     const passed = !x.all_day && d.getTime() < Date.now()
-    return { primary: x.all_day ? dayOf(d) : T('time.dayAt', { day: dayOf(d), time: clockOf(d) }), secondary: kind, tone: passed ? 'muted' : '', tip: T('applications.eventTip', { kind, title: x.title || '' }) }
+    return { primary: x.all_day ? dateOf(d) : dateTimeOf(d), secondary: kind, tone: passed ? 'muted' : '', tip: T('applications.eventTip', { kind, title: x.title || '' }) }
   }
   const d = ['me', 'agent'].includes(r.group) || (r.group === 'archived' && !r.sent) ? parseDeadline(r.deadline) : null
   if (!d) return null
   const dl = deadlineLabel(r.deadline)
-  return { primary: dayOf(d), secondary: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '', tip: T('applications.dueTip', { when: dateTimeOf(d) }) }
+  return { primary: dateOf(d), secondary: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '', tip: T('applications.dueTip', { when: dateTimeOf(d) }) }
 }
 
 // --- the one thing to press on a row ----------------------------------------------------------------------------------
@@ -124,7 +125,7 @@ const exportUrl = (ids) => ROOT + '/api/applications.csv' + (ids && ids.size ? '
 const said = (r) => T('applications.bulkDone', { n: r.done }, r.done) + (r.skipped ? T('applications.bulkSkipped', { n: r.skipped, why: Object.values(r.errors || {}).filter(Boolean)[0] || '' }, r.skipped) : '')
 // -> false when it was not done (the applicant said no, or the server did)
 async function several(action, ids) {
-  if (action === 'withdraw' && !(await ask(T('applications.withdrawAsk', { n: ids.length }, ids.length), { ok: T('applications.bulk.withdraw') }))) return false
+  if (action === 'withdraw' && !(await ask(T('applications.withdrawAsk', { n: ids.length }, ids.length), { ok: T('applications.bulk.withdraw'), danger: true }))) return false
   return run(() => api.post('/applications/bulk', { action, ids }), (r) => said(r), load)
 }
 async function bulk(action) { if ((await several(action, [...picked.value])) !== false) picked.value = new Set() }
@@ -186,9 +187,7 @@ onMounted(async () => {
   </PageHead>
   <DataState :s="st" :what="$t('applications.what')" @retry="load" />
   <template v-if="st.at">
-    <div class="seg tabs list-tabs" role="group" :aria-label="$t('applications.groupsLabel')">
-      <button v-for="g in GROUPS" :key="g" :class="{ on: f.group === g }" :aria-pressed="f.group === g" @click="pickGroup(g)">{{ $t('applications.group.' + g) }}<span class="n">{{ count(g) }}</span></button>
-    </div>
+    <Tabs class="list-tabs" :model-value="f.group" :label="$t('applications.groupsLabel')" :items="GROUPS.map((g) => ({ id: g, label: $t('applications.group.' + g), count: count(g) }))" @update:model-value="pickGroup" />
 
     <div class="filters" role="group" :aria-label="$t('applications.filters')">
       <input v-model="f.q" class="search" type="search" :placeholder="$t('applications.search')" :aria-label="$t('applications.search')" />

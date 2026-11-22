@@ -29,7 +29,7 @@ const min = computed(() => 132 + 88 * (props.series.length + (props.series.lengt
     <div class="an-scroll">
       <table class="an-table series" :style="{ '--min': min }">
         <colgroup><col class="w-date" /><col v-for="s in series" :key="s.key" /><col v-if="series.length > 1" /></colgroup>
-        <thead><tr><th>{{ tableLabel }}</th><th v-for="s in series" :key="s.key" class="num"><Trunc :text="s.label" /></th><th v-if="series.length > 1" class="num">{{ $t('common.chart.total') }}</th></tr></thead>
+        <thead><tr><th v-tip.overflow>{{ tableLabel }}</th><th v-for="s in series" :key="s.key" class="num"><Trunc :text="s.label" /></th><th v-if="series.length > 1" class="num">{{ $t('common.chart.total') }}</th></tr></thead>
         <tbody>
           <tr v-for="b in shown" :key="b.key">
             <td class="atomic">{{ b.tip || b.label }}</td>

@@ -14,6 +14,8 @@ import PageHead from '../components/PageHead.vue'
 import RecordPanel from '../components/RecordPanel.vue'
 import SectionHead from '../components/SectionHead.vue'
 import Status from '../components/Status.vue'
+import DataState from '../components/DataState.vue'
+import Tabs from '../components/Tabs.vue'
 import TechDetails from '../components/TechDetails.vue'
 import Trunc from '../components/Trunc.vue'
 import { deadlineLabel, parseDeadline } from '../dates'
@@ -189,10 +191,8 @@ onMounted(async () => { await load(); tab.value = firstTab() })
 </script>
 
 <template>
-  <div v-if="!a && !failed" class="empty"><div class="t">{{ $t('application.loading') }}</div></div>
-  <div v-else-if="failed" class="empty"><div class="t">{{ $t('application.couldNotLoad') }}</div><div class="muted">{{ failed }}</div>
-    <div class="row empty-acts"><button @click="load">{{ $t('application.tryAgain') }}</button><button class="ghost" @click="router.push('/applications')">{{ $t('application.backToList') }}</button></div>
-  </div>
+  <!-- (the same "reading / could not read" as every other page) -->
+  <DataState v-if="!a || failed" :s="{ phase: failed ? 'error' : 'loading', error: failed }" :what="$t('applications.what')" @retry="load" />
   <template v-else>
     <PageHead class="app-head" :title="a.company">
       <template #sub>
@@ -229,7 +229,7 @@ onMounted(async () => { await load(); tab.value = firstTab() })
       <div class="actions status-acts">
         <button v-for="(k, i) in mainKeys" :key="k" :class="{ primary: i === 0 }" :disabled="!!(ACTIONS[k].disabled && ACTIONS[k].disabled())" @click="doAction(k)">{{ ACTIONS[k].label() }}</button>
         <Menu v-if="menuItems.length" :label="$t('application.more')" :items="menuItems" align="start" @pick="doAction">
-          <template #trigger="{ toggle, attrs }"><button class="ghost" v-bind="attrs" @click="toggle">{{ $t('application.more') }}<Icon name="chevron" /></button></template>
+          <template #trigger="{ toggle, attrs }"><button v-bind="attrs" @click="toggle"><Icon name="more" />{{ $t('application.more') }}</button></template>
         </Menu>
       </div>
       <p v-if="blocked" class="t-meta status-blocked">{{ blocked }}</p>
@@ -272,9 +272,7 @@ onMounted(async () => { await load(); tab.value = firstTab() })
       <div class="actions form-acts"><button class="primary" @click="saveFix">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
     </div>
 
-    <div class="seg tabs app-tabs" role="tablist">
-      <button v-for="k in TABS" :key="k" role="tab" :aria-selected="tab === k" :class="{ on: tab === k }" @click="openTab(k)">{{ $t('application.tab.' + k) }}<span v-if="tabCount(k)" class="n">{{ tabCount(k) }}</span></button>
-    </div>
+    <Tabs class="app-tabs" :model-value="tab" :label="$t('application.tabsLabel')" :items="TABS.map((k) => ({ id: k, label: $t('application.tab.' + k), count: tabCount(k) || null }))" @update:model-value="openTab" />
 
     <section v-if="tab === 'record'" id="record">
       <RecordPanel v-if="d" :d="d" @update="d = $event" @reload="load" />

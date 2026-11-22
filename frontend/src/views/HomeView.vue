@@ -86,7 +86,7 @@ onMounted(load)
 <template>
   <PageHead :title="$t('home.overview')">
     <button @click="mail"><Icon name="mail" />{{ $t('home.checkYourEmail') }}</button>
-    <button @click="scan"><Icon name="search" />{{ $t('home.scanForNewJobs') }}</button>
+    <button @click="scan"><Icon name="refresh" />{{ $t('home.scanForNewJobs') }}</button>
   </PageHead>
   <DataState :s="st" :what="$t('home.overview')" @retry="load" />
   <template v-if="st.at">

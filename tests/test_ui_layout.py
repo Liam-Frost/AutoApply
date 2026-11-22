@@ -429,11 +429,15 @@ def test_an_ordinary_button_that_is_under_way_keeps_its_height(lab):
     assert after[1] == pytest.approx(before[1], abs=PX / 2) and after[3] == pytest.approx(before[3], abs=PX / 2)
 
 
-@pytest.mark.xfail(strict=True, reason="style.css `[data-busy]::after` puts the spinner after the label, in the flow: the button grows by 28px while it works "
-                                       "and pushes what stands beside it. When that is fixed this test passes - then take this mark away.")
 def test_an_ordinary_button_that_is_under_way_keeps_its_width_and_moves_nothing(lab):
-    before, after = mark_busy(lab.open(only="Buttons", own=True))
-    assert after[0] == pytest.approx(before[0], abs=PX / 2) and after[1] == pytest.approx(before[1], abs=PX / 2)
+    """(The spinner stands over the label, not after it: the button does not grow and pushes nothing aside.)"""
+    page = lab.open(only="Buttons", own=True)
+    (button, beside), (b_after, beside_after) = mark_busy(page)
+    frames(page)
+    b_after = page.locator('[data-btn-size="md"] > button').nth(0).evaluate(SIZE)
+    beside_after = page.locator('[data-btn-size="md"] > button').nth(1).evaluate(SIZE)
+    assert b_after == pytest.approx(button, abs=PX / 2), ("the button changed its size or place while under way", button, b_after)
+    assert beside_after == pytest.approx(beside, abs=PX / 2), ("the button beside it moved", beside, beside_after)
 
 
 # ── tooltip, menu, popover ───────────────────────────────────────────────────────────────────────────────────────────

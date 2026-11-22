@@ -18,8 +18,8 @@ import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
 import { ask, fmtTime, run as runAction, toast } from '../ui'
-import { t, tag } from '../i18n/catalog'
-import { dateOf, dateTimeOf, dayText } from '../i18n/format'
+import { t } from '../i18n/catalog'
+import { dateOf, dateTimeOf, dayText, listed } from '../i18n/format'
 
 const router = useRouter()
 const todos = ref([])
@@ -172,7 +172,6 @@ const markSubmitted = (t) => act(() => api.post(`/applications/${(t.application 
 // ── what a card offers: one main action, at most two beside it, the rest in its menu ("not now" among them). What
 // that is follows from the kind of card and from where its application stands - worked out here once, so that every
 // card is laid out the same way. An action is { label, icon, go | to | href, disabled?, danger? }.
-const listed = (xs) => new Intl.ListFormat(tag(), { style: 'short', type: 'conjunction' }).format(xs)
 const named = (t) => view(t).title(t).includes(t.job.company)      // the title already says which employer
 const A = (label, icon, how) => ({ label, icon, ...how })
 const follow = (a) => (a.to ? router.push(a.to) : a.href ? window.open(a.href, '_blank', 'noopener,noreferrer') : a.go())

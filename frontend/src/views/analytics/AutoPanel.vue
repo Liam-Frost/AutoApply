@@ -118,8 +118,8 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </CardHead>
       <div class="an-scroll">
         <table class="an-table two">
-          <colgroup><col /><col class="w-xs" /><col class="w-bar" /><col class="w-n" /><col class="w-wide" /><col class="w-n opt-a" /><col class="w-n opt-a" /><col class="w-wide" /><col class="w-wide opt-b" /></colgroup>
-          <thead><tr><th>{{ $t('analytics.auto.task') }}</th><th class="num">{{ $t('analytics.auto.runs') }}</th><th>{{ $t('analytics.auto.result') }}</th><th class="num">{{ $t('analytics.auto.successRate') }}</th><th class="num">{{ $t('analytics.auto.typicalTime') }}</th><th class="num opt-a">{{ $t('analytics.auto.restarted') }}</th><th class="num opt-a">{{ $t('analytics.auto.aiRequests') }}</th><th class="num">{{ $t('analytics.auto.aiCost') }}</th><th class="num opt-b">{{ $t('analytics.auto.costPerSuccess') }}</th></tr></thead>
+          <colgroup><col /><col class="w-n" /><col class="w-bar" /><col class="w-m" /><col class="w-wide" /><col class="w-n opt-a" /><col class="w-wide opt-a" /><col class="w-wide" /><col class="w-l opt-b" /></colgroup>
+          <thead><tr><th v-tip.overflow>{{ $t('analytics.auto.task') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.runs') }}</th><th v-tip.overflow>{{ $t('analytics.auto.result') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.successRate') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.typicalTime') }}</th><th v-tip.overflow class="num opt-a">{{ $t('analytics.auto.restarted') }}</th><th v-tip.overflow class="num opt-a">{{ $t('analytics.auto.aiRequests') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.aiCost') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.auto.costPerSuccess') }}</th></tr></thead>
           <tbody>
             <tr v-for="k in d.by_kind" :key="k.kind">
               <td><Trunc as="div" class="t-name" :text="k.label" /></td>
@@ -180,8 +180,8 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
           <div class="an-label">{{ $t('analytics.auto.upToReadyTo') }}</div>
           <div class="an-scroll">
             <table class="an-table">
-              <colgroup><col /><col class="w-xs" /><col class="w-xs" /><col class="w-n" /><col class="w-dur" /></colgroup>
-              <thead><tr><th>{{ $t('analytics.auto.applicantTrackingSystem') }}</th><th class="num">{{ $t('analytics.auto.apply') }}</th><th class="num">{{ $t('analytics.auto.done') }}</th><th class="num">{{ $t('analytics.auto.stepsMedian') }}</th><th class="num">{{ $t('analytics.auto.timeMedian') }}</th></tr></thead>
+              <colgroup><col /><col class="w-n" /><col class="w-xs" /><col class="w-wide" /><col class="w-wide" /></colgroup>
+              <thead><tr><th v-tip.overflow>{{ $t('analytics.auto.applicantTrackingSystem') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.apply') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.done') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.stepsMedian') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.timeMedian') }}</th></tr></thead>
               <tbody><tr v-for="r in d.agent_runs.by_system" :key="r.key"><td><Trunc :text="r.label" /></td><td class="num">{{ r.apps }}</td><td class="num">{{ r.done }}</td>
                 <td class="num">{{ r.median_steps ?? '—' }}</td><td class="num">{{ r.median_seconds == null ? '—' : dur(r.median_seconds) }}</td></tr></tbody>
             </table>
@@ -197,7 +197,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       <div class="an-scroll">
         <table class="an-table two">
           <colgroup><col /><col class="w-n" /><col class="w-ans" /><col class="w-do" /></colgroup>
-          <thead><tr><th>{{ $t('analytics.asked.question') }}</th><th class="num">{{ $t('analytics.asked.times') }}</th><th>{{ $t('analytics.asked.answer') }}</th><th :aria-label="$t('analytics.asked.remember')"></th></tr></thead>
+          <thead><tr><th v-tip.overflow>{{ $t('analytics.asked.question') }}</th><th v-tip.overflow class="num">{{ $t('analytics.asked.times') }}</th><th v-tip.overflow>{{ $t('analytics.asked.answer') }}</th><th v-tip.overflow :aria-label="$t('analytics.asked.remember')"></th></tr></thead>
           <tbody>
             <tr v-for="r in d.asked_again.rows" :key="r.question">
               <td><Trunc :lines="2" :text="r.question" /></td>
@@ -236,8 +236,8 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </CardHead>
       <div class="an-scroll">
         <table class="an-table two">
-          <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-dur" /><col class="w-n opt-a" /><col class="w-n opt-a" /><col class="w-num" /><col class="w-note opt-b" /></colgroup>
-          <thead><tr><th>{{ $t('analytics.auto.task') }}</th><th>{{ $t('analytics.auto.start') }}</th><th>{{ $t('analytics.auto.result') }}</th><th class="num">{{ $t('analytics.auto.duration') }}</th><th class="num opt-a">{{ $t('analytics.auto.aiRequests') }}</th><th class="num opt-a">{{ $t('analytics.page.tokens') }}</th><th class="num">{{ $t('analytics.auto.aiCost') }}</th><th class="opt-b">{{ $t('analytics.auto.whyItDidNot') }}</th></tr></thead>
+          <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-dur" /><col class="w-wide opt-a" /><col class="w-n opt-a" /><col class="w-num" /><col class="w-note opt-b" /></colgroup>
+          <thead><tr><th v-tip.overflow>{{ $t('analytics.auto.task') }}</th><th v-tip.overflow>{{ $t('analytics.auto.start') }}</th><th v-tip.overflow>{{ $t('analytics.auto.result') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.duration') }}</th><th v-tip.overflow class="num opt-a">{{ $t('analytics.auto.aiRequests') }}</th><th v-tip.overflow class="num opt-a">{{ $t('analytics.page.tokens') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.aiCost') }}</th><th v-tip.overflow class="opt-b">{{ $t('analytics.auto.whyItDidNot') }}</th></tr></thead>
           <tbody>
             <tr v-for="r in d.recent" :key="r.id" class="clickable" tabindex="0" @click="openRun(r)" @keydown.enter="openRun(r)">
               <td><Trunc as="div" class="t-name" :text="r.label" /><Trunc as="div" class="t-sub" :text="r.subject || '—'" /></td>
@@ -284,7 +284,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       <div class="an-scroll">
         <table class="an-table two">
           <colgroup><col /><col class="w-date" /><col class="w-state" /><col class="w-dur" /><col class="w-n opt-b" /><col class="w-num" /></colgroup>
-          <thead><tr><th>{{ $t('analytics.auto.task') }}</th><th>{{ $t('analytics.auto.start') }}</th><th>{{ $t('analytics.auto.result') }}</th><th class="num">{{ $t('analytics.auto.duration') }}</th><th class="num opt-b">{{ $t('analytics.auto.aiRequests') }}</th><th class="num">{{ $t('analytics.auto.aiCost') }}</th></tr></thead>
+          <thead><tr><th v-tip.overflow>{{ $t('analytics.auto.task') }}</th><th v-tip.overflow>{{ $t('analytics.auto.start') }}</th><th v-tip.overflow>{{ $t('analytics.auto.result') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.duration') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.auto.aiRequests') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.aiCost') }}</th></tr></thead>
           <tbody>
             <tr v-for="r in drawer.rows" :key="r.id" class="clickable" tabindex="0" @click="openRun(r, true)" @keydown.enter="openRun(r, true)">
               <td><Trunc as="div" class="t-name" :text="r.label" /><Trunc as="div" class="t-sub" :text="r.subject || '—'" /></td>

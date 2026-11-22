@@ -51,7 +51,7 @@ const every = computed(() => {
     <div class="xaxis"><span v-for="(d, i) in data" :key="i">{{ i % every === 0 ? d.label : '' }}</span></div>
     <details v-if="table" class="tech">
       <summary>{{ $t('common.chart.asTable') }}</summary>
-      <table class="an-table"><colgroup><col /><col class="w-wide" /></colgroup><thead><tr><th>{{ tableLabel }}</th><th class="num">{{ $t('common.chart.count') }}</th></tr></thead>
+      <table class="an-table"><colgroup><col /><col class="w-wide" /></colgroup><thead><tr><th v-tip.overflow>{{ tableLabel }}</th><th v-tip.overflow class="num">{{ $t('common.chart.count') }}</th></tr></thead>
         <tbody><tr v-for="(d, i) in data" :key="i"><td class="atomic">{{ d.tip || d.label }}</td><td class="num">{{ unit ? d.value + ' ' + unit : d.value }}</td></tr></tbody></table>
     </details>
   </div>

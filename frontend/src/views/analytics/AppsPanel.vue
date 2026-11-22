@@ -8,10 +8,10 @@ import { dayText } from '../../i18n/format'
 import CardHead from '../../components/CardHead.vue'
 import ColumnChart from '../../components/ColumnChart.vue'
 import EmptyState from '../../components/EmptyState.vue'
-import Icon from '../../components/Icon.vue'
 import Pager from '../../components/Pager.vue'
 import SplitBar from '../../components/SplitBar.vue'
 import Status from '../../components/Status.vue'
+import Tabs from '../../components/Tabs.vue'
 import Trunc from '../../components/Trunc.vue'
 import EntityCell from '../../components/cells/EntityCell.vue'
 import Kpi from './Kpi.vue'
@@ -52,7 +52,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       </Kpi>
       <Kpi :value="pct(t.replied, t.n) + '%'" :label="$t('analytics.apps.acknowledged')" :help="$t('analytics.apps.acknowledgedAnythingCameBack')"><div class="d">{{ $t('analytics.apps.of', { p0: t.replied, p1: t.n }) }}</div></Kpi>
       <Kpi :value="pct(t.decided, t.n) + '%'" :label="$t('analytics.apps.cameToSomething')" :help="$t('analytics.apps.cameToSomethingIt')"><div class="d">{{ $t('analytics.apps.of', { p0: t.decided, p1: t.n }) }}</div></Kpi>
-      <Kpi :value="pct(t.progressed, t.n) + '%'" :tone="t.progressed ? 'ok' : ''" :label="$t('analytics.apps.reachedAnAssessmentInterview')" :help="$t('analytics.apps.theShareOfApplications')"><div class="d">{{ $t('analytics.apps.of', { p0: t.progressed, p1: t.n }) }}</div></Kpi>
+      <Kpi :value="pct(t.progressed, t.n) + '%'" :label="$t('analytics.apps.reachedAnAssessmentInterview')" :help="$t('analytics.apps.theShareOfApplications')"><div class="d">{{ $t('analytics.apps.of', { p0: t.progressed, p1: t.n }) }}</div></Kpi>
       <Kpi :value="wait" :tone="d.median_wait_days == null ? 'na' : ''" :label="$t('analytics.apps.typicalWaitForA')" :help="$t('analytics.apps.daysFromSendingTo')"><div class="d">{{ d.waited ? $t('analytics.apps.withARecord', { n: d.waited }, d.waited) : $t('analytics.apps.noRecordsToCompute') }}</div></Kpi>
     </div>
 
@@ -77,17 +77,14 @@ watch(() => props.d.by_time, () => { page.value = 0 })
     <div class="an-row c11">
       <div class="card">
         <CardHead :title="SENT_TITLE[size]" :help="asTable ? $t('analytics.apps.theFirstTwoColumns') : SENT_SUB[size]">
-          <div class="seg" role="tablist" :aria-label="$t('analytics.apps.viewAs')">
-            <button role="tab" :aria-selected="!asTable" :class="{ on: !asTable }" @click="asTable = false"><Icon name="chart" />{{ $t('analytics.apps.chart') }}</button>
-            <button role="tab" :aria-selected="asTable" :class="{ on: asTable }" @click="asTable = true"><Icon name="table" />{{ $t('analytics.apps.table') }}</button>
-          </div>
+          <Tabs :model-value="asTable ? 'table' : 'chart'" :label="$t('analytics.apps.viewAs')" :items="[{ id: 'chart', icon: 'chart', label: $t('analytics.apps.chart') }, { id: 'table', icon: 'table', label: $t('analytics.apps.table') }]" @update:model-value="(v) => (asTable = v === 'table')" />
         </CardHead>
         <ColumnChart v-if="!asTable" :data="monthly" :unit="$t('analytics.apps.items')" :table="false" />
         <template v-else>
           <div class="an-scroll">
             <table class="an-table">
               <colgroup><col /><col class="w-num" /><col class="w-wide" /><col class="w-wide" /></colgroup>
-              <thead><tr><th>{{ STEP_HEAD[size] }}</th><th class="num">{{ $t('analytics.apps.sent') }}</th><th class="num">{{ $t('analytics.apps.ofWhichCameTo') }}</th><th class="num">{{ $t('analytics.apps.repliesReceivedInIt') }}</th></tr></thead>
+              <thead><tr><th v-tip.overflow>{{ STEP_HEAD[size] }}</th><th v-tip.overflow class="num">{{ $t('analytics.apps.sent') }}</th><th v-tip.overflow class="num">{{ $t('analytics.apps.ofWhichCameTo') }}</th><th v-tip.overflow class="num">{{ $t('analytics.apps.repliesReceivedInIt') }}</th></tr></thead>
               <tbody><tr v-for="m in months.slice(page * SIZE, (page + 1) * SIZE)" :key="m.key"><td class="atomic">{{ m.key }}</td><td class="num">{{ m.n }}</td><td class="num">{{ m.decided }}</td><td class="num">{{ m.replies }}</td></tr></tbody>
             </table>
           </div>
@@ -147,8 +144,8 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       <div class="an-pair">
         <div v-if="d.backlog.by_kind.length" class="an-scroll">
           <table class="an-table">
-            <colgroup><col /><col class="w-n" /><col class="w-num" /></colgroup>
-            <thead><tr><th>{{ $t('analytics.backlog.kind') }}</th><th class="num">{{ $t('analytics.backlog.handled') }}</th><th class="num">{{ $t('analytics.backlog.median') }}</th></tr></thead>
+            <colgroup><col /><col class="w-n" /><col class="w-date" /></colgroup>
+            <thead><tr><th v-tip.overflow>{{ $t('analytics.backlog.kind') }}</th><th v-tip.overflow class="num">{{ $t('analytics.backlog.handled') }}</th><th v-tip.overflow class="num">{{ $t('analytics.backlog.median') }}</th></tr></thead>
             <tbody><tr v-for="r in d.backlog.by_kind" :key="r.kind"><td><Trunc :text="r.label" /></td><td class="num">{{ r.n }}</td><td class="num">{{ hours(r.median_hours) }}</td></tr></tbody>
           </table>
         </div>

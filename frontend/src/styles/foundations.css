@@ -66,6 +66,9 @@ button.icon-btn.sm, .icon-btn.sm { width: var(--h-xs); height: var(--h-xs); padd
 
 /* ───────────────────────── Heads and bars ───────────────────────── */
 /* the page's title with the (i) that says what the page is for */
+/* The title part takes the room the actions leave, down to about 12em (then the actions go under it); a title longer
+   than that is cut (PageHead.vue), never pushed onto a line of its own. */
+.page-head-main { flex: 1 1 0; min-width: min(12em, 100%); }
 .page-title { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
 .page-title > .info-tip { flex: none; }
 
@@ -85,6 +88,9 @@ button.icon-btn.sm, .icon-btn.sm { width: var(--h-xs); height: var(--h-xs); padd
 .bulk-frame > .bulkbar { position: static; margin: 0; pointer-events: auto; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; gap: var(--s2); padding: 6px 8px 6px var(--s4); }
 .bulk-frame .bulk-count { flex: none; margin-right: var(--s1); font-size: var(--fs-sm); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bulk-frame .actions { flex: none; }
+/* Toasts and the bar share the bottom edge: while the bar is shown the toasts rise above it (the bar's 6px padding,
+   a small button, its 1px borders), so what came of a bulk action never covers the bar's buttons. */
+body:has(.bulk-frame) .toasts { bottom: calc(var(--s4) + var(--h-sm) + 14px + var(--s3)); }
 .bulkbar button.primary, .bulkbar .btn.primary { background: var(--surface); border-color: var(--surface); color: var(--text); }
 .bulkbar button.primary:hover, .bulkbar .btn.primary:hover { background: color-mix(in srgb, var(--surface) 88%, var(--text)); }
 .bulkbar .btn { background: transparent; color: inherit; border-color: color-mix(in srgb, var(--surface) 35%, transparent); }

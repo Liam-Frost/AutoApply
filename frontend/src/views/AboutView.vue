@@ -12,6 +12,7 @@ import CardHead from '../components/CardHead.vue'
 import Status from '../components/Status.vue'
 import Trunc from '../components/Trunc.vue'
 import { renderMarkdown } from '../md'
+import { dayText } from '../i18n/format'
 import { ask, fmtTime, run, toast } from '../ui'
 
 const about = ref(null)
@@ -89,7 +90,7 @@ async function switchNow(back = false) {
         <span class="about-bar"><span :style="{ width: (up.status === 'downloading' ? up.progress : 100) + '%' }" :class="{ moving: up.status === 'preparing' }"></span></span>
       </template>
       <template v-else-if="up.staged"><span class="tag ok">{{ $t('about.ready') }}</span> {{ $t('about.readyLine', { v: up.staged }) }}</template>
-      <template v-else-if="up.newer"><span class="tag ok">{{ $t('about.new') }}</span> {{ $t('about.newer', { v: up.latest, d: up.published }) }}</template>
+      <template v-else-if="up.newer"><span class="tag ok">{{ $t('about.new') }}</span> {{ $t('about.newer', { v: up.latest, d: up.published ? dayText(up.published) || up.published : '' }) }}</template>
       <Status v-else-if="up.checked_at && !up.error" tone="ok" :label="$t('about.latest', { v: up.current })" />
       <template v-else-if="!up.checked_at">{{ $t('about.notChecked') }}</template>
       <span v-if="up.checked_at" class="t-meta atomic">{{ $t('about.checkedAt', { t: fmtTime(up.checked_at) }) }}</span>

@@ -5,6 +5,7 @@ import { t as T } from '../i18n/catalog'
 // application's page (ApplicationDetail), which has the buttons that decide about it (approve, send back).
 import { computed, nextTick, ref } from 'vue'
 import { api } from '../api'
+import CardHead from './CardHead.vue'
 import IconButton from './IconButton.vue'
 import SectionHead from './SectionHead.vue'
 import Status from './Status.vue'
@@ -108,8 +109,8 @@ const workAgain = () => run(() => api.post(`/drafts/${props.d.id}/reanswer`), T(
       <span class="t-meta">{{ $t('record.workAgainWhen') }}</span></div>
   </div>
 
-  <div v-if="toLook.length" class="panel look" aria-labelledby="look-h">
-    <div class="section-head"><h3 id="look-h">{{ $t('record.lookFirst') }}</h3><span class="count">{{ toDecide(toLook) ? $t('record.toDecide', { n: toDecide(toLook) }, toDecide(toLook)) : $t('record.nothingToDecide') }}</span></div>
+  <div v-if="toLook.length" class="card look" :aria-label="$t('record.lookFirst')">
+    <CardHead :title="$t('record.lookFirst')" :note="toDecide(toLook) ? $t('record.toDecide', { n: toDecide(toLook) }, toDecide(toLook)) : $t('record.nothingToDecide')" />
     <div v-for="g in toLook" :key="g.key" class="look-group">
       <span class="tag" :class="g.tone">{{ g.label }}</span>
       <button v-if="g.to" class="look-item" @click="goTo('', g.to)">{{ lineOf(g) }}</button>
@@ -163,7 +164,7 @@ const workAgain = () => run(() => api.post(`/drafts/${props.d.id}/reanswer`), T(
               <pre v-else class="rec-answer">{{ show(a) }}</pre>
             </template>
           </td>
-          <td class="small muted">{{ a.basis_display }}</td>
+          <td class="t-meta rec-basis">{{ a.basis_display }}</td>
           <td><Status v-if="SURE[a.confidence]" :tone="SURE[a.confidence][1]" :label="$t(SURE[a.confidence][0])" /></td>
           <td class="rec-act"><IconButton v-if="editable && a.type !== 'file' && editing !== a.id" icon="edit" :label="$t('record.change.button')" @click="startEdit(a)" /></td>
         </tr>

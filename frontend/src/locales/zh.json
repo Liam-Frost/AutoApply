@@ -192,7 +192,7 @@
       "sub": "这段时间处理 {handled} 项 · 当前未处理 {open} 项",
       "kind": "类别",
       "handled": "已处理",
-      "median": "等待时间（中位数）",
+      "median": "等待（中位数）",
       "oldest": "等待最久"
     },
     "missed": {
@@ -635,10 +635,10 @@
     "state": {
       "label": "申请状态",
       "any": "全部申请状态",
-      "unapplied": "未投",
+      "unapplied": "未投递",
       "in_progress": "进行中",
-      "sent": "已投",
-      "progressed": "有进展"
+      "sent": "已投递",
+      "progressed": "招聘进展"
     },
     "company": "公司",
     "priority": "仅重点雇主",
@@ -657,7 +657,7 @@
     "linkChange": "改链接",
     "openPosting": "查看岗位详情",
     "start": "开始申请",
-    "notApplying": "不投",
+    "notApplying": "不投递",
     "openApplication": "打开这份申请",
     "openContacts": "打开人脉",
     "save": "保存",
@@ -666,7 +666,7 @@
     "movedMsg": "日期已改",
     "linkSaved": "链接已保存",
     "started": "Agent 开始做这份申请了",
-    "skipped": "已标为不投",
+    "skipped": "已标为不投递",
     "added": "已加上",
     "form": {
       "title": "标题",
@@ -690,7 +690,7 @@
       "remove": "去掉这个提醒",
       "customLabel": "提前几分钟",
       "customUnit": "分钟前",
-      "hint": "提醒会发到你的 Telegram 或 Discord，并出现在待办页顶上。日期改了，提醒跟着移。",
+      "hint": "提醒会发到你的 Telegram 或 Discord，并出现在“待处理”页顶部。日期改了，提醒跟着移。",
       "hintAllDay": "这件事是全天的：提醒在早上发（几点在设置里改）。"
     },
     "share": {
@@ -749,7 +749,7 @@
       "chipDoneHidden": "隐藏已完成",
       "noKinds": "没有选择任何事件类型。"
     },
-    "allDeadlinesHint": "也显示已投递、不申请、已下线或已归档的岗位。",
+    "allDeadlinesHint": "也显示已投递、不投递、已下线或已归档的岗位。",
     "group": {
       "overdue": "逾期待处理",
       "deadlines": "申请截止",
@@ -1443,7 +1443,6 @@
       "removePriority": "取消重点",
       "markAsPriority": "设为重点",
       "employersYouFollow": "关注的雇主",
-      "scanNow": "立即扫描",
       "companiesYouWantTo": "你想盯住的公司。把它招聘页的网址贴进来就行：用常见招聘系统的公司会直接读它的岗位列表；其他网站由 AI 打开招聘页，从里面找出岗位。读到的岗位只有符合“入库条件”的才会留下。",
       "priority": "重点",
       "add": "添加",
@@ -1466,7 +1465,6 @@
       "addedItllBeRead": "已添加 {p0}（{p1}），下次扫描时开始读取",
       "stopFollowingPostingsAlready": "不再关注 {p0}？已经找到的岗位会保留，只是不再读取新的。",
       "removed": "已移除 {p0}",
-      "scanningWellNotifyYou": "开始扫描，完成后通知你",
       "enableName": "启用 {name}",
       "openPage": "打开招聘页"
     }
@@ -2197,7 +2195,7 @@
     "more": "还有 {p0} 种",
     "collapse": "收起",
     "dragItToThe": "请拖到书签栏，不要点击",
-    "backToPostings": "返回岗位",
+    "backToPostings": "岗位",
     "scanNow": "立即扫描",
     "neverSignedIn": "从未登录",
     "theProgramReadsThe": "程序扫描新岗位时会自动读取门户上的岗位。门户用学校账号登录（CWL + Duo）：在这里登录一次，会话会被保存；过期时待办中会出现“登录 PD Portal”。",
@@ -2616,9 +2614,6 @@
     "stopped": "已停止，Agent 会在下一步操作前停下"
   },
   "application": {
-    "loading": "正在加载…",
-    "couldNotLoad": "无法加载这份申请",
-    "tryAgain": "重试",
     "backToList": "申请",
     "posting": "岗位",
     "sentOn": "投递于 {day}",
@@ -2759,7 +2754,8 @@
       "text": "岗位说明原文",
       "more": "展开全文",
       "less": "收起"
-    }
+    },
+    "tabsLabel": "申请详情"
   },
   "applications": {
     "title": "申请",
@@ -3112,7 +3108,6 @@
     "collapse": "收起明细",
     "howCounted": "统计口径",
     "set": {
-      "top": "由右上角的“保存”统一保存",
       "own": "用此处的按钮保存",
       "now": "修改后立即生效"
     },

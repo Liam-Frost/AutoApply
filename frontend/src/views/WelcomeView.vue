@@ -11,11 +11,10 @@ import Icon from '../components/Icon.vue'
 import Status from '../components/Status.vue'
 import { useProfileInit } from '../profileInit'
 import { loadPersona, toast } from '../ui'
-import { tag } from '../i18n/catalog'
+import { listed } from '../i18n/format'
 
 const router = useRouter()
 // several things in one line, joined the way the language joins them (A, B and C)
-const listed = (xs) => new Intl.ListFormat(tag(), { style: 'short', type: 'conjunction' }).format(xs)
 const STEPS = [T('welcome.start'), T('welcome.connectAi'), T('welcome.yourSituation'), T('welcome.rSum'), T('welcome.whatJobsToLook'), T('welcome.whereToLook'), T('welcome.done'), T('welcome.tryOnce')]
 const step = ref(0)
 const meta = ref(null)
@@ -154,8 +153,9 @@ onMounted(load)
     </div>
 
     <div v-else-if="step === 1">
-      <div class="card"><div class="card-title">{{ $t('welcome.connectAi') }}</div><p class="muted wiz-lead">{{ $t('welcome.aiIsNeededTo') }}</p></div>
-      <AiPanel :s="s" :sec="sec" :secrets="info.secrets" @changed="load" />
+      <!-- (a step begins as every step does: its title and one paragraph in a .wiz-card) -->
+      <div class="card wiz-card"><h2>{{ $t('welcome.connectAi') }}</h2><p class="muted wiz-lead">{{ $t('welcome.aiIsNeededTo') }}</p></div>
+      <AiPanel :s="s" :sec="sec" :secrets="info.secrets" guide @changed="load" />
       <div class="card">
         <div class="row"><button :disabled="busy === 'ai'" @click="testAi"><Icon name="refresh" />{{ busy === 'ai' ? $t('welcome.testing') : $t('welcome.testIt') }}</button>
           <Status v-if="aiOk === true" tone="ok" :label="$t('welcome.usable')" /><span v-else-if="aiOk" class="small bad-text">{{ aiOk }}</span></div>
@@ -215,7 +215,7 @@ onMounted(load)
         <div class="field"><label>{{ $t('welcome.andHasOneOf') }}</label><textarea v-model="roles" class="prose" rows="3" @change="tryRules"></textarea></div>
         <div class="field"><label>{{ $t('welcome.titlesCantContainThese') }}</label><textarea v-model="none" class="prose" rows="2" @change="tryRules"></textarea></div>
         <div v-if="tried.length" class="field"><label>{{ $t('welcome.howThesePostingsWould') }}</label>
-          <div class="list"><div v-for="t in tried" :key="t.title" class="item"><Status :tone="t.kept ? 'ok' : ''" :label="t.kept ? $t('welcome.keep') : $t('welcome.discard')" /><div><div class="main">{{ t.title }}</div><div class="sub">{{ t.location }}{{ t.why ? ' · ' + t.why : '' }}</div></div></div></div></div>
+          <div class="list wiz-tried"><div v-for="t in tried" :key="t.title" class="item"><Status :tone="t.kept ? 'ok' : ''" :label="t.kept ? $t('welcome.keep') : $t('welcome.discard')" /><div><div class="main">{{ t.title }}</div><div class="sub">{{ t.location }}{{ t.why ? ' · ' + t.why : '' }}</div></div></div></div></div>
         <details class="tech"><summary>{{ $t('welcome.scoringRulesWhatThe') }}</summary><textarea v-model="scoring" rows="14"></textarea></details>
         <div class="row mt-3"><button @click="go(3)">{{ $t('welcome.back') }}</button><button :disabled="busy === 'sug'" @click="suggest"><Icon name="refresh" />{{ $t('welcome.regenerateSuggestions') }}</button><button class="primary" @click="go(5)">{{ $t('welcome.next') }}</button></div>
       </template>
@@ -251,10 +251,10 @@ onMounted(load)
       <p v-if="piWorking" class="callout mt-3"><Icon name="clock" /><span>{{ $t('welcome.yourProfileIsStill') }}</span></p>
       <p v-else-if="!hasProfile" class="callout warn mt-3"><Icon name="alert" /><span>{{ $t('welcome.yourProfileIsStill2') }}</span></p>
       <div class="row mt-4">
+        <router-link to="/home" class="btn">{{ trial.state ? $t('welcome.goToOverview') : $t('welcome.skipForNowGo') }}</router-link>
         <router-link v-if="trial.draft" :to="'/drafts/' + trial.draft" class="btn primary"><Icon name="draft" />{{ $t('welcome.viewThisDraft') }}</router-link>
         <router-link v-if="trial.state === 'needs'" to="/todos" class="btn primary">{{ $t('welcome.goToNeedsYou') }}</router-link>
         <router-link v-if="!hasProfile && !piWorking" to="/profile?tab=init" class="btn primary">{{ $t('welcome.goToProfile') }}</router-link>
-        <router-link to="/home" class="btn">{{ trial.state ? $t('welcome.goToOverview') : $t('welcome.skipForNowGo') }}</router-link>
       </div>
     </div>
 

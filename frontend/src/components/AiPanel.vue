@@ -4,7 +4,7 @@ import { t as T } from '../i18n/catalog'
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { ask, run, toast } from '../ui'
-import { clockOf, shortDayOf } from '../i18n/format'
+import { clockOf, dateTimeOf } from '../i18n/format'
 import { mayLeave, same, useUnsaved } from '../dirty'
 import CardHead from './CardHead.vue'
 import HelpPop from './HelpPop.vue'
@@ -15,7 +15,9 @@ import Status from './Status.vue'
 import TechDetails from './TechDetails.vue'
 import Trunc from './Trunc.vue'
 
-const props = defineProps({ s: { type: Object, required: true }, sec: { type: Object, required: true }, secrets: { type: Object, default: () => ({}) } })
+// `guide`: shown in the first-run guide, which saves everything at its last step and tests the connection itself - so
+// no "click Save at the top right" (there is none) and no test of the settings saved before.
+const props = defineProps({ s: { type: Object, required: true }, sec: { type: Object, required: true }, secrets: { type: Object, default: () => ({}) }, guide: { type: Boolean, default: false } })
 const emit = defineEmits(['changed'])
 const d = ref(null)
 const pick = ref('')
@@ -163,10 +165,10 @@ async function loadQuota(refresh) {
 }
 const saveQuota = () => run(() => api.put('/llm/quota', { warn_percent: quota.value.warn_percent, warn_balance: quota.value.warn_balance, notify: quota.value.notify }), T('settings.ai.saved'), (r) => (quota.value = r))
 const winTone = (w) => (w.blocked || w.used >= 100 ? 'out' : w.used >= quota.value.warn_percent ? 'low' : '')
-const resetAt = (ts) => {      // "01:36" today, "11/18 22:36" on another day: figures only, the words around them are in the template
+const resetAt = (ts) => {      // "01:36" today, "Nov 18 22:36" on another day: figures only, the words around them are in the template
   if (!ts) return ''
   const d = new Date(ts * 1000)
-  return d.toDateString() === new Date().toDateString() ? clockOf(d) : `${shortDayOf(d)} ${clockOf(d)}`
+  return d.toDateString() === new Date().toDateString() ? clockOf(d) : dateTimeOf(d)
 }
 onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
 </script>
@@ -207,7 +209,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
           <label>{{ $t('settings.ai.thinkingDepth') }}</label><AaSelect v-model="props.s['llm.effort']"><option value="low">{{ $t('settings.ai.lowFast') }}</option><option value="medium">{{ $t('settings.ai.medium') }}</option><option value="high">{{ $t('settings.ai.high') }}</option><option value="xhigh">{{ $t('settings.ai.highestSlow') }}</option></AaSelect>
           <label>{{ $t('settings.ai.longLivedTokenOptional') }}<HelpPop :text="$t('settings.ai.signInsExpireFor')" /></label><input v-model="props.sec.claude_oauth_token" type="password" autocomplete="off" :aria-label="$t('settings.ai.longLivedTokenOptional')" :placeholder="props.secrets.claude_oauth_token ? $t('settings.ai.savedToChangeIt') : ''" />
         </div>
-        <p class="set-note">{{ $t('settings.ai.afterChangingTheModel') }}</p>
+        <p v-if="!guide" class="set-note">{{ $t('settings.ai.afterChangingTheModel') }}</p>
       </template>
 
       <!-- Anthropic API -->
@@ -219,7 +221,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
           <label>{{ $t('settings.ai.modelForSimpleTasks') }}<HelpPop :text="$t('settings.ai.forSmallTasksLike')" /></label><ModelPick v-model="props.s['llm.small_model']" :models="models" :loading="loadingModels" />
           <label>{{ $t('settings.ai.thinkingDepth') }}</label><AaSelect v-model="props.s['llm.effort']"><option value="low">{{ $t('settings.ai.lowFast') }}</option><option value="medium">{{ $t('settings.ai.medium') }}</option><option value="high">{{ $t('settings.ai.high') }}</option><option value="xhigh">{{ $t('settings.ai.highestSlow') }}</option></AaSelect>
         </div>
-        <p class="set-note">{{ $t('settings.ai.afterChangingTheModel2') }}</p>
+        <p v-if="!guide" class="set-note">{{ $t('settings.ai.afterChangingTheModel2') }}</p>
       </template>
 
       <!-- ChatGPT subscription through the official Codex SDK -->
@@ -257,7 +259,7 @@ onMounted(async () => { await load(); await loadFo(); loadQuota(false) })
       </template>
 
       <div class="set-actions">
-        <button v-if="inUse" :disabled="busy" @click="test">{{ $t('settings.ai.testIt') }}</button>
+        <button v-if="inUse && !guide" :disabled="busy" @click="test">{{ $t('settings.ai.testIt') }}</button>
         <button v-if="cur.key !== 'claude_subscription'" :class="{ primary: inUse }" :disabled="busy" @click="save(false)">{{ $t('settings.ai.save', { p0: inUse ? '' : $t('settings.ai.dontSwitchYet') }) }}</button>
         <button v-if="!inUse" class="primary" :disabled="busy" @click="save(true)"><Icon name="check" />{{ $t('settings.ai.saveAndUseThis') }}</button>
         <Status v-if="formDirty" tone="warn" :label="$t('settings.ai.unsavedChanges')" />

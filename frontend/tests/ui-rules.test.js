@@ -59,23 +59,16 @@ function stylesOf(text) {
 
 // ── the lists ───────────────────────────────────────────────────────────────────────────────────────────────────────
 // Files that do not follow a rule yet: how many places each still has. NOT MIGRATED YET - every line here is work that
-// is still to be done, and goes when the file is migrated. (Shared components are not allowed here: the one that is,
-// is marked.)
+// is still to be done, and goes when the file is migrated. (Shared components are not allowed here.)
 const PENDING = {
   // title="…" on an element: the browser's own tooltip. Use v-tip / <Trunc> / <InfoTip> / <IconButton label>.
-  title: {
-    // SHARED, reported to the lead: AaSelect hands a caller's `title` on to its button as the browser's tooltip
-    // (`:title="attrs.title"`). It should say it with v-tip and keep `attrs.title` only as the accessible name.
-    'components/Select.vue': 1,
-  },
+  title: {},
   // a hex colour or `font-size: NNpx` in a <style> block or a style attribute. Use the tokens (var(--text-2),
   // var(--fs-sm)) or the text classes (.t-primary / .t-secondary / .t-meta).
   tokens: {},
   // a <table> for a list of records. Use <DataTable>.
   table: {
     'components/RecordPanel.vue': 1,            // the questions and answers of an application's record
-    'views/SourcesView.vue': 1,
-    'views/lab/sections/04-Status.vue': 1,      // the lab's "three weights in one table": to be shown in a DataTable like every other list
   },
   // a button or link that holds an icon alone and has no name. Use <IconButton icon label>, or give it an aria-label.
   name: {},
@@ -87,7 +80,6 @@ const TABLES = new Set([
   'components/SeriesTable.vue',          // the figures behind a chart
   'components/ColumnChart.vue',          // "as a table" under a chart
   'components/NetworkPanel.vue',         // the three results of a connection test
-  'views/AboutView.vue',                 // the components the program is built from: name, version, licence
   'views/SettingsView.vue',              // a grid of tick boxes: which notice goes to which channel
   'views/analytics/AppsPanel.vue',       // analytics figures
   'views/analytics/AutoPanel.vue',       // analytics figures

@@ -695,3 +695,95 @@ Per file (helper texts in all / of them long / English characters):
 | `analytics/CostPanel.vue:350` | `analytics.cost.usDollarsPerMillion` | 430 / 143 | popover on the card title (`SectionHead help`): what the figure counts |
 | `analytics/SitesPanel.vue:32` | `analytics.sites.withEveryApplicationThe` | 331 / 107 | popover on the card title (`SectionHead help`): what the figure counts |
 | `calendar/EventDetail.vue:142` | `calendar.alarm.hintAllDay` +1 | 216 / 72 | popover (`InfoTip` opening a `Popover`) beside the field's label; keep a consequence, if any, in ≤ 1 line |
+
+## Resolution
+
+State after the migration of every page to the shared layer and the integration pass that followed it (branch
+`ui/design-system`). "Resolved" means the cause is gone in the code **and** it was looked at in the running program
+(Playwright, demo data, 1440 px in zh and en; 1024 / 1280 px in en and dark spot checks): no page scrolls sideways at
+those widths, every DataTable has one row height per table, no native `title` is rendered in `main`, and the console is
+clean on every page, tab and overlay walked. "Code only" means the code says so but it was not looked at in this pass;
+"not verified" means neither.
+
+### Root causes
+
+| # | State | How (or why not) |
+| --- | --- | --- |
+| R1 | Resolved | Every list of records is a `DataTable` (fixed layout, widths from the column definitions, one density per table); cards line up by structure (`ProviderCard`, `CardHead`). Hand-made tables left: the compact figure tables of analytics (`.an-table`, fixed layout with a `<colgroup>`), the settings matrix, and the answers of a record (`RecordPanel`, see D6). |
+| R2 | Resolved | `Trunc` / `.cut` / `.cut2` and `v-tip.overflow` - the page title too (`PageHead`: one line, cut, overflow tooltip, actions kept at the right). |
+| R3 | Resolved | No native `title` in `views/` or `components/` (grep) and none rendered; one tooltip (`v-tip`, `InfoTip`, `HelpPop`). |
+| R4 | Resolved | `.actions` (one line) + `Menu`; destructive items last, `danger`, asked with `{ danger: true }` (bulk withdraw added in this pass). |
+| R5 | Resolved | `Status` by default, `.tag` for what must stand out, `.meta` for attributes; green only for real success (the "reached an assessment / interview" figure is no longer green). |
+| R6 | Mostly | Page subtitles gone except the calendar's (`calendar.sub` describes the page; the calendar was not to be restructured - drop the `sub` there). Help is behind (i). Long hints remain in Settings, Welcome and the PD Portal card of Sources. |
+| R7 | Resolved | Inline `style=` only in `views/calendar/*` and `CalendarView.vue` (left by rule); sizes and weights from tokens. |
+| R8 | Mostly | One date contract (G16), one tabs component (every tab row, Profile's with the unsaved dot), one loading / error component (`DataState`; About, Analytics and Settings keep their own forms of it, Login / Remote / Welcome read nothing that needs it). |
+| R9 | Resolved | Optional columns by the box's width (`priority`); container queries for `.kv`, `.fields` and the record's answers. |
+| R10 | Mostly | Glossary applied to the catalogs, the calendar's values included; a few sentences are still glued from fragments around links (glossary §5). |
+
+### P0 and P1 rows
+
+| ID | State |
+| --- | --- |
+| G1, G2, G3 | Resolved (`DataTable`; no inner scroller with a page override; `priority`). |
+| G4 | Resolved. |
+| G5, G6 | Code only for `.sel` widths and `--h-*` heights; the filter bars of every list page were looked at: one height. |
+| G7, G8, G9 | Resolved. |
+| G10 / H1 | Resolved: the first column of `.list > .item` is bounded (136 px, cut); the first-run guide's keep / discard list was given a column of its own width in this pass. |
+| G11 | Resolved (`.kv` label column `minmax(96px, min(240px, 34%))`, one column in a narrow box); the accounts page does not scroll sideways at 1024. |
+| G12, G13 | Resolved. |
+| G14 | Resolved for every `danger` menu item and for bulk withdraw; "unlink a mail" and "drop a question" ask without red on purpose (both can be undone). |
+| G15 | Resolved (`HelpPop` / `InfoTip`; no `<Explain>` left). |
+| G16 | Resolved in this pass: one form of a day everywhere (`dateOf`: "11月20日" / "Nov 20", the year only when it is not this year); a scheduled time is day + time (`dateTimeOf`); a moment of what happened is relative (`when`: today / yesterday / a day). `shortDayText` is now `dayText`; "11/20" is left for a chart's axis. The raw date of About and the quota's reset time go through the same functions. |
+| G19 | Resolved (catalog scan: no full-width punctuation in en / fr values). |
+| A1 | Resolved (calendar parser for `next_date`). |
+| A2-A6 | Resolved. |
+| D2, D3 | Resolved; the status card's "More" now looks like every labelled "More" (secondary, `more` icon). |
+| D4 | Not resolved: the reason an action is disabled is not shown. Needs a line under the actions, or a focusable wrapper with `v-tip`. |
+| D6 | Partly: confidence is a `Status`, "Change" an `IconButton`, widths are classes, every cell starts on the first line's baseline, the basis column gives way in a box under 820 px. The answers stay a wrapping `<table>`: an answer is the text sent and is read whole (a `DataTable` would cut it to two lines); editing stays in the row. |
+| J1-J8 | Resolved; a row's one visible action is `button.ghost.sm` (Postings, Site accounts, Activity alike). |
+| T1-T5, T8 | Resolved. |
+| H2, H3 | Resolved. |
+| C1-C4, C6-C12 | Resolved (cards and table at 1440 / 1024; drawers and menus opened). C5 code only. |
+| F1, F2, F3 | Code only (`Menu` in the preview, `aria-label`, `danger`); the preview of a file was not opened in this pass. |
+| K1-K3 | Resolved; since this pass the contact's form in its drawer is a `.fields` form (labels above, as the other forms) and the list is `comfortable` (two-line rows). |
+| S1 | Resolved (`DataTable`, `IconButton pressed`, row `Menu`); its own "Scan now" was removed in this pass (it repeated the page's). |
+| S2 | Partly: state as `Status`, one action; the hint under it is still a paragraph glued around a link. |
+| S3 | Resolved; S4 (P2) resolved in this pass (`DataState`). |
+| P1, P2, P5 | Resolved (tabs with the unsaved dot, `.fields`, help behind (i)). |
+| U1, U3 | Code only (`Pager`, `aria-label`). |
+| X1 | Partly: most fields have their help behind (i); long hints remain under some controls. "Saved with Save at the top right" is no longer repeated on every section (only a section that saves otherwise says how). |
+| X2 | Partly: hints are under their control; not every one became an (i). |
+| X4 | Partly: rules are fixed rows with an `IconButton` delete (nothing is stored before Save, so no question); human names for the browsers; not a `DataTable`. |
+| X5 | Resolved. |
+| N1, N2, N3 | Resolved; the backlog table's header no longer wraps. |
+| L1 | Partly: tooltips done; the `sub` remains (R6). |
+| M1 | Code only (`IconButton`s); the remote window was not opened in this pass. |
+
+### Found in the integration pass and fixed
+
+- Tabs: one component everywhere (Analytics views and its chart / table switch, an application's parts, the groups of
+  Applications and Postings, Profile - with a `dot` per tab for unsaved changes); arrow keys on all of them.
+- Toasts rise above the BulkBar while it is shown (`body:has(.bulk-frame) .toasts`), measured with a failing bulk action.
+- Heads: a section head inside a card became `CardHead` (Sources, the record's "Review these first"); back links sit
+  under the title and name the page they lead to (Sources, an application); a card's explanation is its (i), not a
+  paragraph under the title (Profile salary and source editor).
+- Same action, same look: "scan" has one icon (`refresh`), "start an application" one icon (`draft`) and the plural
+  wording "Start applications" in the bulk bar; a row's action is ghost; a labelled "More" is secondary with the `more`
+  icon.
+- Dates: see G16. Lists of names: `listed()` (`Intl.ListFormat`) in `i18n/format.js`, used by Files, Action required,
+  Welcome and the profile's regions.
+- Found by the QA page tests and fixed: the Postings row action is never cut (its column is sized from the words in the
+  shown language, measured on a hidden copy); the headers of the analytics figure tables are one line in every language
+  (wider bounded columns `w-m` / `w-l`, and where a narrow card still squeezes one it is cut with an overflow tooltip);
+  the sidebar's pause button fits in French ("Mettre en pause" / "Reprendre").
+- First-run guide (walked on a fresh instance, zh and en, 1440 and 1024): the AI step opens like the other steps, no
+  longer tells the reader to press a Save that is not there, and no longer offers the panel's test of saved settings
+  beside its own; the last step puts the secondary action first; the keep / discard list lines up.
+
+### Not resolved, and what would do it
+
+- Server-side texts stay in the language they were written in (W8): to-dos and agent summaries made in Chinese show in
+  Chinese in the English interface. Needs the server to keep keys and parameters, not sentences.
+- Analytics → backlog by kind shows the raw value `note` for one kind: the server sends no label for it
+  (`by_kind[].label`) - a backend fix.
+- D4, the calendar's `sub`, and the glued sentences listed in glossary §5.

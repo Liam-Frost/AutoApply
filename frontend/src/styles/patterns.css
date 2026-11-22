@@ -76,9 +76,6 @@ a.mark:hover { color: var(--primary); }
 .job-why { margin: var(--s3) 0 0; }
 
 /* ───────────────────────── One application (its page) ───────────────────────── */
-/* the company's name as the page's title: two lines at most, never wider than the page (a name of any length) */
-.app-head > div:first-child { flex: 1 1 0; min-width: 0; }
-.app-head h2 { min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 /* under the company's name: the way back, the job, and its plain attributes - one line, cut where it must be */
 .app-sub { display: flex; align-items: center; gap: var(--s1) var(--s3); flex-wrap: wrap; min-width: 0; }
 .app-sub > * { min-width: 0; }
@@ -130,6 +127,12 @@ a.mark:hover { color: var(--primary); }
 .rec-line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
 /* the answers: a question and its answer wrap as they need (the one table whose rows are as tall as what they hold) */
 .rec-table { max-height: none; }
+/* The answers wrap (an answer is the text sent, read whole), so rows differ in height: every cell starts on the first
+   line's baseline, the small basis and the confidence included - not each at its own top. */
+.rec-table td { vertical-align: baseline; }
+/* In a narrow box the basis (where an answer came from) gives its room to the answer, as an optional DataTable column
+   would; the question and the answer are never squeezed to a few characters a line. */
+@container (max-width: 820px) { .rec-table .rec-basis { display: none; } }
 .rec-table th.rec-q { width: 34%; }
 .rec-table th.rec-basis { width: 22%; }
 .rec-table th.rec-sure { width: 104px; }

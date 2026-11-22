@@ -102,7 +102,9 @@
 .an-table col.w-xs { width: 60px; }
 .an-table col.w-n { width: 78px; }
 .an-table col.w-num { width: 92px; }
+.an-table col.w-m { width: 96px; }
 .an-table col.w-wide { width: 116px; }
+.an-table col.w-l { width: 140px; }      /* (w-m, w-l: a header of two or three words stays on one line in every language) */
 .an-table col.w-date { width: 132px; }
 .an-table col.w-state { width: 136px; }
 .an-table col.w-dur { width: 104px; }
@@ -111,7 +113,9 @@
 .an-table col.w-ans { width: 30%; }
 .an-table col.w-do { width: 150px; }
 .an-table col.w-act { width: 44px; }
-.an-table th { position: static; padding: var(--s2); background: transparent; border-bottom: 1px solid var(--border-strong); vertical-align: bottom; line-height: 1.3; white-space: normal; overflow-wrap: break-word; }
+/* A header is one line: the columns are sized for their words (w-m, w-l), and where a narrow card still squeezes one it
+   is cut, its whole text in an overflow tooltip (v-tip.overflow on every th) - never a second line. */
+.an-table th { position: static; padding: var(--s2); background: transparent; border-bottom: 1px solid var(--border-strong); vertical-align: bottom; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .an-table td { height: var(--row-compact); padding: var(--s1) var(--s2); overflow: hidden; vertical-align: middle; line-height: 1.4; }
 .an-table.two td { height: 52px; }
 .an-table th.num, .an-table td.num { text-align: right; font-variant-numeric: tabular-nums; }

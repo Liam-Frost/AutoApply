@@ -13,6 +13,7 @@ import Icon from '../components/Icon.vue'
 import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
 import Status from '../components/Status.vue'
+import Tabs from '../components/Tabs.vue'
 import Trunc from '../components/Trunc.vue'
 import DateTimeCell from '../components/cells/DateTimeCell.vue'
 import EntityCell from '../components/cells/EntityCell.vue'
@@ -21,6 +22,7 @@ import { fmtTime, run as runAction, toast, ask } from '../ui'
 import { clone, mayLeave, same, useUnsaved } from '../dirty'
 import { useProfileInit } from '../profileInit'
 import { useRoute } from 'vue-router'
+import { listed } from '../i18n/format'
 
 const route = useRoute()
 const tab = ref(['sections', 'pay', 'stories', 'init', 'scoring', 'markdown', 'history'].includes(route.query.tab) ? route.query.tab : 'sections')
@@ -153,6 +155,7 @@ useUnsaved({ id: 'profile-md', label: T('profile.editSource'), dirty: () => mdDi
 useUnsaved({ id: 'profile-draft', label: T('profile.yourChangesToThe'), dirty: () => draftDirty.value, save: () => adopt(), discard: () => { draftText.value = genTask.value.draft || '' } })
 const marked = (k) => (EDITED_ON[k] || []).some((id) => ({ 'profile-section': sectionDirty.value, 'profile-pay': stDirty.value, 'profile-stories': stories.value !== base.stories,
   'profile-scoring': scoring.value !== base.scoring, 'profile-md': mdDirty.value, 'profile-draft': draftDirty.value })[id])
+const tabItems = computed(() => Object.entries(TAB_LABELS).map(([id, label]) => ({ id, label, dot: marked(id) ? T('profile.unsavedChanges') : '' })))
 async function go(k) { if (k !== tab.value && (await mayLeave(EDITED_ON[tab.value] || []))) tab.value = k }
 onMounted(load)
 </script>
@@ -171,9 +174,8 @@ onMounted(load)
   </PageHead>
   <DataState :s="page" :what="$t('profile.profile')" @retry="load" />
   <template v-if="page.at">
-  <div class="seg tabs page-tabs" role="tablist" :aria-label="$t('profile.profile')">
-    <button v-for="(l, k) in TAB_LABELS" :key="k" role="tab" :aria-selected="tab === k" :class="{ on: tab === k }" @click="go(k)">{{ l }}<span v-if="marked(k)" v-tip="$t('profile.unsavedChanges')" class="unsaved-dot" role="img" :aria-label="$t('profile.unsavedChanges')"></span></button>
-  </div>
+  <!-- (a tab is left through go(): what is edited on it is asked about first) -->
+  <Tabs class="page-tabs" :model-value="tab" :label="$t('profile.profile')" :items="tabItems" @update:model-value="go" />
 
   <template v-if="tab === 'sections'">
     <div v-if="p.agent_added.length" class="card">
@@ -186,7 +188,7 @@ onMounted(load)
       </div>
     </div>
     <details v-if="regions.packs.length" class="card region-notes">
-      <summary><span class="card-title">{{ $t('profile.applicationFormsInThe') }}</span> <span class="t-meta">{{ $t('profile.regionsNote', { regions: regions.packs.map((r) => r.name).join(', ') }) }}</span></summary>
+      <summary><span class="card-title">{{ $t('profile.applicationFormsInThe') }}</span> <span class="t-meta">{{ $t('profile.regionsNote', { regions: listed(regions.packs.map((r) => r.name)) }) }}</span></summary>
       <div v-for="r in regions.packs" :key="r.code" class="region">
         <div class="t-primary">{{ r.name }}</div>
         <ul><li v-for="x in r.profile" :key="x">{{ x }}</li></ul>
@@ -211,8 +213,7 @@ onMounted(load)
 
   <template v-if="tab === 'pay'">
     <div class="card">
-      <CardHead :title="$t('profile.expectedSalary')" />
-      <p class="card-sub">{{ $t('profile.usedWhenAnApplication') }}</p>
+      <CardHead :title="$t('profile.expectedSalary')" :help="$t('profile.usedWhenAnApplication')" />
       <div class="pay-policy" role="radiogroup" :aria-label="$t('profile.expectedSalary')">
         <label><input v-model="st.compensation.policy" type="radio" value="state" /> {{ $t('profile.answerWithinTheRange') }}</label>
         <label><input v-model="st.compensation.policy" type="radio" value="ask" /> {{ $t('profile.dontFillInNumbers') }}</label>
@@ -297,12 +298,11 @@ onMounted(load)
 
   <template v-if="tab === 'markdown'">
     <div class="card">
-      <CardHead :title="$t('profile.editTheFullText')">
+      <CardHead :title="$t('profile.editTheFullText')" :help="$t('profile.writtenInMarkdownEditing')">
         <label class="meta"><input v-model="mdPreview" type="checkbox" /> {{ $t('profile.previewAlongside') }}</label>
         <button class="sm" :disabled="!mdDirty" @click="md = base.md">{{ $t('profile.discardChanges') }}</button>
         <button class="sm primary" :disabled="!mdDirty" @click="saveMd"><Icon name="check" />{{ $t('profile.save') }}</button>
       </CardHead>
-      <p class="card-sub">{{ $t('profile.writtenInMarkdownEditing') }}</p>
       <div :class="mdPreview ? 'cols' : ''">
         <textarea v-model="md" class="editor tall" :aria-label="$t('profile.editTheFullText')"></textarea>
         <div v-if="mdPreview" class="md editor-preview tall" v-html="renderMarkdown(md)"></div>

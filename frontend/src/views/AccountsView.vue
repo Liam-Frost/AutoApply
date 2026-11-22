@@ -372,7 +372,7 @@ function importSession(ev) {
       <template #cell-session="{ row }"><DateTimeCell v-bind="sessionCell(row.session)" /></template>
       <template #cell-source="{ row }"><Trunc v-if="sources[row.created_by]" class="meta" :text="sources[row.created_by]" /><span v-else class="none">—</span></template>
       <template #cell-act="{ row }">
-        <button v-if="row.host" type="button" class="sm" @click="takeover(row)"><Icon name="login" />{{ $t('accounts.signIn') }}</button>
+        <button v-if="row.host" type="button" class="sm ghost" @click="takeover(row)"><Icon name="login" />{{ $t('accounts.signIn') }}</button>
         <Popover :ref="(el) => setPop(row.tenant_key, el)" :label="$t('accounts.signInBrowser')" :width="300" align="end">
           <template #trigger><Menu :label="$t('common.more')" :items="rowItems(row)" @pick="onRow(row, $event)" /></template>
           <template #default="{ close }">

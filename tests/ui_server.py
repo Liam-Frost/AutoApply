@@ -4,7 +4,9 @@ One server and one browser for the whole run, started when the first test asks f
 
 - the server is the program itself in a process of its own, on a free port, with a throw-away data folder filled by
   the demo's seed (scripts/demo.py: made-up applicant, employers, postings and mail; the first-run guide is done, so
-  every page can be opened), its own keyring namespace, no sign-in, no background work and no AI;
+  every page can be opened) and then by tests/ui_data.py (made-up records that are hard to draw: the longest and
+  shortest names, site accounts in every state), its secrets in a file of that folder (never the computer's keyring),
+  no sign-in, no background work and no AI;
 - the browser is Playwright's Chromium, as in the other tests that drive one.
 
 Without the built interface (`npm run build` in frontend/) or without the browser the tests are skipped - unless
@@ -34,10 +36,12 @@ REQUIRED = bool(os.environ.get("AUTOAPPLY_REQUIRE_UI_TESTS"))
 # runs in the same process: the program is started once, not twice.)
 SERVE = """
 import sys, warnings
-sys.path[:0] = [r'{backend}', r'{scripts}']
+sys.path[:0] = [r'{backend}', r'{scripts}', r'{tests}']
 warnings.simplefilter('ignore')
 import demo
 demo.seed('en')
+import ui_data
+ui_data.build()
 import uvicorn
 from autoapply import access
 access.enforced = lambda: False
@@ -72,12 +76,12 @@ def server() -> str:
     (home / "data").mkdir()
     (home / "knowledge").mkdir()
     env = {**os.environ, "AUTOAPPLY_DATA": str(home / "data"), "AUTOAPPLY_KNOWLEDGE": str(home / "knowledge"), "AUTOAPPLY_KEYRING_SERVICE": "autoapply-test",
-           "PYTHONIOENCODING": "utf-8"}
+           "AUTOAPPLY_SECRETS": "file", "PYTHONIOENCODING": "utf-8"}
     for k in ("AUTOAPPLY_ROOT", "AUTOAPPLY_STRICT_STATUS", "AUTOAPPLY_TEST_BROWSER"):      # nothing of the surrounding run reaches the copy
         env.pop(k, None)
     port = free_port()
     log = open(home / "server.log", "w", encoding="utf-8")      # noqa: SIM115 (it lives as long as the process it belongs to)
-    proc = subprocess.Popen([sys.executable, "-c", SERVE.format(backend=str(ROOT / "backend"), scripts=str(ROOT / "scripts"), port=port)], env=env, cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen([sys.executable, "-c", SERVE.format(backend=str(ROOT / "backend"), scripts=str(ROOT / "scripts"), tests=str(ROOT / "tests"), port=port)], env=env, cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT)
 
     def stop() -> None:
         proc.kill()

@@ -44,7 +44,7 @@ watch(() => props.run.id, async (id) => {
   <div v-else class="an-scroll">
     <table class="an-table two">
       <colgroup><col /><col class="w-state" /><col class="w-xs" /><col class="w-n" /><col class="w-n opt-b" /><col class="w-n opt-b" /><col class="w-n" /><col class="w-n" /><col class="w-num" /></colgroup>
-      <thead><tr><th>{{ $t('analytics.run.feature') }} · {{ $t('analytics.run.model') }}</th><th>{{ $t('analytics.run.status') }}</th><th class="num">{{ $t('analytics.run.turns') }}</th><th class="num">{{ $t('analytics.run.input') }}</th><th class="num opt-b">{{ $t('analytics.run.cacheRead') }}</th><th class="num opt-b">{{ $t('analytics.run.cacheWrite') }}</th><th class="num">{{ $t('analytics.run.output') }}</th><th class="num">{{ $t('analytics.run.duration') }}</th><th class="num">{{ $t('analytics.run.cost') }}</th></tr></thead>
+      <thead><tr><th v-tip.overflow>{{ $t('analytics.run.feature') }} · {{ $t('analytics.run.model') }}</th><th v-tip.overflow>{{ $t('analytics.run.status') }}</th><th v-tip.overflow class="num">{{ $t('analytics.run.turns') }}</th><th v-tip.overflow class="num">{{ $t('analytics.run.input') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.run.cacheRead') }}</th><th v-tip.overflow class="num opt-b">{{ $t('analytics.run.cacheWrite') }}</th><th v-tip.overflow class="num">{{ $t('analytics.run.output') }}</th><th v-tip.overflow class="num">{{ $t('analytics.run.duration') }}</th><th v-tip.overflow class="num">{{ $t('analytics.run.cost') }}</th></tr></thead>
       <tbody>
         <tr v-for="q in rows" :key="q.id">
           <td>

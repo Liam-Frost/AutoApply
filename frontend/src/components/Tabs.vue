@@ -10,9 +10,10 @@ let counter = 0      // ids for the tabs, when the page gives none: unique on th
 //
 //   <Tabs v-model="tab" :label="$t('…')" :items="[{ id: 'all', label: $t('…'), count: 12 }, { id: 'x', label: …, disabled: true }]" />
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
-  items: { type: Array, required: true },      // { id, label, count?, disabled? }
+  items: { type: Array, required: true },      // { id, label, icon?, count?, disabled?, dot? } - dot: the words of a mark after the label (e.g. "Unsaved changes")
   modelValue: { type: [String, Number], default: null },
   label: { type: String, required: true },      // what the row chooses between: its accessible name
   id: { type: String, default: '' },            // the tabs' ids are `<id>-<item id>`
@@ -83,6 +84,6 @@ function onWheel(e) {
   <div ref="row" class="seg tabs aa-tabs" :class="{ 'more-left': more.left, 'more-right': more.right }" role="tablist" :aria-label="label" @keydown="onKey" @wheel="onWheel" @scroll.passive="edges">
     <button v-for="it in items" :id="base + '-' + it.id" :key="it.id" type="button" role="tab" :data-tab="it.id" :class="{ on: it.id === modelValue }"
       :aria-selected="it.id === modelValue ? 'true' : 'false'" :aria-controls="controls && it.id === modelValue ? controls : undefined"
-      :tabindex="it.id === stop ? 0 : -1" :disabled="it.disabled" @click="select(it, false)">{{ it.label }}<span v-if="hasCount(it)" class="n">{{ it.count }}</span></button>
+      :tabindex="it.id === stop ? 0 : -1" :disabled="it.disabled" @click="select(it, false)"><Icon v-if="it.icon" :name="it.icon" />{{ it.label }}<span v-if="hasCount(it)" class="n">{{ it.count }}</span><span v-if="it.dot" v-tip="it.dot" class="unsaved-dot" role="img" :aria-label="it.dot"></span></button>
   </div>
 </template>
