@@ -224,6 +224,61 @@ def test_staged_restart_preserves_queued_work_and_rolls_back_on_failed_health(ap
     assert tasks.plan()["next_total"] == 1
 
 
+def test_a_fresh_start_takes_the_staged_release_and_falls_back_when_it_fails(app_env, monkeypatch):
+    """Started with nothing running (start.bat, the shortcut, after the computer slept): a release staged for the next
+    restart is used now, checked first; one that fails its check or does not come up is left, and the last one starts."""
+    from pathlib import Path
+
+    from autoapply import config, launcher
+
+    class Server:
+        owned = False
+
+        def __init__(self):
+            self.fails = ""
+
+        def staged_release(self, marker="next-release"):
+            return Path("candidate") if marker == "next-release" else Path("current")
+
+        def preflight(self, release):
+            calls.append(("check", release))
+            if self.fails == "check":
+                raise RuntimeError("import failed")
+
+        def start(self, release, *, standby=False):
+            calls.append(("start", release))
+            self.owned = not (self.fails == "health" and release == Path("candidate"))
+
+        def stop(self):
+            calls.append(("stop", None))
+            self.owned = False
+
+        def up(self):
+            return self.owned
+
+    run = config.DATA / "run"
+    run.mkdir(parents=True, exist_ok=True)
+    for fails, want in (("", [("check", Path("candidate")), ("start", Path("candidate"))]),
+                        ("check", [("check", Path("candidate")), ("start", Path("current"))]),
+                        ("health", [("check", Path("candidate")), ("start", Path("candidate")), ("start", Path("current"))])):
+        (run / "next-release").write_text("candidate", encoding="utf-8")
+        (run / "active-release").write_text("current", encoding="utf-8")
+        server = Server()
+        server.fails = fails
+        monkeypatch.setattr(launcher, "Server", lambda port, s=server: s)
+        monkeypatch.setattr(launcher.time, "sleep", lambda s: None)
+        calls = []
+        tray = launcher.Launcher()
+        got = tray.start_fresh()
+        assert calls == want, (fails, calls)
+        if fails:
+            assert got == tray.release == Path("current") and (run / "next-release").exists()
+            assert (run / "active-release").read_text(encoding="utf-8") == "current"
+        else:
+            assert got == tray.release == Path("candidate") and not (run / "next-release").exists()
+            assert (run / "active-release").read_text(encoding="utf-8") == "candidate"
+
+
 def test_a_restart_can_be_asked_for_from_outside_the_menu(app_env, monkeypatch):
     from autoapply import config, launcher
 

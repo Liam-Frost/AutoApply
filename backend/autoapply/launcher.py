@@ -626,11 +626,49 @@ class Launcher:
             item(lambda _i: self.t["quit_attached"] if self.attached else self.t["quit"], self.quit),
         )
 
+    def start_fresh(self) -> Path:
+        """Start the server when none is running. A release staged for the next restart (an update switched to, a
+        release staged by hand) is this start's: checked as a restart checks it - the database backed up, the release
+        imported - and used when it comes up. One that fails is left and the version that ran last starts instead.
+        Returns the release that runs."""
+        if not self._restart_lock.acquire(blocking=False):      # (a restart from the menu is already on it)
+            return self.release
+        try:
+            try:
+                candidate = self.server.staged_release()
+            except (OSError, ValueError):
+                log.exception("the staged release cannot be used")
+                candidate = None
+            if candidate is not None and candidate != self.release:
+                try:
+                    self.server.preflight(candidate)
+                    self.server.start(candidate)
+                    deadline = time.monotonic() + 60
+                    while not self.server.up():
+                        if not self.server.owned or time.monotonic() >= deadline:
+                            raise RuntimeError("the staged release did not become healthy")
+                        time.sleep(1)
+                    run = config.DATA / "run"
+                    pending = (run / "active-release").with_suffix(".tmp")
+                    pending.write_text(candidate.name, encoding="utf-8")
+                    pending.replace(run / "active-release")
+                    (run / "next-release").unlink(missing_ok=True)
+                    self.release = candidate
+                    return candidate
+                except Exception:
+                    log.exception("could not start the staged release %s; starting %s", candidate.name, self.release)
+                    if self.server.owned:
+                        self.server.stop()
+            self.server.start(self.release)
+            return self.release
+        finally:
+            self._restart_lock.release()
+
     def run(self, *, open_page: bool = True) -> None:
         import pystray
 
-        if not self.attached:
-            self.server.start(self.release)
+        if not self.attached:     # (in the background: the icon shows "starting" meanwhile)
+            threading.Thread(target=self.start_fresh, name="autoapply-start", daemon=True).start()
         self.icon = self._icon_class()(NAME, make_icon("starting"), f"{NAME} - {self.t['starting']}", self.menu())
         threading.Thread(target=self._loop, daemon=True, name="launcher-status").start()
         if open_page:
