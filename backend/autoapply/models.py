@@ -92,6 +92,8 @@ class Job(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
     # when a reading of its own listing first did not show it (cleared when one shows it again) - see discover.upsert
     missed_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # fields the applicant corrected ({field: what the source says now}): a scan does not write over them (discover.upsert)
+    edited: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     application: Mapped["Application | None"] = relationship(back_populates="job", uselist=False)
 
@@ -108,6 +110,8 @@ class Application(Base):
     evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {text, url, screenshot, mail_id}
     last_event: Mapped[str] = mapped_column(Said, default="")
     detail: Mapped[str] = mapped_column(Text, default="")  # human-readable history line
+    note: Mapped[str] = mapped_column(Text, default="")  # the applicant's own note, for them only
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # put away by the applicant (applications page)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 

@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import db, humanize, i18n, lifecycle, messages, stages
-from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, Job, MailEvent, Run, Todo, now
+from . import db, humanize, i18n, lifecycle, messages
+from .models import SENT, UNKNOWN, Application, ApplicationEvent, Draft, Job, MailEvent, Run, Task, Todo, now
 
 # where the applicant may put an application by hand: a step that happened outside the program's sight
 BY_HAND = (*SENT, "withdrawn")
@@ -49,6 +49,112 @@ NEXT: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+# Where an application stands, as the applications page says it: status -> (label, tone, group, whose move it is).
+# Groups: me (waits for the applicant) | agent (the agent's to do) | sent | progress | ended; "archived" is the
+# applicant's own putting away, whatever the status.
+STAGE: dict[str, tuple[Any, str, str, str]] = {
+    "needs_input": (T("server.applications.stage.needsInput"), "warn", "me", "me"),
+    "draft_ready": (T("server.applications.stage.draftReady"), "warn", "me", "me"),
+    "needs_human": (T("server.applications.stage.needsHuman"), "warn", "me", "me"),
+    "ready_to_submit": (T("server.applications.stage.readyToSubmit"), "warn", "me", "me"),
+    UNKNOWN: (T("server.applications.stage.unknown"), "warn", "me", "me"),
+    "drifted": (T("server.applications.stage.drifted"), "warn", "me", "me"),
+    "failed": (T("server.applications.stage.failed"), "bad", "me", "me"),
+    "recon": (T("server.applications.stage.preparing"), "info", "agent", "agent"),
+    "revising": (T("server.applications.stage.revising"), "info", "agent", "agent"),
+    "approved": (T("server.applications.stage.approved"), "info", "agent", "agent"),
+    "executing": (T("server.applications.stage.submitting"), "info", "agent", "agent"),
+    "submitted": (T("server.applications.stage.sent"), "info", "sent", "them"),
+    "confirmed": (T("server.applications.stage.confirmed"), "ok", "sent", "them"),
+    "assessment": (T("server.applications.stage.assessment"), "ok", "progress", "me"),
+    "interview": (T("server.applications.stage.interview"), "ok", "progress", "me"),
+    "offer": (T("server.applications.stage.offer"), "ok", "progress", "me"),
+    "rejected": (T("server.applications.stage.rejected"), "bad", "ended", ""),
+    "withdrawn": (T("server.applications.stage.withdrawn"), "", "ended", ""),
+    "returned": (T("server.applications.stage.returned"), "", "ended", ""),
+}
+# the one thing to press on a row that waits for the applicant (the page names it): answer | approve | handle | rerun | budget | check_mail
+ACT = {"needs_input": "answer", "draft_ready": "approve", "needs_human": "handle", "ready_to_submit": "handle", UNKNOWN: "check_mail", "drifted": "rerun", "failed": "rerun"}
+OUTCOMES = ("confirmed", "assessment", "interview", "offer", "rejected")      # what the applicant may record as having come back
+ENDED = ("withdrawn", "returned", "rejected")
+
+
+def stage_of(a: Application, j: Job, *, waiting: bool = False, budget: bool = False, work: str = "") -> dict[str, Any]:
+    """Where ``a`` stands, in the page's terms: its stage and label, the group it is listed under, whose move it is, and
+    what to press. ``waiting``: a card asks the applicant for something about it (a sign-in, a confirmation); ``budget``:
+    that card is about its budget being used up; ``work``: a run is on it ("running") or waits in the queue ("queued")."""
+    label, tone, group, who = STAGE.get(a.status, (humanize.APP_STATUS.get(a.status, a.status), "", "agent", "agent"))
+    key, act = a.status, ACT.get(a.status, "")
+    sent = a.status in SENT or a.status == UNKNOWN
+    if not sent and a.status not in ENDED and (not j.online or j.status == "offline"):
+        key, label, tone, group, who, act = "offline", T("server.applications.stage.offline"), "", "ended", "", ""
+    elif group == "agent" and waiting:
+        key, label, tone, group, who, act = "waiting", T("server.applications.stage.needsHuman"), "warn", "me", "me", "handle"
+    elif group == "agent" and work:
+        label = T("server.applications.stage.working") if work == "running" else T("server.applications.stage.queued")
+    if a.status == "failed" and budget:
+        label, act = T("server.applications.stage.budgetUsed"), "budget"
+    return {"stage": key, "stage_label": label, "tone": tone, "group": "archived" if a.archived_at else group, "who": who, "act": act}
+
+
+def job_group(j: Job, a: Application | None) -> str:
+    """The group of a posting on the postings page: todo (open, nothing begun) | started (an application was begun: the
+    posting leads to it) | skip (not applying: the applicant's word, or a rule) | closed (taken down, or past its
+    deadline) | archived (put away)."""
+    from .stages import _past
+
+    if j.archived_at is not None:
+        return "archived"
+    if a is not None and a.status not in ("withdrawn", "returned"):
+        return "started"
+    if j.status == "skipped" or (a is not None and a.status == "withdrawn"):
+        return "skip"
+    if not j.online or j.status == "offline" or _past(j.deadline or ""):
+        return "closed"
+    return "todo"
+
+
+def context(s: Any, *, dates: bool = True) -> dict[str, Any]:
+    """What the rows of the listing need besides the applications themselves, read once for all of them: the cards that
+    wait for the applicant (by application), runs on a posting (by posting), the latest draft that counts (by
+    application), and - with ``dates`` - the next dated thing on the calendar (by application)."""
+    app_of_job = {jid: aid for aid, jid in s.query(Application.id, Application.job_id)}
+    drafts: dict[int, tuple[int, str]] = {}
+    app_of_draft: dict[int, int] = {}
+    for did, aid, review in s.query(Draft.id, Draft.application_id, Draft.review_status).order_by(Draft.version):
+        app_of_draft[did] = aid
+        if review in ("pending", "approved") or drafts.get(aid, ("", ""))[1] not in ("pending", "approved"):
+            drafts[aid] = (did, review)      # (the one that counts; else the latest)
+    cards: dict[int, set[str]] = {}
+    for t in s.query(Todo).filter(Todo.status == "open", Todo.kind.in_(lifecycle.CARDS)):
+        p = t.payload or {}
+        kind, _, rest = (t.ref or "").partition(":")
+        num = int(rest.split(":")[0]) if rest.split(":")[0].isdigit() else 0
+        aid = p.get("application_id") or (num if kind == "application" else app_of_draft.get(num) if kind == "draft" else app_of_job.get(num) if kind == "job" else None) \
+            or app_of_draft.get(int(p.get("draft_id") or 0))
+        if aid:
+            cards.setdefault(int(aid), set()).add("budget" if p.get("budget") else t.kind)
+    work: dict[int, str] = {}
+    for ref, status in s.query(Task.ref, Task.status).filter(Task.kind == "apply", Task.status.in_(("running", "queued"))):
+        if (ref or "").startswith("job:") and ref[4:].isdigit():
+            jid = int(ref[4:])
+            work[jid] = "running" if status == "running" or work.get(jid) == "running" else "queued"
+    nxt: dict[int, dict[str, Any]] = {}
+    if dates:
+        from datetime import date, timedelta
+
+        from . import agenda
+
+        try:
+            for it in agenda.items(date.today(), date.today() + timedelta(days=120), kinds=("interview", "assessment", "offer", "info_request", "own")):
+                aid = (it.get("about") or {}).get("application_id")
+                if aid and (aid not in nxt or str(it.get("start") or "") < str(nxt[aid]["start"] or "")):
+                    nxt[aid] = {"kind": it.get("kind"), "title": it.get("title"), "start": it.get("start"), "all_day": bool(it.get("all_day"))}
+        except Exception:  # noqa: BLE001 - a date the calendar cannot read leaves the column empty, not the page
+            nxt = {}
+    return {"cards": cards, "work": work, "drafts": drafts, "next": nxt}
+
+
 def _iso(d: datetime | None) -> str | None:
     return d.isoformat() if d else None
 
@@ -59,22 +165,144 @@ def _utc(d: datetime | None) -> datetime:
     return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
 
 
-def _row(a: Application) -> dict[str, Any]:
+def _row(a: Application, ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     j = a.job
-    st = stages.describe(stages.stage(j.status, bool(j.online), j.deadline or "", a.status))
+    ctx = ctx or {}
+    cards = ctx.get("cards", {}).get(a.id, set())
+    st = stage_of(a, j, waiting=bool(cards), budget="budget" in cards, work=ctx.get("work", {}).get(j.id, ""))
+    draft = ctx.get("drafts", {}).get(a.id)
     return {"id": a.id, "job_id": j.id, "company": j.company, "title": j.title, "location": j.location, "apply_url": j.apply_url,
-            "status": a.status, "status_label": humanize.APP_STATUS.get(a.status, a.status), "group": st["stage_group"], "tone": st["stage_tone"],
+            "status": a.status, "status_label": humanize.APP_STATUS.get(a.status, a.status), **st,
             "submitted_at": _iso(a.submitted_at), "created_at": _iso(a.created_at), "updated_at": _iso(a.updated_at),
             "last_event": humanize.explain(a.last_event)["message"] if a.last_event else "", "sent": a.status in SENT, "unknown": a.status == UNKNOWN,
-            "next": NEXT.get(a.status, ("", ()))[0]}
+            "next": NEXT.get(a.status, ("", ()))[0], "deadline": "" if a.status in SENT else (j.deadline or ""), "next_date": ctx.get("next", {}).get(a.id),
+            "archived": a.archived_at is not None, "note": a.note or "", "score": j.score, "ats_label": humanize.ats_name(j.ats) or "",
+            "draft_id": draft[0] if draft else None, "draft_review": draft[1] if draft else ""}
 
 
-def listing() -> list[dict[str, Any]]:
-    """The applications that have gone out, or whose submission is open - "my applications", the latest change first.
-    (What is still being prepared is in the drafts and the jobs list.)"""
+def listing(*, dates: bool = True) -> list[dict[str, Any]]:
+    """Every application, from the moment it was begun to its outcome - the latest change first. Each row says where it
+    stands, whose move it is, and what to press (stage_of)."""
     with db.session() as s:
-        rows = [_row(a) for a in s.query(Application).join(Job) if a.status in SENT or a.status in (UNKNOWN, "ready_to_submit")]
+        ctx = context(s, dates=dates)
+        rows = [_row(a, ctx) for a in s.query(Application).join(Job)]
     return sorted(rows, key=lambda r: r["updated_at"] or r["created_at"] or "", reverse=True)
+
+
+def need_me() -> int:
+    """How many applications wait for the applicant (the number on "Applications" in the menu)."""
+    return sum(1 for r in listing(dates=False) if r["group"] == "me")
+
+
+def review(ids: list[int]) -> list[dict[str, Any]]:
+    """Before several records are approved at once: for each, what the applicant has to have seen - the answers the
+    agent was not sure of, what changed since the version before, the questions still open."""
+    from . import actions
+
+    out = []
+    with db.session() as s:
+        for i in ids:
+            a = s.get(Application, int(i))
+            if a is None:
+                continue
+            d = next((x for x in reversed(a.drafts) if x.review_status == "pending"), None)
+            out.append({"id": a.id, "company": a.job.company, "title": a.job.title, "draft_id": d.id if d else None,
+                        "unresolved": len(d.unresolved) if d else 0, "unsure": actions._unsure(d)[:30] if d else [],
+                        "changed": actions._changed(s, d)[:30] if d else [], "can": d is not None and not d.unresolved})
+    return out
+
+
+def bulk(action: str, ids: list[int]) -> dict[str, Any]:
+    """One action on several applications: approve | rerun | withdraw | archive | unarchive. What does not apply to one
+    (a record with open questions, an application that went out) is counted as skipped, with the reason."""
+    from . import drafts as _drafts, tasks
+
+    if action not in ("approve", "rerun", "withdraw", "archive", "unarchive"):
+        raise NotAllowed("unsupported action")
+    done, skipped, errors = 0, 0, {}
+    to_approve: list[tuple[int, int]] = []
+    to_run: list[tuple[int, str]] = []
+    with db.session() as s:
+        for i in ids[:500]:
+            a = s.get(Application, int(i))
+            if a is None:
+                continue
+            if action in ("archive", "unarchive"):
+                a.archived_at = now() if action == "archive" else None
+                done += 1
+            elif action == "withdraw":
+                if lifecycle.not_applying(a.job):
+                    done += 1
+                else:
+                    skipped += 1
+                    errors[str(a.id)] = lifecycle.closed_to_work(a)
+            elif action == "rerun":
+                if a.status in SENT or a.status in (UNKNOWN, "withdrawn"):
+                    skipped += 1
+                    errors[str(a.id)] = lifecycle.closed_to_work(a)
+                else:
+                    to_run.append((a.job_id, a.job.deadline or ""))
+            else:
+                d = next((x for x in reversed(a.drafts) if x.review_status == "pending"), None)
+                if d is None or d.unresolved:
+                    skipped += 1
+                    errors[str(a.id)] = T("server.applications.nothingToApprove") if d is None else T("server.applications.questionsOpen", n=len(d.unresolved))
+                else:
+                    to_approve.append((a.id, d.id))
+    for aid, did in to_approve:
+        try:
+            _drafts.approve(did)
+            done += 1
+        except ValueError as e:
+            skipped += 1
+            errors[str(aid)] = str(e)
+    for job_id, deadline in to_run:      # (after the session: one writer at a time)
+        tasks.enqueue("apply", ref=f"job:{job_id}", payload={"job_id": job_id}, priority=tasks.deadline_priority(deadline))
+        done += 1
+    return {"done": done, "skipped": skipped, "errors": errors}
+
+
+def withdraw(application_id: int) -> None:
+    """Not applying after all: the application is withdrawn and its posting marked "not applying"."""
+    with db.session() as s:
+        a = s.get(Application, application_id)
+        if a is None:
+            raise KeyError(application_id)
+        if not lifecycle.not_applying(a.job):
+            raise NotAllowed(lifecycle.closed_to_work(a))
+
+
+def set_note(application_id: int, note: str) -> None:
+    with db.session() as s:
+        a = s.get(Application, application_id)
+        if a is None:
+            raise KeyError(application_id)
+        a.note = (note or "").strip()[:4000]
+
+
+def outcome(application_id: int, *, status: str, day: str = "", at: str = "", note: str = "") -> dict[str, Any]:
+    """What came back, in the applicant's words where the program could not see it (a call, a mail it did not read): a
+    rejection, an assessment or interview arranged, an offer - with its date and a line. An assessment or an interview
+    with a date goes on the calendar too, as the applicant's own item about this application."""
+    from datetime import datetime as _dt
+
+    from . import agenda
+
+    if status not in OUTCOMES:
+        raise NotAllowed(T("server.applications.byHandItCan"))
+    when = None
+    if day:
+        try:
+            when = _dt.fromisoformat(f"{day[:10]}T{(at or '09:00')[:5]}")
+        except ValueError as e:
+            raise NotAllowed(T("server.api.main.theDateIsNot")) from e
+    said = " · ".join(x for x in ((f"{day[:10]} {at[:5]}".strip() if day else ""), (note or "").strip()[:240]) if x)
+    out = correct(application_id, status=status, note=said)
+    if when is not None and status in ("assessment", "interview"):
+        label = STAGE[status][0]
+        agenda.add_own(T("server.applications.onTheCalendar", what=label, company=out.get("company", "")), when, all_day=not at,
+                       application_id=application_id, note=(note or "").strip())
+    return detail(application_id) or out
 
 
 def picture(evidence: dict[str, Any] | None) -> Path | None:
@@ -96,14 +324,15 @@ def detail(application_id: int) -> dict[str, Any] | None:
         if a is None:
             return None
         j = a.job
-        out = _row(a)
+        out = _row(a, context(s))
         out["actions"] = list(NEXT.get(a.status, ("", ()))[1])
         out["explained"] = humanize.explain(a.last_event)
         out["detail"], out["auto_approved"], out["channel"] = a.detail, bool(a.auto_approved), a.channel
         out["job_id"] = j.id
         out["job"] = {"id": j.id, "company": j.company, "title": j.title, "location": j.location, "deadline": j.deadline, "apply_url": j.apply_url, "score": j.score,
                       "online": bool(j.online), "posted": j.posted, "summary": j.summary, "brief": j.brief, "source": j.source, "source_id": j.source_id,
-                      "ats_label": humanize.ats_name(j.ats), "term": j.term, "months": j.months, "salary": j.salary}
+                      "ats_label": humanize.ats_name(j.ats), "term": j.term, "months": j.months, "salary": j.salary, "direction": j.direction,
+                      "score_reason": j.score_reason, "jd_text": j.jd_text, "status": j.status}
         ev = dict(a.evidence or {})
         out["evidence"] = {"text": str(ev.get("text") or ""), "url": str(ev.get("url") or ""), "read_by": str(ev.get("read_by") or ""),
                            "already_applied": bool(ev.get("already_applied")), "has_screenshot": picture(ev) is not None,
@@ -209,12 +438,15 @@ def unlink_mail(application_id: int, message_id: str) -> bool:
     return True
 
 
-def as_csv() -> str:
-    """The applications as a table to keep or to open in a spreadsheet: what was applied for, when, where it stands."""
+def as_csv(ids: set[int] | None = None) -> str:
+    """The applications as a table to keep or to open in a spreadsheet: what was applied for, when, where it stands
+    (``ids``: only these)."""
     out = io.StringIO()
     wr = csv.writer(out, lineterminator="\n")
     wr.writerow([i18n.tr(h) for h in (T("server.applications.company"), T("server.applications.postings"), T("server.applications.location"), T("server.applications.status"), T("server.applications.dateSent"), T("server.applications.latest"), T("server.applications.postingLink"), T("server.applications.lastUpdated"))])
-    for r in listing():
+    for r in listing(dates=False):
+        if ids is not None and r["id"] not in ids:
+            continue
         wr.writerow([r["company"], r["title"], r["location"] or "", i18n.tr(r["status_label"]), (r["submitted_at"] or "")[:10], i18n.tr(r["last_event"] or r["next"]),
                      r["apply_url"] or "", (r["updated_at"] or "")[:16].replace("T", " ")])
     return "﻿" + out.getvalue()       # (the mark a spreadsheet needs to read the names of companies in any script)

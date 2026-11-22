@@ -67,7 +67,7 @@ onMounted(load)
 
   <div class="grid-4" style="margin-bottom: 16px">
     <router-link to="/todos" class="stat" :class="{ attn: ov.open_todos }"><div class="n">{{ ov.open_todos || 0 }}</div><div class="l">{{ $t('home.itemsNeedYou') }}</div></router-link>
-    <router-link to="/drafts" class="stat" :class="{ attn: ov.pending_drafts }"><div class="n">{{ ov.pending_drafts || 0 }}</div><div class="l">{{ $t('home.draftsAwaitingYourApproval') }}</div></router-link>
+    <router-link :to="{ path: '/applications', query: { group: 'me' } }" class="stat" :class="{ attn: ov.apps_need_me }"><div class="n">{{ ov.apps_need_me || 0 }}</div><div class="l">{{ $t('home.applicationsWaiting') }}</div></router-link>
     <router-link to="/jobs" class="stat"><div class="n">{{ n('not_applied') }}</div><div class="l">{{ $t('home.postingsNotAppliedTo') }}</div></router-link>
     <router-link to="/applications" class="stat"><div class="n">{{ sent.sent }}</div><div class="l">{{ $t('home.applicationsSentAcknowledgedCame', { p0: share(sent.heard), p1: share(sent.decided) }) }}</div></router-link>
   </div>

@@ -51,7 +51,8 @@ def world(app_env, monkeypatch, tmp_path):
     return ids
 
 
-def test_my_applications_are_what_went_out_and_what_waits_for_its_outcome(world):
+def test_every_application_is_listed_by_whose_move_it_is(world):
+    """From the moment it is begun to its outcome: each application in one group, with whose move it is and what to press."""
     from fastapi.testclient import TestClient
 
     from autoapply.api.main import app
@@ -59,14 +60,107 @@ def test_my_applications_are_what_went_out_and_what_waits_for_its_outcome(world)
     c = TestClient(app)
     got = c.get("/api/applications").json()
     by = {r["company"]: r for r in got["applications"]}
-    assert set(by) == {"Acme Robotics", "Globex", "Hooli"}                    # the draft that is still being prepared is not one of them
-    assert by["Globex"]["unknown"] and by["Globex"]["status_label"] == "提交结果待确认" and "告诉程序结果" in by["Globex"]["next"]
-    assert by["Acme Robotics"]["sent"] and by["Acme Robotics"]["submitted_at"] and {g["key"] for g in got["groups"]} >= {"applied", "progress"}
-    # a table of them, to keep
+    assert set(by) == {"Acme Robotics", "Globex", "Hooli", "Initech"}           # the one still being prepared too
+    assert (by["Initech"]["group"], by["Initech"]["who"], by["Initech"]["act"]) == ("me", "me", "approve") and by["Initech"]["stage_label"] == "等你批准"
+    assert (by["Globex"]["group"], by["Globex"]["act"]) == ("me", "check_mail") and by["Globex"]["unknown"] and "告诉程序结果" in by["Globex"]["next"]
+    assert (by["Acme Robotics"]["group"], by["Acme Robotics"]["who"]) == ("sent", "them") and by["Acme Robotics"]["submitted_at"]
+    assert by["Hooli"]["group"] == "progress" and by["Hooli"]["deadline"] == "" and by["Initech"]["deadline"] == "2027-01-15 23:59"
+    assert c.get("/api/overview").json()["apps_need_me"] == 2
+    # put away, and back
+    assert c.post("/api/applications/bulk", json={"action": "archive", "ids": [world["sent"]]}).json()["done"] == 1
+    assert {r["company"]: r for r in c.get("/api/applications").json()["applications"]}["Acme Robotics"]["group"] == "archived"
+    c.post("/api/applications/bulk", json={"action": "unarchive", "ids": [world["sent"]]})
+    # a table of them, to keep (all of them, or the ones picked)
     r = c.get("/api/applications.csv")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv") and "applications-" in r.headers["content-disposition"]
-    lines = r.text.lstrip("﻿").splitlines()
-    assert lines[0].startswith("公司,岗位,地点,状态,投出日期") and len(lines) == 4 and any(ln.startswith("Acme Robotics,Software Intern,\"Vancouver, BC\",已收到确认信,") for ln in lines)
+    lines = r.text.lstrip("\ufeff").splitlines()
+    assert lines[0].startswith("公司,岗位,地点,状态,投出日期") and len(lines) == 5 and any(ln.startswith("Acme Robotics,Software Intern,\"Vancouver, BC\",已收到确认信,") for ln in lines)
+    assert len(c.get(f"/api/applications.csv?ids={world['sent']}").text.lstrip("\ufeff").splitlines()) == 2
+
+
+def test_several_at_once_say_what_they_skipped(world):
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app
+    from autoapply.models import Application, Draft, Job
+
+    c = TestClient(app)
+    with db.session() as s:
+        s.add(Draft(application_id=world["draft"], version=1, review_status="pending", schema={}, answers=[{"id": "q1", "label": "Salary", "value": "30", "confidence": "low"}],
+                    unresolved=[{"id": "q2", "label": "Start date"}]))
+    seen = {r["id"]: r for r in c.get(f"/api/applications/review?ids={world['draft']},{world['sent']}").json()}
+    assert seen[world["draft"]]["unresolved"] == 1 and not seen[world["draft"]]["can"] and seen[world["draft"]]["unsure"] == ["Salary：30"]
+    assert seen[world["sent"]]["draft_id"] is None
+    out = c.post("/api/applications/bulk", json={"action": "approve", "ids": [world["draft"]]}).json()
+    assert out["done"] == 0 and out["skipped"] == 1 and "1" in out["errors"][str(world["draft"])]
+    out = c.post("/api/applications/bulk", json={"action": "withdraw", "ids": [world["draft"], world["sent"]]}).json()
+    assert out["done"] == 1 and out["skipped"] == 1                                # what went out is not withdrawn by a tick in a list
+    with db.session() as s:
+        a = s.get(Application, world["draft"])
+        assert a.status == "withdrawn" and s.get(Job, a.job_id).status == "skipped"
+
+
+def test_note_and_what_came_back(world):
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app
+    from autoapply.models import Todo
+
+    c = TestClient(app)
+    assert c.put(f"/api/applications/{world['sent']}/note", json={"note": "Dana said to apply early"}).json()["ok"]
+    a = c.post(f"/api/applications/{world['sent']}/outcome", json={"status": "interview", "date": "2027-02-03", "time": "10:30", "note": "phone screen"}).json()
+    assert a["status"] == "interview" and a["note"] == "Dana said to apply early"
+    assert any(e.get("note", "").startswith("2027-02-03 10:30 · phone screen") for e in a["timeline"])
+    with db.session() as s:      # on the calendar too, about this application
+        t = s.query(Todo).filter_by(kind="note").one()
+        assert (t.payload or {}).get("application_id") == world["sent"] and t.due_at.hour == 10 and "Acme Robotics" in t.title
+    assert c.post(f"/api/applications/{world['sent']}/outcome", json={"status": "withdrawn"}).status_code == 400
+
+
+def test_postings_are_grouped_and_lead_to_their_application(world):
+    from fastapi.testclient import TestClient
+
+    from autoapply import db
+    from autoapply.api.main import app
+    from autoapply.models import Job
+
+    c = TestClient(app)
+    with db.session() as s:
+        s.add(Job(source="workday", source_id="N1", company="Umbrella", title="Analyst", apply_url="https://x.test/u", status="scored", deadline="2099-01-01"))
+        s.add(Job(source="workday", source_id="N2", company="Wayne", title="Analyst", apply_url="https://x.test/w", status="skipped", exclusion="French required"))
+        s.add(Job(source="workday", source_id="N3", company="Stark", title="Analyst", apply_url="https://x.test/s", status="scored", online=0))
+    by = {j["company"]: j for j in c.get("/api/jobs").json()["jobs"]}
+    assert by["Umbrella"]["group"] == "todo" and by["Umbrella"]["app"] is None
+    assert by["Wayne"]["group"] == "skip" and by["Stark"]["group"] == "closed"
+    assert by["Initech"]["group"] == "started" and by["Initech"]["app"]["id"] == world["draft"] and by["Initech"]["app"]["stage_label"] == "等你批准"
+    assert by["Hooli"]["group"] == "started"      # a posting taken down after its application went out still leads to it
+
+
+def test_a_posting_corrected_by_hand_keeps_the_correction(app_env):
+    from fastapi.testclient import TestClient
+
+    from autoapply import db, discover
+    from autoapply.api.main import app
+    from autoapply.models import Job
+
+    c = TestClient(app)
+    discover.upsert([{"source_id": "77", "company": "Acme", "title": "Analyst", "deadline": "2027-01-10", "apply_url": "https://x.test/a"}], source="greenhouse", complete=False)
+    with db.session() as s:
+        jid = s.query(Job).one().id
+    c.patch(f"/api/jobs/{jid}", json={"deadline": "2027-01-20", "title": "Analyst"})
+    discover.upsert([{"source_id": "77", "company": "Acme", "title": "Data Analyst", "deadline": "2027-01-12", "apply_url": "https://x.test/a"}], source="greenhouse", complete=False)
+    j = c.get(f"/api/jobs/{jid}").json()
+    assert j["deadline"] == "2027-01-20" and j["edited"] == {"deadline": "2027-01-12"}      # theirs kept; what the source says now, to show
+    assert j["title"] == "Data Analyst"                                                       # (not changed by hand: the source's)
+    c.patch(f"/api/jobs/{jid}", json={"use_source": ["deadline"]})
+    assert c.get(f"/api/jobs/{jid}").json()["deadline"] == "2027-01-12"
+    assert c.delete(f"/api/jobs/{jid}").status_code == 409                                    # a scan found it: not deleted
+    mine = c.post("/api/jobs", json={"url": "https://x.test/mine", "company": "Mine", "title": "Dev"}).json()["id"]
+    assert c.get(f"/api/jobs/{mine}").json()["deletable"] and c.delete(f"/api/jobs/{mine}").json()["ok"]
+    with db.session() as s:
+        assert s.get(Job, mine) is None
 
 
 def test_one_application_with_everything_about_it(world):

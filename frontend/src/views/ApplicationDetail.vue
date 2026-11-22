@@ -1,215 +1,392 @@
 <script setup>
-// One application, whole: where it stands and what comes next, what shows it was sent, what was sent, the mails
-// about it, who you know there, and everything that happened to it - with the things you can do about it in place.
+import { t as T } from '../i18n/catalog'
+// One application, its only home (plan §8.4): where it stands and whose move it is, with what can be done now - and
+// everything that can be done under "More"; then the record (every answer), the agent, the materials, the mail, the
+// whole story and the posting. What was the draft page is the record here (RecordPanel).
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import AgentJournal from '../components/AgentJournal.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
-import AaSelect from '../components/Select.vue'
+import RecordPanel from '../components/RecordPanel.vue'
 import TechDetails from '../components/TechDetails.vue'
+import { deadlineLabel } from '../dates'
+import { renderMarkdown } from '../md'
 import { ask, fmtTime, run, toast } from '../ui'
 import { stampDay } from '../i18n/format'
 
 const props = defineProps({ id: { type: String, required: true } })
+const route = useRoute()
 const router = useRouter()
 const a = ref(null)
+const d = ref(null)              // the record (the draft that counts), when there is one
 const failed = ref('')
-const busy = ref('')
-const fix = ref({ open: false, status: '', date: '', note: '' })
-const others = ref(null)          // mails the program could not put on any application
-
-// where the applicant may put an application by hand: a step that happened outside the program's sight
-const BY_HAND = [['submitted', '已提交'], ['confirmed', '雇主已确认收到'], ['assessment', '笔试 / OA / VA'], ['interview', '面试'], ['offer', '收到 Offer'], ['rejected', '已被拒'], ['withdrawn', '不投了']]
+const panel = ref('')            // the form open under the status: outcome | note | fix
+const more = ref(false)
+const others = ref(null)         // mails the program could not put on any application
+const showJd = ref(false)
 
 async function load() {
-  try { a.value = await api.get('/applications/' + props.id); failed.value = '' } catch (e) { failed.value = e.message }
+  try {
+    const got = await api.get('/applications/' + props.id)
+    d.value = got.draft_id ? await api.get('/drafts/' + got.draft_id).catch(() => null) : null
+    a.value = got
+    failed.value = ''
+  } catch (e) { failed.value = e.message }
 }
-// one thing at a time, and the button says so while it runs
-// (one action of this page at a time - they all change where the application stands; `busy` names the one under way)
-async function act(name, fn, ok) {
-  if (busy.value) return false
-  busy.value = name
-  try { return await run(fn, ok, load) } finally { busy.value = '' }
-}
-const draftId = computed(() => (a.value && a.value.materials_from_draft) || (a.value && a.value.drafts.length ? a.value.drafts[a.value.drafts.length - 1].id : null))
-const can = (k) => !!a.value && a.value.actions.includes(k)
+// one action at a time: they all change where the application stands
+const act = (fn, ok, opts = {}) => run(fn, ok, load, { name: 'app', ...opts })
 
-const checkMail = () => act('mail', () => api.post(`/applications/${props.id}/check-mail`), '正在查邮箱；有确认邮件的话，这份申请会记为已投出')
-const markSubmitted = () => act('sent', () => api.post(`/applications/${props.id}/mark-submitted`), '已记为“已提交”，稍后会查确认邮件')
-const rerun = () => act('rerun', () => api.post(`/jobs/${a.value.job_id}/draft`, {}), 'Agent 已重新开始')
-async function rerunNotSubmitted() {
-  if (!(await ask('确定这份申请没有提交成功吗？如果其实已经提交了，再做一次会向雇主再投一次。', { ok: '确定没提交，再做一次' }))) return
-  await act('rerun', () => api.post(`/applications/${props.id}/not-submitted`), 'Agent 已重新开始')
+// --- the tabs: the record, the agent, materials, mail, the story, the posting (the open one is in the address: #record)
+const TABS = ['record', 'agent', 'materials', 'mail', 'timeline', 'job']
+const tab = ref('')
+const firstTab = () => {
+  const h = (route.hash || '').slice(1)
+  if (TABS.includes(h)) return h
+  if (d.value && ['pending', 'approved'].includes(d.value.review_status)) return 'record'
+  if (a.value && (a.value.running_task || a.value.run_expected)) return 'agent'
+  return a.value && a.value.mails.length ? 'mail' : 'timeline'
 }
+function openTab(k) { tab.value = k; router.replace({ hash: '#' + k }) }
+watch(() => route.hash, () => { const h = (route.hash || '').slice(1); if (TABS.includes(h)) tab.value = h })
+const tabCount = (k) => (!a.value ? 0 : k === 'mail' ? a.value.mails.length : k === 'materials' ? a.value.materials.length : k === 'timeline' ? a.value.timeline.length : 0)
 
-function openFix() {
-  fix.value = { open: true, status: a.value.sent || a.value.status === 'withdrawn' ? a.value.status : '', date: a.value.submitted_at ? a.value.submitted_at.slice(0, 10) : '', note: '' }
+// --- what can be done, and the few that matter now --------------------------------------------------------------------
+const pending = computed(() => !!d.value && d.value.review_status === 'pending')
+const notOut = computed(() => !!a.value && !a.value.sent && !a.value.unknown && a.value.status !== 'withdrawn')
+const WHO = { me: 'application.who.me', agent: 'application.who.agent', them: 'application.who.them' }
+
+async function withdraw() {
+  if (!(await ask(T('application.withdrawAsk'), { ok: T('application.do.withdraw') }))) return
+  await act(() => api.post(`/applications/${props.id}/withdraw`), T('application.withdrawn'))
+}
+async function notSubmitted() {
+  if (!(await ask(T('application.notSubmittedAsk'), { ok: T('application.notSubmittedOk') }))) return
+  await act(() => api.post(`/applications/${props.id}/not-submitted`), T('application.rerunStarted'))
+}
+async function discard() {
+  if (!(await ask(T('application.discardAsk'), { ok: T('application.do.discard') }))) return
+  await act(() => api.post(`/drafts/${d.value.id}/reject`, { withdraw: false }), T('application.discarded'))
+}
+function answer() { openTab('record') }
+
+const ACTIONS = {
+  approve: { label: () => (d.value && d.value.policy === 'hand_over' ? T('application.do.approveHandOver') : T('application.do.approve')), when: () => pending.value,
+    disabled: () => (d.value.unresolved.length ? T('application.answerFirst') : ''), run: () => act(() => api.post(`/drafts/${d.value.id}/approve`), T('application.approved')) },
+  rework: { label: () => T('application.do.rework'), when: () => pending.value, run: () => act(() => api.post(`/drafts/${d.value.id}/reanswer`), T('application.reworkStarted')) },
+  answer: { label: () => T('application.do.answer'), when: () => a.value.act === 'answer', run: answer },
+  execute: { label: () => T('application.do.execute'), when: () => !!d.value && d.value.review_status === 'approved' && ['failed', 'needs_human', 'approved', 'drifted'].includes(a.value.status) && !a.value.running_task,
+    run: () => act(() => api.post(`/drafts/${d.value.id}/execute`), T('application.rerunStarted')) },
+  rerun: { label: () => T('application.do.rerun'), when: () => notOut.value && !a.value.running_task && !pending.value && !(d.value && d.value.review_status === 'approved'),
+    run: () => act(() => api.post(`/jobs/${a.value.job_id}/draft`, {}), T('application.rerunStarted')) },
+  budget: { label: () => T('application.do.budget'), when: () => a.value.act === 'budget', run: () => act(() => api.post(`/applications/${props.id}/budget`), T('application.budgetGiven')) },
+  check_mail: { label: () => T('application.do.checkMail'), when: () => a.value.unknown || a.value.status === 'submitted', run: () => act(() => api.post(`/applications/${props.id}/check-mail`), T('application.checkingMail')) },
+  not_submitted: { label: () => T('application.do.notSubmitted'), when: () => a.value.unknown, run: notSubmitted },
+  mark_submitted: { label: () => T('application.do.markSubmitted'), when: () => notOut.value || a.value.unknown, run: () => act(() => api.post(`/applications/${props.id}/mark-submitted`), T('application.markedSubmitted')) },
+  handle: { label: () => T('application.do.handle'), when: () => a.value.act === 'handle' || a.value.cards.length > 0, run: () => router.push('/todos') },
+  stop: { label: () => T('application.do.stop'), when: () => !!a.value.running_task, run: () => act(() => api.post(`/tasks/${a.value.running_task}/stop`), T('journal.stopped')) },
+  outcome: { label: () => T('application.do.outcome'), when: () => a.value.sent || a.value.unknown, run: () => openPanel('outcome') },
+  withdraw: { label: () => T('application.do.withdraw'), when: () => notOut.value, run: withdraw },
+  note: { label: () => (a.value.note ? T('application.do.editNote') : T('application.do.note')), when: () => true, run: () => openPanel('note') },
+  fix: { label: () => T('application.do.fix'), when: () => true, run: () => openPanel('fix') },
+  discard: { label: () => T('application.do.discard'), when: () => pending.value, run: discard },
+  archive: { label: () => (a.value.archived ? T('application.do.unarchive') : T('application.do.archive')), when: () => true,
+    run: () => act(() => api.post('/applications/bulk', { action: a.value.archived ? 'unarchive' : 'archive', ids: [a.value.id] }), a.value.archived ? T('application.unarchived') : T('application.archivedOk')) },
+  open_job: { label: () => T('application.do.openJob'), when: () => true, run: () => router.push({ path: '/jobs', query: { open: a.value.job_id } }) },
+}
+// what matters now, by where it stands: at most three, the first one the main one
+const mainKeys = computed(() => {
+  const x = a.value
+  if (!x) return []
+  let keys
+  if (pending.value) keys = ['approve', 'rework', 'answer']
+  else if (x.act === 'budget') keys = ['budget', 'withdraw']
+  else if (x.act === 'check_mail') keys = ['check_mail', 'mark_submitted', 'not_submitted']
+  else if (x.act === 'rerun') keys = ['execute', 'rerun', 'mark_submitted']
+  else if (x.act === 'answer') keys = ['answer', 'rerun']
+  else if (x.act === 'handle') keys = ['handle', 'mark_submitted']
+  else if (x.group === 'agent') keys = ['stop']
+  else if (x.group === 'sent') keys = ['check_mail', 'outcome']
+  else if (x.group === 'progress') keys = ['outcome']
+  else if (x.archived) keys = ['archive']
+  else keys = []
+  return keys.filter((k) => ACTIONS[k].when()).slice(0, 3)
+})
+const moreKeys = computed(() => (a.value ? Object.keys(ACTIONS).filter((k) => ACTIONS[k].when()) : []))
+function doAction(k) { more.value = false; ACTIONS[k].run() }
+
+// --- the forms under the status: what came back, a note, a correction of the record -----------------------------------
+const today = () => new Date().toISOString().slice(0, 10)
+const outcome = ref({ status: 'interview', date: '', time: '', note: '' })
+const note = ref('')
+const fix = ref({ status: '', date: '', note: '' })
+const BY_HAND = ['submitted', 'confirmed', 'assessment', 'interview', 'offer', 'rejected', 'withdrawn']
+const OUTCOMES = ['confirmed', 'assessment', 'interview', 'offer', 'rejected']
+function openPanel(k) {
+  panel.value = k
+  if (k === 'outcome') outcome.value = { status: 'interview', date: today(), time: '', note: '' }
+  if (k === 'note') note.value = a.value.note || ''
+  if (k === 'fix') fix.value = { status: a.value.sent || a.value.status === 'withdrawn' ? a.value.status : '', date: a.value.submitted_at ? a.value.submitted_at.slice(0, 10) : '', note: '' }
+}
+async function saveOutcome() {
+  if (await act(() => api.post(`/applications/${props.id}/outcome`, outcome.value), T('application.outcomeSaved'))) panel.value = ''
+}
+async function saveNote() {
+  if (await act(() => api.put(`/applications/${props.id}/note`, { note: note.value }), T('application.noteSaved'))) panel.value = ''
 }
 async function saveFix() {
   const body = { note: fix.value.note }
   if (fix.value.status && fix.value.status !== a.value.status) body.status = fix.value.status
   if (fix.value.date && fix.value.date !== (a.value.submitted_at || '').slice(0, 10)) body.submitted_at = fix.value.date + 'T12:00:00'
-  if (!body.status && !body.submitted_at && !body.note) { fix.value.open = false; return }
-  const r = await act('fix', () => api.post(`/applications/${props.id}/correct`, body), '已记录')
-  if (r) fix.value.open = false
+  if (!body.status && !body.submitted_at && !body.note) { panel.value = ''; return }
+  if (await act(() => api.post(`/applications/${props.id}/correct`, body), T('application.recorded'))) panel.value = ''
 }
+
+// --- mail -------------------------------------------------------------------------------------------------------------
 async function unlink(m) {
-  if (!(await ask(`“${m.subject}”不是关于这份申请的？它会回到“需要我处理”里等你指定；这份申请现在的状态不会自动改回去，需要的话在上面“更正记录”里改。`, { ok: '不是这份申请的' }))) return
-  await act('unlink', () => api.post(`/applications/${props.id}/mails/unlink`, { message_id: m.message_id }), '已解除关联')
+  if (!(await ask(T('application.unlinkAsk', { subject: m.subject }), { ok: T('application.unlinkOk') }))) return
+  await act(() => api.post(`/applications/${props.id}/mails/unlink`, { message_id: m.message_id }), T('application.unlinked'))
 }
 async function showOthers() {
   try { others.value = await api.get(`/applications/${props.id}/mail-candidates`) } catch (e) { toast(e.message, 'bad') }
 }
 async function link(m) {
-  await act('link', () => api.post(`/applications/${props.id}/mails/link`, { message_id: m.message_id }), '已关联，这份申请的状态已按邮件更新')
+  await act(() => api.post(`/applications/${props.id}/mails/link`, { message_id: m.message_id }), T('application.linked'))
   others.value = null
 }
-watch(() => props.id, load)
-onMounted(load)
+
+const due = computed(() => (a.value && a.value.deadline ? deadlineLabel(a.value.deadline) : null))
+const facts = computed(() => {
+  const j = a.value && a.value.job
+  if (!j) return []
+  return [['application.job.term', j.term], ['application.job.months', j.months], ['application.job.salary', j.salary], ['application.job.location', j.location],
+    ['application.job.deadline', j.deadline], ['application.job.direction', j.direction], ['application.job.where', j.ats_label], ['application.job.posted', j.posted]].filter((x) => x[1])
+})
+
+watch(() => props.id, async () => { a.value = null; await load(); tab.value = firstTab() })
+onMounted(async () => { await load(); tab.value = firstTab() })
 </script>
 
 <template>
-  <div v-if="!a && !failed" class="empty"><div class="t">正在读取…</div></div>
-  <div v-else-if="failed" class="empty"><div class="t">没能读取这份申请</div><div class="muted">{{ failed }}</div>
-    <div class="row" style="justify-content: center; margin-top: 8px"><button @click="load">再试一次</button><button class="ghost" @click="router.push('/applications')">回到我的申请</button></div>
+  <div v-if="!a && !failed" class="empty"><div class="t">{{ $t('application.loading') }}</div></div>
+  <div v-else-if="failed" class="empty"><div class="t">{{ $t('application.couldNotLoad') }}</div><div class="muted">{{ failed }}</div>
+    <div class="row" style="justify-content: center; margin-top: 8px"><button @click="load">{{ $t('application.tryAgain') }}</button><button class="ghost" @click="router.push('/applications')">{{ $t('application.backToList') }}</button></div>
   </div>
   <template v-else>
     <PageHead :title="a.company + ' · ' + a.title">
       <template #sub>
-        <router-link to="/applications">我的申请</router-link>
+        <router-link to="/applications">{{ $t('application.backToList') }}</router-link>
+        <template v-if="a.ats_label"> · {{ a.ats_label }}</template>
         <template v-if="a.location"> · {{ a.location }}</template>
-        <template v-if="a.job.apply_url"> · <a :href="a.job.apply_url" target="_blank" rel="noopener">岗位链接 ↗</a></template>
+        <template v-if="due && due.text"> · <span :class="{ 'warn-text': due.tone === 'soon' }">{{ due.text }}</span></template>
+        <template v-if="a.apply_url"> · <a :href="a.apply_url" target="_blank" rel="noopener">{{ $t('application.posting') }} ↗</a></template>
       </template>
-      <button @click="openFix"><Icon name="edit" />更正记录</button>
-      <router-link :to="{ path: '/jobs', query: { open: a.job_id } }" class="btn">在岗位里查看</router-link>
     </PageHead>
 
-    <!-- where it stands, and what comes next -->
-    <div class="card" :class="{ 'callout-card': a.unknown }">
-      <div class="row" style="align-items: baseline; flex-wrap: wrap">
-        <span class="tag" :class="a.unknown || a.status === 'ready_to_submit' ? 'warn' : a.tone" style="font-size: 14px">{{ a.status_label }}</span>
-        <span v-if="a.submitted_at" class="muted">投出于 {{ stampDay(a.submitted_at) }}</span>
-        <span v-if="a.auto_approved" class="muted">· 自动批准</span>
+    <!-- where it stands, whose move it is, and what can be done now -->
+    <div class="card status-card" :class="'edge-' + (a.tone || 'none')">
+      <div class="row" style="flex-wrap: wrap; gap: 8px; align-items: baseline">
+        <span class="tag" :class="a.tone" style="font-size: 14px">{{ a.stage_label }}</span>
+        <span v-if="a.who">{{ $t(WHO[a.who]) }}</span>
+        <span v-if="a.submitted_at" class="muted small">{{ $t('application.sentOn', { day: stampDay(a.submitted_at) }) }}</span>
+        <span v-if="a.auto_approved" class="muted small">· {{ $t('application.autoApproved') }}</span>
+        <span v-if="a.archived" class="tag">{{ $t('application.archived') }}</span>
       </div>
-      <p style="margin: 10px 0 0"><b>接下来：</b>{{ a.next }}</p>
+      <p v-if="a.next" style="margin: 10px 0 0">{{ a.next }}</p>
       <div v-if="a.explained.message" class="muted" style="margin-top: 6px">{{ a.explained.message }}</div>
       <TechDetails :text="a.explained.detail" />
-      <div v-if="a.actions.length" class="row" style="margin-top: 12px; flex-wrap: wrap">
-        <button v-if="can('check_mail')" :class="{ primary: a.unknown }" :disabled="!!busy" @click="checkMail"><Icon name="mail" />{{ busy === 'mail' ? '正在查…' : '现在检查确认邮件' }}</button>
-        <button v-if="can('mark_submitted')" :disabled="!!busy" @click="markSubmitted"><Icon name="check" />我已经提交了</button>
-        <button v-if="can('rerun')" class="primary" :disabled="!!busy" @click="rerun"><Icon name="refresh" />让 Agent 再做一次</button>
-        <button v-if="can('rerun_not_submitted')" class="ghost" :disabled="!!busy" @click="rerunNotSubmitted">没提交成功，让 Agent 再做一次</button>
-        <router-link v-if="can('open_draft') && draftId" :to="'/drafts/' + draftId" class="btn primary">打开草案</router-link>
-        <router-link v-if="can('open_todos')" to="/todos" class="btn primary">去处理</router-link>
-      </div>
-      <div v-if="a.cards.length" style="margin-top: 12px">
-        <div class="small muted">等你处理：</div>
+      <div v-if="a.cards.length" style="margin-top: 10px">
+        <span class="small muted">{{ $t('application.waitingForYou') }}</span>
         <router-link v-for="c in a.cards" :key="c.id" to="/todos" class="tag warn" style="margin: 4px 6px 0 0">{{ c.title }}</router-link>
       </div>
-    </div>
-
-    <AgentJournal :journal="a.journal || []" :spent="a.spent" :running-task="a.running_task || 0" :expected="!!a.run_expected" :application-id="a.id" note="Agent 在这份申请上途中记下的话；它填了什么、依据是什么，在草案里。" @refresh="load" />
-
-    <div v-if="fix.open" class="card">
-      <div class="card-title">更正记录</div>
-      <p class="muted" style="margin-top: 0">有些事发生在程序看不到的地方：线下面试、电话通知、自己在官网撤回。在这里记下来；它会作为“你”的记录留在经过里。</p>
-      <div class="kv">
-        <label for="fix-status">现在的状态</label>
-        <AaSelect id="fix-status" v-model="fix.status" aria-label="现在的状态"><option value="">不改</option><option v-for="[k, l] in BY_HAND" :key="k" :value="k">{{ l }}</option></AaSelect>
-        <label for="fix-date">投出日期</label>
-        <div><input id="fix-date" v-model="fix.date" type="date" style="width: 180px" /> <span class="hint">只有已投出的申请有投出日期</span></div>
-        <label for="fix-note">备注（可不填）</label>
-        <input id="fix-note" v-model="fix.note" maxlength="300" placeholder="例如：11 月 20 日电话面试" />
+      <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
+        <button v-for="(k, i) in mainKeys" :key="k" :class="{ primary: i === 0 }" :disabled="!!(ACTIONS[k].disabled && ACTIONS[k].disabled())" :title="ACTIONS[k].disabled ? ACTIONS[k].disabled() : ''" @click="doAction(k)">{{ ACTIONS[k].label() }}</button>
+        <div class="more-wrap">
+          <button class="ghost" :aria-expanded="more" @click="more = !more">{{ $t('application.more') }} ▾</button>
+          <div v-if="more" class="menu-backdrop" @click="more = false"></div>
+          <div v-if="more" class="more-menu" role="menu" @keydown.esc="more = false">
+            <button v-for="k in moreKeys" :key="k" role="menuitem" :disabled="!!(ACTIONS[k].disabled && ACTIONS[k].disabled())" @click="doAction(k)">{{ ACTIONS[k].label() }}</button>
+          </div>
+        </div>
       </div>
-      <div class="row" style="margin-top: 12px"><button class="primary" :disabled="!!busy" @click="saveFix">{{ busy === 'fix' ? '正在保存…' : '保存' }}</button><button class="ghost" @click="fix.open = false">取消</button></div>
     </div>
 
-    <div class="cols">
+    <div v-if="panel === 'outcome'" class="card">
+      <div class="card-title">{{ $t('application.outcomeTitle') }}</div>
+      <p class="muted" style="margin-top: 0">{{ $t('application.outcomeHow') }}</p>
+      <div class="kv">
+        <label for="o-status">{{ $t('application.outcomeWhat') }}</label>
+        <AaSelect id="o-status" v-model="outcome.status"><option v-for="k in OUTCOMES" :key="k" :value="k">{{ $t('application.status.' + k) }}</option></AaSelect>
+        <label for="o-date">{{ $t('application.outcomeWhen') }}</label>
+        <div class="row" style="gap: 6px"><input id="o-date" v-model="outcome.date" type="date" style="width: 170px" /><input v-model="outcome.time" type="time" :aria-label="$t('application.outcomeTime')" style="width: 120px" />
+          <span v-if="['assessment', 'interview'].includes(outcome.status)" class="hint">{{ $t('application.outcomeCalendar') }}</span></div>
+        <label for="o-note">{{ $t('application.outcomeNote') }}</label>
+        <input id="o-note" v-model="outcome.note" maxlength="240" :placeholder="$t('application.outcomeNotePlaceholder')" />
+      </div>
+      <div class="row" style="margin-top: 12px"><button class="primary" @click="saveOutcome">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
+    </div>
+
+    <div v-if="panel === 'note'" class="card">
+      <div class="card-title">{{ $t('application.noteTitle') }}</div>
+      <textarea v-model="note" rows="4" maxlength="4000" :placeholder="$t('application.notePlaceholder')" style="font-family: inherit"></textarea>
+      <div class="row" style="margin-top: 8px"><button class="primary" @click="saveNote">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
+    </div>
+    <div v-else-if="a.note" class="card note-card">
+      <div class="row"><span class="card-title grow">{{ $t('application.noteTitle') }}</span><button class="ghost sm" @click="openPanel('note')"><Icon name="edit" />{{ $t('application.do.editNote') }}</button></div>
+      <div style="white-space: pre-wrap">{{ a.note }}</div>
+    </div>
+
+    <div v-if="panel === 'fix'" class="card">
+      <div class="card-title">{{ $t('application.do.fix') }}</div>
+      <p class="muted" style="margin-top: 0">{{ $t('application.fixHow') }}</p>
+      <div class="kv">
+        <label for="fix-status">{{ $t('application.fixStatus') }}</label>
+        <AaSelect id="fix-status" v-model="fix.status"><option value="">{{ $t('application.fixNoChange') }}</option><option v-for="k in BY_HAND" :key="k" :value="k">{{ $t('application.status.' + k) }}</option></AaSelect>
+        <label for="fix-date">{{ $t('application.fixDate') }}</label>
+        <div><input id="fix-date" v-model="fix.date" type="date" style="width: 180px" /> <span class="hint">{{ $t('application.fixDateHint') }}</span></div>
+        <label for="fix-note">{{ $t('application.fixNote') }}</label>
+        <input id="fix-note" v-model="fix.note" maxlength="300" :placeholder="$t('application.fixNotePlaceholder')" />
+      </div>
+      <div class="row" style="margin-top: 12px"><button class="primary" @click="saveFix">{{ $t('application.save') }}</button><button class="ghost" @click="panel = ''">{{ $t('application.cancel') }}</button></div>
+    </div>
+
+    <div class="seg tabs" role="tablist" style="margin: 16px 0 12px">
+      <button v-for="k in TABS" :key="k" role="tab" :aria-selected="tab === k" :class="{ on: tab === k }" @click="openTab(k)">{{ $t('application.tab.' + k) }}<span v-if="tabCount(k)" class="n">{{ tabCount(k) }}</span></button>
+    </div>
+
+    <section v-if="tab === 'record'" id="record">
+      <RecordPanel v-if="d" :d="d" @update="d = $event" @reload="load" />
+      <div v-else class="card muted">{{ $t('application.noRecord') }}</div>
+    </section>
+
+    <section v-else-if="tab === 'agent'">
+      <AgentJournal :journal="a.journal || []" :spent="a.spent" :running-task="a.running_task || 0" :expected="!!a.run_expected" :application-id="a.id" :note="$t('application.journalNote')" @refresh="load" />
+      <div v-if="!(a.journal || []).length && !a.running_task" class="card muted">{{ a.run_expected ? $t('application.agentQueued') : $t('application.agentNothing') }}</div>
+    </section>
+
+    <section v-else-if="tab === 'materials'" class="cols">
       <div>
         <div class="card">
-          <div class="card-title">投出的证据</div>
-          <template v-if="a.evidence.text || a.evidence.url || a.evidence.mail_ids.length || a.evidence.by_user">
-            <div v-if="a.evidence.text || a.evidence.url">
-              <div class="small muted">{{ a.evidence.already_applied ? '雇主网站显示这个岗位已经申请过' : '提交后网站显示的内容' }}<template v-if="a.evidence.read_by === 'model'">（由 AI 从页面读出）</template></div>
-              <details class="tech" open><summary>{{ a.evidence.url || '页面内容' }}</summary><pre>{{ a.evidence.text }}</pre></details>
-              <div v-if="a.evidence.has_screenshot" class="small" style="margin-top: 6px"><a :href="`/api/applications/${a.id}/confirmation.png`" target="_blank" rel="noopener">当时的页面截图</a></div>
-            </div>
-            <div v-if="a.evidence.mail_ids.length" class="small" style="margin-top: 8px">雇主的确认邮件 {{ a.evidence.mail_ids.length }} 封（见“往来邮件”）</div>
-            <div v-if="a.evidence.by_user" class="small" style="margin-top: 8px">有你手动记录的进展（见“全部经过”）</div>
-          </template>
-          <div v-else class="muted">{{ a.sent ? '没有保存到确认页，也还没有收到确认邮件。' : '还没有投出。' }}</div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">提交的材料</div>
+          <div class="card-title">{{ $t('application.materials') }}</div>
           <template v-if="a.materials.length">
             <div v-for="(m, i) in a.materials" :key="i" class="row" style="justify-content: space-between; padding: 4px 0">
-              <span><span v-if="m.slot" class="muted">{{ m.slot }}：</span>
-                <a v-if="m.document_id && m.exists" :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener">{{ m.name }}</a>
-                <span v-else>{{ m.name }}<span v-if="!m.exists" class="muted">（文件已不在）</span></span>
+              <span><span v-if="m.slot" class="muted">{{ m.slot }}: </span>
+                <a v-if="m.document_id && m.exists" :href="`api/documents/${m.document_id}/file`" target="_blank" rel="noopener" data-notr>{{ m.name }}</a>
+                <span v-else data-notr>{{ m.name }}<span v-if="!m.exists" class="muted">{{ $t('application.fileGone') }}</span></span>
               </span>
             </div>
-            <div class="small muted" style="margin-top: 6px">来自<router-link :to="'/drafts/' + a.materials_from_draft">填表用的那份草案</router-link>；所有答案也在那里。</div>
+            <router-link to="/files" class="small">{{ $t('application.inFiles') }}</router-link>
           </template>
-          <div v-else class="muted">这份申请没有上传材料的记录<template v-if="draftId">（<router-link :to="'/drafts/' + draftId">查看草案</router-link>）</template>。</div>
+          <div v-else class="muted">{{ $t('application.noMaterials') }}</div>
         </div>
-
         <div class="card">
-          <div class="card-title">你认识的人</div>
+          <div class="card-title">{{ $t('application.contacts') }}</div>
           <template v-if="a.contacts.length">
             <div v-for="c in a.contacts" :key="c.id" style="padding: 4px 0"><b>{{ c.name }}</b> <span class="muted">{{ [c.role, c.relation].filter(Boolean).join(' · ') }}</span>
-              <span v-if="c.follow_up" class="tag" style="margin-left: 6px">跟进 {{ c.follow_up }}</span>
+              <span v-if="c.follow_up" class="tag" style="margin-left: 6px">{{ $t('application.followUp', { day: c.follow_up }) }}</span>
               <div v-if="c.note" class="small muted">{{ c.note }}</div>
             </div>
           </template>
-          <div v-else class="muted">人脉里没有这家公司的人。<router-link to="/contacts">去添加</router-link></div>
+          <div v-else class="muted">{{ $t('application.noContacts') }} <router-link to="/contacts">{{ $t('application.addContact') }}</router-link></div>
         </div>
       </div>
-
       <div>
         <div class="card">
-          <div class="card-title">往来邮件</div>
-          <template v-if="a.mails.length">
-            <div v-for="m in a.mails" :key="m.message_id" style="padding: 6px 0; border-bottom: 1px solid var(--border)">
-              <div class="row" style="justify-content: space-between; align-items: baseline">
-                <span><span class="tag" :class="m.is_evidence ? 'ok' : ''">{{ m.label }}</span> <b>{{ m.subject }}</b></span>
-                <span class="small muted nowrap">{{ fmtTime(m.received_at) }}</span>
-              </div>
-              <div class="small muted">{{ m.sender }}<template v-if="m.linked_by === 'user'"> · 你指定的关联</template><template v-else-if="m.linked_by === 'site'"> · 按雇主网站上的申请列表关联</template></div>
-              <div class="small" style="margin-top: 2px">{{ m.summary }}</div>
-              <button class="sm ghost" style="margin-top: 4px" :disabled="!!busy" @click="unlink(m)">不是这份申请的</button>
+          <div class="card-title">{{ $t('application.evidence') }}</div>
+          <template v-if="a.evidence.text || a.evidence.url || a.evidence.mail_ids.length || a.evidence.by_user">
+            <div v-if="a.evidence.text || a.evidence.url">
+              <div class="small muted">{{ a.evidence.already_applied ? $t('application.evidenceAlready') : $t('application.evidencePage') }}<template v-if="a.evidence.read_by === 'model'">{{ $t('application.evidenceByAi') }}</template></div>
+              <details class="tech" open><summary>{{ a.evidence.url || $t('application.evidencePageText') }}</summary><pre>{{ a.evidence.text }}</pre></details>
+              <div v-if="a.evidence.has_screenshot" class="small" style="margin-top: 6px"><a :href="`api/applications/${a.id}/confirmation.png`" target="_blank" rel="noopener">{{ $t('application.evidenceShot') }}</a></div>
             </div>
+            <div v-if="a.evidence.mail_ids.length" class="small" style="margin-top: 8px">{{ $t('application.evidenceMails', { n: a.evidence.mail_ids.length }, a.evidence.mail_ids.length) }}</div>
+            <div v-if="a.evidence.by_user" class="small" style="margin-top: 8px">{{ $t('application.evidenceByYou') }}</div>
           </template>
-          <div v-else class="muted">还没有关联到这份申请的邮件。</div>
-          <div style="margin-top: 10px">
-            <button v-if="others === null" class="sm" @click="showOthers">有一封邮件其实是这份申请的？</button>
-            <template v-else>
-              <div class="small muted">程序没能对上申请的邮件（最近 40 封）：</div>
-              <div v-for="m in others" :key="m.message_id" class="row" style="justify-content: space-between; padding: 4px 0">
-                <span class="small"><span class="tag">{{ m.label }}</span> {{ m.subject }} <span class="muted">{{ fmtTime(m.received_at) }}</span></span>
-                <button class="sm" :disabled="!!busy" @click="link(m)">是这份的</button>
-              </div>
-              <div v-if="!others.length" class="small muted">没有这样的邮件。</div>
-            </template>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">全部经过</div>
-          <div v-for="(e, i) in a.timeline" :key="i" class="row" style="align-items: baseline; padding: 4px 0; gap: 10px">
-            <span class="small muted nowrap" style="min-width: 118px">{{ fmtTime(e.at) }}</span>
-            <span v-if="e.kind === 'status'" class="small">
-              <template v-if="e.old !== e.new">{{ e.old || '新建' }} → <b>{{ e.new }}</b></template><template v-else>{{ e.note }}</template>
-              <span v-if="e.by" class="muted">（{{ e.by }}）</span><span v-if="e.note && e.old !== e.new" class="muted"> {{ e.note }}</span>
-            </span>
-            <span v-else-if="e.kind === 'run'" class="small">{{ e.what }}：<span :class="e.ok ? '' : 'muted'">{{ e.ok ? '完成' : '没有完成' }}</span><span v-if="e.said" class="muted" data-notr>　{{ e.said }}</span> <router-link to="/runs" class="muted">记录</router-link></span>
-            <span v-else class="small">邮件：{{ e.label }} <span class="muted">{{ e.subject }}</span></span>
-          </div>
-          <div v-if="!a.timeline.length" class="muted">还没有记录。</div>
+          <div v-else class="muted">{{ a.sent ? $t('application.evidenceNone') : $t('application.notSentYet') }}</div>
         </div>
       </div>
-    </div>
+    </section>
+
+    <section v-else-if="tab === 'mail'">
+      <div class="card">
+        <template v-if="a.mails.length">
+          <div v-for="m in a.mails" :key="m.message_id" class="mail-row">
+            <div class="row" style="justify-content: space-between; align-items: baseline">
+              <span><span class="tag" :class="m.is_evidence ? 'ok' : ''">{{ m.label }}</span> <b>{{ m.subject }}</b></span>
+              <span class="small muted nowrap">{{ fmtTime(m.received_at) }}</span>
+            </div>
+            <div class="small muted">{{ m.sender }}<template v-if="m.linked_by === 'user'"> · {{ $t('application.linkedByYou') }}</template><template v-else-if="m.linked_by === 'site'"> · {{ $t('application.linkedBySite') }}</template></div>
+            <div class="small" style="margin-top: 2px">{{ m.summary }}</div>
+            <button class="sm ghost" style="margin-top: 4px" @click="unlink(m)">{{ $t('application.unlinkOk') }}</button>
+          </div>
+        </template>
+        <div v-else class="muted">{{ $t('application.noMail') }}</div>
+        <div style="margin-top: 10px">
+          <button v-if="others === null" class="sm" @click="showOthers">{{ $t('application.otherMail') }}</button>
+          <template v-else>
+            <div class="small muted">{{ $t('application.otherMailList') }}</div>
+            <div v-for="m in others" :key="m.message_id" class="row" style="justify-content: space-between; padding: 4px 0">
+              <span class="small"><span class="tag">{{ m.label }}</span> {{ m.subject }} <span class="muted">{{ fmtTime(m.received_at) }}</span></span>
+              <button class="sm" @click="link(m)">{{ $t('application.isThisOne') }}</button>
+            </div>
+            <div v-if="!others.length" class="small muted">{{ $t('application.noOtherMail') }}</div>
+          </template>
+        </div>
+        <p class="small muted" style="margin-bottom: 0">{{ $t('application.mailWritten') }} <router-link to="/todos">{{ $t('application.openTodos') }}</router-link></p>
+      </div>
+    </section>
+
+    <section v-else-if="tab === 'timeline'">
+      <div class="card">
+        <div v-for="(e, i) in a.timeline" :key="i" class="row" style="align-items: baseline; padding: 4px 0; gap: 10px">
+          <span class="small muted nowrap" style="min-width: 118px">{{ fmtTime(e.at) }}</span>
+          <span v-if="e.kind === 'status'" class="small">
+            <template v-if="e.old !== e.new">{{ e.old || $t('application.created') }} → <b>{{ e.new }}</b></template><template v-else>{{ e.note }}</template>
+            <span v-if="e.by" class="muted">{{ $t('application.by', { who: e.by }) }}</span><span v-if="e.note && e.old !== e.new" class="muted"> {{ e.note }}</span>
+          </span>
+          <span v-else-if="e.kind === 'run'" class="small">{{ e.what }}: <span :class="e.ok ? '' : 'muted'">{{ e.ok ? $t('application.runDone') : $t('application.runNotDone') }}</span><span v-if="e.said" class="muted" data-notr> {{ e.said }}</span> <router-link to="/runs" class="muted">{{ $t('application.runRecord') }}</router-link></span>
+          <span v-else class="small">{{ $t('application.mailEvent', { label: e.label }) }} <span class="muted">{{ e.subject }}</span></span>
+        </div>
+        <div v-if="!a.timeline.length" class="muted">{{ $t('application.noTimeline') }}</div>
+      </div>
+    </section>
+
+    <section v-else-if="tab === 'job'">
+      <div class="card">
+        <div class="row" style="gap: 10px; flex-wrap: wrap">
+          <span class="score">{{ a.job.score == null ? $t('application.job.noScore') : $t('application.job.score', { n: a.job.score }) }}</span>
+          <router-link :to="{ path: '/jobs', query: { open: a.job_id } }" class="btn sm">{{ $t('application.do.openJob') }}</router-link>
+          <a v-if="a.apply_url" :href="a.apply_url" target="_blank" rel="noopener" class="btn sm"><Icon name="external" />{{ $t('application.posting') }}</a>
+        </div>
+        <div class="facts" style="margin-top: 12px">
+          <div v-for="[k, v] in facts" :key="k"><div class="k">{{ $t(k) }}</div><div class="v">{{ v }}</div></div>
+        </div>
+        <p v-if="a.job.score_reason" class="small" style="margin-top: 12px">{{ a.job.score_reason }}</p>
+      </div>
+      <div v-if="a.job.brief" class="card md" v-html="renderMarkdown(a.job.brief)"></div>
+      <div v-if="a.job.jd_text" class="card">
+        <div class="card-title">{{ $t('application.job.text') }}</div>
+        <pre style="font-family: inherit; font-size: 13.5px; line-height: 1.6" :style="showJd || a.job.jd_text.length < 900 ? '' : 'max-height: 200px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent)'">{{ a.job.jd_text }}</pre>
+        <button v-if="a.job.jd_text.length >= 900" class="ghost sm" style="margin-top: 6px" @click="showJd = !showJd">{{ showJd ? $t('application.job.less') : $t('application.job.more') }}</button>
+      </div>
+    </section>
   </template>
 </template>
+
+<style scoped>
+.status-card { border-left: 3px solid var(--border); }
+.status-card.edge-warn { border-left-color: var(--warn); }
+.status-card.edge-bad { border-left-color: var(--bad); }
+.status-card.edge-ok { border-left-color: var(--ok); }
+.status-card.edge-info { border-left-color: var(--info); }
+.more-wrap { position: relative; }
+.menu-backdrop { position: fixed; inset: 0; z-index: 19; }
+.more-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-md); padding: 4px; display: flex; flex-direction: column; }
+.more-menu button { justify-content: flex-start; border: 0; background: transparent; text-align: left; }
+.more-menu button:hover { background: var(--surface-2); }
+.mail-row { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.warn-text { color: var(--warn); }
+.note-card { background: var(--surface-2); }
+</style>

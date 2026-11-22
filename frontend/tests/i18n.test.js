@@ -98,7 +98,8 @@ const MIGRATED = ['views/TodosView.vue', 'views/CalendarView.vue', 'views/Analyt
   'views/analytics/AppsPanel.vue', 'views/analytics/RunDetail.vue', 'views/analytics/SitesPanel.vue', 'views/SettingsView.vue', 'components/AiPanel.vue',
   'components/MailboxPanel.vue', 'components/AccessPanel.vue', 'components/NetworkPanel.vue', 'components/BrowserPanel.vue', 'components/PromptsPanel.vue',
   'components/EmployersPanel.vue', 'views/ProfileView.vue', 'views/WelcomeView.vue', 'views/RunsView.vue', 'views/AccountsView.vue', 'views/FilesView.vue',
-  'views/HomeView.vue', 'views/SourcesView.vue', 'App.vue', 'views/MailOut.vue', 'views/ContactsView.vue', 'views/RemoteView.vue', 'views/LoginView.vue']
+  'views/HomeView.vue', 'views/SourcesView.vue', 'App.vue', 'views/MailOut.vue', 'views/ContactsView.vue', 'views/RemoteView.vue', 'views/LoginView.vue',
+  'views/JobsView.vue', 'views/ApplicationsView.vue', 'views/ApplicationDetail.vue', 'components/RecordPanel.vue', 'components/AgentJournal.vue', 'views/AboutView.vue']
 // HTML and block comments cut out by position (not by a pattern a nested or broken one could slip through)
 function withoutComments(text) {
   let out = ''
