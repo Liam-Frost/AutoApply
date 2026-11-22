@@ -1925,7 +1925,7 @@
     "nothingInTheQueue": "Rien dans la file n’attend d’être fait.",
     "onlyTheFirstAre": "Seules les {p0} premières sont listées.",
     "waitingForYouBefore": "Vous attendent avant de pouvoir continuer",
-    "waitingForYou": "Vous attend",
+    "waitingForYou": "À traiter",
     "dealWithIt": "Traiter",
     "setAside3": "Mises de côté",
     "notStartedUntilYou": "Pas lancées tant que vous ne les reprenez pas.",
@@ -2344,7 +2344,7 @@
     "nav": "À propos",
     "new": "Nouveau",
     "newVersionDot": "La version {v} est disponible",
-    "title": "À propos d’AutoApply",
+    "title": "À propos",
     "sub": "Cette version, les mises à jour, et de quoi est fait le programme.",
     "version": "Version",
     "runs": "Mode de fonctionnement",
@@ -2533,7 +2533,7 @@
     "asked": "Vous a demandé : {text}",
     "said": "Vous avez dit : {text}",
     "hearsNext": " (il le verra à sa prochaine action)",
-    "waits": "Vous attend : {text}",
+    "waits": "À traiter : {text}",
     "sending": "Sur le point d’appuyer sur Envoyer : {text}",
     "ended": "Cette exécution s’est terminée ({n} action) : {text} | Cette exécution s’est terminée ({n} actions) : {text}",
     "broke": "Cette exécution a été interrompue ({n} action) : {text} | Cette exécution a été interrompue ({n} actions) : {text}",
@@ -2699,12 +2699,10 @@
   },
   "applications": {
     "title": "Candidatures",
-    "sub": "Chaque candidature que vous avez commencée, de sa préparation à son issue. Ouvrez une ligne pour la candidature ; cochez des lignes pour agir sur plusieurs.",
     "what": "les candidatures",
     "checkMailbox": "Relever les courriels",
     "checkingMailbox": "Relève des courriels en cours",
     "export": "Exporter en CSV",
-    "exportPicked": "Exporter les {n} sélectionnées (CSV)",
     "groupsLabel": "Groupes",
     "group": {
       "me": "À traiter",
@@ -2740,10 +2738,10 @@
       "job": "Annonce",
       "stage": "Étape",
       "next": "Prochaine étape",
-      "date": "Date",
       "sent": "Date de candidature",
       "latest": "Dernière nouvelle",
-      "updated": "Dernière mise à jour"
+      "updated": "Dernière mise à jour",
+      "schedule": "Prochain événement"
     },
     "act": {
       "answer": "Répondre",
@@ -2759,8 +2757,6 @@
     "emptyTitle": "Pas encore de candidatures",
     "emptyText": "Commencez une candidature depuis une annonce : elle apparaîtra ici.",
     "toPostings": "Voir les annonces",
-    "picked": "{n} sélectionnée | {n} sélectionnées",
-    "unpick": "Effacer la sélection",
     "bulk": {
       "approve": "Approuver et envoyer",
       "rerun": "Faire réessayer l’agent",
@@ -2781,7 +2777,16 @@
     "reviewChanged": "Changements depuis la version précédente :",
     "reviewClean": "Rien d’incertain et rien de changé.",
     "reviewApprove": "Relue : approuver {n} | Relues : approuver {n}",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "owner": "Responsable : {who}",
+    "dueTip": "Date limite de candidature : {when}",
+    "eventTip": "{kind} : {title}",
+    "row": {
+      "menu": "Autres actions",
+      "openJob": "Voir l’annonce",
+      "openLink": "Ouvrir l’annonce d’origine"
+    },
+    "filters": "Filtres"
   },
   "postings": {
     "title": "Annonces",

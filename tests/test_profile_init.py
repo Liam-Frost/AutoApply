@@ -127,7 +127,7 @@ def test_asked_for_at_the_page_it_is_a_task_and_what_it_wrote_is_there_whenever_
         st = c.get("/api/profile/init").json()
         assert st["task"]["status"] == "done" and not st["task"]["applied"] and st["task"]["draft"] == WRITTEN.strip() and st["current"] == before
     row = next(t for t in c.get("/api/tasks").json() if t["kind"] == "profile_init")
-    assert "draft" not in row["result"] and row["label"] == "从简历生成个人资料" and "等你在“个人资料”页查看" in row["summary"]      # the list of tasks does not carry a profile around
+    assert "draft" not in row["result"] and row["label"] == "从简历生成个人资料" and "请在“个人资料”页查看" in row["summary"]      # the list of tasks does not carry a profile around
     # adopted as the applicant edited it; then it is not a proposal any more
     edited = WRITTEN.replace("- TODO: Legal name, if different", "- Legal name: Ada B. Example")
     assert c.post(f"/api/profile/init/{r['task_id']}/adopt", json={"markdown": edited}).json()["version"]

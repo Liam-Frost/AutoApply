@@ -44,7 +44,7 @@
     "openThePostingAnd": "Open the posting and apply myself",
     "iveSubmittedIt": "I've submitted it",
     "letTheAppTry": "Let the app retry",
-    "skipThisOne": "Don’t apply",
+    "skipThisOne": "Not applying",
     "viewTheApplicationsMaterials": "View application materials",
     "answer": "Answer",
     "close": "Close",
@@ -60,7 +60,7 @@
     "haveTheAgentTry": "Have the agent retry",
     "tryAgainWithNodriver": "Retry with nodriver",
     "viewDraft": "View draft",
-    "dontApplyClose": "Don’t apply, close",
+    "dontApplyClose": "Not applying, close",
     "openPage": "Open page",
     "imDoneContinue": "I'm done, continue",
     "linkToThisApplication": "Link to this application",
@@ -122,7 +122,7 @@
     "openTheMailboxSettings": "Open mailbox settings",
     "openTheLibrary": "Open Files",
     "openTheBrowserCompatibility": "Open browser compatibility settings",
-    "seeTheAiServices": "See the AI services and quota",
+    "seeTheAiServices": "View AI services and quota",
     "openTheAiService": "Open AI service settings",
     "generateOrFillIn": "Generate or fill in your profile",
     "aBrowserWindowIs": "A browser window is open; sign in there. When you are done, just close the window: the app saves the session and continues.",
@@ -1925,7 +1925,7 @@
     "nothingInTheQueue": "Nothing is waiting in the queue.",
     "onlyTheFirstAre": "Only the first {p0} are listed.",
     "waitingForYouBefore": "Waiting for you before they can go on",
-    "waitingForYou": "Waiting for you",
+    "waitingForYou": "Action required",
     "dealWithIt": "Handle",
     "setAside3": "Set aside",
     "notStartedUntilYou": "Not started until you resume it.",
@@ -2344,7 +2344,7 @@
     "nav": "About",
     "new": "New",
     "newVersionDot": "Version {v} is out",
-    "title": "About AutoApply",
+    "title": "About",
     "sub": "This version, updates, and what the app is made of.",
     "version": "Version",
     "runs": "How it runs",
@@ -2533,7 +2533,7 @@
     "asked": "Asked you: {text}",
     "said": "You said: {text}",
     "hearsNext": " (it sees it at its next action)",
-    "waits": "Waiting for you: {text}",
+    "waits": "Action required: {text}",
     "sending": "About to submit: {text}",
     "ended": "This run ended ({n} action): {text} | This run ended ({n} actions): {text}",
     "broke": "This run was cut short ({n} action): {text} | This run was cut short ({n} actions): {text}",
@@ -2699,12 +2699,10 @@
   },
   "applications": {
     "title": "Applications",
-    "sub": "Every application you began, from preparing it to the outcome. Open a row for the application; tick rows to act on several.",
     "what": "the applications",
     "checkMailbox": "Check mail",
     "checkingMailbox": "Checking mail",
     "export": "Export CSV",
-    "exportPicked": "Export {n} selected (CSV)",
     "groupsLabel": "Groups",
     "group": {
       "me": "Action required",
@@ -2740,10 +2738,10 @@
       "job": "Posting",
       "stage": "Stage",
       "next": "Next step",
-      "date": "Date",
       "sent": "Applied on",
       "latest": "Latest update",
-      "updated": "Last updated"
+      "updated": "Last updated",
+      "schedule": "Next event"
     },
     "act": {
       "answer": "Answer",
@@ -2759,8 +2757,6 @@
     "emptyTitle": "No applications yet",
     "emptyText": "Start an application from a posting and it appears here.",
     "toPostings": "View postings",
-    "picked": "{n} selected",
-    "unpick": "Clear selection",
     "bulk": {
       "approve": "Approve and submit",
       "rerun": "Have the agent retry",
@@ -2781,7 +2777,16 @@
     "reviewChanged": "Changes since the last version:",
     "reviewClean": "Nothing uncertain and nothing changed.",
     "reviewApprove": "Reviewed: approve {n} | Reviewed: approve {n}",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "owner": "Owner: {who}",
+    "dueTip": "Application deadline: {when}",
+    "eventTip": "{kind}: {title}",
+    "row": {
+      "menu": "More actions",
+      "openJob": "View posting",
+      "openLink": "Open original posting"
+    },
+    "filters": "Filters"
   },
   "postings": {
     "title": "Postings",

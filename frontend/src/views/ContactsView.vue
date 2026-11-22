@@ -3,9 +3,21 @@ import { t as T } from '../i18n/catalog'
 // People you know at employers: who can refer you, who you talked to, when to follow up. Shown next to that employer's postings.
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
+import DataState from '../components/DataState.vue'
+import DataTable from '../components/DataTable.vue'
 import EmptyState from '../components/EmptyState.vue'
+import FormError from '../components/FormError.vue'
 import Icon from '../components/Icon.vue'
+import InfoTip from '../components/InfoTip.vue'
+import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
+import SideDrawer from '../components/SideDrawer.vue'
+import Status from '../components/Status.vue'
+import Trunc from '../components/Trunc.vue'
+import DateTimeCell from '../components/cells/DateTimeCell.vue'
+import EntityCell from '../components/cells/EntityCell.vue'
+import { dataState } from '../data'
+import { dayText } from '../i18n/format'
 import { ask, run } from '../ui'
 
 const rows = ref([])
@@ -15,59 +27,81 @@ const editing = ref(false)
 const q = ref('')
 const STATUS = { none: [T('contacts.notContactedYet'), ''], asked: [T('contacts.contactedAwaitingReply'), 'warn'], referred: [T('contacts.referredMe'), 'ok'], talked: [T('contacts.talkedToThem'), 'info'], declined: [T('contacts.notConvenient'), ''] }
 const today = new Date().toISOString().slice(0, 10)
+const isDue = (r) => !!r.follow_up && r.follow_up <= today
+
+// What a row must always show is who, where and how far; how you met and the note go first when the box is narrow.
+const COLS = [
+  { id: 'name', header: T('contacts.name'), min: 150, flex: 2 },
+  { id: 'company', header: T('contacts.company'), min: 140, flex: 2 },
+  { id: 'relation', header: T('contacts.howYouMet'), min: 140, flex: 2, priority: 1 },
+  { id: 'status', header: T('contacts.progress'), min: 120, max: 190 },
+  { id: 'follow', header: T('contacts.followUp'), width: 120 },
+  { id: 'note', header: T('contacts.notes'), min: 160, flex: 3, priority: 2 },
+  { id: 'more', header: '', width: 52, align: 'end' },
+]
 
 const shown = computed(() => {
   const n = q.value.trim().toLowerCase()
   return rows.value.filter((r) => !n || `${r.name} ${r.company} ${r.role} ${r.note}`.toLowerCase().includes(n))
 })
-const due = computed(() => rows.value.filter((r) => r.follow_up && r.follow_up <= today).length)
-async function load() { rows.value = await api.get('/contacts') }
-const save = () => run(async () => { await (form.value.id ? api.put('/contacts/' + form.value.id, form.value) : api.post('/contacts', form.value)); form.value = blank(); editing.value = false }, T('contacts.saved'), load)
-const edit = (r) => { form.value = { ...r }; editing.value = true; window.scrollTo({ top: 0, behavior: 'smooth' }) }
+const due = computed(() => rows.value.filter(isDue).length)
+async function read() { rows.value = await api.get('/contacts') }
+// (data.js: what is shown is being read, could not be read, or was read earlier - the page says which)
+const { st, load } = dataState(read)
+const save = () => run(async () => { await (form.value.id ? api.put('/contacts/' + form.value.id, form.value) : api.post('/contacts', form.value)); form.value = blank(); editing.value = false }, T('contacts.saved'), load, { form: 'contact', name: 'contact-save' })
+const add = () => { form.value = blank(); editing.value = true }
+const edit = (r) => { form.value = { ...blank(), ...r }; editing.value = true }
 const remove = async (r) => (await ask(T('contacts.deleteContact', { p0: r.name }), { danger: true })) && run(() => api.del('/contacts/' + r.id), T('contacts.deleted'), load)
+const rowMenu = [{ id: 'edit', label: T('contacts.edit'), icon: 'edit' }, { id: 'delete', label: T('contacts.delete'), icon: 'trash', danger: true }]
+const onPick = (id, r) => (id === 'edit' ? edit(r) : remove(r))
 onMounted(load)
 </script>
 
 <template>
-  <PageHead :title="$t('contacts.contactsReferrals')" :sub="$t('contacts.peopleYouKnowAt')">
-    <button class="primary" @click="form = blank(); editing = !editing"><Icon name="edit" />{{ editing ? $t('contacts.collapse') : $t('contacts.addContact') }}</button>
+  <PageHead :title="$t('contacts.contactsReferrals')" :help="$t('contacts.peopleYouKnowAt')">
+    <button class="primary" @click="add"><Icon name="plus" />{{ $t('contacts.addContact') }}</button>
   </PageHead>
+  <DataState :s="st" :what="$t('contacts.contactsReferrals')" @retry="load" />
 
-  <div v-if="editing" class="card">
-    <div class="card-title">{{ form.id ? $t('contacts.editContact') : $t('contacts.addContact') }}</div>
-    <div class="kv" style="margin-top: 12px">
-      <label>{{ $t('contacts.name') }}</label><input v-model="form.name" />
-      <label>{{ $t('contacts.company') }}</label><input v-model="form.company" :placeholder="$t('contacts.mustMatchTheCompany')" />
-      <label>{{ $t('contacts.job') }}</label><input v-model="form.role" :placeholder="$t('contacts.optional')" />
-      <label>{{ $t('contacts.howYouMet') }}</label><input v-model="form.relation" :placeholder="$t('contacts.eGAlumniFormer')" />
-      <label>{{ $t('contacts.contactDetails') }}</label><input v-model="form.how" :placeholder="$t('contacts.emailLinkedinLinkEtc')" />
-      <label>{{ $t('contacts.progress') }}</label><AaSelect v-model="form.status"><option v-for="(v, k) in STATUS" :key="k" :value="k">{{ v[0] }}</option></AaSelect>
-      <label>{{ $t('contacts.followUpDate') }}</label><div><input v-model="form.follow_up" type="date" style="width: 180px" /> <span class="hint">{{ $t('contacts.onThisDateOverview') }}</span></div>
-      <label>{{ $t('contacts.notes') }}</label><textarea v-model="form.note" rows="3" style="font-family: inherit; min-height: 0"></textarea>
-    </div>
-    <div class="row" style="margin-top: 12px"><button class="primary" :disabled="!form.name.trim() || !form.company.trim()" @click="save"><Icon name="check" />{{ $t('contacts.save') }}</button><button @click="editing = false">{{ $t('contacts.cancel') }}</button></div>
-  </div>
+  <template v-if="st.at">
+    <div v-if="!rows.length" class="card"><EmptyState icon="user" :title="$t('contacts.noContactsRecordedYet')" :text="$t('contacts.forExperiencedJobSeekers')" /></div>
+    <template v-else>
+      <div class="filters">
+        <input v-model="q" class="filter-search" type="search" :placeholder="$t('contacts.searchNamesCompaniesOr')" :aria-label="$t('contacts.searchNamesCompaniesOr')" />
+        <span v-if="due" class="tag warn">{{ $t('contacts.dueForFollowUp', { p0: due }) }}</span>
+        <span class="grow"></span><span class="t-meta atomic">{{ $t('contacts.count', { n: shown.length }, shown.length) }}</span>
+      </div>
+      <DataTable :columns="COLS" :rows="shown" clickable :label="$t('contacts.contactsReferrals')" @row="edit">
+        <template #cell-name="{ row }"><EntityCell :primary="row.name" :secondary="row.role" /></template>
+        <template #cell-company="{ row }">
+          <EntityCell :primary="row.company" :secondary="row.open_jobs ? $t('contacts.openJobs', { n: row.open_jobs }, row.open_jobs) : ''" :to="row.open_jobs ? { path: '/jobs', query: { q: row.company } } : null" />
+        </template>
+        <template #cell-relation="{ row }"><EntityCell v-if="row.relation || row.how" :primary="row.relation || row.how" :secondary="row.relation ? row.how : ''" /><span v-else class="none">—</span></template>
+        <template #cell-status="{ row }"><Status :tone="(STATUS[row.status] || [])[1]" :label="(STATUS[row.status] || [row.status])[0]" /></template>
+        <template #cell-follow="{ row }"><DateTimeCell :primary="dayText(row.follow_up)" :secondary="isDue(row) ? $t('contacts.due') : ''" :tone="isDue(row) ? 'warn' : ''" /></template>
+        <template #cell-note="{ row }"><Trunc v-if="row.note" class="t-secondary" :text="row.note" :lines="2" /><span v-else class="none">—</span></template>
+        <template #cell-more="{ row }"><Menu :label="$t('common.more')" :items="rowMenu" @pick="(id) => onPick(id, row)" /></template>
+        <template #empty><EmptyState icon="search" :title="$t('contacts.noMatch')" /></template>
+      </DataTable>
+    </template>
+  </template>
 
-  <div v-if="rows.length" class="filters">
-    <input v-model="q" :placeholder="$t('contacts.searchNamesCompaniesOr')" style="width: 260px" />
-    <span v-if="due" class="badge warn">{{ $t('contacts.dueForFollowUp', { p0: due }) }}</span>
-    <span class="grow"></span><span class="muted small">{{ $t('contacts.people', { p0: shown.length }) }}</span>
-  </div>
-  <div class="table-wrap" style="max-height: none">
-    <table v-if="rows.length">
-      <thead><tr><th>{{ $t('contacts.name') }}</th><th>{{ $t('contacts.company') }}</th><th>{{ $t('contacts.howYouMet') }}</th><th>{{ $t('contacts.progress') }}</th><th>{{ $t('contacts.followUp') }}</th><th>{{ $t('contacts.notes') }}</th><th></th></tr></thead>
-      <tbody>
-        <tr v-for="r in shown" :key="r.id">
-          <td><b>{{ r.name }}</b><div class="small muted">{{ r.role }}</div></td>
-          <td>{{ r.company }}<div v-if="r.open_jobs" class="small"><router-link :to="{ path: '/jobs', query: { q: r.company } }">{{ $t('contacts.openPostings', { p0: r.open_jobs }) }}</router-link></div></td>
-          <td class="small">{{ r.relation }}<div v-if="r.how" class="muted ell" style="max-width: 200px">{{ r.how }}</div></td>
-          <td><span class="badge" :class="(STATUS[r.status] || [])[1]">{{ (STATUS[r.status] || [r.status])[0] }}</span></td>
-          <td class="small nowrap"><span v-if="r.follow_up" :style="r.follow_up <= today ? 'color: var(--warn); font-weight: 600' : ''">{{ r.follow_up }}</span><span v-else class="muted">—</span></td>
-          <td class="small muted" style="max-width: 320px"><div class="clamp2">{{ r.note }}</div></td>
-          <td><div class="row" style="flex-wrap: nowrap"><button class="sm" @click="edit(r)">{{ $t('contacts.edit') }}</button><button class="sm ghost danger" @click="remove(r)">{{ $t('contacts.delete') }}</button></div></td>
-        </tr>
-      </tbody>
-    </table>
-    <EmptyState v-else icon="user" :title="$t('contacts.noContactsRecordedYet')" :text="$t('contacts.forExperiencedJobSeekers')" />
-  </div>
+  <SideDrawer v-if="editing" :title="form.id ? $t('contacts.editContact') : $t('contacts.addContact')" :wide="false" @close="editing = false">
+    <form id="contact-form" class="kv" @submit.prevent="save">
+      <label for="ct-name">{{ $t('contacts.name') }}</label><input id="ct-name" v-model="form.name" class="w-full" required />
+      <label for="ct-company">{{ $t('contacts.company') }} <InfoTip :text="$t('contacts.mustMatchTheCompany')" /></label><input id="ct-company" v-model="form.company" class="w-full" required />
+      <label for="ct-role">{{ $t('contacts.job') }}</label><input id="ct-role" v-model="form.role" class="w-full" :placeholder="$t('contacts.optional')" />
+      <label for="ct-relation">{{ $t('contacts.howYouMet') }}</label><input id="ct-relation" v-model="form.relation" class="w-full" :placeholder="$t('contacts.eGAlumniFormer')" />
+      <label for="ct-how">{{ $t('contacts.contactDetails') }}</label><input id="ct-how" v-model="form.how" class="w-full" :placeholder="$t('contacts.emailLinkedinLinkEtc')" />
+      <label>{{ $t('contacts.progress') }}</label><AaSelect v-model="form.status" class="w-full"><option v-for="(v, k) in STATUS" :key="k" :value="k">{{ v[0] }}</option></AaSelect>
+      <label for="ct-follow">{{ $t('contacts.followUpDate') }} <InfoTip :text="$t('contacts.onThisDateOverview')" /></label><input id="ct-follow" v-model="form.follow_up" type="date" />
+      <label for="ct-note">{{ $t('contacts.notes') }}</label><textarea id="ct-note" v-model="form.note" class="prose" rows="4"></textarea>
+    </form>
+    <FormError name="contact" />
+    <template #footer>
+      <span class="grow"></span>
+      <button type="button" @click="editing = false">{{ $t('contacts.cancel') }}</button>
+      <button type="submit" form="contact-form" class="primary" :disabled="!form.name.trim() || !form.company.trim()"><Icon name="check" />{{ $t('contacts.save') }}</button>
+    </template>
+  </SideDrawer>
 </template>

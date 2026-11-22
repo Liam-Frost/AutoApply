@@ -30,7 +30,7 @@ def test_a_message_is_the_old_chinese_inside_and_its_language_outside(app_env):
     from autoapply import db, humanize, i18n, say
 
     m = humanize.APP_STATUS["draft_ready"]
-    assert isinstance(m, str) and m == "等你审批"                       # what everything inside the program compares and stores
+    assert isinstance(m, str) and m == "待批准"                       # what everything inside the program compares and stores
     assert m.in_lang("en") == "Awaiting your approval" and say.render({"x": [m]}, "en") == {"x": ["Awaiting your approval"]}
     db.set_setting("ui.lang", "en")
     assert i18n.tr(m) == "Awaiting your approval"                       # (notifications: the program's language)
@@ -62,15 +62,15 @@ def test_what_the_program_keeps_is_read_in_the_language_it_is_shown_in(app_env):
     from autoapply.say import say
 
     title = say("server.humanize.awaitingYourApproval") if "server.humanize.awaitingYourApproval" in _cat("en.json") else None
-    key = next(k for k, v in _cat("zh.json").items() if v == "等你审批")
+    key = next(k for k, v in _cat("zh.json").items() if v == "待批准")
     tid = notify.add_todo("confirm", say(key)[:120], body="plain text, kept as it was", push=False)
     with db.session() as s:
         t = s.get(Todo, tid)
-        assert t.title == "等你审批" and t.title.key == key and t.body == "plain text, kept as it was"      # read back: the message, the same text
+        assert t.title == "待批准" and t.title.key == key and t.body == "plain text, kept as it was"      # read back: the message, the same text
     rows = {r["id"]: r for r in TestClient(app).get("/api/todos", headers={"X-Lang": "en"}).json()}
     assert rows[tid]["title"] == "Awaiting your approval"
     rows = {r["id"]: r for r in TestClient(app).get("/api/todos").json()}
-    assert rows[tid]["title"] == "等你审批"
+    assert rows[tid]["title"] == "待批准"
     del title
 
 
@@ -79,10 +79,10 @@ def test_a_message_kept_in_json_comes_back_with_its_key(app_env):
     from autoapply.models import Task
     from autoapply.say import Msg, say
 
-    key = next(k for k, v in _cat("zh.json").items() if v == "等你审批")
+    key = next(k for k, v in _cat("zh.json").items() if v == "待批准")
     db.set_setting("doctor.last", {"checks": [{"title": say(key), "n": 1}]})
     got = db.get_setting("doctor.last")["checks"][0]["title"]
-    assert isinstance(got, Msg) and got == "等你审批" and got.in_lang("en") == "Awaiting your approval"
+    assert isinstance(got, Msg) and got == "待批准" and got.in_lang("en") == "Awaiting your approval"
     with db.session() as s:
         s.add(Task(kind="score", ref="x", status="done", result={"summary": say(key), "plain": "text"}))
     with db.session() as s:
@@ -100,7 +100,7 @@ def test_messages_put_together_stay_messages(app_env):
     assert "4" in en and "2" in en and not __import__("re").search(r"[一-鿿]", en)
     assert from_data(s.data()).in_lang("en") == en                                  # kept and read back
     j = join("；", [humanize.APP_STATUS["draft_ready"], "x"])
-    assert j == "等你审批；x" and j.in_lang("en") == "Awaiting your approval；x"
+    assert j == "待批准；x" and j.in_lang("en") == "Awaiting your approval；x"
 
 
 def test_what_the_ai_writes_for_the_applicant_is_in_their_language(app_env):
@@ -135,7 +135,7 @@ def test_what_was_kept_before_messages_had_keys_is_found_as_the_message_it_is(ap
         t = s.query(Todo).one()
         assert isinstance(t.title, say.Msg) and t.title.key == "server.agent.work.thisApplicationsBudgetIs2" and "Acme · Analyst" in t.title.in_lang("en")
         assert t.body == "Recruiter said: call me back"
-    assert say.recognise("已投出").in_lang("en") == "Sent" and say.recognise("面试安排在下周") is None
+    assert say.recognise("已投出").in_lang("en") == "Submitted" and say.recognise("面试安排在下周") is None
 
 
 def test_server_code_writes_no_text_for_people_but_by_key():

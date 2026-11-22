@@ -443,7 +443,7 @@ def test_a_task_can_be_put_first_set_aside_taken_up_and_cancelled_but_not_cut_of
         assert [s.get(Task, ids[k]).status for k in "abc"] == ["queued", "cancelled", "cancelled"]
     # a running task is not cut off, and one that has ended cannot be cancelled
     r = c.post(f"/api/tasks/{ids['run']}/cancel")
-    assert r.status_code == 409 and "做完手上的就停" in r.json()["detail"]
+    assert r.status_code == 409 and "完成当前任务后停止" in r.json()["detail"]
     assert c.post(f"/api/tasks/{ids['done']}/cancel").status_code == 409 and c.post("/api/tasks/99999/cancel").status_code == 404
     assert c.post(f"/api/tasks/{ids['a']}/explode").status_code == 404
 
@@ -471,7 +471,7 @@ def test_finish_what_is_being_done_and_stop_then_say_so(app_env, monkeypatch):
         s.query(Task).filter_by(status="running").one().status = "done"
     tasks._tell_when_drained()
     tasks._tell_when_drained()
-    assert told == ["手上的任务都做完了，程序已停下"]                                    # once
+    assert told == ["手头的任务已完成，程序已停止"]                                    # once
     p = c.get("/api/queue").json()
     assert p["draining"] and p["stopped"] and [t["ref"] for t in p["next"]] == ["job:1"]      # what is queued stays queued
     assert c.post("/api/queue/drain", json={"on": False}).json() == {"draining": False, "stopped": False}

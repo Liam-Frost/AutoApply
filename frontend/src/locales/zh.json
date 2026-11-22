@@ -2344,7 +2344,7 @@
     "nav": "关于",
     "new": "新",
     "newVersionDot": "{v} 版已发布",
-    "title": "关于 AutoApply",
+    "title": "关于",
     "sub": "这个版本、更新，以及程序用到的组件。",
     "version": "版本",
     "runs": "运行方式",
@@ -2533,7 +2533,7 @@
     "asked": "问你：{text}",
     "said": "你说：{text}",
     "hearsNext": "（它会在下一步操作时看到）",
-    "waits": "等你处理：{text}",
+    "waits": "待处理：{text}",
     "sending": "即将提交：{text}",
     "ended": "这次运行结束（{n} 次操作）：{text}",
     "broke": "这次运行中断（{n} 次操作）：{text}",
@@ -2699,12 +2699,10 @@
   },
   "applications": {
     "title": "申请",
-    "sub": "你开始的每一份申请，从准备到最后的结果。点一行进到这份申请；勾选多行可以批量操作。",
     "what": "申请列表",
     "checkMailbox": "检查邮件",
     "checkingMailbox": "正在检查邮件",
     "export": "导出 CSV",
-    "exportPicked": "导出所选 {n} 份（CSV）",
     "groupsLabel": "分组",
     "group": {
       "me": "待处理",
@@ -2740,10 +2738,10 @@
       "job": "岗位",
       "stage": "阶段",
       "next": "下一步",
-      "date": "日期",
       "sent": "投递日期",
       "latest": "最新进展",
-      "updated": "更新时间"
+      "updated": "更新时间",
+      "schedule": "关联日程"
     },
     "act": {
       "answer": "回答",
@@ -2759,8 +2757,6 @@
     "emptyTitle": "还没有申请",
     "emptyText": "在岗位页开始申请后，申请会显示在这里。",
     "toPostings": "查看岗位",
-    "picked": "已选 {n} 份",
-    "unpick": "取消选择",
     "bulk": {
       "approve": "批准并提交",
       "rerun": "让 Agent 重试",
@@ -2781,7 +2777,16 @@
     "reviewChanged": "与上一版的差异：",
     "reviewClean": "没有不确定的答案，也没有改动。",
     "reviewApprove": "已查看，批准 {n} 份",
-    "cancel": "取消"
+    "cancel": "取消",
+    "owner": "负责人：{who}",
+    "dueTip": "申请截止：{when}",
+    "eventTip": "{kind}：{title}",
+    "row": {
+      "menu": "更多操作",
+      "openJob": "查看岗位",
+      "openLink": "打开原岗位"
+    },
+    "filters": "筛选"
   },
   "postings": {
     "title": "岗位",

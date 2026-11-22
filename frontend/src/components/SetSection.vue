@@ -1,6 +1,6 @@
 <script setup>
 // One section of the settings: a heading that can be linked to (/settings/<group>/<id>), and a word on how what is
-// in it gets saved - by the button at the top right, by a button of its own, or at once.
+// in it gets saved - by the button at the top right, by a button of its own, or at once (a plain attribute: .meta).
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -14,7 +14,7 @@ const HOW = { top: 'common.set.top', own: 'common.set.own', now: 'common.set.now
   <section :id="'set-' + id" class="set-sec" :class="{ here }" :aria-labelledby="'set-h-' + id">
     <div class="set-head">
       <h3 :id="'set-h-' + id">{{ title }}</h3>
-      <span v-if="HOW[how]" class="tag">{{ $t(HOW[how]) }}</span>
+      <span v-if="HOW[how]" class="meta small">{{ $t(HOW[how]) }}</span>
       <span class="grow"></span>
       <slot name="actions" />
     </div>

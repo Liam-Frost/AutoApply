@@ -104,7 +104,7 @@ def test_a_contacts_day_makes_a_card_once(app_env, monkeypatch):
     assert reminders.check(datetime(2026, 11, 25, 9, 0)) == {"shown_again": 0, "contacts": 0}
     assert reminders.check(datetime(2026, 11, 26, 8, 30))["contacts"] == 1
     assert reminders.check(datetime(2026, 11, 26, 12, 0))["contacts"] == 0
-    assert told == [("今天到期", "跟进 Dana（Acme）")]
+    assert told == [("今天截止", "跟进 Dana（Acme）")]
     with db.session() as s:      # the contact's day made a card, once - also after it is dealt with
         card = s.query(Todo).filter_by(ref="contact:1:2026-11-26").one()
         assert card.payload["contact_id"] == 1 and "ask about the team" in card.body
@@ -133,7 +133,7 @@ def test_a_card_can_be_put_off_and_comes_back(app_env, monkeypatch):
     assert rows[2]["category"] == "dated" and rows[2]["days_left"] == 2 and rows[2]["urgency"] == 1        # a card counts by its own date
     assert c.get("/api/overview").json()["open_todos"] == 1                       # what was put off is not counted until then
     assert reminders.check(until - timedelta(hours=1))["shown_again"] == 0
-    assert reminders.check(until + timedelta(minutes=1))["shown_again"] == 1 and told[-1] == "到了你定的提醒时间"
+    assert reminders.check(until + timedelta(minutes=1))["shown_again"] == 1 and told[-1] == "到了你设定的提醒时间"
     assert c.get("/api/overview").json()["open_todos"] == 2
     # brought back by hand; a date set, changed and removed by hand
     c.post("/api/todos/1/snooze", json={"until": until.isoformat()})

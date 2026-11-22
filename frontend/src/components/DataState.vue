@@ -13,7 +13,7 @@ defineEmits(['retry'])
   <div v-if="s.phase === 'loading'" class="card data-wait" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>{{ $t('common.loading') }}</div>
   <div v-else-if="s.phase === 'error'" class="callout bad" role="alert"><Icon name="alert" />
     <div><b>{{ $t('common.notRead', { what: what || $t('common.thisPage') }) }}</b><div class="small">{{ s.error }}</div>
-      <button class="sm" style="margin-top: 8px" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? $t('common.retrying') : $t('common.retry') }}</button></div></div>
+      <button class="sm data-retry" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? $t('common.retrying') : $t('common.retry') }}</button></div></div>
   <div v-else-if="s.phase === 'stale'" class="callout warn data-stale" role="status"><Icon name="alert" />
     <span class="grow">{{ $t('common.stale', { time: clock(s.at) }) }}</span>
     <button class="sm" :disabled="s.busy" @click="$emit('retry')"><Icon name="refresh" />{{ s.busy ? $t('common.retrying') : $t('common.retry') }}</button></div>

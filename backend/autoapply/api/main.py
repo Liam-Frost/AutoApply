@@ -480,7 +480,7 @@ def get_job(job_id: int) -> dict[str, Any]:
         out["history"] = discover.history(j.id)
         out["posted"] = j.posted
         out.update(jd_text=j.jd_text, jd_partial=j.jd_partial if j.jd_partial in ("summary", "cut") else "", brief=j.brief, location=j.location, score_reason=j.score_reason, docs_required=j.docs_required,
-                   first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=humanize.explain(a.last_event if a else ""),
+                   first_seen=j.first_seen.isoformat() if j.first_seen else None, app_explained=_apps.explained(a.last_event if a else ""),
                    evidence=a.evidence if a else None,
                    drafts=[{"id": d.id, "version": d.version, "review_status": d.review_status} for d in (a.drafts if a else [])])
         return out
@@ -2176,6 +2176,22 @@ def save_account(tenant_key: str, body: dict[str, Any] = Body(...)) -> dict[str,
 @app.delete("/api/accounts/{tenant_key}")
 def remove_account(tenant_key: str) -> dict[str, Any]:
     auth.delete_account(tenant_key)
+    return {"ok": True}
+
+
+@app.delete("/api/accounts/{tenant_key}/session")
+def clear_account_session(tenant_key: str) -> dict[str, Any]:
+    """Forget one site's saved session; the account and its stored password stay."""
+    if not auth.clear_session(tenant_key):
+        raise HTTPException(404, T("server.api.main.noSuchAccount"))
+    return {"ok": True}
+
+
+@app.delete("/api/accounts/{tenant_key}/password")
+def remove_account_password(tenant_key: str) -> dict[str, Any]:
+    """Remove one site's stored password; the account and its saved session stay."""
+    if not auth.forget_password(tenant_key):
+        raise HTTPException(404, T("server.api.main.noSuchAccount"))
     return {"ok": True}
 
 

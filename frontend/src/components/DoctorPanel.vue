@@ -4,6 +4,7 @@ import { onMounted, ref } from 'vue'
 import { api } from '../api'
 import { toast } from '../ui'
 import Icon from './Icon.vue'
+import SectionHead from './SectionHead.vue'
 
 const found = ref(null)
 const busy = ref(false)
@@ -18,8 +19,9 @@ onMounted(() => load(false))
 
 <template>
   <div class="card">
-    <div class="card-title">{{ $t('common.doctor.title') }}</div>
-    <p class="muted">{{ $t('common.doctor.sub') }}</p>
+    <SectionHead :title="$t('common.doctor.title')" :help="$t('common.doctor.sub')">
+      <button class="sm" :disabled="busy" @click="load(true)"><Icon name="refresh" />{{ busy ? $t('common.doctor.checking') : $t('common.doctor.recheck') }}</button>
+    </SectionHead>
     <ul v-if="found" class="doctor">
       <li v-for="f in found" :key="f.id">
         <Icon :name="ICON[f.level]" class="mark" :class="f.level" />
@@ -30,8 +32,5 @@ onMounted(() => load(false))
         </div>
       </li>
     </ul>
-    <div class="row" style="margin-top: 12px">
-      <button class="sm" :disabled="busy" @click="load(true)"><Icon name="refresh" />{{ busy ? $t('common.doctor.checking') : $t('common.doctor.recheck') }}</button>
-    </div>
   </div>
 </template>

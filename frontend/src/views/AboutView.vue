@@ -5,10 +5,14 @@ import { t as T } from '../i18n/catalog'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
 import BrandLogo from '../components/BrandLogo.vue'
+import DataTable from '../components/DataTable.vue'
 import Icon from '../components/Icon.vue'
 import PageHead from '../components/PageHead.vue'
+import SectionHead from '../components/SectionHead.vue'
+import Status from '../components/Status.vue'
+import Trunc from '../components/Trunc.vue'
 import { renderMarkdown } from '../md'
-import { ask, run, toast } from '../ui'
+import { ask, fmtTime, run, toast } from '../ui'
 
 const about = ref(null)
 const up = ref(null)
@@ -29,6 +33,7 @@ const busy = computed(() => up.value && ['downloading', 'preparing'].includes(up
 const canPrepare = computed(() => up.value && up.value.newer && ['managed', 'unmanaged'].includes(up.value.kind) && !busy.value && up.value.staged !== up.value.latest)
 const canSwitch = computed(() => up.value && up.value.staged && up.value.kind === 'managed' && !busy.value)
 const repoUrl = computed(() => (about.value && about.value.repo ? 'https://github.com/' + about.value.repo : ''))
+const PARTS = [{ id: 'name', header: T('about.component'), min: 140, flex: 3 }, { id: 'version', header: T('about.componentVersion'), min: 90, flex: 1 }, { id: 'license', header: T('about.componentLicense'), min: 110, flex: 2 }]
 
 async function loadUpdate() {
   up.value = await api.get('/system/update')
@@ -58,15 +63,15 @@ async function switchNow(back = false) {
 </script>
 
 <template>
-  <PageHead :title="$t('about.title')" :sub="$t('about.sub')" />
+  <PageHead :title="$t('about.title')" />
 
   <div v-if="about" class="card about-head">
     <BrandLogo class="about-logo" />
     <div class="kv about-kv">
-      <label>{{ $t('about.version') }}</label><div><b>{{ about.version }}</b><span v-if="about.commit" class="muted small"> · {{ about.commit }}</span></div>
-      <label>{{ $t('about.runs') }}</label><div>{{ KINDS[about.kind] || about.kind }}</div>
-      <label>{{ $t('about.python') }}</label><div>{{ about.python }} · <span class="muted">{{ about.system }}</span></div>
-      <label>{{ $t('about.data') }}</label><div><code>{{ about.data }}</code></div>
+      <span class="k">{{ $t('about.version') }}</span><div><span class="t-primary">{{ about.version }}</span><span v-if="about.commit" class="t-meta"> · {{ about.commit }}</span></div>
+      <span class="k">{{ $t('about.runs') }}</span><div>{{ KINDS[about.kind] || about.kind }}</div>
+      <span class="k">{{ $t('about.python') }}</span><div>{{ about.python }} · <span class="muted">{{ about.system }}</span></div>
+      <span class="k">{{ $t('about.data') }}</span><Trunc as="code" :text="about.data" />
     </div>
     <div class="row about-links">
       <a v-if="repoUrl" :href="repoUrl" target="_blank" rel="noopener"><Icon name="external" />{{ $t('about.source') }}</a>
@@ -77,7 +82,7 @@ async function switchNow(back = false) {
   </div>
 
   <div v-if="up" class="card">
-    <div class="card-title">{{ $t('about.updates') }}</div>
+    <SectionHead :title="$t('about.updates')" />
     <p class="about-state">
       <template v-if="busy">
         <span>{{ up.status === 'downloading' ? $t('about.downloading', { v: up.latest, p: up.progress }) : $t('about.preparing', { v: up.latest }) }}</span>
@@ -85,33 +90,33 @@ async function switchNow(back = false) {
       </template>
       <template v-else-if="up.staged"><span class="tag ok">{{ $t('about.ready') }}</span> {{ $t('about.readyLine', { v: up.staged }) }}</template>
       <template v-else-if="up.newer"><span class="tag ok">{{ $t('about.new') }}</span> {{ $t('about.newer', { v: up.latest, d: up.published }) }}</template>
-      <template v-else-if="up.checked_at && !up.error">{{ $t('about.latest', { v: up.current }) }}</template>
+      <Status v-else-if="up.checked_at && !up.error" tone="ok" :label="$t('about.latest', { v: up.current })" />
       <template v-else-if="!up.checked_at">{{ $t('about.notChecked') }}</template>
-      <span v-if="up.checked_at" class="muted small"> {{ $t('about.checkedAt', { t: up.checked_at.replace('T', ' ') }) }}</span>
+      <span v-if="up.checked_at" class="t-meta atomic">{{ $t('about.checkedAt', { t: fmtTime(up.checked_at) }) }}</span>
     </p>
     <p v-if="up.status === 'failed' || up.error" class="small bad-text">{{ said(up.error) }}</p>
-    <div class="row" style="gap: 8px; flex-wrap: wrap">
+    <div class="actions about-acts">
       <button @click="check"><Icon name="refresh" />{{ $t('about.check') }}</button>
       <button v-if="canPrepare" class="primary" @click="prepare"><Icon name="download" />{{ $t('about.prepare', { v: up.latest }) }}</button>
       <button v-if="canSwitch" class="primary" @click="switchNow(false)"><Icon name="play" />{{ $t('about.switchTo', { v: up.staged }) }}</button>
       <button v-if="up.previous && up.kind === 'managed' && !busy" class="ghost" @click="switchNow(true)"><Icon name="back" />{{ $t('about.backTo', { v: up.previous }) }}</button>
     </div>
-    <p v-if="up.kind === 'source'" class="hint" style="margin-top: 8px">{{ $t('about.howSource') }} <code>git pull</code> · <code>uv sync</code> · <code>npm run build</code></p>
-    <p v-else-if="up.kind === 'container'" class="hint" style="margin-top: 8px">{{ $t('about.howContainer') }} <code>docker compose pull && docker compose up -d</code></p>
-    <p v-else-if="up.kind === 'unmanaged' && up.staged" class="hint" style="margin-top: 8px">{{ $t('about.howUnmanaged') }}</p>
+    <p v-if="up.kind === 'source'" class="hint about-how">{{ $t('about.howSource') }} <code>git pull</code> · <code>uv sync</code> · <code>npm run build</code></p>
+    <p v-else-if="up.kind === 'container'" class="hint about-how">{{ $t('about.howContainer') }} <code>docker compose pull && docker compose up -d</code></p>
+    <p v-else-if="up.kind === 'unmanaged' && up.staged" class="hint about-how">{{ $t('about.howUnmanaged') }}</p>
     <details v-if="up.newer && up.notes" class="about-notes">
       <summary>{{ $t('about.whatsNew', { v: up.latest }) }} <a v-if="up.url" :href="up.url" target="_blank" rel="noopener" @click.stop>{{ $t('about.onGithub') }}</a></summary>
       <div class="md" v-html="renderMarkdown(up.notes)"></div>
     </details>
 
-    <h4 class="about-h">{{ $t('about.byItself') }}</h4>
+    <SectionHead :title="$t('about.byItself')" :help="$t('about.howSwitch')" />
     <div class="about-modes" role="radiogroup" :aria-label="$t('about.byItself')">
       <label v-for="[k, name, how] in MODES" :key="k" class="about-mode" :class="{ on: mode === k }">
         <input v-model="mode" type="radio" :value="k" @change="saveSetting('update.mode', k)" />
         <span><b>{{ name }}</b><span class="muted small">{{ how }}</span></span>
       </label>
     </div>
-    <div class="kv" style="margin-top: 12px">
+    <div class="kv about-set">
       <label for="u-channel">{{ $t('about.channel') }}</label>
       <div>
         <AaSelect id="u-channel" :model-value="channel" @update:model-value="channel = $event; saveSetting('update.channel', $event)">
@@ -120,39 +125,35 @@ async function switchNow(back = false) {
       </div>
       <template v-if="mode === 'auto'">
         <label>{{ $t('about.window') }}</label>
-        <div class="row" style="gap: 6px">
+        <div class="actions">
           <input v-model="win.from" type="time" :aria-label="$t('about.windowFrom')" @change="saveSetting('update.window', win)" />
           <span>–</span>
           <input v-model="win.to" type="time" :aria-label="$t('about.windowTo')" @change="saveSetting('update.window', win)" />
-          <span class="hint">{{ $t('about.windowHint') }}</span>
+          <span class="meta small">{{ $t('about.windowHint') }}</span>
         </div>
       </template>
     </div>
-    <p class="hint" style="margin-top: 12px">{{ $t('about.howSwitch') }}</p>
-    <p class="hint">{{ $t('about.privacy') }}</p>
+    <p class="hint about-privacy">{{ $t('about.privacy') }}</p>
   </div>
 
   <div v-if="about && about.changes" class="card">
     <details>
-      <summary class="card-title" style="cursor: pointer">{{ $t('about.thisVersion', { v: about.version }) }}</summary>
-      <div class="md" style="margin-top: 8px" v-html="renderMarkdown(about.changes)"></div>
+      <summary class="card-title">{{ $t('about.thisVersion', { v: about.version }) }}</summary>
+      <div class="md about-changes" v-html="renderMarkdown(about.changes)"></div>
     </details>
   </div>
 
   <div v-if="about" class="card">
-    <div class="card-title">{{ $t('about.components') }}</div>
-    <p class="hint">{{ $t('about.componentsHint') }}</p>
-    <table class="about-table">
-      <thead><tr><th>{{ $t('about.component') }}</th><th>{{ $t('about.componentVersion') }}</th><th>{{ $t('about.componentLicense') }}</th></tr></thead>
-      <tbody><tr v-for="c in about.components" :key="c.name"><td>{{ c.name }}</td><td>{{ c.version }}</td><td class="muted">{{ c.license || '—' }}</td></tr></tbody>
-    </table>
+    <SectionHead :title="$t('about.components')" :count="about.components.length" :help="$t('about.componentsHint')" />
+    <DataTable class="bare" :columns="PARTS" :rows="about.components" row-key="name" density="compact" :label="$t('about.components')" />
   </div>
 </template>
 
 <style scoped>
 .about-head { display: grid; grid-template-columns: auto 1fr; gap: var(--s4); align-items: start; }
 .about-logo { width: 160px; }
-.about-kv { grid-template-columns: 140px 1fr; }
+.about-kv { grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); gap: var(--s2) var(--s4); }
+.about-kv .k { color: var(--text-2); font-size: var(--fs-sm); }
 .about-links { grid-column: 1 / -1; gap: var(--s4); flex-wrap: wrap; }
 .about-links a { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .about-state { margin: 4px 0 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -163,15 +164,18 @@ async function switchNow(back = false) {
 .bad-text { color: var(--bad); }
 .about-notes { margin-top: 10px; }
 .about-notes summary { cursor: pointer; }
-.about-h { margin: var(--s5) 0 var(--s2); }
+.about-acts { flex-wrap: wrap; }
+.about-how, .about-privacy { margin-top: var(--s3); max-width: 86ch; }
+.about-set { margin-top: var(--s3); }
+.about-changes { margin-top: var(--s2); }
+details > summary.card-title { cursor: pointer; }
 .about-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .about-mode { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer; }
 .about-mode.on { border-color: var(--primary); background: var(--primary-soft); }
 .about-mode > span { display: flex; flex-direction: column; gap: 2px; }
 .about-mode input { margin-top: 3px; }
-.about-table { font-size: var(--fs-sm); }
 @media (max-width: 700px) {
   .about-head { grid-template-columns: 1fr; }
-  .about-kv { grid-template-columns: 1fr; }
+  .about-kv { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

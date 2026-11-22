@@ -1,27 +1,39 @@
 <script setup>
-import { t as T } from '../i18n/catalog'
+import { t as T, lang } from '../i18n/catalog'
 // Applications: every one the applicant began, from preparing it to its outcome (plan §8.4). Listed by where it stands,
 // with whose move it is and, when it is the applicant's, the one thing to press. What was the drafts page is the
-// "Waiting for you" group here; each row opens the application's own page.
+// "Action required" group here; each row opens the application's own page.
+//
+// A column says one thing: the stage is where the hiring stands, the next step is what to do (and whose move it is),
+// the next event is a dated point, the latest is what happened last - in a few words; the application's page has the
+// whole of each.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ROOT } from '../api'
+import BulkBar from '../components/BulkBar.vue'
 import DataState from '../components/DataState.vue'
+import DataTable from '../components/DataTable.vue'
+import DateTimeCell from '../components/cells/DateTimeCell.vue'
 import EmptyState from '../components/EmptyState.vue'
+import EntityCell from '../components/cells/EntityCell.vue'
 import Icon from '../components/Icon.vue'
+import Menu from '../components/Menu.vue'
 import PageHead from '../components/PageHead.vue'
 import SideDrawer from '../components/SideDrawer.vue'
+import Status from '../components/Status.vue'
+import Trunc from '../components/Trunc.vue'
+import { at } from '../calendar'
 import { dataState, useRefresh } from '../data'
-import { deadlineLabel, keepVisible } from '../dates'
+import { deadlineLabel, keepVisible, parseDeadline } from '../dates'
 import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { ask, fmtTime, run } from '../ui'
-import { dateTimeOf, shortDayText, stampDay, asDate } from '../i18n/format'
+import { clockOf, dateTimeOf, dayOf, stampDay } from '../i18n/format'
 
 const route = useRoute()
 const router = useRouter()
 const rows = ref([])
 const GROUPS = ['me', 'agent', 'sent', 'progress', 'ended', 'archived']
-const WHO = { me: ['applications.who.me', 'warn'], agent: ['applications.who.agent', 'info'], them: ['applications.who.them', ''] }
+const WHO = { me: 'applications.who.me', agent: 'applications.who.agent', them: 'applications.who.them' }
 const ACT = { answer: 'applications.act.answer', approve: 'applications.act.approve', handle: 'applications.act.handle', rerun: 'applications.act.rerun', budget: 'applications.act.budget', check_mail: 'applications.act.checkMail' }
 const f = reactive({ group: '', q: '', who: '', ats: '' })
 const picked = ref(new Set())
@@ -30,6 +42,8 @@ async function read() { rows.value = (await api.get('/applications')).applicatio
 const count = (g) => rows.value.filter((r) => r.group === g).length
 const inGroup = computed(() => rows.value.filter((r) => r.group === f.group))
 const atsOptions = computed(() => [...new Set(inGroup.value.map((r) => r.ats_label).filter(Boolean))].sort())
+// (a group is mostly one owner's: the filter is offered where it can tell rows apart - or is set and must be seen to be cleared)
+const whoOptions = computed(() => Object.keys(WHO).filter((k) => inGroup.value.some((r) => r.who === k)))
 const shown = computed(() => {
   const needle = f.q.trim().toLowerCase()
   const out = inGroup.value.filter((r) => (!f.who || r.who === f.who) && (!f.ats || r.ats_label === f.ats)
@@ -40,14 +54,41 @@ const shown = computed(() => {
 })
 function pickGroup(g) { f.group = g; picked.value = new Set() }
 
-// --- the date column: the deadline of what is not sent yet; else the next thing on the calendar ---------------------------
-function dateOf(r) {
-  if (r.next_date) return { text: r.next_date.all_day ? shortDayText(r.next_date.start) : dateTimeOf(asDate(r.next_date.start)), what: r.next_date.title, tone: '' }
-  if (r.deadline) {
-    const dl = deadlineLabel(r.deadline)
-    return { text: shortDayText(r.deadline), what: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '' }
+// --- the columns: what must stay, and what goes first when the table is narrow (the highest priority first). Words in
+// a Latin script take more room than the same in Chinese: the columns that hold phrases get more.
+const columns = computed(() => {
+  const roomy = !/^(zh|ja|ko)/.test(lang.value)
+  return [
+    { id: 'job', header: T('applications.col.job'), min: 240, max: 360, flex: 3 },
+    { id: 'stage', header: T('applications.col.stage'), min: roomy ? 124 : 96, max: roomy ? 168 : 112, flex: 1 },
+    { id: 'next', header: T('applications.col.next'), min: roomy ? 172 : 160, max: 220, flex: 1 },
+    { id: 'schedule', header: T('applications.col.schedule'), min: roomy ? 148 : 140, max: 168, flex: 1 },
+    { id: 'sent', header: T('applications.col.sent'), min: 104, max: 120, flex: 0, priority: 1 },
+    { id: 'latest', header: T('applications.col.latest'), min: 160, max: 240, flex: 2, priority: 3 },
+    { id: 'updated', header: T('applications.col.updated'), min: 112, max: 136, flex: 0, priority: 2 },
+    { id: 'more', header: '', width: 44, align: 'end' },
+  ]
+})
+
+// --- stage: a filled tag for the few that must be seen - a dated step of the hiring (in the calendar's colour of its
+// kind), a failure, something that waits on the applicant with nothing else moving; the rest a dot and words
+const EV = { interview: 'ev-interview', assessment: 'ev-assessment', offer: 'ev-offer' }
+const LOUD = ['needs_human', 'waiting', 'failed']
+
+// --- the next event: the next item on the calendar (its time is the applicant's own clock, as the calendar reads it);
+// for an application that has not gone out, the posting's deadline
+function eventOf(r) {
+  const x = r.next_date
+  if (x) {
+    const d = at(x)
+    const kind = T('calendar.kind.' + x.kind)
+    const passed = !x.all_day && d.getTime() < Date.now()
+    return { primary: x.all_day ? dayOf(d) : T('time.dayAt', { day: dayOf(d), time: clockOf(d) }), secondary: kind, tone: passed ? 'muted' : '', tip: T('applications.eventTip', { kind, title: x.title || '' }) }
   }
-  return null
+  const d = ['me', 'agent'].includes(r.group) || (r.group === 'archived' && !r.sent) ? parseDeadline(r.deadline) : null
+  if (!d) return null
+  const dl = deadlineLabel(r.deadline)
+  return { primary: dayOf(d), secondary: dl.text, tone: dl.tone === 'soon' ? 'warn' : dl.tone === 'past' ? 'muted' : '', tip: T('applications.dueTip', { when: dateTimeOf(d) }) }
 }
 
 // --- the one thing to press on a row ----------------------------------------------------------------------------------
@@ -59,17 +100,33 @@ async function press(r) {
   if (r.act === 'check_mail') return run(() => api.post(`/applications/${r.id}/check-mail`), T('applications.checkingMail'), load)
 }
 
-// --- several at once ----------------------------------------------------------------------------------------------------
+// --- several at once, and the same for one row (its menu) -------------------------------------------------------------
 watch(() => shown.value, (now) => { picked.value = keepVisible(picked.value, now) })
-const allPicked = computed(() => shown.value.length > 0 && shown.value.every((r) => picked.value.has(r.id)))
-function togglePick(id) { const s = new Set(picked.value); s.has(id) ? s.delete(id) : s.add(id); picked.value = s }
-function toggleAll() { picked.value = allPicked.value ? new Set() : new Set(shown.value.map((r) => r.id)) }
-const exportUrl = computed(() => ROOT + '/api/applications.csv' + (picked.value.size ? '?ids=' + [...picked.value].join(',') : ''))
-const said = (r, done) => T('applications.bulkDone', { n: r.done }, r.done) + (r.skipped ? T('applications.bulkSkipped', { n: r.skipped, why: Object.values(r.errors || {}).filter(Boolean)[0] || '' }, r.skipped) : '') + (done ? ' ' + done : '')
-async function bulk(action) {
-  const ids = [...picked.value]
-  if (action === 'withdraw' && !(await ask(T('applications.withdrawAsk', { n: ids.length }, ids.length), { ok: T('applications.bulk.withdraw') }))) return
-  if ((await run(() => api.post('/applications/bulk', { action, ids }), (r) => said(r), load)) !== false) picked.value = new Set()
+const exportUrl = (ids) => ROOT + '/api/applications.csv' + (ids && ids.size ? '?ids=' + [...ids].join(',') : '')
+const said = (r) => T('applications.bulkDone', { n: r.done }, r.done) + (r.skipped ? T('applications.bulkSkipped', { n: r.skipped, why: Object.values(r.errors || {}).filter(Boolean)[0] || '' }, r.skipped) : '')
+// -> false when it was not done (the applicant said no, or the server did)
+async function several(action, ids) {
+  if (action === 'withdraw' && !(await ask(T('applications.withdrawAsk', { n: ids.length }, ids.length), { ok: T('applications.bulk.withdraw') }))) return false
+  return run(() => api.post('/applications/bulk', { action, ids }), (r) => said(r), load)
+}
+async function bulk(action) { if ((await several(action, [...picked.value])) !== false) picked.value = new Set() }
+// what a row can do besides its main action: what the bar offers for its group, where it applies to this row
+const canRerun = (r) => ['me', 'agent', 'ended'].includes(r.group) && !r.sent && !r.unknown && r.status !== 'withdrawn'
+const canWithdraw = (r) => ['me', 'agent'].includes(r.group) && !r.sent && !r.unknown
+function menuOf(r) {
+  return [
+    { id: 'job', label: T('applications.row.openJob'), icon: 'briefcase' },
+    ...(r.apply_url ? [{ id: 'link', label: T('applications.row.openLink'), icon: 'external' }] : []),
+    { divider: true },
+    ...(canRerun(r) ? [{ id: 'rerun', label: T('applications.bulk.rerun'), icon: 'refresh' }] : []),
+    ...(canWithdraw(r) ? [{ id: 'withdraw', label: T('applications.bulk.withdraw'), icon: 'x' }] : []),
+    r.archived ? { id: 'unarchive', label: T('applications.bulk.unarchive'), icon: 'inbox' } : { id: 'archive', label: T('applications.bulk.archive'), icon: 'inbox' },
+  ]
+}
+function onMenu(r, id) {
+  if (id === 'job') return router.push({ path: '/jobs', query: { open: r.job_id } })
+  if (id === 'link') return window.open(r.apply_url, '_blank', 'noopener')
+  return several(id, [r.id])
 }
 // Approving several: each one's open answers and changes are listed first; only what has nothing open is approved.
 const review = ref(null)
@@ -82,6 +139,7 @@ async function approveReviewed() {
   const ids = approvable.value.map((x) => x.id)
   if ((await run(() => api.post('/applications/bulk', { action: 'approve', ids }), (r) => said(r), load)) !== false) { review.value = null; picked.value = new Set() }
 }
+// (reads the mailbox for messages about applications and updates them: nothing is written back to the mailbox)
 const mailNow = () => run(() => api.post('/tasks', { kind: 'mail' }), T('applications.checkingMailbox'))
 
 // --- what the list shows is in the address (?group=me&q=...) ----------------------------------------------------------
@@ -104,81 +162,83 @@ onMounted(async () => {
 </script>
 
 <template>
-  <PageHead :title="$t('applications.title')" :sub="$t('applications.sub')">
+  <PageHead :title="$t('applications.title')">
     <button @click="mailNow"><Icon name="mail" />{{ $t('applications.checkMailbox') }}</button>
-    <a class="btn ghost" :href="exportUrl" download><Icon name="table" />{{ picked.size ? $t('applications.exportPicked', { n: picked.size }) : $t('applications.export') }}</a>
+    <a class="btn" :href="exportUrl()" download><Icon name="download" />{{ $t('applications.export') }}</a>
   </PageHead>
   <DataState :s="st" :what="$t('applications.what')" @retry="load" />
   <template v-if="st.at">
-    <div class="seg" style="margin-bottom: 12px" role="group" :aria-label="$t('applications.groupsLabel')">
-      <button v-for="g in GROUPS" :key="g" :class="{ on: f.group === g }" @click="pickGroup(g)">{{ $t('applications.group.' + g) }}<span class="n">{{ count(g) }}</span></button>
+    <div class="seg tabs list-tabs" role="group" :aria-label="$t('applications.groupsLabel')">
+      <button v-for="g in GROUPS" :key="g" :class="{ on: f.group === g }" :aria-pressed="f.group === g" @click="pickGroup(g)">{{ $t('applications.group.' + g) }}<span class="n">{{ count(g) }}</span></button>
     </div>
 
-    <div class="filters">
-      <input v-model="f.q" :placeholder="$t('applications.search')" :aria-label="$t('applications.search')" style="width: 220px" />
-      <AaSelect v-model="f.who" :aria-label="$t('applications.whoFilter')"><option value="">{{ $t('applications.whoAll') }}</option><option v-for="(v, k) in WHO" :key="k" :value="k">{{ $t(v[0]) }}</option></AaSelect>
-      <AaSelect v-if="atsOptions.length > 1" v-model="f.ats" :aria-label="$t('applications.atsFilter')"><option value="">{{ $t('applications.atsAll') }}</option><option v-for="x in atsOptions" :key="x" :value="x">{{ x }}</option></AaSelect>
+    <div class="filters" role="group" :aria-label="$t('applications.filters')">
+      <input v-model="f.q" class="search" type="search" :placeholder="$t('applications.search')" :aria-label="$t('applications.search')" />
+      <AaSelect v-if="whoOptions.length > 1 || f.who" v-model="f.who" :aria-label="$t('applications.whoFilter')"><option value="">{{ $t('applications.whoAll') }}</option><option v-for="k in Object.keys(WHO)" :key="k" :value="k">{{ $t(WHO[k]) }}</option></AaSelect>
+      <AaSelect v-if="atsOptions.length > 1 || f.ats" v-model="f.ats" :aria-label="$t('applications.atsFilter')"><option value="">{{ $t('applications.atsAll') }}</option><option v-for="x in atsOptions" :key="x" :value="x">{{ x }}</option></AaSelect>
       <span class="grow"></span>
-      <span class="muted small nowrap">{{ $t('applications.count', { n: shown.length }, shown.length) }}</span>
+      <span class="count">{{ $t('applications.count', { n: shown.length }, shown.length) }}</span>
     </div>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 36px"><input type="checkbox" :checked="allPicked" :aria-label="$t('applications.pickAll')" @change="toggleAll" /></th>
-            <th>{{ $t('applications.col.job') }}</th><th>{{ $t('applications.col.stage') }}</th><th>{{ $t('applications.col.next') }}</th><th>{{ $t('applications.col.date') }}</th>
-            <th class="col-more">{{ $t('applications.col.sent') }}</th><th class="col-more">{{ $t('applications.col.latest') }}</th><th class="col-more">{{ $t('applications.col.updated') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in shown" :key="r.id" class="clickable" @click="router.push('/applications/' + r.id)">
-            <td @click.stop><input type="checkbox" :checked="picked.has(r.id)" :aria-label="$t('applications.pick', { name: r.company })" @change="togglePick(r.id)" /></td>
-            <td class="jobcell"><div><router-link class="rowlink" :to="'/applications/' + r.id" @click.stop><b>{{ r.company }}</b></router-link></div><div>{{ r.title }}</div></td>
-            <td class="nowrap"><span class="tag" :class="r.tone">{{ r.stage_label }}</span></td>
-            <td style="min-width: 240px">
-              <div><span v-if="r.who && WHO[r.who]" class="tag" :class="WHO[r.who][1]">{{ $t(WHO[r.who][0]) }}</span> <span class="small">{{ r.next }}</span></div>
-              <button v-if="r.act && ACT[r.act]" class="sm primary" style="margin-top: 6px" @click.stop="press(r)">{{ $t(ACT[r.act]) }}</button>
-            </td>
-            <td class="small nowrap"><template v-if="dateOf(r)">{{ dateOf(r).text }}<span v-if="dateOf(r).what" class="tag" :class="dateOf(r).tone" style="margin-left: 6px" :title="dateOf(r).what">{{ dateOf(r).what }}</span></template><span v-else class="muted">—</span></td>
-            <td class="small nowrap col-more">{{ stampDay(r.submitted_at) || '—' }}</td>
-            <td class="small muted col-more" style="max-width: 260px"><div class="clamp2">{{ r.last_event }}</div></td>
-            <td class="small nowrap muted col-more">{{ fmtTime(r.updated_at) }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <EmptyState v-if="!rows.length" icon="briefcase" :title="$t('applications.emptyTitle')" :text="$t('applications.emptyText')"><router-link to="/jobs" class="btn">{{ $t('applications.toPostings') }}</router-link></EmptyState>
-      <EmptyState v-else-if="!shown.length" icon="check" :title="$t('applications.groupEmpty.' + f.group)" :text="f.q || f.who || f.ats ? $t('applications.filteredOut') : ''" />
-    </div>
+    <DataTable v-model:selected="picked" :columns="columns" :rows="shown" row-key="id" density="comfortable" selectable clickable :label="$t('applications.title')"
+               :select-all-label="$t('applications.pickAll')" :select-label="(r) => $t('applications.pick', { name: r.company })" @row="(r) => router.push('/applications/' + r.id)">
+      <template #cell-job="{ row }"><EntityCell :primary="row.company" :secondary="row.title" :to="'/applications/' + row.id" /></template>
+      <template #cell-stage="{ row }">
+        <Trunc v-if="EV[row.stage]" class="tag ev-tag" :class="EV[row.stage]" :text="row.stage_label" />
+        <Trunc v-else-if="LOUD.includes(row.stage)" class="tag" :class="row.tone" :text="row.stage_label" />
+        <Status v-else :tone="row.tone" :label="row.stage_label" />
+      </template>
+      <template #cell-next="{ row }">
+        <div v-if="row.who && (row.next || row.act)" class="next-step">
+          <button v-if="row.act && ACT[row.act]" class="sm primary" @click.stop="press(row)">{{ $t(ACT[row.act]) }}</button>
+          <Trunc v-else class="next-what" :text="row.next" />
+          <span v-if="WHO[row.who]" class="t-meta atomic">{{ $t('applications.owner', { who: $t(WHO[row.who]) }) }}</span>
+        </div>
+        <span v-else class="none">—</span>
+      </template>
+      <template #cell-schedule="{ row }">
+        <DateTimeCell v-if="eventOf(row)" v-bind="eventOf(row)" />
+        <span v-else class="none">—</span>
+      </template>
+      <template #cell-sent="{ row }"><span v-if="row.submitted_at" class="num atomic">{{ stampDay(row.submitted_at) }}</span><span v-else class="none">—</span></template>
+      <template #cell-latest="{ row }"><Trunc v-if="row.latest" class="t-secondary" :text="row.latest" /><span v-else class="none">—</span></template>
+      <template #cell-updated="{ row }"><span class="t-secondary num atomic">{{ fmtTime(row.updated_at) }}</span></template>
+      <template #cell-more="{ row }"><Menu :label="$t('applications.row.menu')" :items="menuOf(row)" @pick="(id) => onMenu(row, id)" /></template>
+      <template #empty>
+        <EmptyState v-if="!rows.length" icon="briefcase" :title="$t('applications.emptyTitle')" :text="$t('applications.emptyText')"><router-link to="/jobs" class="btn">{{ $t('applications.toPostings') }}</router-link></EmptyState>
+        <EmptyState v-else icon="check" :title="$t('applications.groupEmpty.' + f.group)" :text="f.q || f.who || f.ats ? $t('applications.filteredOut') : ''" />
+      </template>
+    </DataTable>
 
-    <div v-if="picked.size" class="bulkbar">
-      <b>{{ $t('applications.picked', { n: picked.size }, picked.size) }}</b>
+    <BulkBar :count="picked.size" @clear="picked = new Set()">
       <button v-if="f.group === 'me'" class="sm primary" @click="openReview">{{ $t('applications.bulk.approve') }}</button>
       <button v-if="['me', 'agent', 'ended'].includes(f.group)" class="sm" @click="bulk('rerun')">{{ $t('applications.bulk.rerun') }}</button>
       <button v-if="['me', 'agent'].includes(f.group)" class="sm" @click="bulk('withdraw')">{{ $t('applications.bulk.withdraw') }}</button>
       <button v-if="f.group !== 'archived'" class="sm" @click="bulk('archive')">{{ $t('applications.bulk.archive') }}</button>
       <button v-else class="sm" @click="bulk('unarchive')">{{ $t('applications.bulk.unarchive') }}</button>
-      <a class="btn sm ghost" :href="exportUrl" download>{{ $t('applications.export') }}</a>
-      <button class="sm ghost" style="border-color: transparent" @click="picked = new Set()">{{ $t('applications.unpick') }}</button>
-    </div>
+      <a class="btn sm" :href="exportUrl(picked)" download>{{ $t('applications.export') }}</a>
+    </BulkBar>
 
     <SideDrawer v-if="review" :title="$t('applications.reviewTitle', { n: picked.size }, picked.size)" :sub="$t('applications.reviewSub')" @close="review = null">
-      <div v-if="review.loading" class="muted" style="margin-top: 12px">{{ $t('applications.reviewLoading') }}</div>
+      <div v-if="review.loading" class="review-note">{{ $t('applications.reviewLoading') }}</div>
       <template v-else>
-        <div v-for="x in review.items" :key="x.id" class="card" style="margin-top: 12px">
-          <div class="row"><b class="grow">{{ x.company }} · {{ x.title }}</b><router-link :to="'/applications/' + x.id + '#record'" class="small" @click="review = null">{{ $t('applications.reviewOpen') }}</router-link></div>
-          <div v-if="!x.draft_id" class="small muted" style="margin-top: 6px">{{ $t('applications.reviewNothing') }}</div>
-          <div v-else-if="x.unresolved" class="small" style="margin-top: 6px"><span class="tag bad">{{ $t('applications.reviewOpenQuestions', { n: x.unresolved }, x.unresolved) }}</span></div>
+        <div v-for="x in review.items" :key="x.id" class="card review-item">
+          <div class="review-head">
+            <EntityCell :primary="x.company" :secondary="x.title" />
+            <router-link :to="'/applications/' + x.id + '#record'" class="btn sm ghost" @click="review = null">{{ $t('applications.reviewOpen') }}</router-link>
+          </div>
+          <div v-if="!x.draft_id" class="review-note">{{ $t('applications.reviewNothing') }}</div>
+          <div v-else-if="x.unresolved" class="review-part"><span class="tag bad">{{ $t('applications.reviewOpenQuestions', { n: x.unresolved }, x.unresolved) }}</span></div>
           <template v-else>
-            <div v-if="x.unsure.length" class="small" style="margin-top: 6px"><div class="muted">{{ $t('applications.reviewUnsure') }}</div><ul style="margin: 4px 0; padding-left: 18px"><li v-for="u in x.unsure" :key="u">{{ u }}</li></ul></div>
-            <div v-if="x.changed.length" class="small" style="margin-top: 6px"><div class="muted">{{ $t('applications.reviewChanged') }}</div><ul style="margin: 4px 0; padding-left: 18px"><li v-for="c in x.changed" :key="c">{{ c }}</li></ul></div>
-            <div v-if="!x.unsure.length && !x.changed.length" class="small muted" style="margin-top: 6px">{{ $t('applications.reviewClean') }}</div>
+            <div v-if="x.unsure.length" class="review-part"><div class="t-meta">{{ $t('applications.reviewUnsure') }}</div><ul><li v-for="u in x.unsure" :key="u">{{ u }}</li></ul></div>
+            <div v-if="x.changed.length" class="review-part"><div class="t-meta">{{ $t('applications.reviewChanged') }}</div><ul><li v-for="c in x.changed" :key="c">{{ c }}</li></ul></div>
+            <div v-if="!x.unsure.length && !x.changed.length" class="review-note">{{ $t('applications.reviewClean') }}</div>
           </template>
         </div>
-        <div class="row" style="position: sticky; bottom: 0; background: var(--surface); padding: 12px 0; margin-top: 8px">
-          <button class="primary" :disabled="!approvable.length" @click="approveReviewed">{{ $t('applications.reviewApprove', { n: approvable.length }, approvable.length) }}</button>
-          <button class="ghost" @click="review = null">{{ $t('applications.cancel') }}</button>
-        </div>
+      </template>
+      <template v-if="!review.loading" #footer>
+        <button class="ghost" @click="review = null">{{ $t('applications.cancel') }}</button>
+        <button class="primary" :disabled="!approvable.length" @click="approveReviewed">{{ $t('applications.reviewApprove', { n: approvable.length }, approvable.length) }}</button>
       </template>
     </SideDrawer>
   </template>
