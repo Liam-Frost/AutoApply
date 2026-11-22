@@ -9,7 +9,7 @@
 <!-- Say what you ran it against. "Unit tests" and "a real Greenhouse form, not submitted" are both fine answers; they are different answers. -->
 
 - [ ] `uv run pytest` passes
-- [ ] If the interface changed: `cd frontend && npm run build`, and new text is written with keys (English, notes; see CONTRIBUTING)
+- [ ] If the interface changed: `cd frontend && npm test && npm run build`; it uses the shared components (`docs/component-guidelines.md`), new text is written with keys in the glossary's terms, and it was looked at in light and dark, at 1440 and 1024 wide, in two languages
 - [ ] If behaviour that `docs/STATUS.md` describes changed: that page is updated
 - [ ] Nothing personal in the diff, the screenshots or the test data (names, e-mail addresses, application records)
 

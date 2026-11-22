@@ -194,7 +194,8 @@ Nothing (no `text`, no slot) shows nothing.
 ]" />
 ```
 
-Which part of a page is shown. Props: `items` (`{ id, label, count?, disabled? }`), `modelValue` (the selected id),
+Which part of a page is shown. Props: `items` (`{ id, label, count?, disabled?, icon?, dot? }` - `icon` before the
+label; `dot` marks a tab that holds changes not saved yet, said to a screen reader too), `modelValue` (the selected id),
 `label` (required: the row's accessible name), `id` (tabs get ids `<id>-<item id>`, so a panel can say
 `role="tabpanel" :aria-labelledby="'<id>-' + tab"`), `controls` (the panel's id: `aria-controls` on the selected tab).
 Emits `update:modelValue`.
@@ -287,6 +288,8 @@ everywhere they appear (`calendar.js FAMILY`, `views/calendar/look.js`).
   `sub?` / slot `sub` (a line under the title: only what the reader must know to decide something here - most pages
   have none). Default slot: the page's actions, secondary first, the primary one last. The keyboard lands on its `h2`
   after a change of page.
+  A title too long for its line is cut to one line with the whole of it in a tooltip (an application's company and
+  position); a link back to the list the page belongs to sits under the title and names that list.
 - `SectionHead` - `title`, `help?`, `count?`; default slot: the section's actions (at the right). Not used inside a card.
 - `CardHead` - `title` (required; a `Trunc`, cut, never squeezed), `help?` (through `HelpPop`, so a sentence is a
   tooltip and more is a popover; or slot `help` for several paragraphs / a link), `note?` (a plain figure or fact after
@@ -330,6 +333,19 @@ itself. One structure whatever is known, so cards side by side line up row by ro
 (i), the session as a `Status`), three facts that are always there (`—` when empty), foot (one main action - primary
 when there is no session - and a `Menu`: settings, forget the session, and for an added provider remove, `danger`). The
 rarely set settings open in a `Popover` from the menu item.
+
+## Dates, lists and messages
+
+- One way to write a date (`src/i18n/format.js`): a day is "Nov 20" / "11月20日", with the year only when it is not this
+  year; something scheduled (a deadline, an interview, a reminder) is the day and the time; something that happened (a
+  mail, a run, a change) is relative while it is recent ("Today 13:52", "Yesterday 09:30"), then the day and the time.
+  Short numeric dates ("11/20") are for chart axes only. A time the server gives as local wall-clock text (the
+  calendar's items, a deadline) is read with `at()` from `src/calendar.js`, never through `asDate()` (which reads UTC).
+- Several things in one sentence are joined with `listed()` (Intl.ListFormat), not with typed commas.
+- A toast says what came of an action; while the `BulkBar` is shown, toasts rise above it - they never cover its buttons.
+- Density: two-line entities are `comfortable`; one-line lists and tables inside cards are `standard`; logs and figure
+  tables are `compact`. The compact figure tables of the analysis page (`.an-table`) keep their own markup: fixed
+  columns, one-line headers (the long form in a tooltip), numbers right-aligned.
 
 ## Words
 

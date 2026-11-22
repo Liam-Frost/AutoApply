@@ -11,8 +11,8 @@ sideways, column widths, elements with a native `title`, groups of controls that
 lines, elements wider than their parent, sizes and weights of type, heights of controls. The demo has no site accounts and no
 contacts, so those two lists were measured with made-up rows put in by request interception (five accounts in different states, five
 identity providers, three contacts); every other figure is from the demo's own data. Nothing was written to the demo. The dark
-theme gave the same measurements as the light one and no finding of its own beyond G22; screenshots and the scripts are in the
-audit's scratch folder (`scratchpad/ui/audit/`).
+theme gave the same measurements as the light one and no finding of its own beyond G22. The screenshots and scripts of the audit
+were working files and are not kept in the repository; `scripts/ui_shots.py` takes the same kind of screenshots.
 
 Severity: **P0** wrong information, or the layout breaks (content cut off, the page scrolls sideways, text one character wide);
 **P1** visible on ordinary data on every visit, or blocks keyboard / touch use; **P2** inconsistency and polish.
