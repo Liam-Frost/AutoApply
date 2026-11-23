@@ -734,6 +734,37 @@ class Mouse:
         self.page.send(cdp.input_.dispatch_mouse_event("mouseWheel", 100, 100, delta_x=x, delta_y=y))
 
 
+SLOW_START = 30.0      # seconds a Chrome that is still starting is waited for, beyond nodriver's own wait
+
+
+async def started(browser) -> None:  # noqa: ANN001
+    """Start the browser - and give a slow one the time it needs. nodriver asks Chrome's debugging port for under three
+    seconds and then says "Failed to connect to browser", while the Chrome it launched goes on starting. On a busy
+    computer (a test machine under load, a laptop whose antivirus reads the profile) that is not enough: the run failed
+    before it began. Then the port is asked again for up to half a minute, and the start finishes as nodriver's does."""
+    try:
+        await browser.start()
+    except Exception as e:
+        process = getattr(browser, "_process", None)
+        if "Failed to connect to browser" not in str(e) or process is None or process.returncode is not None:
+            raise
+        from nodriver.core._contradict import ContraDict
+
+        logging.getLogger("autoapply.nodriver").info("the browser is slow to start; waiting for it")
+        deadline = time.monotonic() + SLOW_START
+        while True:
+            try:
+                browser.info = ContraDict(await browser._http.get("version"), silent=True)
+                break
+            except Exception:  # noqa: BLE001 - not answering yet
+                if time.monotonic() > deadline or process.returncode is not None:
+                    raise e from None
+                await asyncio.sleep(0.5)
+        browser.websocket_url = browser.info.webSocketDebuggerUrl
+        await browser.attach()
+        await browser.update_targets()
+
+
 @contextmanager
 def open_page(state, *, headless, executable, args, profile=None):
     import nodriver
@@ -748,7 +779,7 @@ def open_page(state, *, headless, executable, args, profile=None):
         async def create():
             return nodriver.Browser(nodriver.Config(headless=headless, browser_executable_path=executable, browser_args=args, user_data_dir=str(profile)))
         browser = worker.call(create())
-        worker.call(browser.start())
+        worker.call(started(browser))
         context = Context(worker, browser, state)
         # The profile keeps its own cookies from one start to the next, and they are the current ones: a saved copy
         # written over them would put an older session back (which a site reads as the session being replayed).

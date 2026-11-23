@@ -370,3 +370,50 @@ def test_a_scan_the_portals_firewall_turns_away_is_tried_in_a_window_and_then_as
     with db.session() as s:
         cards = [(t.kind, t.ref) for t in s.query(Todo).filter_by(status="open")]
     assert ("takeover", "account:pdportal:ubc") in cards and not any(k == "config" for k, _ in cards)      # not "switch the ordinary browser on": it is on
+
+
+def test_a_browser_slow_to_start_is_waited_for(monkeypatch):
+    """nodriver gives Chrome under three seconds to answer on its debugging port, then says "Failed to connect to
+    browser" while that Chrome goes on starting. On a busy test machine it was not enough (2026-11-23); on a slow laptop
+    neither. The port is asked again for up to half a minute, and the start finishes the way nodriver's does."""
+    import asyncio
+    from types import SimpleNamespace
+
+    pytest.importorskip("nodriver")
+    from autoapply import nodriver_backend
+
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda s: real_sleep(0))      # (no real half seconds in a test)
+
+    class SlowChrome:
+        def __init__(self, answers_after, alive=True):
+            self._process = SimpleNamespace(returncode=None if alive else 1)
+            self.asked, self.answers_after, self.did = 0, answers_after, []
+            self._http = SimpleNamespace(get=self.version)
+
+        async def start(self):
+            raise Exception("\n---------------------\nFailed to connect to browser\n---------------------\n")
+
+        async def version(self, what):
+            self.asked += 1
+            if self.asked < self.answers_after:
+                raise ConnectionRefusedError("not yet")
+            return {"Browser": "Chrome/150", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/x"}
+
+        async def attach(self):
+            self.did.append("attach")
+
+        async def update_targets(self):
+            self.did.append("targets")
+
+    slow = SlowChrome(answers_after=8)
+    asyncio.run(nodriver_backend.started(slow))
+    assert slow.asked == 8 and slow.websocket_url.endswith("/browser/x") and slow.did == ["attach", "targets"]
+    # a Chrome that ended (it could not start at all) is not waited for, and neither is one that never answers
+    gone = SlowChrome(answers_after=1, alive=False)
+    with pytest.raises(Exception, match="Failed to connect"):
+        asyncio.run(nodriver_backend.started(gone))
+    assert gone.asked == 0
+    monkeypatch.setattr(nodriver_backend, "SLOW_START", 0)
+    with pytest.raises(Exception, match="Failed to connect"):
+        asyncio.run(nodriver_backend.started(SlowChrome(answers_after=10**6)))

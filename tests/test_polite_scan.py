@@ -12,7 +12,11 @@ def test_a_workday_scan_reads_only_new_postings_it_would_keep_and_waits_when_tol
     for k in ("_refused", "_last", "_pace", "_rest", "_strikes", "_answered"):      # (what earlier requests taught it about the service)
         monkeypatch.setattr(public, k, {})
     calls, slept = [], []
-    monkeypatch.setattr("time.sleep", lambda t: slept.append(t))
+    # (a clock of its own: what is waited for is measured, not the speed of the computer the test runs on - a busy test
+    # machine took more than 0.1 s between two lines and a wait of 7 s came out as 6.89)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr("time.sleep", lambda t: (slept.append(t), clock.__setitem__("now", clock["now"] + t)))
     busy = {"n": 1}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -36,4 +40,4 @@ def test_a_workday_scan_reads_only_new_postings_it_would_keep_and_waits_when_tol
     assert [r["source_id"] for r in rows] == ["acme:JR1", "acme:JR2", "acme:JR3"]
     assert "jd_text" not in rows[0] and "jd_text" not in rows[1] and "Build things" in rows[2]["jd_text"] and rows[2]["company"] == "Acme Corp"
     assert [c for c in calls if c[0] == "GET"] == [("GET", "/wday/cxs/acme/Ext/job/z_JR3-1")]      # one description, not three
-    assert any(6.9 < s <= 7 for s in slept)      # waited as long as the site asked, then went on
+    assert slept[0] == 7      # waited as long as the site asked, then went on
