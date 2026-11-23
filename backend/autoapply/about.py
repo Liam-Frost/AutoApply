@@ -37,7 +37,9 @@ def info() -> dict[str, Any]:
         changes = m.group(1).strip()[:20000] if m else ""
     except OSError:
         pass
+    build = updates.running()      # (the folder of data/releases it runs from: "" for an installation's own folder or a checkout)
     return {"version": ver, "commit": commit, "kind": updates.kind(), "python": platform.python_version(), "system": platform.platform(terse=True),
-            "data": str(config.DATA), "repo": str(db.get_setting("update.repo") or ""), "components": parts, "changes": changes}
+            "data": str(config.DATA), "repo": str(db.get_setting("update.repo") or ""), "components": parts, "changes": changes,
+            "build": build, "build_release": updates.release(build)}
 
 

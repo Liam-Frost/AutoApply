@@ -2895,6 +2895,25 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         agentbudget.validate(body.get("settings") or {})
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    reminders = (body.get("settings") or {}).get("calendar.reminders")
+    if reminders is not None:
+        # The reminders each kind of calendar item gets by itself (alarms.py): whole minutes before it, from 0 to the
+        # sixty days alarms.add keeps, for the kinds there are - checked before anything is written, and kept as one
+        # list per kind with each number once, the largest first (what the page shows them as).
+        most = 60 * 24 * 60
+        kinds = set(config.DEFAULT_SETTINGS["calendar.reminders"])
+        bad = HTTPException(400, T("server.api.main.remindersRange", most=most))
+        if not isinstance(reminders, dict):
+            raise bad
+        kept: dict[str, list[int]] = {}
+        for kind, minutes in reminders.items():
+            if kind not in kinds:
+                raise HTTPException(400, f"unknown kind of calendar item {kind}")
+            whole = [int(m) for m in minutes if isinstance(m, (int, float)) and not isinstance(m, bool) and float(m).is_integer()] if isinstance(minutes, list) else None
+            if whole is None or len(whole) != len(minutes) or any(m < 0 or m > most for m in whole):
+                raise bad
+            kept[kind] = sorted(set(whole), reverse=True)
+        body["settings"]["calendar.reminders"] = kept
     before = float(db.get_setting("queue.min_score_for_draft") or 0)
     for k, v in (body.get("settings") or {}).items():
         if k.startswith("migrated.") or k in config.STATE or k in config.RETIRED:
@@ -3550,6 +3569,8 @@ if config.FRONTEND_DIST.exists():
 
     @app.get("/{path:path}")
     def spa(path: str):
+        if path == "api" or path.startswith("api/"):      # an API address that nothing answers is not a page of the interface
+            raise HTTPException(404, "not-found")
         f = _files["all"].get(path)
         if f is None and path and "." in path.rsplit("/", 1)[-1]:      # a file that is not known: the interface may have been built again
             _files["all"] = _interface_files()

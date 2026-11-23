@@ -317,6 +317,10 @@ everywhere they appear (`calendar.js FAMILY`, `views/calendar/look.js`).
 - `AaSelect` - used like `<select>` (`v-model`, `<option>`s in the slot), `small`, `disabled`, `placeholder`;
   `id`, `class`, `style`, `aria-label`, `aria-labelledby`, `aria-describedby` go to its button; keyboard like a native
   one; its list is on `<body>` at `--z-select`.
+- Controls that say what a value means instead of asking for it as text (below; styles in `styles/controls.css`): a
+  choice among many by name - `Combobox` (a time zone: `TimeZonePicker`); "this long before" offsets -
+  `ReminderRules`; one on / off - `ToggleSwitch`; one of a few - `RadioList`. A time of day is `input type="time"`.
+  Never a list of numbers or an id to type where one of these fits.
 
 ## Lists that are not tables
 
@@ -353,6 +357,340 @@ Every text a person reads is a key in `frontend/src/locales/` (see CONTRIBUTING)
 `docs/ux-writing-glossary.md`: a title names the thing, a button is a verb, a state is a short phrase, a column header
 names an attribute. Catalogs are changed with `python frontend/scripts/i18n-apply.py patch.json` (all languages and the
 note at once).
+
+## Combobox (`Combobox.vue`, search in `src/combobox.js`)
+
+```html
+<Combobox id="f-food" v-model="food" :label="$t('…')" :options="[{ value, label, hint?, group?, keywords?, disabled? }]"
+          :groups="[{ id: 'fruit', label: $t('…') }]" :placeholder="$t('…')" :invalid="bad" />
+```
+
+A select you can search, for a list too long to scan (a time zone among 600). The trigger is an `AaSelect`'s (`.sel`,
+`--h-md`): the chosen option's `label` and, muted, its `hint` on one line, cut at the end (the hint goes first), the
+whole of it in an overflow tooltip. Pressing it - or ArrowDown, Enter, Space, a letter (which starts the search with
+it) - opens a list on `<body>` (`.sel-pop`, `--z-select`, so a popover around it stays open and it lies over a drawer
+or a question) with a search field at the top that has the focus. The list stays beside its trigger while the page
+scrolls (it closes when the trigger leaves the window); it opens upwards when there is not room below.
+
+Props: `modelValue`, `options`, `groups` (the order of the headings; options without a group, or with one not named
+here, come first), `label` (required: the accessible name of the trigger - with the value - of the search field and of
+the list), `placeholder` (the trigger when nothing is chosen), `invalid` (`aria-invalid`, the danger border),
+`disabled`, `emptyText` (no option matches), `searchPlaceholder` (what can be typed, in the search field), `width`
+(the list's; default the trigger's, at least 320, never wider than the window). Emits `update:modelValue`, `change`
+(with the value), `open`, `close`; exposes `open()`, `close()`.
+
+- A value that is not among the options is shown as itself in the trigger - never dropped or replaced.
+- Search (`src/combobox.js`, tested): case- and accent-insensitive over `label`, `hint`, `value` and `keywords`; first
+  the options whose label starts with it, then a whole word, the start of a word, anywhere, every word anywhere. The
+  headings stay in their order and only where something matches; an option in two groups (a zone under Common and its
+  region) is listed once while searching. An input method (Chinese) composing a word is not interrupted.
+- Keyboard: ArrowUp / ArrowDown (round the ends), Home / End, PageUp / PageDown move the mark past disabled options and
+  keep it in sight under the sticky heading; Enter picks; Escape closes without a change (and only the list: not the
+  popover or drawer it is in); Tab closes and the focus moves on from the trigger. The pointer moves the same mark (on
+  a move, not when the list scrolls under a still pointer). A press anywhere in the list leaves the focus in the search.
+- ARIA: the trigger `aria-haspopup="listbox"`, `aria-expanded`, `aria-controls`, named by `label` and the value; the
+  search field `role="combobox"`, `aria-activedescendant`; the list `role="listbox"`; a group `role="group"` with
+  `aria-label` (its visible heading is `aria-hidden`); options `role="option"` with `aria-selected`; how many match is
+  said in a polite live region while searching.
+- 600 options open in about 60 ms; nothing is virtualised.
+
+When: a choice among many (more than about 15) that people find by name - a time zone, a country. A few options:
+`AaSelect`. An action: `Menu`.
+
+## TimeZonePicker (`TimeZonePicker.vue`, `src/timezones.js`)
+
+```html
+<label for="time-zone">{{ $t('settings.time.zone') }}</label>
+<TimeZonePicker id="time-zone" v-model="s['time.zone']" :label="$t('settings.time.zone')" />
+```
+
+The time zone setting, on `Combobox`. It loads `GET /api/time/zones` itself, once per open page (again after an hour). The
+value saved is the IANA id, `''` = follow the computer - never an offset. Props: `modelValue`, `label` (default
+"Time zone"), `disabled`; `id` and other attributes go to the trigger. Emits `update:modelValue`, `change`.
+
+- Options: first "Follow this computer" (`''`) with the computer's offset and zone as its hint; then *Common* (the
+  computer's zone, the five chosen lately in this browser - `localStorage`, a per-viewer convenience - and a fixed list of
+  widely used zones), the regions by the id's first part (Americas, Europe, Asia, Africa, Australia & Pacific, Atlantic,
+  Indian Ocean, Antarctica & Arctic; each sorted by offset, then name), *Other names* (fixed offsets `Etc/…`, old
+  spellings, names of no place such as `CET`).
+- An option: label = the place in the interface language - the city (a catalog name for about 60 common cities,
+  `tz.city.*`, else the id's last part with spaces, plus the state where the id has one: "Knox (Indiana)") and the
+  country (`Intl.DisplayNames`, its short name unless that is an abbreviation; left out where it is the city: Hong
+  Kong); `Etc/UTC` "Coordinated Universal Time", `Etc/GMT+5` "Fixed offset UTC−05:00"; an old spelling as written.
+  Hint = `UTC−07:00 · America/Vancouver`; an old spelling's `UTC−08:00 · same as America/Los_Angeles`.
+- Offsets are the server's (its own tzdata, now): British Columbia is UTC−07:00 all year since 2026, which an old
+  browser's Intl data gets wrong, so no offset is ever worked out in the browser.
+- Search: city in English and the interface language (and other cities on that clock: Beijing, Seattle, Montreal, …),
+  country in both, IANA id, offset however typed ("+08", "UTC-7", "utc -7", "+5:30", "+0530", "GMT-8"), and the
+  generic zone name from Intl ("Pacific Time", 北美太平洋时间 - worked out when the browser is idle).
+- A saved old spelling (`US/Pacific`) works and is shown as written with what it stands for. A saved value that is not a
+  zone (`chosen_valid: false`) is shown as itself, `invalid`, with a line under the field: it is not a time zone and the
+  computer's zone is used until another is chosen. It is never replaced without the person choosing.
+
+When: wherever a time zone is set. Not for showing a zone (that is text).
+
+## ReminderRules (`ReminderRules.vue`, `src/reminders.js`)
+
+```html
+<ReminderRules v-model="s['calendar.reminders'].interview" :label="$t('calendar.kind.interview')" />
+```
+
+The reminders a kind of calendar item gets by itself. The value stays what the backend keeps: minutes before the item
+(`[1440, 30]`; `0` = at the start; `[]` = none). Props: `modelValue`, `label` (what they are of: the group's name, and
+the "+"'s "Add reminder: Interview"), `allDay` (an item of a whole day: reminded in the morning, whole days apart - "2
+hours before" is the morning before, as `alarms.give_defaults` makes it), `disabled`. Emits `update:modelValue` and
+`change` with the list normalised: whole minutes, each once, largest first.
+
+- Chips (`.fchip.lg`, the words centred): "1 day before ×", "30 minutes before ×"; the × is an `IconButton` named
+  "Remove reminder: 1 day before"; after a removal the focus goes to the next × (or the +). `[]` shows a muted
+  "No reminder" and the +.
+- + opens a `Popover`: the usual choices (At the start, 15 / 30 minutes, 1 / 2 hours, 1 / 2 days, 1 week; for a whole
+  day only the start and whole days) as toggle buttons - one already chosen is shown pressed with a check, and pressing
+  it again removes it; and a custom amount: a whole number, a unit (`AaSelect`: minutes / hours / days before) and Add
+  (Enter in the field adds too). What cannot be added says why under it: not a whole number, below 0, more than 60 days
+  (what `alarms.add` keeps and `PUT /api/settings` accepts), already there.
+- The words of one reminder are `formatReminder(minutes, { allDay })` in `src/reminders.js` (tested), with the
+  calendar's `calendar.alarm.*` wording: weeks, days, hours, else minutes; 0 "At the start" (a whole day: "Morning of
+  the day").
+
+When: a list of "this long before" offsets anywhere. A single time of day: `input type="time"`.
+
+## ToggleSwitch (`ToggleSwitch.vue`)
+
+```html
+<ToggleSwitch id="quiet-on" v-model="s['notify.quiet'].on" :label="$t('settings.quiet.on')" />
+<ToggleSwitch v-model="on" :aria-label="$t('…')" />        <!-- without words beside it -->
+```
+
+A setting that is on or off as a whole and takes effect as such (quiet hours on). A `button role="switch"` with
+`aria-checked`; a track and knob from tokens, `--h-xs` tall (on: `--primary` with an `--on-primary` knob; off: a
+`--text-3` outline and knob); Space and Enter flip it as they press any button. Props: `modelValue`, `label` (the words
+beside it: its name, and a press on them flips it too), `disabled`. Attributes (`id`, `aria-label`, `aria-describedby`)
+go to the button. Emits `update:modelValue`, `change`.
+
+When: one on / off setting. Several independent options of one kind (which notifications): checkboxes in `.set-opts`.
+A choice among several: `RadioList` / `.seg`.
+
+## RadioList (`RadioList.vue`)
+
+```html
+<RadioList v-model="mode" name="update-mode" :label="$t('about.byItself')" :options="[
+  { value: 'off', label: $t('about.mode.off'), hint: $t('about.mode.offHow') },
+  { value: 'auto', label: $t('about.mode.auto'), hint: $t('about.mode.autoHow'), disabled: true },
+]" @change="save" />
+```
+
+A choice of one among a few, as a compact list of native radios - not cards. A `fieldset` named by its `legend` (the
+`label`); one row per option, `--row-compact` (40px) high, no box or border of its own (a hover ground only): the
+option's words in body text and, muted, its `hint` on the same line while it fits, under the words otherwise (a flex
+row that wraps - nothing is measured). In a hint that wraps, the radio stands by the first line.
+
+Props: `modelValue`, `options` (`{ value, label, hint?, disabled? }`; values may be strings, numbers or booleans),
+`label` (required: the legend and the group's accessible name), `name` (the radios' name, made up when not given),
+`disabled` (the whole list), `hideLabel` (the legend for a screen reader only, when a title right above already says
+it). Emits `update:modelValue` and `change` (the new value) - only on a real change. Each radio is named by its label
+(`aria-labelledby`) and described by its hint (`aria-describedby`), so a screen reader does not read the hint as part of
+the name.
+
+Keyboard: native - Tab comes to the chosen radio (or the first when none is), the arrow keys move and choose, Space
+chooses; a disabled option is passed over by the browser.
+
+When: three to six options a person compares by their one-line explanations (an update mode, a policy). Two options
+without explanations are a `ToggleSwitch` or a `.seg`; a long list or one that needs searching is an `AaSelect` /
+`Combobox`. Never big cards for this.
+
+Styles: `styles/controls.css`, with the other controls.
+Lab: `/ui-lab?only=RadioList`.
+
+## The update state model (`src/updatestate.js`)
+
+The about page's updates follow one pure function, `updateState(status, { checking })`, over what
+`GET /api/system/update` (`updates.status()`) says. It returns `{ id, found, tone, kind, target, progress, error,
+notice, how, facts, actions, notes, follow, policy }`; the page only turns ids into words (`about.state.*`,
+`about.fact.*`, `ERRORS[code].key`). Tested in `frontend/tests/update-state.test.js`; every state is in the lab
+(`/ui-lab?only=UpdateStates`, `views/lab/sections/56-UpdateStates.vue`) - the demo runs from source, so the managed
+states are only seen there.
+
+| `id` | When | Actions offered (the main one last, `primary`) |
+| --- | --- | --- |
+| `unsupported` | a source checkout or a container (`how`: how it is updated; `found`: unchecked / current / newer / failed) | check |
+| `unchecked` | never looked | check |
+| `checking` | the page's own check is under way | - |
+| `current` | looked, nothing newer | check (+ roll back) |
+| `newer` | a newer release is out | check, (roll back), **download and prepare** |
+| `downloading` | fetching it (`progress` 0-100) | - (followed) |
+| `preparing` | unpacking it, installing what it needs | - (followed) |
+| `ready` | a newer release is prepared (`target`) | check, (roll back), (prepare a still newer one), **switch** - a copy started by hand: no switch, `how: 'unmanaged'` |
+| `switching` | a switch was asked for; the tray restarts into it | - (followed; no answer while it restarts is expected) |
+| `failed` | `error.stage`: check (`no-repo`, `network:*`), prepare (`checksum`, `incomplete`, `interrupted`, `no-package`, `no-uv`, `not-here`, an exception's name), switch (`did-not-start`) | **retry** of that step where it can help (not for `no-package`, `no-uv`, `not-here`, `no-repo`), check, (roll back) |
+
+Rules: only what `updates.py` can do is offered - preparing needs a managed or hand-started copy, a switch and a
+roll-back need the tray (`kind: "managed"`); nothing is offered while something goes on; a prepared release that is
+not newer than what runs is not offered (checked by its own version too, `staged_release.version`); a release already
+there (prepared, or kept from before a roll-back) is switched to, not fetched again. Going back is an action, not a
+state: offered wherever nothing goes on while the previous release is still kept; after a roll-back the kept release is
+the newer one and the action says "Switch back to". A failed check while a newer release is known keeps the state and
+says the failure beside it (`notice`).
+
+Facts (`facts`, in this order, each only when known): running (a local build with its day), latest release (its day,
+pre-release), prepared, switching to / next start (`data/run/next-release`), switch when idle (asked from a
+notification), previous release, last checked. `policy`: mode, channel, window (shown only for `auto`), and which modes
+a copy can use (a checkout or a container: off and notify).
+
+Names: a release is never shown by its folder name. `releaseText(rel, t, day)` reads `{ name, version, date, local }`
+(from `updates.release()`): "2.0.3", or "2.0.2 (local build, Nov 22)" for a folder put there by hand. An action names
+the version alone unless it is the version that runs (`actionTarget`): "Roll back to 2.0.2 (local build, Nov 22)" when
+2.0.2 runs, "Switch to 2.0.3" otherwise. The folder's name is secondary text (monospace, muted) beside the fact.
+
+Server fields added for it (`updates.status()`; nothing removed or changed): `staged_release`, `previous_release`,
+`build` + `build_release` (the folder of data/releases this copy runs from), `switching_to` + `switching_release`,
+`pending` + `pending_release` (what the tray starts at its next restart), `when_idle`. `GET /api/about` adds `build`
+and `build_release`.
+
+## Changelog timeline (`views/about/ChangelogTab.vue`, `src/changelog.js`, `styles/changelog.css`)
+
+```html
+<ChangelogTab :version="about.version" />          <!-- the about page's Changelog tab: reads /api/about/changelog itself -->
+<ChangelogTab :data="{ current, versions }" />      <!-- the lab: made-up versions given instead of read -->
+```
+
+Every version of `CHANGELOG.md` on one vertical line, newest first - not the file as markdown, and not a card per
+release. Props: `version` (the running version; default: `current` from the server), `data` (`{ current, versions }`
+in place of the request - the lab only). Emits nothing; it changes only the address (`?v=`).
+
+**The data** (`GET /api/about/changelog` -> `{ current, repo, versions }`, `backend/autoapply/changelog.py`
+`versions()`, cached by the file's mtime): newest first, one entry per `## [x]` heading:
+`{ version: "2.0.2" | "Unreleased", date: "2026-11-22" | "", unreleased, summary, sections: [{ kind, title, items,
+text }], url }`. `kind` is `added | changed | fixed | security | removed | deprecated | breaking | known | other`
+(Keep a Changelog headings, case-insensitive; "Known limits/issues" is `known`; any other heading - "The analysis
+page" - is `other` with its `title` as written). `items` is the markdown of each bullet with its sub-bullets on lines
+of their own; `text` (added field) is a section's paragraphs that are not bullets. The file's wrapping is joined (a
+soft break is a space), so a paragraph renders as one. Nothing is made up: no date where the heading has none, no link
+where the bottom of the file has no reference (`[2.0.2]: https://…`); an empty section or an empty `[Unreleased]` is
+left out. CRLF files read the same.
+
+**How it looks.** A grid per version: the date (month and day; the year is the label of its run) | the line with
+the version's node | the version. The line is drawn by each row for its own height, so it runs from the first year's
+mark (or the first node) to the last node; the part of what is not released yet is dashed. Nodes: hollow = closed,
+filled = open, `--primary` with a halo = the running version (also a `.tag.info` "Current version" beside the
+number). Under 620px of box the date goes under the title and the counts are hidden.
+
+- Closed: one line - the version (a `button.cl-toggle` with a chevron, `aria-expanded`, `aria-controls`), its date,
+  and a count per kind (a tone dot, the kind's name, the number), the link at the right.
+- Open: the summary (muted), then each section: a `.tag` of the kind's tone (`changelog.js TONE`: added `info`,
+  fixed `ok`, security / deprecated / known `warn`, breaking `bad`, changed / removed / other neutral) with its item
+  count, its paragraphs, its bullets. Text is held to 78ch; links (md.js: http(s) and mailto only) open in a new tab
+  with `rel="noopener"`.
+- Open at the start: the latest release, the running version, and the one in the address. Unreleased changes (when
+  there are any) are at the top, closed, titled "Unreleased changes" with "Not released yet" where the date goes.
+- The version's link (`url`, https only): "Code changes" for a compare page, "Release page" for a release, with the
+  long form in a tooltip.
+
+**Finding.** A search (every word, without case or accents, over items, section titles, version numbers and
+summaries; a version number shows that version whole; the words found are marked) and category chips (`aria-pressed`,
+with counts; several can be on) narrow the timeline to what matches, every version found open; "Clear filters" and
+the count of matches stand beside the search, and the reader's own open/closed state comes back when the filter is
+cleared. "Expand all / Collapse all" works on what is shown.
+
+**Going to a version.** On a box of 1040px or more a list of the versions stands beside the timeline (sticky, by
+year; links with `aria-current="location"`); narrower, an `AaSelect` "Go to version" does it. Either scrolls to the
+version, opens it and puts the keyboard on its toggle; the address keeps it (`/about/changelog?v=2.0.2`, `v2.0.2`
+works too, the rest of the query is kept). An address that names a version the file does not have says so.
+
+**Keyboard.** Tab reaches the search, the select (narrow), the chips, Expand all, then each version's toggle (Enter /
+Space open and close it) and its link; the side list is links. Escape in the select closes it.
+
+**When to use.** For CHANGELOG.md only. Release notes fetched from GitHub for an update that is not installed are the
+overview's business (`UpdatePanel`).
+
+## Licences (`views/about/LicensesTab.vue`, `backend/autoapply/licenses.py`)
+
+```html
+<LicensesTab />      <!-- the about page's Licenses tab: reads /api/about/licenses itself -->
+```
+
+The components the program runs on, as a `DataTable` (compact; Name, Version, License - sortable; Dependency, given
+up first on a narrow box), a search (name, licence, summary), a `.seg` "All components / Direct dependencies" and a
+licence `AaSelect` (as the packages write it, most common first). A row (press or Enter) opens a `SideDrawer`:
+summary, version, licence, direct or not, project page, the licence file(s) and the text in a `pre`; "This package
+carries no license text" when it has none. A line under the table says where the list comes from.
+
+**The data.** `GET /api/about/licenses` -> `{ components: [{ name, version, license, direct, summary, homepage }] }`:
+the program's declared dependencies (`pyproject.toml` beside the program, else its package's metadata, else the fixed
+list that was in `about.py`) and, recursively, theirs as far as they are installed (markers and extras honoured),
+sorted by name; `license` from `License-Expression`, else a short `License`, else the classifiers.
+`GET /api/about/licenses/{name}` -> `{ name, version, license, text, file, files }` from the package's own
+`LICENSE* / LICENCE* / COPYING* / NOTICE*` files (in its `.dist-info`, or at the top of the package; several joined
+with a heading each) or the whole licence written in its metadata; `text` "" when there is none; 404 for any name not
+in the list (any spelling of a listed name works; nothing is looked up from a path).
+
+## Composing the analysis page (`views/analytics/layout.js`, `styles/analysis-settings.css`)
+
+How the cards of Analytics are put together. Nothing here is a shared component: these are the analysis page's own rules,
+written down so that a new card follows them.
+
+```js
+import { H, bars, pairs, reasons, splitTop, standing, table } from './layout'
+
+// two cards share a row only when they hold about as much
+const paired = computed(() => pairs(bars(d.by_channel.length), bars(d.by_direction.length)))
+```
+
+```html
+<div class="an-row" :class="{ c11: paired }">   <!-- no column class: each card takes the whole row -->
+  <div class="card">…</div>
+  <div class="card">…</div>
+</div>
+```
+
+**Rules**
+
+1. A row of cards is `.an-row`; its columns (`.c11` one to one, `.c32` three to two, `.c21` two to one, `.c23` two to
+   three - in fact 5 : 7) are given **only when the two cards pair**. Without a column class the cards stand one under
+   the other, each the whole width. A row never stretches a short card far past what it holds beside a tall one, and
+   never shortens it to end halfway down the row (`align-items: start` is not the fix).
+2. Whether two cards pair is decided from the data: `pairs(a, b)` is true when the shorter card's estimated height is at
+   least `LEAST` (0.7) of the taller's - at most about a third empty. Estimates come from what the card holds:
+   `bars(n, { foot })` (rows of `.hbars`), `reasons(n, { foot })` (rows of `.reason`), `table(n, { row, foot, extra })`
+   (a compact table: `row` is `H.row` 40, `H.row2` 52 for two-line rows, `H.entity` 56 for a DataTable of the standard
+   density). `H` holds the measured heights of the parts (card head 64, foot with a button 44, foot with a hint 32, …);
+   they decide pairing only and need to be right to about a tenth. A chart has a fixed estimate in its panel.
+3. Two cards pair only when they are of one kind: two tables, two bar lists, a chart and a summary of the same thing.
+   A table beside a block of figures, or figures beside a list, each take a row (AI cost: cost per result, then what
+   failures and repeats cost).
+4. A group of figures that belongs to a card is **one card of plain figures**: `<div class="kpis inline">` with
+   `<Kpi>`s - no border, background or shadow per figure, a smaller number (`--fs-xl`) than the panel's headline tiles,
+   four columns of one width (two figures stand at the left as four do), two under a 700px page, one under 420px. Never
+   bordered tiles inside a card. A short list may follow the figures in the same card (`.kpis.inline + .rows`).
+5. A ranked list shows its first five rows (six when that is all - a control never hides a single row:
+   `splitTop(rows, 5)` → `{ shown, rest }`); the rest is behind a `button.ghost.sm` in the card's foot that opens a
+   `Popover` with the same table, so the card does not grow and its row does not change.
+6. A list that has nothing in it is not drawn when a figure elsewhere says 0 (no open to-dos: the figure says 0, the
+   list is left out). Inside a card that must stay, nothing is one line: `<EmptyState class="line" …>` (icon, title and
+   at most one short text on one line), not a box-sized empty state.
+7. When a paired row becomes one column (`.solo`), a card marked `.an-later` goes after the chart's own table
+   (`.an-detail`), so the table opens right under its chart.
+
+**`standing(item, today)`** - where an open to-do stands, for a list: `{ key, tone, day }` with `key` one of `snoozed`
+(put off until `day`), `datePassed` / `on` (a date of its own: an interview, an assessment; `warn` within a day),
+`closed` / `closes` (the deadline of the posting it is about; `warn` within three days), `open`. The words are
+`analytics.backlog.st.<key>` with `{day}` formatted by `dayText`.
+
+**The Outcomes tab, below the cohort figures** (`views/analytics/Pace.vue`):
+
+1. *Pace and to-dos* - one card of four plain figures: posting found → first record (median, with how many waited more
+   than three days), application started → first record (median), open to-dos (the oldest one's wait, how many are
+   snoozed), to-dos handled in the period (median wait).
+2. *To-dos handled, by kind* (`DataTable` bare, compact: kind, handled, median wait; first five, the rest in a popover)
+   beside *Longest-waiting to-dos* (`DataTable` bare, standard: `EntityCell` title → `/todos` with the kind and the
+   posting under it, a `Status` from `standing`, how long; *View all n* → `/todos` in the head) - side by side when
+   `pairs` says so (5 : 7), one under the other below a 900px page or when they differ.
+3. The postings missed, on a row of their own.
+
+Backend (`analytics._backlog`, additive): `by_kind[].kinds` (the card kinds a row stands for: `login` + `takeover` are
+one "Sign in to a site"), `snoozed` (open to-dos put off now), and per `oldest[]` item `kind_key`, `created_at`,
+`due_at`, `date_only`, `snoozed_until` (only while snoozed), `job_id`, `company`, `job_title`, `deadline` (the posting
+found from the card's payload or reference: posting, record or application).
 
 ## The UI lab
 

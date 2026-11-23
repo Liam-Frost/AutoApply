@@ -118,7 +118,7 @@ const uid = 'sel' + ++counter
 </script>
 
 <template>
-  <button :id="attrs.id" ref="btn" type="button" class="sel" :class="[attrs.class, { open, sm: small, empty: !selected }]" v-tip="attrs.title" :style="attrs.style" :disabled="disabled"
+  <button :id="attrs.id" ref="btn" type="button" class="sel" :class="[attrs.class, { open, sm: small, unset: !selected }]" v-tip="attrs.title" :style="attrs.style" :disabled="disabled"
     role="combobox" aria-haspopup="listbox" :aria-expanded="open" :aria-controls="uid" :aria-label="attrs['aria-label'] || attrs.title"
     :aria-labelledby="attrs['aria-labelledby']" :aria-describedby="attrs['aria-describedby']"
     :aria-activedescendant="open && active >= 0 ? uid + '-' + active : undefined" @click="open ? close() : show()" @keydown="onKey">

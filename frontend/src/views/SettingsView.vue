@@ -16,8 +16,11 @@ import DoctorPanel from '../components/DoctorPanel.vue'
 import PromptsPanel from '../components/PromptsPanel.vue'
 import PageHead from '../components/PageHead.vue'
 import Popover from '../components/Popover.vue'
+import ReminderRules from '../components/ReminderRules.vue'
 import SetSection from '../components/SetSection.vue'
 import Status from '../components/Status.vue'
+import TimeZonePicker from '../components/TimeZonePicker.vue'
+import ToggleSwitch from '../components/ToggleSwitch.vue'
 import Trunc from '../components/Trunc.vue'
 import EntityCell from '../components/cells/EntityCell.vue'
 import FormError from '../components/FormError.vue'
@@ -62,7 +65,9 @@ const GROUPS = [
   ['automation', T('settings.page.automationAndWorkPlan'), [['prepare', T('settings.page.startingApplicationsByItself')], ['submit', T('settings.page.howItIsSent')], ['limits', T('settings.page.howTheAgentWorks')], ['schedule', T('settings.page.plan')]]],
   ['materials', T('settings.page.files2'), [['resume', T('settings.page.rSum')], ['cover', T('settings.page.coverLetter')]]],
   ['accounts', T('settings.page.accountsAndConnections'), [['logins', T('settings.page.signInsToCareer')], ['mailbox', T('settings.page.mailbox')], ['ai', T('settings.page.aiService')]]],
-  ['notify', T('settings.page.noticesAndReminders'), [['channel', T('settings.page.whereNoticesGo')], ['bots', T('settings.page.handleItFromYour')], ['events', T('settings.page.whatToNotifyAbout')], ['reminders', T('settings.page.calendarReminders')]]],
+  // (notifications first - where they go, which, when not - then answering them from the phone, then the calendar's
+  // clock and reminders; the addresses of before still lead to the same things: events, reminders)
+  ['notify', T('settings.page.noticesAndReminders'), [['channel', T('settings.page.whereNoticesGo')], ['events', T('settings.page.whatToNotifyAbout')], ['quiet', T('settings.page.quietHours')], ['bots', T('settings.page.handleItFromYour')], ['reminders', T('settings.reminders.title')]]],
   ['system', T('settings.page.systemAndData'), [['network', T('settings.page.networkConnectionOutbound')], ['browser', T('settings.page.browserCompatibility')], ['remote', T('settings.page.remoteAccessInbound')], ['security', T('settings.page.accountSecurity')], ['retention', T('settings.page.dataRetention')], ['backup', T('settings.page.backupAndUpdates')], ['diagnose', T('settings.page.diagnostics')], ['expert', T('settings.page.expertTools')]]],
 ]
 const group = computed(() => (GROUPS.some((g) => g[0] === route.params.group) ? route.params.group : 'overview'))
@@ -146,8 +151,6 @@ watch(() => [...dirtyKeys.value, ...typedSecrets.value.map((k) => 'secret:' + k)
 })
 const marked = (g) => Object.values(madeIn).includes(g) || (g === group.value && unsaved.value.some((a) => a.id !== 'settings' && a.scope === '/settings/' + g))
 
-// the time zones the browser knows by name (the field takes any the server knows)
-const ZONES = (() => { try { return Intl.supportedValuesOf('timeZone') } catch (e) { return [] } })()
 async function load() {
   const d = await api.get('/settings')
   if (!s.value) { s.value = d.settings; saved.value = clone(d.settings) } else absorb(s.value, saved.value, d.settings)      // (dirty.absorb: what is being edited stays)
@@ -208,18 +211,22 @@ const dcState = computed(() => {
   return { cls: 'warn', text: T('settings.page.notSetUpYet2') }
 })
 const tgOn = computed(() => !!(info.value.secrets.telegram_bot_token && s.value && s.value['notify.telegram_chat_id']))
-// the reminders each kind of calendar item gets by itself (alarms.py): minutes before, written as "1440, 30"
+// the reminders each kind of calendar item gets by itself (alarms.py): minutes before it, kept as they are stored
+// ({ interview: [1440, 30] }) and shown as words by ReminderRules
 const REMINDER_KINDS = ['interview', 'assessment', 'offer', 'info_request', 'contact', 'own', 'deadline']
-const minutesText = (k) => ((s.value['calendar.reminders'] || {})[k] || []).join(', ')
-function setMinutes(k, text) {
-  const v = String(text).split(/[,\uFF0C\s]+/).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n >= 0)
-  s.value['calendar.reminders'] = { ...(s.value['calendar.reminders'] || {}), [k]: [...new Set(v)].sort((a, b) => b - a) }
+// A time field that is emptied keeps the time it had: these hours are always set (the server reads "" as no time).
+function setTime(obj, key, e) {
+  if (e.target.value) obj[key] = e.target.value
+  else e.target.value = obj[key] || ''
 }
-const remindText = (k) => {
-  const v = (s.value['calendar.reminders'] || {})[k] || []
-  if (!v.length) return t('settings.reminders.none')
-  return v.map((n) => (n % 1440 === 0 ? (n ? t('calendar.alarm.days', { n: n / 1440 }, n / 1440) : t('calendar.alarm.sameDay')) : n % 60 === 0 ? t('calendar.alarm.hours', { n: n / 60 }, n / 60) : t('calendar.alarm.minutes', { n }, n))).join(' · ')
-}
+// The quiet hours in words, saying when they end the next day (notify.quiet_now: from <= now < to, or across midnight
+// when "to" is earlier; the same hour twice is no quiet hours at all).
+const quietLine = computed(() => {
+  const q = s.value && s.value['notify.quiet']
+  if (!q || !q.on || !q.from || !q.to) return ''
+  if (q.from === q.to) return t('settings.quiet.same')
+  return q.to < q.from ? t('settings.quiet.overnight', { from: q.from, to: q.to }) : t('settings.quiet.sameDay', { from: q.from, to: q.to })
+})
 // which notifications go to which channel (a channel not named takes every kind that is switched on)
 const CATS = [['todo', T('settings.page.thingsThatNeedYou')], ['task_result', T('settings.page.outcomeSentFailed')], ['status_update', T('settings.page.applicationProgress')], ['task_started', T('settings.page.startDoingSomething')]]
 const channelsOn = computed(() => [
@@ -571,19 +578,6 @@ onMounted(() => { load(); loadDiscord() })
         </div>
       </SetSection>
 
-      <SetSection id="bots" :title="$t('settings.page.handleItFromYour')">
-        <div class="card">
-          <div class="set-check"><label><input v-model="s['bot.listen']" type="checkbox" /> {{ $t('settings.page.theBotsTakeButton') }}</label>
-            <HelpPop :label="$t('settings.page.handleItFromYour')"><p>{{ $t('settings.page.theButtonsDoWhat') }}</p><p>{{ $t('settings.page.commandsStatusWhatIs') }}</p></HelpPop></div>
-          <div class="set-check"><label><input v-model="s['bot.chat']" type="checkbox" :disabled="!s['bot.listen']" /> {{ $t('settings.page.anythingElseYouSay') }}</label><HelpPop :text="$t('settings.page.askItHowThings')" /></div>
-          <div v-if="s['bot.daily_summary']" class="set-check">
-            <label><input v-model="s['bot.daily_summary'].on" type="checkbox" /> {{ $t('settings.summary.on') }}</label>
-            <input v-model="s['bot.daily_summary'].at" class="w-time" type="time" :disabled="!s['bot.daily_summary'].on" :aria-label="$t('settings.summary.at')" />
-            <HelpPop :text="$t('settings.summary.hint')" />
-          </div>
-        </div>
-      </SetSection>
-
       <SetSection id="events" :title="$t('settings.page.whatToNotifyAbout')">
         <div class="card">
           <div class="kv">
@@ -606,36 +600,58 @@ onMounted(() => { load(); loadDiscord() })
                 </tbody>
               </table>
             </template>
-            <label for="quiet-on">{{ $t('settings.page.quietHours') }}<HelpPop :text="$t('settings.page.nothingFromTheseHours')" /></label>
-            <div v-if="s['notify.quiet']" class="set-val">
-              <label><input id="quiet-on" v-model="s['notify.quiet'].on" type="checkbox" /> {{ $t('settings.page.sendNothingToThe') }}</label>
-              <span class="unit">{{ $t('settings.page.from') }}</span><input v-model="s['notify.quiet'].from" class="w-time" type="time" :disabled="!s['notify.quiet'].on" :aria-label="$t('settings.page.quietHoursStart')" />
-              <span class="unit">{{ $t('settings.page.to') }}</span><input v-model="s['notify.quiet'].to" class="w-time" type="time" :disabled="!s['notify.quiet'].on" :aria-label="$t('settings.page.quietHoursEnd')" />
-            </div>
           </div>
-          <p class="set-note">{{ $t('settings.page.invitationsToInterviewsAnd') }}<router-link to="/todos">{{ $t('settings.page.needsYourAction') }}</router-link>{{ $t('settings.page.cardByCard') }}</p>
+          <i18n-t keypath="settings.notify.alwaysSent" tag="p" class="set-note" scope="global"><template #link><router-link to="/todos">{{ $t('settings.page.needsYourAction') }}</router-link></template></i18n-t>
+        </div>
+      </SetSection>
+
+      <SetSection id="quiet" :title="$t('settings.page.quietHours')">
+        <template #actions><HelpPop :label="$t('settings.page.quietHours')"><p>{{ $t('settings.page.nothingFromTheseHours') }}</p></HelpPop></template>
+        <div v-if="s['notify.quiet']" class="card">
+          <div class="set-switch"><ToggleSwitch id="quiet-on" v-model="s['notify.quiet'].on" :label="$t('settings.quiet.on')" /></div>
+          <div class="kv">
+            <label>{{ $t('settings.quiet.hours') }}</label>
+            <div class="set-val">
+              <input class="w-time" type="time" :value="s['notify.quiet'].from" :disabled="!s['notify.quiet'].on" :aria-label="$t('settings.page.quietHoursStart')" @change="setTime(s['notify.quiet'], 'from', $event)" />
+              <span class="unit">{{ $t('settings.page.to') }}</span>
+              <input class="w-time" type="time" :value="s['notify.quiet'].to" :disabled="!s['notify.quiet'].on" :aria-label="$t('settings.page.quietHoursEnd')" @change="setTime(s['notify.quiet'], 'to', $event)" />
+              <span v-if="quietLine" class="hint" data-t="quiet-line">{{ quietLine }}</span>
+            </div>
+            <label>{{ $t('settings.reminders.quietLabel') }}<HelpPop :text="$t('settings.reminders.hint')" /></label>
+            <div class="set-val"><ToggleSwitch v-model="s['calendar.reminders_quiet']" :label="$t('settings.reminders.quiet')" :disabled="!s['notify.quiet'].on" /></div>
+          </div>
+        </div>
+      </SetSection>
+
+      <SetSection id="bots" :title="$t('settings.page.handleItFromYour')">
+        <div class="card">
+          <div class="set-check"><label><input v-model="s['bot.listen']" type="checkbox" /> {{ $t('settings.page.theBotsTakeButton') }}</label>
+            <HelpPop :label="$t('settings.page.handleItFromYour')"><p>{{ $t('settings.page.theButtonsDoWhat') }}</p><p>{{ $t('settings.page.commandsStatusWhatIs') }}</p></HelpPop></div>
+          <div class="set-check"><label><input v-model="s['bot.chat']" type="checkbox" :disabled="!s['bot.listen']" /> {{ $t('settings.page.anythingElseYouSay') }}</label><HelpPop :text="$t('settings.page.askItHowThings')" /></div>
+          <div v-if="s['bot.daily_summary']" class="set-check">
+            <label><input v-model="s['bot.daily_summary'].on" type="checkbox" /> {{ $t('settings.summary.on') }}</label>
+            <input v-model="s['bot.daily_summary'].at" class="w-time" type="time" :disabled="!s['bot.daily_summary'].on" :aria-label="$t('settings.summary.at')" />
+            <HelpPop :text="$t('settings.summary.hint')" />
+          </div>
         </div>
       </SetSection>
 
       <SetSection id="reminders" :title="$t('settings.reminders.title')">
-        <template #actions><HelpPop :text="$t('settings.reminders.intro')" :label="$t('settings.reminders.title')" /></template>
         <div class="card">
-          <div v-if="s['calendar.reminders']" class="kv">
+          <div class="kv">
             <label for="time-zone">{{ $t('settings.time.zone') }}<HelpPop :text="$t('settings.time.zoneHelp')" /></label>
-            <div class="set-val">
-              <input id="time-zone" v-model.trim="s['time.zone']" class="w-long" list="time-zones" autocomplete="off" spellcheck="false"
-                     :placeholder="info && info.system_zone ? $t('settings.time.followComputer', { zone: info.system_zone }) : $t('settings.time.followComputerPlain')" />
-              <datalist id="time-zones"><option v-for="z in ZONES" :key="z" :value="z" /></datalist>
-              <span class="unit">{{ $t('settings.time.zoneExample') }}</span>
-            </div>
+            <div class="set-val"><TimeZonePicker id="time-zone" v-model="s['time.zone']" :label="$t('settings.time.zone')" /></div>
+          </div>
+        </div>
+        <div v-if="s['calendar.reminders']" class="card">
+          <CardHead :title="$t('settings.reminders.byKind')" :help="$t('settings.reminders.intro')" />
+          <div class="kv">
             <template v-for="k in REMINDER_KINDS" :key="k">
-              <label :for="'rem-' + k">{{ $t('calendar.kind.' + k) }}</label>
-              <div class="set-val"><input :id="'rem-' + k" class="w-short" :value="minutesText(k)" :placeholder="$t('settings.reminders.none')" @change="setMinutes(k, $event.target.value)" />
-                <span class="unit">{{ remindText(k) }}</span></div>
+              <label>{{ $t('calendar.kind.' + k) }}</label>
+              <ReminderRules v-model="s['calendar.reminders'][k]" :label="$t('calendar.kind.' + k)" />
             </template>
-            <label for="rem-morning">{{ $t('settings.reminders.morning') }}</label><div class="set-val"><input id="rem-morning" v-model="s['calendar.allday_at']" class="w-time" type="time" /></div>
-            <label for="rem-quiet">{{ $t('settings.reminders.quietLabel') }}<HelpPop :text="$t('settings.reminders.hint')" /></label>
-            <div class="set-val"><label><input id="rem-quiet" v-model="s['calendar.reminders_quiet']" type="checkbox" /> {{ $t('settings.reminders.quiet') }}</label></div>
+            <label for="rem-morning">{{ $t('settings.reminders.morning') }}<HelpPop :text="$t('settings.reminders.morningHelp')" /></label>
+            <div class="set-val"><input id="rem-morning" class="w-time" type="time" :value="s['calendar.allday_at']" @change="setTime(s, 'calendar.allday_at', $event)" /></div>
           </div>
         </div>
       </SetSection>

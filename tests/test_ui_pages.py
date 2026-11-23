@@ -107,7 +107,7 @@ def routes(site: Site) -> list[str]:
             "/profile", "/files", "/contacts", "/accounts",
             "/analytics?view=apps", "/analytics?view=auto", "/analytics?view=sites", "/analytics?view=ai", "/runs",
             *[f"/settings/{g}" for g in ("overview", "goals", "automation", "materials", "accounts", "notify", "system")],
-            "/about"]
+            "/about", "/about/changelog", "/about/licenses"]
 
 
 # ── what every page is measured for ──────────────────────────────────────────────────────────────────────────────────

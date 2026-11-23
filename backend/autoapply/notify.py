@@ -118,8 +118,9 @@ def link(path: str) -> str:
 
 
 def quiet_now(at: Any = None) -> bool:
-    """Are these the quiet hours the applicant set (nothing is pushed to the phone)?"""
-    from datetime import datetime
+    """Are these the quiet hours the applicant set (nothing is pushed to the phone)? On the applicant's clock (their time
+    zone, which is the computer's unless they named another): the hours are their night, wherever the program runs."""
+    from . import clock
 
     q = db.get_setting("notify.quiet") or {}
     if not q.get("on"):
@@ -128,7 +129,7 @@ def quiet_now(at: Any = None) -> bool:
         (fh, fm), (th, tm) = (map(int, str(q.get(k) or "").split(":")) for k in ("from", "to"))
     except (ValueError, TypeError):
         return False
-    at = at or datetime.now()
+    at = at or clock.now()
     now_m, start, end = at.hour * 60 + at.minute, fh * 60 + fm, th * 60 + tm
     if start == end:
         return False

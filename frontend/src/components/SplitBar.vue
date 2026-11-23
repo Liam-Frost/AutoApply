@@ -18,7 +18,7 @@ const pc = (v) => (total.value ? Math.round((v / total.value) * 100) : 0)
 
 <template>
   <div>
-    <div class="splitbar" :class="{ empty: !total }">
+    <div class="splitbar" :class="{ none: !total }">
       <i v-for="p in drawn" :key="p.key" v-tip="$t('common.chart.part', { label: p.label, value: format(p.value), pc: pc(p.value) })" :style="{ flex: p.value + ' 0 0', background: p.color }"></i>
     </div>
     <div v-if="legend" class="legend" :class="{ rows: rows || single, single }">

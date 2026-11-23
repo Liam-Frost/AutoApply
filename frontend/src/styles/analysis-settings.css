@@ -54,10 +54,16 @@
 .kpi .l > span { min-width: 0; }
 .kpi .l > .info-tip, .kpi .l > .popover { flex: none; margin-top: 0; }
 .kpi .d.cut { display: block; }
-/* figures inside a card: the tiles of a section, without a shadow of their own */
-.kpis.inner { margin-bottom: 0; }
-.kpis.inner > .kpi { box-shadow: none; }
-.kpis.inner + .an-pair { margin-top: var(--s4); }
+/* Figures that belong together, inside one card: plain figures in a row - not tiles in a tile (a box in a box read as
+   a card wrapping smaller cards). Smaller than the panel's own figures at the top, which they must not compete with. */
+/* (four columns of one width whatever the number of figures - two stand at the left as four do, not spread over the
+   card - then two, then one: never three and one alone) */
+.kpis.inline { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3) var(--s5); margin-bottom: 0; }
+@container (max-width: 700px) { .kpis.inline { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 420px) { .kpis.inline { grid-template-columns: minmax(0, 1fr); } }
+.kpis.inline > .kpi { padding: 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.kpis.inline .kpi .n { font-size: var(--fs-xl); }
+.kpis.inline + .rows { margin-top: var(--s3); border-top: 1px solid var(--border); }
 .figs .k { display: flex; align-items: flex-start; gap: var(--s1); }
 .figs .k > span { min-width: 0; }
 .figs .k > .info-tip { margin-top: -2px; }
@@ -67,11 +73,6 @@
 .an-label.gap { margin-top: var(--s4); }
 .an-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s4); margin-bottom: var(--s3); }
 .an-facts b { color: var(--text); font-weight: var(--fw-semibold); }
-.an-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: var(--s4); align-items: start; }
-.an-pair > * { min-width: 0; }
-/* a short list of links, each with a figure at its end */
-.an-links > a { display: flex; align-items: baseline; gap: var(--s2); padding: 3px 0; font-size: var(--fs-sm); }
-.an-links > a > .cut { flex: 1 1 auto; }
 .site-notes, .plain-list { margin: var(--s1) 0 0; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.6; white-space: normal; }
 .plain-list { max-height: 240px; overflow: auto; }
 
@@ -279,6 +280,21 @@ input.w-num { width: 96px; } input.w-time { width: 124px; } input.w-short { widt
 .emp-table { margin-top: var(--s4); }
 .emp-off .entity, .emp-off .dt-cell > .meta, .emp-off .dt-cell > .num { opacity: 0.55; }
 
-/* A row whose cards hold very different amounts (two figures beside a long table): each as tall as what it holds -
-   stretched to one height, the short one was mostly empty. */
-.an-row.top { align-items: start; }
+/* ── Composition of the analysis page (views/analytics/layout.js) ──
+   Two cards share a row only when they hold about as much: the page decides it from the data and gives the row its
+   columns (.c11, .c32, .c23) or none - then each card has the whole row. So no card is stretched far past what it
+   holds beside a taller one. */
+/* the to-dos handled by kind (a narrow figure table) beside the longest-waiting ones (names, a state, a time) */
+.an-row.c23 { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+@container (max-width: 900px) { .an-row.c23 { grid-template-columns: minmax(0, 1fr); } }
+/* a row that became one column: the chart's own table (.an-detail) right under the chart, before the card that stood
+   beside it */
+.an-row.solo > .an-later { order: 1; }
+/* (reasons over the whole width: the name keeps a reading width, the bar takes the rest) */
+.an-row.solo .reason { grid-template-columns: minmax(0, 22em) minmax(96px, 1fr) 2.6em; }
+.an-pace { margin-bottom: var(--s4); }
+/* a list in a card with nothing in it: one line, not a box-sized empty state */
+.an-view .card .empty.line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--s2); padding: var(--s1) 0; text-align: left; }
+.an-view .card .empty.line svg { flex: none; align-self: center; width: 16px; height: 16px; margin: 0; color: var(--text-3); }
+.an-view .card .empty.line .t { margin: 0; color: var(--text); font-size: var(--fs-md); font-weight: var(--fw-medium); }
+.an-view .card .empty.line > div:not(.t) { color: var(--text-2); font-size: var(--fs-sm); }
