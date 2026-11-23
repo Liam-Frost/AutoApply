@@ -267,6 +267,7 @@
  "server.api.main.theDateTimeOr": "Said by the program (api/main.py).",
  "server.api.main.theEMailWas": "Said by the program (api/main.py).",
  "server.api.main.theEndpointUrlMust": "Said by the program (api/main.py).",
+ "server.api.main.theMailGivesNoDate": "Said when an email card is to be put on the calendar and the email states no date.",
  "server.api.main.thePriceForIs": "Said by the program (api/main.py). {p0} are values it fills in.",
  "server.api.main.thereIsNoRun": "Said by the program (api/main.py).",
  "server.api.main.thisApplicationIsAlready": "Said by the program (api/main.py). {p0} are values it fills in.",

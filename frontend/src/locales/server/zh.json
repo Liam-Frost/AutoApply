@@ -267,6 +267,7 @@
  "server.api.main.theDateTimeOr": "日期、时间或链接的格式不对",
  "server.api.main.theEMailWas": "邮件没有发出去。原因记在这封邮件上，修好后可以再发一次。",
  "server.api.main.theEndpointUrlMust": "接口地址要以 http:// 或 https:// 开头",
+ "server.api.main.theMailGivesNoDate": "这封邮件没有给出可以放进日程的日期。",
  "server.api.main.thePriceForIs": "「{p0}」的价格不完整：输入和输出价格都要填数字",
  "server.api.main.thereIsNoRun": "还没有可以停止的申请运行",
  "server.api.main.thisApplicationIsAlready": "这份申请已经是“{p0}”了，不需要再处理；相关的待办已经关掉",

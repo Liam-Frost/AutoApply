@@ -175,10 +175,13 @@ def items(start: date, end: date, *, kinds: tuple[str, ...] = SHOWN, states: tup
     return out
 
 
-def add_own(title: str, when: datetime, *, all_day: bool, link: str = "", application_id: int | None = None, note: str = "") -> int:
+def add_own(title: str, when: datetime, *, all_day: bool, link: str = "", application_id: int | None = None, note: str = "",
+            kept: dict[str, Any] | None = None) -> int:
     """The applicant's own dated item ("call back Acme's recruiter"): a card with its date, said the day before and on
     the day like any other."""
     payload: dict[str, Any] = {"all_day": all_day, "date_only": all_day, "link": link.strip()[:500], "date_by": "user"}
+    if kept:      # (what it was made from: a mail's end time, the zone its time was said in, the mail itself)
+        payload.update({k: v for k, v in kept.items() if k in ("end_at", "due_zone", "due_said", "zone_assumed", "due_text", "from_mail")})
     if application_id:
         payload["application_id"] = int(application_id)
     with db.session() as s:

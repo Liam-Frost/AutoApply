@@ -168,7 +168,12 @@
     "later": "Reportées ({n})",
     "when": "Quand : {when}",
     "dismiss": "Ignorer",
-    "lastTryDidNotWork": "La dernière connexion a échoué. Vous pouvez appuyer de nouveau sur « Se connecter »."
+    "lastTryDidNotWork": "La dernière connexion a échoué. Vous pouvez appuyer de nouveau sur « Se connecter ».",
+    "putOnMyCalendar": "Ajouter à mon agenda",
+    "putOnYourCalendar": "Ajouté à votre agenda",
+    "openOnYourCalendar": "Voir dans mon agenda",
+    "theEmailGivesThisTime": "Dans le courriel : {when}",
+    "asTheEmailWrote": "tel qu’écrit : « {said} »"
   },
   "language": {
     "beta": "{name} (bêta)"

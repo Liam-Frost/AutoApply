@@ -159,7 +159,10 @@ nav.side a.nav svg { width: 18px; height: 18px; flex: none; }
 nav.side a.nav:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 nav.side a.nav.router-link-active { background: var(--primary-soft); color: var(--primary); font-weight: var(--fw-semibold); }
 nav.side .count { margin-left: auto; background: var(--bad); color: var(--on-bad); border-radius: var(--r-pill); padding: 0 7px; font-size: 11px; font-weight: var(--fw-bold); line-height: 18px; min-width: 18px; text-align: center; }
-.side-foot { margin-top: auto; padding: var(--s3) var(--s2) 0; border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-2); display: grid; gap: var(--s2); }
+/* (one column that a long label cannot widen: "Appearance and language" pushed every item 7px right of the middle) */
+.side-foot { margin-top: auto; padding: var(--s3) 0 0; border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-2); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+.side-foot > div { padding-inline: 10px; }      /* the state line: its dot under the links' icons */
+.side-foot button.sm { padding-inline: 8px; }
 .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
 .status-dot.paused { background: var(--warn); } .status-dot.busy { background: var(--primary); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.35; } }
@@ -331,6 +334,8 @@ a.stat:hover { border-color: var(--primary); text-decoration: none; }
 .todo .head { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
 .todo .title { font-weight: var(--fw-medium); font-size: var(--fs-ml); min-width: 0; overflow-wrap: anywhere; }
 .todo .what { color: var(--text-2); margin: 2px 0 var(--s3); }
+.todo .todo-when { display: flex; gap: var(--s2); align-items: baseline; flex-wrap: wrap; margin: 0 0 var(--s3); }
+.todo .todo-when svg { width: 16px; height: 16px; flex: none; align-self: center; }
 
 /* list rows (activity, mail) */
 .list { display: grid; }

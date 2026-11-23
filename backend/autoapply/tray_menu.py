@@ -64,9 +64,13 @@ def _icon(d: Any, name: str, x: float, y: float, s: float, color: str) -> None:
         line((10.5, 3.5), (10.5, 12.5))
     elif name == "play":
         d.polygon(P((5, 3), (13, 8), (5, 13)), outline=color, width=w)
-    elif name == "restart":
-        d.arc(box(2.5, 2.5, 13.5, 13.5), start=35, end=320, fill=color, width=w)
-        line((12.9, 1.3), (12.3, 4.6), (9.0, 4.1))
+    elif name == "restart":      # (the page's "refresh": a circle turning clockwise into a corner arrowhead at its top right)
+        # (an arc's stroke lies inside its box: its middle runs at a radius of 4.7, and the ends and the arrowhead sit on it)
+        d.arc(box(2.5, 2.5, 13.5, 13.5), start=0, end=315, fill=color, width=w)
+        line((11.3, 4.7), (12.7, 6.0))
+        line((12.7, 3.0), (12.7, 6.0), (9.9, 6.0))
+        for px, py in ((12.7, 8), (12.7, 3.0), (12.7, 6.0), (9.9, 6.0)):      # round ends and corner, as the page's icons have
+            d.ellipse([x + px * s - w / 2, y + py * s - w / 2, x + px * s + w / 2, y + py * s + w / 2], fill=color)
     elif name == "power":
         d.arc(box(2.5, 3.5, 13.5, 14.5), start=-55, end=235, fill=color, width=w)
         line((8, 1.8), (8, 7.5))

@@ -267,6 +267,7 @@
  "server.api.main.theDateTimeOr": "La date, l’heure ou le lien n’est pas dans un format que le programme peut lire",
  "server.api.main.theEMailWas": "Le courriel n’a pas été envoyé. La raison figure sur le courriel lui-même ; il pourra être renvoyé une fois corrigé.",
  "server.api.main.theEndpointUrlMust": "L’URL du point d’accès doit commencer par http:// ou https://",
+ "server.api.main.theMailGivesNoDate": "Ce courriel ne donne aucune date à mettre dans l’agenda.",
  "server.api.main.thePriceForIs": "Le prix de « {p0} » est incomplet : les prix d’entrée et de sortie doivent tous deux être des nombres",
  "server.api.main.thereIsNoRun": "Il n’y a pas encore d’exécution de candidature à arrêter",
  "server.api.main.thisApplicationIsAlready": "Cette candidature est déjà « {p0} » ; plus rien à faire, et les cartes la concernant ont été fermées",

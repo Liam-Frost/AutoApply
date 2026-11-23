@@ -3142,5 +3142,10 @@
   "about.rel.localDay": "Under a version number on the about page: it is a build of one's own. {d}: its day (e.g. Nov 23).",
   "about.rel.localOnly": "Under a version number on the about page: a build of one's own whose day is not known.",
   "about.rel.published": "Under the latest version's number on the about page: the day it came out. {d}: the day (e.g. Nov 22).",
-  "about.error.notNewer": "Said when a switch would go to a version that is the same as or older than the running one (the updater only goes forwards by itself). 'Roll back' names the About page's button for going back to the previous version."
+  "about.error.notNewer": "Said when a switch would go to a version that is the same as or older than the running one (the updater only goes forwards by itself). 'Roll back' names the About page's button for going back to the previous version.",
+  "todos.putOnMyCalendar": "Button on the card of an email that matches no application (often one the applicant made elsewhere): puts the date the email gives on the applicant's own calendar.",
+  "todos.putOnYourCalendar": "Toast after Add to my calendar.",
+  "todos.openOnYourCalendar": "Button on that card once the e-mail's date is on the calendar: opens the calendar on that day.",
+  "todos.theEmailGivesThisTime": "On the card of an email that matches no application: the date and time the email gives, on the applicant's own clock.",
+  "todos.asTheEmailWrote": "Beside that date: the words the email used for it (so a converted time zone can be checked)."
 }
