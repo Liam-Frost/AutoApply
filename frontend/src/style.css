@@ -158,6 +158,9 @@ nav.side a.nav { display: flex; align-items: center; gap: 10px; padding: 8px 10p
 nav.side a.nav svg { width: 18px; height: 18px; flex: none; }
 nav.side a.nav:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 nav.side a.nav.router-link-active { background: var(--primary-soft); color: var(--primary); font-weight: var(--fw-semibold); }
+/* an emphasised secondary action (.tonal): beside the primary one, more than a plain button - at most one in a group */
+button.tonal, .btn.tonal { background: var(--primary-soft); color: var(--primary); border-color: transparent; font-weight: var(--fw-semibold); }
+button.tonal:hover, .btn.tonal:hover { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 nav.side .count { margin-left: auto; background: var(--bad); color: var(--on-bad); border-radius: var(--r-pill); padding: 0 7px; font-size: 11px; font-weight: var(--fw-bold); line-height: 18px; min-width: 18px; text-align: center; }
 /* (one column that a long label cannot widen: "Appearance and language" pushed every item 7px right of the middle) */
 .side-foot { margin-top: auto; padding: var(--s3) 0 0; border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-2); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
@@ -918,7 +921,12 @@ textarea.editor.tall, .editor-preview.tall { height: 68vh; }
 .fm-view-head > .status, .fm-view-head > .tag { flex: none; }
 .fm-facts { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 4px var(--s3); margin: var(--s3) 0 0; font-size: var(--fs-sm); align-items: baseline; }
 .fm-facts dt { color: var(--text-2); } .fm-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.fm-went { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.fm-went { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }      /* one line each: the preview keeps its room */
+.fm-went-to { min-width: 0; flex: 0 1 auto; } .fm-went-field { min-width: 0; flex: 1 1 0; }
+.fm-went-box:not(.open) { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }      /* folded: one line, "All N" at its end */
+.fm-went-box:not(.open) .fm-went-list { flex: 1 1 0; min-width: 0; }
+.fm-went-box.open .fm-went-list { max-height: 200px; overflow-y: auto; padding-right: var(--s1); }
+.fm-went-more { flex: none; padding-inline: 4px; height: auto; } .fm-went-box.open .fm-went-more { margin-top: 2px; }
 .fm-note { margin: var(--s3) 0 0; font-size: var(--fs-sm); }
 .fm-acts { margin: var(--s3) 0 var(--s2); }
 

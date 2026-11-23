@@ -3253,5 +3253,7 @@
   "calendar.removedMsg": "Notice after deleting a calendar item; followed by Undo.",
   "calendar.undo": "Button in the notice after deleting a calendar item: puts it back.",
   "calendar.backMsg": "Notice after Undo.",
-  "calendar.rang.new": "Tag on a notice at the top of the to-do page: an event that just arrived (an interview from an employer's email), not a reminder."
+  "calendar.rang.new": "Tag on a notice at the top of the to-do page: an event that just arrived (an interview from an employer's email), not a reminder.",
+  "files.wentAll": "Button under the first three places a file went (in the file's panel of the library): shows them all. {n} = how many.",
+  "files.wentFewer": "Button that folds the list of places a file went back to the first three."
 }

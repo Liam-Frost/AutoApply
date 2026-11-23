@@ -310,7 +310,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
 <template>
   <button ref="startProbe" type="button" class="sm ghost acc-probe" tabindex="-1" aria-hidden="true"><Icon name="draft" />{{ $t('postings.do.start') }}</button>
   <PageHead :title="$t('postings.title')" :help="$t('postings.help')">
-    <router-link to="/jobs/sources" class="btn ghost"><Icon name="search" />{{ $t('postings.sources') }}</router-link>
+    <router-link to="/jobs/sources" class="btn tonal"><Icon name="search" />{{ $t('postings.sources') }}</router-link>
     <button :aria-expanded="adding" @click="adding = !adding"><Icon name="plus" />{{ $t('postings.addByHand') }}</button>
     <button class="primary" @click="scan"><Icon name="refresh" />{{ $t('postings.scan') }}</button>
   </PageHead>

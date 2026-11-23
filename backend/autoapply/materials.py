@@ -118,6 +118,28 @@ def _key(path: str) -> str:
     return str(Path(path)).lower()
 
 
+_WORDS_IN = (re.compile(r"""has-text\(\s*["'](.+?)["']\s*\)"""), re.compile(r"""aria-label\s*[*^$|~]?=\s*["'](.+?)["']"""),
+             re.compile(r"^@label:\s*(.+)$"), re.compile(r"""^text\s*=\s*["']?(.+?)["']?$"""))
+_SELECTOR = re.compile(r"^[#.\[]|^\w+\[|\binput\b|\[type=|::|>>|:nth-|^//")
+
+
+def field_words(label: str) -> str:
+    """The form field a file was given to, as the applicant reads it. The agent's record names it as it found it: in
+    words ("Resume/CV", "Other Documents (step 6, the site shows ...)") or by the selector it used ("@label:Upload
+    Resume", 'button:has-text("Upload transcript")', "input[type=file]", "#resume"). A selector's words are kept, one
+    without words is left out, and the agent's note in brackets after the words goes."""
+    s = str(label or "").strip()
+    for pat in _WORDS_IN:
+        m = pat.search(s)
+        if m:
+            s = m.group(1).strip()
+            break
+    else:
+        if _SELECTOR.search(s):
+            return ""
+    return re.split(r"\s*[（(]", s, maxsplit=1)[0].strip()[:80]
+
+
 def whereabouts() -> tuple[dict[int, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
     """Where the files went: the applications whose records name them (by the file's record or its path) - with the
     form field they were for, and whether the application went out - and the mails sent with them. By document id and
@@ -128,7 +150,7 @@ def whereabouts() -> tuple[dict[int, list[dict[str, Any]]], dict[str, list[dict[
 
     by_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
     by_path: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    seen: set[tuple[Any, ...]] = set()
+    seen: dict[tuple[Any, ...], dict[str, Any]] = {}
     with db.session() as s:
         apps = {a.id: a for a in s.query(Application)}
         for d in s.query(Draft).order_by(Draft.id.desc()):
@@ -137,12 +159,17 @@ def whereabouts() -> tuple[dict[int, list[dict[str, Any]]], dict[str, list[dict[
                 continue
             for m in d.materials or []:
                 doc, path = m.get("document_id"), str(m.get("path") or "")
-                key = (a.id, doc, _key(path) if path else "")
-                if key in seen or not (doc or path):
+                if not (doc or path):
                     continue
-                seen.add(key)
-                row = {"application_id": a.id, "company": a.job.company, "title": a.job.title, "status": a.status, "how": "record",
-                       "field": str(m.get("label") or m.get("slot") or "")[:120], "sent": a.status in SENT or a.submitted_at is not None}
+                key = (a.id, doc, _key(path) if path else "")
+                field = field_words(str(m.get("label") or m.get("slot") or ""))
+                if key in seen:      # (the same file in another field of the same application: one line, both fields)
+                    had = seen[key]
+                    if field and field not in had["field"].split("、"):
+                        had["field"] = "、".join(x for x in (had["field"], field) if x)
+                    continue
+                row = seen[key] = {"application_id": a.id, "company": a.job.company, "title": a.job.title, "status": a.status, "how": "record",
+                                   "field": field, "sent": a.status in SENT or a.submitted_at is not None}
                 (by_id[int(doc)] if doc else by_path[_key(path)]).append(row)
         for o in s.query(Outgoing).filter(Outgoing.status == "sent"):
             a = apps.get(o.application_id) if o.application_id else None

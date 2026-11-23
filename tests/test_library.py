@@ -51,3 +51,35 @@ def test_where_a_file_went_and_what_can_be_put_away(app_env):
     assert materials.register_made(__import__("pathlib").Path(made), "all-in-one.pdf", None, ["resume.pdf"]) == did          # once
     row = next(d for d in list_documents() if d["id"] == did)
     assert row["purpose"] == "made" and row["made_from"] == ["resume.pdf"]
+
+
+def test_where_a_file_went_is_said_in_words_one_line_per_application(app_env):
+    """A transcript's panel listed every field of every application it went to, as the agent recorded it - selectors
+    ("input[type=file]", "@label:Upload Resume", 'button:has-text("Upload transcript")') and the agent's notes in brackets
+    - and pushed the file's preview to the bottom of the panel (2026-11-24)."""
+    from autoapply import materials
+    from autoapply.api.main import list_documents
+    from autoapply.models import Application, Document, Draft, Job
+
+    assert materials.field_words("input[type=file]") == "" and materials.field_words("#resume") == ""
+    assert materials.field_words("@label:Upload Resume") == "Upload Resume"
+    assert materials.field_words('button:has-text("Upload transcript")') == "Upload transcript"
+    assert materials.field_words('[aria-label="Browse for résumé"]') == "Browse for résumé"
+    assert materials.field_words("Other Documents（第 6 步，站点显示 Student_Transcript.pdf）") == "Other Documents"
+    assert materials.field_words("Transcript (the site had it, checked)") == "Transcript" and materials.field_words("Resume/CV") == "Resume/CV"
+    transcript = _file("transcript.pdf")
+    with db.session() as s:
+        s.add(Document(kind="transcript", name="transcript.pdf", path=transcript))
+        for n in range(5):
+            job = Job(source="manual", source_id=f"t{n}", company=f"Co{n}", title="Intern", apply_url=f"https://x/{n}", jd_text="x" * 300, status="queued", online=1)
+            s.add(job)
+            s.flush()
+            a = Application(job_id=job.id, status="submitted", submitted_at=datetime.now(timezone.utc).replace(tzinfo=None))
+            s.add(a)
+            s.flush()
+            s.add(Draft(application_id=a.id, version=1, review_status="closed", schema={}, answers=[],
+                        materials=[{"label": "input[type=file]", "path": transcript}, {"label": "@label:Upload transcript", "path": transcript},
+                                   {"label": "Transcript (step 4)", "path": transcript}]))
+    r = {d["name"]: d for d in list_documents()}["transcript.pdf"]
+    assert r["went_total"] == 5 and len(r["went"]) == 5 and r["sent"]
+    assert {w["field"] for w in r["went"]} == {"Upload transcript、Transcript"}            # one line each, in words
