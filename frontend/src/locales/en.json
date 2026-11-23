@@ -770,11 +770,12 @@
       "deadline": "Deadline",
       "when": "Time",
       "mail": "As the mail says",
-      "timezone": "Time zone",
+      "timezone": "Shown in",
       "score": "Score",
       "posting": "Posting",
       "link": "Link",
-      "note": "Note"
+      "note": "Note",
+      "zone": "Converted from"
     },
     "scoreOf": "{n} / 10",
     "priorityEmployer": "Priority employer",
@@ -806,7 +807,9 @@
       "overdueHint": "Offer responses, information, follow-ups and personal events whose time has passed, not done (last 14 days)",
       "hide": "Hide the summary"
     },
-    "kbd": "Keys: T today · ← → previous / next · M W D views · N new event · / search"
+    "kbd": "Keys: T today · ← → previous / next · M W D views · N new event · / search",
+    "zoneFrom": "{time} in {zone}",
+    "zoneAssumed": "The e-mail names no time zone, so this time is shown as your own. If it is the employer's, correct it with “Change the time”."
   },
   "settings": {
     "reminders": {
@@ -1467,6 +1470,13 @@
       "removed": "Removed {p0}",
       "enableName": "Watch {name}",
       "openPage": "Open the careers page"
+    },
+    "time": {
+      "zone": "Your time zone",
+      "zoneHelp": "Times an employer's e-mail gives on its own clock (an interview “at 10:00 Pacific”) are converted to this time zone. Leave it empty to follow this computer; set it when the program runs on another machine, or when you travel.",
+      "followComputer": "This computer's ({zone})",
+      "followComputerPlain": "This computer's",
+      "zoneExample": "A name such as Asia/Shanghai or America/Vancouver"
     }
   },
   "files": {
@@ -1590,7 +1600,8 @@
       "deleted": "Deleted",
       "deletedFiles": "Deleted {p0} files",
       "disabledFiles": "Disabled {p0} files",
-      "folders": "Folders"
+      "folders": "Folders",
+      "notSent": "Not submitted"
     },
     "writtenFor": "Written for:"
   },

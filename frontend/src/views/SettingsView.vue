@@ -146,6 +146,8 @@ watch(() => [...dirtyKeys.value, ...typedSecrets.value.map((k) => 'secret:' + k)
 })
 const marked = (g) => Object.values(madeIn).includes(g) || (g === group.value && unsaved.value.some((a) => a.id !== 'settings' && a.scope === '/settings/' + g))
 
+// the time zones the browser knows by name (the field takes any the server knows)
+const ZONES = (() => { try { return Intl.supportedValuesOf('timeZone') } catch (e) { return [] } })()
 async function load() {
   const d = await api.get('/settings')
   if (!s.value) { s.value = d.settings; saved.value = clone(d.settings) } else absorb(s.value, saved.value, d.settings)      // (dirty.absorb: what is being edited stays)
@@ -619,6 +621,13 @@ onMounted(() => { load(); loadDiscord() })
         <template #actions><HelpPop :text="$t('settings.reminders.intro')" :label="$t('settings.reminders.title')" /></template>
         <div class="card">
           <div v-if="s['calendar.reminders']" class="kv">
+            <label for="time-zone">{{ $t('settings.time.zone') }}<HelpPop :text="$t('settings.time.zoneHelp')" /></label>
+            <div class="set-val">
+              <input id="time-zone" v-model.trim="s['time.zone']" class="w-long" list="time-zones" autocomplete="off" spellcheck="false"
+                     :placeholder="info && info.system_zone ? $t('settings.time.followComputer', { zone: info.system_zone }) : $t('settings.time.followComputerPlain')" />
+              <datalist id="time-zones"><option v-for="z in ZONES" :key="z" :value="z" /></datalist>
+              <span class="unit">{{ $t('settings.time.zoneExample') }}</span>
+            </div>
             <template v-for="k in REMINDER_KINDS" :key="k">
               <label :for="'rem-' + k">{{ $t('calendar.kind.' + k) }}</label>
               <div class="set-val"><input :id="'rem-' + k" class="w-short" :value="minutesText(k)" :placeholder="$t('settings.reminders.none')" @change="setMinutes(k, $event.target.value)" />

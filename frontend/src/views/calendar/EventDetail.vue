@@ -21,6 +21,11 @@ const when = computed(() => {
   const d = at(x.value)
   return x.value.all_day ? t('calendar.allDayOn', { day: longDate(d) }) : t('time.dayAt', { day: longDate(d), time: clockOf(d) })
 })
+// the time as the mail said it, on the clock the mail used (what the time above was converted from)
+const said = computed(() => {
+  const d = at({ start: x.value.due_said })
+  return Number.isNaN(d.getTime()) ? '' : t('time.dayAt', { day: longDate(d), time: clockOf(d) })
+})
 const left = computed(() => (x.value.kind === 'deadline' && st.value === 'open' ? deadlineLabel(x.value.start.replace('T', ' '), props.now) : null))
 const isCard = computed(() => !!x.value.about.todo_id && x.value.kind !== 'snoozed')
 const mailLinks = computed(() => (x.value.links || []).filter((l) => l.url !== x.value.link))
@@ -85,6 +90,7 @@ const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a
       <template v-else>
         <dt>{{ $t('calendar.field.when') }}</dt><dd>{{ when }}</dd>
         <template v-if="x.due_text"><dt>{{ $t('calendar.field.mail') }}</dt><dd>{{ x.due_text }}</dd></template>
+        <template v-if="x.due_zone && said"><dt>{{ $t('calendar.field.zone') }}</dt><dd>{{ $t('calendar.zoneFrom', { time: said, zone: x.due_zone }) }}</dd></template>
         <template v-if="!x.all_day && zone"><dt>{{ $t('calendar.field.timezone') }}</dt><dd>{{ zone.name }}</dd></template>
         <template v-if="x.subject"><dt>{{ $t('calendar.field.posting') }}</dt><dd>{{ x.subject }}</dd></template>
         <template v-if="x.state"><dt>{{ $t('calendar.state.label') }}</dt><dd>{{ $t('calendar.state.' + x.state) }}</dd></template>
@@ -92,6 +98,7 @@ const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a
       <template v-if="x.note"><dt>{{ $t('calendar.field.note') }}</dt><dd class="pre">{{ x.note }}</dd></template>
       <template v-if="x.link"><dt>{{ $t('calendar.field.link') }}</dt><dd><a :href="x.link" target="_blank" rel="noopener" class="clamp2">{{ x.link }}</a></dd></template>
     </dl>
+    <div v-if="x.zone_assumed && !x.all_day && !x.done" class="hint">{{ $t('calendar.zoneAssumed') }}</div>
     <div v-if="zone && zone.other && !x.all_day" class="hint">{{ zone.other }}</div>
 
     <div class="cal-acts">
@@ -132,7 +139,7 @@ const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a
       <div class="cal-sec-title">{{ $t('calendar.alarm.title') }}</div>
       <div v-if="!alarms.length" class="small muted">{{ $t('calendar.alarm.none') }}</div>
       <div class="row" style="flex-wrap: wrap; gap: 6px">
-        <span v-for="a in alarms" :key="a.id" class="tag" :class="{ ok: a.sent }">{{ ahead(a.before, x.all_day) }}<button type="button" class="ghost sm" style="padding: 0 4px; min-height: 0" :aria-label="$t('calendar.alarm.remove')" @click="removeAlarm(a)">×</button></span>
+        <span v-for="a in alarms" :key="a.id" class="fchip lg" :class="{ ok: a.sent }">{{ ahead(a.before, x.all_day) }}<button type="button" v-tip="$t('calendar.alarm.remove')" :aria-label="$t('calendar.alarm.remove')" @click="removeAlarm(a)"><Icon name="x" /></button></span>
       </div>
       <div class="row" style="flex-wrap: wrap; gap: 6px; margin-top: 8px">
         <button v-for="c in choices.filter((c) => !x.all_day || c % 1440 === 0 || c === 0)" :key="c" type="button" class="sm chip" :disabled="alarms.some((a) => a.before === c)" @click="addAlarm(c)">+ {{ ahead(c, x.all_day) }}</button>

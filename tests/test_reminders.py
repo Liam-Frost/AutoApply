@@ -47,7 +47,7 @@ def test_what_a_mail_asks_becomes_a_card_with_its_date_and_follows_what_the_empl
         "Interview cancelled": {"category": "interview", "event": "cancelled", "action": "", "due": "", "due_text": "", "summary": "面试取消"},
         "Next steps": {"category": "info_request", "event": "new", "action": "回复可面试的时间", "due": "", "due_text": "", "summary": "请回复你方便的时间"},
     }
-    monkeypatch.setattr(mail, "triage", lambda subj, frm, body: {"company": "Acme", "job_title": "Software Intern", "received": False, **says[subj]})
+    monkeypatch.setattr(mail, "triage", lambda subj, frm, body, *when: {"company": "Acme", "job_title": "Software Intern", "received": False, **says[subj]})
 
     def arrives(subject, n):
         box[:] = [mailbox.Message(id=f"m{n}", sender="Acme <hr@acme.test>", subject=subject, body="…", date=now + timedelta(minutes=n))]
@@ -79,7 +79,7 @@ def test_what_a_mail_asks_becomes_a_card_with_its_date_and_follows_what_the_empl
     assert ("Globex · Software Intern：在线测评", datetime(2026, 12, 1)) in [(t, d) for t, d, _, _ in _cards()]
 
 
-def test_a_date_is_only_what_the_mail_states(app_env):
+def test_a_date_is_what_the_mail_states_or_what_a_period_it_states_fixes(app_env):
     from autoapply import reminders
 
     assert reminders.parse_due("2026-11-24") == datetime(2026, 11, 24) and reminders.parse_due("2026-11-24T10:00") == datetime(2026, 11, 24, 10, 0)
@@ -87,8 +87,10 @@ def test_a_date_is_only_what_the_mail_states(app_env):
         assert reminders.parse_due(nothing) is None
     from autoapply import mail
 
+    # the program never works a date out of words; the mail's reader does, from the day the mail was sent - only for a
+    # period the mail states ("14 days to complete it"), never for "as soon as possible" - and never changes the zone
     said = mail.TRIAGE_SCHEMA["properties"]["due"]["description"]
-    assert "ONLY if the e-mail states one" in said and "never work one out" in said
+    assert "exactly as the e-mail states it" in said and "do NOT convert" in said and "period that fixes one" in said and "'as soon as possible' is not one" in said
 
 
 def test_a_contacts_day_makes_a_card_once(app_env, monkeypatch):

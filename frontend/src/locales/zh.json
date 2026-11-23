@@ -770,11 +770,12 @@
       "deadline": "截止时间",
       "when": "时间",
       "mail": "邮件原文",
-      "timezone": "时区",
+      "timezone": "显示时区",
       "score": "岗位评分",
       "posting": "关联岗位",
       "link": "链接",
-      "note": "备注"
+      "note": "备注",
+      "zone": "换算自"
     },
     "scoreOf": "{n} / 10",
     "priorityEmployer": "重点雇主",
@@ -806,7 +807,9 @@
       "overdueHint": "过去 14 天里时间已过、还没完成的 Offer 回复、补充材料、联系跟进和个人日程",
       "hide": "隐藏摘要"
     },
-    "kbd": "快捷键：T 今天 · ← → 前后翻页 · M W D 切换视图 · N 新建日程 · / 搜索"
+    "kbd": "快捷键：T 今天 · ← → 前后翻页 · M W D 切换视图 · N 新建日程 · / 搜索",
+    "zoneFrom": "{zone} 时间 {time}",
+    "zoneAssumed": "邮件没有注明时区，这里按你的时区显示。如果这是雇主当地时间，请用“改时间”修正。"
   },
   "settings": {
     "reminders": {
@@ -1467,6 +1470,13 @@
       "removed": "已移除 {p0}",
       "enableName": "启用 {name}",
       "openPage": "打开招聘页"
+    },
+    "time": {
+      "zone": "你的时区",
+      "zoneHelp": "雇主邮件里按当地时间写的时间（比如“太平洋时间 10:00”的面试）会换算到这个时区。留空表示跟随这台电脑；程序运行在另一台机器上或你在外地时再设置。",
+      "followComputer": "跟随这台电脑（{zone}）",
+      "followComputerPlain": "跟随这台电脑",
+      "zoneExample": "形如 Asia/Shanghai、America/Vancouver 的名称"
     }
   },
   "files": {
@@ -1590,7 +1600,8 @@
       "deleted": "已删除",
       "deletedFiles": "已删除 {p0} 个文件",
       "disabledFiles": "已停用 {p0} 个文件",
-      "folders": "文件夹"
+      "folders": "文件夹",
+      "notSent": "未投递"
     },
     "writtenFor": "所属岗位："
   },

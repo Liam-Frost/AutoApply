@@ -446,9 +446,19 @@ TRIAGE_SCHEMA = llm.obj(
                                  "interview, event cancelled - never event new."},
         "action": {"type": "string", "description": "what the applicant has to do, if the e-mail asks for something: 'complete the online assessment', 'choose an interview "
                                                     "slot', 'attend the interview', 'reply with availability'. One short phrase, in Simplified Chinese. Empty when it asks for nothing."},
-        "due": {"type": "string", "description": "the date, or date and time, by which or at which that is to be done - ONLY if the e-mail states one. ISO form: 2026-11-24 or "
-                                                 "2026-11-24T10:00. Use the year the e-mail implies. Empty when the e-mail states no date: never work one out from 'within a week' "
-                                                 "or from when the e-mail was sent."},
+        "due": {"type": "string", "description": "the date, or date and time, by which or at which that is to be done, exactly as the e-mail states it - on the clock the "
+                                                 "e-mail uses: do NOT convert it to another time zone. ISO form: 2026-11-24 or 2026-11-24T10:00. Use the year the e-mail "
+                                                 "implies. When the e-mail states no date but a period that fixes one - 'you have 14 days to complete it', 'the link expires "
+                                                 "in 5 days', 'within one week of this e-mail' - work the date out from the day the e-mail was sent (the Date line above) and "
+                                                 "give that day, without a time. Empty when the e-mail gives neither a date nor such a period ('as soon as possible' is not one)."},
+        "due_zone": {"type": "string", "description": "the time zone the time in `due` is said in, as an IANA name ('America/Vancouver', 'America/Toronto', 'Europe/Berlin', "
+                                                      "'Asia/Shanghai'). Decide it from the whole e-mail: a place it gives for the employer, the office or the interview "
+                                                      "('Surrey local time', an address in the signature) names that place's zone; an abbreviation alone ('PT', 'ET', 'PST') "
+                                                      "does not say which place is meant - places sharing an abbreviation keep different clocks (British Columbia no longer "
+                                                      "changes its clocks, the US West Coast does) - so prefer the place, and use the abbreviation's usual zone only when "
+                                                      "nothing says where. 'applicant' when the time is already the applicant's own: the e-mail says so ('shown in your time "
+                                                      "zone'), or it comes from a scheduling tool that shows times in the recipient's zone, or it names the applicant's zone "
+                                                      "(given on the Date line). Empty when `due` has no time of day, or when nothing in the e-mail tells - do not guess."},
         "due_text": {"type": "string", "description": "that date and time in the e-mail's own words, with the time zone if it names one ('Tuesday, Nov 24 at 10:00 AM PST'). Empty when none."},
         "links": {"type": "array", "items": llm.obj({"url": {"type": "string"}, "what": {"type": "string"}}),
                   "description": "the links in the e-mail the applicant would use for what it asks: the meeting to join, the assessment to start, the page to "
@@ -489,11 +499,118 @@ def mail_links(found: Any, body: str) -> list[dict[str, str]]:
     return out[:6]
 
 
-def triage(subject: str, sender: str, body: str) -> dict[str, Any]:
+def _sent_line(received: datetime | None) -> str:
+    """When the mail was sent, on the applicant's clock, and which clock that is: what "within 14 days" counts from and
+    what "your time zone" means."""
+    from . import clock
+
+    at = clock.to_local(received) if received is not None else clock.now()
+    zone = clock.zone_name()
+    return f"Date: {at:%Y-%m-%d %H:%M} ({at:%A})" + (f" - the applicant's time zone is {zone}" if zone else "")
+
+
+def triage(subject: str, sender: str, body: str, received: datetime | None = None) -> dict[str, Any]:
     return llm.json(
-        f"From: {sender}\nSubject: {subject}\n\n{body[:8000]}",
+        f"From: {sender}\nSubject: {subject}\n{_sent_line(received)}\n\n{body[:8000]}",
         TRIAGE_SCHEMA, small=True, max_tokens=1000, system=prompts.get("mail_triage"),
     )
+
+
+# --- when it is, on whose clock ----------------------------------------------------------------------------------------------
+# A mail often says a time without saying whose: "Tuesday at 10". Where the employer is - which the posting says - tells.
+# And what was read before the zone was asked for (cards made by an earlier version) is looked at once more.
+WHEN_SCHEMA = llm.obj({
+    "due": {"type": "string", "description": "the date, or date and time, as the e-mails state it, on the clock they use (not converted): 2026-11-24 or 2026-11-24T10:00. "
+                                             "The latest e-mail that states one decides. When none states a date but one states a period that fixes one ('14 days to complete "
+                                             "it'), the day worked out from the day THAT e-mail was received, without a time. Empty when there is neither."},
+    "due_zone": {"type": "string", "description": "the IANA time zone that time is said in: the zone of the place the e-mails or the posting give for the employer, the office "
+                                                  "or the interview; an abbreviation alone ('PT') does not say which place - prefer the place. 'applicant' when the time is "
+                                                  "already the applicant's own (a scheduling tool, 'your time zone', or the applicant's zone is named). Empty when `due` has "
+                                                  "no time of day or nothing tells."},
+    "due_text": {"type": "string", "description": "that date and time in the e-mail's own words ('Tuesday, November 24, 10:00 AM (Surrey local time)'), or the period ('14 days from "
+                                                  "the invitation'). Empty when none."},
+})
+WHEN_RULES = """You are given what the program recorded about the e-mails of one job application that ask the applicant for one thing (an interview, an
+assessment, an offer to answer, information to send), the posting's place, and the applicant's own time zone. Say when that thing is, or by
+when it is to be done, and on whose clock the e-mails say it. Never invent a date or a zone: what the records do not tell stays empty."""
+
+
+def when(application_id: int, category: str) -> dict[str, Any]:
+    """The date of what the mails of an application ask (category: interview, assessment, ...), and the zone it is said in:
+    asked of the model with everything that bears on it - what each mail said and when it came, where the employer is,
+    which zone is the applicant's."""
+    from . import clock
+
+    with db.session() as s:
+        a = s.get(Application, application_id)
+        if a is None:
+            return {}
+        j = a.job
+        mails = s.query(MailEvent).filter(MailEvent.application_id == application_id, MailEvent.category == category).order_by(MailEvent.received_at, MailEvent.id).all()
+        lines = []
+        for m in mails[-8:]:
+            asks = dict(m.asks or {})
+            said = "; ".join(x for x in (f"states the date {asks['due']}" if asks.get("due") else "", f"in its words: {asks['due_text']}" if asks.get("due_text") else "",
+                                         f"zone read from it: {asks['due_zone']}" if asks.get("due_zone") else "") if x)
+            at = clock.to_local(m.received_at) if m.received_at else None
+            lines.append(f"- received {at:%Y-%m-%d %H:%M (%A)}" if at else "- received (date unknown)")
+            lines[-1] += f" [{m.event or 'new'}]: {(m.summary or '')[:500]}" + (f" ({said})" if said else "")
+        if not lines:
+            return {}
+        text = (f"Employer: {j.company}\nPosting: {j.title}\nPlace given by the posting: {j.location or 'not given'}\n"
+                f"The applicant's time zone: {clock.zone_name() or 'not known'}\nToday: {clock.now():%Y-%m-%d (%A)}\n\nThe e-mails about its {category.replace('_', ' ')}, oldest first:\n"
+                + "\n".join(lines))
+    return llm.json(text, WHEN_SCHEMA, small=True, max_tokens=400, system=WHEN_RULES)
+
+
+def _zoned(app_id: int, category: str, asks: dict[str, Any] | None) -> dict[str, Any]:
+    """What a mail asks, with the zone its time is said in when the mail itself did not tell: looked for once more with
+    the posting's place beside it. Nothing found: as it was (the time is then taken as the applicant's own, and said so)."""
+    asks = dict(asks or {})
+    raw = str(asks.get("due") or "")
+    if "T" not in raw or asks.get("due_zone") or re.search(r"(Z|[+-]\d\d:?\d\d)$", raw):
+        return asks
+    try:
+        zone = str(when(app_id, category).get("due_zone") or "").strip()
+    except Exception:  # noqa: BLE001 - the AI is not there just now: the card is made with the time as the mail wrote it
+        log.exception("could not ask which time zone a mail's time is in")
+        return asks
+    if zone:
+        asks["due_zone"] = zone[:60]
+    return asks
+
+
+def redate_cards(limit: int = 8) -> int:
+    """Once for each card that waits with a date read before zones and periods were: its mails are read again for when it
+    is and on whose clock (an interview "at 10:00, Surrey local time" was kept as 10:00 here), and a card without a date
+    gets the one a stated period gives. A date the applicant set is theirs. Returns how many cards changed."""
+    from . import reminders
+    from .models import Todo
+
+    with db.session() as s:
+        todo = []
+        for t in s.query(Todo).filter(Todo.kind == reminders.KIND, Todo.status == "open").order_by(Todo.id):
+            p = dict(t.payload or {})
+            if p.get("_when_seen") or not p.get("message_id") or not p.get("application_id") or p.get("category") not in reminders.ASKS:
+                continue
+            t.payload = {**p, "_when_seen": True}
+            if p.get("date_by") == "user" or (t.due_at is not None and (p.get("date_only") or p.get("due_zone"))):
+                continue
+            todo.append((t.id, int(p["application_id"]), str(p["category"])))
+    changed = 0
+    for tid, app_id, category in todo[:limit]:
+        try:
+            w = when(app_id, category)
+        except Exception:  # noqa: BLE001 - asked again at the next look
+            log.exception("could not read a card's date again")
+            with db.session() as s:
+                t = s.get(Todo, tid)
+                if t is not None:
+                    t.payload = {**(t.payload or {}), "_when_seen": False}
+            continue
+        if w.get("due") and reminders.redate(tid, w):
+            changed += 1
+    return changed
 
 
 def _norm(s: str) -> str:
@@ -578,7 +695,7 @@ def _asked(app_id: int, title: str, category: str, event: str, summary: str, ask
     try:
         from . import reminders
 
-        reminders.from_mail(app_id, title, category, event, summary, asks, mid)
+        reminders.from_mail(app_id, title, category, event, summary, _zoned(app_id, category, asks), mid)
     except Exception:  # noqa: BLE001 - the mail is on record and announced; a card that could not be made does not undo that
         log.exception("could not make a card for what a mail asks")
 
@@ -774,6 +891,10 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             msgs = mailbox.fetch(datetime.now(timezone.utc) - timedelta(days=days), max_results, job_related=True, skip=_known)
     except mailbox.NotConfigured as e:
         raise MailNotConfigured(str(e)) from e
+    try:
+        redate_cards()
+    except Exception:  # noqa: BLE001 - a look at cards already there never stops the reading of new mail
+        log.exception("could not read the dates of waiting cards again")
     new = updated = unmatched = 0
     # In the order they were written. A mailbox hands over the newest first; a cancellation followed by a new invitation
     # would then be read backwards - the invitation changes nothing, and the older cancellation takes the interview away.
@@ -786,7 +907,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
         if ACCOUNT_MAIL.search(subj):
             t = {"category": "other", "company": "", "job_title": "", "summary": "verification e-mail (not shown)"}
         else:
-            t = triage(subj, frm, body)
+            t = triage(subj, frm, body, received)
             if t["category"] == "confirmation" and t.get("received") is False:
                 t = {**t, "category": "other"}       # about an application that was begun, or about an account: nothing was received yet
         # The conversation first: a reply in the thread of a mail the program sent for an application, or of mails
@@ -798,7 +919,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             # The mail and what it does to its application are one write. Written apart, a failure in between left the
             # mail "read" for good and the application where it was: an interview invitation on file, the application
             # still "submitted". Now a failure leaves neither, and the next pass reads the mail again.
-            asks: dict[str, Any] = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text") if t.get(k)}
+            asks: dict[str, Any] = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text", "due_zone") if t.get(k)}
             links = mail_links(t.get("links"), body)
             if links:
                 asks["links"] = links

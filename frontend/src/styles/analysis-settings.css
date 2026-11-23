@@ -278,3 +278,7 @@ input.w-num { width: 96px; } input.w-time { width: 124px; } input.w-short { widt
 .emp-cat .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .emp-table { margin-top: var(--s4); }
 .emp-off .entity, .emp-off .dt-cell > .meta, .emp-off .dt-cell > .num { opacity: 0.55; }
+
+/* A row whose cards hold very different amounts (two figures beside a long table): each as tall as what it holds -
+   stretched to one height, the short one was mostly empty. */
+.an-row.top { align-items: start; }

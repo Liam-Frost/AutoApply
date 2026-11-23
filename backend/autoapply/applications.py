@@ -191,15 +191,16 @@ def context(s: Any, *, dates: bool = True) -> dict[str, Any]:
             work[jid] = "running" if status == "running" or work.get(jid) == "running" else "queued"
     nxt: dict[int, dict[str, Any]] = {}
     if dates:
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         from . import agenda
+        from . import clock as _clock
 
         # (the calendar's times are the local wall clock, written without a zone: compared as they are written)
-        clock = datetime.now().isoformat(timespec="minutes")
+        clock = _clock.now().isoformat(timespec="minutes")
         order: dict[int, tuple[bool, str]] = {}
         try:
-            for it in agenda.items(date.today(), date.today() + timedelta(days=120), kinds=("interview", "assessment", "offer", "info_request", "own")):
+            for it in agenda.items(_clock.today(), _clock.today() + timedelta(days=120), kinds=("interview", "assessment", "offer", "info_request", "own")):
                 aid = (it.get("about") or {}).get("application_id")
                 if it.get("done"):      # (what was asked and has been done is not what comes next)
                     continue

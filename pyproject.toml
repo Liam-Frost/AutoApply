@@ -37,6 +37,8 @@ dependencies = [
   "pystray>=0.19",
   "pillow>=10",
   "websockets>=13",  # the Discord bot's gateway connection
+  "tzdata>=2026.6",  # time zone rules for employers' times (clock.py): the program's own, not the computer's
+  "tzlocal>=5",      # the computer's time zone by name
 ]
 
 

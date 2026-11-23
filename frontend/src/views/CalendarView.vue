@@ -84,6 +84,7 @@ const clearSearch = () => { search.value = ''; searching.value = false }
 // --- the items ------------------------------------------------------------------------------------------------------------
 const items = ref([])
 const serverOffset = ref(null)
+const serverZone = ref('')
 const fetchKey = computed(() => [iso(range.value[0]), iso(range.value[1]), kinds.value.join(','), f.value.state, f.value.company, f.value.prio, f.value.min, f.value.all].join('|'))
 const query = (start, end, k, g) => new URLSearchParams({ start: iso(start), end: iso(end), kinds: k.join(','), states: g.state, company: g.company,
   priority: g.prio ? 'true' : 'false', min_score: String(g.min || 0), all_deadlines: g.all ? 'true' : 'false' })
@@ -94,6 +95,7 @@ const { st, load } = dataState(async () => {
   if (key !== fetchKey.value) return          // (overtaken by another month or filter)
   items.value = r.items
   serverOffset.value = r.utc_offset
+  serverZone.value = r.zone || ''
 })
 watch(fetchKey, () => load(), { immediate: true })
 // what the views show: the search and "completed items" are applied here, to what was read
@@ -123,7 +125,8 @@ const zone = computed(() => {
   let name = ''
   try { name = Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch (e) { /* (an older browser) */ }
   const other = serverOffset.value !== null && serverOffset.value !== here ? t('calendar.tzOther', { there: offsetText(serverOffset.value), here: offsetText(here) }) : ''
-  return { name: t('calendar.tzName', { zone: other ? offsetText(serverOffset.value) : name || offsetText(here), offset: offsetText(other ? serverOffset.value : here) }), other }
+  const shown = serverZone.value || (other ? offsetText(serverOffset.value) : name || offsetText(here))
+  return { name: t('calendar.tzName', { zone: shown, offset: offsetText(serverOffset.value ?? here) }), other }
 })
 
 // --- the quick filters and the full filter ----------------------------------------------------------------------------

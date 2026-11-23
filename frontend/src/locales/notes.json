@@ -2664,7 +2664,7 @@
   "calendar.field.deadline": "Field in a deadline's details.",
   "calendar.field.when": "Field in an item's details: when it is.",
   "calendar.field.mail": "Field in an item's details: the time as the employer's mail wrote it.",
-  "calendar.field.timezone": "Field in an item's details.",
+  "calendar.field.timezone": "Field in an item's details: the time zone the time is shown in (the applicant's).",
   "calendar.field.score": "Field in a deadline's details: the posting's fit score.",
   "calendar.field.posting": "Field in an item's details: the posting it is about.",
   "calendar.field.link": "Field in an item's details, and the link field's name.",
@@ -2894,5 +2894,14 @@
   "sources.failedTimes": "State under the last-read time of a source whose last {n} reads in a row failed (n > 1). Keep it very short: it sits in a narrow table cell.",
   "accounts.colCredential": "Column header on Site accounts and label in an account's details: the saved password of the account (saved / not saved, shown on request).",
   "accounts.colSession": "Column header on Site accounts and label in an account's details: the cookies saved after a sign-in (saved at, expires by). Not 'signed in'.",
-  "application.tabsLabel": "Accessible name of the tab row on one application's page (Record, Agent, Materials, Mail, Timeline, Posting). Not shown."
+  "application.tabsLabel": "Accessible name of the tab row on one application's page (Record, Agent, Materials, Mail, Timeline, Posting). Not shown.",
+  "calendar.field.zone": "Field in an item's details: the time and time zone the employer's e-mail gave, which the time shown was converted from.",
+  "calendar.zoneFrom": "Value of 'Converted from'. {time}: day and time as the e-mail said it, already formatted. {zone}: an IANA time zone name (America/Vancouver).",
+  "calendar.zoneAssumed": "Hint in an item's details when the e-mail gave a time without saying whose clock it is. “Change the time” is the name of the button (calendar.move).",
+  "settings.time.zone": "Label of the time zone setting (Settings, reminders section).",
+  "settings.time.zoneHelp": "Help behind the (i) of the time zone setting.",
+  "settings.time.followComputer": "Placeholder of the empty time zone field. {zone}: the computer's IANA zone name.",
+  "settings.time.followComputerPlain": "Placeholder of the empty time zone field when the computer's zone has no name.",
+  "settings.time.zoneExample": "Unit text beside the time zone field: what to type (IANA names, not translated).",
+  "files.page.notSent": "Group of postings in the files page's folder list: files written for applications that ended without being sent (withdrawn, not applying, posting closed)."
 }

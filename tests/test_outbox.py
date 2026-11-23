@@ -291,7 +291,7 @@ def test_a_mail_in_the_conversation_of_an_applications_mail_is_about_that_applic
         s.add(Outgoing(application_id=app_id, kind="reply", to="dana@acme.example", subject="Re: questions", body="b", status="sent", thread_id="t-ours"))
     box: list = []
     monkeypatch.setattr(mailbox, "fetch", lambda *a, **k: list(box))
-    monkeypatch.setattr(mail, "triage", lambda subj, frm, body: {"company": "", "job_title": "", "category": "interview", "event": "new", "summary": "an interview", "received": False})
+    monkeypatch.setattr(mail, "triage", lambda subj, frm, body, *when: {"company": "", "job_title": "", "category": "interview", "event": "new", "summary": "an interview", "received": False})
     now = datetime.now(timezone.utc)
 
     def arrives(mid, thread, n):
