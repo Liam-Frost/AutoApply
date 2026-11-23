@@ -214,16 +214,16 @@ Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
 |---|---|
 | Windows 10 / 11 | used daily |
 | The application agent on the project's evaluation forms (a profile-first wizard, a form in another site's frame, a site that needs an account; a run killed half-way and taken up again) | every check passed, judged by what the employer's side received |
-| The application agent on real sites | three real postings worked up to the last step without sending (a SAP SuccessFactors site, a Workday site, Google Careers): accounts made, every step filled, questions asked. **No real application has been sent by the 2.0 agent yet** |
-| Sending by itself, after approval, or handing the window over | through the queue on the evaluation form; not on a real site |
+| The application agent on real sites | **34 real applications sent** in the first three days of 2.0 (2026-11-19 to 21): 25 on employers' own sites (Workday, SAP SuccessFactors, Greenhouse and large employers' own careers sites), 8 through the university's co-op portal, 1 by e-mail; 21 of them already confirmed by the employer's mail |
+| Sending by itself, after approval, or handing the window over | on real sites: 23 of those applications sent by itself, 11 after the applicant's approval; handing the window over: on the evaluation form |
 | Applications sent with 1.x (Greenhouse, Microsoft Careers, BambooHR and JazzHR sites) | real, confirmed by mail; that code is gone |
-| A co-op portal read by the agent | on the evaluation site's portal (a sign-in, a list on two pages): signed in, listed everything, stored every posting. Not on a real portal |
-| UBC portal | postings imported for real; the agent scanning the portal and applying through it are not confirmed on the real portal |
+| The UBC co-op portal (a sign-in, read by the agent) | read for real by the scheduled scans: 186 new postings stored since 2026-11-19; 8 applications sent through it by the agent |
 | The login, the listening address and the path prefix | login run end to end on a scratch copy; access from another device or behind a real reverse proxy not run |
 | Windows installer (install, upgrade, refusing to run over a running copy, cancel with the previous version put back, uninstall) | run end to end into a scratch folder, by CI on every release |
 | Failover between AI services | run once for real, when a subscription had actually run out |
 | macOS and Linux packages | built, installed and started by CI on every release; not used day to day by the author |
-| Other AI services than the Claude subscription | interface tested; application quality not compared |
+| The ChatGPT subscription | used for real beside the Claude subscription: of the 34 runs that sent an application, 8 used Claude, 6 ChatGPT and 20 both |
+| Other AI services | interface tested; application quality not compared |
 | English interface | machine-translated, not proof-read |
 
 ## Development
