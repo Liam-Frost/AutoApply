@@ -2510,7 +2510,8 @@
       "nothingPrepared": "还没有准备好的版本。",
       "notManaged": "切换需要从托盘程序启动 AutoApply。",
       "noPrevious": "上一个版本已经不在了。",
-      "other": "准备失败（{code}），正在运行的版本没有受影响。"
+      "other": "准备失败（{code}），正在运行的版本没有受影响。",
+      "notNewer": "这个版本不比正在运行的版本新。要回到旧版本，请用“回退”。"
     },
     "changelog": {
       "title": "更新日志",

@@ -83,6 +83,8 @@ def status() -> dict[str, Any]:
         staged = ""
     kept = staged if staged and (rel / staged).is_dir() else ""
     previous, build, switching = _previous(), running(), str(s.get("switching_to") or "")
+    if switching and switching not in _in_flight():      # (what an earlier switch asked for, and the tray has taken)
+        switching = ""
     pending = _next_release()
     if pending in (build, switching):      # (the one that runs, or the switch under way: nothing more to say)
         pending = ""
@@ -131,6 +133,34 @@ def release(name: str) -> dict[str, Any] | None:
                 day = datetime.fromtimestamp(f.stat().st_mtime).date().isoformat()
                 break
     return {"name": name, "version": ver, "date": day, "local": name != ver}
+
+
+def _version_of(name: str) -> str:
+    """The version a folder of data/releases holds (its own pyproject.toml); else the name itself (the updater names a
+    folder by the version it fetched)."""
+    r = release(name)
+    return str((r or {}).get("version") or name)
+
+
+def not_newer(name: str) -> bool:
+    """Is that release the version that runs, or an older one? Nothing goes back to it by itself."""
+    try:
+        return _key(_version_of(name)) <= _key(version())
+    except Exception:  # noqa: BLE001 - a name that is no version: not known to be older
+        return False
+
+
+def _in_flight() -> set[str]:
+    """The releases a switch has asked the tray for and the tray has not taken yet (its two markers)."""
+    out = set()
+    for f in ("next-release", "restart-request"):
+        p = config.DATA / "run" / f
+        try:
+            if p.is_file():
+                out.add(p.read_text(encoding="utf-8").strip())
+        except OSError:
+            pass
+    return out - {""}
 
 
 def running() -> str:
@@ -328,14 +358,17 @@ def in_window(at: datetime | None = None) -> bool:
     return a <= now_m < b if a < b else (now_m >= a or now_m < b)
 
 
-def switch(target: str | None = None) -> dict[str, Any]:
+def switch(target: str | None = None, *, back: bool = False) -> dict[str, Any]:
     """Ask the tray to restart into the version prepared (or into ``target``, one kept in data/releases). The tray waits
-    for what is in hand to be done; a version that does not start is left and the running one goes on."""
+    for what is in hand to be done; a version that does not start is left and the running one goes on. Only forwards:
+    a version that is the one running or older is gone back to only when the applicant asks for that (``back``)."""
     ver = target or str(state().get("staged") or "")
     if not ver or not (config.DATA / "releases" / ver / "frontend" / "dist" / "index.html").is_file():
         raise ValueError("nothing prepared")
     if kind() != "managed":
         raise ValueError("not-managed")
+    if not back and not_newer(ver):
+        raise ValueError("not-newer")
     run = config.DATA / "run"
     run.mkdir(parents=True, exist_ok=True)
     active = run / "active-release"
@@ -345,7 +378,7 @@ def switch(target: str | None = None) -> dict[str, Any]:
     hist = list(state().get("history") or []) + [{"from": version(), "to": ver, "at": datetime.now().isoformat(timespec="minutes")}]
     here = config.ROOT.resolve()
     previous = here.name if here.parent == (config.DATA / "releases").resolve() else (active.read_text(encoding="utf-8").strip() if active.is_file() else "")
-    _save(switching_to=ver, previous=previous, failed_switch="", history=hist[-20:])
+    _save(switching_to=ver, switching_back=bool(back), previous=previous, failed_switch="", history=hist[-20:])
     (run / "restart-request").write_text(ver, encoding="utf-8")
     return status()
 
@@ -354,7 +387,7 @@ def rollback() -> dict[str, Any]:
     prev = _previous()
     if not prev:
         raise ValueError("no-previous")
-    return switch(prev)
+    return switch(prev, back=True)
 
 
 def after_start() -> None:
@@ -364,10 +397,16 @@ def after_start() -> None:
     if s.get("status") in ("downloading", "preparing") and not _busy.locked():
         _save(status="failed", error="interrupted")      # (the program stopped while it was preparing)
     to = str(s.get("switching_to") or "")
+    if to and to not in (version(), config.ROOT.name) and not s.get("switching_back") and not_newer(to):
+        # What an earlier switch asked for is older than what runs now (a later version was started another way: a build
+        # staged by hand, the installer). Nothing failed and nothing is to be said; it is only forgotten.
+        _save(switching_to="", switching_back=False, status="idle" if s.get("status") in ("ready", "failed") else s.get("status", "idle"),
+              error="", failed_switch="")
+        s, to = state(), ""
     if to:
         ok = to in (version(), config.ROOT.name)
-        _save(switching_to="", status="idle" if ok else "failed", error="" if ok else "did-not-start", staged="" if ok else s.get("staged", ""),
-              failed_switch="" if ok else to)
+        _save(switching_to="", switching_back=False, status="idle" if ok else "failed", error="" if ok else "did-not-start",
+              staged="" if ok else s.get("staged", ""), failed_switch="" if ok else to)
         if not ok:
             (config.DATA / "run" / "next-release").unlink(missing_ok=True)      # (not tried again at the next restart)
         _tell("switched" if ok else "failed", to)
@@ -415,6 +454,9 @@ def tick(at: datetime | None = None) -> str:
     it is "auto", idle and inside the window - or when "update when idle" was pressed, and idle. Returns what it did."""
     s = state()
     wanted = str(s.get("when_idle") or "")
+    if wanted and not_newer(wanted):
+        _save(when_idle="")      # (not forwards any more: a later version runs)
+        wanted = ""
     if wanted and wanted == s.get("staged") and s.get("failed_switch") != wanted and kind() == "managed" and idle():
         _save(when_idle="")
         switch(wanted)

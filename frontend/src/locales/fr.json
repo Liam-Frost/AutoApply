@@ -2510,7 +2510,8 @@
       "nothingPrepared": "Aucune version n’est encore préparée.",
       "notManaged": "Changer de version demande qu’AutoApply soit lancé depuis l’application de la barre des tâches.",
       "noPrevious": "La version précédente n’est plus conservée.",
-      "other": "La préparation a échoué ({code}). La version en marche n’est pas touchée."
+      "other": "La préparation a échoué ({code}). La version en marche n’est pas touchée.",
+      "notNewer": "Cette version n’est pas plus récente que celle qui tourne. Pour revenir en arrière, utilisez Revenir."
     },
     "changelog": {
       "title": "Journal des modifications",
