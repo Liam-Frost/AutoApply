@@ -4,8 +4,9 @@ hosts: pdportal.apsc.ubc.ca, orbiscommunities.ca
 
 - Signed in through the university's own login, usually with a second factor on the applicant's phone: theirs to
   approve. A session lasts a few hours; "Not Logged In" means it is over.
-- Postings: the co-op postings page, searched with an EMPTY keyword (the placeholder "Keyword" is not a keyword: a
-  filter chip with it shows nothing - remove it). Each row's button carries the form data that opens the posting.
+- Postings: the co-op postings page lists every faculty's postings. Narrow it to the applicant's programme first (see
+  below); a keyword search is not that (and the placeholder "Keyword" is not a keyword: a filter chip with it shows
+  nothing - remove it). Each row's button carries the form data that opens the posting.
 - A posting has no address of its own: the program names it "...postings.htm#posting=<id>", which opens the
   postings page and nothing more. Open it from the list: take the object in a row button's
   onclick="...buildForm({...})" and submit it with that posting's id, in this tab -
@@ -22,11 +23,16 @@ hosts: pdportal.apsc.ubc.ca, orbiscommunities.ca
   the upload link may need pressing twice: check that the page has left "Upload a Document".
 - Deadlines are in the portal's time zone, not the viewer's.
 
-## Reading every posting (what worked on UBC's PD Portal)
+## Reading the postings for the applicant's programme (what worked on UBC's PD Portal)
 
-On the postings page, submit the search form with an empty keyword (`#widgetSearch`, field `widget1Keyword`) so that
-everything is listed. Then this script, given to `save_postings`, reads the ids from every page of the list and
-fetches the text of the postings that are new - the detail page is a POST with the object from a row's button:
+All postings are some thousand; those for one programme (Computer) about two hundred. On the postings page, open the
+"For My Program" search (or any list of postings); its QUICK FILTERS have "Filter by Program" - a list box
+(`select[name=programId]`) of the programmes - and "Apply Filters". Select only the applicant's programme(s) (the brief
+names them; "Computer Engineering" is "Computer"), apply, and check the count the page states. Then this script, given
+to `save_postings`, reads the ids from every page of that list and fetches the text of the postings that are new - the
+detail page is a POST with the object from a row's button. If paging loses the filter (the count grows to everything),
+page with the list's own page links instead. Only when no programme of the applicant's is offered: submit the search
+form with an empty keyword (`#widgetSearch`, field `widget1Keyword`) and read everything.
 
 ```js
 async (known) => {

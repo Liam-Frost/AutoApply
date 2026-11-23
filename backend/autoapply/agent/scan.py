@@ -26,7 +26,8 @@ log = logging.getLogger("autoapply.agent")
 
 SYSTEM = """You read the job postings of a site for a job applicant, in a browser the program gave you. The site needs their
 sign-in (a school's co-op portal, an employer's portal). The task is yours from the first page to the last posting: get
-into the site, find where the postings are listed, and give the program every posting that is listed now - with the
+into the site, find where the postings are listed, and give the program every posting that is listed now for the applicant
+(when the site can narrow its list to the applicant's programme of study, the postings for that programme) - with the
 whole text of the ones it does not have yet.
 
 - Signing in: `account` says what is on record; `type_password` types the stored password into the box you point at

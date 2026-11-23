@@ -138,11 +138,17 @@ def row_of(p: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
 
 
 def _facts() -> str:
-    """What the program knows that bears on signing in now: said to the agent, which decides."""
-    from .. import db, sites, tasks
+    """What the program knows that bears on this visit - the applicant's programme, signing in now: said to the agent,
+    which decides."""
+    from .. import db, intake, sites, tasks
     from ..models import Todo
 
     out = []
+    mine = intake.programmes()
+    if mine:      # (the portal lists every faculty's postings: a fifth of them are for the applicant)
+        out.append(f"The applicant's programme of study: {', '.join(mine)}. Read the postings for it: narrow the list to that programme "
+                   "first (the portal's filter by programme), and read every page of that list. A posting for other programmes is set aside "
+                   "unread anyway, and the whole list is several times as long. If the site offers no programme of theirs, read every posting.")
     if tasks.running_by_hand():
         out.append("The applicant started this scan themselves, just now.")
     elif notify.quiet_now():

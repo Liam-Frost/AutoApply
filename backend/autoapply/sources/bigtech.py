@@ -196,7 +196,7 @@ def google(terms: list[str], keep: Keep = _all) -> Iterator[dict[str, Any]]:
 def intel(terms: list[str], keep: Keep = _all) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     for q in terms:
-        for r in workday("intel.wd1.myworkdayjobs.com", "intel", "External", search=q, limit=MAX_PER_TERM):
+        for r in workday("intel.wd1.myworkdayjobs.com", "intel", "External", search=q, limit=MAX_PER_TERM, keep=keep, company="Intel"):
             if r["source_id"] in seen:
                 continue
             seen.add(r["source_id"])

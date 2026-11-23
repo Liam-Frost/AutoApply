@@ -310,12 +310,15 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
             continue
         if err is not None:
             log.warning("source %s failed: %s", e["name"], err)
-            from .sources.public import Refused
+            from .sources.public import Refused, Resting
 
             if isinstance(err, Refused):       # the same answer for every board of that service: said once
                 who = str(err).split(" ", 1)[0]
                 summary.setdefault("refused", {}).setdefault(who, []).append(e["name"])
                 summary["errors"][e["name"]] = T("server.discover.theSitesSecurityCheck", p0=who)
+            elif isinstance(err, Resting):     # the service asked for fewer requests: its boards wait for the next scan
+                summary.setdefault("resting", {}).setdefault(err.who, []).append(e["name"])
+                summary["errors"][e["name"]] = T("server.discover.theServiceAskedFor", p0=err.who)
             else:
                 summary["errors"][e["name"]] = f"{type(err).__name__}: {str(err)[:200]}"
             continue

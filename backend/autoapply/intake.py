@@ -163,6 +163,18 @@ def my_fields() -> set[str]:
     return _field_words(field_of_study(knowledge.read("profile") or ""))
 
 
+def programmes() -> list[str]:
+    """The applicant's programme(s) of study by name, for a site that lists postings by programme: what they set
+    (intake.programs), else the field of the programme they are in (the profile's Education section)."""
+    given = [str(x).strip() for x in (db.get_setting("intake.programs") or []) if str(x).strip()]
+    if given:
+        return given
+    from . import knowledge
+
+    mine = field_of_study(knowledge.read("profile") or "")
+    return [mine] if mine else []
+
+
 def field_of_study(profile: str) -> str:
     """"Computer Engineering" from "- University of X (City), Bachelor of Applied Science, Computer Engineering, Sept 2024 - ..."."""
     section = re.search(r"^## Education\b(.*?)(?=^## |\Z)", profile, re.S | re.M)

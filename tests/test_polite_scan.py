@@ -9,6 +9,8 @@ def test_a_workday_scan_reads_only_new_postings_it_would_keep_and_waits_when_tol
 
     with db.session() as s:
         s.add(Job(source="workday", source_id="acme:JR1", company="Acme", title="Known Intern", apply_url="https://acme.wd1.myworkdayjobs.com/en-US/Ext/job/x_JR1", jd_text="x" * 300))
+    for k in ("_refused", "_last", "_pace", "_rest", "_strikes", "_answered"):      # (what earlier requests taught it about the service)
+        monkeypatch.setattr(public, k, {})
     calls, slept = [], []
     monkeypatch.setattr("time.sleep", lambda t: slept.append(t))
     busy = {"n": 1}
@@ -34,4 +36,4 @@ def test_a_workday_scan_reads_only_new_postings_it_would_keep_and_waits_when_tol
     assert [r["source_id"] for r in rows] == ["acme:JR1", "acme:JR2", "acme:JR3"]
     assert "jd_text" not in rows[0] and "jd_text" not in rows[1] and "Build things" in rows[2]["jd_text"] and rows[2]["company"] == "Acme Corp"
     assert [c for c in calls if c[0] == "GET"] == [("GET", "/wday/cxs/acme/Ext/job/z_JR3-1")]      # one description, not three
-    assert 7 in slept      # waited as long as the site asked, then went on
+    assert any(6.9 < s <= 7 for s in slept)      # waited as long as the site asked, then went on

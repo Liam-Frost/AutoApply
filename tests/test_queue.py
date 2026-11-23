@@ -264,8 +264,8 @@ def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_wh
 
     from autoapply.sources import public
 
-    monkeypatch.setattr(public, "_refused", {})
-    monkeypatch.setattr(public, "_last", {})
+    for k in ("_refused", "_last", "_pace", "_rest", "_strikes", "_answered"):
+        monkeypatch.setattr(public, k, {})
     asked = []
 
     def answer(request):
@@ -283,10 +283,77 @@ def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_wh
         with pytest.raises(public.Refused, match="not asked again"):
             public._send(c, "POST", "https://td.wd3.myworkdayjobs.com/wday/cxs/td/Y/jobs", gap=0)
         assert len(asked) == 1                                              # another board of the same service: not asked at all
-        # a server that really is busy is still waited for and asked again; another service is not affected
+        # a server that really says "too many requests" is given the time it asks for and asked again - and when it keeps
+        # saying it, it rests (below); another service is not affected
         monkeypatch.setattr("time.sleep", lambda s: None)
-        assert public._send(c, "GET", "https://api.lever.co/busy", gap=0).status_code == 429 and asked.count("api.lever.co") == 4
-        assert public._send(c, "GET", "https://api.lever.co/v0/postings/x", gap=0).status_code == 200
+        with pytest.raises(public.Resting):
+            public._send(c, "GET", "https://api.lever.co/busy", gap=0)
+        assert asked.count("api.lever.co") == 4
+        assert public._send(c, "GET", "https://api.example.org/v0/postings/x", gap=0).status_code == 200
+
+
+def test_too_many_requests_rests_the_whole_service_and_it_is_asked_more_slowly(monkeypatch):
+    """Seven Workday boards failed on every scan, for a week, with a real "429 Too Many Requests": one board's pages at
+    1.5 s apart, the tenth refused; four quick retries refused; then every other board's first request refused - the
+    service limits this computer's requests to all its employers together, and each new request kept it refusing."""
+    import httpx
+
+    from autoapply.sources import public
+
+    for k in ("_refused", "_last", "_pace", "_rest", "_strikes", "_answered"):
+        monkeypatch.setattr(public, k, {})
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr("time.sleep", lambda s: clock.__setitem__("now", clock["now"] + s))
+    asked: list[tuple[str, float]] = []
+    refusing = {"until": None}
+
+    def answer(request):
+        asked.append((request.url.host, clock["now"]))
+        if refusing["until"] is None and len(asked) == 10:          # the tenth request in a row: the limit
+            refusing["until"] = clock["now"] + 100
+        if refusing["until"] is not None and clock["now"] < refusing["until"]:
+            return httpx.Response(429, json={"error": "too many requests"})
+        return httpx.Response(200, json={"jobPostings": []})
+
+    wd = "https://{t}.wd3.myworkdayjobs.com/wday/cxs/{t}/X/jobs"
+    with httpx.Client(transport=httpx.MockTransport(answer)) as c:
+        for _ in range(9):
+            assert public._send(c, "POST", wd.format(t="cibc")).status_code == 200
+        gaps = [b[1] - a[1] for a, b in zip(asked, asked[1:])]
+        assert min(gaps) >= public.PACE["myworkdayjobs.com"]                    # Workday is asked at its own pace, not every half second
+        # refused: it rests a minute and is asked once more; refused again, it rests longer than a scan waits
+        with pytest.raises(public.Resting) as e:
+            public._send(c, "POST", wd.format(t="cibc"))
+        assert len(asked) == 11 and asked[10][1] - asked[9][1] >= 60 and e.value.who == "myworkdayjobs.com" and e.value.minutes == 2
+        # the service's other boards in this scan: not asked at all, and said once for all of them
+        with pytest.raises(public.Resting):
+            public._send(c, "POST", wd.format(t="bmo"))
+        assert len(asked) == 11
+        # after its rest it is asked again, more slowly than before (twice for each refusal), and the pace comes back
+        clock["now"] += 121
+        assert public._send(c, "POST", wd.format(t="bmo")).status_code == 200
+        public._send(c, "POST", wd.format(t="td"))
+        assert asked[-1][1] - asked[-2][1] >= 4 * public.PACE["myworkdayjobs.com"]
+        for _ in range(20):
+            public._send(c, "POST", wd.format(t="td"))
+        assert public._pace["myworkdayjobs.com"] == 3 * public.PACE["myworkdayjobs.com"]
+        # an answer that says how long to wait is believed
+        refusing["until"] = clock["now"] + public._pace["myworkdayjobs.com"] + 5
+        monkeypatch.setattr(public, "_asked", lambda r: 5.0 if r.status_code == 429 else None)
+        start = clock["now"]
+        assert public._send(c, "POST", wd.format(t="td")).status_code == 200 and clock["now"] - start < 60
+
+
+def test_a_service_that_asked_for_fewer_requests_is_one_line_in_the_summary(app_env):
+    from autoapply import messages
+    from autoapply.say import say as T
+    from autoapply.sources import public
+
+    err = public.Resting("myworkdayjobs.com", 0)
+    said = {name: T("server.discover.theServiceAskedFor", p0=err.who) for name in ("TD", "BMO", "CIBC")}
+    card = messages.discover_done({"read": 0, "seen": 0, "new": 0, "back": 0, "offline": 0}, {}, said)
+    assert len(card.detail.splitlines()) == 2 and "TD、BMO、CIBC" in card.detail and "HTTP 429" in card.detail
 
 
 def test_boards_of_one_service_turned_away_are_told_as_one_thing(app_env):

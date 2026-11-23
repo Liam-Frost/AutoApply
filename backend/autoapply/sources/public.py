@@ -63,10 +63,32 @@ class Refused(RuntimeError):
     a sign-in. Asking again does not help and is not done - not for this address, and not for the others of the same service."""
 
 
+class Resting(RuntimeError):
+    """The service said "too many requests" (HTTP 429) and is left alone for as long as it asked, or longer each time it
+    says it again. What is left of its listings is read at the next scan; nothing is asked of it before then."""
+
+    def __init__(self, who: str, until: float) -> None:
+        import time
+
+        self.who, self.minutes = who, max(1, round((until - time.monotonic()) / 60))
+        super().__init__(f"{who} asked for fewer requests (HTTP 429); it is left alone for {self.minutes} min")
+
+
 _last: dict[str, float] = {}        # service -> when the last request to it was sent
 _refused: dict[str, float] = {}     # service -> when it turned a request away with its security check
 _locks: dict[str, Any] = {}
 REFUSED_FOR = 6 * 3600              # seconds a service that refused is left alone
+# How fast a service is asked. Workday limits the requests of one network address to all its employers' boards together:
+# one board's ten pages at 1.5 s apart, and the eleventh was refused - and then every other board's first, for minutes.
+# A service starts at its own pace; each 429 doubles the time between two requests and rests the service (as long as it
+# asks with Retry-After, else a minute, then two, four ...); twenty answers in a row bring the pace back by a quarter.
+PACE = {"myworkdayjobs.com": 3.0, "myworkdaysite.com": 3.0}
+SLOWEST = 20.0                      # seconds between two requests at most
+WAIT_IN_SCAN = 90.0                 # a rest up to this long is waited out; a longer one ends the service's turn in this scan
+_pace: dict[str, float] = {}        # service -> seconds between two requests now
+_rest: dict[str, float] = {}        # service -> not asked before this moment (time.monotonic)
+_strikes: dict[str, int] = {}       # service -> 429s in a row
+_answered: dict[str, int] = {}      # service -> answers since its pace last changed
 CHALLENGE = re.compile(r"security check|enable javascript and cookies|just a moment|attention required|cf-chl|verify you are human", re.I)
 
 
@@ -77,12 +99,22 @@ def service(host: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
+def _asked(r: httpx.Response) -> float | None:
+    """The seconds a "too many requests" or "busy" answer asks to wait (Retry-After, in seconds), if it says."""
+    asked = r.headers.get("Retry-After", "").strip()
+    return float(asked) if asked.replace(".", "", 1).isdigit() else None
+
+
 def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any) -> httpx.Response:
-    """One request, sent the way a site can live with: not sooner than ``gap`` seconds after the previous one to the same
-    service - also when several sources are fetched side by side - and when the site says "too many requests" (429) or
-    "busy" (503), wait as long as it asks (Retry-After), or longer each time when it does not say, and try again, three
-    times at most. A security check in place of an answer is not "busy": it raises Refused at once, and the service is
-    left alone for six hours."""
+    """One request, sent the way a site can live with: not sooner than its pace after the previous one to the same
+    service (``gap``, or the service's own, slower after it said 429) - also when several sources are fetched side by side.
+
+    "Too many requests" (429) is about this computer and the whole service, not one board: the service rests (as long as
+    it asks, else a minute, two, four ...) and is asked more slowly from then on. A rest of up to a minute and a half is
+    waited out; a longer one raises Resting - for this board and, without a request, for the service's other boards in
+    this scan. Asking again at once is what kept Workday refusing every board, scan after scan. "Busy" (503): wait as
+    long as it asks, or longer each time, three times at most. A security check in place of an answer raises Refused at
+    once, and the service is left alone for six hours."""
     import threading
     import time
     from urllib.parse import urlparse
@@ -92,22 +124,42 @@ def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any
     if since is not None and time.monotonic() - since < REFUSED_FOR:
         raise Refused(f"{who} turned this computer's network away with a security check earlier; it is not asked again for a few hours")
     lock = _locks.setdefault(who, threading.Lock())
+    base = max(gap, PACE.get(who, 0.0))
     r = None
     for attempt in range(4):
         with lock:
-            wait = _last.get(who, 0) + gap - time.monotonic()
+            now = time.monotonic()
+            resting = _rest.get(who, 0.0) - now
+            if resting > WAIT_IN_SCAN:
+                raise Resting(who, _rest[who])
+            wait = max(resting, _last.get(who, 0.0) + _pace.get(who, base) - now)
             if wait > 0:
                 time.sleep(wait)
             r = c.request(method, url, **kw)
             _last[who] = time.monotonic()
+            if r.status_code == 429:
+                n = _strikes[who] = _strikes.get(who, 0) + 1
+                asked = _asked(r)
+                _rest[who] = _last[who] + (asked if asked is not None else min(1800.0, 60.0 * 2 ** (n - 1)))
+                _pace[who] = min(SLOWEST, max(_pace.get(who, base), base) * 2)
+                _answered[who] = 0
+            elif r.status_code < 400:
+                _strikes[who] = 0
+                _answered[who] = _answered.get(who, 0) + 1
+                if _answered[who] >= 20 and _pace.get(who, base) > base:
+                    _pace[who], _answered[who] = max(base, _pace[who] * 0.75), 0
         if r.status_code in (403, 429, 503) and "html" in r.headers.get("content-type", "") and CHALLENGE.search(r.text[:4000]):
             _refused[who] = time.monotonic()
             raise Refused(f"{who} answers with a security check (HTTP {r.status_code}) instead of its listing: its protection does not accept requests "
                           "from this computer's network address (often a proxy or VPN exit). This is not a sign-in problem and not a busy server")
-        if r.status_code not in (429, 503) or attempt == 3:
+        if r.status_code == 429:
+            if attempt == 3:
+                raise Resting(who, _rest[who])
+            continue                                  # (the rest is waited out above, or ends the turn)
+        if r.status_code != 503 or attempt == 3:
             break
-        asked = r.headers.get("Retry-After", "")
-        time.sleep(min(90.0, float(asked)) if asked.replace(".", "", 1).isdigit() else 6.0 * 2 ** attempt)
+        asked = _asked(r)
+        time.sleep(min(90.0, asked if asked is not None else 6.0 * 2 ** attempt))
     return r
 
 
