@@ -2371,7 +2371,8 @@
     "discard": "Abandonner",
     "attachmentRemoved": "Pièce jointe retirée",
     "toFill": "Le texte a {n} passage à compléter (marqué par [[ ]]) : remplacez tout le [[…]] par votre réponse avant l’envoi. | Le texte a {n} passages à compléter (marqués par [[ ]]) : remplacez chaque [[…]] en entier par votre réponse avant l’envoi.",
-    "removeFile": "Retirer {name}"
+    "removeFile": "Retirer {name}",
+    "sendingNow": "Envoi…"
   },
   "contacts": {
     "addContact": "Ajouter un contact",

@@ -1,7 +1,7 @@
 // Carrying out an action (ui.run): once is enough, what failed is told from what could not be shown, queued work
 // says where it stands, a form keeps its error.
 import { afterEach, describe, expect, it } from 'vitest'
-import { busy, formErrors, run, toasts } from '../src/ui.js'
+import { answer, ask, busy, formErrors, run, toasts } from '../src/ui.js'
 
 const later = () => { let done, fail; const p = new Promise((res, rej) => { done = res; fail = rej }); return { p, done, fail } }
 const said = () => toasts.map((t) => [t.text, t.tone])
@@ -86,5 +86,45 @@ describe('run', () => {
     gate.done()
     await again
     expect(said()).toEqual([['saved', '']])
+  })
+})
+
+// An action that asks first ("Send this e-mail?") runs after the answer, when the click is over: the button it came from
+// showed nothing for the seconds a mail takes to go, and pressing it again was the obvious thing to do (2026-11-23).
+describe('an action that asks first', () => {
+  it('is shown on the button the question was asked from, once the answer is yes', async () => {
+    const send = button()
+    const gate = later()
+    click(send)
+    const q = ask('Send this e-mail?')
+    click(button())                              // (the dialog's own button, pressed to answer)
+    answer(true)
+    expect(await q).toBe(true)
+    globalThis.window.event = undefined
+    const going = run(async () => { await gate.p }, 'sent')
+    expect([...send.attrs].sort()).toEqual(['aria-busy', 'data-busy'])
+    gate.done()
+    await going
+    expect(send.attrs.size).toBe(0)
+  })
+  it('a "no" marks nothing, and a question still open is not taken by another action', async () => {
+    const del = button()
+    click(del)
+    const q = ask('Delete it?')
+    globalThis.window.event = undefined
+    let seen = -1
+    await run(async () => { seen = del.attrs.size }, '')          // something else, while the question is open
+    expect(seen).toBe(0)
+    answer(false)
+    expect(await q).toBe(false)
+    await run(async () => { seen = del.attrs.size }, '')
+    expect(seen).toBe(0)
+  })
+  it('a page that shows the state itself says so (opts.el: null)', async () => {
+    const send = button()
+    click(send)
+    let seen = -1
+    await run(async () => { seen = send.attrs.size }, '', null, { el: null })
+    expect(seen).toBe(0)
   })
 })

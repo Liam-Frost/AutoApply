@@ -11,7 +11,9 @@ def test_a_single_day_is_seen_by_the_hour_and_nothing_else_is(app_env):
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     today = datetime.now().strftime("%Y-%m-%d")
-    sent = [(now - timedelta(minutes=5), True), (now - timedelta(minutes=10), False)]
+    # two sent today - never before midnight: "five and ten minutes ago" was yesterday in the first minutes of a day
+    midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+    sent = [(max(midnight, now - timedelta(minutes=5)), True), (max(midnight, now - timedelta(minutes=10)), False)]
     day = an._through_time(an.window(0, today, today), sent, [now], "")
     assert day["bucket"] == "hour" and sum(r["n"] for r in day["rows"]) == 2 and sum(r["replies"] for r in day["rows"]) == 1
     assert len(day["rows"]) == datetime.now().hour + 1 and day["rows"][0]["label"] == "00:00"      # every hour so far, the empty ones too

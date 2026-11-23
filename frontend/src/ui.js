@@ -38,8 +38,22 @@ export const formErrors = reactive({})
 // the button this call comes out of, when it comes out of a click (window.event is the event being handled)
 function pressed() {
   const ev = typeof window !== 'undefined' ? window.event : null
-  const el = ev && ev.type === 'click' && ev.target && ev.target.closest ? ev.target.closest('button, .btn, [role=button]') : null
+  let el = ev && ev.type === 'click' && ev.target && ev.target.closest ? ev.target.closest('button, .btn, [role=button]') : null
+  // an item of a menu: the menu goes with the click - the button that opened it is where the action shows (Menu.vue)
+  const menu = el && el.closest ? el.closest('[role=menu][id]') : null
+  if (menu && typeof document !== 'undefined') el = document.querySelector(`[aria-controls="${menu.id}"]`) || el
   return el && el.isConnected ? el : null
+}
+// The button a question was asked from (ask, choose). An action that asks first ("Send this e-mail?") is carried out
+// once the answer is given - by then the click is over, window.event is gone, and the button that started it showed
+// nothing for as long as the action took (a mail is sent in seconds; pressed again, it was the obvious thing to do).
+// The answer hands the action back to that button.
+let asked = null      // { el, at }: the button, and when the question was answered yes (0: not, or not yet)
+function askedFrom() {
+  if (!asked || !asked.at) return null      // (a question still open is not taken by another action)
+  const a = asked
+  asked = null
+  return Date.now() - a.at < 3000 && a.el && a.el.isConnected ? a.el : null
 }
 function mark(el, on) {
   if (!el || !marked) return
@@ -50,7 +64,8 @@ function mark(el, on) {
 // afresh. `opts`: { name, form }. Resolves to what the action returned, or to false when it did not succeed (what went
 // wrong has been shown) or was already under way.
 export async function run(fn, ok, after, opts = {}) {
-  const el = pressed()
+  // (`opts.el`: the element to show it on - null for none, when the page shows the state itself)
+  const el = opts.el !== undefined ? opts.el : (askedFrom() || pressed())
   const name = opts.name || ''
   if ((el && marked && marked.has(el)) || (name && going.has(name))) return false
   mark(el, true)
@@ -83,6 +98,7 @@ export async function run(fn, ok, after, opts = {}) {
 export const dialog = reactive({ open: false, text: '', ok: '', danger: false, resolve: null, choices: null, cancel: false })
 export function ask(text, opts = {}) {
   if (dialog.open && dialog.resolve) dialog.resolve(dialog.cancel)
+  asked = { el: pressed(), at: 0 }
   const danger = !!opts.danger
   return new Promise((resolve) => Object.assign(dialog, { open: true, text, ok: opts.ok || (danger ? T('common.delete') : T('common.ok')), danger, resolve, choices: null, cancel: false }))
 }
@@ -90,11 +106,13 @@ export function ask(text, opts = {}) {
 // to `cancel` when the dialog is closed without choosing (Esc, a click beside it).
 export function choose(text, choices, cancel) {
   if (dialog.open && dialog.resolve) dialog.resolve(dialog.cancel)
+  asked = { el: pressed(), at: 0 }
   return new Promise((resolve) => Object.assign(dialog, { open: true, text, danger: false, resolve, choices, cancel }))
 }
 export function answer(v) {
   const r = dialog.resolve
   dialog.open = false; dialog.resolve = null
+  if (asked) asked.at = v && v !== dialog.cancel ? Date.now() : 0
   if (r) r(v)
 }
 

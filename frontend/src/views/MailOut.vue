@@ -33,12 +33,18 @@ const STATUS = { draft: T('mail.notSentYet'), sending: T('mail.sending'), sent: 
 const TONE = { sent: 'ok', sending: 'info', discarded: '' }
 
 const save = () => run(async () => { m.value = await api.patch(`/mail/out/${props.id}`, form.value) }, T('mail.saved'))
+// Sending takes a few seconds (the mailbox sends it, then is asked for the copy it keeps). From the press on, the button
+// says it is sending and cannot be pressed again, nor can the others; when it went, it says "Sent" and stays so; only a
+// mail that did not go gives the buttons back.
+const phase = ref('')       // '' | 'sending' | 'sent'
 async function send() {
   if (!(await ask(T('mail.sendToFromYour', { p0: form.value.to }), { ok: T('mail.send') }))) return
-  await run(async () => {
+  phase.value = 'sending'
+  const went = await run(async () => {
     if (changed.value) m.value = await api.patch(`/mail/out/${props.id}`, form.value)
     m.value = await api.post(`/mail/out/${props.id}/send`)
-  }, T('mail.sent'))
+  }, T('mail.sent'), null, { el: null })
+  phase.value = went === false ? '' : 'sent'
 }
 async function discard() {
   if (!(await ask(T('mail.notSendThisE'), { ok: T('mail.discard'), danger: true }))) return
@@ -87,11 +93,14 @@ const removeFile = (name) => run(async () => { m.value = await api.patch(`/mail/
         </div>
       </div>
 
-      <div v-if="m.can_edit" class="actions form-acts">
-        <button class="ghost" @click="discard">{{ $t('mail.dontSendDiscard') }}</button>
+      <div v-if="m.can_edit || phase" class="actions form-acts">
+        <button v-if="!phase" class="ghost" @click="discard">{{ $t('mail.dontSendDiscard') }}</button>
         <span class="grow"></span>
-        <button :disabled="!changed" @click="save">{{ $t('mail.saveChanges') }}</button>
-        <button class="primary" :disabled="!m.can_send || !!open.length || !form.to || !form.subject || !form.body" @click="send"><Icon name="mail" />{{ $t('mail.sendFromMyMailbox') }}</button>
+        <button v-if="!phase" :disabled="!changed" @click="save">{{ $t('mail.saveChanges') }}</button>
+        <button class="primary" :aria-busy="phase === 'sending' ? 'true' : undefined"
+          :disabled="!!phase || !m.can_send || !!open.length || !form.to || !form.subject || !form.body" @click="send">
+          <span v-if="phase === 'sending'" class="btn-spin" aria-hidden="true"></span><Icon v-else :name="phase === 'sent' ? 'check' : 'mail'" />{{ phase === 'sending' ? $t('mail.sendingNow') : phase === 'sent' ? $t('mail.sent') : $t('mail.sendFromMyMailbox') }}
+        </button>
       </div>
     </div>
   </template>

@@ -422,7 +422,9 @@ def test_what_is_still_to_come_is_next_before_what_was_earlier_today(world):
     from autoapply import applications
     from autoapply.models import Todo
 
-    past = datetime.now().replace(hour=0, minute=1, second=0, microsecond=0)
+    # (earlier today whatever the time of the run: 00:01 was still to come in a day's first minute)
+    now = datetime.now()
+    past = max(now.replace(hour=0, minute=0, second=0, microsecond=0), (now - timedelta(minutes=1)).replace(second=0, microsecond=0))
     tomorrow = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=30, second=0, microsecond=0)
     with db.session() as s:
         s.add(Todo(kind="followup", ref=f"followup:{world['talks']}:am", title="Hooli - interview", due_at=past, payload={"application_id": world["talks"], "category": "interview"}))

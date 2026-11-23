@@ -3245,5 +3245,6 @@
   "todos.removeFromCalendar": "Menu item on the card of an item of the applicant's own calendar (or a follow-up): closing it takes it off the calendar.",
   "todos.removedFromCalendar": "Notice after Remove from my calendar; followed by an Undo button.",
   "todos.undo": "Button in a notice: takes back what was just done (an item removed from the calendar).",
-  "todos.backOnYourCalendar": "Notice after Undo of a removal from the calendar."
+  "todos.backOnYourCalendar": "Notice after Undo of a removal from the calendar.",
+  "mail.sendingNow": "The send button while the e-mail is being sent (with a spinner); it cannot be pressed again."
 }
