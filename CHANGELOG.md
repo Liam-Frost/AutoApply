@@ -4,6 +4,178 @@
 
 All notable changes to AutoApply, newest first. Versions follow [Semantic Versioning](https://semver.org/); changes not released yet are pending fragments in `changes/fragments/`.
 
+## [2.1.0] - 2026-11-23
+
+2.1.0 rebuilds the interface on one design system - the same tables, buttons, menus and words on every page - and
+reorganises Analytics, the notification settings and the About page around what they hold. A time an employer's mail
+gives on its own clock is converted to yours, a period a mail states ("within two weeks") gives a date counted from the
+invitation, and an interview keeps the end time its mail gives. From this release on, the changelog, the history the
+About page shows and these notes are generated from one record per change.
+
+### Added
+
+- **Deadlines from a stated period and interview end times taken from the email**
+
+  - **A period that fixes a date gives one**: "you have 14 days to complete the assessment" becomes a date counted from
+    the day the invitation was sent, on the calendar and with its reminders. A reminder that comes in the middle and says
+    "within two weeks" again does not start the period again; an extension the employer announces, or a date a mail
+    states outright, does move it.
+  - **An interview keeps the end its mail gives** ("10:00 to 10:45", or "a 45-minute interview"), converted like its
+    start: the calendar draws it that long and the calendar feed carries it. Without one, nothing is claimed.
+  - Cards that were waiting when this version starts are read once more for both.
+
+- **Employers’ times converted to your time zone, the email’s own words kept beside them**
+
+  **Times in the employer's time zone are converted to yours.** A mail that says "Tuesday, November 24, 10:00 AM (Surrey
+  local time)" used to be kept as 10:00 on your own clock. The mail reader now says which zone a time is in - from the
+  place the mail or the posting gives for the employer, not from an abbreviation alone ("PT" is not one clock:
+  British Columbia stopped changing its clocks in 2026, the US West Coast did not) - and the program converts it with
+  its own, current time zone rules. The item shows the time on your clock, the mail's own words, and what it was
+  converted from; when a mail gives a time and nothing tells whose, the item says so. A scheduling tool's "shown in
+  your time zone" is left as it is. *Settings → Notifications → Calendar and reminders → Calendar time zone* names your zone
+  when it is not this computer's.
+
+### Changed
+
+- **Analytics, notification settings and About reorganised by what they hold**
+
+  - **Analysis**: the cards are put together by what they hold, not stretched to one height. The time to a first record
+    and the to-dos waiting are one strip of figures; the kinds of to-dos dealt with (the first five, the rest behind
+    *Other kinds*) and the to-dos waiting longest (with their state, and *View all*) are two cards of their own; missed
+    postings have a row of their own. Two cards share a row only when they hold about as much - on every tab.
+  - **Settings → Notifications** in five parts: channels, what to notify about, quiet hours, handling it from your phone,
+    and calendar and reminders. The time zone is chosen from a list you can search - by city (in English or your
+    language), country, zone name or offset ("+08", "UTC-7") - with each zone's offset now, from the program's own time
+    zone rules; an old spelling (`US/Pacific`) goes on working, and a saved value that is not a time zone is shown as
+    such, never replaced without you. Each kind of calendar item's reminders are chips ("1 day before", "30 minutes
+    before") added from the usual choices or any amount in minutes, hours or days, instead of a list of minutes to type.
+    Quiet hours are a switch and two times ("22:00 to 08:00 the next day"), what still goes through behind the (i).
+  - **About** in three tabs. *Overview*: the name, the version, how this copy runs and its links in one compact block;
+    then one *Software update* section - where the version stands (up to date, a newer one, downloading, ready to switch,
+    switching, failed) with only the actions that state allows, the update settings (a short list of choices, the
+    channel, the hours for switching by itself), and *Advanced*, folded: how to update a copy run from source by hand,
+    how updates work, the runtime details and *Copy diagnostics*. A version prepared or kept to go back to is named by its
+    version ("2.0.2, local build, Nov 22"), not by its folder. *Changelog*: every release on one timeline, all of them
+    folded at first - a line each with its date and a short title; opened (one at a time), a release shows its main
+    changes in a few lines, in your language, and *View the full release notes* opens the notes as written. Search and
+    one filter by kind; a link to a release opens it (the address keeps it). Changes not released yet are a block of
+    their own above the releases. *Licences*: every component the program runs on - what it declares and what those
+    pull in - searchable, each with its licence's text.
+
+- **Files written for a posting you are not applying for are archived with it**
+
+  **The files written for a posting you are not applying for are archived with it** - kept, not deleted, and back
+  where they were if you take the posting up again (a file you archived yourself stays archived).
+
+- **One design for every page: tables, buttons, tooltips and menus behave the same everywhere**
+
+  - **One design system for the whole interface.** Every page is rebuilt from the same shared pieces, so content no
+    longer decides layout. Lists are one kind of table: a column's width comes from its definition, never from the
+    longest value in it, every row has the same height, long names are cut with the whole text in a tooltip, and the
+    less important columns give way first when the window is narrow - the page itself never scrolls sideways. Buttons,
+    fields, selects and tabs of one level are the same height everywhere; an icon alone always has a name; rarely used
+    and destructive actions live in a row's menu instead of a red button on every row. The browser's own tooltips are
+    gone: one tooltip, one menu and one popover, with the keyboard, in both themes.
+  - Documentation for contributors: `docs/component-guidelines.md`, `docs/ux-writing-glossary.md`,
+    `docs/ui-quality-assurance.md`, `docs/ui-ux-audit.md`; a UI lab at `/ui-lab` shows every shared component in its
+    states.
+
+- **About: the update status first, on a page of reading width; every release folded in the changelog**
+
+  - **Overview**: one column of reading width. The running version and the latest one side by side, with what can be done about it:
+    check, see what is new, and - for a copy run from source or in a container - the steps to update it by hand (never a button
+    that pretends to). The update policy is one line with *Change*, which offers only the modes this copy can use and says what
+    an automatic mode does by itself before it is saved. The runtime details and *Copy diagnostics* are folded under *Advanced*.
+  - **Changelog**: every release is one line - date, version, a short title - and opens on a press, one at a time, to its main
+    changes in your language; *View the full release notes* shows everything, offline. Search and one filter by kind open
+    nothing by themselves; a link to a release opens it once.
+
+- **Applications: the next step as a short task with its owner; posting rows of one height**
+
+  **Applications**: the next step is a short task ("Prepare for the interview", "Await reply") with whose move it is;
+  *Next event* shows the time and what it is (the calendar's words) instead of repeating the company and position;
+  the latest news is one line. **Postings** rows are one height, the score and the deadline line up.
+
+- **One record per change: the changelog, the program’s release history and the release notes are generated from it**
+
+  Every change a user notices is written once, as a change fragment in `changes/fragments/` (`python scripts/release.py change`);
+  a release is a manifest in `changes/releases/` that names its fragments. `CHANGELOG.md`, the history the about page shows
+  (`backend/autoapply/releases.json`, shipped with the program, read offline) and the notes of a GitHub release are generated
+  from them (`release.py generate`, `release.py notes`), and CI checks that they agree. Released text cannot change by
+  accident: a correction is recorded with its reason. The hand-written history up to 2.0.2 was carried over word for word.
+
+- **Concise product wording in English, Chinese and French, one name per thing**
+
+  **Wording**: concise product language in English, Chinese and French, one name per thing
+  (`docs/ux-writing-glossary.md`); long subtitles and helper paragraphs went behind an (i) or were removed, keeping
+  what is needed to decide and every safety statement. Dates are written one way everywhere.
+
+- **Site accounts: one credential cell; the credential, the saved session and automatic sign-in said apart**
+
+  **Site accounts**: one credential cell (dots and an eye, or "not saved" and a plus; a shown password hides itself
+  again after 30 seconds), and the states that were mixed up are said apart - the credential, the saved session (never
+  called "signed in": it is a saved session, with the latest date it can be valid to), and whether the program can
+  sign in by itself. A failure shows as a short state with its reason behind it; the technical detail is in the row's
+  details. Clearing a session, removing a saved password and deleting an account are three separate things in the
+  row's menu. The third-party sign-in cards share one structure and line up; a provider's settings are behind its menu.
+
+### Fixed
+
+- **Times that were off: calendar times on the applications page, quiet hours, the last update check**
+
+  - **A calendar item's time on the applications page was read as UTC**: an interview at 10:00 showed as 18:00 (or
+    03:00), eight hours off the calendar. It is the same wall-clock time everywhere now, whatever the time zone of the
+    browser; the day of an outcome and the name of an exported file use the local day too.
+  - **Quiet hours were on the computer's clock**, not yours: with the program running in another time zone (a server),
+    they were someone else's night. They follow the calendar time zone now.
+  - The time an update was last looked for was shown eight hours off.
+
+- **Analytics: no stretched cards; to-do kinds from before 2.0 have names**
+
+  **Analysis**: a short card beside a long one is no longer stretched to the same height; the kinds of cards from
+  before 2.0 have names, and two kinds with one name are one row.
+
+- **An API address that nothing answers is a “not found”**
+
+  An API address that nothing answers is a "not found", no longer the interface's page.
+
+- **Calendar: a later email without a time keeps the time’s words; reminders named and sized right**
+
+  - A later mail that names no time (the meeting's invitation) no longer wipes the time's own words off the card.
+  - A chosen reminder is as tall as the buttons that add one, its words centred.
+  - A reminder at the start of a timed calendar item was called "the morning of the day".
+
+- **Files of applications that were not submitted have a group of their own**
+
+  **Files**: postings whose application was withdrawn, or that you are not applying for, were listed under *In
+  preparation*. They have their own group, *Not submitted*; their files are kept and can be archived in one go.
+
+- **Menus stay open after a scroll, dangerous batch actions are confirmed, select arrows are the right size**
+
+  - A row's menu could close the moment it opened when it was pressed right after scrolling.
+  - Deleting several files for good is asked about as the dangerous thing it is; so is withdrawing several applications.
+  - A select with nothing chosen yet had an arrow three times too big.
+
+- **An answered information request is no longer an application’s next event**
+
+  **An information request that had been answered was still shown as the application's next event.** What is done is
+  not next.
+
+- **Text kept before 2.0.2 is still recognised after the rewording**
+
+  Text the program kept before 2.0.2 is still recognised after this release's rewording (the wording of 2.0.2 is kept
+  for that).
+
+- **“Ready: switch to 2.0.2” no longer offered on a program that already runs 2.0.2**
+
+  **"Ready: switch to 2.0.2" on a program that already was 2.0.2.** A version that was prepared and is the one
+  running (or older) is not offered; the page says it is up to date.
+
+### Known limits
+
+- The packages are not code-signed.
+- The English and French text was written with an AI's help and has not been read by a native speaker yet; corrections are welcome (see CONTRIBUTING).
+
 ## [2.0.2] - 2026-11-22
 
 2.0.2 brings what was planned for 2.0.1 and 2.0.2 in one release: a calendar with reminders and a feed for your calendar app; the cards on Telegram and Discord with the buttons that deal with them, and an assistant in the chat; one page per application; the program in English, Chinese and French; and updates from inside the program.
@@ -1279,6 +1451,7 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
+[2.1.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.0
 [2.0.2]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.0.2
 [2.0.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.0.0
 [1.0.4]: https://github.com/Liam-Frost/AutoApply/releases/tag/v1.0.4

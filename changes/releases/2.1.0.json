@@ -1,0 +1,93 @@
+{
+  "version": "2.1.0",
+  "date": "2026-11-23",
+  "title": {
+    "en": "One design for every page, times in your time zone",
+    "zh": "统一的界面设计，时间按你的时区换算",
+    "fr": "Une même conception pour chaque page, les heures dans votre fuseau"
+  },
+  "intro": "2.1.0 rebuilds the interface on one design system - the same tables, buttons, menus and words on every page - and\nreorganises Analytics, the notification settings and the About page around what they hold. A time an employer's mail\ngives on its own clock is converted to yours, a period a mail states (\"within two weeks\") gives a date counted from the\ninvitation, and an interview keeps the end time its mail gives. From this release on, the changelog, the history the\nAbout page shows and these notes are generated from one record per change.",
+  "known_limits": [
+    "The packages are not code-signed.",
+    "The English and French text was written with an AI's help and has not been read by a native speaker yet; corrections are welcome (see CONTRIBUTING)."
+  ],
+  "fragments": [
+    {
+      "id": "2026-11-23-dates-from-periods-e134",
+      "sha256": "217427135619f0ba45771da0c1b662fd42fdf9da6fb460873f4e2ed7b44d0d2e"
+    },
+    {
+      "id": "2026-11-23-employer-time-zone-aac0",
+      "sha256": "d254da7376afb73e1aac582eb58c70773736e51622c87510517f3162c813cd12"
+    },
+    {
+      "id": "2026-11-23-analytics-settings-about-ae45",
+      "sha256": "32ad459b5262feaae61a3ac3773d809fab6af235de732d1c55fa9cef4fdd81c7"
+    },
+    {
+      "id": "2026-11-23-archive-files-not-applying-8a79",
+      "sha256": "db4989b9a3ebe144bb0045d4b565489daaacd77f55e40d2ec1d802a20c70add9"
+    },
+    {
+      "id": "2026-11-23-design-system-7cc0",
+      "sha256": "88623d22bf58f376b210f3c969adf3edaa2d524a0a713d2a6c60965c313e07c6"
+    },
+    {
+      "id": "2026-11-23-about-update-status-first-9449",
+      "sha256": "9b714f86dce5d31011b265a6fedab3759a77f8f5cd557a42b7a66ac881f7150f"
+    },
+    {
+      "id": "2026-11-23-applications-rows-61b5",
+      "sha256": "c2c3ed4ded63f1c5fbb03e53ab764e77caed2ef1f0be63346622f27f56169dc2"
+    },
+    {
+      "id": "2026-11-23-one-record-per-change-ca3b",
+      "sha256": "8fd01fec48515b706bd271064c7aa83c2e526dc430419c21140d94f96b6d2a60"
+    },
+    {
+      "id": "2026-11-23-product-wording-d0a1",
+      "sha256": "8d4921a6024a3b9c386783f95e1c7bea2484b6a89e2fdc1db785a87d65b843dd"
+    },
+    {
+      "id": "2026-11-23-site-accounts-states-68fd",
+      "sha256": "85d90fff724a1de3895dd8c72bf2d7794518650674624aeb97aabb8875dc6078"
+    },
+    {
+      "id": "2026-11-23-times-that-were-off-8d59",
+      "sha256": "8289dd9e53fd9f6b07c769a4dbc7227a61a8cbe61c1d1bfa60abe83e9fb475cd"
+    },
+    {
+      "id": "2026-11-23-analytics-card-heights-b439",
+      "sha256": "8ceeee8fe063d3c5ea15fc361547da5ec4fd3f5ad9eea1c977f06cfdb37007d7"
+    },
+    {
+      "id": "2026-11-23-api-not-found-b43d",
+      "sha256": "ba25985dd3df1c4d20d5d2a45dd71a76b1af1eaddb55845602c350394a0252b2"
+    },
+    {
+      "id": "2026-11-23-calendar-words-reminders-9abe",
+      "sha256": "1c310cd75a72ff134af1f94f6c8022572cf1a428143b67883ffaf8f8bb30fd56"
+    },
+    {
+      "id": "2026-11-23-files-not-submitted-60f6",
+      "sha256": "ade33ff7060c497b9318c1a07998279db954c78249a4c5932f8fb989001e7be6"
+    },
+    {
+      "id": "2026-11-23-menus-confirm-selects-dfab",
+      "sha256": "bd3dae4f6f65f1c69a3480ba089292ee5555a36a1cd41e70a0933e1a44eeba97"
+    },
+    {
+      "id": "2026-11-23-next-event-done-e009",
+      "sha256": "6dc1ddef4239c145438355ca3af2b83da47c853f18c71a52c8d083723528952a"
+    },
+    {
+      "id": "2026-11-23-old-text-recognised-d2d0",
+      "sha256": "f1767909a196e164286a7464fb60512448dbabb630da20ae871d6a6354567a0a"
+    },
+    {
+      "id": "2026-11-23-update-ready-current-9596",
+      "sha256": "89aabfc041ef0b8d5d9e2d1dd8f945ce64319cf6f7a12acb2dbbb9189ac087fd"
+    }
+  ],
+  "corrections": []
+}

@@ -4,6 +4,251 @@
   {
    "changes": [
     {
+     "details": "- **A period that fixes a date gives one**: \"you have 14 days to complete the assessment\" becomes a date counted from\n  the day the invitation was sent, on the calendar and with its reminders. A reminder that comes in the middle and says\n  \"within two weeks\" again does not start the period again; an extension the employer announces, or a date a mail\n  states outright, does move it.\n- **An interview keeps the end its mail gives** (\"10:00 to 10:45\", or \"a 45-minute interview\"), converted like its\n  start: the calendar draws it that long and the calendar feed carries it. Without one, nothing is claimed.\n- Cards that were waiting when this version starts are read once more for both.",
+     "highlight": true,
+     "id": "2026-11-23-dates-from-periods-e134",
+     "scope": "calendar",
+     "summary": {
+      "en": "Deadlines from a stated period and interview end times taken from the email",
+      "fr": "Échéances tirées d’un délai indiqué et heures de fin d’entretien tirées du courriel",
+      "zh": "按邮件写明的期限算出截止日期，并保留邮件给出的面试结束时间"
+     },
+     "type": "added"
+    },
+    {
+     "details": "**Times in the employer's time zone are converted to yours.** A mail that says \"Tuesday, November 24, 10:00 AM (Surrey\nlocal time)\" used to be kept as 10:00 on your own clock. The mail reader now says which zone a time is in - from the\nplace the mail or the posting gives for the employer, not from an abbreviation alone (\"PT\" is not one clock:\nBritish Columbia stopped changing its clocks in 2026, the US West Coast did not) - and the program converts it with\nits own, current time zone rules. The item shows the time on your clock, the mail's own words, and what it was\nconverted from; when a mail gives a time and nothing tells whose, the item says so. A scheduling tool's \"shown in\nyour time zone\" is left as it is. *Settings → Notifications → Calendar and reminders → Calendar time zone* names your zone\nwhen it is not this computer's.",
+     "highlight": true,
+     "id": "2026-11-23-employer-time-zone-aac0",
+     "scope": "calendar",
+     "summary": {
+      "en": "Employers’ times converted to your time zone, the email’s own words kept beside them",
+      "fr": "Les heures des employeurs converties dans votre fuseau, avec les mots du courriel à côté",
+      "zh": "雇主邮件里的时间换算到你的时区，邮件原文保留在旁边"
+     },
+     "type": "added"
+    },
+    {
+     "details": "- **Analysis**: the cards are put together by what they hold, not stretched to one height. The time to a first record\n  and the to-dos waiting are one strip of figures; the kinds of to-dos dealt with (the first five, the rest behind\n  *Other kinds*) and the to-dos waiting longest (with their state, and *View all*) are two cards of their own; missed\n  postings have a row of their own. Two cards share a row only when they hold about as much - on every tab.\n- **Settings → Notifications** in five parts: channels, what to notify about, quiet hours, handling it from your phone,\n  and calendar and reminders. The time zone is chosen from a list you can search - by city (in English or your\n  language), country, zone name or offset (\"+08\", \"UTC-7\") - with each zone's offset now, from the program's own time\n  zone rules; an old spelling (`US/Pacific`) goes on working, and a saved value that is not a time zone is shown as\n  such, never replaced without you. Each kind of calendar item's reminders are chips (\"1 day before\", \"30 minutes\n  before\") added from the usual choices or any amount in minutes, hours or days, instead of a list of minutes to type.\n  Quiet hours are a switch and two times (\"22:00 to 08:00 the next day\"), what still goes through behind the (i).\n- **About** in three tabs. *Overview*: the name, the version, how this copy runs and its links in one compact block;\n  then one *Software update* section - where the version stands (up to date, a newer one, downloading, ready to switch,\n  switching, failed) with only the actions that state allows, the update settings (a short list of choices, the\n  channel, the hours for switching by itself), and *Advanced*, folded: how to update a copy run from source by hand,\n  how updates work, the runtime details and *Copy diagnostics*. A version prepared or kept to go back to is named by its\n  version (\"2.0.2, local build, Nov 22\"), not by its folder. *Changelog*: every release on one timeline, all of them\n  folded at first - a line each with its date and a short title; opened (one at a time), a release shows its main\n  changes in a few lines, in your language, and *View the full release notes* opens the notes as written. Search and\n  one filter by kind; a link to a release opens it (the address keeps it). Changes not released yet are a block of\n  their own above the releases. *Licences*: every component the program runs on - what it declares and what those\n  pull in - searchable, each with its licence's text.",
+     "highlight": true,
+     "id": "2026-11-23-analytics-settings-about-ae45",
+     "scope": "ui",
+     "summary": {
+      "en": "Analytics, notification settings and About reorganised by what they hold",
+      "fr": "Analyse, réglages des notifications et À propos réorganisés selon leur contenu",
+      "zh": "数据分析、通知设置和关于页按内容重新编排"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "**The files written for a posting you are not applying for are archived with it** - kept, not deleted, and back\nwhere they were if you take the posting up again (a file you archived yourself stays archived).",
+     "highlight": true,
+     "id": "2026-11-23-archive-files-not-applying-8a79",
+     "scope": "files",
+     "summary": {
+      "en": "Files written for a posting you are not applying for are archived with it",
+      "fr": "Les fichiers rédigés pour une annonce à laquelle vous ne postulez pas sont archivés avec elle",
+      "zh": "为标记为不投递的岗位生成的材料会随之归档"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "- **One design system for the whole interface.** Every page is rebuilt from the same shared pieces, so content no\n  longer decides layout. Lists are one kind of table: a column's width comes from its definition, never from the\n  longest value in it, every row has the same height, long names are cut with the whole text in a tooltip, and the\n  less important columns give way first when the window is narrow - the page itself never scrolls sideways. Buttons,\n  fields, selects and tabs of one level are the same height everywhere; an icon alone always has a name; rarely used\n  and destructive actions live in a row's menu instead of a red button on every row. The browser's own tooltips are\n  gone: one tooltip, one menu and one popover, with the keyboard, in both themes.\n- Documentation for contributors: `docs/component-guidelines.md`, `docs/ux-writing-glossary.md`,\n  `docs/ui-quality-assurance.md`, `docs/ui-ux-audit.md`; a UI lab at `/ui-lab` shows every shared component in its\n  states.",
+     "highlight": true,
+     "id": "2026-11-23-design-system-7cc0",
+     "scope": "ui",
+     "summary": {
+      "en": "One design for every page: tables, buttons, tooltips and menus behave the same everywhere",
+      "fr": "Une même conception pour toutes les pages : tableaux, boutons, infobulles et menus partout pareils",
+      "zh": "所有页面统一设计：表格、按钮、提示和菜单在各页的表现一致"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "- **Overview**: one column of reading width. The running version and the latest one side by side, with what can be done about it:\n  check, see what is new, and - for a copy run from source or in a container - the steps to update it by hand (never a button\n  that pretends to). The update policy is one line with *Change*, which offers only the modes this copy can use and says what\n  an automatic mode does by itself before it is saved. The runtime details and *Copy diagnostics* are folded under *Advanced*.\n- **Changelog**: every release is one line - date, version, a short title - and opens on a press, one at a time, to its main\n  changes in your language; *View the full release notes* shows everything, offline. Search and one filter by kind open\n  nothing by themselves; a link to a release opens it once.",
+     "highlight": false,
+     "id": "2026-11-23-about-update-status-first-9449",
+     "scope": "updates",
+     "summary": {
+      "en": "About: the update status first, on a page of reading width; every release folded in the changelog",
+      "fr": "À propos : l’état des mises à jour d’abord, sur une page de largeur de lecture ; chaque version repliée dans le journal",
+      "zh": "关于页：更新状态放在最前，页面宽度适合阅读；更新日志里每个版本默认折叠"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "**Applications**: the next step is a short task (\"Prepare for the interview\", \"Await reply\") with whose move it is;\n*Next event* shows the time and what it is (the calendar's words) instead of repeating the company and position;\nthe latest news is one line. **Postings** rows are one height, the score and the deadline line up.",
+     "highlight": false,
+     "id": "2026-11-23-applications-rows-61b5",
+     "scope": "applications",
+     "summary": {
+      "en": "Applications: the next step as a short task with its owner; posting rows of one height",
+      "fr": "Candidatures : la prochaine étape en tâche courte avec son responsable ; lignes d’annonces de même hauteur",
+      "zh": "申请：下一步显示为简短任务并标明负责人；岗位列表行高一致"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "Every change a user notices is written once, as a change fragment in `changes/fragments/` (`python scripts/release.py change`);\na release is a manifest in `changes/releases/` that names its fragments. `CHANGELOG.md`, the history the about page shows\n(`backend/autoapply/releases.json`, shipped with the program, read offline) and the notes of a GitHub release are generated\nfrom them (`release.py generate`, `release.py notes`), and CI checks that they agree. Released text cannot change by\naccident: a correction is recorded with its reason. The hand-written history up to 2.0.2 was carried over word for word.",
+     "highlight": false,
+     "id": "2026-11-23-one-record-per-change-ca3b",
+     "scope": "release",
+     "summary": {
+      "en": "One record per change: the changelog, the program’s release history and the release notes are generated from it",
+      "fr": "Un seul enregistrement par changement : le journal, l’historique des versions du programme et les notes de version en sont tirés",
+      "zh": "每项改动只记录一次：更新日志、程序内的版本历史和发布说明都由它生成"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "**Wording**: concise product language in English, Chinese and French, one name per thing\n(`docs/ux-writing-glossary.md`); long subtitles and helper paragraphs went behind an (i) or were removed, keeping\nwhat is needed to decide and every safety statement. Dates are written one way everywhere.",
+     "highlight": false,
+     "id": "2026-11-23-product-wording-d0a1",
+     "scope": "i18n",
+     "summary": {
+      "en": "Concise product wording in English, Chinese and French, one name per thing",
+      "fr": "Une formulation produit concise en anglais, chinois et français, un seul nom par chose",
+      "zh": "中英法三种语言采用简洁的产品用语，一个事物只用一个名称"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "**Site accounts**: one credential cell (dots and an eye, or \"not saved\" and a plus; a shown password hides itself\nagain after 30 seconds), and the states that were mixed up are said apart - the credential, the saved session (never\ncalled \"signed in\": it is a saved session, with the latest date it can be valid to), and whether the program can\nsign in by itself. A failure shows as a short state with its reason behind it; the technical detail is in the row's\ndetails. Clearing a session, removing a saved password and deleting an account are three separate things in the\nrow's menu. The third-party sign-in cards share one structure and line up; a provider's settings are behind its menu.",
+     "highlight": false,
+     "id": "2026-11-23-site-accounts-states-68fd",
+     "scope": "accounts",
+     "summary": {
+      "en": "Site accounts: one credential cell; the credential, the saved session and automatic sign-in said apart",
+      "fr": "Comptes des sites : une seule cellule d’identifiants ; identifiants, session enregistrée et connexion automatique distingués",
+      "zh": "网站账号：凭据合为一格；凭据、已保存的会话和自动登录分开说明"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "- **A calendar item's time on the applications page was read as UTC**: an interview at 10:00 showed as 18:00 (or\n  03:00), eight hours off the calendar. It is the same wall-clock time everywhere now, whatever the time zone of the\n  browser; the day of an outcome and the name of an exported file use the local day too.\n- **Quiet hours were on the computer's clock**, not yours: with the program running in another time zone (a server),\n  they were someone else's night. They follow the calendar time zone now.\n- The time an update was last looked for was shown eight hours off.",
+     "highlight": true,
+     "id": "2026-11-23-times-that-were-off-8d59",
+     "scope": "calendar",
+     "summary": {
+      "en": "Times that were off: calendar times on the applications page, quiet hours, the last update check",
+      "fr": "Des heures décalées corrigées : l’agenda sur la page des candidatures, les heures calmes, la dernière vérification des mises à jour",
+      "zh": "修正偏差的时间：申请页上的日程时间、静默时段和上次检查更新的时间"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "**Analysis**: a short card beside a long one is no longer stretched to the same height; the kinds of cards from\nbefore 2.0 have names, and two kinds with one name are one row.",
+     "highlight": false,
+     "id": "2026-11-23-analytics-card-heights-b439",
+     "scope": "analytics",
+     "summary": {
+      "en": "Analytics: no stretched cards; to-do kinds from before 2.0 have names",
+      "fr": "Analyse : plus de cartes étirées ; les types de tâches d’avant 2.0 ont un nom",
+      "zh": "数据分析：卡片不再被拉伸；2.0 之前的待办类型有了名称"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "An API address that nothing answers is a \"not found\", no longer the interface's page.",
+     "highlight": false,
+     "id": "2026-11-23-api-not-found-b43d",
+     "scope": "server",
+     "summary": {
+      "en": "An API address that nothing answers is a “not found”",
+      "fr": "Une adresse d’API sans réponse donne « introuvable »",
+      "zh": "没有对应接口的 API 地址返回“未找到”"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "- A later mail that names no time (the meeting's invitation) no longer wipes the time's own words off the card.\n- A chosen reminder is as tall as the buttons that add one, its words centred.\n- A reminder at the start of a timed calendar item was called \"the morning of the day\".",
+     "highlight": false,
+     "id": "2026-11-23-calendar-words-reminders-9abe",
+     "scope": "calendar",
+     "summary": {
+      "en": "Calendar: a later email without a time keeps the time’s words; reminders named and sized right",
+      "fr": "Agenda : un courriel ultérieur sans heure garde les mots de l’heure ; rappels bien nommés et dimensionnés",
+      "zh": "日程：之后没写时间的邮件不再清掉原有的时间原文；提醒的名称和尺寸正确"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "**Files**: postings whose application was withdrawn, or that you are not applying for, were listed under *In\npreparation*. They have their own group, *Not submitted*; their files are kept and can be archived in one go.",
+     "highlight": false,
+     "id": "2026-11-23-files-not-submitted-60f6",
+     "scope": "files",
+     "summary": {
+      "en": "Files of applications that were not submitted have a group of their own",
+      "fr": "Les documents des candidatures non envoyées ont leur propre groupe",
+      "zh": "未提交申请的材料单独分组"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "- A row's menu could close the moment it opened when it was pressed right after scrolling.\n- Deleting several files for good is asked about as the dangerous thing it is; so is withdrawing several applications.\n- A select with nothing chosen yet had an arrow three times too big.",
+     "highlight": false,
+     "id": "2026-11-23-menus-confirm-selects-dfab",
+     "scope": "ui",
+     "summary": {
+      "en": "Menus stay open after a scroll, dangerous batch actions are confirmed, select arrows are the right size",
+      "fr": "Les menus restent ouverts après un défilement, les actions groupées dangereuses sont confirmées, les flèches des listes ont la bonne taille",
+      "zh": "滚动后菜单不再立即关闭，危险的批量操作需要确认，下拉框箭头大小正确"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "**An information request that had been answered was still shown as the application's next event.** What is done is\nnot next.",
+     "highlight": false,
+     "id": "2026-11-23-next-event-done-e009",
+     "scope": "applications",
+     "summary": {
+      "en": "An answered information request is no longer an application’s next event",
+      "fr": "Une demande d’informations déjà traitée n’est plus le prochain événement d’une candidature",
+      "zh": "已答复的补充材料请求不再显示为申请的下一个事项"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "Text the program kept before 2.0.2 is still recognised after this release's rewording (the wording of 2.0.2 is kept\nfor that).",
+     "highlight": false,
+     "id": "2026-11-23-old-text-recognised-d2d0",
+     "scope": "i18n",
+     "summary": {
+      "en": "Text kept before 2.0.2 is still recognised after the rewording",
+      "fr": "Les textes gardés avant 2.0.2 sont encore reconnus après la reformulation",
+      "zh": "改写措辞后，2.0.2 之前保存的文本仍能识别"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "**\"Ready: switch to 2.0.2\" on a program that already was 2.0.2.** A version that was prepared and is the one\nrunning (or older) is not offered; the page says it is up to date.",
+     "highlight": false,
+     "id": "2026-11-23-update-ready-current-9596",
+     "scope": "updates",
+     "summary": {
+      "en": "“Ready: switch to 2.0.2” no longer offered on a program that already runs 2.0.2",
+      "fr": "« Prêt : passer à 2.0.2 » n’est plus proposé à un programme déjà en 2.0.2",
+      "zh": "已在运行 2.0.2 的程序不再提示“可切换到 2.0.2”"
+     },
+     "type": "fixed"
+    }
+   ],
+   "date": "2026-11-23",
+   "intro": "2.1.0 rebuilds the interface on one design system - the same tables, buttons, menus and words on every page - and\nreorganises Analytics, the notification settings and the About page around what they hold. A time an employer's mail\ngives on its own clock is converted to yours, a period a mail states (\"within two weeks\") gives a date counted from the\ninvitation, and an interview keeps the end time its mail gives. From this release on, the changelog, the history the\nAbout page shows and these notes are generated from one record per change.",
+   "known_limits": [
+    "The packages are not code-signed.",
+    "The English and French text was written with an AI's help and has not been read by a native speaker yet; corrections are welcome (see CONTRIBUTING)."
+   ],
+   "title": {
+    "en": "One design for every page, times in your time zone",
+    "fr": "Une même conception pour chaque page, les heures dans votre fuseau",
+    "zh": "统一的界面设计，时间按你的时区换算"
+   },
+   "url": "https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.0",
+   "version": "2.1.0"
+  },
+  {
+   "changes": [
+    {
      "details": "- **Calendar** (sidebar, under *Needs you*): everything with a time - deadlines of postings not yet sent, interviews, assessments, offers to answer, information an employer asked for, people to get back to, and your own events - in three views with three jobs. The month to plan: what is coming and where it bunches; on a crowded day an interview or an assessment keeps its line and the day's other deadlines are one count, and how many lines fit is measured, so a busy day never grows the grid. The week to schedule: a time grid where what has a time sits at its hour, side by side with what it meets, while deadlines are counted in the whole-day strip instead of stacking up at 23:59; a click on an empty half hour starts a new event there. The day to do: one list - what is late, what has a time, the deadlines to act on first, the other things to do, what is done. One panel for an item from any view, with what the item has (the time as the mail wrote it, the posting, the application, its reminders) and what can be done with it: mark it done, change its time, give it a link and open it; on a deadline, open the posting, start an application or mark it as not applying. Quick filters and a full filter (every kind, application status, company, priority employers, score) share one state; a search; a line of what is coming (due today, due in 7 days, upcoming interviews, overdue), each number opening the list it counts. Colours by kind in both themes, always with a glyph and words; red only for what is late. The view, the date and the filters stay when you switch views and are in the address. Keys: T, ← →, M / W / D, N, /.\n- **Reminders of your own** on any calendar item - as many as you want, \"this long before\" (5 / 15 / 30 minutes, 1 / 2 hours, 1 / 2 days, 1 week, or any number of minutes); a whole-day item is reminded of in the morning. Each kind of item gets its own by itself (*Settings → Notifications → Calendar reminders*; an interview a day before and 30 minutes before). They follow the item when its date moves, stop when it is done, carry the item's link as a button on Telegram and Discord, and appear at the top of the to-do page. The fixed \"the day before and on the day\" is gone: the cards already open got the reminders of their kind. Reminders go out in the quiet hours too, unless you tick that they should wait.",
      "highlight": true,
      "id": "2026-11-22-calendar-reminders-26e9",
