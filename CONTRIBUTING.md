@@ -33,7 +33,9 @@ You need [Node.js](https://nodejs.org/) 20 or newer to build the interface. `cd 
 These are not open for change, because the program acts on a person's behalf:
 
 - Nothing is written about the applicant that is not in their own material. Checks live in code, not only in prompts.
-- An application is submitted only after the user approved its draft. Tools given to the AI cannot submit.
+- An application is sent only the way the user chose - by itself, after they approved its record, or by their own
+  press - and is recorded as sent only with its confirmation. Whether a run may send is told to the agent, which
+  reports against it; a change must not loosen that rule or the confirmation it needs.
 - No getting around a site's protections: no solving or bypassing CAPTCHAs, no disguising the browser. A site that
   refuses the program's browser is handed to the user.
 - Passwords and sessions stay on the user's computer (system keyring, encrypted files). They never go into prompts or logs.
@@ -71,7 +73,7 @@ bank) that publishes its newest postings as an RSS or Atom feed:
 `style` says how the board writes item titles, so employer and job title can be told apart: `"employer: title"`,
 `"title, employer"`, `"employer is hiring title"`, or `""` when the title is only the job. Fetch the feed and read a few
 items before adding it; a feed that answers 403 to a plain request, or needs an account or a key, does not belong here.
-Users can also paste any feed address themselves under Settings → Sources.
+Users can also paste any feed address themselves under *Postings → Sources and watched employers*.
 
 ## Add a school portal
 
@@ -186,7 +188,7 @@ Every user-visible change is one small file in `changes/fragments/`, written in 
 
 ```bash
 python scripts/release.py change --type fixed --scope calendar --summary-en "Quiet hours follow your time zone" \
-  --summary-zh "免打扰时段按你的时区计算" --details "What a user notices, in Markdown."
+  --summary-zh "静默时段按你的时区计算" --details "What a user notices, in Markdown."
 python scripts/release.py validate
 ```
 

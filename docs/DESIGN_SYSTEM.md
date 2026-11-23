@@ -176,9 +176,9 @@
 - 确认用 `ask(text)`（`ui.js`），返回 Promise；文案里有“删除 / 清理”时确认按钮自动是红色。多于“是 / 否”的问题用 `choose(text, choices, cancel)`。不要用 `confirm()`。
 - 复选框、单选、数字框、滚动条的外观在 `style.css` 里统一画，模板里照常写 `<input type="checkbox">`。
 - 选文件用 `<FileButton>`，不要用 `<label>` 包一个隐藏的输入框（标签拿不到键盘焦点）。
-- 几个互斥选项且每个需要解释时，用 `.choice` 卡片组（见 设置 → 材料与回答 → 简历）。
+- 几个互斥选项：用 `RadioList`（紧凑的单选列表，一行一个选项，说明跟在后面，见 `component-guidelines.md`）。只有每个选项都要几句话解释时才用 `.choice` 卡片组（见 设置 → 系统与数据 → 网络连接（出站））。
 - **标签和控件的关联**：`.kv` 网格里“标签 + 它后面的控件”由 `src/labels.js` 在页面绘制后自动配对（一个控件 → `for` / `id`；一行多个控件或一组按钮 → 以标签命名的 `group`；只有占位文字的独立输入框 → 以占位文字为名）。所以 `.kv` 里照常写 `<label>名称</label><input>` 即可；不在 `.kv` 里的控件要自己写 `for` / `id` 或 `aria-label`。逐行的勾选框写 `aria-label`（“选择 某公司 某岗位”）。
-- 排序的表头是按钮：`<th :aria-sort><button class="th-sort">`。一行的名称如果点了会打开详情，它是链接（`a.rowlink`），整行可点只是额外的方便。
+- 记录列表用 `DataTable`：可排序的表头由它画成按钮并带 `aria-sort`；一行的名称如果点了会打开详情，用 `EntityCell` 的链接（`to`），整行可点只是额外的方便。
 
 ### 读数据的页面
 

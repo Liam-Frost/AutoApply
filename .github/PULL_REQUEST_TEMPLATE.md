@@ -22,5 +22,5 @@
 
 ## Not open to change
 
-The program does not invent facts about the applicant, does not submit what the user has not approved, and does not get
+The program does not invent facts about the applicant, does not send an application other than the way the user chose, and does not get
 around a site's protections. A change must leave those as they are.
