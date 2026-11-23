@@ -62,6 +62,13 @@ def _start_up() -> None:
 
         _metering.import_legacy()
         db.set_setting("migrated.llm_runs", True)
+    try:      # postings labelled before the fixed list of fields: sorted into it, in the background
+        from .. import directions as _directions
+
+        if _directions.unsorted_ids(1):
+            tasks.enqueue("directions", ref="unsorted", priority=180)
+    except Exception:  # noqa: BLE001 - never a reason not to start; they are sorted at the next start
+        logging.getLogger("autoapply").exception("could not queue the sorting of the postings' fields")
     try:      # every start: confirmations read while an application was taken for unsent; cards of applications that are sent
         from .. import lifecycle as _lifecycle
 

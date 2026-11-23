@@ -3419,5 +3419,137 @@
       "newDelhi": "New Delhi",
       "bangalore": "Bengaluru"
     }
+  },
+  "direction": {
+    "software": {
+      "_": "Software engineering",
+      "backend": "Back end",
+      "frontend": "Front end",
+      "fullstack": "Full stack",
+      "mobile": "Mobile apps",
+      "ml": "ML and AI engineering",
+      "data": "Data engineering",
+      "infra": "Cloud, DevOps and SRE",
+      "security": "Security engineering",
+      "qa": "Testing and QA",
+      "embedded": "Embedded and firmware",
+      "systems": "Systems software",
+      "games": "Games and graphics"
+    },
+    "data": {
+      "_": "Data and analytics",
+      "science": "Data science",
+      "analytics": "Analytics and BI",
+      "research": "AI and ML research",
+      "quant": "Quantitative analysis"
+    },
+    "hardware": {
+      "_": "Electronics and hardware",
+      "digital": "Digital design",
+      "verification": "Design verification",
+      "analog": "Analog and mixed-signal",
+      "board": "Circuits and boards",
+      "architecture": "Computer architecture",
+      "test": "Hardware test and validation",
+      "rf": "RF and wireless"
+    },
+    "electrical": {
+      "_": "Electrical and power",
+      "power": "Power and energy systems",
+      "controls": "Controls and automation",
+      "design": "Electrical design"
+    },
+    "mechanical": {
+      "_": "Mechanical and manufacturing",
+      "design": "Mechanical design",
+      "manufacturing": "Manufacturing and process",
+      "robotics": "Robotics and mechatronics",
+      "vehicles": "Aerospace and automotive",
+      "maintenance": "Maintenance and reliability"
+    },
+    "civil": {
+      "_": "Civil, construction and mining",
+      "structural": "Civil and structural",
+      "geotechnical": "Geotechnical",
+      "construction": "Construction and estimating",
+      "mining": "Mining",
+      "environmental": "Environmental and water",
+      "transportation": "Transportation and rail"
+    },
+    "process": {
+      "_": "Chemical, materials and process",
+      "chemical": "Chemical and process",
+      "materials": "Materials",
+      "energy": "Energy and nuclear"
+    },
+    "life": {
+      "_": "Life sciences and health technology",
+      "biomedical": "Biomedical and medical devices",
+      "bioinformatics": "Bioinformatics",
+      "lab": "Laboratory research"
+    },
+    "it": {
+      "_": "IT and operations",
+      "support": "IT support",
+      "networks": "Networks and telecom",
+      "sysadmin": "Systems administration",
+      "cybersecurity": "Cybersecurity operations",
+      "enterprise": "Business systems (ERP, CRM)"
+    },
+    "product": {
+      "_": "Product, project and consulting",
+      "product": "Product management",
+      "project": "Project management",
+      "analysis": "Business analysis",
+      "consulting": "Consulting",
+      "solutions": "Solutions and sales engineering"
+    },
+    "business": {
+      "_": "Business and finance",
+      "finance": "Finance and accounting",
+      "trading": "Trading and investment",
+      "operations": "Operations and supply chain",
+      "marketing": "Marketing and communications",
+      "sales": "Sales and customer success",
+      "people": "People and HR"
+    },
+    "design": {
+      "_": "Design and content",
+      "ux": "UX and product design",
+      "visual": "Visual design",
+      "content": "Writing and content"
+    },
+    "health": {
+      "_": "Healthcare",
+      "nursing": "Nursing",
+      "clinical": "Clinical care",
+      "pharmacy": "Pharmacy",
+      "therapy": "Therapy and allied health"
+    },
+    "education": {
+      "_": "Education",
+      "teaching": "Teaching and tutoring",
+      "edtech": "Education technology"
+    },
+    "legal": {
+      "_": "Law and compliance",
+      "law": "Law",
+      "compliance": "Compliance, risk and privacy"
+    },
+    "science": {
+      "_": "Natural sciences",
+      "physics": "Physics and mathematics",
+      "chemistry": "Chemistry",
+      "earth": "Earth and environmental sciences"
+    },
+    "trades": {
+      "_": "Trades and technicians",
+      "technician": "Technicians",
+      "trade": "Skilled trades"
+    },
+    "other": {
+      "_": "Other"
+    },
+    "unsorted": "Not sorted yet"
   }
 }

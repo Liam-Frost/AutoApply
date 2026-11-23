@@ -3419,5 +3419,137 @@
       "newDelhi": "New Delhi",
       "bangalore": "Bangalore"
     }
+  },
+  "direction": {
+    "software": {
+      "_": "Génie logiciel",
+      "backend": "Back-end",
+      "frontend": "Front-end",
+      "fullstack": "Full-stack",
+      "mobile": "Applications mobiles",
+      "ml": "Ingénierie ML et IA",
+      "data": "Ingénierie des données",
+      "infra": "Cloud, DevOps et SRE",
+      "security": "Sécurité logicielle",
+      "qa": "Tests et assurance qualité",
+      "embedded": "Embarqué et micrologiciel",
+      "systems": "Logiciel système",
+      "games": "Jeux et graphisme"
+    },
+    "data": {
+      "_": "Données et analyse",
+      "science": "Science des données",
+      "analytics": "Analyse et BI",
+      "research": "Recherche en IA et ML",
+      "quant": "Analyse quantitative"
+    },
+    "hardware": {
+      "_": "Électronique et matériel",
+      "digital": "Conception numérique",
+      "verification": "Vérification de conception",
+      "analog": "Analogique et signaux mixtes",
+      "board": "Circuits et cartes",
+      "architecture": "Architecture des ordinateurs",
+      "test": "Test et validation du matériel",
+      "rf": "RF et sans-fil"
+    },
+    "electrical": {
+      "_": "Génie électrique et énergie",
+      "power": "Réseaux électriques et énergie",
+      "controls": "Commande et automatisation",
+      "design": "Conception électrique"
+    },
+    "mechanical": {
+      "_": "Mécanique et fabrication",
+      "design": "Conception mécanique",
+      "manufacturing": "Fabrication et procédés",
+      "robotics": "Robotique et mécatronique",
+      "vehicles": "Aérospatiale et automobile",
+      "maintenance": "Maintenance et fiabilité"
+    },
+    "civil": {
+      "_": "Génie civil, construction et mines",
+      "structural": "Génie civil et structures",
+      "geotechnical": "Géotechnique",
+      "construction": "Construction et estimation",
+      "mining": "Mines",
+      "environmental": "Environnement et eau",
+      "transportation": "Transport et rail"
+    },
+    "process": {
+      "_": "Chimie, matériaux et procédés",
+      "chemical": "Génie chimique et procédés",
+      "materials": "Matériaux",
+      "energy": "Énergie et nucléaire"
+    },
+    "life": {
+      "_": "Sciences de la vie et technologies de la santé",
+      "biomedical": "Biomédical et dispositifs médicaux",
+      "bioinformatics": "Bio-informatique",
+      "lab": "Recherche en laboratoire"
+    },
+    "it": {
+      "_": "TI et exploitation",
+      "support": "Soutien informatique",
+      "networks": "Réseaux et télécommunications",
+      "sysadmin": "Administration des systèmes",
+      "cybersecurity": "Opérations de cybersécurité",
+      "enterprise": "Systèmes d’entreprise (ERP, CRM)"
+    },
+    "product": {
+      "_": "Produit, projet et conseil",
+      "product": "Gestion de produit",
+      "project": "Gestion de projet",
+      "analysis": "Analyse d’affaires",
+      "consulting": "Conseil",
+      "solutions": "Ingénierie des solutions et avant-vente"
+    },
+    "business": {
+      "_": "Affaires et finance",
+      "finance": "Finance et comptabilité",
+      "trading": "Négociation et placements",
+      "operations": "Opérations et chaîne d’approvisionnement",
+      "marketing": "Marketing et communications",
+      "sales": "Ventes et réussite client",
+      "people": "Ressources humaines"
+    },
+    "design": {
+      "_": "Design et contenu",
+      "ux": "UX et design de produit",
+      "visual": "Design graphique",
+      "content": "Rédaction et contenu"
+    },
+    "health": {
+      "_": "Santé",
+      "nursing": "Soins infirmiers",
+      "clinical": "Soins cliniques",
+      "pharmacy": "Pharmacie",
+      "therapy": "Réadaptation et professions paramédicales"
+    },
+    "education": {
+      "_": "Éducation",
+      "teaching": "Enseignement et tutorat",
+      "edtech": "Technologies éducatives"
+    },
+    "legal": {
+      "_": "Droit et conformité",
+      "law": "Droit",
+      "compliance": "Conformité, risques et vie privée"
+    },
+    "science": {
+      "_": "Sciences naturelles",
+      "physics": "Physique et mathématiques",
+      "chemistry": "Chimie",
+      "earth": "Sciences de la Terre et de l’environnement"
+    },
+    "trades": {
+      "_": "Métiers et techniciens",
+      "technician": "Techniciens",
+      "trade": "Métiers spécialisés"
+    },
+    "other": {
+      "_": "Autre"
+    },
+    "unsorted": "Pas encore classé"
   }
 }

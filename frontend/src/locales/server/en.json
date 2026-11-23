@@ -572,6 +572,7 @@
  "server.humanize.skipIt": "Not applying",
  "server.humanize.someStepsOfThis": "Some steps of this form could not be read when the draft was made: \\1. The form shows them only after the earlier steps are filled; they are read the first time the form is filled, what they ask is added to this draft, and anything only you can answer comes back to you.",
  "server.humanize.somethingWentWrongInside": "Something went wrong inside the app, so this didn't finish.",
+ "server.humanize.sortPostingsIntoFields": "Sort postings into fields",
  "server.humanize.stillOpen": "Still open: \\1",
  "server.humanize.stillUnscoredScoringResumes": "; {p0} still unscored, scoring resumes in a few minutes",
  "server.humanize.stoppedAsYouAsked": "Stopped, as you asked",

@@ -4,7 +4,8 @@ let counter = 0   // ids for the label / listbox pairing: unique on the page, no
 
 <script setup>
 // Drop-down that replaces the browser's own <select>. Used exactly like one - <AaSelect v-model="x"><option value="a">A</option></AaSelect> -
-// so the options stay readable in the template; they are read from the slot and drawn in the product's own style.
+// so the options stay readable in the template; they are read from the slot and drawn in the product's own style. An
+// option with `data-sub` is one under the option before it (a specialty under its field), drawn indented.
 import { Fragment, Static, computed, nextTick, onBeforeUnmount, ref, useAttrs, useSlots } from 'vue'
 import { t as T } from '../i18n/catalog'
 
@@ -29,11 +30,11 @@ function collect(nodes, out) {
     else if (n.type === Static) { // several plain <option>s in a row are compiled into one HTML string
       const box = document.createElement('select')
       box.innerHTML = n.children
-      for (const o of box.options) out.push({ value: o.hasAttribute('value') ? o.getAttribute('value') : o.textContent.trim(), label: o.textContent.trim(), disabled: o.disabled })
+      for (const o of box.options) out.push({ value: o.hasAttribute('value') ? o.getAttribute('value') : o.textContent.trim(), label: o.textContent.trim(), disabled: o.disabled, sub: o.hasAttribute('data-sub') })
     } else if (n.type === 'option') {
       const label = textOf(n.children).trim()
       const p = n.props || {}
-      out.push({ value: 'value' in p ? p.value : label, label, disabled: p.disabled === '' || p.disabled === true })
+      out.push({ value: 'value' in p ? p.value : label, label, disabled: p.disabled === '' || p.disabled === true, sub: p['data-sub'] != null && p['data-sub'] !== false })
     }
   }
   return out
@@ -127,7 +128,7 @@ const uid = 'sel' + ++counter
   </button>
   <Teleport to="body">
     <div v-if="open" :id="uid" ref="pop" class="sel-pop" role="listbox" :style="place">
-      <div v-for="(o, i) in options" :id="uid + '-' + i" :key="i" class="sel-opt" :class="{ active: i === active, on: same(o.value, current), disabled: o.disabled }"
+      <div v-for="(o, i) in options" :id="uid + '-' + i" :key="i" class="sel-opt" :class="{ active: i === active, on: same(o.value, current), disabled: o.disabled, sub: o.sub }"
         role="option" :aria-selected="same(o.value, current)" :aria-disabled="o.disabled ? 'true' : undefined" @mouseenter="active = i" @mousedown.prevent @click="pick(o)">
         <span>{{ o.label }}</span>
         <svg v-if="same(o.value, current)" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5 5L20 6" /></svg>

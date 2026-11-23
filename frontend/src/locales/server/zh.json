@@ -572,6 +572,7 @@
  "server.humanize.skipIt": "不投递",
  "server.humanize.someStepsOfThis": "这张表有几步在生成草案时还读不到：\\1。要先填完前面的步骤，表单才显示它们；第一次填表时会读到，问到的新问题会加进这份草案，需要你回答的会退回给你。",
  "server.humanize.somethingWentWrongInside": "程序内部出错，这次没有完成。",
+ "server.humanize.sortPostingsIntoFields": "给岗位归类方向",
  "server.humanize.stillOpen": "待定：\\1",
  "server.humanize.stillUnscoredScoringResumes": "；还有 {p0} 个未评分，几分钟后继续",
  "server.humanize.stoppedAsYouAsked": "已按你的要求停止",

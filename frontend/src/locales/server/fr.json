@@ -572,6 +572,7 @@
  "server.humanize.skipIt": "Ne pas postuler",
  "server.humanize.someStepsOfThis": "Certaines étapes de ce formulaire n’ont pas pu être lues lors de la création du brouillon : \\1. Le formulaire ne les affiche qu’une fois les étapes précédentes remplies ; elles sont lues la première fois que le formulaire est rempli, ce qu’elles demandent est ajouté à ce brouillon, et ce à quoi vous seul pouvez répondre vous revient.",
  "server.humanize.somethingWentWrongInside": "Un problème est survenu dans le programme : cela n’a pas abouti.",
+ "server.humanize.sortPostingsIntoFields": "Classer les offres par domaine",
  "server.humanize.stillOpen": "Encore en suspens : \\1",
  "server.humanize.stillUnscoredScoringResumes": " ; {p0} encore non notées, la notation reprend dans quelques minutes",
  "server.humanize.stoppedAsYouAsked": "Arrêtée, comme demandé",

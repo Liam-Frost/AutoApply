@@ -11,7 +11,7 @@ from .say import say as T
 import logging
 from typing import Any
 
-from . import db, knowledge, llm, messages, notify
+from . import db, directions, knowledge, llm, messages, notify
 from . import prompts
 from .models import Job
 
@@ -22,7 +22,7 @@ SCHEMA = llm.obj(
         "excluded": {"type": "boolean"},
         "exclusion_rule": {"type": "string", "description": "the hard-exclusion rule that applies, or empty"},
         "score": {"type": "number", "description": "0-10 in steps of 0.5; 0 when excluded"},
-        "direction": {"type": "string", "description": "short label, e.g. backend, full-stack, ML/AI, embedded, QA, other"},
+        "direction": directions.schema_property(),
         "reason": {"type": "string", "description": "two or three sentences citing what in the description drove the score. Write this in Simplified Chinese (it is shown to the applicant); keep company names, product names and quoted form text in their original language."},
         "term": {"type": "string", "description": "work term if stated, e.g. 'Winter 2027'; else empty"},
         "months": {"type": "string", "description": "term length(s) in months if stated, e.g. '4 or 8'; else empty"},
@@ -123,7 +123,7 @@ def score_job(job_id: int) -> dict[str, Any] | None:
         j.score = 0.0 if out["excluded"] else float(out["score"])
         j.score_reason = out["reason"]
         j.exclusion = out["exclusion_rule"] if out["excluded"] else ""
-        j.direction = out["direction"] or j.direction
+        j.direction = directions.coerce(out["direction"]) or j.direction
         j.summary = out["summary"] or j.summary
         j.brief = out.get("brief") or j.brief
         j.term = j.term or out["term"]

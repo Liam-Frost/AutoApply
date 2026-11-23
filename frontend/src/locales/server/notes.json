@@ -572,6 +572,7 @@
  "server.humanize.skipIt": "Said by the program (humanize.py).",
  "server.humanize.someStepsOfThis": "Said by the program (humanize.py).",
  "server.humanize.somethingWentWrongInside": "Said by the program (humanize.py).",
+ "server.humanize.sortPostingsIntoFields": "A background task's name: postings labelled before the fixed list of fields are sorted into it by the model.",
  "server.humanize.stillOpen": "Said by the program (humanize.py).",
  "server.humanize.stillUnscoredScoringResumes": "Said by the program (humanize.py). {p0} are values it fills in.",
  "server.humanize.stoppedAsYouAsked": "Said by the program (humanize.py).",
