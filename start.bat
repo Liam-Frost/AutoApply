@@ -12,10 +12,10 @@ where uv >nul 2>nul
 if errorlevel 1 if exist "%USERPROFILE%\.local\bin\uv.exe" set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 where uv >nul 2>nul
 if not errorlevel 1 goto have_uv
-echo [AutoApply] 需要 uv（用来准备 Python 运行环境的小工具，来自 astral.sh）。
-set /p ANS="[AutoApply] 现在自动下载安装它吗？(Y/N) "
+echo [AutoApply] uv is needed (a small tool from astral.sh that prepares the Python environment).
+set /p ANS="[AutoApply] Download and install it now? (Y/N) "
 if /i "%ANS%"=="Y" goto get_uv
-echo [AutoApply] 好的。请自己安装后再运行： https://docs.astral.sh/uv/
+echo [AutoApply] OK. Install it yourself, then run this again: https://docs.astral.sh/uv/
 pause
 exit /b 1
 :get_uv
@@ -23,26 +23,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv
 set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 :have_uv
 where uv >nul 2>nul
-if errorlevel 1 ( echo [AutoApply] uv 没有装上，请看上面的提示。 & pause & exit /b 1 )
+if errorlevel 1 ( echo [AutoApply] uv could not be installed: see the messages above. & pause & exit /b 1 )
 
-echo [AutoApply] 检查依赖（第一次需要几分钟）...
+echo [AutoApply] checking dependencies (a few minutes the first time)...
 rem --inexact: keep optional components that were added later (the ChatGPT sign-in component); a plain sync would remove them on every start
 uv sync --inexact
-if errorlevel 1 ( echo [AutoApply] 安装依赖失败，请看上面的提示。 & pause & exit /b 1 )
+if errorlevel 1 ( echo [AutoApply] the dependencies could not be installed: see the messages above. & pause & exit /b 1 )
 
 rem Asked for every time: it returns at once when the right build is there, and a newer Playwright needs a newer build.
-echo [AutoApply] 检查程序用的浏览器（第一次和部分升级后需要下载）...
+echo [AutoApply] checking the browser the program uses (a download the first time and after some upgrades)...
 uv run playwright install chromium
-if errorlevel 1 ( echo [AutoApply] 下载浏览器失败，请看上面的提示。 & pause & exit /b 1 )
+if errorlevel 1 ( echo [AutoApply] the browser could not be downloaded: see the messages above. & pause & exit /b 1 )
 
 if not exist "frontend\dist\index.html" (
   where npm >nul 2>nul
   if errorlevel 1 (
-    echo [AutoApply] 这份代码里没有构建好的界面。请下载发行包（里面已经带了），或安装 Node.js 后重新运行： https://nodejs.org/
+    echo [AutoApply] this copy has no built interface. Download the release package ^(it includes one^), or install Node.js and run this again: https://nodejs.org/
     pause
     exit /b 1
   )
-  echo [AutoApply] 构建界面（只需一次）...
+  echo [AutoApply] building the interface ^(once^)...
   pushd frontend
   call npm install
   call npm run build
@@ -52,15 +52,15 @@ if not exist "frontend\dist\index.html" (
 if not "%AUTOAPPLY_NO_BROWSER%"=="" goto console
 if not "%AUTOAPPLY_CONSOLE%"=="" goto console
 echo.
-echo [AutoApply] 启动中。屏幕右下角的托盘里会出现 AutoApply 图标，网页会自动打开。
-echo [AutoApply] 以后从托盘图标打开网页、查看状态、设置开机启动、退出。这个窗口可以关掉。
+echo [AutoApply] starting. An AutoApply icon appears in the tray at the bottom right of the screen; the page opens by itself.
+echo [AutoApply] Use the icon to open the page, see the status, start at sign-in, or quit. This window can be closed.
 start "" /b uv run pythonw -m autoapply.launcher --port %AUTOAPPLY_PORT%
 timeout /t 4 >nul
 exit /b 0
 
 :console
-rem 不用托盘：服务直接在这个窗口里运行（关闭窗口即停止）。设 AUTOAPPLY_CONSOLE=1 可以选这种方式。
+rem Without the tray: the server runs in this window (closing it stops the server). Set AUTOAPPLY_CONSOLE=1 to choose this.
 echo.
-echo [AutoApply] 启动中。在浏览器里打开 http://127.0.0.1:%AUTOAPPLY_PORT%  （关闭这个窗口即停止）
+echo [AutoApply] starting. Open http://127.0.0.1:%AUTOAPPLY_PORT% in your browser (closing this window stops it).
 echo.
 uv run autoapply serve --port %AUTOAPPLY_PORT%

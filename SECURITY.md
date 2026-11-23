@@ -7,7 +7,8 @@ matter, so reports are taken seriously.
 
 | Version | Supported |
 |---|---|
-| 1.x (latest release) | yes |
+| 2.1.x (the latest release) | yes |
+| 2.0.x, 1.x | no - update to the latest release |
 | `legacy-v0` and anything before 1.0 | no |
 
 Fixes are released as a new version; there are no patches for older releases.
@@ -64,8 +65,15 @@ Anything that breaks one of the program's own promises:
 - Passwords and API keys are in the operating system's keyring; saved sign-ins are encrypted on disk. On a server,
   which has no keyring, they are in one encrypted file whose master key you can keep outside the data folder; with
   the key beside the data, whoever can read that folder as you can read them, and the program says so.
-- The tools given to the AI cannot submit an application, type a password or read a verification code.
-- Text from web pages is treated as data, never as instructions; the rules that matter are enforced in code, not in prompts.
+- The AI never sees a stored password: the program types it into the site's own sign-in page, and the agent's tools
+  refuse to type into a password box. A code or a link a site sends to the applicant's mailbox can be read by the
+  agent (to finish a sign-up there); a code sent to a phone is asked of the applicant.
+- Whether a run may send an application follows the applicant's rule (by itself, after approval, or their own press).
+  That rule is an instruction the agent is given and reports against - the program does not recognise every *Submit*
+  button on every site - and an application is recorded as sent only with its confirmation. What can be held in code
+  is: the passwords, the budget, the read-only mailbox, the login and the server's checks.
+- Text from web pages and job postings is data for the agent, not instructions; text that makes it act against the
+  applicant's rule is a vulnerability (above).
 - The page needs a login, on the computer it runs on as well; the server does not do HTTPS itself and says so when it
   is made to listen beyond this computer.
 - Mailboxes are opened read-only.
