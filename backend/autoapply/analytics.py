@@ -339,14 +339,14 @@ def _backlog(s: Any, w: Window) -> dict[str, Any]:
     """What waits for the applicant: how long the cards dealt with in the window had waited, by kind; and the oldest
     of the ones still open, with what tells them apart (the posting, a date of their own, put off until when)."""
     from . import reminders
-    from .models import CALENDAR_ONLY, Todo
+    from .models import Todo
 
     now_ = datetime.now(timezone.utc).replace(tzinfo=None)
     by_kind: dict[str, list[float]] = defaultdict(list)
-    for t in s.query(Todo).filter(Todo.status != "open", Todo.done_at.isnot(None), Todo.kind.notin_(CALENDAR_ONLY)):
+    for t in s.query(Todo).filter(Todo.status != "open", Todo.done_at.isnot(None), Todo.a_task()):
         if w.has(_naive(t.done_at)):
             by_kind[t.kind].append((t.done_at - t.created_at).total_seconds() / 3600)
-    open_ = [t for t in s.query(Todo).filter(Todo.status == "open", Todo.kind.notin_(CALENDAR_ONLY))]
+    open_ = [t for t in s.query(Todo).filter(Todo.status == "open", Todo.a_task())]
     oldest = sorted(open_, key=lambda t: (t.created_at, t.id))[:5]
     every = sorted(x for xs in by_kind.values() for x in xs)
     # by what the applicant reads: two kinds of card with one name ("sign in": at a site, in a window) are one row

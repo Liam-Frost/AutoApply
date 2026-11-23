@@ -133,6 +133,14 @@ def tick(at: datetime | None = None) -> int:
 
 
 SEEN = "calendar.reminders_seen"      # "item@start" of the reminders put away with "Got it"
+ARRIVED = "calendar.arrived"          # [{item, start, at}]: events that arrived (an interview from an employer's mail)
+
+
+def announce(item: str, start: str) -> None:
+    """An event arrived, or its time changed (an interview an employer's mail gives): a notice at the top of the to-do
+    page until "Got it" - the event itself is on the calendar, not a task. (The phone is told by the mail's own notice.)"""
+    kept = [a for a in (db.get_setting(ARRIVED) or []) if isinstance(a, dict) and a.get("item") != item]
+    db.set_setting(ARRIVED, (kept + [{"item": item, "start": start[:16], "at": clock.now().isoformat(timespec="minutes")}])[-100:])
 
 
 def seen(item: str, start: str) -> None:
@@ -153,7 +161,15 @@ def recent(hours: int = 48) -> list[dict[str, Any]]:
     put_away = set(db.get_setting(SEEN) or [])
     with db.session() as s:
         rows = [(a.item, a.before, a.sent_for, a.sent_at) for a in s.query(Alarm).filter(Alarm.sent_at.isnot(None), Alarm.sent_at >= since).order_by(Alarm.sent_at.desc())]
-    if not rows:
+    arrived = []
+    for a in db.get_setting(ARRIVED) or []:
+        try:
+            at = datetime.fromisoformat(str(a.get("at")))
+        except (TypeError, ValueError):
+            continue
+        if at >= since and f"{a.get('item')}@{str(a.get('start'))[:16]}" not in put_away:
+            arrived.append((str(a.get("item")), str(a.get("start"))[:16], at))
+    if not rows and not arrived:
         return []
     from . import agenda
 
@@ -163,7 +179,11 @@ def recent(hours: int = 48) -> list[dict[str, Any]]:
     for item, before, sent_for, sent_at in rows:
         x = items.get(item)
         if x is not None and not x["done"] and x["start"] == sent_for and item not in {o["id"] for o in out} and f"{item}@{sent_for[:16]}" not in put_away:
-            out.append({**x, "before": before, "sent_at": sent_at.isoformat(timespec="minutes")})
+            out.append({**x, "before": before, "sent_at": sent_at.isoformat(timespec="minutes"), "why": "alarm"})
+    for item, start, at in arrived:      # (an event that arrived: shown once, under its reminder if that went off too)
+        x = items.get(item)
+        if x is not None and not x["done"] and x["start"][:16] == start and item not in {o["id"] for o in out}:
+            out.append({**x, "sent_at": at.isoformat(timespec="minutes"), "why": "new"})
     return out
 
 

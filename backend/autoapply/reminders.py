@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import alarms, db, messages, notify
-from .models import Application, Contact, Todo, now
+from .models import EVENT_FOLLOWUPS, Application, Contact, Todo, now
 
 log = logging.getLogger("autoapply.reminders")
 
@@ -144,6 +144,7 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
             if len(links) == 1 and old.get("link_by") != "user":
                 t.payload = {**t.payload, "link": links[0]["url"]}
             first_date = due is not None and t.due_at is None
+            moved = bool(due and t.due_at is not None and due != t.due_at)
             if due and due != t.due_at:
                 t.due_at, t.snoozed_until = due, None      # a new date from the employer: it is shown again (its reminders move with it)
             # (the same date said once more - a reminder - leaves a card that was put off where the applicant put it)
@@ -155,9 +156,12 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
                      payload={**payload, "link": links[0]["url"]} if len(links) == 1 else payload, due_at=due)
             s.add(t)
             s.flush()
-            tid, existing, first_date = t.id, False, due is not None      # (no notice here: the mail itself was just announced)
+            tid, existing, first_date, moved = t.id, False, due is not None, False      # (no notice here: the mail itself was just announced)
     if first_date:      # a date for the first time: the reminders of its kind (a moved date keeps the ones it has, and they move with it)
         alarms.give_defaults(f"todo:{tid}", category, due, bool(payload.get("date_only")))
+    if category in EVENT_FOLLOWUPS and due is not None and (first_date or moved):
+        # an interview is an event on the calendar, not a task: its arrival (or its new time) is a notice on the to-do page
+        alarms.announce(f"todo:{tid}", due.isoformat(timespec="minutes"))
     if existing:
         return tid
     if category == "info_request" and message_id:      # something to answer by mail: the answer is written while the applicant reads the card

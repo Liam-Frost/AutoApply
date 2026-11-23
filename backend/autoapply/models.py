@@ -359,10 +359,29 @@ class Outgoing(Base):
 # to-do page, in no count of what waits for the applicant. Its reminder is the notice (alarms.py). It used to be a card
 # on the to-do page as well; closing that card took the item off the calendar (2026-11-23).
 CALENDAR_ONLY = ("note",)
+# A follow-up from an employer's mail that is an event, not a task: an interview (2026-11-24, the owner: "only on the
+# calendar; a notice when it arrives and when it is time"). An assessment to finish, documents to send, an offer to
+# answer stay tasks.
+EVENT_FOLLOWUPS = ("interview",)
+
+
+def calendar_only(kind: str, payload: dict | None = None) -> bool:
+    """Is a Todo of this kind (with this payload) an item of the calendar alone - not a task on the to-do page? A
+    follow-up is by what it is about (its category), as the calendar names it."""
+    return kind in CALENDAR_ONLY or (kind == "followup" and str((payload or {}).get("category") or "") in EVENT_FOLLOWUPS)
 
 
 class Todo(Base):
     __tablename__ = "todos"
+
+    @staticmethod
+    def a_task() -> Any:
+        """SQL: a Todo that is a task (on the to-do page, in its counts) - not an item of the calendar alone."""
+        from sqlalchemy import and_, func, not_, or_
+
+        # (coalesce: a payload without a category gives NULL, and NOT NULL would leave the row out)
+        category = func.coalesce(Todo.payload["category"].as_string(), "")
+        return not_(or_(Todo.kind.in_(CALENDAR_ONLY), and_(Todo.kind == "followup", category.in_(EVENT_FOLLOWUPS))))
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     kind: Mapped[str] = mapped_column(String)  # takeover|answer|submit|failed|blocked|config|mail_unmatched|followup (and, in the history, the kinds of earlier versions)
