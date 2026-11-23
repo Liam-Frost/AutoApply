@@ -985,8 +985,8 @@ textarea.editor.tall, .editor-preview.tall { height: 68vh; }
 .fchip button:hover { background: var(--border); color: var(--text); }
 .fchip button svg { width: 12px; height: 12px; }
 /* a chosen thing that can be taken away, beside the buttons that add one (a reminder): as tall as they are */
-.fchip.lg { height: var(--h-sm); padding: 0 4px 0 12px; gap: 4px; font-size: var(--fs-sm); color: var(--text); }
-.fchip.lg button { width: 20px; height: 20px; }
+.fchip.lg { height: var(--h-sm); padding: 0 2px 0 12px; gap: 4px; font-size: var(--fs-sm); color: var(--text); }
+.fchip.lg button { width: var(--h-xs); height: var(--h-xs); }      /* (an icon button of the small size, 2px inside the chip) */
 .fchip.ok { background: var(--ok-soft); color: var(--ok); }
 /* the line of what is coming */
 .cal-sum { display: flex; align-items: stretch; height: 34px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); overflow-x: auto; overflow-y: hidden; }

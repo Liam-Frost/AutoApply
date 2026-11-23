@@ -37,7 +37,7 @@
 /* ── ReminderRules: chips (the size of .fchip.lg, the words in the middle) and the "+" in one row that wraps ── */
 .rr { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; min-height: var(--h-md); }
 .rr-chip { justify-content: center; white-space: nowrap; }
-.rr-chip > .icon-btn.sm { width: 20px; height: 20px; border-radius: var(--r-pill); }
+.rr-chip > .icon-btn.sm { border-radius: var(--r-pill); }
 .rr-none { color: var(--text-3); font-size: var(--fs-sm); }
 .rr-pop { display: flex; flex-direction: column; gap: var(--s3); }
 .rr-pop > .pop-title { margin: 0; }
