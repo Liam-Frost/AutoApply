@@ -41,11 +41,23 @@ class Failed(RuntimeError):
     pass
 
 
+def endpoint(url: str) -> str:
+    """An OpenAI-compatible service's address as the applicant gave it, checked: http or https, a host, no user name or
+    password in it, no query or fragment; without the slash at its end. Which host is the applicant's to choose - a
+    service on the internet or one on their own computer or network (Ollama, LM Studio): reaching it is the feature."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    u = urlsplit(str(url or "").strip())
+    if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
+        raise Unavailable(T("server.llm_openai.notAnEndpoint"))
+    return urlunsplit((u.scheme, u.netloc, u.path.rstrip("/"), "", ""))
+
+
 class Client:
     def __init__(self, base_url: str, api_key: str | None, *, transport: httpx.BaseTransport | None = None) -> None:
         if not base_url:
             raise Unavailable(T("server.llm_openai.noEndpointUrlSet"))
-        self.base = base_url.rstrip("/")
+        self.base = endpoint(base_url)
         self.http = httpx.Client(timeout=httpx.Timeout(300, connect=30), headers={"Authorization": f"Bearer {api_key}"} if api_key else {}, transport=transport)
         self.calls = self.input_tokens = self.output_tokens = 0
         self.effort = ""        # "low" ... "xhigh": sent as reasoning_effort when the applicant chose one for this service

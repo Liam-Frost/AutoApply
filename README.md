@@ -71,7 +71,7 @@ The agent decides how to work a form. Four things are not its to decide:
 - **It does not see your passwords, and does not get round a human check.** A stored password is typed by the program, into the site's own sign-in page and nowhere else; the agent only learns that it was typed. CAPTCHAs, codes on your phone and identity checks are handed to you.
 - **An application has a budget** (400 steps and 45 minutes by default). When it is used up the agent stops and asks whether to go on.
 
-## Install## Install
+## Install
 
 Download from the [latest release](https://github.com/Liam-Frost/AutoApply/releases/latest):
 
@@ -81,6 +81,7 @@ Download from the [latest release](https://github.com/Liam-Frost/AutoApply/relea
 | **macOS 12+** | `AutoApply-<version>-macos.dmg` | Open it and drag AutoApply to Applications. |
 | **Linux** | `AutoApply-<version>-linux.run` | `sh AutoApply-<version>-linux.run` (x86-64 and ARM64; add `--yes` to install without questions, for a server) |
 | Any, portable | `AutoApply-<version>.zip` | Unzip, then `start.bat` (Windows) or `./start.sh`. |
+| **Docker** (a server, a NAS) | `ghcr.io/liam-frost/autoapply` (x86-64 and ARM64) | `docker compose up -d` with the repository's [`docker-compose.yml`](docker-compose.yml) - see [On a server](#on-a-server). |
 
 <p align="center"><img src="docs/images/setup-en.png" alt="The setup window" width="560"></p>
 

@@ -142,9 +142,32 @@ def latest(text: str | None) -> Any:
     said = humanize.explain(text)["message"]
     if isinstance(said, Msg):
         return said
-    # (a full stop ends a sentence only before a new one - a capital, or a script without capitals: "Labs Inc. is
-    # not ..." is not two)
-    return re.split(r"(?<=[。！？!?])|(?<=\.)\s+(?=[^\Wa-z0-9_])|\n", str(said).strip(), maxsplit=1)[0].strip()
+    return first_sentence(str(said))
+
+
+def first_sentence(text: str) -> str:
+    """The first sentence of a text, read once from its start. It ends at a line break, after 。！？!?, or at a full
+    stop followed by space and a new sentence - a capital, or a script without capitals: "Labs Inc. is not ..." is one
+    sentence. (One pass: a pattern for the same rule backtracked over long runs of spaces - code scanning #199.)"""
+    s = text.strip()
+    n = len(s)
+    for i, ch in enumerate(s):
+        if ch == "\n":
+            return s[:i].strip()
+        if ch in "。！？!?":
+            return s[: i + 1].strip()
+        if ch == "." and i + 1 < n and s[i + 1].isspace():
+            j = i + 1
+            while j < n and s[j].isspace() and s[j] != "\n":
+                j += 1
+            if j < n and (s[j] == "\n" or _starts_sentence(s[j])):
+                return s[: i + 1].strip()
+    return s
+
+
+def _starts_sentence(ch: str) -> bool:
+    """A letter or digit that is not a-z or 0-9: a capital, or a letter of a script without capitals."""
+    return ch.isalnum() and not ("a" <= ch <= "z" or "0" <= ch <= "9")
 
 
 def job_group(j: Job, a: Application | None) -> str:

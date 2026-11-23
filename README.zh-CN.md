@@ -81,6 +81,7 @@
 | **macOS 12+** | `AutoApply-<版本>-macos.dmg` | 打开后把 AutoApply 拖进“应用程序”。 |
 | **Linux** | `AutoApply-<版本>-linux.run` | `sh AutoApply-<版本>-linux.run`（x86-64 和 ARM64；加 `--yes` 可以不提问直接安装，适合服务器） |
 | 任意系统，免安装 | `AutoApply-<版本>.zip` | 解压后运行 `start.bat`（Windows）或 `./start.sh`。 |
+| **Docker**（服务器、NAS） | `ghcr.io/liam-frost/autoapply`（x86-64 和 ARM64） | 用仓库里的 [`docker-compose.yml`](docker-compose.yml) 运行 `docker compose up -d`，见[在服务器上运行](#在服务器上运行)。 |
 
 <p align="center"><img src="docs/images/setup-zh.png" alt="安装窗口" width="560"></p>
 
