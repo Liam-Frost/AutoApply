@@ -4,6 +4,130 @@
   {
    "changes": [
     {
+     "details": "An interview invitation or an assessment for a posting AutoApply never had arrives as *An email did not match any\nposting*. When the email gives a date, the card now shows it on your clock (with the email's own words beside it) and\noffers *Add to my calendar*: the item is one of your own, named like an interview you record by hand (\"Interview ·\nCompany\"), with the end time, the link and the email's request kept, and the reminders your own items get. A time\nsaid in another zone is converted as for any email. The email is then dealt with and its card closes; the item has a\ncard of its own until its day. An email that gives no date offers nothing: no date is made up.\n\nClosing the card of an item of your own calendar takes it off the calendar, so the card says so (*Remove from my\ncalendar*), and the notice after it has *Undo*.",
+     "highlight": true,
+     "id": "2026-11-23-email-about-application-405a",
+     "scope": "calendar",
+     "summary": {
+      "en": "An email about an application made elsewhere can go on your calendar",
+      "fr": "Un courriel sur une candidature faite ailleurs peut aller dans votre agenda",
+      "zh": "在别处投递的申请，其相关邮件可以加入个人日程"
+     },
+     "type": "added"
+    },
+    {
+     "details": "The model used to write a posting's field as it liked - \"backend\", \"全栈/后端\", \"other (mining engineering)\" - so\nthe filter grew with every scan (one copy had 502 different labels for 1,200 postings), in two languages whatever\nthe page's. It now picks from one list of 18 fields with their specialties (Software engineering → Back end, Full\nstack, ML and AI engineering ...; Electronics and hardware; Civil, construction and mining; Healthcare; Business and\nfinance; and more, so that it fits any line of work), the field alone when no specialty fits, and \"Other\". Each is\nnamed in English, Chinese and French. The *Field* filter lists the fields with how many, their specialties under\nthem; choosing a field takes in its specialties. Postings labelled before are sorted into the list by the model in\nthe background after the update (\"Sort postings into fields\" in the activity); until then they show their old label\nunder *Not sorted yet*.",
+     "highlight": true,
+     "id": "2026-11-23-posting-s-field-comes-98e8",
+     "scope": "postings",
+     "summary": {
+      "en": "A posting's field comes from one fixed list, in your language: a field and a specialty",
+      "fr": "Le domaine d’une offre vient d’une liste fixe, dans votre langue : un domaine et une spécialité",
+      "zh": "岗位的“方向”改为一份固定的分类表，按你的界面语言显示：领域加细分方向"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "The messages of `start.bat` (the Windows starter of the portable zip and of a checkout) were in Chinese only. They are in English now, the same words as `start.sh`; the installers keep their own language, which follows the system.",
+     "highlight": false,
+     "id": "2026-11-23-start-bat-speaks-english-1e91",
+     "scope": "packages",
+     "summary": {
+      "en": "start.bat speaks English, as start.sh does",
+      "fr": "start.bat s’exprime en anglais, comme start.sh",
+      "zh": "start.bat 的提示改为英文，与 start.sh 一致"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "A copy running 2.1.0 showed *Switching to 2.0.2*: a switch asked for the day before, which a later version had\novertaken. A switch now refuses a version that is the one running or older (\"not newer\"), whether it comes from\nthe page, from \"update when idle\" or from the automatic mode; going back stays the About page's *Roll back*. The\npage shows a switch as under way only while the tray has not taken it yet, and a switch overtaken by a later\nversion is forgotten at the next start instead of being reported as \"the new version did not start\".",
+     "highlight": true,
+     "id": "2026-11-23-updates-only-go-forwards-03ca",
+     "scope": "updates",
+     "summary": {
+      "en": "Updates only go forwards: nothing switches back to an older version unless you roll back",
+      "fr": "Les mises à jour ne vont que vers l’avant : rien ne revient à une version plus ancienne sauf si vous revenez en arrière",
+      "zh": "更新只会前进：除非你主动回退，程序不会切换到更旧的版本"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "Workday limits the requests of one computer to all its employers' boards together. The scan asked every half\nsecond, retried a refusal within seconds, and then went on to the next board of the same service - so every board\nfailed with HTTP 429, scan after scan. Workday is now asked at its own, slower pace; after a refusal the whole\nservice rests (as long as it asks, else a minute, then longer) and is asked more slowly from then on; when it\nneeds longer than a scan waits, its boards are left for the next scan without a request, and the summary says so\nin one line. Intel's board fetches descriptions only for the postings your rules keep, like any other board.",
+     "highlight": true,
+     "id": "2026-11-23-workday-boards-read-again-ebd7",
+     "scope": "postings",
+     "summary": {
+      "en": "Workday boards are read again: a \"too many requests\" answer is waited out instead of asked again",
+      "fr": "Les pages Workday sont de nouveau lues : une réponse « trop de requêtes » est attendue au lieu d’être relancée",
+      "zh": "Workday 招聘页恢复读取：遇到“请求过多”会等待，不再立刻重试"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "The tray switches versions without stopping the work in hand: the new version first joins as a second worker, then\ntakes over. A version started that way skipped what a plain start does - the Telegram and Discord bots did not run,\nthe network settings (a proxy) were not applied to its work, a new version's one-time work and the outcome of the\nlast switch waited for the next cold start. When the tray makes it the primary, it now does all of that once.",
+     "highlight": false,
+     "id": "2026-11-23-after-tray-switches-versions-94ca",
+     "scope": "updates",
+     "summary": {
+      "en": "After the tray switches versions, the new version starts completely: bots, network settings, its one-time work",
+      "fr": "Après un changement de version par la barre des tâches, la nouvelle version démarre entièrement : bots, réglages réseau, son travail unique",
+      "zh": "托盘切换版本后，新版本会完整启动：机器人、网络设置和它的一次性工作都会执行"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "The key (Site accounts, and wherever a password is meant) is drawn as a key: a ring with a shaft and two teeth. The\nrefresh arrow on the page and *Restart the server* in the tray menu are a circle turning into one arrowhead. In\nEnglish and French, a long label (*Appearance and language*) widened the sidebar's footer, and every item in it\nsat a few pixels right of the middle; it is now exactly as wide as the links above it.",
+     "highlight": false,
+     "id": "2026-11-23-clearer-key-restart-icons-4475",
+     "scope": "ui",
+     "summary": {
+      "en": "Clearer key and restart icons; the sidebar's footer is centred in every language",
+      "fr": "Icônes de clé et de redémarrage plus lisibles ; le pied de la barre latérale est centré dans toutes les langues",
+      "zh": "钥匙和重启图标更清楚；侧栏底部在各种语言下都居中"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "The agent read every faculty's postings on the co-op portal (some thousand) and the program then set aside those\nfor other programmes. It is now told your programme (*Your programme of study* under *Hard conditions before intake*, else the field in\nyour profile's Education) and narrows the portal's list to it first (\"Filter by Program\"), then reads every page of\nthat list. If the portal offers no programme of yours, it reads everything as before.",
+     "highlight": false,
+     "id": "2026-11-23-co-op-portal-read-0a69",
+     "scope": "postings",
+     "summary": {
+      "en": "The co-op portal is read for your programme of study only",
+      "fr": "Le portail coop n’est lu que pour votre programme d’études",
+      "zh": "合作教育门户只读取你所在专业的岗位"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "The ordinary browser (nodriver) gave Chrome under three seconds to answer and then failed with \"Failed to connect to browser\", while that Chrome was still starting - on a busy computer, or one whose antivirus reads the browser profile, an application or a sign-in failed before it began. A Chrome that is still starting is now waited for, up to half a minute more.",
+     "highlight": false,
+     "id": "2026-11-23-ordinary-browser-waited-slow-7035",
+     "scope": "agent",
+     "summary": {
+      "en": "The ordinary browser is waited for when it is slow to start",
+      "fr": "Le navigateur ordinaire est attendu quand il tarde à démarrer",
+      "zh": "普通浏览器启动慢时会等它，不再直接报“连不上浏览器”"
+     },
+     "type": "fixed"
+    }
+   ],
+   "date": "2026-11-23",
+   "intro": "2.1.1 sorts a posting's field into one fixed list - a field and a specialty, named in your language - instead of\nwhatever the model wrote; the postings from before are sorted in after the update. Employers' Workday boards are read\nagain: a \"too many requests\" answer rests the whole service instead of being asked again at once. The co-op portal is\nread for your programme of study only. An email about an application you made elsewhere can go on your calendar, and\nits card then closes. Updates only go forwards, a version the tray switches to starts completely, and the ordinary\nbrowser is waited for when it is slow to start.",
+   "known_limits": [
+    "The slower Workday pace and the co-op portal narrowed to your programme are unit-tested; a real scan with them has not been watched yet."
+   ],
+   "title": {
+    "en": "Fields in your language, Workday boards read again",
+    "fr": "Les domaines dans votre langue, les pages Workday relues",
+    "zh": "方向按你的语言统一归类，Workday 招聘页恢复读取"
+   },
+   "url": "https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.1",
+   "version": "2.1.1"
+  },
+  {
+   "changes": [
+    {
      "details": "- **A period that fixes a date gives one**: \"you have 14 days to complete the assessment\" becomes a date counted from\n  the day the invitation was sent, on the calendar and with its reminders. A reminder that comes in the middle and says\n  \"within two weeks\" again does not start the period again; an extension the employer announces, or a date a mail\n  states outright, does move it.\n- **An interview keeps the end its mail gives** (\"10:00 to 10:45\", or \"a 45-minute interview\"), converted like its\n  start: the calendar draws it that long and the calendar feed carries it. Without one, nothing is claimed.\n- Cards that were waiting when this version starts are read once more for both.",
      "highlight": true,
      "id": "2026-11-23-dates-from-periods-e134",

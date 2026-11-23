@@ -4,6 +4,95 @@
 
 All notable changes to AutoApply, newest first. Versions follow [Semantic Versioning](https://semver.org/); changes not released yet are pending fragments in `changes/fragments/`.
 
+## [2.1.1] - 2026-11-23
+
+2.1.1 sorts a posting's field into one fixed list - a field and a specialty, named in your language - instead of
+whatever the model wrote; the postings from before are sorted in after the update. Employers' Workday boards are read
+again: a "too many requests" answer rests the whole service instead of being asked again at once. The co-op portal is
+read for your programme of study only. An email about an application you made elsewhere can go on your calendar, and
+its card then closes. Updates only go forwards, a version the tray switches to starts completely, and the ordinary
+browser is waited for when it is slow to start.
+
+### Added
+
+- **An email about an application made elsewhere can go on your calendar**
+
+  An interview invitation or an assessment for a posting AutoApply never had arrives as *An email did not match any
+  posting*. When the email gives a date, the card now shows it on your clock (with the email's own words beside it) and
+  offers *Add to my calendar*: the item is one of your own, named like an interview you record by hand ("Interview ·
+  Company"), with the end time, the link and the email's request kept, and the reminders your own items get. A time
+  said in another zone is converted as for any email. The email is then dealt with and its card closes; the item has a
+  card of its own until its day. An email that gives no date offers nothing: no date is made up.
+
+  Closing the card of an item of your own calendar takes it off the calendar, so the card says so (*Remove from my
+  calendar*), and the notice after it has *Undo*.
+
+### Changed
+
+- **A posting's field comes from one fixed list, in your language: a field and a specialty**
+
+  The model used to write a posting's field as it liked - "backend", "全栈/后端", "other (mining engineering)" - so
+  the filter grew with every scan (one copy had 502 different labels for 1,200 postings), in two languages whatever
+  the page's. It now picks from one list of 18 fields with their specialties (Software engineering → Back end, Full
+  stack, ML and AI engineering ...; Electronics and hardware; Civil, construction and mining; Healthcare; Business and
+  finance; and more, so that it fits any line of work), the field alone when no specialty fits, and "Other". Each is
+  named in English, Chinese and French. The *Field* filter lists the fields with how many, their specialties under
+  them; choosing a field takes in its specialties. Postings labelled before are sorted into the list by the model in
+  the background after the update ("Sort postings into fields" in the activity); until then they show their old label
+  under *Not sorted yet*.
+
+- **start.bat speaks English, as start.sh does**
+
+  The messages of `start.bat` (the Windows starter of the portable zip and of a checkout) were in Chinese only. They are in English now, the same words as `start.sh`; the installers keep their own language, which follows the system.
+
+### Fixed
+
+- **Updates only go forwards: nothing switches back to an older version unless you roll back**
+
+  A copy running 2.1.0 showed *Switching to 2.0.2*: a switch asked for the day before, which a later version had
+  overtaken. A switch now refuses a version that is the one running or older ("not newer"), whether it comes from
+  the page, from "update when idle" or from the automatic mode; going back stays the About page's *Roll back*. The
+  page shows a switch as under way only while the tray has not taken it yet, and a switch overtaken by a later
+  version is forgotten at the next start instead of being reported as "the new version did not start".
+
+- **Workday boards are read again: a "too many requests" answer is waited out instead of asked again**
+
+  Workday limits the requests of one computer to all its employers' boards together. The scan asked every half
+  second, retried a refusal within seconds, and then went on to the next board of the same service - so every board
+  failed with HTTP 429, scan after scan. Workday is now asked at its own, slower pace; after a refusal the whole
+  service rests (as long as it asks, else a minute, then longer) and is asked more slowly from then on; when it
+  needs longer than a scan waits, its boards are left for the next scan without a request, and the summary says so
+  in one line. Intel's board fetches descriptions only for the postings your rules keep, like any other board.
+
+- **After the tray switches versions, the new version starts completely: bots, network settings, its one-time work**
+
+  The tray switches versions without stopping the work in hand: the new version first joins as a second worker, then
+  takes over. A version started that way skipped what a plain start does - the Telegram and Discord bots did not run,
+  the network settings (a proxy) were not applied to its work, a new version's one-time work and the outcome of the
+  last switch waited for the next cold start. When the tray makes it the primary, it now does all of that once.
+
+- **Clearer key and restart icons; the sidebar's footer is centred in every language**
+
+  The key (Site accounts, and wherever a password is meant) is drawn as a key: a ring with a shaft and two teeth. The
+  refresh arrow on the page and *Restart the server* in the tray menu are a circle turning into one arrowhead. In
+  English and French, a long label (*Appearance and language*) widened the sidebar's footer, and every item in it
+  sat a few pixels right of the middle; it is now exactly as wide as the links above it.
+
+- **The co-op portal is read for your programme of study only**
+
+  The agent read every faculty's postings on the co-op portal (some thousand) and the program then set aside those
+  for other programmes. It is now told your programme (*Your programme of study* under *Hard conditions before intake*, else the field in
+  your profile's Education) and narrows the portal's list to it first ("Filter by Program"), then reads every page of
+  that list. If the portal offers no programme of yours, it reads everything as before.
+
+- **The ordinary browser is waited for when it is slow to start**
+
+  The ordinary browser (nodriver) gave Chrome under three seconds to answer and then failed with "Failed to connect to browser", while that Chrome was still starting - on a busy computer, or one whose antivirus reads the browser profile, an application or a sign-in failed before it began. A Chrome that is still starting is now waited for, up to half a minute more.
+
+### Known limits
+
+- The slower Workday pace and the co-op portal narrowed to your programme are unit-tested; a real scan with them has not been watched yet.
+
 ## [2.1.0] - 2026-11-23
 
 2.1.0 rebuilds the interface on one design system - the same tables, buttons, menus and words on every page - and
@@ -1467,6 +1556,7 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
+[2.1.1]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.0
 [2.0.2]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.0.2
 [2.0.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.0.0
