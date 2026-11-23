@@ -170,7 +170,7 @@
     "dismiss": "忽略",
     "lastTryDidNotWork": "上次登录未成功，可以再点一次“登录”。",
     "putOnMyCalendar": "加入个人日程",
-    "putOnYourCalendar": "已加入个人日程，这封邮件的卡片已关闭。",
+    "putOnYourCalendar": "已加入日程，这封邮件的卡片已关闭。",
     "openOnYourCalendar": "在日程中查看",
     "theEmailGivesThisTime": "邮件中的时间：{when}",
     "asTheEmailWrote": "原文：“{said}”",
@@ -743,7 +743,8 @@
     },
     "rang": {
       "title": "提醒",
-      "openDay": "在日程里看"
+      "openDay": "在日程里看",
+      "gotIt": "知道了"
     },
     "links": {
       "fromMail": "邮件里的链接，选一个作为“去哪里”：",
@@ -841,7 +842,12 @@
     "kbd": "快捷键：T 今天 · ← → 前后翻页 · M W D 切换视图 · N 新建日程 · / 搜索",
     "zoneFrom": "{zone} 时间 {time}",
     "zoneAssumed": "邮件没有注明时区，这里按你的时区显示。如果这是雇主当地时间，请用“改时间”修正。",
-    "clockRange": "{from}–{to}"
+    "clockRange": "{from}–{to}",
+    "remove": "删除",
+    "removeAsk": "从日程中删除“{title}”？",
+    "removedMsg": "已从日程中删除。",
+    "undo": "撤销",
+    "backMsg": "已恢复到日程中。"
   },
   "settings": {
     "reminders": {

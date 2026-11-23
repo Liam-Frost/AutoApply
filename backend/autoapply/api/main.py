@@ -33,7 +33,7 @@ mimetypes.add_type("text/javascript", ".js")
 from .. import net, persona, prompts
 from .. import auth, config, context, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..models import Contact
-from ..models import SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent, Notification, Run, Task, Todo, now
+from ..models import CALENDAR_ONLY, SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent, Notification, Run, Task, Todo, now
 
 
 def _start_up() -> None:
@@ -1200,7 +1200,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
         rows = [{"id": t.id, "kind": t.kind, "ref": t.ref, "title": t.title, "body": t.body, "payload": t.payload, "status": t.status,
                  "created_at": t.created_at.isoformat(), "due_at": t.due_at.isoformat() if t.due_at else None,
                  "date_only": bool((t.payload or {}).get("date_only")), "snoozed_until": t.snoozed_until.isoformat() if _reminders.snoozed(t) else None}
-                for t in s.query(Todo).filter_by(status=status).order_by(Todo.id.desc()).limit(200)]
+                for t in s.query(Todo).filter(Todo.status == status, Todo.kind.notin_(CALENDAR_ONLY)).order_by(Todo.id.desc()).limit(200)]
     from datetime import datetime
     from ..models import Draft
 
@@ -1519,10 +1519,20 @@ def calendar_alarm_remove(alarm_id: int) -> dict[str, Any]:
 
 @app.get("/api/calendar/alarms/recent")
 def calendar_alarms_recent() -> list[dict[str, Any]]:
-    """The reminders that went off in the last hours: shown at the top of the to-do page."""
+    """The reminders that went off and are not put away yet: shown at the top of the to-do page."""
     from .. import alarms
 
     return alarms.recent()
+
+
+@app.post("/api/calendar/alarms/seen")
+def calendar_alarm_seen(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """"Got it" on a reminder ({"item": "todo:12", "start": "2026-11-27T15:00"}): the notice goes. The item stays on the
+    calendar as it is, with its other reminders."""
+    from .. import alarms
+
+    alarms.seen(str(body.get("item") or ""), str(body.get("start") or ""))
+    return {"ok": True}
 
 
 @app.post("/api/calendar/items/{todo_id}/link")
@@ -1876,7 +1886,8 @@ def overview() -> dict[str, Any]:
         return {
             "pending_drafts": s.query(func.count(Draft.id)).filter(Draft.review_status == "pending").scalar(),
             # (what the applicant put off until later is not counted until then)
-            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open", (Todo.snoozed_until.is_(None)) | (Todo.snoozed_until <= datetime.now())).scalar(),
+            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open", Todo.kind.notin_(CALENDAR_ONLY),
+                                                             (Todo.snoozed_until.is_(None)) | (Todo.snoozed_until <= datetime.now())).scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),
             "draining": bool(db.get_setting("schedule.draining")), "stopped": bool(db.get_setting("schedule.draining")) and bool(db.get_setting("schedule.drain_told")),

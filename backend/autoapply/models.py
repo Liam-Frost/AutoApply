@@ -354,6 +354,13 @@ class Outgoing(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+# An item of the applicant's own calendar ("Interview · Acme" put there by hand or from an email) is a Todo row - its
+# date, link and reminders are the same machinery - but it is not a task: it is on the calendar and nowhere on the
+# to-do page, in no count of what waits for the applicant. Its reminder is the notice (alarms.py). It used to be a card
+# on the to-do page as well; closing that card took the item off the calendar (2026-11-23).
+CALENDAR_ONLY = ("note",)
+
+
 class Todo(Base):
     __tablename__ = "todos"
 

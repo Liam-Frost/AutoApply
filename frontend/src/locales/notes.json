@@ -3246,5 +3246,11 @@
   "todos.removedFromCalendar": "Notice after Remove from my calendar; followed by an Undo button.",
   "todos.undo": "Button in a notice: takes back what was just done (an item removed from the calendar).",
   "todos.backOnYourCalendar": "Notice after Undo of a removal from the calendar.",
-  "mail.sendingNow": "The send button while the e-mail is being sent (with a spinner); it cannot be pressed again."
+  "mail.sendingNow": "The send button while the e-mail is being sent (with a spinner); it cannot be pressed again.",
+  "calendar.rang.gotIt": "Button on a reminder shown at the top of the to-do page: puts the notice away; the calendar item itself is not changed.",
+  "calendar.remove": "Button in a calendar item's panel (an item of the applicant's own calendar): deletes it from the calendar.",
+  "calendar.removeAsk": "Question before deleting an item of the applicant's own calendar.",
+  "calendar.removedMsg": "Notice after deleting a calendar item; followed by Undo.",
+  "calendar.undo": "Button in the notice after deleting a calendar item: puts it back.",
+  "calendar.backMsg": "Notice after Undo."
 }

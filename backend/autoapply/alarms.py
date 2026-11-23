@@ -132,9 +132,25 @@ def tick(at: datetime | None = None) -> int:
     return sent
 
 
-def recent(hours: int = 12) -> list[dict[str, Any]]:
-    """The reminders that went off lately, for the top of the to-do page."""
+SEEN = "calendar.reminders_seen"      # "item@start" of the reminders put away with "Got it"
+
+
+def seen(item: str, start: str) -> None:
+    """"Got it" on a reminder that went off: its notice goes from the to-do page. Nothing else changes - the item stays on
+    the calendar with its date, link and other reminders (a reminder is a notice, not the item)."""
+    if not item or not start:
+        return
+    keys = [k for k in (db.get_setting(SEEN) or []) if isinstance(k, str)]
+    key = f"{item}@{start[:16]}"
+    if key not in keys:
+        db.set_setting(SEEN, (keys + [key])[-300:])
+
+
+def recent(hours: int = 48) -> list[dict[str, Any]]:
+    """The reminders that went off and are not put away ("Got it") - for two days at most - for the top of the to-do
+    page."""
     since = clock.now() - timedelta(hours=hours)
+    put_away = set(db.get_setting(SEEN) or [])
     with db.session() as s:
         rows = [(a.item, a.before, a.sent_for, a.sent_at) for a in s.query(Alarm).filter(Alarm.sent_at.isnot(None), Alarm.sent_at >= since).order_by(Alarm.sent_at.desc())]
     if not rows:
@@ -146,7 +162,7 @@ def recent(hours: int = 12) -> list[dict[str, Any]]:
     out = []
     for item, before, sent_for, sent_at in rows:
         x = items.get(item)
-        if x is not None and not x["done"] and x["start"] == sent_for and item not in {o["id"] for o in out}:
+        if x is not None and not x["done"] and x["start"] == sent_for and item not in {o["id"] for o in out} and f"{item}@{sent_for[:16]}" not in put_away:
             out.append({**x, "before": before, "sent_at": sent_at.isoformat(timespec="minutes")})
     return out
 

@@ -743,7 +743,8 @@
     },
     "rang": {
       "title": "Rappels",
-      "openDay": "Dans l’agenda"
+      "openDay": "Dans l’agenda",
+      "gotIt": "Compris"
     },
     "links": {
       "fromMail": "Liens du courriel - choisissez où mène cet élément :",
@@ -841,7 +842,12 @@
     "kbd": "Raccourcis : T aujourd’hui · ← → précédent / suivant · M W D vues · N nouvel événement · / rechercher",
     "zoneFrom": "{time}, heure de {zone}",
     "zoneAssumed": "Le courriel n’indique pas de fuseau horaire : l’heure est affichée comme la vôtre. Si c’est celle de l’employeur, corrigez-la avec « Changer l’heure ».",
-    "clockRange": "{from}–{to}"
+    "clockRange": "{from}–{to}",
+    "remove": "Supprimer",
+    "removeAsk": "Supprimer « {title} » de votre agenda ?",
+    "removedMsg": "Supprimé de votre agenda.",
+    "undo": "Annuler",
+    "backMsg": "Il est de retour dans votre agenda."
   },
   "settings": {
     "reminders": {

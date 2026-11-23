@@ -108,11 +108,11 @@ def upcoming(days: int = 7) -> list[dict[str, Any]]:
 def cards() -> list[dict[str, Any]]:
     """What is waiting for the applicant (the to-do page), with the questions a card asks."""
     from . import reminders
-    from .models import Todo
+    from .models import CALENDAR_ONLY, Todo
 
     out = []
     with db.session() as s:
-        for t in s.query(Todo).filter_by(status="open").order_by(Todo.id.desc()).limit(40):
+        for t in s.query(Todo).filter(Todo.status == "open", Todo.kind.notin_(CALENDAR_ONLY)).order_by(Todo.id.desc()).limit(40):
             if reminders.snoozed(t):
                 continue
             p = t.payload or {}

@@ -13,7 +13,8 @@ export const kindName = (x) => t('calendar.kind.' + x.kind)
 // the words for where it stands: an interview still to come is "upcoming", other open things "to do"
 export function statusName(x, now) {
   const s = status(x, now)
-  if (s === 'open' && (x.kind === 'interview' || x.kind === 'assessment')) return t('calendar.status.upcoming')
+  // (an event is coming, not waiting for the applicant: one of their own calendar is not a task either)
+  if (s === 'open' && (x.kind === 'interview' || x.kind === 'assessment' || x.kind === 'own')) return t('calendar.status.upcoming')
   if (s === 'open' && x.kind === 'deadline') return t('calendar.status.stillOpen')
   return t('calendar.status.' + s)
 }

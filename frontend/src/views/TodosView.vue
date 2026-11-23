@@ -17,7 +17,7 @@ import EntityCell from '../components/cells/EntityCell.vue'
 import DataState from '../components/DataState.vue'
 import { dataState, useRefresh } from '../data'
 import TechDetails from '../components/TechDetails.vue'
-import { ask, fmtTime, run as runAction, toast } from '../ui'
+import { ask, fmtTime, run, run as runAction, toast } from '../ui'
 import { t } from '../i18n/catalog'
 import { dateOf, dateTimeOf, dayText, listed } from '../i18n/format'
 
@@ -273,6 +273,8 @@ useRefresh(() => { loadRang(); return load() }, { every: 15000 })
 // the reminders that went off in the last hours (the calendar's, alarms.py): what is about to happen, at the top
 const rang = ref([])
 const loadRang = () => api.get('/calendar/alarms/recent').then((r) => (rang.value = r)).catch(() => {})
+// "Got it": the reminder's notice goes; the item stays on the calendar as it is
+const gotIt = (x) => run(async () => { await api.post('/calendar/alarms/seen', { item: x.id, start: x.start }); rang.value = rang.value.filter((y) => y !== x) }, '')
 onMounted(() => { load(); loadRang() })
 </script>
 
@@ -289,6 +291,7 @@ onMounted(() => { load(); loadRang() })
             <span class="t-meta atomic">{{ x.all_day ? dayText(x.start) : dateTimeOf(new Date(x.start)) }}</span>
             <router-link :to="{ path: '/calendar', query: { view: 'day', date: x.start.slice(0, 10) } }" class="btn sm ghost">{{ $t('calendar.rang.openDay') }}</router-link>
             <a v-if="x.link" :href="x.link" target="_blank" rel="noopener" class="btn sm primary"><Icon name="external" />{{ $t('calendar.open') }}</a>
+            <button type="button" class="sm" @click="gotIt(x)"><Icon name="check" />{{ $t('calendar.rang.gotIt') }}</button>
           </span>
         </div>
       </div>
