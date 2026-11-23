@@ -29,8 +29,30 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   `docs/ui-quality-assurance.md`, `docs/ui-ux-audit.md`; a UI lab at `/ui-lab` shows every shared component in its
   states.
 
+### Added
+
+- **Times in the employer's time zone are converted to yours.** A mail that says "Tuesday, November 24, 10:00 AM (Surrey
+  local time)" used to be kept as 10:00 on your own clock. The mail reader now says which zone a time is in - from the
+  place the mail or the posting gives for the employer, not from an abbreviation alone ("PT" is not one clock:
+  British Columbia stopped changing its clocks in 2026, the US West Coast did not) - and the program converts it with
+  its own, current time zone rules. The item shows the time on your clock, the mail's own words, and what it was
+  converted from; when a mail gives a time and nothing tells whose, the item says so. A scheduling tool's "shown in
+  your time zone" is left as it is. *Settings → Notifications → Calendar reminders → Your time zone* names your zone
+  when it is not this computer's.
+- **A period that fixes a date gives one**: "you have 14 days to complete the assessment" becomes a date counted from
+  the day the mail was sent, on the calendar and with its reminders.
+- Cards that were waiting when this version starts are read once more for both.
+
 ### Fixed
 
+- **"Ready: switch to 2.0.2" on a program that already was 2.0.2.** A version that was prepared and is the one
+  running (or older) is not offered; the page says it is up to date.
+- A later mail that names no time (the meeting's invitation) no longer wipes the time's own words off the card.
+- **Files**: postings whose application was withdrawn, or that you are not applying for, were listed under *In
+  preparation*. They have their own group, *Not submitted*; their files are kept and can be archived in one go.
+- **Analysis**: a short card beside a long one is no longer stretched to the same height; the kinds of cards from
+  before 2.0 have names, and two kinds with one name are one row.
+- A chosen reminder is as tall as the buttons that add one, its words centred.
 - **A calendar item's time on the applications page was read as UTC**: an interview at 10:00 showed as 18:00 (or
   03:00), eight hours off the calendar. It is the same wall-clock time everywhere now, whatever the time zone of the
   browser; the day of an outcome and the name of an exported file use the local day too.

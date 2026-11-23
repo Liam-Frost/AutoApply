@@ -78,10 +78,13 @@ def status() -> dict[str, Any]:
     latest = str(s.get("latest") or "")
     rel = config.DATA / "releases"
     staged = str(s.get("staged") or "")
+    if staged and _key(staged) <= _key(cur):      # (what was prepared is what runs, or older: nothing to switch to)
+        staged = ""
     return {"current": cur, "kind": kind(), "mode": db.get_setting("update.mode") or "notify", "channel": db.get_setting("update.channel") or "stable",
             "window": db.get_setting("update.window") or {}, "latest": latest, "newer": bool(latest) and _key(latest) > _key(cur),
             "url": s.get("url", ""), "notes": s.get("notes", ""), "published": s.get("published", ""), "prerelease": bool(s.get("prerelease")),
-            "checked_at": s.get("checked_at", ""), "status": s.get("status", "idle"), "progress": s.get("progress", 0), "error": s.get("error", ""),
+            "checked_at": s.get("checked_at", ""), "status": "idle" if s.get("status") == "ready" and not staged else s.get("status", "idle"),
+            "progress": s.get("progress", 0), "error": s.get("error", ""),
             "staged": staged if staged and (rel / staged).is_dir() else "", "previous": _previous(), "history": (s.get("history") or [])[-10:]}
 
 
@@ -305,6 +308,11 @@ def after_start() -> None:
         if not ok:
             (config.DATA / "run" / "next-release").unlink(missing_ok=True)      # (not tried again at the next restart)
         _tell("switched" if ok else "failed", to)
+    kept = str(state().get("staged") or "")
+    if kept and _key(kept) <= _key(version()) and not state().get("switching_to"):
+        # The version that runs is the one prepared - or a later one (it was started another way: the installer, a
+        # build of one's own). "Ready: switch to 2.0.2" on a program that is 2.0.2 was this.
+        _save(staged="", status="idle" if state().get("status") == "ready" else state().get("status", "idle"), when_idle="")
     rel = config.DATA / "releases"
     keep = {version(), str(state().get("previous") or ""), str(state().get("staged") or "")}
     active = config.DATA / "run" / "active-release"

@@ -129,7 +129,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
   </template>
   <div v-else class="card"><EmptyState icon="activity" :title="$t('analytics.apps.noApplicationsSentIn')" :text="$t('analytics.apps.tryADifferentTime')" /></div>
 
-  <div v-if="d.first_record || d.backlog" class="an-row c11">
+  <div v-if="d.first_record || d.backlog" class="an-row c11 top">
     <div v-if="d.first_record" class="card">
       <CardHead :title="$t('analytics.first.title')" :help="$t('analytics.first.explain')" :note="$t('analytics.first.sub', { n: d.first_record.n }, d.first_record.n)" />
       <div class="kpis inner">

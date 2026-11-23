@@ -124,6 +124,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "calendar.reminders": {"interview": [1440, 30], "assessment": [1440, 120], "offer": [1440], "info_request": [1440], "contact": [0], "own": [0], "deadline": []},
     "calendar.allday_at": "09:00",
     "calendar.reminders_quiet": False,     # True: a reminder that falls in the quiet hours waits for them to end
+    # the applicant's time zone (IANA name, "Asia/Shanghai"); "": the computer's. Times an employer's mail gives in its
+    # own zone are turned into this one (clock.py).
+    "time.zone": "",
     "bot.listen": True,                 # the bots take presses, replies and commands (off: they only send)
     "bot.chat": True,
     "bot.daily_summary": {"on": False, "at": "08:30"},      # a summary each morning on the phone (chat.morning)                   # what is said to a bot that is not a command or a reply goes to the assistant

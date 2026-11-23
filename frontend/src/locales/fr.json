@@ -770,11 +770,12 @@
       "deadline": "Date limite",
       "when": "Heure",
       "mail": "Selon le courriel",
-      "timezone": "Fuseau horaire",
+      "timezone": "Affiché en",
       "score": "Note",
       "posting": "Annonce",
       "link": "Lien",
-      "note": "Note"
+      "note": "Note",
+      "zone": "Converti depuis"
     },
     "scoreOf": "{n} / 10",
     "priorityEmployer": "Employeur prioritaire",
@@ -806,7 +807,9 @@
       "overdueHint": "Réponses aux offres, informations, relances et événements personnels dont l’heure est passée, non terminés (14 derniers jours)",
       "hide": "Masquer le résumé"
     },
-    "kbd": "Raccourcis : T aujourd’hui · ← → précédent / suivant · M W D vues · N nouvel événement · / rechercher"
+    "kbd": "Raccourcis : T aujourd’hui · ← → précédent / suivant · M W D vues · N nouvel événement · / rechercher",
+    "zoneFrom": "{time}, heure de {zone}",
+    "zoneAssumed": "Le courriel n’indique pas de fuseau horaire : l’heure est affichée comme la vôtre. Si c’est celle de l’employeur, corrigez-la avec « Changer l’heure »."
   },
   "settings": {
     "reminders": {
@@ -1467,6 +1470,13 @@
       "removed": "{p0} retiré",
       "enableName": "Suivre {name}",
       "openPage": "Ouvrir la page carrières"
+    },
+    "time": {
+      "zone": "Votre fuseau horaire",
+      "zoneHelp": "Les heures qu’un courriel d’employeur donne à son heure locale (un entretien « à 10 h, heure du Pacifique ») sont converties dans ce fuseau. Laissez vide pour suivre cet ordinateur ; indiquez-le si le programme tourne sur une autre machine ou si vous voyagez.",
+      "followComputer": "Celui de cet ordinateur ({zone})",
+      "followComputerPlain": "Celui de cet ordinateur",
+      "zoneExample": "Un nom comme Asia/Shanghai ou America/Vancouver"
     }
   },
   "files": {
@@ -1590,7 +1600,8 @@
       "deleted": "Supprimé",
       "deletedFiles": "{p0} fichiers supprimés",
       "disabledFiles": "{p0} fichiers désactivés",
-      "folders": "Dossiers"
+      "folders": "Dossiers",
+      "notSent": "Non envoyées"
     },
     "writtenFor": "Rédigé pour :"
   },

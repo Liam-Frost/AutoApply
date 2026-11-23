@@ -1259,7 +1259,7 @@ def calendar_items(start: str, end: str, kinds: str = "", states: str = "", comp
                    all_deadlines: bool = False) -> dict[str, Any]:
     """Everything with a time between two local days (``end`` exclusive), in one shape (agenda.py). ``kinds`` and
     ``states``: comma-separated; no kinds - the ones shown unless asked otherwise."""
-    from datetime import date as _date, datetime
+    from datetime import date as _date
 
     from .. import agenda
 
@@ -1271,11 +1271,12 @@ def calendar_items(start: str, end: str, kinds: str = "", states: str = "", comp
         raise HTTPException(400, T("server.api.main.atMostDaysAt"))
     ks = tuple(k for k in kinds.split(",") if k in agenda.KINDS) or agenda.SHOWN
     ss = tuple(x for x in states.split(",") if x in agenda.STATES)
-    offset = datetime.now().astimezone().utcoffset()
+    from .. import clock
+
     return {"items": agenda.items(lo, hi, kinds=ks, states=ss, company=company, priority=priority, min_score=min_score, all_deadlines=all_deadlines),
             "kinds": list(agenda.KINDS), "shown": list(agenda.SHOWN),
-            # the times are this computer's wall clock: a page open elsewhere (remote access) can say so
-            "utc_offset": int(offset.total_seconds() // 60) if offset is not None else 0}
+            # the times are on the applicant's clock (clock.py): a page open in another zone can say so
+            "utc_offset": clock.offset_minutes(), "zone": clock.zone_name()}
 
 
 @app.post("/api/calendar/items")
@@ -2407,6 +2408,9 @@ def list_documents() -> list[dict[str, Any]]:
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
                          "job_stage": jstage.get("stage_label", ""), "job_tone": jstage.get("stage_tone", ""), "job_archived": bool(job and job.archived_at),
                          "job_sent": bool(job and job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK)),
+                         # not being prepared any more and never sent: withdrawn, turned down, the posting skipped or gone
+                         "job_over": bool(job and not (job.application and (job.application.submitted_at is not None or job.application.status in mail.RANK))
+                                          and (over or job.status == "skipped" or not job.online)),
                          # (what the checks objected to: a letter keeps it with itself, a tailored résumé with its changes)
                          "problems": (d.meta or {}).get("problems") or ((d.meta or {}).get("tailor") or {}).get("problems") or [], "ext": p.suffix.lower().lstrip("."), "size": p.stat().st_size if p.exists() else 0,
                          "missing": not p.exists(), "pages": (d.meta or {}).get("pages"), "for_job": f"{job.company} · {job.title}" if job else "",
@@ -2839,8 +2843,10 @@ def get_settings() -> dict[str, Any]:
 
     shown = {k: v for k, v in db.all_settings().items() if k in config.DEFAULT_SETTINGS and k not in config.STATE}
     shown["agent.budgets"] = agentbudget.table(shown.get("agent.budgets"))      # every kind of work, also the ones added since it was last saved
+    from .. import clock
+
     return {"settings": shown, "secrets": {k: secrets.has(v) for k, v in SECRET_FIELDS.items()}, "gmail": mail.status(),
-            "playbooks": knowledge.list_playbooks()}
+            "playbooks": knowledge.list_playbooks(), "system_zone": clock.system_zone()}
 
 
 @app.get("/api/browser/status")
@@ -2885,6 +2891,12 @@ def put_settings(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             continue        # the program's own bookkeeping, or a setting that is gone: sent back by a page loaded earlier
         if k not in config.DEFAULT_SETTINGS:
             raise HTTPException(400, f"unknown setting {k}")
+        if k == "time.zone":
+            from .. import clock
+
+            v = str(v or "").strip()
+            if v and not clock.valid(v):
+                raise HTTPException(400, T("server.api.main.notATimeZone", zone=v[:60]))
         db.set_setting(k, v)
     for k, v in (body.get("secrets") or {}).items():
         if k not in SECRET_FIELDS:

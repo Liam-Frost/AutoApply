@@ -209,7 +209,7 @@ def test_mail_is_dealt_with_in_the_order_it_was_written(app_env, monkeypatch):
     monkeypatch.setattr(mailbox, "fetch", lambda *a, **k: box)        # newest first, as mailboxes do
     read = []
 
-    def triage(subj, frm, body):
+    def triage(subj, frm, body, *when):
         read.append(subj)
         return {"category": "interview", "company": "Acme", "job_title": "Software Intern", "summary": subj, "event": "cancelled" if "cancelled" in subj else "new"}
 

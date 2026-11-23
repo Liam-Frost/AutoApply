@@ -329,14 +329,22 @@ def _backlog(s: Any, w: Window) -> dict[str, Any]:
     open_ = [t for t in s.query(Todo).filter_by(status="open")]
     oldest = sorted(open_, key=lambda t: t.created_at)[:5]
     every = sorted(x for xs in by_kind.values() for x in xs)
+    # by what the applicant reads: two kinds of card with one name ("sign in": at a site, in a window) are one row
+    named: dict[str, tuple[Any, str, list[float]]] = {}
+    for k, v in sorted(by_kind.items(), key=lambda kv: -len(kv[1])):
+        label = TODO_KINDS.get(k) or T("server.analytics.otherCards")
+        named.setdefault(str(label), (label, k, []))[2].extend(v)      # (`kind`: the one of them with the most cards)
     return {"handled": len(every), "median_hours": _median(every),
-            "by_kind": sorted(({"kind": k, "label": TODO_KINDS.get(k, k), "n": len(v), "median_hours": _median(sorted(v))} for k, v in by_kind.items()), key=lambda r: -r["n"]),
-            "open": len(open_), "oldest": [{"id": t.id, "title": t.title, "kind": TODO_KINDS.get(t.kind, t.kind), "hours": (now_ - t.created_at).total_seconds() / 3600} for t in oldest]}
+            "by_kind": sorted(({"kind": k, "label": label, "n": len(v), "median_hours": _median(sorted(v))} for label, k, v in named.values()), key=lambda r: -r["n"]),
+            "open": len(open_), "oldest": [{"id": t.id, "title": t.title, "kind": TODO_KINDS.get(t.kind) or T("server.analytics.otherCards"), "hours": (now_ - t.created_at).total_seconds() / 3600} for t in oldest]}
 
 
 TODO_KINDS = {"answer": T("server.analytics.answerQuestions"), "review": T("server.analytics.approveARecord"), "confirm": T("server.analytics.confirm"), "code": T("server.analytics.code"), "resume": T("server.analytics.continueAnApplication"), "submit": T("server.analytics.submitYourself"), "failed": T("server.analytics.didNotGetThrough"),
               "config": T("server.analytics.settings"), "mail_unmatched": T("server.analytics.whichApplicationAMail"), "followup": T("server.analytics.interviewAssessment"), "gone": T("server.analytics.postingTakenDown"), "login": T("server.analytics.signIn"), "facts_changed": T("server.analytics.profileChanged"),
-              "mail_out": T("server.analytics.readAMailBefore"), "takeover": T("server.analytics.signIn"), "blocked": T("server.analytics.siteTheProgramCannot"), "captcha": T("server.analytics.humanCheck")}
+              "mail_out": T("server.analytics.readAMailBefore"), "takeover": T("server.analytics.signIn"), "blocked": T("server.analytics.siteTheProgramCannot"), "captcha": T("server.analytics.humanCheck"),
+              # cards of the program before 2.0, still in the record: a site's form had changed and its reading was repaired
+              "driver": T("server.analytics.siteFormChanged"), "driver_patch": T("server.analytics.siteFormChanged"),
+              "note": T("server.analytics.ownEvent")}
 
 
 # --- tasks: what a workflow execution came to ----------------------------------------------------

@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from . import db
+from . import clock
 from .models import Alarm
 
 log = logging.getLogger("autoapply.alarms")
@@ -85,7 +86,7 @@ def give_defaults(item: str, kind: str, start: datetime | None = None, all_day: 
     if all_day:      # a whole day is reminded of in the morning: "2 hours before" and "1 day before" are the same morning
         wanted = sorted({-(-b // 1440) * 1440 for b in wanted}, reverse=True)
     for before in wanted:
-        if start is not None and fire_at(start, all_day, before) <= datetime.now():
+        if start is not None and fire_at(start, all_day, before) <= clock.now():
             continue
         add(item, before, by="default")
         n += 1
@@ -96,7 +97,7 @@ def tick(at: datetime | None = None) -> int:
     """Send the reminders whose time has come. Returns how many went out."""
     from . import agenda, messages, notify
 
-    at = at or datetime.now()
+    at = at or clock.now()
     today = at.date()
     with db.session() as s:
         rows = [(a.id, a.item, a.before, a.sent_for) for a in s.query(Alarm)]
@@ -121,7 +122,7 @@ def tick(at: datetime | None = None) -> int:
             a = s.get(Alarm, aid)
             if a is None or a.sent_for == x["start"]:
                 continue
-            a.sent_for, a.sent_at = x["start"], datetime.now()
+            a.sent_for, a.sent_at = x["start"], clock.now()
         card = messages.alarm(x["title"], x["subject"], start, x["all_day"], x["kind"], before, x["link"])
         try:
             notify.send("todo", card, ref=f"alarm:{item}", tag="reminder", through_quiet=quiet_too, todo_id=x["about"]["todo_id"])
@@ -133,14 +134,14 @@ def tick(at: datetime | None = None) -> int:
 
 def recent(hours: int = 12) -> list[dict[str, Any]]:
     """The reminders that went off lately, for the top of the to-do page."""
-    since = datetime.now() - timedelta(hours=hours)
+    since = clock.now() - timedelta(hours=hours)
     with db.session() as s:
         rows = [(a.item, a.before, a.sent_for, a.sent_at) for a in s.query(Alarm).filter(Alarm.sent_at.isnot(None), Alarm.sent_at >= since).order_by(Alarm.sent_at.desc())]
     if not rows:
         return []
     from . import agenda
 
-    today = date.today()
+    today = clock.today()
     items = {x["id"]: x for x in agenda.items(today - timedelta(days=1), today + timedelta(days=62), kinds=agenda.KINDS[:7])}
     out = []
     for item, before, sent_for, sent_at in rows:
@@ -155,7 +156,7 @@ def migrate() -> int:
     fixed "the day before and on the day" was the program's own until now."""
     from . import agenda
 
-    today = date.today()
+    today = clock.today()
     n = 0
     for x in agenda.items(today, today + timedelta(days=120), kinds=("interview", "assessment", "offer", "info_request", "contact", "own")):
         if not x["done"] and x["id"].startswith("todo:") and not of(x["id"]):

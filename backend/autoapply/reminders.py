@@ -12,6 +12,7 @@ from __future__ import annotations
 from .say import say as T
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -34,9 +35,57 @@ def parse_due(text: str) -> datetime | None:
         d = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if d.tzinfo is not None:      # kept as the local wall clock time: that is what "Tuesday at 10" means to the applicant here
-        d = d.astimezone().replace(tzinfo=None)
+    if d.tzinfo is not None:      # a moment with its offset: on the applicant's clock
+        from . import clock
+
+        d = clock.to_local(d)
     return d
+
+
+def due_of(asks: dict[str, Any]) -> tuple[datetime | None, dict[str, Any]]:
+    """When what a mail asks is, on the applicant's clock - and what is kept beside it: whether it is a whole day, the
+    zone the mail said it in and the time as said there (shown, so that the conversion can be checked), or that no zone
+    was told and the time was taken as the applicant's own."""
+    from . import clock
+
+    raw = str(asks.get("due") or "").strip()
+    due = parse_due(raw)
+    if due is None:
+        return None, {}
+    whole = "T" not in raw and " " not in raw
+    facts: dict[str, Any] = {"date_only": whole, "due_zone": "", "due_said": "", "zone_assumed": False}
+    if whole or re.search(r"(Z|[+-]\d\d:?\d\d)$", raw):
+        return due, facts
+    zone = str(asks.get("due_zone") or "").strip()
+    if zone and zone != clock.APPLICANT:
+        there = clock.from_zone(due, zone)
+        if there is not None:
+            return there, {**facts, "due_zone": zone, "due_said": due.isoformat(timespec="minutes")}
+    return due, {**facts, "zone_assumed": zone != clock.APPLICANT}
+
+
+def redate(todo_id: int, w: dict[str, Any]) -> bool:
+    """A card's date read again from its mails (mail.redate_cards): set, with the zone it was said in. True when the
+    card's date changed."""
+    due, facts = due_of(w)
+    if due is None:
+        return False
+    with db.session() as s:
+        t = s.get(Todo, todo_id)
+        if t is None or t.status != "open" or (t.payload or {}).get("date_by") == "user":
+            return False
+        had = t.due_at
+        p = {**(t.payload or {}), **facts}
+        if w.get("due_text"):
+            p["due_text"] = str(w["due_text"])[:200]
+        t.payload = p
+        if due == had:
+            return False
+        t.due_at, t.snoozed_until = due, None
+        category = str(p.get("category") or "")
+    if had is None:
+        alarms.give_defaults(f"todo:{todo_id}", category, due, bool(facts["date_only"]))
+    return True
 
 
 def _ref(application_id: int, category: str) -> str:
@@ -55,11 +104,12 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
         notify.close_todos(KIND, ref)
         return None
     asks = asks or {}
-    due = parse_due(str(asks.get("due") or ""))
+    due, facts = due_of(asks)
     action = str(asks.get("action") or "").strip()[:300]
     body = "\n".join(x for x in (action, T("server.reminders.theTimeAsThe", p0=str(asks['due_text']).strip()[:200]) if asks.get("due_text") else "", summary) if x)
-    payload = {"application_id": application_id, "message_id": message_id, "category": category, "due_text": str(asks.get("due_text") or "")[:200],
-               "date_only": bool(due) and "T" not in str(asks.get("due") or "") and " " not in str(asks.get("due") or "").strip()}
+    payload: dict[str, Any] = {"application_id": application_id, "message_id": message_id, "category": category}
+    if due is not None:      # (a later mail that names no date - the meeting's invitation - leaves what is known of the date as it is)
+        payload.update(facts, due_text=str(asks.get("due_text") or "")[:200], _when_seen=True)
     links = list(asks.get("links") or [])
     if links:      # where it leads: one link is that; of several, the applicant chooses (the calendar lists them) - never guessed
         payload["links"] = links
@@ -78,13 +128,15 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
             # (the same date said once more - a reminder - leaves a card that was put off where the applicant put it)
             tid, existing = t.id, True
         else:
+            payload.setdefault("due_text", "")
+            payload.setdefault("date_only", False)
             t = Todo(kind=KIND, ref=ref, title=f"{title}：{messages.mail_label(category, 'new')[1]}", body=body,
                      payload={**payload, "link": links[0]["url"]} if len(links) == 1 else payload, due_at=due)
             s.add(t)
             s.flush()
             tid, existing, first_date = t.id, False, due is not None      # (no notice here: the mail itself was just announced)
     if first_date:      # a date for the first time: the reminders of its kind (a moved date keeps the ones it has, and they move with it)
-        alarms.give_defaults(f"todo:{tid}", category, due, bool(payload["date_only"]))
+        alarms.give_defaults(f"todo:{tid}", category, due, bool(payload.get("date_only")))
     if existing:
         return tid
     if category == "info_request" and message_id:      # something to answer by mail: the answer is written while the applicant reads the card
@@ -121,14 +173,20 @@ def set_due(todo_id: int, due: datetime | None) -> None:
 
 
 def snoozed(t: Todo, at: datetime | None = None) -> bool:
-    at = at or datetime.now()
+    if at is None:
+        from . import clock
+
+        at = clock.now()
     return t.snoozed_until is not None and t.snoozed_until > at
 
 
 def check(at: datetime | None = None) -> dict[str, int]:
     """Every few minutes: show again what was put off until now, and make a card for a contact whose follow-up day has
     come. (What is coming up is said by its reminders - alarms.py, every minute.)"""
-    at = at or datetime.now()
+    if at is None:
+        from . import clock
+
+        at = clock.now()
     out = {"shown_again": 0, "contacts": 0}
     tell: list[tuple[str, Any, str]] = []
     with db.session() as s:

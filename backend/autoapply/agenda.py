@@ -30,7 +30,9 @@ def _local(dt: datetime | None) -> datetime | None:
     """A moment the program recorded (UTC, without a zone) as local wall clock time."""
     if dt is None:
         return None
-    return dt.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+    from . import clock
+
+    return clock.to_local(dt.replace(tzinfo=timezone.utc))
 
 
 def _iso(dt: datetime) -> str:
@@ -94,6 +96,11 @@ def items(start: date, end: date, *, kinds: tuple[str, ...] = SHOWN, states: tup
                     "priority": bool(job and employers.is_priority(job.company, job.source, named)),
                     # the time as the mail wrote it ("Tuesday 10am PT"): what the date was read from
                     "due_text": str((todo.payload or {}).get("due_text") or "")[:200] if todo is not None else "",
+                    # the zone the mail said it in and the time as said there (the item's own time is the applicant's);
+                    # or: no zone was told, the time was taken as the applicant's own
+                    "due_zone": str((todo.payload or {}).get("due_zone") or "") if todo is not None else "",
+                    "due_said": str((todo.payload or {}).get("due_said") or "") if todo is not None else "",
+                    "zone_assumed": bool((todo.payload or {}).get("zone_assumed")) if todo is not None else False,
                     "about": {"job_id": job.id if job else None, "application_id": app.id if app else None, "todo_id": todo.id if todo else None, "contact_id": contact_id}})
 
     with db.session() as s:

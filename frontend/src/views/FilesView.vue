@@ -55,15 +55,16 @@ const jobs = computed(() => {
   const m = new Map()
   for (const d of generated.value) {
     const k = d.job_id || 0
-    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || T('files.page.noLinkedPosting'), company: d.job_company || '', title: d.job_title || '', where: d.job_where || '', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, files: [] })
+    if (!m.has(k)) m.set(k, { id: k, name: d.for_job || T('files.page.noLinkedPosting'), company: d.job_company || '', title: d.job_title || '', where: d.job_where || '', stage: d.job_stage, tone: d.job_tone, archived: d.job_archived, sent: d.job_sent, over: d.job_over, files: [] })
     m.get(k).files.push(d)
   }
   return [...m.values()].sort((a, b) => b.files[0].id - a.files[0].id)
 })
 // The jobs in three groups, by where the application stands. What is being prepared is what one looks for; what was
 // sent or shelved is kept, folded away, so that the list stays as short as the work in hand.
-const SECTIONS = [['open', T('files.page.inPreparation')], ['sent', T('files.page.submitted')], ['old', T('files.page.archived')]]
-const sectionOf = (j) => (j.archived ? 'old' : j.sent ? 'sent' : 'open')
+// (what was begun and never sent - withdrawn, not applying, the posting gone - is not "in preparation": its own group)
+const SECTIONS = [['open', T('files.page.inPreparation')], ['sent', T('files.page.submitted')], ['over', T('files.page.notSent')], ['old', T('files.page.archived')]]
+const sectionOf = (j) => (j.archived ? 'old' : j.sent ? 'sent' : j.over ? 'over' : 'open')
 const bySection = computed(() => Object.fromEntries(SECTIONS.map(([k]) => [k, jobs.value.filter((j) => sectionOf(j) === k)])))
 const unfolded = ref(new Set(['open']))
 function fold(k) { const s = new Set(unfolded.value); s.has(k) ? s.delete(k) : s.add(k); unfolded.value = s }
