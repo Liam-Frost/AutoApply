@@ -102,7 +102,7 @@ def test_the_running_build_is_named_when_it_runs_from_a_release_folder(here, mon
     st = updates.status()
     assert st["build"] == "2026-11-23-design-system" and st["build_release"]["date"] == "2026-11-23"
     # what the page read before is all still there, the same
-    assert {"version", "commit", "kind", "python", "system", "data", "repo", "components", "changes"} <= set(info)
+    assert {"version", "commit", "kind", "python", "system", "data", "repo", "components"} <= set(info)
     c = TestClient(app)
     assert c.get("/api/about").json()["build"] == "2026-11-23-design-system"
     assert OLD_FIELDS <= set(c.get("/api/system/update").json())

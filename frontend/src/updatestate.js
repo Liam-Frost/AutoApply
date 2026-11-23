@@ -148,6 +148,19 @@ export function updateState(st, { checking = false } = {}) {
   if (previous) facts.push({ id: 'previous', release: previous })
   if (st.checked_at) facts.push({ id: 'checked', at: st.checked_at })
 
+  // What the overview sets side by side (presentation only): the version that runs, and the one the state is about - the
+  // release being switched to, the one prepared, else the newest out. `moves`: the right one is ahead of what runs (or
+  // a switch is under way), so an arrow goes between them; `known`: a check has said something about the right one;
+  // `others`: the facts said beside the two, without the ones the two already show.
+  const toId = switching ? 'switching' : staged && (id === 'ready' || (id === 'failed' && error.stage === 'switch')) ? 'staged' : 'latest'
+  const to = { id: toId, release: { switching, staged, latest }[toId], known: toId !== 'latest' || !!(st.checked_at || latest) }
+  const compare = {
+    from: facts[0],
+    to,
+    moves: toId !== 'latest' || newer,
+    others: facts.filter((f) => f.id !== 'running' && f.id !== toId && !(f.release && to.release && f.release.name === to.release.name)),
+  }
+
   const TONE = { current: 'ok', ready: 'ok', newer: 'info', checking: 'info', downloading: 'info', preparing: 'info', switching: 'warn', failed: 'bad' }
   return {
     id,
@@ -163,6 +176,7 @@ export function updateState(st, { checking = false } = {}) {
     // how this copy is updated when it does not do it itself, or switched to what it prepared
     how: id === 'unsupported' ? kind : id === 'ready' && !can.switch ? 'unmanaged' : '',
     facts,
+    compare,
     actions,
     notes: newer && st.notes ? { version: latest.version, text: st.notes, url: st.url || '' } : null,
     // the page asks again while something goes on by itself
@@ -171,8 +185,12 @@ export function updateState(st, { checking = false } = {}) {
       mode: st.mode || 'notify',
       channel: st.channel || 'stable',
       window: { from: (st.window && st.window.from) || '03:00', to: (st.window && st.window.to) || '05:00' },
-      // fetching by itself needs a copy that can prepare; a checkout or a container only looks
-      modes: ['off', 'notify', 'download', 'auto'].map((value) => ({ value, disabled: (value === 'download' || value === 'auto') && !can.prepare })),
+      // fetching by itself needs a copy that can prepare; a checkout or a container only looks (`reason`, for the page's
+      // words: why an option cannot be chosen - "install": it needs an installed copy)
+      modes: ['off', 'notify', 'download', 'auto'].map((value) => {
+        const disabled = (value === 'download' || value === 'auto') && !can.prepare
+        return { value, disabled, reason: disabled ? 'install' : '' }
+      }),
       windowApplies: (st.mode || 'notify') === 'auto',
     },
   }

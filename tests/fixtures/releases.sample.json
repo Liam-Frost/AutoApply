@@ -1,0 +1,254 @@
+{
+ "_generated": "Made-up sample for tests/test_changelog.py, shaped as `python scripts/release.py generate` writes backend/autoapply/releases.json. Not a real release history.",
+ "releases": [
+  {
+   "changes": [
+    {
+     "details": "Every date in the interface follows the language's own short form.",
+     "highlight": false,
+     "id": "2031-02-10-dates-one-way-0a1b",
+     "scope": "ui",
+     "summary": {
+      "en": "Dates are written one way everywhere",
+      "fr": "Les dates s’écrivent partout de la même façon",
+      "zh": "各处日期写法统一"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "Use the reminders of each kind of event instead.",
+     "highlight": false,
+     "id": "2031-02-11-old-setting-deprecated-1c2d",
+     "scope": "settings",
+     "summary": {
+      "en": "The old reminder setting will go in 10.0",
+      "fr": "L’ancien réglage des rappels disparaîtra en 10.0",
+      "zh": "旧的提醒设置将在 10.0 移除"
+     },
+     "type": "deprecated"
+    },
+    {
+     "details": "The calendar page has an **Export** button:\n\n- one event per interview, deadline and reminder\n- the time zone of each event kept\n\nSee [the guide](https://example.com/guide) for importing it.",
+     "highlight": true,
+     "id": "2031-02-12-calendar-export-2e3f",
+     "scope": "calendar",
+     "summary": {
+      "en": "Export the calendar as an .ics file",
+      "fr": "Exporter l’agenda en fichier .ics",
+      "zh": "将日历导出为 .ics 文件"
+     },
+     "type": "added"
+    },
+    {
+     "details": "",
+     "highlight": false,
+     "id": "2031-02-13-legacy-importer-3a4b",
+     "scope": "files",
+     "summary": {
+      "en": "The legacy importer is gone",
+      "fr": "L’ancien importateur est supprimé",
+      "zh": "移除旧的导入器"
+     },
+     "type": "removed"
+    },
+    {
+     "details": "It happened when the pointer was already over the first item.",
+     "highlight": false,
+     "id": "2031-02-14-menu-stays-open-4c5d",
+     "scope": "ui",
+     "summary": {
+      "en": "A menu no longer closes the moment it opens",
+      "fr": "Un menu ne se ferme plus dès qu’il s’ouvre",
+      "zh": "菜单不再一打开就关闭"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "A reminder names the event and its time; what is due within the same minute is one notification.",
+     "highlight": true,
+     "id": "2031-02-15-quieter-reminders-5e6f",
+     "scope": "notifications",
+     "summary": {
+      "en": "Reminders say less and group what is due together",
+      "fr": "Les rappels en disent moins et regroupent ce qui arrive à échéance ensemble",
+      "zh": "提醒更简短，并合并同时到期的事项"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "Only English and French were written for this summary: in Chinese it falls back to English.",
+     "highlight": false,
+     "id": "2031-02-16-calendar-time-6a7b",
+     "scope": "calendar",
+     "summary": {
+      "en": "A calendar item keeps its time after an edit",
+      "fr": "Un élément de l’agenda garde son heure après une modification"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "The server answers only its own pages; `AUTOAPPLY_DEV_ORIGINS` adds a development origin.",
+     "highlight": true,
+     "id": "2031-02-17-other-origins-7c8d",
+     "scope": "server",
+     "summary": {
+      "en": "Requests from other sites are refused",
+      "fr": "Les requêtes venant d’autres sites sont refusées",
+      "zh": "拒绝来自其他网站的请求"
+     },
+     "type": "security"
+    },
+    {
+     "details": "",
+     "highlight": false,
+     "id": "2031-02-18-feed-for-apps-8e9f",
+     "scope": "calendar",
+     "summary": {
+      "en": "A calendar feed for your calendar app",
+      "fr": "Un flux d’agenda pour votre application d’agenda",
+      "zh": "供日历应用订阅的日历源"
+     },
+     "type": "added"
+    }
+   ],
+   "date": "2031-03-02",
+   "intro": "A made-up release for the tests: the calendar can be exported, reminders say less, and a few fixes.\n\nNothing here is a real release of the program.",
+   "known_limits": [
+    "The packages are not code-signed: the system may warn when a package is opened.",
+    "An exported calendar is not updated by itself; export it again after a change."
+   ],
+   "title": {
+    "en": "Calendar export and quieter reminders",
+    "fr": "Export de l’agenda et rappels plus discrets",
+    "zh": "日历导出与更安静的提醒"
+   },
+   "url": "https://github.com/example/app/releases/tag/v9.2.0",
+   "version": "9.2.0"
+  },
+  {
+   "changes": [
+    {
+     "details": "A retry after a timeout no longer sends it again.",
+     "highlight": false,
+     "id": "2031-01-14-mail-once-9a0b",
+     "scope": "mail",
+     "summary": {
+      "en": "A mail is sent once",
+      "fr": "Un courriel n’est envoyé qu’une fois",
+      "zh": "邮件只发送一次"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "",
+     "highlight": false,
+     "id": "2031-01-14-token-log-0c1d",
+     "scope": "server",
+     "summary": {
+      "en": "Tokens are kept out of the log"
+     },
+     "type": "security"
+    }
+   ],
+   "date": "2031-01-15",
+   "intro": "",
+   "known_limits": [],
+   "title": {
+    "en": "Two fixes"
+   },
+   "url": "https://github.com/example/app/releases/tag/v9.1.1",
+   "version": "9.1.1"
+  },
+  {
+   "changes": [
+    {
+     "details": "Each one thing: a posting is what was found, an application what was sent.",
+     "highlight": false,
+     "id": "2030-12-01-two-pages-1e2f",
+     "scope": "postings",
+     "summary": {
+      "en": "Postings and applications are two pages",
+      "fr": "Offres et candidatures sont deux pages",
+      "zh": "职位和申请是两个页面"
+     },
+     "type": "changed"
+    },
+    {
+     "details": "",
+     "highlight": false,
+     "id": "2030-12-02-phone-cards-2a3b",
+     "scope": "notifications",
+     "summary": {
+      "en": "Cards on your phone",
+      "fr": "Des cartes sur votre téléphone",
+      "zh": "手机上的卡片"
+     },
+     "type": "added"
+    },
+    {
+     "details": "",
+     "highlight": false,
+     "id": "2030-12-03-resume-upload-3c4d",
+     "scope": "files",
+     "summary": {
+      "en": "Résumé uploads are read again",
+      "fr": "Les CV téléversés sont de nouveau lus",
+      "zh": "简历上传可以再次读取"
+     },
+     "type": "fixed"
+    },
+    {
+     "details": "",
+     "highlight": false,
+     "id": "2030-12-04-scroll-4e5f",
+     "scope": "ui",
+     "summary": {
+      "en": "The page keeps its place when a list is read again",
+      "fr": "La page garde sa place quand une liste est relue",
+      "zh": "重新读取列表时页面保持位置"
+     },
+     "type": "fixed"
+    }
+   ],
+   "date": "2030-12-24",
+   "intro": "Postings and applications are two pages now.",
+   "known_limits": [],
+   "title": {
+    "en": "Postings and applications apart",
+    "fr": "Offres et candidatures séparées",
+    "zh": "职位与申请分开"
+   },
+   "url": "https://github.com/example/app/releases/tag/v9.1.0",
+   "version": "9.1.0"
+  },
+  {
+   "changes": [
+    {
+     "details": "",
+     "highlight": true,
+     "id": "2030-05-20-one-agent-5a6b",
+     "scope": "agent",
+     "summary": {
+      "en": "One agent works an application from start to end",
+      "fr": "Un agent traite une candidature du début à la fin",
+      "zh": "一个智能体从头到尾处理一份申请"
+     },
+     "type": "changed"
+    }
+   ],
+   "date": "2030-06-01",
+   "intro": "",
+   "known_limits": [
+    "The first start takes a minute."
+   ],
+   "title": {
+    "en": "One agent per application",
+    "fr": "Un agent par candidature"
+   },
+   "url": "https://github.com/example/app/releases/tag/v9.0.0",
+   "version": "9.0.0"
+  }
+ ],
+ "repo": "example/app",
+ "schema": 1
+}

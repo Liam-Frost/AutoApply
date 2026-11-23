@@ -1,8 +1,9 @@
 <script setup>
 import { t as T } from '../i18n/catalog'
-// About, in three tabs with the tab in the address (/about, /about/changelog, /about/licenses): the overview - a compact
-// head (this version, how it runs, the project's links) and one "Software update" card (the state and its actions, the
-// update settings, "Advanced") - then every version's changes and the components with their licences
+// About, in three tabs with the tab in the address (/about, /about/changelog, /about/licenses): the overview - one
+// column of reading width: a compact head (the product, this version and how it runs, the project's links) and one
+// "Software update" card (the state with the two versions as its centre and its actions, the update settings as a
+// summary with an editor, "Advanced") - then every version's changes and the components with their licences
 // (views/about/ChangelogTab.vue and LicensesTab.vue load their own data).
 // The updates follow one state model (src/updatestate.js): only the actions valid in the state are offered.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -88,8 +89,15 @@ function act(a) {
   if (a.does === 'prepare') return prepare()
   return switchTo(a)
 }
-// an update setting, saved at once (PUT /settings) and said
-const save = (key, value) => run(() => api.put('/settings', { settings: { [key]: value } }), T('about.saved'), () => loadUpdate())
+// The update settings that changed in the editor (update.mode, update.channel, update.window), saved together
+// (PUT /settings) and said; the page shows them at once, then reads the state again. Truthy once saved.
+const FIELD = { 'update.mode': 'mode', 'update.channel': 'channel', 'update.window': 'window' }
+const savePolicy = (changes) => run(async () => {
+  await api.put('/settings', { settings: changes })
+  const s = { ...up.value }
+  for (const [key, value] of Object.entries(changes)) if (FIELD[key]) s[FIELD[key]] = value
+  up.value = s
+}, T('about.saved'), () => loadUpdate())
 </script>
 
 <template>
@@ -102,7 +110,7 @@ const save = (key, value) => run(() => api.put('/settings', { settings: { [key]:
       <DataState v-if="!about || failed" :s="{ phase: failed ? 'error' : 'loading', error: failed }" :what="$t('about.title')" @retry="load" />
       <div v-else class="about-overview">
         <OverviewHead :about="about" />
-        <UpdateSection v-if="model" :model="model" :about="about" :status="up" :changelog="changelog" @act="act" @save="save" />
+        <UpdateSection v-if="model" :model="model" :about="about" :status="up" :changelog="changelog" :save="savePolicy" @act="act" />
       </div>
     </template>
     <ChangelogTab v-else-if="tab === 'changelog'" :version="about ? about.version : ''" />

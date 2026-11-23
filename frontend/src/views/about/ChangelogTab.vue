@@ -3,13 +3,15 @@ const slots = new Set()      // a second changelog on the page at once (the lab)
 </script>
 
 <script setup>
-// The about page's Changelog tab: every release of CHANGELOG.md on one line, newest first, in runs by year - one row
-// each (date, node, version, its short title, Latest / Current), all of them closed when the tab opens. One version is
-// open at most (an accordion): its highlights, and the way to its full notes in a drawer (ChangelogPanel.vue,
-// ChangelogNotes.vue). The open one is in the address (/about/changelog?v=2.0.2): a refresh keeps it, a link opens it.
-// What is not released yet is a block of its own above the line, part of the same accordion. One search and one type
-// filter narrow the versions; neither opens anything. backend/autoapply/changelog.py gives the data, src/changelog.js
-// decides what shows.
+// The about page's Changelog tab: every release on one line, newest first, in runs by year - one row each (date, node,
+// version, its title in the interface's language, Latest / Current), all of them closed when the tab opens. One version
+// is open at most (an accordion): up to six of its changes by type, the highlights first, and the way to its full
+// notes in a drawer (ChangelogPanel.vue, ChangelogNotes.vue). A press is not written into the address; a deep link
+// (/about/changelog?v=2.0.2 - the overview's "What's new") opens its version once and is then taken out of the
+// address, so a refresh shows everything closed again. What is not released yet is a block of its own above the line,
+// part of the same accordion, closed too. One search and one type filter narrow the versions; neither opens anything.
+// backend/autoapply/changelog.py gives the data (releases.json and the pending change fragments: no network), and
+// src/changelog.js decides what shows.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { lang, t as T } from '../../i18n/catalog'
@@ -26,7 +28,7 @@ import Menu from '../../components/Menu.vue'
 import Trunc from '../../components/Trunc.vue'
 
 // version: the running version (the about page has it). data: { current, versions } given instead of read (the lab).
-// address: the open version is kept in the address (?v=); the lab's made-up changelog keeps it to itself.
+// address: a deep link (?v=) opens its version; the lab's made-up changelog does not read the address.
 const props = defineProps({ version: { type: String, default: '' }, data: { type: Object, default: null }, address: { type: Boolean, default: true } })
 const route = useRoute()
 const router = useRouter()
@@ -42,51 +44,50 @@ const { st, load } = dataState(async () => { raw.value = props.data || (await ap
 const versions = computed(() => raw.value.versions || [])
 const current = computed(() => props.version || raw.value.current || '')
 const latest = computed(() => cl.latestOf(versions.value))
-const kindLabel = (k) => cl.kindLabel(k, T)
+const typeLabel = (k) => cl.typeLabel(k, T)
 
 // ── search and type ────────────────────────────────────────────────────────────────────────────────────────────────
 const q = ref('')
-const kind = ref('')
+const type = ref('')
 const ws = computed(() => cl.words(q.value))
-const filtering = computed(() => !!kind.value || ws.value.length > 0)
-const found = computed(() => cl.filterVersions(versions.value, { kind: kind.value, q: q.value, lang: lang.value }))
+const filtering = computed(() => !!type.value || ws.value.length > 0)
+const found = computed(() => cl.filterVersions(versions.value, { type: type.value, q: q.value, lang: lang.value }))
 const foundRel = computed(() => found.value.filter((f) => !f.v.unreleased))
 const foundUn = computed(() => found.value.find((f) => f.v.unreleased) || null)
 const of = computed(() => new Map(found.value.map((f) => [f.v.version, f])))
 const groups = computed(() => cl.groupByYear(foundRel.value.map((f) => f.v)))
 const typeItems = computed(() => [
-  { id: 'all', label: T('about.changelog.allTypes'), icon: kind.value ? undefined : 'check' },
+  { id: 'all', label: T('about.changelog.allTypes'), icon: type.value ? undefined : 'check' },
   { divider: true },
   ...cl.typeCounts(versions.value, { q: q.value, lang: lang.value }).map((c) => ({
-    id: c.kind, label: kindLabel(c.kind), hint: T('about.changelog.versionCount', { n: c.n }, c.n),
-    icon: kind.value === c.kind ? 'check' : undefined, disabled: !c.n && kind.value !== c.kind,
+    id: c.type, label: typeLabel(c.type), hint: T('about.changelog.changeCount', { n: c.n }, c.n),
+    icon: type.value === c.type ? 'check' : undefined, disabled: !c.n && type.value !== c.type,
   })),
 ])
-const pickType = (id) => { kind.value = id === 'all' ? '' : id }
-const clear = () => { q.value = ''; kind.value = '' }
+const pickType = (id) => { type.value = id === 'all' ? '' : id }
+const clear = () => { q.value = ''; type.value = '' }
 
-// ── the open version, and the address ──────────────────────────────────────────────────────────────────────────────
+// ── the open version ───────────────────────────────────────────────────────────────────────────────────────────────
 const open = ref(null)
+const missing = ref('')          // a deep link named a version the changelog does not have: said until the next press
 const same = (a, b) => (a && b ? cl.sameVersion(a, b) : !a && !b)
 const isOpen = (v) => same(open.value, v.version)
-const wanted = computed(() => (props.address ? cl.versionFromQuery(route.query) : ''))
-const notFound = computed(() => !!(st.at && wanted.value && !cl.findVersion(versions.value, wanted.value)))
 const reduced = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 // (an opened version grows to its height - a grid row from 0fr to 1fr, styles/changelog.css; for who asked for no motion it is
 // there at once, without even the one frame a transition of no length takes)
 const still = reduced()
 
-// A press on a version's row: it opens (and the one that was open closes), or it closes. The keyboard stays on the row,
-// and the row stays where it can be seen once the one above it has closed.
+// A press on a version's row: it opens (and the one that was open closes), or it closes. Only the page changes, not
+// the address. The keyboard stays on the row, and the row stays where it can be seen once the one above it has closed.
 // (the one that closes because another opens goes at once, and the page is scrolled by what it took away: the row
-// pressed stays where it was under the pointer, and its own highlights grow below it)
+// pressed stays where it was under the pointer, and its own changes grow below it)
 const switching = ref(false)
 async function toggle(v) {
   const row = document.getElementById(idOf(v.version) + '-h')
   const was = row ? row.getBoundingClientRect().top : null
   switching.value = !!open.value && !same(open.value, v.version)
   open.value = cl.toggled(open.value, v.version)
-  if (props.address) router.replace({ path: route.path, query: cl.queryWith(route.query, open.value), hash: route.hash })
+  missing.value = ''
   await nextTick()
   if (switching.value && row && was != null) {
     const moved = row.getBoundingClientRect().top - was
@@ -94,28 +95,29 @@ async function toggle(v) {
   }
   switching.value = false
 }
-// A version the address names (a link, a refresh): opened and brought into view, the keyboard left where it is.
+
+// A deep link: the version it names is opened and brought into view (the keyboard left where it is), once - `v` is
+// taken out of the address at once, so a refresh, back to it, or another tab and back show everything closed.
+// (`v` going away - that replace - is no event: arrival() is null without it)
+function arrive() {
+  if (!props.address || !st.at) return
+  const a = cl.arrival(versions.value, route.query)
+  if (!a) return
+  if (a.open) { open.value = a.open; reveal(a.open) }
+  missing.value = a.missing
+  router.replace({ path: route.path, query: a.query, hash: route.hash })
+}
 async function reveal(name) {
   await nextTick()
   const el = document.getElementById(idOf(name))
   if (el) el.scrollIntoView({ block: 'start', behavior: 'auto' })
 }
-// (another address - back, forward, a link while the tab is open - opens what it names)
-watch(() => route.query.v, () => {
-  if (!props.address || !st.at) return
-  const v = cl.openFromQuery(versions.value, route.query)
-  if (!same(v, open.value)) { open.value = v; if (v) reveal(v) }
-})
+watch(() => route.query.v, arrive)        // (a link followed while the tab is open)
 
-// Read (and read again after a failure); what the address names is opened once, when the versions are first there.
-let seeded = false
+// Read (and read again after a failure); a deep link is followed once the versions are there.
 async function read() {
   await load()
-  if (seeded || !st.at) return
-  seeded = true
-  if (!props.address) return
-  open.value = cl.openFromQuery(versions.value, route.query)
-  if (open.value) reveal(open.value)
+  arrive()
 }
 onMounted(read)
 
@@ -127,11 +129,11 @@ const numOf = (v) => (/^\d/.test(v.version) ? 'v' + v.version : v.version)
 const dateOf = (v) => dayOf(localDay(v.date))
 const yearOf = (g) => (g.year ? g.year : g.key === 'undated' ? T('about.changelog.noDate') : '')
 const titleOf = (v) => cl.inLang(v.title, lang.value)
-const titleLang = (v) => (cl.isEnglish(v.title, lang.value) ? 'en' : undefined)
+const titleEn = (v) => cl.isEnglish(v.title, lang.value)
 const isCurrent = (v) => !v.unreleased && !!current.value && cl.sameVersion(v.version, current.value)
 const isLatest = (v) => !!latest.value && latest.value.version === v.version
-// (the open version's highlights: all of them, or those the search and the type left)
-const shownOf = (v) => of.value.get(v.version) || { highlights: [], notes: 0, more: 0 }
+// (what the filter left of a version: all its changes without one)
+const foundOf = (v) => of.value.get(v.version) || { v, changes: [], notes: 0 }
 </script>
 
 <template>
@@ -144,15 +146,15 @@ const shownOf = (v) => of.value.get(v.version) || { highlights: [], notes: 0, mo
           <input v-model="q" class="search" type="search" :placeholder="$t('about.changelog.search')" :aria-label="$t('about.changelog.search')" />
           <span v-if="filtering" class="count" role="status">{{ $t('about.changelog.versionCount', { n: found.length }, found.length) }}</span>
           <span class="grow"></span>
-          <span v-if="kind" class="fchip lg cl-chip">{{ kindLabel(kind) }}<button type="button" v-tip="$t('about.changelog.removeFilter', { what: kindLabel(kind) })"
-            :aria-label="$t('about.changelog.removeFilter', { what: kindLabel(kind) })" @click="kind = ''"><Icon name="x" /></button></span>
+          <span v-if="type" class="fchip lg cl-chip">{{ typeLabel(type) }}<button type="button" v-tip="$t('about.changelog.removeFilter', { what: typeLabel(type) })"
+            :aria-label="$t('about.changelog.removeFilter', { what: typeLabel(type) })" @click="type = ''"><Icon name="x" /></button></span>
           <Menu :label="$t('about.changelog.type')" :items="typeItems" align="end" @pick="pickType">
             <template #trigger="{ toggle: flip, attrs }">
-              <button type="button" class="cl-type" :class="{ on: !!kind }" v-bind="attrs" @click="flip"><Icon name="filter" />{{ $t('about.changelog.type') }}<Icon name="chevron" class="cl-type-chev" /></button>
+              <button type="button" class="cl-type" :class="{ on: !!type }" v-bind="attrs" @click="flip"><Icon name="filter" />{{ $t('about.changelog.type') }}<Icon name="chevron" class="cl-type-chev" /></button>
             </template>
           </Menu>
         </div>
-        <p v-if="notFound" class="callout warn cl-missing" role="status"><Icon name="alert" />{{ $t('about.changelog.notFound', { v: wanted }) }}</p>
+        <p v-if="missing" class="callout warn cl-missing" role="status"><Icon name="alert" />{{ $t('about.changelog.notFound', { v: missing }) }}</p>
 
         <EmptyState v-if="!found.length" icon="search" :title="$t('about.changelog.noMatch')" :text="$t('about.changelog.noMatchText')">
           <button class="sm" @click="clear">{{ $t('about.changelog.clear') }}</button>
@@ -164,14 +166,14 @@ const shownOf = (v) => of.value.get(v.version) || { highlights: [], notes: 0, mo
               <button :id="idOf(foundUn.v.version) + '-h'" type="button" class="cl-row" :aria-expanded="isOpen(foundUn.v) ? 'true' : 'false'"
                       :aria-controls="idOf(foundUn.v.version) + '-b'" @click="toggle(foundUn.v)">
                 <span class="cl-num">{{ $t('about.changelog.unreleased') }}</span>
-                <span class="cl-mid"><Trunc class="cl-name" :text="titleOf(foundUn.v)" :lang="titleLang(foundUn.v)" /></span>
+                <span class="cl-mid"><Trunc v-if="titleOf(foundUn.v)" class="cl-name" :text="titleOf(foundUn.v)" :lang="titleEn(foundUn.v) ? 'en' : undefined" /></span>
                 <Icon name="chevron_right" class="cl-chev" />
               </button>
             </h3>
             <div :id="idOf(foundUn.v.version) + '-b'" class="cl-slot">
               <Transition name="cl-open" :css="!still && !(switching && !isOpen(foundUn.v))">
                 <div v-if="isOpen(foundUn.v)" class="cl-grow"><div class="cl-grow-in">
-                  <ChangelogPanel :version="foundUn.v" :highlights="foundUn.highlights" :filtering="filtering" :notes="foundUn.notes" :more="foundUn.more" :ws="ws" @notes="notesOf = foundUn.v" />
+                  <ChangelogPanel :found="foundUn" :filtering="filtering" :ws="ws" @notes="notesOf = foundUn.v" />
                 </div></div>
               </Transition>
             </div>
@@ -189,7 +191,8 @@ const shownOf = (v) => of.value.get(v.version) || { highlights: [], notes: 0, mo
                       <span class="cl-node" aria-hidden="true"></span>
                       <span class="cl-num">{{ numOf(v) }}</span>
                       <span class="cl-mid">
-                        <Trunc v-if="titleOf(v)" class="cl-name" :text="titleOf(v)" :lang="titleLang(v)" />
+                        <Trunc v-if="titleOf(v)" class="cl-name" :text="titleOf(v)" :lang="titleEn(v) ? 'en' : undefined" />
+                        <span v-if="titleOf(v) && titleEn(v)" class="cl-en">{{ $t('about.changelog.english') }}</span>
                         <span v-if="isLatest(v)" class="tag cl-tag">{{ $t('about.changelog.latest') }}</span>
                         <span v-if="isCurrent(v)" class="tag info cl-tag">{{ $t('about.changelog.current') }}</span>
                       </span>
@@ -199,7 +202,7 @@ const shownOf = (v) => of.value.get(v.version) || { highlights: [], notes: 0, mo
                   <div :id="idOf(v.version) + '-b'" class="cl-slot">
                     <Transition name="cl-open" :css="!still && !(switching && !isOpen(v))">
                       <div v-if="isOpen(v)" class="cl-grow"><div class="cl-grow-in">
-                        <ChangelogPanel :version="v" :highlights="shownOf(v).highlights" :filtering="filtering" :notes="shownOf(v).notes" :more="shownOf(v).more" :ws="ws" @notes="notesOf = v" />
+                        <ChangelogPanel :found="foundOf(v)" :filtering="filtering" :ws="ws" @notes="notesOf = v" />
                       </div></div>
                     </Transition>
                   </div>

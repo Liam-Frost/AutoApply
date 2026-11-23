@@ -1,7 +1,6 @@
 """What the about page says about this copy of the program: its version and how it runs, where its data is."""
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from . import config, db
@@ -30,16 +29,10 @@ def info() -> dict[str, Any]:
         except metadata.PackageNotFoundError:
             continue
     ver = backup.version()
-    changes = ""
-    try:      # this version's part of the changelog (the package carries CHANGELOG.md)
-        log_text = (config.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        m = re.search(r"^## \[" + re.escape(ver) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)", log_text, re.M | re.S)
-        changes = m.group(1).strip()[:20000] if m else ""
-    except OSError:
-        pass
+    # (what changed in it is the changelog's: /api/about/changelog, from the release data)
     build = updates.running()      # (the folder of data/releases it runs from: "" for an installation's own folder or a checkout)
     return {"version": ver, "commit": commit, "kind": updates.kind(), "python": platform.python_version(), "system": platform.platform(terse=True),
-            "data": str(config.DATA), "repo": str(db.get_setting("update.repo") or ""), "components": parts, "changes": changes,
+            "data": str(config.DATA), "repo": str(db.get_setting("update.repo") or ""), "components": parts,
             "build": build, "build_release": updates.release(build)}
 
 

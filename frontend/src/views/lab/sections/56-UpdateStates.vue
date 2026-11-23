@@ -1,8 +1,8 @@
 <script setup>
 // Lab: the about page's "Software update" in every state of src/updatestate.js, fed with made-up status objects in the
 // shape updates.status() gives (the demo runs from source, so the managed states are only seen here). At the top the
-// whole card as the page shows it, for the state chosen; under it the state part (UpdateStatus) of every state.
-// Pressing an action or changing a setting says what it was; nothing is sent.
+// whole card as the page shows it, for the state chosen, in the page's own column of reading width; under it the state
+// part (UpdateStatus) of every state. Pressing an action or saving the settings says what it was; nothing is sent.
 import { computed, ref } from 'vue'
 import { updateState } from '../../../updatestate'
 import UpdateSection from '../../about/UpdateSection.vue'
@@ -47,6 +47,8 @@ const LOG = ['2.0.2', '2.0.1']
 const shown = computed(() => CASES.map(([name, more, checking, log]) => ({ name, st: { ...base, ...more }, model: updateState({ ...base, ...more }, { checking: !!checking }), log: log || LOG })))
 const pressed = ref('')
 const say = (c, a) => (pressed.value = c.name + ': ' + a.id + (a.target ? ' ' + a.target.name : ''))
+// (what the page's save would send; "saved", so the editor closes as it does on the page)
+const save = (changes) => { pressed.value = 'saved ' + JSON.stringify(changes); return true }
 
 // the whole card, for one state; its settings changes are said here, not saved
 const whole = ref('ready')
@@ -62,15 +64,15 @@ const about = computed(() => ({ version: one.value.st.current, commit: one.value
       <option v-for="c in shown" :key="c.name" :value="c.name">{{ c.name }}</option>
     </AaSelect>
   </div>
-  <div data-up-whole>
-    <UpdateSection :model="one.model" :about="about" :status="one.st" :changelog="one.log" @act="(a) => say(one, a)" @save="(k, v) => (pressed = 'saved ' + k + ' = ' + JSON.stringify(v))" />
+  <div data-up-whole class="about-overview">
+    <UpdateSection :key="whole" :model="one.model" :about="about" :status="one.st" :changelog="one.log" :save="save" @act="(a) => say(one, a)" />
   </div>
 
   <p class="lab-note">The state part of every state; only the actions valid in it are offered</p>
   <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 12px; align-items: start">
     <div v-for="c in shown" :key="c.name" :data-up="c.name">
       <p class="lab-note">{{ c.name }} · <code>{{ c.model.id }}</code></p>
-      <div class="card up-sec" style="margin: 0"><UpdateStatus :model="c.model" :changelog="c.log" @act="(a) => say(c, a)" @show-command="pressed = c.name + ': show the command'" /></div>
+      <div class="card up-sec" style="margin: 0"><UpdateStatus :model="c.model" :changelog="c.log" @act="(a) => say(c, a)" /></div>
     </div>
   </div>
 </template>

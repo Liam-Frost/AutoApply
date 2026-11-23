@@ -1,15 +1,19 @@
-// The about page's changelog, as pure functions (tests/changelog.test.js): which version is open, how the versions are
-// grouped, filtered and searched, and how the open one is kept in the address. The data is the server's
-// (backend/autoapply/changelog.py), newest first: { version, date, unreleased, summary, sections: [{ kind, title, items,
-// text }], url } - the full notes of CHANGELOG.md, as written - and { title, highlights: [{ kind, title, text?,
-// derived? }] } - the short name of the release and what to look at in it, in every language of the interface
-// (highlights.json), or, for a version the file has no entry for yet, the bold leads of its notes in English
-// (`derived`). Nothing here makes up a date, a link or a summary.
+// The about page's changelog, as pure functions (tests/changelog.test.js): which version is open and how a deep link
+// opens one, how the versions are grouped, which changes an opened version shows, and what a search and the type
+// filter leave. The data is the server's (backend/autoapply/changelog.py: releases.json, generated from changes/ by
+// scripts/release.py, and the pending change fragments), newest first:
+//   { version, date, unreleased, title: { en, zh?, fr? }, intro, known_limits: [md], url,
+//     changes: [{ id, type, scope, summary: { en, zh?, fr? }, details: md, highlight }] }
+// `changes` are in the release's order (its manifest). Summaries are written in every language at development time and
+// shown in the interface's language, else in English (said so); intro, details and known limits are English. Nothing
+// here makes up a date, a link or a summary, and nothing cuts the details.
 
-// The kinds of change in the order the type filter lists them, and the tone of each one's mark (`.cl-dot.tone-<tone>`;
-// '' is the neutral one). Colour is never the only sign: the kind always has its words.
-export const KINDS = ['breaking', 'added', 'changed', 'fixed', 'security', 'deprecated', 'removed', 'known', 'other']
-export const TONE = { added: 'info', changed: '', fixed: 'ok', security: 'warn', breaking: 'bad', removed: '', deprecated: 'warn', known: 'warn', other: '' }
+// The types of change in the order a release's notes list them (autoapply.release.TYPE_ORDER), and the tone of each
+// one's mark (`.cl-dot.tone-<tone>`; '' is the neutral one). Colour is never the only sign: the type always has its words.
+export const TYPES = ['added', 'changed', 'deprecated', 'removed', 'fixed', 'security']
+export const TONE = { added: 'info', changed: '', deprecated: 'warn', removed: '', fixed: 'ok', security: 'warn' }
+// How many changes an opened version shows; the rest are in its full notes.
+export const SHOWN = 6
 
 // "v2.0.2" and "2.0.2" are one version; "unreleased" is "Unreleased"
 export const sameVersion = (a, b) => norm(a) === norm(b)
@@ -20,26 +24,21 @@ export const findVersion = (versions, v) => (v ? (versions || []).find((x) => sa
 // The id of a version's element on the page (a version may hold characters an id should not).
 export const anchor = (v) => 'cl-v-' + norm(v).replace(/[^a-z0-9]+/g, '-')
 
-// A link of the file's link references, only as a web address (the file is ours, but what is put into an href is checked).
+// A link of the data, only as a web address (the file is ours, but what is put into an href is checked).
 export const safeUrl = (u) => (/^https:\/\/[^\s"'<>]+$/i.test(String(u || '')) ? u : '')
-export const linkKind = (u) => (/\/compare\//.test(u) ? 'compare' : /\/releases(\/|$)/.test(u) ? 'release' : 'other')
 
-// The words of a kind and of a version's link, with the catalog's `t` (given, so that this stays pure).
-const KIND_WORDS = {
-  added: (t) => t('about.changelog.kind.added'), changed: (t) => t('about.changelog.kind.changed'), fixed: (t) => t('about.changelog.kind.fixed'),
-  security: (t) => t('about.changelog.kind.security'), breaking: (t) => t('about.changelog.kind.breaking'), removed: (t) => t('about.changelog.kind.removed'),
-  deprecated: (t) => t('about.changelog.kind.deprecated'), known: (t) => t('about.changelog.kind.known'), other: (t) => t('about.changelog.kind.other'),
+// The words of a type, with the catalog's `t` (given, so that this stays pure; each key written out, so that the
+// i18n check finds it).
+const TYPE_WORDS = {
+  added: (t) => t('about.changelog.kind.added'), changed: (t) => t('about.changelog.kind.changed'), deprecated: (t) => t('about.changelog.kind.deprecated'),
+  removed: (t) => t('about.changelog.kind.removed'), fixed: (t) => t('about.changelog.kind.fixed'), security: (t) => t('about.changelog.kind.security'),
 }
-export const kindLabel = (k, t) => (KIND_WORDS[k] || KIND_WORDS.other)(t)
-// "Code changes" for a compare page, "Release page" for a release, with the long form for a tooltip; null without a
-// web address.
+// (a type this interface does not know yet - a newer release's - is named as the data writes it)
+export const typeLabel = (k, t) => (TYPE_WORDS[k] ? TYPE_WORDS[k](t) : String(k || ''))
+// A version's page on GitHub ("Release page", the long form for a tooltip); null without a web address.
 export function linkOf(v, t) {
   const url = safeUrl(v && v.url)
-  if (!url) return null
-  const kind = linkKind(url)
-  if (kind === 'compare') return { url, label: t('about.changelog.compare'), tip: v.unreleased ? t('about.changelog.compareUnreleased') : t('about.changelog.compareTip', { v: v.version }) }
-  if (kind === 'release') return { url, label: t('about.changelog.release'), tip: t('about.changelog.releaseTip', { v: v.version }) }
-  return { url, label: t('about.changelog.link'), tip: '' }
+  return url ? { url, label: t('about.changelog.release'), tip: t('about.changelog.releaseTip', { v: v.version }) } : null
 }
 
 // A text given in several languages ({ en, zh, fr }) in the interface's language, else English, else any.
@@ -47,7 +46,7 @@ export function inLang(words, lang) {
   if (!words || typeof words !== 'object') return ''
   return words[lang] || words.en || Object.values(words).find((x) => typeof x === 'string' && x) || ''
 }
-// Is that text English where the interface is not? (A derived highlight, or a title not translated: said to a reader.)
+// Is that text English where the interface is not? (Not translated yet: said to a reader, and lang="en".)
 export const isEnglish = (words, lang) => lang !== 'en' && !!words && !words[lang] && !!words.en
 
 // ── the versions ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -57,7 +56,7 @@ export const unreleasedOf = (versions) => (versions || []).find((v) => v.unrelea
 export const latestOf = (versions) => releases(versions)[0] || null
 
 // Releases in runs by the year of their date, in the order given: [{ key, year, versions }]. A version without a
-// written date is in a run without a year ('undated'); what is not released yet is a run of its own ('unreleased').
+// date is in a run without a year ('undated'); what is not released yet is a run of its own ('unreleased').
 export function groupByYear(versions) {
   const groups = []
   for (const v of versions || []) {
@@ -69,41 +68,56 @@ export function groupByYear(versions) {
   return groups
 }
 
-// A version's highlights by kind, the kinds in the order they first come (the order the release's author chose):
-// [{ kind, items }].
-export function byKind(highlights) {
-  const out = []
-  for (const h of highlights || []) {
-    const g = out.find((x) => x.kind === h.kind)
-    if (g) g.items.push(h)
-    else out.push({ kind: h.kind, items: [h] })
+// ── what an opened version shows ───────────────────────────────────────────────────────────────────────────────────
+// At most `max` of the changes given: the release's highlights first, then the rest, each in the release's order.
+export function pick(changes, max = SHOWN) {
+  const list = changes || []
+  return [...list.filter((c) => c.highlight), ...list.filter((c) => !c.highlight)].slice(0, max)
+}
+// Changes grouped by type, the types in TYPES order (one the interface does not know after them), each group in the
+// order given: [{ type, items }].
+export function byType(changes) {
+  const out = TYPES.map((type) => ({ type, items: [] }))
+  for (const c of changes || []) {
+    let g = out.find((x) => x.type === c.type)
+    if (!g) out.push((g = { type: c.type, items: [] }))
+    g.items.push(c)
   }
-  return out
+  return out.filter((g) => g.items.length)
 }
 
-// ── the accordion ──────────────────────────────────────────────────────────────────────────────────────────────────
+// ── the accordion and the deep link ────────────────────────────────────────────────────────────────────────────────
 // One version open at most: `open` is its name, or null. Pressing a version opens it (and so closes the one that was
 // open); pressing the open one closes it. Nothing opens by itself: not the newest release, not the running version,
-// not a search - only a press, or an address that names a version.
+// not Unreleased, not a search or a type - only a press, or a deep link. A press is not written into the address.
 export const toggled = (open, name) => (open != null && sameVersion(open, name) ? null : name)
 
-// /about/changelog?v=2.0.2: the open version. Read from the query (anything can be typed there: one short value, or
-// nothing), and written into it with the rest of the query kept; no version open, no `v`.
+// /about/changelog?v=2.0.2 (the overview's "What's new in 2.0.2", a link from elsewhere): the version named. Anything
+// can be typed there: one short value, or nothing.
 export function versionFromQuery(query) {
   let v = query ? query.v : undefined
   if (Array.isArray(v)) v = v[0]
   v = typeof v === 'string' ? v.trim() : ''
   return v.length && v.length <= 40 ? v : ''
 }
-export function queryWith(query, v) {
+// The version an address names, as the data writes it ("v1.0.3" names "1.0.3"), or null when it names none or one the
+// changelog does not have.
+export const openFromQuery = (versions, query) => { const v = findVersion(versions, versionFromQuery(query)); return v ? v.version : null }
+// The query with the version taken out (the rest kept).
+export function withoutVersion(query) {
   const q = { ...(query || {}) }
-  if (v) q.v = String(v)
-  else delete q.v
+  delete q.v
   return q
 }
-// The version an address opens: its name as the data writes it ("v1.0.3" opens "1.0.3"), or null when it names none
-// or one the changelog does not have.
-export const openFromQuery = (versions, query) => { const v = findVersion(versions, versionFromQuery(query)); return v ? v.version : null }
+// What a deep link does when it arrives (the versions read): null when the address names no version (`v` absent) -
+// nothing to do; else { open: the version to open, or null when the changelog does not have it, missing: what the
+// address named then (said in a notice), query: the address's query without `v`, to replace it with }. Taken out of
+// the address at once, a link opens its version once: a refresh, back to it, another tab and back show all closed.
+export function arrival(versions, query) {
+  if (!query || query.v === undefined) return null
+  const open = openFromQuery(versions, query)
+  return { open, missing: open ? '' : versionFromQuery(query), query: withoutVersion(query) }
+}
 
 // ── text ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 // The words of a piece of markdown, without its marks: what a search reads.
@@ -132,55 +146,48 @@ export function mark(html, ws) {
 }
 
 // ── search and the type filter ─────────────────────────────────────────────────────────────────────────────────────
-// What a search reads of a highlight: its title and sentence in the interface's language and in English.
-const highlightWords = (h, lang) => [inLang(h.title, lang), h.title && h.title.en, inLang(h.text, lang), h.text && h.text.en].filter(Boolean).join(' ')
+// What a search reads of a change: its summary in the interface's language and in English, and its details.
+const changeWords = (c, lang) => [inLang(c.summary, lang), c.summary && c.summary.en, c.details].filter(Boolean).join(' ')
 
-// How many entries of a version's full notes match: each bullet and each section's paragraphs of the kind (all of a
-// section whose title has the words), and the summary (it has no kind).
-function notesMatching(v, kind, ws) {
-  let n = !kind && ws.length && hasAll(v.summary, ws) ? 1 : 0
-  for (const s of v.sections || []) {
-    if (kind && s.kind !== kind) continue
-    const entries = [...(s.items || []), ...(s.text ? [s.text] : [])]
-    n += !ws.length || hasAll(s.title, ws) ? entries.length : entries.filter((e) => hasAll(e, ws)).length
-  }
-  return n
-}
-
-// The versions a search and a type leave, each as { v, highlights, notes, more }:
-//   highlights  its highlights that match (of the type; every word in the title or the sentence, in the interface's
-//               language or English) - all of them when its number is what was typed, or when its title has the
-//               words and none of its highlights has them
-//   notes       how many entries of its full notes match
-//   more        how many more the full notes have than the highlights shown ("n more in the full notes")
-// A version stays when anything of it matches. Without a search or a type: every version, with all its highlights.
-export function filterVersions(versions, { kind = '', q = '', lang = 'en' } = {}) {
+// The versions a search and a type leave, each as { v, changes, notes }:
+//   changes  its changes that match (of the type; every word in the summary - the interface's language or English -
+//            or the details) - all of them (of the type) when its number is what was typed, or when its title has the
+//            words and none of its changes has them
+//   notes    how many other parts of its full notes match (the intro, a known limit; they have no type)
+// A version stays when anything of it matches. Without a search or a type: every version with all its changes.
+// It decides what is shown, never what is open.
+export function filterVersions(versions, { type = '', q = '', lang = 'en' } = {}) {
   const ws = words(q)
   const list = versions || []
-  if (!kind && !ws.length) return list.map((v) => ({ v, highlights: v.highlights || [], notes: 0, more: 0 }))
+  if (!type && !ws.length) return list.map((v) => ({ v, changes: v.changes || [], notes: 0 }))
   const out = []
   for (const v of list) {
-    const ofKind = (v.highlights || []).filter((h) => !kind || h.kind === kind)
-    const number = ws.length === 1 && sameVersion(v.version, q)
+    const ofType = (v.changes || []).filter((c) => !type || c.type === type)
+    const number = ws.length === 1 && sameVersion(v.version, ws[0])
     const titled = !number && ws.length > 0 && hasAll([inLang(v.title, lang), v.title && v.title.en].filter(Boolean).join(' '), ws)
-    const hit = number || !ws.length ? ofKind : ofKind.filter((h) => hasAll(highlightWords(h, lang), ws))
-    const highlights = hit.length || !titled ? hit : ofKind
-    const notes = notesMatching(v, kind, number ? [] : ws)
-    if (!highlights.length && !notes && !((number || titled) && !kind)) continue
-    out.push({ v, highlights, notes, more: Math.max(0, notes - highlights.length) })
+    const hit = number || !ws.length ? ofType : ofType.filter((c) => hasAll(changeWords(c, lang), ws))
+    const changes = hit.length || !titled ? hit : ofType
+    const notes = type || number || !ws.length ? 0 : [v.intro, ...(v.known_limits || [])].filter((x) => x && hasAll(x, ws)).length
+    if (!changes.length && !notes && !((number || titled) && !type)) continue
+    out.push({ v, changes, notes })
   }
   return out
 }
 
-// The type filter's choices: every kind the changelog has (in its highlights or its notes), with how many versions
-// choosing it would leave under the search typed (0: nothing to find there now).
+// What an opened version shows of what the filter left ({ changes, notes }): at most SHOWN changes (highlights first),
+// and how many more its full notes have of what was left.
+export function shownOf(found) {
+  const changes = pick(found ? found.changes : [])
+  return { changes, more: (found ? found.changes.length - changes.length + found.notes : 0) }
+}
+
+// The type filter's choices: every type the changelog has, with how many changes it has of that type under the search
+// typed (0: nothing to find there now).
 export function typeCounts(versions, { q = '', lang = 'en' } = {}) {
-  const present = new Set()
-  for (const v of versions || []) {
-    for (const h of v.highlights || []) present.add(h.kind)
-    for (const s of v.sections || []) present.add(s.kind)
-  }
-  return KINDS.filter((k) => present.has(k)).map((kind) => ({ kind, n: filterVersions(versions, { kind, q, lang }).length }))
+  const present = []
+  for (const v of versions || []) for (const c of v.changes || []) if (c.type && !present.includes(c.type)) present.push(c.type)
+  const order = [...TYPES.filter((k) => present.includes(k)), ...present.filter((k) => !TYPES.includes(k))]
+  return order.map((type) => ({ type, n: filterVersions(versions, { type, q, lang }).reduce((n, f) => n + f.changes.length, 0) }))
 }
 
 // ── licences (LicensesTab.vue) ─────────────────────────────────────────────────────────────────────────────────────

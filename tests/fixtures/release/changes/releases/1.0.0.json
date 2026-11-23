@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "date": "2026-01-12",
+  "title": {
+    "en": "The first release",
+    "zh": "第一个版本"
+  },
+  "intro": "The first release: postings found, scored and drafted on your own computer.",
+  "known_limits": [],
+  "fragments": [
+    {
+      "id": "2026-01-10-first-release-1a2b",
+      "sha256": "2ea0b2cb70475c8149b10bbc1458bd1fd1eddba5d4b111cd5ee037d618d40471"
+    },
+    {
+      "id": "2026-01-10-local-data-3c4d",
+      "sha256": "ff624afa2f2dfbbeeec2f7cec2fefc6fa159b4b84fa33ffe2bdc8990127f110d"
+    }
+  ],
+  "corrections": []
+}

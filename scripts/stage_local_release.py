@@ -32,7 +32,7 @@ def main() -> None:
     subprocess.run([npm, "run", "build", "--", "--outDir", str(build)], cwd=root / "frontend", check=True)
 
     release.mkdir(parents=True)
-    for directory in ("backend", "scripts", "frontend/public", "frontend/src/i18n", "frontend/src/locales"):
+    for directory in ("backend", "changes", "scripts", "frontend/public", "frontend/src/i18n", "frontend/src/locales"):
         shutil.copytree(root / directory, release / directory, ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(build, release / "frontend/dist")
     for filename in ("pyproject.toml", "uv.lock", "README.md", "LICENSE", "CHANGELOG.md"):

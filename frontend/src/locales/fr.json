@@ -2463,7 +2463,7 @@
       "source": "Depuis les sources",
       "container": "Dans un conteneur"
     },
-    "check": "Vérifier maintenant",
+    "check": "Rechercher des mises à jour",
     "prepare": "Télécharger et préparer {v}",
     "switchTo": "Passer à {v}",
     "backTo": "Revenir à {v}",
@@ -2476,7 +2476,6 @@
     "howContainer": "Dans le dossier de son docker-compose.yml, exécutez :",
     "howUnmanaged": "Pour y passer, lancez AutoApply depuis l’application de la barre des tâches ; le changement se fait ensuite sur cette page.",
     "whatsNew": "Nouveautés de {v}",
-    "byItself": "Ce qu’il fait de lui-même",
     "mode": {
       "off": "Désactivé",
       "offHow": "Ne cherche pas de mises à jour. Vous pouvez toujours vérifier à la main.",
@@ -2485,7 +2484,8 @@
       "download": "La préparer",
       "downloadHow": "La télécharge et la prépare aussi ; c’est vous qui appuyez sur Changer.",
       "auto": "Mise à jour automatique",
-      "autoHow": "Change aussi de version de lui-même quand il est inactif, pendant les heures que vous choisissez."
+      "autoHow": "Change aussi de version de lui-même quand il est inactif, pendant les heures que vous choisissez.",
+      "needsInstall": "Nécessite une copie installée"
     },
     "channel": "Canal",
     "stable": "Versions stables",
@@ -2499,7 +2499,7 @@
     "saved": "Enregistré",
     "error": {
       "noRepo": "Aucun dépôt de versions n’est défini (update.repo).",
-      "network": "Impossible de joindre GitHub. Nouvel essai demain, ou appuyez sur Vérifier maintenant.",
+      "network": "Impossible de joindre GitHub. Nouvel essai demain, ou appuyez sur Rechercher des mises à jour.",
       "notHere": "Cette copie ne se met pas à jour d’elle-même (voir ci-dessous).",
       "noPackage": "Cette version n’a pas de paquet pour ce type d’installation.",
       "noUv": "Le uv de l’installateur est introuvable ; relancez l’installateur pour le réparer.",
@@ -2520,26 +2520,19 @@
         "changed": "Modifications",
         "fixed": "Corrections",
         "security": "Sécurité",
-        "breaking": "Changements incompatibles",
         "removed": "Suppressions",
-        "deprecated": "Dépréciations",
-        "known": "Limites connues",
-        "other": "Autres"
+        "deprecated": "Dépréciations"
       },
       "clear": "Effacer les filtres",
       "current": "Actuelle",
       "unreleased": "Modifications non publiées",
       "notReleased": "Pas encore publiées",
       "noDate": "Sans date",
-      "compare": "Modifications du code",
-      "compareTip": "Modifications du code de la version précédente à {v}, sur GitHub",
-      "compareUnreleased": "Modifications du code depuis la dernière publication, sur GitHub",
       "release": "Page de publication",
       "releaseTip": "La page de publication de {v} sur GitHub",
-      "link": "Lien",
       "notFound": "La version {v} ne figure pas dans le journal des modifications.",
       "noneTitle": "Aucun journal des modifications",
-      "noneText": "Cette copie du programme n’a pas de fichier CHANGELOG.md qui liste des versions.",
+      "noneText": "Cette copie du programme n’a pas d’historique des versions.",
       "noMatch": "Aucune modification correspondante",
       "noMatchText": "Essayez d’autres mots, ou effacez les filtres.",
       "noNotes": "Aucune modification n’est notée pour cette version.",
@@ -2550,11 +2543,12 @@
       "latest": "Dernière",
       "fullNotes": "Voir les notes de version complètes",
       "notesTitle": "Notes de version {v}",
-      "notesEnglish": "Les notes de version sont rédigées en anglais.",
+      "notesEnglish": "Les détails sont rédigés en anglais.",
       "moreInNotes": "{n} de plus dans les notes complètes",
       "inNotes": "{n} résultat dans les notes complètes | {n} résultats dans les notes complètes",
-      "noHighlights": "Aucun point marquant pour cette version.",
-      "derived": "Tirés des notes de version, en anglais."
+      "english": "anglais",
+      "changeCount": "{n} modification | {n} modifications",
+      "knownLimits": "Limites connues"
     },
     "licenses": {
       "title": "Licences",
@@ -2604,23 +2598,23 @@
     "diagnosticsHint": "Copie en texte brut la version, la build, le mode de fonctionnement, Python, le système, le dossier de données et l’état des mises à jour, pour signaler un problème. Aucun compte, aucune clé ni aucun réglage autre que ceux des mises à jour n’y figure.",
     "state": {
       "unchecked": "Pas encore vérifié",
-      "checking": "Recherche de mises à jour…",
+      "checking": "Vérification…",
       "current": "À jour",
-      "newer": "Version {v} disponible",
-      "downloading": "Téléchargement de {v}",
-      "preparing": "Préparation de {v}",
-      "ready": "Prêt à passer à {v}",
-      "prepared": "{v} préparée",
-      "switching": "Passage à {v}",
+      "newer": "Nouvelle version disponible",
+      "downloading": "Téléchargement",
+      "preparing": "Préparation",
+      "ready": "Prête pour le changement",
+      "prepared": "Préparée",
+      "switching": "Changement en cours",
       "checkFailed": "Échec de la vérification",
-      "prepareFailed": "Impossible de préparer {v}",
-      "switchFailed": "Échec du passage à {v}"
+      "prepareFailed": "Échec de la préparation",
+      "switchFailed": "Échec du changement"
     },
     "preparingHow": "Installation de ce dont elle a besoin ; cela peut prendre quelques minutes. La version en marche n’est pas touchée.",
     "switchingHow": "L’application de la barre des tâches redémarre AutoApply une fois terminé ce qui est en cours. Cette page se reconnecte quand la nouvelle version est prête.",
     "fact": {
-      "running": "En marche",
-      "latest": "Dernière version publiée",
+      "running": "Version actuelle",
+      "latest": "Dernière version",
       "staged": "Préparée",
       "switching": "Passage à",
       "pending": "Prochain démarrage",
@@ -2635,11 +2629,13 @@
     "rel": {
       "local": "{v} (build locale, {d})",
       "localNoDate": "{v} (build locale)",
-      "prerelease": "Préversion"
+      "prerelease": "Préversion",
+      "localDay": "Build locale, {d}",
+      "localOnly": "Build locale",
+      "published": "Publiée le {d}"
     },
     "forwardTo": "Repasser à {v}",
     "policy": "Politique de mise à jour",
-    "modesNotHere": "Télécharger et changer de version de lui-même demandent une copie installée ; celle-ci ne fait que vérifier.",
     "privacyShort": "La vérification demande seulement à GitHub sa liste de versions ; rien ne vous concernant n’est envoyé.",
     "howItWorks": "Fonctionnement des mises à jour",
     "idleHow": "Inactif signifie qu’aucune candidature n’est en cours ni en file, que rien ne vous attend dans une fenêtre gardée et qu’aucune fenêtre à distance n’est ouverte.",
@@ -2649,9 +2645,17 @@
       "title": "Mise à jour manuelle",
       "source": "Cette copie s’exécute depuis le code source et se met à jour à la main.",
       "container": "Cette copie s’exécute dans un conteneur et se met à jour en récupérant une nouvelle image.",
-      "show": "Afficher la commande"
+      "show": "Voir les étapes"
     },
-    "copyCommand": "Copier les commandes"
+    "copyCommand": "Copier les commandes",
+    "vVersion": "v{v}",
+    "links": "Liens du projet",
+    "change": "Modifier",
+    "changePolicy": "Modifier la politique de mise à jour",
+    "risk": {
+      "download": "Les nouvelles versions sont téléchargées et préparées en arrière-plan, avec leurs dépendances et leur navigateur, dans le dossier de données : cela utilise le réseau et de l’espace disque. La version en marche ne change pas tant que vous n’avez pas changé de version.",
+      "auto": "AutoApply redémarre aussi de lui-même sur une nouvelle version, sans demander : pendant la plage choisie, quand rien n’est en cours. Si la nouvelle version ne démarre pas, l’actuelle continue ; la précédente est gardée pour pouvoir y revenir."
+    }
   },
   "record": {
     "ticked": "✓ Coché",

@@ -1,0 +1,72 @@
+{
+  "version": "2.0.2",
+  "date": "2026-11-22",
+  "title": {
+    "en": "Calendar, cards on your phone, three languages",
+    "zh": "日程、手机端卡片与三种语言",
+    "fr": "Agenda, cartes sur le téléphone, trois langues"
+  },
+  "intro": "2.0.2 brings what was planned for 2.0.1 and 2.0.2 in one release: a calendar with reminders and a feed for your calendar app; the cards on Telegram and Discord with the buttons that deal with them, and an assistant in the chat; one page per application; the program in English, Chinese and French; and updates from inside the program.",
+  "known_limits": [
+    "The packages are not code-signed.",
+    "The English and French text was written with an AI's help and has not been read by a native speaker yet; corrections are welcome (see CONTRIBUTING)."
+  ],
+  "fragments": [
+    {
+      "id": "2026-11-22-calendar-reminders-26e9",
+      "sha256": "e7724eea94848cc262286483ee93cc555b6c90d70ef3992867820614cd73ea40"
+    },
+    {
+      "id": "2026-11-22-calendar-feed-03bd",
+      "sha256": "912179059eefcd8dacbf301943f9d3626cf3848621660f0fd9397cffc2450942"
+    },
+    {
+      "id": "2026-11-22-cards-on-phone-7d3a",
+      "sha256": "ecbc6b560924da7b4b2c1356ae9680708157aa6db13ca0148f142675f4af17b2"
+    },
+    {
+      "id": "2026-11-22-three-languages-3659",
+      "sha256": "cd46276f852f5eca94d490596d1da13c3743c2e8afc6cb98e4067f8e59669729"
+    },
+    {
+      "id": "2026-11-22-updates-in-app-96ab",
+      "sha256": "7ced152bb0d580b5f6bb78ff580356ca4ba8a9ab008bf7df3820a253a25aa99d"
+    },
+    {
+      "id": "2026-11-22-postings-applications-split-5239",
+      "sha256": "e1c09e859482ee0810271cadd4d0442244252c16dd6a88ba0008294e782616a1"
+    },
+    {
+      "id": "2026-11-22-employer-links-6d42",
+      "sha256": "de542c02d9e0113ab93cab0ab5bf4657a003f91c40dfa8bd75d0a0478d21bddb"
+    },
+    {
+      "id": "2026-11-22-analytics-time-a6ee",
+      "sha256": "b25947b90a6a18f3be3fab552b1cbe8627225f217aaa2b559abf94cd86caca3a"
+    },
+    {
+      "id": "2026-11-22-material-library-beaa",
+      "sha256": "57653ad737f4a203d1e86d0de3d8278ccdfb65b4050342dd41665f33763b968b"
+    },
+    {
+      "id": "2026-11-22-mail-conversation-e715",
+      "sha256": "bfe894bdeaf83fb156ba496b144ba1c574ab99bd101d694d8c9acb2e9359cb38"
+    },
+    {
+      "id": "2026-11-22-changed-fact-stops-7805",
+      "sha256": "ff0160d02053ae2620157098d9625cd83fb896b0a3fbbeffe301166d601fd340"
+    },
+    {
+      "id": "2026-11-22-faster-runs-faf7",
+      "sha256": "f2f4d82ee6100d21a7307247066cc23567560554fc16f17a0e9aa954f038b181"
+    },
+    {
+      "id": "2026-11-22-staged-version-start-c616",
+      "sha256": "d97d8e432007decfe1379ce508905a72e366f933a63151138e490bc323b8e9ee"
+    },
+    {
+      "id": "2026-11-22-company-name-glued-be01",
+      "sha256": "ad7b59ebd07f8d152a58b0f8aa74fdf4782be32d4c77540457f7f5536d6c9915"
+    }
+  ]
+}

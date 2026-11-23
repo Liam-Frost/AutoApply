@@ -1,65 +1,97 @@
 /* The about page: its overview and the updates (views/AboutView.vue, views/about/). Tokens only.
-   The overview is one column: the head, then one "Software update" card whose parts stand one under the other, parted
-   by a rule - nothing side by side, so nothing is left half empty beside something taller. */
+   The overview is one column of reading width (at most 880px, at the page's left; the rest of the page is its margin):
+   the head, then one "Software update" card whose parts stand one under the other, parted by a rule. The only two
+   things side by side are the two versions, which hold the same: a name, a number, a line. */
+.about-overview { max-width: 880px; }
 
-/* ── the head: the mark, the product and its version, how it runs, the links - one compact block ── */
-.about-head { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s4); align-items: start; margin: 0 0 var(--s5); }
+/* ── the head: the mark and the product, the version and how it runs under the name, the links under both ── */
+.about-head { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s3) var(--s4); margin: var(--s1) 0 var(--s5); }
 .about-mark { width: 48px; height: 48px; padding: 4px; box-sizing: border-box; border-radius: var(--r-md); background: var(--logo-tile); }
-.about-id { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.about-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); margin: 0; font-size: var(--fs-xl); font-weight: var(--fw-semibold); line-height: 1.3; color: var(--text); }
-.about-v { font-weight: var(--fw-regular); color: var(--text-2); font-variant-numeric: tabular-nums; }
-.about-build { font-family: var(--mono); font-size: var(--fs-xs); font-weight: var(--fw-regular); color: var(--text-3); }
-/* (a quiet row of links, parted by dots; a dot stays at the end of a line when the row wraps, never at the start) */
-.about-links { display: flex; flex-wrap: wrap; align-items: center; margin-top: var(--s1); font-size: var(--fs-sm); line-height: 20px; }
-.about-links a { color: var(--text-2); white-space: nowrap; }
-.about-links a:hover { color: var(--primary); }
-.about-links a:not(:last-child)::after { content: ""; display: inline-block; width: 3px; height: 3px; margin: 0 var(--s2); border-radius: 50%; background: var(--text-3); vertical-align: middle; }
+.about-id { min-width: 0; }
+.about-name { margin: 0; font-size: var(--fs-xl); font-weight: var(--fw-semibold); line-height: 1.3; color: var(--text); }
+.about-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s2); margin: 2px 0 0; font-size: var(--fs-sm); line-height: 20px; color: var(--text-2); }
+.about-v { color: var(--text); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.about-kind { display: inline-flex; align-items: center; gap: var(--s1); min-width: 0; }
+/* (the dot between the version and how it runs belongs to the second: on a narrow line they part with it) */
+.about-kind::before { content: ""; flex: none; width: 3px; height: 3px; margin-right: var(--s1); border-radius: 50%; background: var(--text-3); }
+.about-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--s2); min-width: 0; }
 
 /* ── Software update: one card ── */
 .up-sec { container: up / inline-size; }
 /* (a part after the first: a rule across the whole card above it) */
 .up-part { margin: var(--s5) calc(-1 * var(--s5)) 0; padding: var(--s4) var(--s5) 0; border-top: 1px solid var(--border); }
-.up-part-adv { margin-top: var(--s5); padding-top: var(--s3); }
+.up-part-adv { margin-top: var(--s4); padding-top: var(--s2); }
 
-/* the state, its facts, the actions */
-.up-state { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); min-height: var(--h-sm); }
-.up-title { font-size: var(--fs-lg); font-weight: var(--fw-medium); color: var(--text); min-width: 0; overflow-wrap: anywhere; }
-.up-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
-.up-dot.ok { background: var(--ok); } .up-dot.info { background: var(--info); } .up-dot.warn { background: var(--warn); } .up-dot.bad { background: var(--bad); }
-.up-state > .spin { flex: none; }
-.up-bar { height: 6px; max-width: 360px; margin-top: var(--s2); border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; }
+/* the state: a badge at the head's end (a spinner before it while something goes on) */
+.up-badge { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; max-width: 100%; }
+.up-badge > .spin { flex: none; }
+
+/* the two versions, the card's centre: each half holds its name, its number and a line, in its middle; the arrow
+   between them when the right one is ahead (or a switch is under way) */
+/* (the halves stand by their tops, so their names and numbers are on one line whatever is under them; the arrow is on
+   the numbers' line: the name's line, the gap, and half of what the number's line has more than the arrow) */
+.up-cmp { --name-h: 18px; --num-h: 32px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: start; gap: var(--s3) var(--s4);
+  margin-top: var(--s2); padding: var(--s4) var(--s5); border-radius: var(--r-md); background: var(--surface-2); }
+.up-ver { display: flex; flex-direction: column; align-items: center; align-self: stretch; gap: 2px; min-width: 0; text-align: center; }
+.up-ver-name { font-size: var(--fs-xs); line-height: var(--name-h); font-weight: var(--fw-medium); color: var(--text-2); }
+.up-ver-num { font-size: var(--fs-2xl); line-height: var(--num-h); font-weight: var(--fw-semibold); color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.up-cmp.moves [data-ver=to] .up-ver-num { color: var(--primary); }
+/* (no version to show: the words stand where the number would, as tall) */
+.up-ver-none { font-size: var(--fs-md); line-height: var(--num-h); color: var(--text-2); }
+/* (a line that has to wrap - a narrow half, a long language - wraps into even lines, not one word left alone) */
+.up-ver-meta { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px var(--s2); font-size: var(--fs-xs); line-height: 20px; color: var(--text-2); text-wrap: balance; }
+.up-arrow { display: flex; width: 24px; height: 24px; margin-top: calc(var(--name-h) + 2px + (var(--num-h) - 24px) / 2); color: var(--primary); }
+.up-arrow svg { width: 24px; height: 24px; }
+.up-prog { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.up-bar { flex: 1 1 auto; height: 6px; border-radius: var(--r-pill); background: var(--border); overflow: hidden; }
 .up-bar > span { display: block; height: 100%; background: var(--primary); transition: width 0.4s; }
 .up-bar.moving > span { animation: up-pulse 1.4s ease-in-out infinite; }
 @keyframes up-pulse { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .up-bar.moving > span { animation: none; } }
-.up-line { margin: var(--s1) 0 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
+.up-pct { flex: none; font-size: var(--fs-sm); color: var(--text-2); }
+@container up (max-width: 480px) { .up-cmp { padding: var(--s3); column-gap: var(--s2); } }
+
+/* what goes with the state, the other facts on one quiet line, the actions, and how a copy that does not update
+   itself is updated */
+.up-line { margin: var(--s3) 0 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
 .up-line.up-bad { color: var(--bad); }
 .up-line.up-warn { color: var(--warn); }
-
-/* (the facts' names stand in the settings' name column: SettingRow's columns) */
-.up-facts { display: grid; row-gap: var(--s1); margin: var(--s3) 0 0; }
-.up-fact, .up-rt > div { display: grid; grid-template-columns: minmax(9em, 15em) minmax(0, 1fr); column-gap: var(--s6); align-items: baseline; }
-.up-fact dt, .up-rt dt { display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-sm); color: var(--text-2); }
-.up-fact dd, .up-rt dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s2); margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.up-fact dd > .tag { align-self: center; }
-@container up (max-width: 640px) {
-  .up-fact, .up-rt > div { grid-template-columns: minmax(0, 1fr); }
-  .up-facts, .up-rt { row-gap: var(--s2); }
-}
-.up-raw { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-3); }
-.up-news { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-sm); white-space: nowrap; }
-.up-news svg { width: 14px; height: 14px; flex: none; }
-
+.up-more { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s5); margin: var(--s3) 0 0; font-size: var(--fs-sm); line-height: 20px; }
+.up-more > div { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.up-more dt { display: inline-flex; align-items: center; gap: var(--s1); color: var(--text-2); }
+.up-more dd { display: inline-flex; align-items: center; gap: var(--s2); margin: 0; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
 .up-acts { margin-top: var(--s4); flex-wrap: wrap; row-gap: var(--s2); }      /* (a phone: the actions take a second line, each one whole) */
-.up-hand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); margin: var(--s2) 0 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
+.up-act { display: inline-flex; align-items: center; gap: var(--s2); max-width: 100%; }
+.up-hand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); margin: var(--s3) 0 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
 .up-link { height: auto; padding: 0; border: 0; border-radius: 0; background: none; color: var(--primary); font-weight: var(--fw-regular); font-size: inherit; line-height: inherit; }
 .up-link:hover { background: none; text-decoration: underline; }
 
-/* the settings */
-.up-settings { display: grid; row-gap: var(--s4); }
-.up-limited { margin: var(--s1) 0 0; }
+/* the steps by hand (in the popover of "See the steps", and under Advanced) */
+.up-steps > p { margin: 0 0 var(--s2); font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
+.up-cmd { display: flex; align-items: flex-start; gap: var(--s2); max-width: 72ch; }
+.up-cmd > pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: var(--s2) var(--s3); overflow-x: auto; border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); line-height: 1.6; }
+.up-steps-pop > .pop-title { margin-bottom: var(--s2); }
+
+/* the settings: a summary in SettingRow's two columns (one, under 640px of it), and its editor */
+.up-policy { container-type: inline-size; }
+.up-sum { display: grid; row-gap: var(--s2); margin: 0; }
+.up-sum > div { display: grid; grid-template-columns: minmax(9em, 15em) minmax(0, 1fr); column-gap: var(--s6); align-items: baseline; }
+.up-sum dt { font-size: var(--fs-md); color: var(--text-2); overflow-wrap: anywhere; }
+.up-sum dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); min-width: 0; min-height: var(--h-sm); margin: 0; font-size: var(--fs-md); color: var(--text); overflow-wrap: anywhere; }
+.up-sum dd > span { padding: 4px 0; }      /* (the words on the line of the button beside them) */
+.up-change { margin-left: auto; }
+@container (max-width: 640px) {
+  .up-sum > div { grid-template-columns: minmax(0, 1fr); }
+  .up-sum dd { min-height: 0; }
+}
+.up-edit { display: grid; row-gap: var(--s4); }
+.up-risk { margin: var(--s2) 0 0; padding: var(--s2) var(--s3); font-size: var(--fs-sm); }
+.up-risk svg { width: 16px; height: 16px; margin-top: 2px; color: var(--warn); }
+.up-risk p { margin: 0; }
+.up-risk p + p { margin-top: var(--s1); }
 .up-window { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2); }
 .up-window input[type=time] { width: 8.5em; }
+.up-edit-acts { justify-content: flex-end; }
 
 /* advanced: closed until opened */
 .up-adv-toggle { height: var(--h-md); margin-left: calc(-1 * var(--s2)); padding: 0 var(--s2); gap: var(--s1); border-color: transparent; background: transparent; color: var(--text-2); font-weight: var(--fw-medium); }
@@ -68,13 +100,18 @@
 .up-adv-chev { width: 16px; height: 16px; flex: none; transition: transform var(--dur) var(--ease); }
 .up-adv.open .up-adv-chev { transform: rotate(90deg); }
 .up-adv-body { display: grid; row-gap: var(--s5); padding: var(--s3) 0 var(--s2); }
-.up-adv-part { min-width: 0; scroll-margin: var(--s4); }      /* ("Show the command" brings it into view with room around it) */
-.up-adv-part:focus { outline: none; }
+.up-adv-part { min-width: 0; }
 .up-adv-part > h4 { margin: 0 0 var(--s2); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); }
 .up-adv-part > p { margin: 0 0 var(--s2); font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
-.up-cmd { display: flex; align-items: flex-start; gap: var(--s2); max-width: 72ch; }
-.up-cmd > pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: var(--s2) var(--s3); overflow-x: auto; border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); line-height: 1.6; }
+/* (the runtime details' names stand in the settings' name column: SettingRow's columns) */
 .up-rt { display: grid; row-gap: var(--s1); margin: 0; }
+.up-rt > div { display: grid; grid-template-columns: minmax(9em, 15em) minmax(0, 1fr); column-gap: var(--s6); align-items: baseline; }
+.up-rt dt { font-size: var(--fs-sm); color: var(--text-2); }
+.up-rt dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s2); margin: 0; min-width: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .up-rt dd.up-path { flex-wrap: nowrap; align-items: center; }
 .up-path > code { min-width: 0; }
+@container up (max-width: 640px) {
+  .up-rt > div { grid-template-columns: minmax(0, 1fr); }
+  .up-rt { row-gap: var(--s2); }
+}
 .up-diag { margin-top: var(--s3); }

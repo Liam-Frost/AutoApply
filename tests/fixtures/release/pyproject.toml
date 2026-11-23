@@ -1,0 +1,16 @@
+# A tiny repository for tests/test_release_*.py: only what the release tooling reads.
+[project]
+name = "autoapply"
+version = "1.1.0"
+description = "Release-tooling fixture"
+requires-python = ">=3.12"
+dependencies = [
+  "pyyaml>=6",  # the version below this line is a dependency's, not the project's
+]
+
+[project.urls]
+Homepage = "https://github.com/example-owner/example-repo"
+Releases = "https://github.com/example-owner/example-repo/releases"
+
+[tool.example]
+version = "9.9.9"

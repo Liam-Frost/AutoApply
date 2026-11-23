@@ -247,13 +247,12 @@ cd AutoApply
 
 Layout: `backend/autoapply` (FastAPI, SQLite, Playwright; `agent/` is the application agent - `apply.md` its manual, `hands.py` its browser tools, `run.py` one run, `work.py` what a run's outcome becomes, `playbooks/` the notes about recruiting systems; `llm.py` the services and their failover, `access.py` the login and where the server listens), `eval` (forms with an employer's side, and the harness that runs the agent on them: `python eval/run.py --all`, or one shape with `--form profile_first` - it spends your AI allowance), `frontend` (Vue 3), `scripts` (packaging, setup, demo), `docs`.
 
-**Releasing.** Set the version in `pyproject.toml`, add the section to `CHANGELOG.md`, then:
-
-```bash
-git tag v1.2.3 && git push origin v1.2.3
-```
-
-The release workflow runs the tests, builds the four packages, installs and starts each one on Windows, macOS and Linux, and only then publishes the release.
+**Changes and releases.** Every change a user notices comes with a change fragment (`python scripts/release.py change`),
+written once; `CHANGELOG.md`, the program's own release history and the GitHub release notes are generated from the
+fragments and never edited by hand. A release is prepared with `python scripts/release.py prepare` (it sets the version
+and regenerates the files) and published by its tag; the release workflow then runs the tests, builds the four packages,
+installs and starts each one on Windows, macOS and Linux, and only then publishes the release. How, step by step:
+[docs/release-workflow.md](docs/release-workflow.md).
 
 Contributions that add one entry to a list (an employer, a job board, a sign-in provider, a mailbox, a region pack, a translation) need no knowledge of the whole program: see [CONTRIBUTING.md](CONTRIBUTING.md). The interface follows [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
 

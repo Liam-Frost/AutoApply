@@ -247,13 +247,10 @@ cd AutoApply
 
 目录：`backend/autoapply`（FastAPI、SQLite、Playwright；`agent/` 是申请 Agent——`apply.md` 是它的手册，`hands.py` 是浏览器工具，`run.py` 是一次运行，`work.py` 把一次运行的结果落到程序里，`playbooks/` 是各招聘系统的笔记；`llm.py` 是各家 AI 服务和故障转移，`access.py` 是登录和监听地址）、`eval`（带“雇主一侧”的评测表单和跑评测的脚本：`python eval/run.py --all`，或用 `--form profile_first` 只跑一种形态，会用掉你的 AI 额度）、`frontend`（Vue 3）、`scripts`（打包、安装、演示）、`docs`。
 
-**发布。** 改 `pyproject.toml` 里的版本号，在 `CHANGELOG.md` 里加上这一版的说明，然后：
-
-```bash
-git tag v1.2.3 && git push origin v1.2.3
-```
-
-发布流程会跑测试、构建四个安装包，在 Windows、macOS、Linux 上各自安装并启动一遍，都通过了才发布。
+**变更与发布。** 每项用户能注意到的改动都附一个变更片段（`python scripts/release.py change`），只写一次；
+`CHANGELOG.md`、程序内的版本历史和 GitHub 发布说明都由这些片段生成，不手工编辑。用 `python scripts/release.py prepare`
+准备发布（设置版本号并重新生成这些文件），推送标签后由发布流程跑测试、构建四个安装包，在 Windows、macOS、Linux
+上各自安装并启动一遍，都通过了才发布。具体步骤见 [docs/release-workflow.md](docs/release-workflow.md)。
 
 只往某个清单里加一项的贡献（一家雇主、一个职位站、一种第三方登录、一种邮箱、一个地区包、一种翻译）不需要了解整个程序，见 [CONTRIBUTING.md](CONTRIBUTING.md)。界面遵循 [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md)。
 

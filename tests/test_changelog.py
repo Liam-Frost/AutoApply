@@ -1,272 +1,146 @@
-"""The about page's changelog and licences: CHANGELOG.md parsed into versions (backend/autoapply/changelog.py), the
-components the program runs on with their licence texts (licenses.py), and the endpoints that give them."""
+"""The about page's changelog and licences: the release history adapter (backend/autoapply/changelog.py - releases.json
+and the pending change fragments), the components the program runs on with their licence texts (licenses.py), and the
+endpoints that give them."""
 import json
 import os
-import re
+import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
 
-from autoapply import changelog, config, licenses
+import autoapply
+from autoapply import changelog, licenses
 
 ROOT = Path(__file__).resolve().parents[1]
+SAMPLE = Path(__file__).resolve().parent / "fixtures" / "releases.sample.json"      # made up, shaped as releases.json
+RELEASE_ENTRY = {"version", "date", "title", "intro", "known_limits", "url", "changes"}
+CHANGE_ENTRY = {"id", "type", "scope", "summary", "details", "highlight"}
+
+PENDING = {"version": "Unreleased", "date": "", "title": {}, "intro": "", "known_limits": [], "url": "",
+           "changes": [{"id": "2031-03-10-made-up-pending-ab12", "type": "added", "scope": "ui", "summary": {"en": "A made-up pending change"},
+                        "details": "", "highlight": False}]}
 
 
-# ── the real CHANGELOG.md ─────────────────────────────────────────────────────────────────────────────────────────────
-def test_the_real_changelog_every_version_with_its_date_kinds_and_link():
-    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    headings = re.findall(r"^## \[([^\]]+)\](.*)$", text, re.M)
-    vs = changelog.versions(ROOT / "CHANGELOG.md")
-    unreleased_empty = not vs or not vs[0]["unreleased"]
-    expected = [h for h, _ in headings if not (h == "Unreleased" and unreleased_empty)]
-    assert [v["version"] for v in vs] == expected
-    for (name, rest), v in zip([h for h in headings if h[0] in expected], vs):
-        m = re.search(r"\d{4}-\d{2}-\d{2}", rest)
-        assert v["date"] == (m.group(0) if m else "")                     # as written, and none where none is
-        ref = re.search(r"^\[" + re.escape(name) + r"\]:\s*(\S+)", text, re.M)
-        assert v["url"] == (ref.group(1) if ref else "")
-        assert v["unreleased"] == (name == "Unreleased")
-        for s in v["sections"]:
-            assert s["items"] or s["text"]                                    # no empty section
-            assert s["kind"] in ("added", "changed", "fixed", "security", "removed", "deprecated", "breaking", "known", "other")
-    by = {v["version"]: v for v in vs}
-    v202 = by["2.0.2"]
-    assert v202["date"] == "2026-11-22" and v202["url"] == "https://github.com/Liam-Frost/AutoApply/compare/v2.0.0...v2.0.2"
-    assert [(s["kind"], s["title"], len(s["items"])) for s in v202["sections"]] == [("added", "Added", 11), ("changed", "Changed", 7), ("fixed", "Fixed", 2), ("known", "Known limits", 2)]
-    assert v202["summary"].startswith("2.0.2 brings what was planned for 2.0.1 and 2.0.2 in one release")
-    assert v202["sections"][0]["items"][0].startswith("**Calendar** (sidebar, under *Needs you*)")
-    # a section's bullets counted by hand: every "- " at the left edge between ### Fixed of 1.0.4 and the next version
-    part = text.split("## [1.0.4]")[1].split("## [1.0.3]")[0].split("### Fixed")[1]
-    assert len(by["1.0.4"]["sections"][2]["items"]) == len(re.findall(r"^- ", part, re.M)) == 61
-    # headings of their own are kind "other" with their title; paragraphs that are not bullets are kept
-    assert [(s["kind"], s["title"]) for s in by["1.0.1"]["sections"]][:2] == [("other", "The analysis page"), ("other", "Recording what the AI costs")]
-    assert by["1.0.1"]["sections"][0]["text"].startswith("The page is now three views") and "\n\nThe cards of a row share its height" in by["1.0.1"]["sections"][0]["text"]
-    assert by["1.0.0"]["url"].endswith("/releases/tag/v1.0.0")
-    # sub-bullets stay in their item, on lines of their own; the file's wrapping is joined
-    server = next(i for i in by["1.0.4"]["sections"][0]["items"] if i.startswith("**AutoApply can live on a server**"))
-    lines = server.split("\n")
-    assert lines[0].endswith("and be used from another computer or a phone.") and len(lines) == 7
-    assert all(ln.startswith("- **") for ln in lines[1:])
-    assert "\n" not in by["1.0.4"]["sections"][2]["items"][0]
+def _release_model(monkeypatch, pending_entry):
+    """`autoapply.release` as the runtime sees it: a module whose pending_entry() is the one given, or (None) missing."""
+    if pending_entry is None:
+        monkeypatch.setitem(sys.modules, "autoapply.release", None)          # (an import of it raises ImportError)
+        monkeypatch.delattr(autoapply, "release", raising=False)
+        return
+    fake = types.ModuleType("autoapply.release")
+    fake.pending_entry = pending_entry
+    monkeypatch.setitem(sys.modules, "autoapply.release", fake)
+    monkeypatch.setattr(autoapply, "release", fake, raising=False)
 
 
-# ── made-up changelogs ───────────────────────────────────────────────────────────────────────────────────────────────
-MADE_UP = """# Changelog
-
-Some words before any version.
-
-## [Unreleased]
-
-## [3.0.0] - 2031-02-03
-
-The summary,
-on two lines.
-
-### Breaking changes
-
-- The old format is gone.
-
-### Added
-
-- **A feature** that is
-  described on two lines.
-  - a sub-bullet
-    that wraps
-  - another one
-- Second item.
-
-### Fixed
-
-### Deprecated
-
-1. A numbered item.
-
-### The way it looks
-
-A paragraph of the section.
-
-- A bullet under it.
-
-Another paragraph after the bullets.
-
-## [2.0.0]
-
-### Security
-
-- No date for this version.
-
-## [1.0.0](https://example.org/one) - 2030-01-01
-
-### Known issues
-
-- An inline link in the heading, and no reference below.
-
-```
-### not a heading
-## [9.9.9] - not a version
-```
-
-[Unreleased]: https://example.org/compare/v3.0.0...HEAD
-[3.0.0]: https://example.org/compare/v2.0.0...v3.0.0
-"""
+@pytest.fixture(autouse=True)
+def fresh_cache(monkeypatch):
+    monkeypatch.setattr(changelog, "_cache", {"key": None, "releases": []})
 
 
-def test_made_up_changelog():
-    vs = changelog.parse(MADE_UP)
-    assert [v["version"] for v in vs] == ["3.0.0", "2.0.0", "1.0.0"]           # an empty [Unreleased] is left out
-    v3, v2, v1 = vs
-    assert v3["date"] == "2031-02-03" and v3["summary"] == "The summary, on two lines." and not v3["unreleased"]
-    assert v3["url"] == "https://example.org/compare/v2.0.0...v3.0.0"
-    assert [(s["kind"], s["title"]) for s in v3["sections"]] == [("breaking", "Breaking changes"), ("added", "Added"), ("deprecated", "Deprecated"), ("other", "The way it looks")]
-    added = v3["sections"][1]["items"]
-    assert added == ["**A feature** that is described on two lines.\n- a sub-bullet that wraps\n- another one", "Second item."]
-    assert v3["sections"][2]["items"] == ["A numbered item."]
-    look = v3["sections"][3]
-    assert look["items"] == ["A bullet under it."] and look["text"] == "A paragraph of the section.\n\nAnother paragraph after the bullets."
-    assert v2["date"] == "" and v2["url"] == "" and v2["sections"][0]["kind"] == "security"      # nothing made up
-    assert v1["url"] == "https://example.org/one" and v1["date"] == "2030-01-01"
-    assert v1["sections"][0]["kind"] == "known"
-    assert "```" not in v1["sections"][0]["items"][0]
+# ── releases.json ────────────────────────────────────────────────────────────────────────────────────────────────────
+def test_the_releases_in_the_order_of_the_file_each_marked_released(monkeypatch):
+    _release_model(monkeypatch, None)
+    data = json.loads(SAMPLE.read_text(encoding="utf-8"))
+    vs = changelog.versions(SAMPLE)
+    assert [v["version"] for v in vs] == [r["version"] for r in data["releases"]] == ["9.2.0", "9.1.1", "9.1.0", "9.0.0"]
+    for v, r in zip(vs, data["releases"]):
+        assert v == dict(r, unreleased=False)                                # passed on as written, plus `unreleased`
+        assert set(v) == RELEASE_ENTRY | {"unreleased"}
+        assert all(set(c) == CHANGE_ENTRY for c in v["changes"])
+    assert [c["id"] for c in vs[0]["changes"]] == [c["id"] for c in data["releases"][0]["changes"]]        # manifest order kept
 
 
-def test_unreleased_with_content_crlf_and_kinds():
-    text = "## [Unreleased]\r\n\r\n### Changed\r\n\r\n- Something\r\n  wrapped.\r\n\r\n## [1.2.3] - 2026-01-02\r\n\r\n### Removed\r\n- Gone.\r\n\r\n[1.2.3]: https://x.org/r\r\n"
-    vs = changelog.parse(text)
-    assert [(v["version"], v["unreleased"], v["date"]) for v in vs] == [("Unreleased", True, ""), ("1.2.3", False, "2026-01-02")]
-    assert vs[0]["sections"] == [{"kind": "changed", "title": "Changed", "items": ["Something wrapped."], "text": ""}]
-    assert vs[1]["url"] == "https://x.org/r" and vs[0]["url"] == ""
-    assert all("\r" not in i for v in vs for s in v["sections"] for i in s["items"])
-    assert changelog.parse("") == [] and changelog.parse("# Changelog\n\nNothing yet.\n") == []
-    assert changelog.kind_of(" Bug  Fixes ") == "fixed" and changelog.kind_of("Known limits") == "known" and changelog.kind_of("Repository") == "other"
-
-
-def test_read_again_only_when_the_file_changed(tmp_path, monkeypatch):
-    f = tmp_path / "CHANGELOG.md"
-    f.write_text("## [1.0.0] - 2026-01-01\n\n### Added\n\n- One.\n", encoding="utf-8")
+def test_the_unreleased_entry_comes_first(monkeypatch):
     calls = []
-    real = changelog.parse
-    monkeypatch.setattr(changelog, "parse", lambda t: calls.append(1) or real(t))
-    assert changelog.versions(f)[0]["sections"][0]["items"] == ["One."]
+    _release_model(monkeypatch, lambda root=None: calls.append(root) or json.loads(json.dumps(PENDING)))
+    vs = changelog.versions(SAMPLE)
+    assert [(v["version"], v["unreleased"]) for v in vs] == [("Unreleased", True), ("9.2.0", False), ("9.1.1", False), ("9.1.0", False), ("9.0.0", False)]
+    assert vs[0] == dict(PENDING, unreleased=True) and calls == [None]       # (the program's own root: config.ROOT)
+    # nothing pending - None, or an entry without changes - is no entry
+    for nothing in (None, dict(PENDING, changes=[]), "not an entry"):
+        _release_model(monkeypatch, lambda root=None, n=nothing: n)
+        assert [v["version"] for v in changelog.versions(SAMPLE)] == ["9.2.0", "9.1.1", "9.1.0", "9.0.0"]
+
+
+def test_without_the_release_model_or_when_it_fails_the_history_is_still_shown(monkeypatch, caplog):
+    _release_model(monkeypatch, None)                                        # not there (a package without it, an old checkout)
+    assert changelog.pending() is None
+    assert [v["version"] for v in changelog.versions(SAMPLE)] == ["9.2.0", "9.1.1", "9.1.0", "9.0.0"]
+
+    def broken(root=None):
+        raise ValueError("a fragment it cannot read")
+    _release_model(monkeypatch, broken)
+    assert [v["unreleased"] for v in changelog.versions(SAMPLE)] == [False] * 4
+    assert "pending changes were not read" in caplog.text
+
+
+def test_without_releases_json_only_what_is_pending(monkeypatch, tmp_path, caplog):
+    _release_model(monkeypatch, lambda root=None: json.loads(json.dumps(PENDING)))
+    assert [v["version"] for v in changelog.versions(tmp_path / "no-releases.json")] == ["Unreleased"]
+    _release_model(monkeypatch, None)
+    assert changelog.versions(tmp_path / "no-releases.json") == []
+    # a file that is not the generator's: nothing from it, said in the log, and no error for the page
+    f = tmp_path / "broken.json"
+    for i, bad in enumerate(("{ not json", '["a list"]', '{"releases": "none"}', b"\xff\xfe\x00")):
+        f.write_bytes(bad if isinstance(bad, bytes) else bad.encode("utf-8"))
+        os.utime(f, (time.time() + 10 * (i + 1),) * 2)                     # (a new mtime each time: read again)
+        assert changelog.versions(f) == [], bad
+    assert "the changelog shows no" in caplog.text
+    # entries that are not releases are left out, the others kept
+    f.write_text(json.dumps({"releases": [{"version": "1.0.0", "changes": []}, "x", {"version": ""}, {"date": "2030-01-01"}]}), encoding="utf-8")
+    os.utime(f, (time.time() + 99,) * 2)
+    assert changelog.versions(f) == [{"version": "1.0.0", "changes": [], "unreleased": False}]
+
+
+def test_releases_json_is_read_once_per_change_of_the_file(monkeypatch, tmp_path):
+    _release_model(monkeypatch, None)
+    f = tmp_path / "releases.json"
+    f.write_text(SAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    calls = []
+    real = changelog._load
+    monkeypatch.setattr(changelog, "_load", lambda p: calls.append(p) or real(p))
+    assert changelog.versions(f)[0]["version"] == "9.2.0"
     got = changelog.versions(f)
     assert len(calls) == 1                                                    # the same file: not read again
+    got[0]["changes"].clear()
     got[0]["version"] = "changed by a caller"
-    assert changelog.versions(f)[0]["version"] == "1.0.0"                     # (what was handed out is a copy)
-    f.write_text("## [1.0.1] - 2026-01-02\n\n### Fixed\n\n- Two.\n", encoding="utf-8")
+    again = changelog.versions(f)
+    assert again[0]["version"] == "9.2.0" and len(again[0]["changes"]) == 9  # (what was handed out is a copy)
+    data = json.loads(f.read_text(encoding="utf-8"))
+    data["releases"] = data["releases"][1:]
+    f.write_text(json.dumps(data), encoding="utf-8")
     os.utime(f, (time.time() + 5, time.time() + 5))
-    assert changelog.versions(f)[0]["version"] == "1.0.1" and len(calls) == 2
-    assert changelog.versions(tmp_path / "missing.md") == []
+    assert changelog.versions(f)[0]["version"] == "9.1.1" and len(calls) == 2
+    assert changelog.versions(tmp_path / "missing.json") == [] and len(calls) == 2
 
 
-# ── release titles and highlights (highlights.json) ──────────────────────────────────────────────────────────────────
-LANGS = ("en", "zh", "fr")
+def test_the_default_file_is_the_one_next_to_the_module():
+    assert changelog.RELEASES == ROOT / "backend" / "autoapply" / "releases.json"
 
 
-def _content(v):
-    return bool(v["summary"] or v["sections"])
+def _semver(v):
+    core, _, pre = v.partition("-")
+    return tuple(int(x) for x in core.split(".")), (pre == "", pre)
 
 
-def test_highlights_json_is_honest_about_the_changelog():
-    """Every version of CHANGELOG.md with content - Unreleased too - has a title and 3-6 highlights in every language,
-    of the kinds the page knows; the file names no version the changelog does not have."""
-    data = json.loads(changelog.HIGHLIGHTS.read_text(encoding="utf-8"))
-    entries = data["versions"]
-    vs = changelog.parse((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
-    names = {changelog.norm(v["version"]) for v in vs}
-    assert sorted(changelog.norm(k) for k in entries) == sorted(set(changelog.norm(k) for k in entries)), "a version twice"
-    assert not [k for k in entries if changelog.norm(k) not in names], "an entry for a version CHANGELOG.md does not have"
-    by = {changelog.norm(k): e for k, e in entries.items()}
-    problems = []
-    for v in vs:
-        if not _content(v):
-            continue
-        e = by.get(changelog.norm(v["version"]))
-        if not e:
-            problems.append(f"{v['version']}: no entry")
-            continue
-        if sorted(changelog._words(e.get("title"))) != sorted(LANGS):
-            problems.append(f"{v['version']}: title not in {LANGS}")
-        hs = e.get("highlights") or []
-        if not 3 <= len(hs) <= 6:
-            problems.append(f"{v['version']}: {len(hs)} highlights")
-        for i, h in enumerate(hs):
-            if h.get("kind") not in changelog.HIGHLIGHT_KINDS:
-                problems.append(f"{v['version']} #{i}: kind {h.get('kind')!r}")
-            if sorted(changelog._words(h.get("title"))) != sorted(LANGS):
-                problems.append(f"{v['version']} #{i}: title not in {LANGS}")
-            if "text" in h and sorted(changelog._words(h["text"])) != sorted(LANGS):
-                problems.append(f"{v['version']} #{i}: text not in {LANGS}")
-    assert not problems, "\n".join(problems)
-    # and what the page gets is that: every version with content has its title, and none is derived
-    for v in changelog.versions(ROOT / "CHANGELOG.md"):
-        assert v["title"]["en"] and v["highlights"] and not any(h.get("derived") for h in v["highlights"]), v["version"]
-        assert v["sections"] == next(x for x in vs if x["version"] == v["version"])["sections"]          # the full notes, untouched
-
-
-HL = {
-    "_about": "made up",
-    "versions": {
-        "v3.0.0": {"title": {"en": "Three", "zh": "三", "fr": "Trois"},
-                   "highlights": [{"kind": "added", "title": {"en": "A feature", "zh": "功能", "fr": "Une fonction"}, "text": {"en": "It does.", "zh": "能用。", "fr": "Ça marche."}},
-                                  {"kind": "fixed", "title": {"en": "A fix", "zh": "修复", "fr": "Correction"}},
-                                  {"kind": "added", "title": "not a text in languages"},
-                                  "not a highlight"]},
-        "2.0.0": {"title": {"en": "Two only in English", "zh": " "}, "highlights": []},
-        "9.9.9": {"title": {"en": "Not in the changelog"}, "highlights": [{"kind": "added", "title": {"en": "x"}}]},
-    },
-}
-
-
-def test_titles_and_highlights_are_merged_and_the_notes_kept(tmp_path):
-    f, h = tmp_path / "CHANGELOG.md", tmp_path / "highlights.json"
-    f.write_text(MADE_UP, encoding="utf-8")
-    h.write_text(json.dumps(HL), encoding="utf-8")
-    v3, v2, v1 = changelog.versions(f, h)
-    assert v3["title"] == {"en": "Three", "zh": "三", "fr": "Trois"}
-    assert v3["highlights"] == [{"kind": "added", "title": {"en": "A feature", "zh": "功能", "fr": "Une fonction"}, "text": {"en": "It does.", "zh": "能用。", "fr": "Ça marche."}},
-                                {"kind": "fixed", "title": {"en": "A fix", "zh": "修复", "fr": "Correction"}}]
-    assert v3["sections"] == changelog.parse(MADE_UP)[0]["sections"] and v3["summary"] == "The summary, on two lines."      # nothing of the notes cut
-    # an entry without highlights: its title, and the highlights from the notes (2.0.0 has no bold lead: none)
-    assert v2["title"] == {"en": "Two only in English"} and v2["highlights"] == []
-    # no entry: no title, the bold leads of the notes
-    assert v1["title"] == {} and v1["highlights"] == []
-    assert all(set(v) >= {"version", "date", "unreleased", "summary", "sections", "url", "title", "highlights"} for v in (v3, v2, v1))
-
-
-def test_a_version_without_an_entry_gets_the_bold_leads_of_its_notes(tmp_path):
-    notes = "\n".join([
-        "## [Unreleased]", "", "### Fixed", "", "- **Menus** stay open.", "",
-        "## [4.0.0] - 2032-01-01", "",
-        "### Known limits", "", "- **Not signed.**", "",
-        "### Fixed", "", "- **A crash** at start.", "- No bold lead here.", "- **A crash** at start again (the same lead: once).", "- **The `--port` [option](https://x.org)**: read.", "",
-        "### Added", "", *[f"- **Feature {i}**: something." for i in range(1, 9)], "",
-        "### Changed", "", "- Words **in bold** in the middle are not a lead.", "- **Dates**, one way.", "",
-        "### The way it looks", "", "- **Colours.** Softer.", "",
-    ])
-    f = tmp_path / "CHANGELOG.md"
-    f.write_text(notes, encoding="utf-8")
-    un, v4 = changelog.versions(f, tmp_path / "no-such-highlights.json")
-    assert un["highlights"] == [{"kind": "fixed", "title": {"en": "Menus"}, "derived": True}]
-    got = [(h["kind"], h["title"]["en"]) for h in v4["highlights"]]
-    # in turns from added, changed, fixed, ... (so that eight added do not fill all six), at most six, grouped by kind
-    assert got == [("added", "Feature 1"), ("added", "Feature 2"), ("changed", "Dates"), ("fixed", "A crash"), ("known", "Not signed"), ("other", "Colours")]
-    assert all(h["derived"] and list(h["title"]) == ["en"] for h in v4["highlights"])
-    assert changelog.lead_of("**The `--port` [option](https://x.org)**: read.") == "The --port option"      # plain words
-    assert changelog.lead_of("**Calendar** (sidebar, under *Needs you*): everything") == "Calendar"
-    assert changelog.lead_of("**One design system for the whole interface.** Every page") == "One design system for the whole interface"
-    assert changelog.lead_of("Plain.") == "" and changelog.lead_of("") == ""
-
-
-def test_highlights_read_again_when_their_file_changes_and_a_broken_one_is_not_fatal(tmp_path, caplog):
-    f, h = tmp_path / "CHANGELOG.md", tmp_path / "highlights.json"
-    f.write_text("## [1.0.0] - 2026-01-01\n\n### Added\n\n- **One.** First.\n", encoding="utf-8")
-    h.write_text("{ not json", encoding="utf-8")
-    assert changelog.versions(f, h)[0]["highlights"] == [{"kind": "added", "title": {"en": "One"}, "derived": True}]
-    h.write_text(json.dumps({"versions": {"1.0.0": {"title": {"en": "First"}, "highlights": [{"kind": "added", "title": {"en": "Uno"}}]}}}), encoding="utf-8")
-    os.utime(h, (time.time() + 5, time.time() + 5))
-    v = changelog.versions(f, h)[0]
-    assert v["title"] == {"en": "First"} and v["highlights"] == [{"kind": "added", "title": {"en": "Uno"}}]
-    assert changelog.norm("V2.0.2") == "2.0.2" and changelog.norm(" Unreleased ") == "unreleased"
+def test_the_programs_own_release_data(monkeypatch):
+    """The generated releases.json (the lead writes it with the release tool at integration): the shape the page reads,
+    newest first, and what the adapter gives is that."""
+    if not changelog.RELEASES.exists():
+        pytest.skip("backend/autoapply/releases.json is not generated yet")
+    _release_model(monkeypatch, None)
+    data = json.loads(changelog.RELEASES.read_text(encoding="utf-8"))
+    assert data["schema"] == 1 and isinstance(data["repo"], str) and data["releases"]
+    for r in data["releases"]:
+        assert set(r) == RELEASE_ENTRY and r["title"]["en"] and r["date"] and r["url"].startswith("https://"), r["version"]
+        for c in r["changes"]:
+            assert set(c) == CHANGE_ENTRY and c["summary"]["en"] and c["type"] in ("added", "changed", "deprecated", "removed", "fixed", "security"), c["id"]
+    names = [r["version"] for r in data["releases"]]
+    assert names == sorted(names, key=_semver, reverse=True)
+    assert changelog.versions() == [dict(r, unreleased=False) for r in data["releases"]]
 
 
 # ── licences ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -307,12 +181,15 @@ def client(app_env):
     return TestClient(app)
 
 
-def test_endpoints(client):
+def test_endpoints(client, monkeypatch):
+    monkeypatch.setattr(changelog, "RELEASES", SAMPLE)
+    _release_model(monkeypatch, lambda root=None: json.loads(json.dumps(PENDING)))
     r = client.get("/api/about/changelog").json()
-    assert r["current"] and isinstance(r["repo"], str)
-    assert r["versions"] == changelog.versions(config.ROOT / "CHANGELOG.md") and any(v["version"] == "2.0.2" for v in r["versions"])
-    v202 = next(v for v in r["versions"] if v["version"] == "2.0.2")
-    assert v202["title"]["zh"] and 3 <= len(v202["highlights"]) <= 6 and v202["sections"]          # the highlights and the full notes
+    assert set(r) == {"current", "repo", "versions"} and r["current"] and isinstance(r["repo"], str)
+    assert [v["version"] for v in r["versions"]] == ["Unreleased", "9.2.0", "9.1.1", "9.1.0", "9.0.0"]
+    assert r["versions"] == changelog.versions()
+    _release_model(monkeypatch, None)
+    assert [v["unreleased"] for v in client.get("/api/about/changelog").json()["versions"]] == [False] * 4
     cs = client.get("/api/about/licenses").json()["components"]
     assert any(c["name"].lower() == "fastapi" for c in cs)
     one = client.get("/api/about/licenses/fastapi")
