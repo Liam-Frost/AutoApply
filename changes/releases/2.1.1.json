@@ -1,0 +1,52 @@
+{
+  "version": "2.1.1",
+  "date": "2026-11-23",
+  "title": {
+    "en": "Fields in your language, Workday boards read again",
+    "zh": "方向按你的语言统一归类，Workday 招聘页恢复读取",
+    "fr": "Les domaines dans votre langue, les pages Workday relues"
+  },
+  "intro": "2.1.1 sorts a posting's field into one fixed list - a field and a specialty, named in your language - instead of\nwhatever the model wrote; the postings from before are sorted in after the update. Employers' Workday boards are read\nagain: a \"too many requests\" answer rests the whole service instead of being asked again at once. The co-op portal is\nread for your programme of study only. An email about an application you made elsewhere can go on your calendar, and\nits card then closes. Updates only go forwards, a version the tray switches to starts completely, and the ordinary\nbrowser is waited for when it is slow to start.",
+  "known_limits": [
+    "The slower Workday pace and the co-op portal narrowed to your programme are unit-tested; a real scan with them has not been watched yet."
+  ],
+  "fragments": [
+    {
+      "id": "2026-11-23-email-about-application-405a",
+      "sha256": "83efa671e5e179c58e40c0a739d4f5ed519bf66751d62be122ccb5f70f7defc6"
+    },
+    {
+      "id": "2026-11-23-posting-s-field-comes-98e8",
+      "sha256": "7cc8a2f53beb53a7497778002f3bc78502abafc6a38ea5af0e9fa95438ccae6d"
+    },
+    {
+      "id": "2026-11-23-start-bat-speaks-english-1e91",
+      "sha256": "2f4be7f8a4c691a6d165039378cd34ad7080c087966abec1136ee50fd0df8188"
+    },
+    {
+      "id": "2026-11-23-updates-only-go-forwards-03ca",
+      "sha256": "dbae0f9d65a4f1b800641742ad684071c1717ffc2f86f3969f45f26dec8285bc"
+    },
+    {
+      "id": "2026-11-23-workday-boards-read-again-ebd7",
+      "sha256": "a133baa309ce76114843ef6b5a107d7bebfc7f54533f8fc652f7e3a4ad5f0bab"
+    },
+    {
+      "id": "2026-11-23-after-tray-switches-versions-94ca",
+      "sha256": "3b1abfc98a8876d5155ac8784a6477f6168335b03b5fd0ceb160fee3f2b69144"
+    },
+    {
+      "id": "2026-11-23-clearer-key-restart-icons-4475",
+      "sha256": "e34eaef8fa221484a8207bb5bc5570fcbc9898b62877c0a64b1e4d8ea65f8fab"
+    },
+    {
+      "id": "2026-11-23-co-op-portal-read-0a69",
+      "sha256": "2838c313ca22e8a89fb05f6a1476173fd324c3ff145e2a4032726cc0876c89aa"
+    },
+    {
+      "id": "2026-11-23-ordinary-browser-waited-slow-7035",
+      "sha256": "015835902de70652cb12a980dd563f8b98453d4f1537541492abf32efced4ff7"
+    }
+  ],
+  "corrections": []
+}
