@@ -96,3 +96,21 @@ def test_what_the_program_knows_about_signing_in_is_told_to_the_agent_and_a_scan
     rows = list(pdportal.scan({"150001", "140000"}))
     assert portal.runs == 2 and "has been open since" in portal.goal
     assert {r["source_id"] for r in rows} == {"150001", "140000", "150002", "150003"}      # what it got is kept; what it did not get to is not taken for gone
+
+
+def test_the_agent_is_told_the_applicants_programme_and_to_read_the_list_for_it(portal):
+    """The agent read all of a co-op portal's postings - every faculty's, some thousand - though the applicant's own
+    notes said to filter the list to their programme first (Computer): the program's notes about the portal said to
+    search with an empty keyword, "so that everything is listed", and the agent was never told the programme."""
+    from autoapply import db, knowledge
+    from autoapply.agent import brief
+    from autoapply.sources import pdportal
+
+    knowledge.write("profile", "# Profile\n\n## Education\n\n- University of British Columbia, Bachelor of Applied Science, Computer Engineering, Sept 2023 - May 2028\n")
+    portal.play = lambda t: (t["save_postings"](script=THEIRS), t["done"](ok=True))
+    list(pdportal.scan(set()))
+    assert "The applicant's programme of study: Computer Engineering" in portal.goal and "narrow the list to that programme" in portal.goal
+    assert "Filter by Program" in brief.about("orbis") and "so that\neverything is listed" not in brief.about("orbis")
+    db.set_setting("intake.programs", ["Computer", "Electrical"])      # what they set themselves comes first
+    list(pdportal.scan(set()))
+    assert "programme of study: Computer, Electrical." in portal.goal

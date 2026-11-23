@@ -411,6 +411,7 @@
  "server.chat.thisButtonHasExpired": "这个按钮已经过期了；再说一遍要做什么。",
  "server.convert.thisComputerHasNeither": "这台电脑上没有 Microsoft Word，也没有 LibreOffice，没法把 Word 文件转成 PDF。装一个免费的 LibreOffice 就可以（libreoffice.org）。",
  "server.discord.discordIsNotLinked": "Discord 还没有绑定：在设置里点“绑定”，把短码私信给机器人。",
+ "server.discover.theServiceAskedFor": "{p0} 要求这台电脑减少请求（HTTP 429）；下次扫描时再读",
  "server.discover.theSitesSecurityCheck": "网站的安全检查拒绝了这台电脑当前的网络（{p0}）",
  "server.doctor.accessFromOtherDevices": "从其他设备访问时没有加密",
  "server.doctor.chineseFontsAreInstalled": "有中文字体",
