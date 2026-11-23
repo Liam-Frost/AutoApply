@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 
 from . import actions, db, discord, i18n, secrets
-from .models import Notification, Todo
+from .models import CALENDAR_ONLY, Notification, Todo
 
 log = logging.getLogger("autoapply.bots")
 
@@ -105,7 +105,7 @@ def status() -> str:
     with db.session() as s:
         running = list(s.query(Task).filter_by(status="running"))
         queued = s.query(Task).filter_by(status="queued").count()
-        open_ = s.query(Todo).filter_by(status="open").count()
+        open_ = s.query(Todo).filter(Todo.status == "open", Todo.kind.notin_(CALENDAR_ONLY)).count()
         names = []
         for t in running:
             if t.kind == "apply" and t.ref.startswith("job:"):
@@ -124,7 +124,7 @@ def open_cards(limit: int = 8) -> list[tuple[str, int, str]]:
     from . import reminders
 
     with db.session() as s:
-        rows = [t for t in s.query(Todo).filter_by(status="open").order_by(Todo.id.desc()) if not reminders.snoozed(t)]
+        rows = [t for t in s.query(Todo).filter(Todo.status == "open", Todo.kind.notin_(CALENDAR_ONLY)).order_by(Todo.id.desc()) if not reminders.snoozed(t)]
     rank = {"code": 0, "confirm": 0, "submit": 1, "answer": 2, "resume": 2, "failed": 3}
     rows.sort(key=lambda t: (rank.get(t.kind, 5), -t.id))
     return [(i18n.tr_lines(f"{t.title}\n{(t.body or '')[:300]}".strip()), t.id, t.ref) for t in rows[:limit]]

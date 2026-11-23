@@ -84,3 +84,31 @@ def test_a_reminder_of_ones_own_on_a_deadline_and_the_calendar_file(app_env, mon
     ics.token(new=True)
     with pytest.raises(HTTPException):
         calendar_feed(token)                                               # the old address stops working
+
+
+def test_an_item_of_ones_own_calendar_is_on_the_calendar_and_its_reminder_is_a_notice(app_env, monkeypatch):
+    """An item of the applicant's own calendar was also a card on the to-do page, in the count of what waits for them;
+    closing that card took the item off the calendar (2026-11-23). It is on the calendar only; its reminder is a notice at
+    the top of the to-do page that "Got it" puts away - and the item stays as it is."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import agenda, alarms
+    from autoapply.api.main import app, overview
+
+    told = _told(monkeypatch)
+    c = TestClient(app)
+    tid = agenda.add_own("Interview · Acme", AT(15, 0), all_day=False, link="https://meet.example.com/x")
+    alarms.add(f"todo:{tid}", 60)
+    assert c.get("/api/todos").json() == [] and overview()["open_todos"] == 0
+    on_the_day = lambda: [x for x in c.get("/api/calendar", params={"start": DAY.isoformat(), "end": (DAY + timedelta(days=1)).isoformat()}).json()["items"] if x["id"] == f"todo:{tid}"]  # noqa: E731
+    assert len(on_the_day()) == 1
+    # its reminders go off: a notice (and the phone is told), with "Got it"
+    monkeypatch.setattr(alarms.clock, "now", lambda: AT(14, 0))
+    assert alarms.tick(AT(14, 0)) >= 1 and told
+    rang = c.get("/api/calendar/alarms/recent").json()
+    assert [x["id"] for x in rang] == [f"todo:{tid}"]
+    c.post("/api/calendar/alarms/seen", json={"item": rang[0]["id"], "start": rang[0]["start"]})
+    assert c.get("/api/calendar/alarms/recent").json() == []
+    item = on_the_day()
+    assert len(item) == 1 and not item[0]["done"] and item[0]["link"] == "https://meet.example.com/x"      # untouched
+    assert 60 in [a["before"] for a in alarms.of(f"todo:{tid}")]                                          # its reminders too

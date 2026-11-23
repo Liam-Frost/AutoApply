@@ -10,7 +10,7 @@ import { at, saidEnd, status } from '../../calendar'
 import { deadlineLabel } from '../../dates'
 import { t } from '../../i18n/catalog'
 import { clockOf } from '../../i18n/format'
-import { run } from '../../ui'
+import { ask, run, toast } from '../../ui'
 import { formatReminder } from '../../reminders'
 import { companyOf, family, GLYPH, kindName, longDate, scoreOf, statusName, statusTone, titleOf } from './look'
 
@@ -39,6 +39,17 @@ const linkEdit = ref(null)
 watch(() => x.value.id, () => { dueEdit.value = null; linkEdit.value = null })
 const changed = () => { dueEdit.value = null; linkEdit.value = null; emit('changed') }
 const done = () => run(() => api.post(`/todos/${x.value.about.todo_id}/done`, {}), t('calendar.doneMsg'), changed)
+// an item of the applicant's own calendar is removed here - it is nowhere else (not a card on the to-do page) - and the
+// notice after it can undo that
+async function remove() {
+  const id = x.value.about.todo_id
+  if (!(await ask(t('calendar.removeAsk', { title: titleOf(x.value) }), { ok: t('calendar.remove'), danger: true }))) return
+  const gone = await run(() => api.post(`/todos/${id}/done`, { status: 'dismissed', resume: false }), '', changed)
+  if (gone !== false) {
+    toast(t('calendar.removedMsg'), '', { act: () => run(() => api.post(`/todos/${id}/reopen`), t('calendar.backMsg'), changed), link: t('calendar.undo') })
+    emit('close')
+  }
+}
 const saveDue = () => run(() => api.post(`/todos/${x.value.about.todo_id}/due`, { due: dueEdit.value }), t('calendar.movedMsg'), changed)
 const saveLink = (link) => run(() => api.post(`/calendar/items/${x.value.about.todo_id}/link`, { link }), t('calendar.linkSaved'), changed)
 const startApplication = () => run(() => api.post(`/jobs/${x.value.about.job_id}/draft`, {}), t('calendar.started'), changed)
@@ -114,6 +125,7 @@ const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a
           <button v-if="!x.done" type="button" @click="done"><Icon name="check" />{{ $t('calendar.done') }}</button>
           <button type="button" @click="dueEdit = x.start.slice(0, 16)"><Icon name="clock" />{{ $t('calendar.move') }}</button>
           <button type="button" @click="linkEdit = x.link || ''"><Icon name="link" />{{ x.link ? $t('calendar.linkChange') : $t('calendar.linkAdd') }}</button>
+          <button v-if="x.kind === 'own'" type="button" class="ghost danger" @click="remove"><Icon name="trash" />{{ $t('calendar.remove') }}</button>
         </template>
       </template>
       <router-link v-if="x.about.application_id" :to="`/applications/${x.about.application_id}`" class="btn">{{ $t('calendar.openApplication') }}</router-link>

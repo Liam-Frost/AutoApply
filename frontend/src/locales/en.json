@@ -743,7 +743,8 @@
     },
     "rang": {
       "title": "Reminders",
-      "openDay": "On the calendar"
+      "openDay": "On the calendar",
+      "gotIt": "Got it"
     },
     "links": {
       "fromMail": "Links in the mail - choose where this leads:",
@@ -841,7 +842,12 @@
     "kbd": "Keys: T today · ← → previous / next · M W D views · N new event · / search",
     "zoneFrom": "{time} in {zone}",
     "zoneAssumed": "The e-mail names no time zone, so this time is shown as your own. If it is the employer's, correct it with “Change the time”.",
-    "clockRange": "{from}–{to}"
+    "clockRange": "{from}–{to}",
+    "remove": "Delete",
+    "removeAsk": "Delete “{title}” from your calendar?",
+    "removedMsg": "Deleted from your calendar.",
+    "undo": "Undo",
+    "backMsg": "It is back on your calendar."
   },
   "settings": {
     "reminders": {

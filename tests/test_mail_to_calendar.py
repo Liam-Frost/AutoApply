@@ -65,7 +65,7 @@ def test_the_date_an_email_gives_goes_on_the_applicants_own_calendar_on_their_cl
         # the mail is dealt with: its card is closed, and the calendar item (a card of its own) is what is left. The card
         # used to stay; beside the item's card it read as the same thing twice, the wrong one was closed and the item was gone
         assert s.query(Todo).filter_by(kind="mail_unmatched").one().status == "done"
-    assert [c["kind"] for c in desk.get("/api/todos").json()] == ["note"]
+    assert desk.get("/api/todos").json() == []          # (the item is on the calendar, not a task on the to-do page)
 
     # on the calendar, as the applicant's own item, with its end
     items = desk.get("/api/calendar", params={"start": "2026-11-27", "end": "2026-11-28"}).json()["items"]
