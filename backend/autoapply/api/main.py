@@ -33,7 +33,7 @@ mimetypes.add_type("text/javascript", ".js")
 from .. import net, persona, prompts
 from .. import auth, config, context, db, discover, drafts, handlers, humanize, knowledge, lifecycle, llm, mail, messages, notify, secrets, stages, tasks
 from ..models import Contact
-from ..models import CALENDAR_ONLY, SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent, Notification, Run, Task, Todo, now
+from ..models import SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent, Notification, Run, Task, Todo, now
 
 
 def _start_up() -> None:
@@ -1200,7 +1200,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
         rows = [{"id": t.id, "kind": t.kind, "ref": t.ref, "title": t.title, "body": t.body, "payload": t.payload, "status": t.status,
                  "created_at": t.created_at.isoformat(), "due_at": t.due_at.isoformat() if t.due_at else None,
                  "date_only": bool((t.payload or {}).get("date_only")), "snoozed_until": t.snoozed_until.isoformat() if _reminders.snoozed(t) else None}
-                for t in s.query(Todo).filter(Todo.status == status, Todo.kind.notin_(CALENDAR_ONLY)).order_by(Todo.id.desc()).limit(200)]
+                for t in s.query(Todo).filter(Todo.status == status, Todo.a_task()).order_by(Todo.id.desc()).limit(200)]
     from datetime import datetime
     from ..models import Draft
 
@@ -1886,7 +1886,7 @@ def overview() -> dict[str, Any]:
         return {
             "pending_drafts": s.query(func.count(Draft.id)).filter(Draft.review_status == "pending").scalar(),
             # (what the applicant put off until later is not counted until then)
-            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open", Todo.kind.notin_(CALENDAR_ONLY),
+            "open_todos": s.query(func.count(Todo.id)).filter(Todo.status == "open", Todo.a_task(),
                                                              (Todo.snoozed_until.is_(None)) | (Todo.snoozed_until <= datetime.now())).scalar(),
             "queued_tasks": s.query(func.count(Task.id)).filter(Task.status.in_(("queued", "running"))).scalar(),
             "paused": bool(db.get_setting("schedule.paused")),

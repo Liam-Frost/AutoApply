@@ -744,7 +744,8 @@
     "rang": {
       "title": "Reminders",
       "openDay": "On the calendar",
-      "gotIt": "Got it"
+      "gotIt": "Got it",
+      "new": "New"
     },
     "links": {
       "fromMail": "Links in the mail - choose where this leads:",

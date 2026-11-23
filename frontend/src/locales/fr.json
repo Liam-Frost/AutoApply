@@ -744,7 +744,8 @@
     "rang": {
       "title": "Rappels",
       "openDay": "Dans l’agenda",
-      "gotIt": "Compris"
+      "gotIt": "Compris",
+      "new": "Nouveau"
     },
     "links": {
       "fromMail": "Liens du courriel - choisissez où mène cet élément :",

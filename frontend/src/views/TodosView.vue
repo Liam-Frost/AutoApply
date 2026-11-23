@@ -286,7 +286,8 @@ onMounted(() => { load(); loadRang() })
       <div class="t-primary">{{ $t('calendar.rang.title') }}</div>
       <div class="rows tight">
         <div v-for="x in rang" :key="x.id" class="r">
-          <Trunc class="grow" :text="x.subject ? x.subject + ' · ' + x.title : x.title" />
+          <span v-if="x.why === 'new'" class="tag info atomic">{{ $t('calendar.rang.new') }}</span>
+          <Trunc class="grow" :text="x.subject && !String(x.title).includes(x.subject) ? x.subject + ' · ' + x.title : x.title" />
           <span class="end">
             <span class="t-meta atomic">{{ x.all_day ? dayText(x.start) : dateTimeOf(new Date(x.start)) }}</span>
             <router-link :to="{ path: '/calendar', query: { view: 'day', date: x.start.slice(0, 10) } }" class="btn sm ghost">{{ $t('calendar.rang.openDay') }}</router-link>

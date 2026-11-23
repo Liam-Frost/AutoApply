@@ -125,7 +125,7 @@ const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a
           <button v-if="!x.done" type="button" @click="done"><Icon name="check" />{{ $t('calendar.done') }}</button>
           <button type="button" @click="dueEdit = x.start.slice(0, 16)"><Icon name="clock" />{{ $t('calendar.move') }}</button>
           <button type="button" @click="linkEdit = x.link || ''"><Icon name="link" />{{ x.link ? $t('calendar.linkChange') : $t('calendar.linkAdd') }}</button>
-          <button v-if="x.kind === 'own'" type="button" class="ghost danger" @click="remove"><Icon name="trash" />{{ $t('calendar.remove') }}</button>
+          <button v-if="x.kind === 'own' || x.kind === 'interview'" type="button" class="ghost danger" @click="remove"><Icon name="trash" />{{ $t('calendar.remove') }}</button>
         </template>
       </template>
       <router-link v-if="x.about.application_id" :to="`/applications/${x.about.application_id}`" class="btn">{{ $t('calendar.openApplication') }}</router-link>
