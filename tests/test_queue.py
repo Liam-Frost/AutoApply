@@ -256,7 +256,7 @@ def test_several_applications_are_worked_at_once_but_not_two_on_one_application_
 # --- a service that turns this computer's network away ---
 
 
-def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_whole_service(monkeypatch):
+def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_whole_service(app_env, monkeypatch):
     """Eight Workday boards failed on every scan with "429 Too Many Requests". It was not a rate limit: the answer was a
     page saying "Security Check - enable JavaScript and cookies". Each board was asked four times with growing pauses,
     and the next board of the same service was asked all over again."""
@@ -292,13 +292,21 @@ def test_a_security_check_is_not_a_busy_server_and_one_refusal_speaks_for_the_wh
         assert public._send(c, "GET", "https://api.example.org/v0/postings/x", gap=0).status_code == 200
 
 
-def test_too_many_requests_rests_the_whole_service_and_it_is_asked_more_slowly(monkeypatch):
+def test_too_many_requests_rests_the_whole_service_and_it_is_asked_more_slowly(app_env, monkeypatch):
     """Seven Workday boards failed on every scan, for a week, with a real "429 Too Many Requests": one board's pages at
     1.5 s apart, the tenth refused; four quick retries refused; then every other board's first request refused - the
-    service limits this computer's requests to all its employers together, and each new request kept it refusing."""
+    service limits this computer's requests to all its employers together, and each new request kept it refusing. The
+    rest after a refusal lived in memory, and a restart forgot it: it is kept now, and grows from one refusal to the next."""
+    from datetime import datetime, timedelta, timezone
+
     import httpx
 
+    from autoapply import db
     from autoapply.sources import public
+
+    def time_passes():      # (the rest kept in the settings is over)
+        kept = db.get_setting(public.RESTING) or {}
+        db.set_setting(public.RESTING, {k: {**v, "until": (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()} for k, v in kept.items()})
 
     for k in ("_refused", "_last", "_pace", "_rest", "_strikes", "_answered"):
         monkeypatch.setattr(public, k, {})
@@ -322,17 +330,32 @@ def test_too_many_requests_rests_the_whole_service_and_it_is_asked_more_slowly(m
             assert public._send(c, "POST", wd.format(t="cibc")).status_code == 200
         gaps = [b[1] - a[1] for a, b in zip(asked, asked[1:])]
         assert min(gaps) >= public.PACE["myworkdayjobs.com"]                    # Workday is asked at its own pace, not every half second
-        # refused: it rests a minute and is asked once more; refused again, it rests longer than a scan waits
+        # refused: it rests a minute and is asked once more; refused again, it rests - kept: half an hour the first time
         with pytest.raises(public.Resting) as e:
             public._send(c, "POST", wd.format(t="cibc"))
-        assert len(asked) == 11 and asked[10][1] - asked[9][1] >= 60 and e.value.who == "myworkdayjobs.com" and e.value.minutes == 2
+        assert len(asked) == 11 and asked[10][1] - asked[9][1] >= 60 and e.value.who == "myworkdayjobs.com" and e.value.minutes == 30
+        assert (db.get_setting(public.RESTING) or {})["myworkdayjobs.com"]["strikes"] == 1
         # the service's other boards in this scan: not asked at all, and said once for all of them
         with pytest.raises(public.Resting):
             public._send(c, "POST", wd.format(t="bmo"))
+        # and after a restart (the program's memory empty): still not asked
+        saved = {k: dict(getattr(public, k)) for k in ("_last", "_pace", "_rest", "_strikes", "_answered")}
+        for k in saved:
+            monkeypatch.setattr(public, k, {})
+        with pytest.raises(public.Resting):
+            public._send(c, "POST", wd.format(t="bmo"))
+        for k, v in saved.items():
+            monkeypatch.setattr(public, k, v)
         assert len(asked) == 11
-        # after its rest it is asked again, more slowly than before (twice for each refusal), and the pace comes back
+        # after its rest it is asked again; an answer forgets what was kept
         clock["now"] += 121
+        time_passes()
         assert public._send(c, "POST", wd.format(t="bmo")).status_code == 200
+        assert not db.get_setting(public.RESTING)
+        # a refusal before it answered again rests longer than the last one (an hour after half an hour)
+        db.set_setting(public.RESTING, {"myworkdayjobs.com": {"until": datetime.now(timezone.utc).isoformat(), "strikes": 1}})
+        assert round(public._rested("myworkdayjobs.com", 0) / 60) == 60
+        db.set_setting(public.RESTING, {})
         public._send(c, "POST", wd.format(t="td"))
         assert asked[-1][1] - asked[-2][1] >= 4 * public.PACE["myworkdayjobs.com"]
         for _ in range(20):

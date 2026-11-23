@@ -411,7 +411,7 @@
  "server.chat.thisButtonHasExpired": "Said by the program (chat.py).",
  "server.convert.thisComputerHasNeither": "Said by the program (convert.py).",
  "server.discord.discordIsNotLinked": "Said by the program (discord.py).",
- "server.discover.theServiceAskedFor": "A source's error in the scan summary: a job-board service (e.g. myworkdayjobs.com, Workday) said 'too many requests'. {p0} = the service's domain. The same text for every board of that service, so the summary names them together.",
+ "server.discover.theServiceAskedFor": "A source's error in the scan summary: a job-board service (myworkdayjobs.com) refused the program's requests and its own page, read in the browser instead, did not give the postings either. {p0} = the service's domain.",
  "server.discover.theSitesSecurityCheck": "Said by the program (discover.py). {p0} are values it fills in.",
  "server.doctor.accessFromOtherDevices": "Said by the program (doctor.py).",
  "server.doctor.chineseFontsAreInstalled": "Said by the program (doctor.py).",

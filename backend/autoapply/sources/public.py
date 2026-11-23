@@ -63,9 +63,15 @@ class Refused(RuntimeError):
     a sign-in. Asking again does not help and is not done - not for this address, and not for the others of the same service."""
 
 
+class Challenged(Refused):
+    """The board's own page, opened in the program's browser, shows a check only a person can answer (a puzzle to solve,
+    "verify you are human" that does not pass by itself). It is not answered for them; the board is not read."""
+
+
 class Resting(RuntimeError):
-    """The service said "too many requests" (HTTP 429) and is left alone for as long as it asked, or longer each time it
-    says it again. What is left of its listings is read at the next scan; nothing is asked of it before then."""
+    """The service said "too many requests" (HTTP 429) and is left alone - by the program's own requests - for as long as
+    it asked, and longer each time it says it again, also across restarts (it is kept in the settings). Its boards are
+    read through their own pages in the browser meanwhile (``workday_in_page``)."""
 
     def __init__(self, who: str, until: float) -> None:
         import time
@@ -99,6 +105,59 @@ def service(host: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
+# --- a refusal outlives the process ---------------------------------------------------------------------------------------
+# The rest after a 429 lived in the program's memory: a restart forgot it, and the next scan asked again at once - and
+# was refused again. The owner's copy restarted often, scanned every hour or two, and every scan's first request was
+# refused (2026-11-23). The rest is kept (sources.resting) and grows from one refusal to the next - half an hour, an hour,
+# two ... a day at most; one answer forgets it.
+
+RESTING = "sources.resting"
+
+
+def _kept(who: str) -> float:
+    """Seconds the service still rests, as kept across restarts (0: it does not)."""
+    from datetime import datetime, timezone
+
+    from .. import db
+
+    got = (db.get_setting(RESTING) or {}).get(who) or {}
+    try:
+        left = (datetime.fromisoformat(str(got.get("until"))) - datetime.now(timezone.utc)).total_seconds()
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, left)
+
+
+def _rested(who: str, at_least: float) -> float:
+    """The service refused once more: it rests at least ``at_least`` seconds, and longer than the last time. Returns how
+    many seconds."""
+    from datetime import datetime, timedelta, timezone
+
+    from .. import db
+
+    kept = dict(db.get_setting(RESTING) or {})
+    n = int((kept.get(who) or {}).get("strikes") or 0) + 1
+    seconds = max(at_least, min(86400.0, 1800.0 * 2 ** (n - 1)))
+    kept[who] = {"until": (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(timespec="seconds"), "strikes": n}
+    db.set_setting(RESTING, kept)
+    return seconds
+
+
+def _kept_names() -> set[str]:
+    from .. import db
+
+    return set(db.get_setting(RESTING) or {})
+
+
+def _answered_again(who: str) -> None:
+    """The service answered: what was kept of its refusals is forgotten."""
+    from .. import db
+
+    kept = db.get_setting(RESTING) or {}
+    if who in kept:
+        db.set_setting(RESTING, {k: v for k, v in kept.items() if k != who})
+
+
 def _asked(r: httpx.Response) -> float | None:
     """The seconds a "too many requests" or "busy" answer asks to wait (Retry-After, in seconds), if it says."""
     asked = r.headers.get("Retry-After", "").strip()
@@ -123,6 +182,9 @@ def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any
     since = _refused.get(who)
     if since is not None and time.monotonic() - since < REFUSED_FOR:
         raise Refused(f"{who} turned this computer's network away with a security check earlier; it is not asked again for a few hours")
+    left = _kept(who)
+    if left > WAIT_IN_SCAN:      # (a rest kept from before: not a single request until it is over)
+        raise Resting(who, time.monotonic() + left)
     lock = _locks.setdefault(who, threading.Lock())
     base = max(gap, PACE.get(who, 0.0))
     r = None
@@ -131,7 +193,7 @@ def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any
             now = time.monotonic()
             resting = _rest.get(who, 0.0) - now
             if resting > WAIT_IN_SCAN:
-                raise Resting(who, _rest[who])
+                raise Resting(who, now + max(resting, _kept(who)))
             wait = max(resting, _last.get(who, 0.0) + _pace.get(who, base) - now)
             if wait > 0:
                 time.sleep(wait)
@@ -144,6 +206,8 @@ def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any
                 _pace[who] = min(SLOWEST, max(_pace.get(who, base), base) * 2)
                 _answered[who] = 0
             elif r.status_code < 400:
+                if _strikes.get(who) or who in _kept_names():
+                    _answered_again(who)
                 _strikes[who] = 0
                 _answered[who] = _answered.get(who, 0) + 1
                 if _answered[who] >= 20 and _pace.get(who, base) > base:
@@ -153,9 +217,9 @@ def _send(c: httpx.Client, method: str, url: str, *, gap: float = 0.5, **kw: Any
             raise Refused(f"{who} answers with a security check (HTTP {r.status_code}) instead of its listing: its protection does not accept requests "
                           "from this computer's network address (often a proxy or VPN exit). This is not a sign-in problem and not a busy server")
         if r.status_code == 429:
-            if attempt == 3:
-                raise Resting(who, _rest[who])
-            continue                                  # (the rest is waited out above, or ends the turn)
+            if attempt == 3 or _rest[who] - time.monotonic() > WAIT_IN_SCAN:
+                raise Resting(who, time.monotonic() + _rested(who, _rest[who] - time.monotonic()))
+            continue                                  # (a short rest is waited out above)
         if r.status_code != 503 or attempt == 3:
             break
         asked = _asked(r)
@@ -170,42 +234,112 @@ def workday(host: str, tenant: str, site: str, *, search: str = "", limit: int =
     for postings that are new here and that the intake rules would keep - a posting already in the library (with its
     description) is only marked as still online. A scan used to fetch all two hundred descriptions every time, back to
     back, and sites answered 429."""
+    base = f"https://{host}/wday/cxs/{tenant}/{site}"
+    hdr = {**UA, "Accept": "application/json", "Content-Type": "application/json"}
+    with httpx.Client(timeout=60, headers=hdr) as c:
+        def listing(body: dict[str, Any]) -> dict[str, Any]:
+            r = _send(c, "POST", f"{base}/jobs", json=body)
+            r.raise_for_status()
+            return r.json()
+
+        def detail(path: str) -> dict[str, Any] | None:
+            d = _send(c, "GET", f"{base}{path}")
+            return d.json() if d.status_code == 200 else None
+
+        yield from _workday_rows(listing, detail, host, tenant, site, search=search, limit=limit, keep=keep, company=company)
+
+
+def _workday_rows(listing: Any, detail: Any, host: str, tenant: str, site: str, *, search: str, limit: int, keep: Any, company: str) -> Iterator[dict[str, Any]]:
+    """A board's postings, whichever way its listing is asked for (``listing(body)`` -> the page of postings,
+    ``detail(path)`` -> one posting, or None): the list twenty at a time; a description only for a posting new here that
+    the applicant's rules would keep - one already in the library is only marked as still online."""
     from .. import db
     from ..models import Job
 
-    base = f"https://{host}/wday/cxs/{tenant}/{site}"
-    hdr = {**UA, "Accept": "application/json", "Content-Type": "application/json"}
     with db.session() as s:
         known = {j.source_id for j in s.query(Job.source_id).filter(Job.source == "workday", Job.source_id.like(f"{tenant}:%"), Job.jd_text != "")}
     offset = 0
-    with httpx.Client(timeout=60, headers=hdr) as c:
-        while offset < limit:
-            r = _send(c, "POST", f"{base}/jobs", json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": search})
-            r.raise_for_status()
-            posts = r.json().get("jobPostings", [])
-            if not posts:
-                break
-            for p in posts:
-                path = p.get("externalPath", "")
-                tail = path.rsplit("_", 1)[-1]
-                ids = [f"{tenant}:{x}" for x in (*(str(b) for b in p.get("bulletFields") or []), tail, re.sub(r"-\d+$", "", tail)) if x]
-                row = {"source": "workday", "title": p.get("title", ""), "location": p.get("locationsText", ""),
-                       "apply_url": f"https://{host}/en-US/{site}{path}", "ats": "workday", "tenant": host.split(".myworkday")[0], "channel": "employer site"}
-                have = next((i for i in ids if i in known), None)
-                if have:      # already read: it is still online, and that is all a scan has to find out
-                    yield {**row, "source_id": have}
-                    continue
-                if not keep(row["title"], row["location"]):      # not a posting the applicant's rules would take: no request for its text
-                    yield {**row, "source_id": ids[0] if ids else f"{tenant}:{path}", "company": company or tenant}
-                    continue
-                d = _send(c, "GET", f"{base}{path}")
-                info = d.json().get("jobPostingInfo", {}) if d.status_code == 200 else {}
-                yield {
-                    **row, "source_id": f"{tenant}:{info.get('jobReqId') or tail}",
-                    "company": ((d.json().get("hiringOrganization") or {}).get("name") if d.status_code == 200 else "") or company or tenant,
-                    "work_type": info.get("timeType", ""), "jd_text": _text(info.get("jobDescription", "")),
-                }
-            offset += 20
+    while offset < limit:
+        posts = (listing({"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": search}) or {}).get("jobPostings", [])
+        if not posts:
+            break
+        for p in posts:
+            path = p.get("externalPath", "")
+            tail = path.rsplit("_", 1)[-1]
+            ids = [f"{tenant}:{x}" for x in (*(str(b) for b in p.get("bulletFields") or []), tail, re.sub(r"-\d+$", "", tail)) if x]
+            row = {"source": "workday", "title": p.get("title", ""), "location": p.get("locationsText", ""),
+                   "apply_url": f"https://{host}/en-US/{site}{path}", "ats": "workday", "tenant": host.split(".myworkday")[0], "channel": "employer site"}
+            have = next((i for i in ids if i in known), None)
+            if have:      # already read: it is still online, and that is all a scan has to find out
+                yield {**row, "source_id": have}
+                continue
+            if not keep(row["title"], row["location"]):      # not a posting the applicant's rules would take: no request for its text
+                yield {**row, "source_id": ids[0] if ids else f"{tenant}:{path}", "company": company or tenant}
+                continue
+            d = detail(path) or {}
+            info = d.get("jobPostingInfo", {}) or {}
+            yield {
+                **row, "source_id": f"{tenant}:{info.get('jobReqId') or tail}",
+                "company": (d.get("hiringOrganization") or {}).get("name") or company or tenant,
+                "work_type": info.get("timeType", ""), "jd_text": _text(info.get("jobDescription", "")),
+            }
+        if len(posts) < 20:      # (a page that is not full is the last: no request for an empty one after it)
+            break
+        offset += 20
+
+
+# The board's own page, in the program's browser: the way a person reads it. Workday answers the program's requests from
+# some networks with "too many requests" or a security check, whatever their pace, and serves the same board to a browser:
+# the page loads, its own check of the browser passes by itself, and the page asks its own API for the postings. That is
+# what is done here, at a person's pace - one request every few seconds. A check only a person can answer is not
+# answered: the board is reported as not read (Challenged).
+PAGE_GAP_MS = 3000
+_ASK = """async ({method, url, body}) => {
+  const r = await fetch(url, {method, credentials: 'same-origin', headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+                              body: body ? JSON.stringify(body) : undefined});
+  let json = null; try { json = await r.json() } catch (e) {}
+  return {status: r.status, json};
+}"""
+
+
+def challenged(page: Any) -> bool:
+    """Is the page a check of the browser instead of the board?"""
+    try:
+        return bool(CHALLENGE.search(page.title() or "") or CHALLENGE.search((page.inner_text("body") or "")[:1500]))
+    except Exception:  # noqa: BLE001 - a page that cannot be read yet is not a check
+        return False
+
+
+def workday_in_page(page: Any, host: str, tenant: str, site: str, *, search: str = "", limit: int = 200, keep=lambda *a: True, company: str = "") -> Iterator[dict[str, Any]]:  # noqa: ANN001
+    """A Workday board read through its own page in the program's browser (see above); the same rows as ``workday``."""
+    from urllib.parse import quote
+
+    who = service(host)
+    page.goto(f"https://{host}/en-US/{site}" + (f"?q={quote(search)}" if search else ""), wait_until="domcontentloaded", timeout=60000)
+    for _ in range(20):           # (a check that passes by itself is given the time it takes)
+        if not challenged(page):
+            break
+        page.wait_for_timeout(1000)
+    else:
+        raise Challenged(f"{who} shows a check only a person can answer, also in the browser")
+    base = f"/wday/cxs/{tenant}/{site}"
+
+    def ask(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        page.wait_for_timeout(PAGE_GAP_MS)
+        got = page.evaluate(_ASK, {"method": method, "url": base + path, "body": body}) or {}
+        status = int(got.get("status") or 0)
+        if status == 429:
+            import time
+
+            raise Resting(who, time.monotonic() + _rested(who, 1800.0))
+        if status == 200:
+            return got.get("json") or {}
+        if method == "POST":
+            raise RuntimeError(f"the board's page could not list its postings (HTTP {status})")
+        return None
+
+    yield from _workday_rows(lambda body: ask("POST", "/jobs", body), lambda path: ask("GET", path), host, tenant, site,
+                             search=search, limit=limit, keep=keep, company=company)
 
 
 def smartrecruiters(company: str, keep=lambda *a: True, limit: int = 300) -> Iterator[dict[str, Any]]:  # noqa: ANN001
