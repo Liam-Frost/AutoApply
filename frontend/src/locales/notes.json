@@ -3144,7 +3144,7 @@
   "about.rel.published": "Under the latest version's number on the about page: the day it came out. {d}: the day (e.g. Nov 22).",
   "about.error.notNewer": "Said when a switch would go to a version that is the same as or older than the running one (the updater only goes forwards by itself). 'Roll back' names the About page's button for going back to the previous version.",
   "todos.putOnMyCalendar": "Button on the card of an email that matches no application (often one the applicant made elsewhere): puts the date the email gives on the applicant's own calendar.",
-  "todos.putOnYourCalendar": "Toast after Add to my calendar.",
+  "todos.putOnYourCalendar": "Notice after Add to my calendar on an email's card; followed by a link to the day on the calendar.",
   "todos.openOnYourCalendar": "Button on that card once the e-mail's date is on the calendar: opens the calendar on that day.",
   "todos.theEmailGivesThisTime": "On the card of an email that matches no application: the date and time the email gives, on the applicant's own clock.",
   "todos.asTheEmailWrote": "Beside that date: the words the email used for it (so a converted time zone can be checked).",
@@ -3241,5 +3241,9 @@
   "direction.trades.technician": "A posting's field: the specialty 'technician' within 'Trades and technicians'. Shown alone in the Field column, under 'Trades and technicians' in the filter.",
   "direction.trades.trade": "A posting's field: the specialty 'trade' within 'Trades and technicians'. Shown alone in the Field column, under 'Trades and technicians' in the filter.",
   "direction.other._": "A posting's field (the fixed list in backend/autoapply/directions.py): the field 'other' as a whole. Shown in the postings' Field column and filter.",
-  "direction.unsorted": "Filter option: postings whose field is a label from before the fixed list; the program sorts them shortly."
+  "direction.unsorted": "Filter option: postings whose field is a label from before the fixed list; the program sorts them shortly.",
+  "todos.removeFromCalendar": "Menu item on the card of an item of the applicant's own calendar (or a follow-up): closing it takes it off the calendar.",
+  "todos.removedFromCalendar": "Notice after Remove from my calendar; followed by an Undo button.",
+  "todos.undo": "Button in a notice: takes back what was just done (an item removed from the calendar).",
+  "todos.backOnYourCalendar": "Notice after Undo of a removal from the calendar."
 }

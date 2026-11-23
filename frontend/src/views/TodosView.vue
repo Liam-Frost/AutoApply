@@ -163,8 +163,17 @@ async function againNotSubmitted(t) {
 }
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), T('todos.linkedTheApplicationsStatus'))
 // a mail about an application made elsewhere: what it gives a date for, on the applicant's own calendar
-const toCalendar = (t) => act(() => api.post(`/todos/${t.id}/to-calendar`), T('todos.putOnYourCalendar'))
+// (the mail is dealt with then: its card closes, and the notice leads to the day on the calendar)
 const calendarDay = (w) => `/calendar?view=day&date=${String(w.start).slice(0, 10)}`
+const toCalendar = (t) => act(async () => {
+  const r = await api.post(`/todos/${t.id}/to-calendar`)
+  toast(T('todos.putOnYourCalendar'), '', { to: calendarDay(r.start ? r : t.mail_when), link: T('todos.openOnYourCalendar') })
+}, '')
+// An item of the applicant's own calendar: closing its card takes it off the calendar - said so, and undone in one click
+const removeOwn = (t) => act(async () => {
+  await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false })
+  toast(T('todos.removedFromCalendar'), '', { act: () => act(() => api.post(`/todos/${t.id}/reopen`), T('todos.backOnYourCalendar')), link: T('todos.undo') })
+}, '')
 const mailWhen = (w) => (w.all_day ? dateOf(new Date(w.start.slice(0, 10) + 'T00:00')) : dateTimeOf(new Date(w.start.slice(0, 16))))
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), T('todos.closedNotes', { n: infoIds.value.length }, infoIds.value.length))
 const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), T('todos.anotherBudgetIsGiven'))
@@ -230,7 +239,7 @@ function acts(t) {
     const rest = [...open, ...reply, finish].filter((x) => x !== first)
     main = first; beside = rest.slice(0, 2)
     menu = [...rest.slice(2), ...(p.application_id ? [A(T('todos.openThisApplicationAnd'), 'external', { to: '/applications/' + p.application_id })] : p.contact_id ? [A(T('todos.openContacts'), 'user', { to: '/contacts' })] : []),
-      A(T('todos.dismiss'), 'x', { go: () => dismiss(t) })]
+      A(T('todos.removeFromCalendar'), 'x', { go: () => removeOwn(t) })]
   } else if (['failed', 'submit'].includes(t.kind) && t.application && t.job) {
     const other = t.can_retry_nodriver ? [A(T('todos.tryAgainWithNodriver'), 'globe', { go: () => act(() => tryAgainFor(t, 'nodriver'), T('todos.restarted')) })] : []
     if (unknown(t)) {

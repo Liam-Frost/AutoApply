@@ -1310,7 +1310,9 @@ def _own_from_mail(s: Any) -> dict[str, int]:
 def todo_to_calendar(todo_id: int) -> dict[str, Any]:
     """A mail about an application the program does not have - one the applicant made elsewhere: what it gives a date
     for, on the applicant's own calendar. Its time is converted as any mail's is, its words and its link are kept, and
-    its reminders are those of the applicant's own items. Once per mail; the card stays (it can still be linked)."""
+    its reminders are those of the applicant's own items. Once per mail. The mail is dealt with then, and its card is
+    closed: the calendar item is what is left (it has a card of its own). The card used to stay, and next to the item's
+    own card it read as the same thing twice - the applicant closed the wrong one and the item was gone (2026-11-23)."""
     from .. import agenda, messages
     from ..models import MailEvent
 
@@ -1324,6 +1326,8 @@ def todo_to_calendar(todo_id: int) -> dict[str, Any]:
             raise HTTPException(404, "no such mail")
         made = _own_from_mail(s).get(mid)
         if made:
+            if t.status == "open":
+                t.status, t.done_at = "done", now()
             return {"id": made, "existing": True}
         when = _mail_when(me)
         if when is None:
@@ -1338,7 +1342,23 @@ def todo_to_calendar(todo_id: int) -> dict[str, Any]:
         note = "\n".join(x for x in (str(asks.get("action") or "").strip(), when["said"], (me.summary or "").strip()) if x)
         kept = {**when["facts"], "due_text": when["said"], "from_mail": mid}
     tid = agenda.add_own(title, when["due"], all_day=when["all_day"], link=str(links[0]["url"]) if links else "", note=note, kept=kept)
+    with db.session() as s:
+        card = s.get(Todo, todo_id)
+        if card is not None and card.status == "open":
+            card.status, card.done_at = "done", now()
     return {"id": tid, "start": when["start"], "all_day": when["all_day"], "existing": False}
+
+
+@app.post("/api/todos/{todo_id}/reopen")
+def todo_reopen(todo_id: int) -> dict[str, Any]:
+    """Undo the closing of a card, right after it ("Undo" in the notice): open again with its date - an item of the
+    calendar is back on it, and its reminders with it (they follow the items that are open)."""
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.status not in ("done", "dismissed"):
+            return {"reopened": False}
+        t.status, t.done_at = "open", None
+    return {"reopened": True}
 
 
 @app.post("/api/todos/{todo_id}/link")

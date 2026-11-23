@@ -137,7 +137,7 @@ onUnmounted(() => clearInterval(timer))
   <TipLayer />
   <div class="toasts" role="status" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.tone">
-      <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link></span>
+      <span class="grow">{{ t.text }} <router-link v-if="t.to" :to="t.to" @click="dismissToast(t.id)">{{ t.link }}</router-link><button v-else-if="t.act" type="button" class="toast-act" @click="dismissToast(t.id); t.act()">{{ t.link }}</button></span>
       <IconButton icon="x" size="sm" :label="$t('app.close')" @click="dismissToast(t.id)" />
     </div>
   </div>

@@ -170,10 +170,14 @@
     "dismiss": "忽略",
     "lastTryDidNotWork": "上次登录未成功，可以再点一次“登录”。",
     "putOnMyCalendar": "加入个人日程",
-    "putOnYourCalendar": "已加入个人日程",
+    "putOnYourCalendar": "已加入个人日程，这封邮件的卡片已关闭。",
     "openOnYourCalendar": "在日程中查看",
     "theEmailGivesThisTime": "邮件中的时间：{when}",
-    "asTheEmailWrote": "原文：“{said}”"
+    "asTheEmailWrote": "原文：“{said}”",
+    "removeFromCalendar": "从日程中移除",
+    "removedFromCalendar": "已从日程中移除。",
+    "undo": "撤销",
+    "backOnYourCalendar": "已恢复到日程中。"
   },
   "language": {
     "beta": "{name}（测试中）"

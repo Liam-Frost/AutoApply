@@ -13,5 +13,8 @@ An interview invitation or an assessment for a posting AutoApply never had arriv
 posting*. When the email gives a date, the card now shows it on your clock (with the email's own words beside it) and
 offers *Add to my calendar*: the item is one of your own, named like an interview you record by hand ("Interview ·
 Company"), with the end time, the link and the email's request kept, and the reminders your own items get. A time
-said in another zone is converted as for any email. Each email goes on the calendar once; the card then opens that
-day instead, and it can still be linked to an application. An email that gives no date offers nothing: no date is made up.
+said in another zone is converted as for any email. The email is then dealt with and its card closes; the item has a
+card of its own until its day. An email that gives no date offers nothing: no date is made up.
+
+Closing the card of an item of your own calendar takes it off the calendar, so the card says so (*Remove from my
+calendar*), and the notice after it has *Undo*.

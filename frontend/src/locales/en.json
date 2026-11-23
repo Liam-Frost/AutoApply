@@ -170,10 +170,14 @@
     "dismiss": "Dismiss",
     "lastTryDidNotWork": "The last sign-in did not work. You can press “Sign in” again.",
     "putOnMyCalendar": "Add to my calendar",
-    "putOnYourCalendar": "On your calendar",
+    "putOnYourCalendar": "On your calendar; the email's card is closed.",
     "openOnYourCalendar": "Open on my calendar",
     "theEmailGivesThisTime": "In the email: {when}",
-    "asTheEmailWrote": "as written: “{said}”"
+    "asTheEmailWrote": "as written: “{said}”",
+    "removeFromCalendar": "Remove from my calendar",
+    "removedFromCalendar": "Removed from your calendar.",
+    "undo": "Undo",
+    "backOnYourCalendar": "It is back on your calendar."
   },
   "language": {
     "beta": "{name} (beta)"

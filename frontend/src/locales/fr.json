@@ -170,10 +170,14 @@
     "dismiss": "Ignorer",
     "lastTryDidNotWork": "La dernière connexion a échoué. Vous pouvez appuyer de nouveau sur « Se connecter ».",
     "putOnMyCalendar": "Ajouter à mon agenda",
-    "putOnYourCalendar": "Ajouté à votre agenda",
+    "putOnYourCalendar": "Ajouté à votre agenda ; la carte du courriel est fermée.",
     "openOnYourCalendar": "Voir dans mon agenda",
     "theEmailGivesThisTime": "Dans le courriel : {when}",
-    "asTheEmailWrote": "tel qu’écrit : « {said} »"
+    "asTheEmailWrote": "tel qu’écrit : « {said} »",
+    "removeFromCalendar": "Retirer de mon agenda",
+    "removedFromCalendar": "Retiré de votre agenda.",
+    "undo": "Annuler",
+    "backOnYourCalendar": "Il est de retour dans votre agenda."
   },
   "language": {
     "beta": "{name} (bêta)"
