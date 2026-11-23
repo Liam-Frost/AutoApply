@@ -168,6 +168,76 @@ def rows_for(e: dict[str, Any], terms: list[str], keep: Callable[..., bool]) -> 
     return watch.scan(e, keep)
 
 
+def workday_board(e: dict[str, Any]) -> tuple[str, str, str, str | None] | None:
+    """(host, tenant, site, search) of an employer whose postings are on a Workday board - search None: the applicant's
+    search terms (Intel's purpose-built source); None for any other kind of source."""
+    k, ref = e["kind"], e["ref"]
+    if k == "workday":
+        return ref["host"], ref["tenant"], ref["site"], ref.get("search", "")
+    if k == "builtin" and ref.get("key") == "intel":
+        return "intel.wd1.myworkdayjobs.com", "intel", "External", None
+    return None
+
+
+BOARD_PAGES = "sources:workday"      # (the browser's record for the boards' pages: whether they need a window)
+
+
+def read_in_browser(boards: list[dict[str, Any]], terms: list[str], keep: Callable[..., bool]) -> list[tuple[list[dict[str, Any]] | None, dict[str, Any], BaseException | None]]:
+    """Workday boards whose service refused the program's requests, read through their own pages in the program's
+    browser instead - one after the other, in one browser. (rows, intake stats, error) for each board, in order.
+
+    A page that shows a check while the browser is hidden is opened once more in a window (it opens and closes by
+    itself); a check there too, or a 429 from the page, ends the turn of the boards that are left."""
+    from . import browser, intake
+    from .sources import public
+
+    def each(page: Any) -> list[tuple[list[dict[str, Any]] | None, dict[str, Any], BaseException | None]]:
+        out: list[tuple[list[dict[str, Any]] | None, dict[str, Any], BaseException | None]] = []
+        stop: BaseException | None = None
+        for e in boards:
+            stats: dict[str, Any] = {}
+            if stop is not None:
+                out.append((None, stats, stop))
+                continue
+            host, tenant, site, search = workday_board(e) or ("", "", "", "")
+            try:
+                if search is None:      # (by the applicant's search terms, each once)
+                    seen: set[str] = set()
+                    rows = []
+                    for q in terms:
+                        for r in public.workday_in_page(page, host, tenant, site, search=q, limit=200, keep=keep, company=e.get("name", "")):
+                            if r["source_id"] not in seen:
+                                seen.add(r["source_id"])
+                                rows.append({**r, "source": e["ref"]["key"], "company": e.get("name") or r.get("company", "")})
+                else:
+                    rows = list(public.workday_in_page(page, host, tenant, site, search=search, keep=keep, company=e.get("name", "")))
+                out.append((list(intake.apply(iter(rows), stats)), stats, None))
+            except public.Challenged:
+                raise
+            except (public.Resting, public.Refused) as err:
+                stop = err
+                out.append((None, stats, err))
+            except Exception as err:  # noqa: BLE001 - reported for this board; the others are still read
+                out.append((None, stats, err))
+        return out
+
+    if not boards:
+        return []
+    first = workday_board(boards[0]) or ("", "", "", "")
+    url = f"https://{first[0]}/"
+    try:
+        with browser.open_page(BOARD_PAGES, url=url, operation="scan") as page:
+            return each(page)
+    except public.Challenged as err:
+        if not browser.needs_window(BOARD_PAGES):      # (a window did not help either)
+            return [(None, {}, err) for _ in boards]
+    try:
+        with browser.open_page(BOARD_PAGES, url=url, operation="scan") as page:
+            return each(page)
+    except public.Challenged as err:
+        return [(None, {}, err) for _ in boards]
+
+
 def priority_names() -> set[str]:
     from .discover import norm_company
 

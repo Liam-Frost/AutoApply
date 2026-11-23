@@ -411,7 +411,7 @@
  "server.chat.thisButtonHasExpired": "Ce bouton a expiré ; redites ce que vous voulez faire.",
  "server.convert.thisComputerHasNeither": "Cet ordinateur n’a ni Microsoft Word ni LibreOffice : les fichiers Word ne peuvent pas être convertis en PDF. Installer LibreOffice, gratuit (libreoffice.org), règle le problème.",
  "server.discord.discordIsNotLinked": "Discord n’est pas encore lié : appuyez sur « Lier » dans les paramètres et envoyez le code court au bot en message privé.",
- "server.discover.theServiceAskedFor": "{p0} a demandé moins de requêtes de cet ordinateur (HTTP 429) ; relu au prochain balayage",
+ "server.discover.theServiceAskedFor": "{p0} a refusé les requêtes de cet ordinateur (HTTP 429), et sa page n’a pas pu être lue dans le navigateur non plus ; nouvel essai plus tard",
  "server.discover.theSitesSecurityCheck": "Le contrôle de sécurité du site a refusé le réseau de cet ordinateur ({p0})",
  "server.doctor.accessFromOtherDevices": "L’accès depuis d’autres appareils n’est pas chiffré",
  "server.doctor.chineseFontsAreInstalled": "Les polices chinoises sont installées",

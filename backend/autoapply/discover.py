@@ -302,6 +302,18 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
             fetched = list(pool.map(context.carried(fetch), todo))
     else:
         fetched = [fetch(e) for e in todo]
+    # Workday boards whose service refused the program's requests (429, a security check) - now or still resting from
+    # before: read through their own pages in the browser instead, in this scan. "At the next scan" alone left them unread
+    # for good: every scan's first request was refused.
+    from .sources.public import Refused, Resting
+
+    again = [i for i, (e, got) in enumerate(zip(todo, fetched)) if isinstance(got[2], (Refused, Resting)) and employers.workday_board(e)]
+    if again:
+        try:
+            for i, got in zip(again, employers.read_in_browser([todo[i] for i in again], terms, keep)):
+                fetched[i] = got
+        except Exception:  # noqa: BLE001 - the browser could not be started: the boards stay as the requests left them
+            log.exception("the Workday boards could not be read in the browser")
     needs_someone: NeedsHuman | None = None
     for e, (rows, stats, err) in zip(todo, fetched):
         source, scope = employers.source_of(e)
@@ -310,8 +322,6 @@ def run(*, notify_user: bool = True) -> dict[str, Any]:
             continue
         if err is not None:
             log.warning("source %s failed: %s", e["name"], err)
-            from .sources.public import Refused, Resting
-
             if isinstance(err, Refused):       # the same answer for every board of that service: said once
                 who = str(err).split(" ", 1)[0]
                 summary.setdefault("refused", {}).setdefault(who, []).append(e["name"])
