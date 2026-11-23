@@ -1,8 +1,9 @@
 <script setup>
 import { t as T } from '../i18n/catalog'
-// About, in three tabs with the tab in the address (/about, /about/changelog, /about/licenses): the overview - this
-// version and how it runs, its updates and the update policy, the runtime details - then every version's changes and
-// the components with their licences (views/about/ChangelogTab.vue and LicensesTab.vue load their own data).
+// About, in three tabs with the tab in the address (/about, /about/changelog, /about/licenses): the overview - a compact
+// head (this version, how it runs, the project's links) and one "Software update" card (the state and its actions, the
+// update settings, "Advanced") - then every version's changes and the components with their licences
+// (views/about/ChangelogTab.vue and LicensesTab.vue load their own data).
 // The updates follow one state model (src/updatestate.js): only the actions valid in the state are offered.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -13,9 +14,7 @@ import Tabs from '../components/Tabs.vue'
 import ChangelogTab from './about/ChangelogTab.vue'
 import LicensesTab from './about/LicensesTab.vue'
 import OverviewHead from './about/OverviewHead.vue'
-import OverviewRuntime from './about/OverviewRuntime.vue'
-import UpdatePanel from './about/UpdatePanel.vue'
-import UpdatePolicy from './about/UpdatePolicy.vue'
+import UpdateSection from './about/UpdateSection.vue'
 import { dayText } from '../i18n/format'
 import { ERRORS, actionTarget, updateState } from '../updatestate'
 import { ask, run, toast } from '../ui'
@@ -52,6 +51,16 @@ onMounted(load)
 onUnmounted(() => clearTimeout(timer))
 watch(tab, (t) => { if (t === 'overview' && about.value && !up.value) loadUpdate().catch((e) => { failed.value = e.message }) })
 
+// Which versions this copy's own changelog has: "What's new in 2.0.3" opens that entry there when it has it, else the
+// release's page. Read once, and only when a newer version is known.
+const changelog = ref([])
+let readLog = false
+watch(() => model.value && model.value.notes && model.value.notes.version, (v) => {
+  if (!v || readLog) return
+  readLog = true
+  api.get('/about/changelog').then((d) => { changelog.value = (d.versions || []).filter((x) => !x.unreleased).map((x) => x.version) }).catch(() => {})
+})
+
 // (the switch endpoint refuses with a code - "not-managed", "no-previous" - said in words; anything else is already words)
 const said = (message) => (ERRORS[message] ? T(ERRORS[message].key) : message)
 const named = (a) => actionTarget(a, T, dayText)
@@ -79,6 +88,8 @@ function act(a) {
   if (a.does === 'prepare') return prepare()
   return switchTo(a)
 }
+// an update setting, saved at once (PUT /settings) and said
+const save = (key, value) => run(() => api.put('/settings', { settings: { [key]: value } }), T('about.saved'), () => loadUpdate())
 </script>
 
 <template>
@@ -89,14 +100,10 @@ function act(a) {
   <div id="about-panel" role="tabpanel" :aria-labelledby="'about-tabs-' + tab">
     <template v-if="tab === 'overview'">
       <DataState v-if="!about || failed" :s="{ phase: failed ? 'error' : 'loading', error: failed }" :what="$t('about.title')" @retry="load" />
-      <template v-else>
+      <div v-else class="about-overview">
         <OverviewHead :about="about" />
-        <div v-if="model" class="cols fit about-cols">
-          <UpdatePanel :model="model" @act="act" />
-          <UpdatePolicy :policy="model.policy" @saved="loadUpdate" />
-        </div>
-        <OverviewRuntime :about="about" :status="up" />
-      </template>
+        <UpdateSection v-if="model" :model="model" :about="about" :status="up" :changelog="changelog" @act="act" @save="save" />
+      </div>
     </template>
     <ChangelogTab v-else-if="tab === 'changelog'" :version="about ? about.version : ''" />
     <LicensesTab v-else />

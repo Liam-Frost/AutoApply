@@ -41,11 +41,11 @@ def test_a_time_said_in_the_employers_zone_is_shown_on_the_applicants_clock(shan
     assert reminders.due_of({"due": "2026-11-24T10:00", "due_zone": "America/Los_Angeles"})[0] == datetime(2026, 11, 25, 2, 0)
     assert reminders.due_of({"due": "2026-07-14T10:00", "due_zone": "America/Toronto"})[0] == datetime(2026, 7, 14, 22, 0)      # (and summer time where it is kept)
     # the applicant's own time is left as it is; so is a time nobody said the zone of - and that is said
-    assert reminders.due_of({"due": "2026-11-24T10:00", "due_zone": "applicant"}) == (datetime(2026, 11, 24, 10, 0), {"date_only": False, "due_zone": "", "due_said": "", "zone_assumed": False})
+    assert reminders.due_of({"due": "2026-11-24T10:00", "due_zone": "applicant"}) == (datetime(2026, 11, 24, 10, 0), {"date_only": False, "due_zone": "", "due_said": "", "zone_assumed": False, "end_at": "", "due_from": ""})
     assert reminders.due_of({"due": "2026-11-24T10:00"})[1]["zone_assumed"] is True
     assert reminders.due_of({"due": "2026-11-24T10:00", "due_zone": "Mars/Olympus"})[0] == datetime(2026, 11, 24, 10, 0)       # (not a zone: as written)
     # a day has no zone; a moment with its offset is a moment
-    assert reminders.due_of({"due": "2026-12-05", "due_zone": "America/Vancouver"}) == (datetime(2026, 12, 5), {"date_only": True, "due_zone": "", "due_said": "", "zone_assumed": False})
+    assert reminders.due_of({"due": "2026-12-05", "due_zone": "America/Vancouver"}) == (datetime(2026, 12, 5), {"date_only": True, "due_zone": "", "due_said": "", "zone_assumed": False, "end_at": "", "due_from": ""})
     assert reminders.due_of({"due": "2026-11-24T10:00-07:00"})[0] == datetime(2026, 11, 25, 1, 0)
     assert clock.zone_name() == "Asia/Shanghai" and clock.offset_minutes() == 480
     assert clock.valid("America/Vancouver") and not clock.valid("Vancouver time") and not clock.valid("")

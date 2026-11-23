@@ -620,7 +620,7 @@ def test_a_tooltip_in_a_table_at_the_right_edge_stays_inside_the_window(site, wi
 # padding), as a share of its height. Two cards share a row only when they hold about as much (views/analytics/layout.js).
 ROW_EMPTY = """() => {
   const out = []
-  for (const row of document.querySelectorAll('main .an-row, main .about-cols')) {
+  for (const row of document.querySelectorAll('main .an-row')) {
     const cards = [...row.children].filter((c) => c.getBoundingClientRect().height > 0)
     if (cards.length < 2 || new Set(cards.map((c) => Math.round(c.getBoundingClientRect().top))).size > 1) continue
     for (const c of cards) {
@@ -639,7 +639,7 @@ ROW_EMPTY = """() => {
 @pytest.mark.parametrize("lang", ["en", "zh"])
 def test_no_card_beside_a_taller_one_is_left_mostly_empty(site, width, lang):
     bad = []
-    for path in ("/analytics?view=apps", "/analytics?view=auto", "/analytics?view=sites", "/analytics?view=ai", "/about"):
+    for path in ("/analytics?view=apps", "/analytics?view=auto", "/analytics?view=sites", "/analytics?view=ai"):
         page = site.go(path, width, lang)
         bad += [(path, c) for c in page.evaluate(ROW_EMPTY) if c["empty"] > 0.4]
     assert not bad, bad
@@ -685,24 +685,73 @@ def test_the_reminders_of_a_kind_are_chips_never_a_list_of_minutes_to_type(site)
         assert said and said in name and len(name) > len(said), (said, name)
 
 
-def test_the_about_tabs_keep_the_keyboard_and_the_changelog_is_one_timeline(site):
+# Cards of a page that stand side by side (their tops at one height): the overview of About has none - one column.
+SIDE_BY_SIDE = """() => { const cards = [...document.querySelectorAll('main .card')].filter((c) => c.getBoundingClientRect().height > 0)
+  const tops = cards.map((c) => Math.round(c.getBoundingClientRect().top)); return tops.length - new Set(tops).size }"""
+OPEN_ROWS = "() => [...document.querySelectorAll('main .cl-row[aria-expanded=true]')].map((b) => b.closest('[id]').id)"
+
+
+@pytest.mark.parametrize("width", [1440, 1024])
+def test_the_about_overview_is_one_column_with_one_update_section_and_advanced_folded(site, width):
+    page = site.go("/about", width, reload=True)
+    assert page.locator("main .up-sec").count() == 1 and page.evaluate(SIDE_BY_SIDE) == 0
+    adv = page.locator("main .up-adv-toggle")
+    assert adv.get_attribute("aria-expanded") == "false" and not page.locator("main #up-adv-body").is_visible()
+    adv.click()
+    assert adv.get_attribute("aria-expanded") == "true" and page.locator("main #up-adv-body").is_visible()
+    # a copy run from source is updated by hand: the overview offers no button that pretends to update it
+    labels = [b.inner_text().strip() for b in page.locator("main .up-sec button").all()]
+    assert not any(w in " ".join(labels).lower() for w in ("switch to", "download and prepare", "install")), labels
+    site.go("/about/changelog", width)
+    page = site.go("/about", width)
+    assert page.locator("main .up-adv-toggle").get_attribute("aria-expanded") == "false"      # (folded again: a design, not a memory)
+
+
+def test_the_changelog_opens_folded_one_release_at_a_time_and_keeps_the_full_notes(site):
+    data = site.api("/api/about/changelog")
+    released = [v for v in data["versions"] if not v["unreleased"]]
     page = site.go("/about")
     tab = page.locator("main [role=tab][data-tab=overview]")
     tab.focus()
     page.keyboard.press("ArrowRight")
     page.wait_for_url("**/about/changelog")
     settle(page, "en")
-    assert page.evaluate("() => document.activeElement.dataset.tab") == "changelog"      # not moved to the page's title
-    data = site.api("/api/about/changelog")
-    shown = page.locator("main .cl-ver")
-    assert shown.count() == len(data["versions"]) and page.locator("main .cl-node").count() == shown.count()
-    released = [v for v in data["versions"] if not v["unreleased"]]
-    opened = page.locator("main .cl-toggle[aria-expanded=true]")
-    assert 1 <= opened.count() <= 2, opened.count()      # the newest release (and the running version): the rest are one line
-    assert released[0]["version"] in page.locator("main .cl-ver.open").first.inner_text() or data["versions"][0]["unreleased"]
-    page.keyboard.press("ArrowRight")
-    page.wait_for_url("**/about/licenses")
-    settle(page, "en")
-    assert page.evaluate("() => document.activeElement.dataset.tab") == "licenses"
-    assert page.locator("main .dt-row").count() >= 10
+    assert page.evaluate("() => document.activeElement.dataset.tab") == "changelog"      # the keyboard stays on the tab
+    rows = page.locator("main .cl-ver .cl-row")
+    assert rows.count() == len(released) and page.locator("main .cl-node").count() == len(released)
+    assert page.locator("main .cl-un").count() == (1 if any(v["unreleased"] for v in data["versions"]) else 0)
+    # first open: everything folded - the newest and the running version too; no body text, no list of versions beside
+    assert page.evaluate(OPEN_ROWS) == [] and page.locator("main .cl-panel").count() == 0
+    line = page.locator("main .cl-line").bounding_box()
+    main = page.locator("main.content").bounding_box()
+    assert line["width"] > 0.8 * (main["width"] - 64), (line, main)
+    # one at a time: opening another closes the first; the open one is in the address
+    rows.nth(1).click()
+    page.wait_for_url("**v=" + released[1]["version"])
+    assert len(page.evaluate(OPEN_ROWS)) == 1 and page.locator("main .cl-panel").count() == 1
+    rows.nth(0).click()
+    page.wait_for_url("**v=" + released[0]["version"])
+    opened = page.evaluate(OPEN_ROWS)
+    assert len(opened) == 1 and page.locator("main .cl-ver.open .cl-num").inner_text().strip().endswith(released[0]["version"])
+    panel = page.locator("main .cl-panel")
+    assert 3 <= panel.locator(".cl-hl > li").count() <= 6      # the curated highlights, not the notes
+    rows.nth(0).click()
+    page.wait_for_function("() => !location.search.includes('v=')")
+    assert page.evaluate(OPEN_ROWS) == []
+    # a search opens nothing
+    page.locator("main input.search").fill("calendar")
+    page.wait_for_timeout(300)
+    assert page.evaluate(OPEN_ROWS) == [] and page.locator("main .cl-ver").count() >= 1
+    page.locator("main input.search").fill("")
+    # a link to a release opens it, and only it; its full notes are all there, as written
+    oldest = released[-1]
+    page = site.go("/about/changelog?v=" + oldest["version"], reload=True)
+    page.wait_for_function("() => document.querySelectorAll('main .cl-row[aria-expanded=true]').length === 1")
+    page.locator("main .cl-panel button[aria-haspopup=dialog]").click()
+    drawer = page.locator(".drawer, [role=dialog]").last
+    drawer.wait_for()
+    first_item = oldest["sections"][0]["items"][0]
+    words = first_item.split("\n")[0].replace("**", "").replace("*", "")[:40]
+    assert words in drawer.inner_text(), words
+    page.keyboard.press("Escape")
     site.go("/about")      # (the next test starts where a person would)

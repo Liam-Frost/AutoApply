@@ -53,15 +53,30 @@ def due_of(asks: dict[str, Any]) -> tuple[datetime | None, dict[str, Any]]:
     if due is None:
         return None, {}
     whole = "T" not in raw and " " not in raw
-    facts: dict[str, Any] = {"date_only": whole, "due_zone": "", "due_said": "", "zone_assumed": False}
-    if whole or re.search(r"(Z|[+-]\d\d:?\d\d)$", raw):
+    facts: dict[str, Any] = {"date_only": whole, "due_zone": "", "due_said": "", "zone_assumed": False, "end_at": "",
+                             "due_from": str(asks.get("due_from") or "")}
+    if whole:
         return due, facts
+    # when it ends, if the mail says: on the clock of its start, converted the same way - kept only when it is after the start
+    end_raw = str(asks.get("due_end") or "").strip()
+    end = parse_due(end_raw) if "T" in end_raw else None
+    end_here = bool(re.search(r"(Z|[+-]\d\d:?\d\d)$", end_raw))      # (with its offset: already on the applicant's clock)
+    if re.search(r"(Z|[+-]\d\d:?\d\d)$", raw):
+        return due, {**facts, "end_at": _end(due, end)}
     zone = str(asks.get("due_zone") or "").strip()
     if zone and zone != clock.APPLICANT:
         there = clock.from_zone(due, zone)
         if there is not None:
-            return there, {**facts, "due_zone": zone, "due_said": due.isoformat(timespec="minutes")}
-    return due, {**facts, "zone_assumed": zone != clock.APPLICANT}
+            till = end if end is None or end_here else clock.from_zone(end, zone)
+            return there, {**facts, "due_zone": zone, "due_said": due.isoformat(timespec="minutes"), "end_at": _end(there, till)}
+    return due, {**facts, "zone_assumed": zone != clock.APPLICANT, "end_at": _end(due, end)}
+
+
+def _end(start: datetime, end: datetime | None) -> str:
+    """The end as kept on the card: after the start and within the day's next twelve hours, else none (a misread)."""
+    if end is None or not (start < end <= start + timedelta(hours=12)):
+        return ""
+    return end.isoformat(timespec="minutes")
 
 
 def redate(todo_id: int, w: dict[str, Any]) -> bool:
@@ -118,6 +133,12 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
         if t is not None:
             if event == "reminder" and not due:
                 return t.id
+            # A date worked out from a period ("14 days to complete it") is counted from the invitation. A later mail that
+            # repeats the period - a reminder to do it - does not start it again: the date the card has stays. (A change of
+            # terms the employer announces - event "changed" - and a date a mail states outright do move it.)
+            if due is not None and t.due_at is not None and facts.get("due_from") == "period" and event != "changed":
+                due, body = None, ""
+                payload = {k: v for k, v in payload.items() if k in ("application_id", "message_id", "category", "links")}
             old = dict(t.payload or {})
             t.body, t.payload = body or t.body, {**old, **payload}
             if len(links) == 1 and old.get("link_by") != "user":

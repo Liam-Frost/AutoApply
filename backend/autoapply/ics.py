@@ -68,7 +68,9 @@ def build(items: list[dict[str, Any]], *, name: str = "AutoApply") -> str:
         if x["all_day"]:
             lines += [f"DTSTART;VALUE=DATE:{start:%Y%m%d}", f"DTEND;VALUE=DATE:{start.date() + timedelta(days=1):%Y%m%d}"]
         else:
-            lines += [f"DTSTART:{start:%Y%m%dT%H%M%S}", f"DTEND:{start + timedelta(minutes=30):%Y%m%dT%H%M%S}"]
+            # (the end the mail said, when it said one; else half an hour - a mark in the calendar, not a claim about its length)
+            end = datetime.fromisoformat(x["end"]) if x.get("end") else start + timedelta(minutes=30)
+            lines += [f"DTSTART:{start:%Y%m%dT%H%M%S}", f"DTEND:{end:%Y%m%dT%H%M%S}"]
         page = f"{base}/calendar?view=day&date={start:%Y-%m-%d}"
         lines.append(f"DESCRIPTION:{_esc(((x['subject'] + chr(10)) if x['subject'] and x['kind'] != 'deadline' else '') + page)}")
         lines.append(f"URL:{x['link'] or page}")

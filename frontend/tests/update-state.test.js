@@ -2,7 +2,7 @@
 // shown and the actions offered - only what updates.py can do. Every status object here is made up, in the shape
 // updates.status() gives it.
 import { describe, expect, it } from 'vitest'
-import { actionTarget, compareVersions, diagnosticsText, direction, errorOf, releaseText, updateState } from '../src/updatestate.js'
+import { actionTarget, compareVersions, diagnosticsText, direction, errorOf, releaseText, updateState, whatsNew } from '../src/updatestate.js'
 
 const status = (more = {}) => ({
   current: '2.0.2', kind: 'managed', mode: 'notify', channel: 'stable', window: { from: '03:00', to: '05:00' }, latest: '', newer: false, url: '', notes: '',
@@ -215,6 +215,22 @@ describe('what is shown besides', () => {
   it('an older server without the release descriptions: the folder name stands for the version', () => {
     const s = updateState({ ...status(ready), staged_release: undefined })
     expect([s.id, s.target]).toEqual(['ready', { name: '2.0.3', version: '2.0.3', date: '', local: false }])
+  })
+})
+
+describe('"What\'s new in X" on the overview: a link, never the notes', () => {
+  const notes = updateState(status(newer)).notes
+  it("this copy's own changelog has that version (a checkout that is behind): its entry in the changelog", () => {
+    expect(whatsNew(notes, ['2.0.3', '2.0.2'])).toEqual({ version: '2.0.3', to: { path: '/about/changelog', query: { v: '2.0.3' } } })
+    expect(whatsNew(notes, ['v2.0.3'])).toMatchObject({ to: { query: { v: '2.0.3' } } })          // (read as the server compares versions)
+  })
+  it('it has not (the usual case: the version came out after this copy was built): the release page', () => {
+    expect(whatsNew(notes, ['2.0.2', '2.0.1'])).toEqual({ version: '2.0.3', href: 'https://example.test/r/2.0.3' })
+    expect(whatsNew(notes)).toEqual({ version: '2.0.3', href: 'https://example.test/r/2.0.3' })
+  })
+  it('nothing newer, or nowhere to link to: no link', () => {
+    expect(whatsNew(updateState(status(checked)).notes, ['2.0.2'])).toBe(null)
+    expect(whatsNew({ version: '2.0.3', text: 'x', url: '' }, ['2.0.2'])).toBe(null)
   })
 })
 

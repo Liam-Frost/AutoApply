@@ -1,20 +1,24 @@
 <script setup>
-// The about page's updates card: the state the update is in (src/updatestate.js), the facts that go with it, and the
-// actions valid in that state - nothing else is offered. It does nothing itself: it says which action was pressed
-// (`act`), the page does it. (The UI lab feeds it made-up states: views/lab/sections/56-UpdateStates.vue.)
+// The first part of the about page's "Software update": the state the update is in (src/updatestate.js) with its facts,
+// and right under them the actions valid in that state - nothing else is offered. A copy that does not update itself
+// (a checkout, a container) gets the check alone and one line saying it is updated by hand; the command is under
+// "Advanced" (`show-command` opens it there). What a newer version brings is a link - to its entry in the changelog
+// when this copy's changelog has it, else to its release page - never its notes here. It does nothing itself: it says
+// which action was pressed (`act`), the page does it. (The UI lab feeds it made-up states: lab/sections/56-UpdateStates.vue.)
 import { computed } from 'vue'
 import { t as T } from '../../i18n/catalog'
 import { dayText, num, when } from '../../i18n/format'
 import { at } from '../../calendar'
-import { renderMarkdown } from '../../md'
-import { actionTarget, releaseText } from '../../updatestate'
-import CardHead from '../../components/CardHead.vue'
+import { actionTarget, releaseText, whatsNew } from '../../updatestate'
 import HelpPop from '../../components/HelpPop.vue'
 import Icon from '../../components/Icon.vue'
 import InfoTip from '../../components/InfoTip.vue'
 
-const props = defineProps({ model: { type: Object, required: true } })
-const emit = defineEmits(['act'])
+const props = defineProps({
+  model: { type: Object, required: true },          // updateState(...)
+  changelog: { type: Array, default: () => [] },    // the versions this copy's own changelog has
+})
+const emit = defineEmits(['act', 'show-command'])
 
 const rel = (r) => releaseText(r, T, dayText)
 // (when the last check was: the server's own wall clock, without a zone - updates.check - so read as calendar times are)
@@ -54,11 +58,12 @@ function label(a) {
   return T(a.direction === 'forward' ? 'about.forwardTo' : 'about.backTo', { v: target })
 }
 const switches = computed(() => m.value.actions.some((a) => a.does === 'switch' || a.does === 'rollback'))
+// "What's new in 2.0.3": the changelog's entry when this copy's changelog has it, else the release's page (whatsNew)
+const news = computed(() => whatsNew(m.value.notes, props.changelog))
 </script>
 
 <template>
-  <section class="card up-card" :data-state="model.id">
-    <CardHead :title="$t('about.updates')" />
+  <div class="up-status" :data-state="model.id">
     <div class="up-state" role="status">
       <span v-if="moving" class="spin" aria-hidden="true"></span><span v-else class="up-dot" :class="model.tone" aria-hidden="true"></span>
       <span class="up-title">{{ title }}</span>
@@ -67,22 +72,23 @@ const switches = computed(() => m.value.actions.some((a) => a.does === 'switch' 
       aria-valuemin="0" aria-valuemax="100" :aria-valuenow="model.id === 'downloading' ? model.progress : undefined"><span :style="{ width: (model.id === 'downloading' ? model.progress : 100) + '%' }"></span></div>
     <p v-if="line" class="up-line" :class="{ 'up-bad': model.id === 'failed', num: model.id === 'downloading' }">{{ line }}</p>
     <p v-if="model.notice" class="up-line up-warn">{{ $t(model.notice.key, model.notice.params) }}</p>
-    <p v-if="model.how === 'source'" class="up-how">{{ $t('about.howSource') }} <code>git pull</code> · <code>uv sync</code> · <code>npm run build</code></p>
-    <p v-else-if="model.how === 'container'" class="up-how">{{ $t('about.howContainer') }} <code>docker compose pull &amp;&amp; docker compose up -d</code></p>
-    <p v-else-if="model.how === 'unmanaged'" class="up-how">{{ $t('about.howUnmanaged') }}</p>
 
-    <dl class="kv up-facts">
-      <template v-for="f in model.facts" :key="f.id">
+    <dl class="up-facts">
+      <div v-for="f in model.facts" :key="f.id" class="up-fact" :data-fact="f.id">
         <dt>{{ FACT[f.id] }}<InfoTip v-if="FACT_HELP[f.id]" :text="FACT_HELP[f.id]" /></dt>
-        <dd v-if="f.id === 'running'"><span class="t-primary">{{ f.release ? rel(f.release) : f.version }}</span><span v-if="f.release" class="t-meta up-raw">{{ f.release.name }}</span></dd>
+        <dd v-if="f.id === 'running'"><span>{{ f.release ? rel(f.release) : f.version }}</span><span v-if="f.release" class="up-raw">{{ f.release.name }}</span></dd>
         <dd v-else-if="f.id === 'latest'">
-          <template v-if="f.release"><span>{{ f.release.version }}</span><span v-if="f.release.date" class="t-meta">{{ dayText(f.release.date) }}</span><span v-if="f.release.prerelease" class="tag info">{{ $t('about.rel.prerelease') }}</span></template>
+          <template v-if="f.release">
+            <span>{{ f.release.version }}</span><span v-if="f.release.date" class="t-meta">{{ dayText(f.release.date) }}</span><span v-if="f.release.prerelease" class="tag info">{{ $t('about.rel.prerelease') }}</span>
+            <RouterLink v-if="news && news.to" class="up-news" :to="news.to">{{ $t('about.whatsNew', { v: news.version }) }}<Icon name="chevron_right" /></RouterLink>
+            <a v-else-if="news" class="up-news" :href="news.href" target="_blank" rel="noopener">{{ $t('about.whatsNew', { v: news.version }) }}<Icon name="external" /></a>
+          </template>
           <span v-else class="muted">{{ $t('about.fact.none') }}</span>
         </dd>
         <dd v-else-if="f.id === 'whenIdle'">{{ f.version }}</dd>
         <dd v-else-if="f.id === 'checked'" class="atomic">{{ checkedAt(f.at) }}</dd>
-        <dd v-else><span>{{ rel(f.release) }}</span><span v-if="f.release.local" class="t-meta up-raw">{{ f.release.name }}</span></dd>
-      </template>
+        <dd v-else><span>{{ rel(f.release) }}</span><span v-if="f.release.local" class="up-raw">{{ f.release.name }}</span></dd>
+      </div>
     </dl>
 
     <div v-if="model.actions.length" class="actions up-acts">
@@ -91,11 +97,10 @@ const switches = computed(() => m.value.actions.some((a) => a.does === 'switch' 
       </button>
       <HelpPop v-if="switches" :text="$t('about.howSwitch')" :label="$t('about.switch')" />
     </div>
-
-    <details v-if="model.notes" class="up-notes">
-      <summary>{{ $t('about.whatsNew', { v: model.notes.version }) }}</summary>
-      <p v-if="model.notes.url" class="up-notes-link"><a :href="model.notes.url" target="_blank" rel="noopener"><Icon name="external" />{{ $t('about.onGithub') }}</a></p>
-      <div class="md" v-html="renderMarkdown(model.notes.text)"></div>
-    </details>
-  </section>
+    <p v-if="model.how === 'source' || model.how === 'container'" class="up-hand">
+      <span>{{ $t('about.byHand.' + model.how) }}</span>
+      <button type="button" class="up-link" @click="emit('show-command')">{{ $t('about.byHand.show') }}</button>
+    </p>
+    <p v-else-if="model.how === 'unmanaged'" class="up-hand">{{ $t('about.howUnmanaged') }}</p>
+  </div>
 </template>

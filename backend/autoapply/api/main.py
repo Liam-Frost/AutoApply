@@ -529,6 +529,7 @@ def bulk_jobs(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             elif action == "restore":
                 if j.status == "skipped":
                     j.status = "scored" if j.score is not None else "new"
+                    lifecycle.put_away_files(j, back=True)      # (its files come back from the archive they were put in with it)
                     done += 1
                 else:
                     skipped += 1

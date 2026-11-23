@@ -36,13 +36,19 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   such, never replaced without you. Each kind of calendar item's reminders are chips ("1 day before", "30 minutes
   before") added from the usual choices or any amount in minutes, hours or days, instead of a list of minutes to type.
   Quiet hours are a switch and two times ("22:00 to 08:00 the next day"), what still goes through behind the (i).
-- **About** in three tabs. *Overview*: the version, how this copy runs and the links; the updates as one state at a
-  time - up to date, a newer version, downloading, ready to switch, switching, failed - with only the actions that
-  state allows, and a version prepared or kept to go back to named by its version ("2.0.2, local build, Nov 22"), not
-  by its folder; the update policy as a short list of choices; the runtime details folded, with *Copy diagnostics*.
-  *Changelog*: every version on one timeline, grouped by year, the newest open and the others one line each with a
-  count per kind of change; filter by kind, search, and go to a version (the address keeps it). *Licences*: every
-  component the program runs on - what it declares and what those pull in - searchable, each with its licence's text.
+- **About** in three tabs. *Overview*: the name, the version, how this copy runs and its links in one compact block;
+  then one *Software update* section - where the version stands (up to date, a newer one, downloading, ready to switch,
+  switching, failed) with only the actions that state allows, the update settings (a short list of choices, the
+  channel, the hours for switching by itself), and *Advanced*, folded: how to update a copy run from source by hand,
+  how updates work, the runtime details and *Copy diagnostics*. A version prepared or kept to go back to is named by its
+  version ("2.0.2, local build, Nov 22"), not by its folder. *Changelog*: every release on one timeline, all of them
+  folded at first - a line each with its date and a short title; opened (one at a time), a release shows its main
+  changes in a few lines, in your language, and *View the full release notes* opens the notes as written. Search and
+  one filter by kind; a link to a release opens it (the address keeps it). Changes not released yet are a block of
+  their own above the releases. *Licences*: every component the program runs on - what it declares and what those
+  pull in - searchable, each with its licence's text.
+- **The files written for a posting you are not applying for are archived with it** - kept, not deleted, and back
+  where they were if you take the posting up again (a file you archived yourself stays archived).
 - Documentation for contributors: `docs/component-guidelines.md`, `docs/ux-writing-glossary.md`,
   `docs/ui-quality-assurance.md`, `docs/ui-ux-audit.md`; a UI lab at `/ui-lab` shows every shared component in its
   states.
@@ -58,7 +64,11 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   your time zone" is left as it is. *Settings → Notifications → Calendar and reminders → Calendar time zone* names your zone
   when it is not this computer's.
 - **A period that fixes a date gives one**: "you have 14 days to complete the assessment" becomes a date counted from
-  the day the mail was sent, on the calendar and with its reminders.
+  the day the invitation was sent, on the calendar and with its reminders. A reminder that comes in the middle and says
+  "within two weeks" again does not start the period again; an extension the employer announces, or a date a mail
+  states outright, does move it.
+- **An interview keeps the end its mail gives** ("10:00 to 10:45", or "a 45-minute interview"), converted like its
+  start: the calendar draws it that long and the calendar feed carries it. Without one, nothing is claimed.
 - Cards that were waiting when this version starts are read once more for both.
 
 ### Fixed
