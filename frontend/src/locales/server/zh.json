@@ -701,6 +701,7 @@
  "server.mail.anEMailThat": "收到一封像确认邮件的邮件，但这份申请程序还没有提交过，状态没有改。如果你已经自己提交了，请在岗位页点“我已经提交了”。邮件：{p0}",
  "server.mail.authorizeGmailAgain": "重新授权 Gmail 邮箱",
  "server.mail.googleHasRejectedThe": "Google 已拒绝旧授权。请到设置 → 账号与连接 → 收件邮箱重新授权，随后重试原岗位。",
+ "server.mail.thatMailWasYourOwn": "已改回：那封邮件是你自己发出的，不是雇主的来信",
  "server.mail.theGmailAuthorizationHas": "Gmail 授权已过期或被撤销，请在设置的邮箱连接中重新授权。",
  "server.mail.theProgramIsNot": "程序还没有从你的邮箱发信的权限。请到设置 → 账号与连接 → 收件邮箱重新授权（授权页会多出“发送邮件”一项）。",
  "server.mailbox.cantConnectToMail": "连不上邮箱服务器 {p0}:{p1}（{p2}）。",

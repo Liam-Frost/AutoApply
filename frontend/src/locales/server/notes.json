@@ -701,6 +701,7 @@
  "server.mail.anEMailThat": "Said by the program (mail.py). {p0} are values it fills in.",
  "server.mail.authorizeGmailAgain": "Said by the program (mail.py).",
  "server.mail.googleHasRejectedThe": "Said by the program (mail.py).",
+ "server.mail.thatMailWasYourOwn": "Note on an application's history when a status that a misread email moved is taken back (the email had been sent by the applicant).",
  "server.mail.theGmailAuthorizationHas": "Said by the program (mail.py).",
  "server.mail.theProgramIsNot": "Said by the program (mail.py).",
  "server.mailbox.cantConnectToMail": "Said by the program (mailbox.py). {p0}, {p1}, {p2} are values it fills in.",

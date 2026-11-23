@@ -701,6 +701,7 @@
  "server.mail.anEMailThat": "An email that looks like a confirmation arrived, but the app has not submitted this application, so its status was left as it is. If you submitted it yourself, press \"I have submitted it\" on the job's page. The email: {p0}",
  "server.mail.authorizeGmailAgain": "Authorize Gmail again",
  "server.mail.googleHasRejectedThe": "Google has rejected the old authorization. Authorize again under Settings → Accounts & connections → Mailbox, then try the posting again.",
+ "server.mail.thatMailWasYourOwn": "Moved back: that email was one you sent, not the employer's",
  "server.mail.theGmailAuthorizationHas": "The Gmail authorization has expired or was revoked; please authorize again under the mailbox connection in Settings.",
  "server.mail.theProgramIsNot": "The app is not yet allowed to send from your mailbox. Authorize again under Settings → Accounts & connections → Mailbox (the consent page will list \"send email\").",
  "server.mailbox.cantConnectToMail": "Can't connect to mail server {p0}:{p1} ({p2}).",

@@ -701,6 +701,7 @@
  "server.mail.anEMailThat": "Un courriel qui ressemble à une confirmation est arrivé, mais le programme n’a pas envoyé cette candidature : son statut est donc resté tel quel. Si vous l’avez envoyée vous-même, appuyez sur « Je l’ai envoyée » sur la page de l’annonce. Le courriel : {p0}",
  "server.mail.authorizeGmailAgain": "Autoriser Gmail à nouveau",
  "server.mail.googleHasRejectedThe": "Google a rejeté l’ancienne autorisation. Autorisez à nouveau dans Paramètres → Comptes et connexions → Boîte mail, puis réessayez l’annonce.",
+ "server.mail.thatMailWasYourOwn": "Rétabli : ce courriel était le vôtre, pas celui de l’employeur",
  "server.mail.theGmailAuthorizationHas": "L’autorisation Gmail a expiré ou a été révoquée ; autorisez à nouveau dans la connexion de la boîte mail, dans les Paramètres.",
  "server.mail.theProgramIsNot": "Le programme n’a pas encore le droit d’envoyer depuis votre boîte mail. Autorisez à nouveau dans Paramètres → Comptes et connexions → Boîte mail (la page de consentement listera « envoyer des courriels »).",
  "server.mailbox.cantConnectToMail": "Impossible de se connecter au serveur de messagerie {p0}:{p1} ({p2}).",
