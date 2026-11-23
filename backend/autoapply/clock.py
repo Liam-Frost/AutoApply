@@ -109,10 +109,12 @@ def zones(at: datetime | None = None) -> list[dict]:
     for n in sorted(zoneinfo.available_timezones() - {"Factory", "localtime", "posixrules"}):
         off = at.astimezone(ZoneInfo(n)).utcoffset()
         row: dict = {"id": n, "offset": int(off.total_seconds() // 60) if off is not None else 0}
-        same = links.get(n, "")
+        # (a place of its own that the database now keeps as a link - Accra to Abidjan - is a place, not an old spelling:
+        # the zone.tab of its country names it)
+        same = "" if n in country else links.get(n, "")
         if same:
             row["alias_of"] = same
-        cc = country.get(same or n, "")
+        cc = country.get(n) or country.get(same, "")
         if cc:
             row["country"] = cc
         out.append(row)
