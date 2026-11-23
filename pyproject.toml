@@ -18,22 +18,22 @@ classifiers = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi>=0.115",
+  "fastapi>=0.165.0",
   "uvicorn[standard]>=0.54.0",
-  "sqlalchemy>=2.0",
-  "pydantic>=2.7",
+  "sqlalchemy>=2.1.9",
+  "pydantic>=2.14.4",
   "httpx>=0.27",
   "keyring>=25",
   "apscheduler>=3.10,<4",
-  "playwright>=1.49",
-  "anthropic>=0.60",
-  "python-multipart>=0.0.9",
-  "pypdf>=5",
+  "playwright>=1.65.2",
+  "anthropic>=2.11.0",
+  "python-multipart>=0.0.34",
+  "pypdf>=7.1.1",
   "python-docx>=1.1",
   "google-api-python-client>=2.140",
   "google-auth-oauthlib>=1.2",
   "cryptography>=43",
-  "claude-agent-sdk>=0.2.181",
+  "claude-agent-sdk>=0.2.186",
   "pystray>=0.19",
   "pillow>=10",
   "websockets>=13",  # the Discord bot's gateway connection
@@ -50,7 +50,7 @@ Issues = "https://github.com/Liam-Frost/AutoApply/issues"
 
 [project.optional-dependencies]
 nodriver = ["nodriver==0.50.99"]
-chatgpt = ["openai-codex>=0.1.0b2"]  # ChatGPT subscription through the official Codex SDK (ships a ~190 MB runtime)
+chatgpt = ["openai-codex>=0.171.0"]  # ChatGPT subscription through the official Codex SDK (ships a ~190 MB runtime)
 
 [dependency-groups]
 dev = ["pytest>=8"]
