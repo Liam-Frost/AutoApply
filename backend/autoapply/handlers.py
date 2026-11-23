@@ -39,6 +39,17 @@ def _score(t: Task) -> dict[str, Any]:
     return out
 
 
+@handler("directions")
+def _directions(t: Task) -> dict[str, Any]:
+    """Postings labelled before the fixed list of fields (or by a table brought in): sorted into it by the model."""
+    from . import directions
+
+    out = directions.sort_unsorted()
+    if out["left"] and out["sorted"]:      # (on to the rest; a round that sorted nothing is not repeated at once)
+        tasks.enqueue_later("directions", ref="unsorted", minutes=1, priority=180)
+    return out
+
+
 @handler("apply")
 def _apply(t: Task) -> dict[str, Any]:
     """One application, worked by the agent from the posting to the confirmation - or as far as this run gets

@@ -27,6 +27,7 @@ import { renderMarkdown } from '../md'
 import { fromQuery, sameQuery, toQuery } from '../urlstate'
 import { ask, persona, run, toast } from '../ui'
 import { dateOf, dateTimeOf, dayText } from '../i18n/format'
+import { dirLabel, filterOptions, under } from '../directions'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,13 +69,14 @@ const options = (key) => computed(() => {
   for (const j of inScope.value) { const v = j[key]; if (v) m.set(v, (m.get(v) || 0) + 1) }
   return [...m.entries()].sort((a, b) => b[1] - a[1])
 })
-const directions = options('direction')
+// (fields from the fixed list, each with its specialties under it; what is not sorted yet last)
+const directions = computed(() => filterOptions(inScope.value.map((j) => j.direction)))
 const terms = options('term')
 const channels = options('channel_label')
 const groupCount = (g) => jobs.value.filter((j) => j.group === g).length
 function pickGroup(k) { group.value = k; picked.value = new Set() }
 
-const matches = (j, needle) => `${j.company} ${j.title} ${j.source_id} ${j.direction} ${j.summary} ${j.location}`.toLowerCase().includes(needle)
+const matches = (j, needle) => `${j.company} ${j.title} ${j.source_id} ${dirLabel(j.direction, { whole: true })} ${j.summary} ${j.location}`.toLowerCase().includes(needle)
 // A search looks in the group that is open; what it would find in the others is counted, so that one result does not
 // read as "this posting is not here" when it sits under "not applying" or "started".
 const elsewhere = computed(() => {
@@ -85,7 +87,7 @@ const rows = computed(() => {
   const needle = f.q.trim().toLowerCase()
   const out = inScope.value.filter((j) => {
     if (f.minScore && (j.score ?? -1) < f.minScore) return false
-    if (f.direction && j.direction !== f.direction) return false
+    if (f.direction && !under(j.direction, f.direction)) return false
     if (f.term && j.term !== f.term) return false
     if (f.channel && j.channel_label !== f.channel) return false
     if (f.link && !j.apply_url) return false
@@ -271,7 +273,7 @@ const facts = computed(() => {
   if (!j) return []
   const due = parseDeadline(j.deadline)
   return [['postings.fact.term', j.term], ['postings.fact.months', j.months ? T('postings.months', { n: j.months }) : ''], ['postings.fact.salary', j.salary], ['postings.fact.location', j.location || j.work_type],
-    ['postings.fact.deadline', due ? dateTimeOf(due) : j.deadline], ['postings.fact.where', j.channel_label], ['postings.fact.docs', j.docs_required], ['postings.fact.direction', j.direction],
+    ['postings.fact.deadline', due ? dateTimeOf(due) : j.deadline], ['postings.fact.where', j.channel_label], ['postings.fact.docs', j.docs_required], ['postings.fact.direction', dirLabel(j.direction, { whole: true })],
     ['postings.fact.source', j.source_label], ['postings.fact.posted', dayText(j.posted) || j.posted], ['postings.fact.id', j.source_id && j.source_id.length <= 12 ? j.source_id : '']].filter((x) => x[1])
 })
 watch(() => route.query.open, (id, was) => { if (id && !was) stepped = true; show(id) })      // (opened from within the page: a step that Back, or closing, takes back)
@@ -330,7 +332,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
 
   <div class="filters" role="group" :aria-label="$t('postings.filter.more')">
     <input v-model="f.q" class="search" type="search" :placeholder="$t('postings.search')" :aria-label="$t('postings.search')" />
-    <AaSelect v-model="f.direction" :aria-label="$t('postings.filter.direction')"><option value="">{{ $t('postings.filter.allDirections') }}</option><option v-for="[v, n] in directions" :key="v" :value="v">{{ v }} ({{ n }})</option></AaSelect>
+    <AaSelect v-model="f.direction" :aria-label="$t('postings.filter.direction')"><option value="">{{ $t('postings.filter.allDirections') }}</option><option v-for="o in directions" :key="o.value" :value="o.value" :data-sub="o.sub || null">{{ o.label }} ({{ o.n }})</option></AaSelect>
     <AaSelect v-model="f.deadline" :aria-label="$t('postings.filter.deadline')"><option v-for="(l, k) in DEADLINES" :key="k" :value="k">{{ $t(l) }}</option></AaSelect>
     <!-- what is used now and then: behind one button, which says how many of them are set -->
     <Popover :label="$t('postings.filter.more')" :width="280">
@@ -371,7 +373,7 @@ onMounted(async () => { await load(); if (route.query.open) show(route.query.ope
       <span v-else class="none">—</span>
     </template>
     <template #cell-source="{ row }"><Trunc v-if="row.source_label" class="t-secondary" :text="row.source_label" /><span v-else class="none">—</span></template>
-    <template #cell-direction="{ row }"><Trunc v-if="row.direction" class="t-secondary" :text="row.direction" /><span v-else class="none">—</span></template>
+    <template #cell-direction="{ row }"><Trunc v-if="row.direction" class="t-secondary" :text="dirLabel(row.direction)" /><span v-else class="none">—</span></template>
     <template #cell-salary="{ row }"><Trunc v-if="row.salary" class="t-secondary" :text="row.salary" /><span v-else class="none">—</span></template>
     <template #cell-channel="{ row }"><Trunc v-if="row.channel_label" class="t-secondary" :text="row.channel_label" /><span v-else class="none">—</span></template>
     <template #cell-posted="{ row }"><span v-if="dayText(row.posted)" class="t-secondary num atomic">{{ dayText(row.posted) }}</span><span v-else class="none">—</span></template>

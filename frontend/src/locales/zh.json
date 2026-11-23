@@ -3419,5 +3419,137 @@
       "newDelhi": "新德里",
       "bangalore": "班加罗尔"
     }
+  },
+  "direction": {
+    "software": {
+      "_": "软件工程",
+      "backend": "后端",
+      "frontend": "前端",
+      "fullstack": "全栈",
+      "mobile": "移动端",
+      "ml": "机器学习与 AI 工程",
+      "data": "数据工程",
+      "infra": "云、DevOps 与 SRE",
+      "security": "安全工程",
+      "qa": "测试与质量保证",
+      "embedded": "嵌入式与固件",
+      "systems": "系统软件",
+      "games": "游戏与图形"
+    },
+    "data": {
+      "_": "数据与分析",
+      "science": "数据科学",
+      "analytics": "数据分析与 BI",
+      "research": "AI 与机器学习研究",
+      "quant": "量化分析"
+    },
+    "hardware": {
+      "_": "电子与硬件",
+      "digital": "数字设计",
+      "verification": "设计验证",
+      "analog": "模拟与混合信号",
+      "board": "电路与板级设计",
+      "architecture": "计算机体系结构",
+      "test": "硬件测试与验证",
+      "rf": "射频与无线"
+    },
+    "electrical": {
+      "_": "电气与电力",
+      "power": "电力与能源系统",
+      "controls": "控制与自动化",
+      "design": "电气设计"
+    },
+    "mechanical": {
+      "_": "机械与制造",
+      "design": "机械设计",
+      "manufacturing": "制造与工艺",
+      "robotics": "机器人与机电一体化",
+      "vehicles": "航空航天与汽车",
+      "maintenance": "维护与可靠性"
+    },
+    "civil": {
+      "_": "土木、建筑与矿业",
+      "structural": "土木与结构",
+      "geotechnical": "岩土工程",
+      "construction": "施工与造价",
+      "mining": "矿业",
+      "environmental": "环境与水务",
+      "transportation": "交通与铁路"
+    },
+    "process": {
+      "_": "化工、材料与工艺",
+      "chemical": "化工与工艺",
+      "materials": "材料",
+      "energy": "能源与核能"
+    },
+    "life": {
+      "_": "生命科学与健康技术",
+      "biomedical": "生物医学与医疗器械",
+      "bioinformatics": "生物信息学",
+      "lab": "实验室研究"
+    },
+    "it": {
+      "_": "IT 与运维",
+      "support": "IT 支持",
+      "networks": "网络与电信",
+      "sysadmin": "系统管理",
+      "cybersecurity": "网络安全运营",
+      "enterprise": "企业系统（ERP、CRM）"
+    },
+    "product": {
+      "_": "产品、项目与咨询",
+      "product": "产品管理",
+      "project": "项目管理",
+      "analysis": "业务分析",
+      "consulting": "咨询",
+      "solutions": "解决方案与售前工程"
+    },
+    "business": {
+      "_": "商业与金融",
+      "finance": "金融与会计",
+      "trading": "交易与投资",
+      "operations": "运营与供应链",
+      "marketing": "市场与传播",
+      "sales": "销售与客户成功",
+      "people": "人力资源"
+    },
+    "design": {
+      "_": "设计与内容",
+      "ux": "UX 与产品设计",
+      "visual": "视觉设计",
+      "content": "写作与内容"
+    },
+    "health": {
+      "_": "医疗卫生",
+      "nursing": "护理",
+      "clinical": "临床医疗",
+      "pharmacy": "药学",
+      "therapy": "康复与辅助医疗"
+    },
+    "education": {
+      "_": "教育",
+      "teaching": "教学与辅导",
+      "edtech": "教育技术"
+    },
+    "legal": {
+      "_": "法律与合规",
+      "law": "法律",
+      "compliance": "合规、风险与隐私"
+    },
+    "science": {
+      "_": "自然科学",
+      "physics": "物理与数学",
+      "chemistry": "化学",
+      "earth": "地球与环境科学"
+    },
+    "trades": {
+      "_": "技术工种与技术员",
+      "technician": "技术员",
+      "trade": "技术工种"
+    },
+    "other": {
+      "_": "其他"
+    },
+    "unsorted": "尚未归类"
   }
 }

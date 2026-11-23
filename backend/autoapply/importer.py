@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from . import db
+from . import db, directions
 from .models import Application, Job
 
 STATUS_MAP = {
@@ -56,7 +56,9 @@ def import_tsv(path: str | Path) -> dict[str, int]:
                 added += 1
             else:
                 updated += 1
-            job.title, job.company, job.direction = title, company, direction
+            job.title, job.company = title, company
+            if not directions.valid(job.direction):      # (a field sorted into the list stays; the table's words are sorted later)
+                job.direction = direction
             try:
                 job.score = float(score)
             except ValueError:
@@ -81,4 +83,8 @@ def import_tsv(path: str | Path) -> dict[str, int]:
                     )
                 )
                 apps += 1
+    if directions.unsorted_ids(1):
+        from . import tasks
+
+        tasks.enqueue("directions", ref="unsorted", priority=180)
     return {"added": added, "updated": updated, "applications": apps, "rows": len(rows)}

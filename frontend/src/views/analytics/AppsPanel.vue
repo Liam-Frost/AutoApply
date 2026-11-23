@@ -1,4 +1,5 @@
 <script setup>
+import { dirLabel } from '../../directions'
 import { t as T } from '../../i18n/catalog'
 // Applications: what came of them. Every figure here is about the applications SENT in the chosen range (a cohort);
 // the one exception - replies by the month they arrived - says so where it is shown. Below that, how quickly the work
@@ -130,8 +131,8 @@ const groupPair = computed(() => pairs(bars(props.d.by_channel.length), bars(pro
         <CardHead :title="$t('analytics.apps.whichDirectionComesTo')" :help="$t('analytics.apps.byDirectionTheShare')" />
         <div class="hbars tight even">
           <template v-for="r in d.by_direction" :key="r.label">
-            <Trunc class="lab" :text="r.label" />
-            <div v-tip="$t('analytics.apps.sentCameToSomething2', { p0: r.label, p1: r.n, p2: r.decided })" class="track rate"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
+            <Trunc class="lab" :text="dirLabel(r.label)" />
+            <div v-tip="$t('analytics.apps.sentCameToSomething2', { p0: dirLabel(r.label), p1: r.n, p2: r.decided })" class="track rate"><div class="fill" :class="{ zero: !r.decided || r.thin }" :style="{ width: (r.thin ? 0 : pct(r.decided, r.n)) + '%' }"></div></div>
             <span class="num">{{ rateOf(r) }} <span class="of">{{ r.decided }}/{{ r.n }}</span></span>
           </template>
         </div>

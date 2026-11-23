@@ -295,10 +295,9 @@ def seed_history(s, now: datetime, lang: str = "zh") -> None:  # noqa: ANN001
     rnd = random.Random(7)
     firms = ["Alder", "Birchwood", "Cedar Point", "Dunmore", "Eastgate", "Fairhaven", "Glenrock", "Highfield", "Ironbridge", "Juniper", "Kingsley", "Larkspur"]
     kinds = ["Analytics", "Logistics", "Health", "Energy", "Retail", "Software"]
-    roles = [("Data Analyst", "数据分析"), ("Business Analyst", "商业分析"), ("Operations Analyst", "运营分析"), ("Reporting Analyst", "数据分析"), ("BI Developer", "商业智能")]
-    if lang == "en":
-        names = {"数据分析": "Data analysis", "商业分析": "Business analysis", "运营分析": "Operations analysis", "商业智能": "Business intelligence"}
-        roles = [(t_, names[d_]) for t_, d_ in roles]
+    # (a posting's field is a key of the fixed list - directions.py - and the page names it in its language)
+    roles = [("Data Analyst", "data.analytics"), ("Business Analyst", "product.analysis"), ("Operations Analyst", "business.operations"), ("Reporting Analyst", "data.analytics"),
+             ("BI Developer", "data.analytics")]
     n = 0
     for month_back, count in ((4, 6), (3, 11), (2, 16), (1, 13)):
         for _ in range(count):

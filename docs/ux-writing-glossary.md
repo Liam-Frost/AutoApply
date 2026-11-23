@@ -109,6 +109,8 @@ Automation, 网站笔记 / Site notes, AI 成本 / AI cost.
 | Where one applies (employer site, portal, email) | 投递渠道 | application channel (column: Channel) | canal de candidature | 在哪里投 |
 | Recruiting software of a site (Workday, …) | 招聘系统 | recruiting system | système de recrutement | ATS in the interface |
 | Posting's field | 方向 | field | domaine | direction |
+| A field's names: a key of the fixed list (`backend/autoapply/directions.py`), named in `direction.<field>._` and `direction.<field>.<specialty>` | 软件工程 · 后端 | Software engineering · Back end | Génie logiciel · Back-end | a label the model makes up; two languages in one list |
+| A field from before the list, to be sorted | 尚未归类 | not sorted yet | pas encore classé | 未知, other |
 | School term | 学期 | term | trimestre | session (fr) |
 | Score · threshold · scoring rules | 评分 · 分数线 · 评分规则 | score · threshold · scoring rules | note · seuil · règles de notation | 打分 |
 | Employer marked by the user | 重点雇主 | priority employer | employeur prioritaire | |

@@ -22,6 +22,7 @@ import { deadlineLabel, parseDeadline } from '../dates'
 import { renderMarkdown } from '../md'
 import { ask, fmtTime, run, toast } from '../ui'
 import { asDate, dateTimeOf, dayText, stampDay } from '../i18n/format'
+import { dirLabel } from '../directions'
 
 const props = defineProps({ id: { type: String, required: true } })
 const route = useRoute()
@@ -183,7 +184,7 @@ const facts = computed(() => {
   if (!j) return []
   const end = parseDeadline(j.deadline)
   return [['application.job.term', j.term], ['application.job.months', j.months], ['application.job.salary', j.salary], ['application.job.location', j.location],
-    ['application.job.deadline', end ? dateTimeOf(end) : j.deadline], ['application.job.direction', j.direction], ['application.job.where', j.ats_label], ['application.job.posted', dayText(j.posted) || j.posted]].filter((x) => x[1])
+    ['application.job.deadline', end ? dateTimeOf(end) : j.deadline], ['application.job.direction', dirLabel(j.direction, { whole: true })], ['application.job.where', j.ats_label], ['application.job.posted', dayText(j.posted) || j.posted]].filter((x) => x[1])
 })
 
 watch(() => props.id, async () => { a.value = null; await load(); tab.value = firstTab() })

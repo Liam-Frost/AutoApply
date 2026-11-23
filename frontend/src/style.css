@@ -491,6 +491,7 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 .sel-opt { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 10px; border-radius: var(--r-sm); cursor: pointer; white-space: nowrap; }
 .sel-opt span { overflow: hidden; text-overflow: ellipsis; }
 .sel-opt svg { width: 15px; height: 15px; flex: none; fill: none; stroke: var(--primary); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.sel-opt.sub { padding-left: 26px; }      /* (an option under the one before it: a specialty under its field) */
 .sel-opt.active { background: var(--surface-2); } .sel-opt.on { color: var(--primary); font-weight: var(--fw-semibold); } .sel-opt.disabled { color: var(--text-3); cursor: default; }
 /* confirmation dialog */
 .dialog { position: fixed; z-index: calc(var(--z-dialog) + 1); left: 50%; top: 32%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border);
