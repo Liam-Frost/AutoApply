@@ -1,5 +1,6 @@
 """The about page's changelog and licences: CHANGELOG.md parsed into versions (backend/autoapply/changelog.py), the
 components the program runs on with their licence texts (licenses.py), and the endpoints that give them."""
+import json
 import os
 import re
 import time
@@ -157,6 +158,117 @@ def test_read_again_only_when_the_file_changed(tmp_path, monkeypatch):
     assert changelog.versions(tmp_path / "missing.md") == []
 
 
+# ── release titles and highlights (highlights.json) ──────────────────────────────────────────────────────────────────
+LANGS = ("en", "zh", "fr")
+
+
+def _content(v):
+    return bool(v["summary"] or v["sections"])
+
+
+def test_highlights_json_is_honest_about_the_changelog():
+    """Every version of CHANGELOG.md with content - Unreleased too - has a title and 3-6 highlights in every language,
+    of the kinds the page knows; the file names no version the changelog does not have."""
+    data = json.loads(changelog.HIGHLIGHTS.read_text(encoding="utf-8"))
+    entries = data["versions"]
+    vs = changelog.parse((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+    names = {changelog.norm(v["version"]) for v in vs}
+    assert sorted(changelog.norm(k) for k in entries) == sorted(set(changelog.norm(k) for k in entries)), "a version twice"
+    assert not [k for k in entries if changelog.norm(k) not in names], "an entry for a version CHANGELOG.md does not have"
+    by = {changelog.norm(k): e for k, e in entries.items()}
+    problems = []
+    for v in vs:
+        if not _content(v):
+            continue
+        e = by.get(changelog.norm(v["version"]))
+        if not e:
+            problems.append(f"{v['version']}: no entry")
+            continue
+        if sorted(changelog._words(e.get("title"))) != sorted(LANGS):
+            problems.append(f"{v['version']}: title not in {LANGS}")
+        hs = e.get("highlights") or []
+        if not 3 <= len(hs) <= 6:
+            problems.append(f"{v['version']}: {len(hs)} highlights")
+        for i, h in enumerate(hs):
+            if h.get("kind") not in changelog.HIGHLIGHT_KINDS:
+                problems.append(f"{v['version']} #{i}: kind {h.get('kind')!r}")
+            if sorted(changelog._words(h.get("title"))) != sorted(LANGS):
+                problems.append(f"{v['version']} #{i}: title not in {LANGS}")
+            if "text" in h and sorted(changelog._words(h["text"])) != sorted(LANGS):
+                problems.append(f"{v['version']} #{i}: text not in {LANGS}")
+    assert not problems, "\n".join(problems)
+    # and what the page gets is that: every version with content has its title, and none is derived
+    for v in changelog.versions(ROOT / "CHANGELOG.md"):
+        assert v["title"]["en"] and v["highlights"] and not any(h.get("derived") for h in v["highlights"]), v["version"]
+        assert v["sections"] == next(x for x in vs if x["version"] == v["version"])["sections"]          # the full notes, untouched
+
+
+HL = {
+    "_about": "made up",
+    "versions": {
+        "v3.0.0": {"title": {"en": "Three", "zh": "三", "fr": "Trois"},
+                   "highlights": [{"kind": "added", "title": {"en": "A feature", "zh": "功能", "fr": "Une fonction"}, "text": {"en": "It does.", "zh": "能用。", "fr": "Ça marche."}},
+                                  {"kind": "fixed", "title": {"en": "A fix", "zh": "修复", "fr": "Correction"}},
+                                  {"kind": "added", "title": "not a text in languages"},
+                                  "not a highlight"]},
+        "2.0.0": {"title": {"en": "Two only in English", "zh": " "}, "highlights": []},
+        "9.9.9": {"title": {"en": "Not in the changelog"}, "highlights": [{"kind": "added", "title": {"en": "x"}}]},
+    },
+}
+
+
+def test_titles_and_highlights_are_merged_and_the_notes_kept(tmp_path):
+    f, h = tmp_path / "CHANGELOG.md", tmp_path / "highlights.json"
+    f.write_text(MADE_UP, encoding="utf-8")
+    h.write_text(json.dumps(HL), encoding="utf-8")
+    v3, v2, v1 = changelog.versions(f, h)
+    assert v3["title"] == {"en": "Three", "zh": "三", "fr": "Trois"}
+    assert v3["highlights"] == [{"kind": "added", "title": {"en": "A feature", "zh": "功能", "fr": "Une fonction"}, "text": {"en": "It does.", "zh": "能用。", "fr": "Ça marche."}},
+                                {"kind": "fixed", "title": {"en": "A fix", "zh": "修复", "fr": "Correction"}}]
+    assert v3["sections"] == changelog.parse(MADE_UP)[0]["sections"] and v3["summary"] == "The summary, on two lines."      # nothing of the notes cut
+    # an entry without highlights: its title, and the highlights from the notes (2.0.0 has no bold lead: none)
+    assert v2["title"] == {"en": "Two only in English"} and v2["highlights"] == []
+    # no entry: no title, the bold leads of the notes
+    assert v1["title"] == {} and v1["highlights"] == []
+    assert all(set(v) >= {"version", "date", "unreleased", "summary", "sections", "url", "title", "highlights"} for v in (v3, v2, v1))
+
+
+def test_a_version_without_an_entry_gets_the_bold_leads_of_its_notes(tmp_path):
+    notes = "\n".join([
+        "## [Unreleased]", "", "### Fixed", "", "- **Menus** stay open.", "",
+        "## [4.0.0] - 2032-01-01", "",
+        "### Known limits", "", "- **Not signed.**", "",
+        "### Fixed", "", "- **A crash** at start.", "- No bold lead here.", "- **A crash** at start again (the same lead: once).", "- **The `--port` [option](https://x.org)**: read.", "",
+        "### Added", "", *[f"- **Feature {i}**: something." for i in range(1, 9)], "",
+        "### Changed", "", "- Words **in bold** in the middle are not a lead.", "- **Dates**, one way.", "",
+        "### The way it looks", "", "- **Colours.** Softer.", "",
+    ])
+    f = tmp_path / "CHANGELOG.md"
+    f.write_text(notes, encoding="utf-8")
+    un, v4 = changelog.versions(f, tmp_path / "no-such-highlights.json")
+    assert un["highlights"] == [{"kind": "fixed", "title": {"en": "Menus"}, "derived": True}]
+    got = [(h["kind"], h["title"]["en"]) for h in v4["highlights"]]
+    # in turns from added, changed, fixed, ... (so that eight added do not fill all six), at most six, grouped by kind
+    assert got == [("added", "Feature 1"), ("added", "Feature 2"), ("changed", "Dates"), ("fixed", "A crash"), ("known", "Not signed"), ("other", "Colours")]
+    assert all(h["derived"] and list(h["title"]) == ["en"] for h in v4["highlights"])
+    assert changelog.lead_of("**The `--port` [option](https://x.org)**: read.") == "The --port option"      # plain words
+    assert changelog.lead_of("**Calendar** (sidebar, under *Needs you*): everything") == "Calendar"
+    assert changelog.lead_of("**One design system for the whole interface.** Every page") == "One design system for the whole interface"
+    assert changelog.lead_of("Plain.") == "" and changelog.lead_of("") == ""
+
+
+def test_highlights_read_again_when_their_file_changes_and_a_broken_one_is_not_fatal(tmp_path, caplog):
+    f, h = tmp_path / "CHANGELOG.md", tmp_path / "highlights.json"
+    f.write_text("## [1.0.0] - 2026-01-01\n\n### Added\n\n- **One.** First.\n", encoding="utf-8")
+    h.write_text("{ not json", encoding="utf-8")
+    assert changelog.versions(f, h)[0]["highlights"] == [{"kind": "added", "title": {"en": "One"}, "derived": True}]
+    h.write_text(json.dumps({"versions": {"1.0.0": {"title": {"en": "First"}, "highlights": [{"kind": "added", "title": {"en": "Uno"}}]}}}), encoding="utf-8")
+    os.utime(h, (time.time() + 5, time.time() + 5))
+    v = changelog.versions(f, h)[0]
+    assert v["title"] == {"en": "First"} and v["highlights"] == [{"kind": "added", "title": {"en": "Uno"}}]
+    assert changelog.norm("V2.0.2") == "2.0.2" and changelog.norm(" Unreleased ") == "unreleased"
+
+
 # ── licences ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 def test_components_and_their_licence_texts():
     cs = licenses.components()
@@ -199,6 +311,8 @@ def test_endpoints(client):
     r = client.get("/api/about/changelog").json()
     assert r["current"] and isinstance(r["repo"], str)
     assert r["versions"] == changelog.versions(config.ROOT / "CHANGELOG.md") and any(v["version"] == "2.0.2" for v in r["versions"])
+    v202 = next(v for v in r["versions"] if v["version"] == "2.0.2")
+    assert v202["title"]["zh"] and 3 <= len(v202["highlights"]) <= 6 and v202["sections"]          # the highlights and the full notes
     cs = client.get("/api/about/licenses").json()["components"]
     assert any(c["name"].lower() == "fastapi" for c in cs)
     one = client.get("/api/about/licenses/fastapi")

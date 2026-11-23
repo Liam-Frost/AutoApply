@@ -101,6 +101,9 @@ def items(start: date, end: date, *, kinds: tuple[str, ...] = SHOWN, states: tup
                     "due_zone": str((todo.payload or {}).get("due_zone") or "") if todo is not None else "",
                     "due_said": str((todo.payload or {}).get("due_said") or "") if todo is not None else "",
                     "zone_assumed": bool((todo.payload or {}).get("zone_assumed")) if todo is not None else False,
+                    # when it ends, if the mail said (an interview from 10:00 to 10:45); none otherwise - the calendar then
+                    # draws it at a usual length without claiming one
+                    "end": str((todo.payload or {}).get("end_at") or "") if todo is not None and not whole else "",
                     "about": {"job_id": job.id if job else None, "application_id": app.id if app else None, "todo_id": todo.id if todo else None, "contact_id": contact_id}})
 
     with db.session() as s:

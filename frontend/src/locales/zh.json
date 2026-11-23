@@ -831,7 +831,8 @@
     },
     "kbd": "快捷键：T 今天 · ← → 前后翻页 · M W D 切换视图 · N 新建日程 · / 搜索",
     "zoneFrom": "{zone} 时间 {time}",
-    "zoneAssumed": "邮件没有注明时区，这里按你的时区显示。如果这是雇主当地时间，请用“改时间”修正。"
+    "zoneAssumed": "邮件没有注明时区，这里按你的时区显示。如果这是雇主当地时间，请用“改时间”修正。",
+    "clockRange": "{from}–{to}"
   },
   "settings": {
     "reminders": {
@@ -2449,7 +2450,6 @@
     "new": "新",
     "newVersionDot": "{v} 版已发布",
     "title": "关于",
-    "version": "版本",
     "runs": "运行方式",
     "python": "Python",
     "data": "数据目录",
@@ -2463,7 +2463,6 @@
       "source": "从源码运行",
       "container": "在容器中运行"
     },
-    "updates": "更新",
     "check": "立即检查",
     "prepare": "下载并准备 {v}",
     "switchTo": "切换到 {v}",
@@ -2473,11 +2472,10 @@
     "switch": "切换",
     "goBack": "回退",
     "switching": "正在切换到 {v}：新版本起来后页面会重新连上。",
-    "howSource": "这份程序从源码运行，用下面的命令更新：",
-    "howContainer": "这份程序在容器里运行，用下面的命令更新：",
+    "howSource": "在这份源码的文件夹中运行以下命令，然后重新启动 AutoApply：",
+    "howContainer": "在 docker-compose.yml 所在的文件夹中运行：",
     "howUnmanaged": "要切换到它，请从托盘程序启动 AutoApply，然后在这个页面切换。",
     "whatsNew": "{v} 的更新内容",
-    "onGithub": "在 GitHub 上查看",
     "byItself": "自动更新",
     "mode": {
       "off": "关闭",
@@ -2516,8 +2514,7 @@
     },
     "changelog": {
       "title": "更新日志",
-      "search": "搜索更改或版本号",
-      "category": "类别",
+      "search": "搜索更改",
       "kind": {
         "added": "新增",
         "changed": "变更",
@@ -2530,12 +2527,7 @@
         "other": "其他"
       },
       "clear": "清除筛选",
-      "matches": "{n} 项匹配",
-      "expandAll": "全部展开",
-      "collapseAll": "全部折叠",
-      "goTo": "跳转到版本",
-      "versions": "版本",
-      "current": "当前版本",
+      "current": "当前",
       "unreleased": "未发布的更改",
       "notReleased": "尚未发布",
       "noDate": "未注明日期",
@@ -2551,7 +2543,18 @@
       "noMatch": "没有符合条件的更改",
       "noMatchText": "换个关键词，或清除筛选。",
       "noNotes": "这个版本没有记录更改。",
-      "source": "内容来自程序附带的 CHANGELOG.md，以英文撰写。"
+      "type": "类型",
+      "allTypes": "全部类型",
+      "versionCount": "{n} 个版本",
+      "removeFilter": "移除筛选：{what}",
+      "latest": "最新",
+      "fullNotes": "查看完整发布说明",
+      "notesTitle": "{v} 发布说明",
+      "notesEnglish": "发布说明以英文撰写。",
+      "moreInNotes": "完整说明中还有 {n} 项",
+      "inNotes": "完整说明中有 {n} 项匹配",
+      "noHighlights": "这个版本没有要点。",
+      "derived": "摘自英文发布说明。"
     },
     "licenses": {
       "title": "开源许可",
@@ -2639,7 +2642,16 @@
     "modesNotHere": "自动下载和自动切换需要安装版；这份程序只会检查更新。",
     "privacyShort": "检查更新只向 GitHub 查询版本列表，不发送任何关于你的信息。",
     "howItWorks": "更新如何进行",
-    "idleHow": "空闲是指：没有申请在进行或排队，没有保留的窗口在等你处理，也没有打开的远程窗口。"
+    "idleHow": "空闲是指：没有申请在进行或排队，没有保留的窗口在等你处理，也没有打开的远程窗口。",
+    "softwareUpdate": "软件更新",
+    "advanced": "高级",
+    "byHand": {
+      "title": "手动更新",
+      "source": "这份程序从源码运行，需手动更新。",
+      "container": "这份程序在容器中运行，需拉取新镜像来更新。",
+      "show": "查看命令"
+    },
+    "copyCommand": "复制命令"
   },
   "record": {
     "ticked": "✓ 勾选",

@@ -53,6 +53,15 @@ export function at(x) {
 }
 export const dayKey = (x) => String(x.start || '').slice(0, 10)
 export const minuteOf = (x) => { const d = at(x); return d.getHours() * 60 + d.getMinutes() }
+// When it ends, if that is known (an interview "from 10:00 to 10:45" - the mail said): a Date on the same day after the
+// start, else null. Most items have none: they are drawn at a usual length (`lanes`), which claims nothing.
+export function saidEnd(x) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec((x && x.end) || '')
+  if (!m) return null
+  const e = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])
+  const s = at(x)
+  return e > s && e.toDateString() === s.toDateString() ? e : null
+}
 // On the time grid: what happens at a time. A deadline is a point a day ends with, not time taken - it stays with the
 // whole-day items, whatever its time (most sources give 23:59).
 export const timed = (x) => !x.all_day && x.kind !== 'deadline'
@@ -63,7 +72,7 @@ export const ownTime = (x) => x.kind === 'deadline' && !x.all_day && !String(x.s
 function endOf(x) {
   const t = at(x)
   if (x.all_day) return addDays(startOfDay(t), 1)
-  if (x.kind === 'interview' || x.kind === 'assessment') return new Date(t.getTime() + LASTS * 60000)
+  if (x.kind === 'interview' || x.kind === 'assessment') return saidEnd(x) || new Date(t.getTime() + LASTS * 60000)
   return t
 }
 // open · done · overdue (to do by a time that has passed) · past · applied (a deadline of a posting applied to) ·
@@ -128,10 +137,10 @@ export function plan(list, lines, now = new Date()) {
 }
 
 // --- the week's time grid ---------------------------------------------------------------------------------------------
-// The timed items of a day: from their start, `least` minutes tall when nothing says how long they last (the item is
-// not given an end - this is only how it is drawn), side by side where they meet. Minutes from midnight.
+// The timed items of a day: from their start to their end when the mail said one, else `least` minutes tall (the item
+// is not given an end - this is only how it is drawn), side by side where they meet. Minutes from midnight.
 export function lanes(list, least = 45) {
-  const boxes = list.map((x) => { const top = minuteOf(x); return { x, top, end: Math.min(1440, top + least) } })
+  const boxes = list.map((x) => { const top = minuteOf(x), e = saidEnd(x); return { x, top, end: Math.min(1440, e ? e.getHours() * 60 + e.getMinutes() : top + least) } })
     .sort((a, b) => a.top - b.top || a.end - b.end || String(a.x.id).localeCompare(String(b.x.id)))
   const out = []
   let group = []

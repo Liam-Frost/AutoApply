@@ -189,6 +189,16 @@ export function releaseText(rel, t, day) {
 // The same in an action: the version alone, unless it is the version that runs.
 export const actionTarget = (a, t, day) => (a.target ? (a.qualify ? releaseText(a.target, t, day) : versionOf(a.target)) : '')
 
+// Where "What's new in 2.0.3" leads (a link, never the notes on the overview): that version's entry in this copy's own
+// changelog when it has one - a checkout that is behind, a release folder newer than the program - else the release's
+// page; a version that came out after this copy was built is in no changelog of its own. `notes` is updateState's
+// `notes`, `versions` the versions of GET /api/about/changelog. null: nothing to link to.
+export function whatsNew(notes, versions = []) {
+  if (!notes) return null
+  if (versions.some((v) => compareVersions(v, notes.version) === 0)) return { version: notes.version, to: { path: '/about/changelog', query: { v: notes.version } } }
+  return notes.url ? { version: notes.version, href: notes.url } : null
+}
+
 // What "copy diagnostics" puts on the clipboard: the facts of this copy as plain text, for an issue report. Nothing but
 // what the about page shows - no setting's value beyond the update ones, no account, no key; the one personal thing is
 // the data folder's path.

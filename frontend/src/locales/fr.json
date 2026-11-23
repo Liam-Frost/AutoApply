@@ -831,7 +831,8 @@
     },
     "kbd": "Raccourcis : T aujourd’hui · ← → précédent / suivant · M W D vues · N nouvel événement · / rechercher",
     "zoneFrom": "{time}, heure de {zone}",
-    "zoneAssumed": "Le courriel n’indique pas de fuseau horaire : l’heure est affichée comme la vôtre. Si c’est celle de l’employeur, corrigez-la avec « Changer l’heure »."
+    "zoneAssumed": "Le courriel n’indique pas de fuseau horaire : l’heure est affichée comme la vôtre. Si c’est celle de l’employeur, corrigez-la avec « Changer l’heure ».",
+    "clockRange": "{from}–{to}"
   },
   "settings": {
     "reminders": {
@@ -2449,7 +2450,6 @@
     "new": "Nouveau",
     "newVersionDot": "La version {v} est disponible",
     "title": "À propos",
-    "version": "Version",
     "runs": "Mode de fonctionnement",
     "python": "Python",
     "data": "Dossier de données",
@@ -2463,7 +2463,6 @@
       "source": "Depuis les sources",
       "container": "Dans un conteneur"
     },
-    "updates": "Mises à jour",
     "check": "Vérifier maintenant",
     "prepare": "Télécharger et préparer {v}",
     "switchTo": "Passer à {v}",
@@ -2473,11 +2472,10 @@
     "switch": "Changer",
     "goBack": "Revenir",
     "switching": "Passage à {v} : la page se reconnecte quand la nouvelle version est prête.",
-    "howSource": "Cette copie tourne depuis les sources ; mettez-la à jour avec :",
-    "howContainer": "Cette copie tourne dans un conteneur ; mettez-la à jour avec :",
+    "howSource": "Dans le dossier de cette copie, exécutez ces commandes, puis relancez AutoApply :",
+    "howContainer": "Dans le dossier de son docker-compose.yml, exécutez :",
     "howUnmanaged": "Pour y passer, lancez AutoApply depuis l’application de la barre des tâches ; le changement se fait ensuite sur cette page.",
     "whatsNew": "Nouveautés de {v}",
-    "onGithub": "sur GitHub",
     "byItself": "Ce qu’il fait de lui-même",
     "mode": {
       "off": "Désactivé",
@@ -2516,8 +2514,7 @@
     },
     "changelog": {
       "title": "Journal des modifications",
-      "search": "Rechercher une modification ou une version",
-      "category": "Catégorie",
+      "search": "Rechercher une modification",
       "kind": {
         "added": "Ajouts",
         "changed": "Modifications",
@@ -2530,12 +2527,7 @@
         "other": "Autres"
       },
       "clear": "Effacer les filtres",
-      "matches": "{n} résultat | {n} résultats",
-      "expandAll": "Tout déplier",
-      "collapseAll": "Tout replier",
-      "goTo": "Aller à la version",
-      "versions": "Versions",
-      "current": "Version actuelle",
+      "current": "Actuelle",
       "unreleased": "Modifications non publiées",
       "notReleased": "Pas encore publiées",
       "noDate": "Sans date",
@@ -2551,7 +2543,18 @@
       "noMatch": "Aucune modification correspondante",
       "noMatchText": "Essayez d’autres mots, ou effacez les filtres.",
       "noNotes": "Aucune modification n’est notée pour cette version.",
-      "source": "Tiré du fichier CHANGELOG.md fourni avec le programme, rédigé en anglais."
+      "type": "Type",
+      "allTypes": "Tous les types",
+      "versionCount": "{n} version | {n} versions",
+      "removeFilter": "Retirer le filtre : {what}",
+      "latest": "Dernière",
+      "fullNotes": "Voir les notes de version complètes",
+      "notesTitle": "Notes de version {v}",
+      "notesEnglish": "Les notes de version sont rédigées en anglais.",
+      "moreInNotes": "{n} de plus dans les notes complètes",
+      "inNotes": "{n} résultat dans les notes complètes | {n} résultats dans les notes complètes",
+      "noHighlights": "Aucun point marquant pour cette version.",
+      "derived": "Tirés des notes de version, en anglais."
     },
     "licenses": {
       "title": "Licences",
@@ -2639,7 +2642,16 @@
     "modesNotHere": "Télécharger et changer de version de lui-même demandent une copie installée ; celle-ci ne fait que vérifier.",
     "privacyShort": "La vérification demande seulement à GitHub sa liste de versions ; rien ne vous concernant n’est envoyé.",
     "howItWorks": "Fonctionnement des mises à jour",
-    "idleHow": "Inactif signifie qu’aucune candidature n’est en cours ni en file, que rien ne vous attend dans une fenêtre gardée et qu’aucune fenêtre à distance n’est ouverte."
+    "idleHow": "Inactif signifie qu’aucune candidature n’est en cours ni en file, que rien ne vous attend dans une fenêtre gardée et qu’aucune fenêtre à distance n’est ouverte.",
+    "softwareUpdate": "Mise à jour du logiciel",
+    "advanced": "Avancé",
+    "byHand": {
+      "title": "Mise à jour manuelle",
+      "source": "Cette copie s’exécute depuis le code source et se met à jour à la main.",
+      "container": "Cette copie s’exécute dans un conteneur et se met à jour en récupérant une nouvelle image.",
+      "show": "Afficher la commande"
+    },
+    "copyCommand": "Copier les commandes"
   },
   "record": {
     "ticked": "✓ Coché",

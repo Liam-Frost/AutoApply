@@ -1,117 +1,116 @@
-/* The about page's version timeline and licences (views/about/ChangelogTab.vue, LicensesTab.vue).
-   Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md. */
+/* The about page's changelog and licences (views/about/ChangelogTab.vue, ChangelogPanel.vue, ChangelogNotes.vue,
+   LicensesTab.vue). Tokens are in ../style.css; rules of use in docs/DESIGN_SYSTEM.md and docs/component-guidelines.md. */
 
 /* ── the timeline ─────────────────────────────────────────────────────────────────────────────────────────────────
-   One grid per version: the date | the line with the version's node | the version. The line is drawn by each row
-   (a version, a year's label) for its own height, so it runs unbroken from the first node to the last, and the part
-   of what is not released yet is dashed. On a narrow box the date goes under the version's title. */
-.cl { container: cl / inline-size; --cl-date: 88px; --cl-rail: 28px; --cl-node: 10px; --cl-head: var(--h-sm); }
-.cl-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+   A release is one row, and the row is its button: date | the line with the version's node | version | short title
+   and tags | chevron. The columns of the date, the line and the chevron are fixed, so the nodes stand in one line and
+   the chevrons in another whatever the words; the title takes what is left and is cut. The line is drawn by each row
+   (a version, a year's label) for its own height, from the first year's mark to the last node. An opened version's
+   highlights stand under its number, held to a reading width. */
+.cl { container: cl / inline-size; --cl-date: 64px; --cl-rail: 24px; --cl-node: 10px; --cl-head: var(--h-lg); --cl-num: 5.25em; --cl-chev: var(--h-md);
+  --cl-text: calc(var(--cl-date) + var(--cl-rail)); }
 
-.cl-bar { margin-bottom: var(--s2); }
-.cl-bar > .search { flex: 0 1 300px; width: 300px; }
-/* (the chips wrap inside their group; the button that opens or closes every version stays at the right of the first line) */
-.cl-kinds { display: flex; align-items: flex-start; gap: var(--s2); margin-bottom: var(--s4); }
-.cl-chips { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.cl-kinds > .cl-all { flex: none; }
-.cl-chip { gap: 6px; padding: 0 10px; color: var(--text-2); }
-.cl-chip .n { color: var(--text-3); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
-.cl-chip[aria-pressed="true"] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
-.cl-chip[aria-pressed="true"] .n { color: var(--primary); }
+.cl-bar { margin-bottom: var(--s3); }
+.cl-bar > .search { flex: 0 1 320px; width: 320px; }
+.cl-type { gap: 6px; padding: 0 8px 0 10px; font-weight: var(--fw-medium); color: var(--text-2); }
+.cl-type svg { width: 16px; height: 16px; flex: none; }
+.cl-type .cl-type-chev { width: 14px; height: 14px; color: var(--text-3); }
+.cl-type.on { color: var(--primary); border-color: var(--primary); }
+.cl-chip { flex: none; }
 .cl-missing { align-items: center; }
 
-/* the tone of a kind: a dot (beside its words) and the label's tint (.tag.<tone>) */
+/* the tone of a kind: a dot beside its words */
 .cl-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
 .cl-dot.tone-info { background: var(--info); } .cl-dot.tone-ok { background: var(--ok); }
 .cl-dot.tone-warn { background: var(--warn); } .cl-dot.tone-bad { background: var(--bad); }
 
-.cl-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s5); align-items: start; }
+.cl-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .cl-line, .cl-versions { list-style: none; margin: 0; padding: 0; }
-.cl-group { margin: 0; }
+.cl-run { margin: 0; }
+.cl-h { margin: 0; font: inherit; letter-spacing: 0; }
 
-/* a year: its label in the date column, on the line */
-.cl-year { position: relative; display: grid; grid-template-columns: var(--cl-date) var(--cl-rail); margin: 0; padding: var(--s2) 0 var(--s3); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); letter-spacing: 0; }
-.cl-year > span { grid-column: 1; text-align: right; padding-right: var(--s3); font-variant-numeric: tabular-nums; }
-.cl-year::before { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--cl-date) + var(--cl-rail) / 2 - 1px); width: 2px; background: var(--border); }
-.cl-year::after { content: ''; position: absolute; top: calc(var(--s2) + 0.55em); left: calc(var(--cl-date) + var(--cl-rail) / 2 - 5px); width: 10px; height: 2px; background: var(--border-strong); }
-.cl-group:first-child > .cl-year::before { top: calc(var(--s2) + 0.55em); }
+/* a year: its label in the date column, a mark on the line */
+.cl-year { position: relative; display: grid; grid-template-columns: var(--cl-date) var(--cl-rail); margin: 0; padding: var(--s3) 0 var(--s1); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); letter-spacing: 0; }
+.cl-year > span { grid-column: 1; justify-self: end; padding-right: var(--s2); font-variant-numeric: tabular-nums; line-height: 20px; white-space: nowrap; }      /* (a longer label - "No date" - reaches left, never under the line) */
+.cl-year::before { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--cl-text) - var(--cl-rail) / 2 - 1px); width: 2px; background: var(--border); }
+.cl-year::after { content: ''; position: absolute; top: calc(var(--s3) + 9px); left: calc(var(--cl-text) - var(--cl-rail) / 2 - 5px); width: 10px; height: 2px; background: var(--border-strong); }
+.cl-line > .cl-run:first-child > .cl-year { padding-top: var(--s1); }
+.cl-line > .cl-run:first-child > .cl-year::before { top: calc(var(--s1) + 9px); }
 
-/* a version */
-.cl-ver { position: relative; display: grid; grid-template-columns: var(--cl-date) var(--cl-rail) minmax(0, 1fr); padding-bottom: var(--s3); scroll-margin-top: var(--s4); }
-.cl-ver::before { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--cl-date) + var(--cl-rail) / 2 - 1px); width: 2px; background: var(--border); }
-.cl-ver.unreleased::before { background: none; border-left: 2px dashed var(--border-strong); }
-/* (the line begins at the first year's mark, or at the first node when the first group has no year, and ends at the last node) */
-.cl-line > .cl-group:first-child:not(:has(> .cl-year)) > .cl-versions > .cl-ver:first-child::before { top: calc(var(--cl-head) / 2); }
-.cl-line > .cl-group:last-child > .cl-versions > .cl-ver:last-child::before { bottom: auto; height: calc(var(--cl-head) / 2); }
+/* a release */
+.cl-ver { position: relative; scroll-margin-top: var(--s4); }
+.cl-ver::before { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--cl-text) - var(--cl-rail) / 2 - 1px); width: 2px; background: var(--border); }
+/* (the line begins at the first year's mark, or at the first node when the first run has no year, and ends at the last node) */
+.cl-line > .cl-run:first-child:not(:has(> .cl-year)) > .cl-versions > .cl-ver:first-child::before { top: calc(var(--cl-head) / 2); }
+.cl-line > .cl-run:last-child > .cl-versions > .cl-ver:last-child::before { bottom: auto; height: calc(var(--cl-head) / 2); }
 
-.cl-date { grid-column: 1; grid-row: 1; align-self: start; padding-right: var(--s3); text-align: right; line-height: var(--cl-head); font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cl-ver.unreleased .cl-date { white-space: normal; line-height: 1.3; padding-top: 7px; }
-.cl-node { grid-column: 2; grid-row: 1; justify-self: center; position: relative; z-index: 1; width: var(--cl-node); height: var(--cl-node); margin-top: calc((var(--cl-head) - var(--cl-node)) / 2);
-  border-radius: 50%; background: var(--surface); border: 2px solid var(--border-strong); }
-.cl-ver.open > .cl-node { background: var(--text-2); border-color: var(--text-2); }
-.cl-ver.unreleased > .cl-node { border-color: var(--text-3); background: var(--surface); }
-.cl-ver.current > .cl-node { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
-.cl-main { grid-column: 3; grid-row: 1; min-width: 0; }
+.cl-row { display: grid; grid-template-columns: var(--cl-date) var(--cl-rail) minmax(var(--cl-num), max-content) minmax(0, 1fr) var(--cl-chev); align-items: center; justify-content: stretch;
+  width: 100%; height: var(--cl-head); padding: 0; gap: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-weight: var(--fw-regular); text-align: left; cursor: pointer; }
+.cl-row:hover { background: var(--surface-2); }
+.cl-row:focus-visible { outline-offset: -2px; }
+.cl-date { grid-column: 1; padding-right: var(--s2); text-align: right; font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.cl-node { grid-column: 2; justify-self: center; position: relative; z-index: 1; width: var(--cl-node); height: var(--cl-node); border-radius: 50%; background: var(--surface); border: 2px solid var(--border-strong); }
+.cl-ver.open .cl-node { background: var(--text-2); border-color: var(--text-2); }
+.cl-ver.current .cl-node { background: var(--primary); border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.cl-num { grid-column: 3; padding-right: var(--s3); font-size: var(--fs-md); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl-mid { grid-column: 4; display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.cl-name { flex: 0 1 auto; min-width: 0; color: var(--text-2); font-size: var(--fs-sm); }
+.cl-tag { flex: none; }
+.cl-chev { grid-column: 5; justify-self: center; width: 16px; height: 16px; color: var(--text-3); transition: transform var(--dur) var(--ease); }
+.cl-row[aria-expanded="true"] .cl-chev { transform: rotate(90deg); color: var(--text-2); }
 
-.cl-head { display: flex; align-items: center; gap: var(--s2); min-height: var(--cl-head); min-width: 0; border-radius: var(--r-sm); }
-.cl-ver.located > .cl-main > .cl-head { background: var(--surface-2); box-shadow: 0 0 0 4px var(--surface-2); }
-.cl-title { margin: 0; font-size: inherit; flex: none; min-width: 0; }
-.cl-toggle { height: var(--cl-head); padding: 0 6px 0 2px; gap: 4px; border: 0; background: transparent; color: var(--text); font-size: var(--fs-lg); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
-.cl-toggle:hover { background: var(--surface-2); }
-.cl-toggle .cl-chev { color: var(--text-3); transition: transform var(--dur) var(--ease); }
-.cl-toggle[aria-expanded="true"] .cl-chev { transform: rotate(90deg); }
-.cl-counts { display: flex; align-items: center; gap: var(--s3); min-width: 0; overflow: hidden; white-space: nowrap; }
-.cl-count { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: var(--fs-xs); color: var(--text-2); }
-.cl-count .num { color: var(--text-3); }
+/* what is not released yet: above the line, not on it - no node, no date; a dashed edge, as a draft */
+.cl-un { position: relative; margin: 0 0 var(--s3); border-radius: var(--r-md); outline: 1px dashed var(--border-strong); outline-offset: -1px; scroll-margin-top: var(--s4); }
+.cl-un .cl-row { grid-template-columns: var(--cl-date) var(--cl-rail) max-content minmax(0, 1fr) var(--cl-chev); border-radius: var(--r-md); }
+.cl-un .cl-panel { padding-bottom: var(--s3); }
+
+/* an opened version: its height grows from nothing (a grid row from 0fr to 1fr) - at once for who asked for no motion */
+.cl-grow { display: grid; grid-template-rows: 1fr; }
+.cl-grow-in { min-height: 0; }
+.cl-open-enter-active, .cl-open-leave-active { transition: grid-template-rows var(--dur) var(--ease), opacity var(--dur) var(--ease); }
+.cl-open-enter-active > .cl-grow-in, .cl-open-leave-active > .cl-grow-in { overflow: hidden; }
+.cl-open-enter-from, .cl-open-leave-to { grid-template-rows: 0fr; opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .cl-open-enter-active, .cl-open-leave-active, .cl-chev { transition: none; } }
+
+/* its highlights: by kind, a light label each; a title and, under it, its sentence */
+.cl-panel { margin-left: var(--cl-text); max-width: 72ch; padding: var(--s1) var(--cl-chev) var(--s4) 0; }
+.cl-group-k + .cl-group-k { margin-top: var(--s3); }
+.cl-kind { display: flex; align-items: center; gap: 6px; margin: 0 0 var(--s1); font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--text-2); letter-spacing: 0; }
+.cl-hl { list-style: none; margin: 0; padding: 0; }
+.cl-hl > li { position: relative; margin: 0 0 6px; padding-left: 15px; line-height: 1.45; }
+.cl-hl > li:last-child { margin-bottom: 0; }
+.cl-hl > li::before { content: ''; position: absolute; left: 2px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong); }
+.cl-hl-title { display: block; font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); }
+.cl-hl-text { display: block; font-size: var(--fs-sm); color: var(--text-2); }
+.cl-derived { margin: var(--s2) 0 0; font-size: var(--fs-xs); color: var(--text-3); }
+.cl-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-top: var(--s3); }
+.cl-more { font-size: var(--fs-sm); color: var(--text-2); }
 .cl-link { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: var(--fs-sm); white-space: nowrap; }
 .cl-link svg { width: 14px; height: 14px; }
+.cl mark, .cl-notes mark { background: var(--warn-soft); color: inherit; border-radius: 2px; padding: 0 1px; }
+.cl-hl code, .cl-notes .md code { word-break: normal; overflow-wrap: anywhere; }
 
-/* what a version says: readable lines, not the width of the page */
-.cl-content { padding: var(--s2) 0 var(--s4) 6px; }
-.cl-summary, .cl-text, .cl-items { max-width: 78ch; }
+/* the full notes, in the drawer: readable lines, not the width of the drawer */
+.cl-notes-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); margin: 0 0 var(--s4); }
+.cl-notes-top > .cl-derived { margin: 0; }
+.cl-notes { max-width: 78ch; }
 .cl-summary { color: var(--text-2); margin-bottom: var(--s2); }
 .cl-sec + .cl-sec, .cl-summary + .cl-sec { margin-top: var(--s4); }
-.cl-sec-head { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s2); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
-.cl-sec-head > .tag { max-width: min(100%, 48ch); }
+.cl-sec-head { margin: 0 0 var(--s2); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); }
 .cl-text { color: var(--text-2); margin-bottom: var(--s2); }
 .cl-items { list-style: none; margin: 0; padding: 0; }
 .cl-item { position: relative; margin: 0 0 var(--s2); padding-left: 16px; line-height: 1.6; }
 .cl-item::before { content: ''; position: absolute; left: 3px; top: 0.72em; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
 .cl-item > p { margin: 0; }
 .cl-item a, .cl-summary a, .cl-text a { word-break: normal; overflow-wrap: anywhere; }
-/* (a command or a path is not broken in the middle of a word, as .md does for its narrow places) */
-.cl .md code { word-break: normal; overflow-wrap: anywhere; }
-.cl mark { background: var(--warn-soft); color: inherit; border-radius: 2px; padding: 0 1px; }
-.cl-source { margin: var(--s4) 0 0; }
 
-/* the versions beside the timeline, on a wide box (the select in the bar does it on a narrow one) */
-.cl-index { display: none; position: sticky; top: var(--s4); max-height: calc(100vh - 2 * var(--s5)); overflow: auto; padding: 2px 2px var(--s2); }
-.cl-index-title { margin: 0 0 var(--s2); font-weight: var(--fw-semibold); color: var(--text-2); }
-.cl-index-year { margin: var(--s3) 0 2px 8px; }
-.cl-index-v { display: flex; align-items: center; gap: 6px; height: var(--h-sm); padding: 0 8px; border-radius: var(--r-sm); color: var(--text-2); font-size: var(--fs-sm); text-decoration: none; }
-.cl-index-v:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
-.cl-index-v.on { background: var(--primary-soft); color: var(--primary); font-weight: var(--fw-semibold); }
-
-@container cl (min-width: 1040px) {
-  .cl-body { grid-template-columns: minmax(0, 1fr) 208px; }
-  .cl-index { display: block; }
-  .cl-jump { display: none; }
-}
-@container cl (max-width: 620px) {
-  .cl { --cl-rail: 22px; }
-  .cl-year, .cl-ver { grid-template-columns: var(--cl-rail) minmax(0, 1fr); }
-  .cl-year > span { grid-column: 2; text-align: left; padding: 0 0 0 4px; }
-  .cl-year::before, .cl-ver::before { left: calc(var(--cl-rail) / 2 - 1px); }
-  .cl-year::after { left: calc(var(--cl-rail) / 2 - 5px); }
-  /* (the title, then the date, then what the version says: the version's parts become the grid's own rows) */
-  .cl-main { display: contents; }
-  .cl-head { grid-column: 2; grid-row: 1; }
-  .cl-date { grid-column: 2; grid-row: 2; text-align: left; padding: 0 0 0 26px; line-height: 1.4; }
-  .cl-ver.unreleased .cl-date { padding-top: 0; }
-  .cl-content { grid-column: 2; grid-row: 3; }
-  .cl-node { grid-column: 1; }
-  .cl-counts { display: none; }
-  .cl-bar > .search { flex: 1 1 100%; width: auto; }
+/* a narrow box: the columns get narrower, nothing moves under anything else */
+@container cl (max-width: 560px) {
+  .cl { --cl-date: 58px; --cl-rail: 20px; --cl-num: 4.6em; --cl-chev: var(--h-sm); }
+  .cl-date { padding-right: 6px; }
+  .cl-num { padding-right: var(--s2); }
+  .cl-bar > .search { flex: 1 1 180px; width: auto; }
+  .cl-panel { padding-right: var(--s2); }
 }
 
 /* ── licences ───────────────────────────────────────────────────────────────────────────────────────────────────── */

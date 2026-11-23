@@ -831,7 +831,8 @@
     },
     "kbd": "Keys: T today · ← → previous / next · M W D views · N new event · / search",
     "zoneFrom": "{time} in {zone}",
-    "zoneAssumed": "The e-mail names no time zone, so this time is shown as your own. If it is the employer's, correct it with “Change the time”."
+    "zoneAssumed": "The e-mail names no time zone, so this time is shown as your own. If it is the employer's, correct it with “Change the time”.",
+    "clockRange": "{from}–{to}"
   },
   "settings": {
     "reminders": {
@@ -2449,7 +2450,6 @@
     "new": "New",
     "newVersionDot": "Version {v} is out",
     "title": "About",
-    "version": "Version",
     "runs": "How it runs",
     "python": "Python",
     "data": "Data folder",
@@ -2463,7 +2463,6 @@
       "source": "Running from source",
       "container": "Running in a container"
     },
-    "updates": "Updates",
     "check": "Check now",
     "prepare": "Download and prepare {v}",
     "switchTo": "Switch to {v}",
@@ -2473,11 +2472,10 @@
     "switch": "Switch",
     "goBack": "Roll back",
     "switching": "Switching to {v}: the page reconnects when the new version is up.",
-    "howSource": "This copy runs from source; update it with:",
-    "howContainer": "This copy runs in a container; update it with:",
+    "howSource": "In the folder of this checkout, run these commands, then start AutoApply again:",
+    "howContainer": "In the folder of its docker-compose.yml, run:",
     "howUnmanaged": "To switch to it, start AutoApply from the tray app; the switch is then on this page.",
     "whatsNew": "What's new in {v}",
-    "onGithub": "on GitHub",
     "byItself": "Automatic updates",
     "mode": {
       "off": "Off",
@@ -2516,8 +2514,7 @@
     },
     "changelog": {
       "title": "Changelog",
-      "search": "Search changes or a version",
-      "category": "Category",
+      "search": "Search changes",
       "kind": {
         "added": "Added",
         "changed": "Changed",
@@ -2530,12 +2527,7 @@
         "other": "Other"
       },
       "clear": "Clear filters",
-      "matches": "{n} match | {n} matches",
-      "expandAll": "Expand all",
-      "collapseAll": "Collapse all",
-      "goTo": "Go to version",
-      "versions": "Versions",
-      "current": "Current version",
+      "current": "Current",
       "unreleased": "Unreleased changes",
       "notReleased": "Not released yet",
       "noDate": "No date",
@@ -2551,7 +2543,18 @@
       "noMatch": "No matching changes",
       "noMatchText": "Try other words, or clear the filters.",
       "noNotes": "No changes are recorded for this version.",
-      "source": "From the CHANGELOG.md that comes with the app, written in English."
+      "type": "Type",
+      "allTypes": "All types",
+      "versionCount": "{n} version | {n} versions",
+      "removeFilter": "Remove filter: {what}",
+      "latest": "Latest",
+      "fullNotes": "View the full release notes",
+      "notesTitle": "Release notes {v}",
+      "notesEnglish": "The release notes are written in English.",
+      "moreInNotes": "{n} more in the full notes",
+      "inNotes": "{n} match in the full notes | {n} matches in the full notes",
+      "noHighlights": "No highlights for this version.",
+      "derived": "Taken from the release notes."
     },
     "licenses": {
       "title": "Licenses",
@@ -2639,7 +2642,16 @@
     "modesNotHere": "Downloading and switching by itself need an installed copy; this one only checks.",
     "privacyShort": "Checking only asks GitHub for its list of releases; nothing about you is sent.",
     "howItWorks": "How updates work",
-    "idleHow": "Idle means that nothing is applying or queued, nothing waits for you in a kept window, and no remote window is open."
+    "idleHow": "Idle means that nothing is applying or queued, nothing waits for you in a kept window, and no remote window is open.",
+    "softwareUpdate": "Software update",
+    "advanced": "Advanced",
+    "byHand": {
+      "title": "Manual update",
+      "source": "This copy runs from source and is updated by hand.",
+      "container": "This copy runs in a container and is updated by pulling a new image.",
+      "show": "Show the command"
+    },
+    "copyCommand": "Copy commands"
   },
   "record": {
     "ticked": "✓ Ticked",

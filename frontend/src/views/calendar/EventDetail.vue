@@ -6,7 +6,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '../../api'
 import Icon from '../../components/Icon.vue'
-import { at, status } from '../../calendar'
+import { at, saidEnd, status } from '../../calendar'
 import { deadlineLabel } from '../../dates'
 import { t } from '../../i18n/catalog'
 import { clockOf } from '../../i18n/format'
@@ -20,7 +20,9 @@ const x = computed(() => props.item)
 const st = computed(() => status(x.value, props.now))
 const when = computed(() => {
   const d = at(x.value)
-  return x.value.all_day ? t('calendar.allDayOn', { day: longDate(d) }) : t('time.dayAt', { day: longDate(d), time: clockOf(d) })
+  if (x.value.all_day) return t('calendar.allDayOn', { day: longDate(d) })
+  const e = saidEnd(x.value)      // (the end the mail said: "10:00–10:45")
+  return t('time.dayAt', { day: longDate(d), time: e ? t('calendar.clockRange', { from: clockOf(d), to: clockOf(e) }) : clockOf(d) })
 })
 // the time as the mail said it, on the clock the mail used (what the time above was converted from)
 const said = computed(() => {

@@ -128,7 +128,35 @@ def not_applying(job: Any, *, source: str = "user") -> bool:
     if a is not None and a.status != "withdrawn":
         move(a, "withdrawn", source=source)
         a.last_event = T("server.lifecycle.youMarkedThisPosting")
+    put_away_files(job)
     return True
+
+
+def put_away_files(job: Any, *, back: bool = False) -> int:
+    """The files written for a posting that is not applied for are archived with it (a cover letter, a tailored résumé,
+    what the agent put together): nothing was sent, and they are not in the way of what is being prepared. They are
+    kept, not deleted. ``back``: the posting is taken up again - what was put away for this reason is brought back (a
+    file the applicant archived themselves stays where they put it). Returns how many files moved."""
+    from sqlalchemy.orm import object_session
+
+    from . import materials
+    from .models import Document
+
+    s = object_session(job)
+    if s is None:
+        with db.session() as s2:
+            return put_away_files(s2.get(type(job), job.id), back=back)
+    moved = 0
+    for d in s.query(Document).filter(Document.job_id == job.id, Document.kind.in_(materials.GENERATED)):
+        meta = dict(d.meta or {})
+        if back and meta.get("archived") and meta.get("archived_by") == "not_applying":
+            meta.pop("archived_by", None)
+            d.meta = {**meta, "archived": False}
+            moved += 1
+        elif not back and not meta.get("archived"):
+            d.meta = {**meta, "archived": True, "archived_by": "not_applying"}
+            moved += 1
+    return moved
 
 
 def _refs(a: Application) -> tuple[set[str], list[int], set[str]]:

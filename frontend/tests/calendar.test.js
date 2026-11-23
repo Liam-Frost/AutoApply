@@ -1,7 +1,7 @@
 // The calendar's model (src/calendar.js): where an item stands, what a crowded day shows, how the week's timed items sit
 // side by side, the day's groups, the line above the calendar and the quick filters.
 import { describe, expect, it } from 'vitest'
-import { addMonths, at, dayGroups, iso, lanes, monthGrid, ownTime, plan, pressQuick, quickState, QUICK, rank, SHOWN, status, summary, timed } from '../src/calendar.js'
+import { addMonths, at, dayGroups, iso, lanes, saidEnd, monthGrid, ownTime, plan, pressQuick, quickState, QUICK, rank, SHOWN, status, summary, timed } from '../src/calendar.js'
 
 const now = new Date(2026, 10, 22, 12, 0)          // Sunday 22 November 2026, noon
 let n = 0
@@ -105,6 +105,15 @@ describe("the week's time grid", () => {
   it('keeps an item late in the day inside it', () => {
     const [o] = lanes([item('own', '2026-11-24T23:40')], 60)
     expect(o.top + o.height).toBe(1440)
+  })
+  it('draws an item to the end its mail gave, and claims none where there is none', () => {
+    const a = item('interview', '2026-11-24T10:00', { end: '2026-11-24T10:45' })
+    const b = item('interview', '2026-11-24T13:00', { end: '2026-11-25T01:00' })      // (an end on another day: not this item's)
+    const c = item('interview', '2026-11-24T16:00', { end: '2026-11-24T15:00' })      // (before the start: a misread)
+    expect(saidEnd(a)).toEqual(new Date(2026, 10, 24, 10, 45))
+    expect([saidEnd(b), saidEnd(c), saidEnd(item('own', '2026-11-24T09:00'))]).toEqual([null, null, null])
+    const out = lanes([a, b, c], 60)
+    expect(out.map((o) => o.height)).toEqual([45, 60, 60])
   })
 })
 

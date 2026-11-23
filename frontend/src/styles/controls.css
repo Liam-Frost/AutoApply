@@ -90,3 +90,16 @@ button.tsw-btn:hover { background: var(--surface-2); border-color: var(--text-2)
 .rl-row.off { cursor: not-allowed; }
 .rl-row.off:hover { background: transparent; }
 .rl-row.off .rl-label, .rl-row.off .rl-hint { color: var(--text-3); }
+
+/* ── SettingRow (components/SettingRow.vue) ──
+   The name's column and the control's, on one baseline; one column in a box under 640px. */
+.setting-row { container-type: inline-size; }
+.sr-in { display: grid; grid-template-columns: minmax(9em, 15em) minmax(0, 1fr); column-gap: var(--s6); align-items: baseline; }
+.sr-label, .sr-control { min-width: 0; }
+.sr-head { display: inline-flex; align-items: center; gap: var(--s1); max-width: 100%; }
+.sr-name { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); overflow-wrap: anywhere; }
+.sr-head > .info-tip, .sr-head > .popover { flex: none; }
+.sr-desc { margin: 2px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--text-2); }
+/* (a RadioList's first baseline is its first option's words, not the radio's foot) */
+.sr-control .rl-text { align-self: baseline; }
+@container (max-width: 640px) { .sr-in { grid-template-columns: minmax(0, 1fr); row-gap: var(--s2); } }

@@ -460,6 +460,14 @@ TRIAGE_SCHEMA = llm.obj(
                                                       "zone'), or it comes from a scheduling tool that shows times in the recipient's zone, or it names the applicant's zone "
                                                       "(given on the Date line). Empty when `due` has no time of day, or when nothing in the e-mail tells - do not guess."},
         "due_text": {"type": "string", "description": "that date and time in the e-mail's own words, with the time zone if it names one ('Tuesday, Nov 24 at 10:00 AM PST'). Empty when none."},
+        "due_from": {"type": "string", "enum": ["stated", "period", ""],
+                     "description": "where `due` comes from. stated: the e-mail gives the date itself. period: worked out from a period it states ('within 14 "
+                                    "days'), counted from this e-mail. Empty when `due` is empty. A reminder that repeats the period of an earlier "
+                                    "invitation ('a reminder: you have 14 days to complete your assessment') is still 'period': the program keeps the date "
+                                    "the invitation gave."},
+        "due_end": {"type": "string", "description": "when what `due` names ENDS, when the e-mail says so - an interview from 10:00 to 10:45 gives "
+                                                     "2026-11-24T10:45 - on the same clock as `due`, ISO form. Empty when it gives no end (a duration "
+                                                     "alone - 'a 45-minute interview' - gives the end: the start plus that)."},
         "links": {"type": "array", "items": llm.obj({"url": {"type": "string"}, "what": {"type": "string"}}),
                   "description": "the links in the e-mail the applicant would use for what it asks: the meeting to join, the assessment to start, the page to "
                                  "choose a slot or to answer an offer. `url` copied exactly as it appears in the e-mail; `what` a few words saying what it is "
@@ -522,7 +530,10 @@ def triage(subject: str, sender: str, body: str, received: datetime | None = Non
 WHEN_SCHEMA = llm.obj({
     "due": {"type": "string", "description": "the date, or date and time, as the e-mails state it, on the clock they use (not converted): 2026-11-24 or 2026-11-24T10:00. "
                                              "The latest e-mail that states one decides. When none states a date but one states a period that fixes one ('14 days to complete "
-                                             "it'), the day worked out from the day THAT e-mail was received, without a time. Empty when there is neither."},
+                                             "it'), the day worked out from the day the INVITATION was received - the first e-mail that asked for it, "
+                                             "never a later reminder that repeats the period - without a time. Empty when there is neither."},
+    "due_end": {"type": "string", "description": "when it ends, when an e-mail says (an interview from 10:00 to 10:45: 2026-11-24T10:45; 'a 45-minute interview': the "
+                                                 "start plus 45 minutes), on the same clock as `due`. Empty otherwise."},
     "due_zone": {"type": "string", "description": "the IANA time zone that time is said in: the zone of the place the e-mails or the posting give for the employer, the office "
                                                   "or the interview; an abbreviation alone ('PT') does not say which place - prefer the place. 'applicant' when the time is "
                                                   "already the applicant's own (a scheduling tool, 'your time zone', or the applicant's zone is named). Empty when `due` has "
@@ -919,7 +930,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             # The mail and what it does to its application are one write. Written apart, a failure in between left the
             # mail "read" for good and the application where it was: an interview invitation on file, the application
             # still "submitted". Now a failure leaves neither, and the next pass reads the mail again.
-            asks: dict[str, Any] = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text", "due_zone") if t.get(k)}
+            asks: dict[str, Any] = {k: str(t.get(k) or "")[:300] for k in ("action", "due", "due_text", "due_zone", "due_from", "due_end") if t.get(k)}
             links = mail_links(t.get("links"), body)
             if links:
                 asks["links"] = links

@@ -361,7 +361,8 @@ LEVEL = """(level) => [...document.querySelectorAll('[data-level="' + level + '"
 ICON_BUTTONS = """() => [...document.querySelectorAll('.lab .icon-btn')].map((el) => {
   const r = el.getBoundingClientRect(), glyph = el.querySelector('svg')
   return { name: el.getAttribute('aria-label') || '', w: r.width, h: r.height, small: el.classList.contains('sm'), busy: el.classList.contains('busy'),
-           titled: el.hasAttribute('title'), glyph: !!glyph, where: (el.closest('[data-lab]') || {}).dataset?.lab }
+           titled: el.hasAttribute('title'), glyph: !!glyph, where: (el.closest('[data-lab]') || {}).dataset?.lab,
+           shown: el.getClientRects().length > 0 }      // (one inside a folded part - About's Advanced - is not drawn: no size to measure)
 })"""
 
 
@@ -374,12 +375,12 @@ def check_controls(page) -> None:
         assert all(abs(c["h"] - height) <= PX / 2 for c in row), (level, [(c["what"], c["h"]) for c in row if abs(c["h"] - height) > PX / 2])
         assert max(c["middle"] for c in row) - min(c["middle"] for c in row) <= PX, (level, "the controls of one row are not on one line", [(c["what"], c["middle"]) for c in row])
     icons = page.evaluate(ICON_BUTTONS)
-    assert len(icons) > 20
+    assert sum(b["shown"] for b in icons) > 20
     for b in icons:
         assert b["name"].strip(), ("an icon button without a name", b)
         assert not b["titled"] and b["glyph"], b
         side = 24 if b["small"] else 28
-        assert abs(b["w"] - side) <= PX / 2 and abs(b["h"] - side) <= PX / 2, ("an icon button is not the square it should be", b)
+        assert not b["shown"] or abs(b["w"] - side) <= PX / 2 and abs(b["h"] - side) <= PX / 2, ("an icon button is not the square it should be", b)
     # the sizes of ordinary buttons, and a badge
     for size, height in (("sm", 28), ("md", 32), ("lg", 36)):
         heights = page.evaluate("(size) => [...document.querySelectorAll('[data-btn-size=\"' + size + '\"] > *')].map((e) => e.getBoundingClientRect().height)", size)
