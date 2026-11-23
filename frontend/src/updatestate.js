@@ -52,6 +52,7 @@ export const ERRORS = {
   'nothing prepared': { key: 'about.error.nothingPrepared', stage: 'switch', retry: false },
   'not-managed': { key: 'about.error.notManaged', stage: 'switch', retry: false },
   'no-previous': { key: 'about.error.noPrevious', stage: 'switch', retry: false },
+  'not-newer': { key: 'about.error.notNewer', stage: 'switch', retry: false },
 }
 // An error code as the page says it: { code, key, params, stage, retry }; null for none. "network:<what>" is a check
 // that did not reach GitHub; any other code is what stopped the preparing (updates.prepare keeps the exception's name).

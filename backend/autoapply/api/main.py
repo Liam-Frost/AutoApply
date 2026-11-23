@@ -36,16 +36,9 @@ from ..models import Contact
 from ..models import SENT, UNKNOWN, Application, Document, Draft, Job, MailEvent, Notification, Run, Task, Todo, now
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    db.init_db()
-    if os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1":
-        tasks.start()
-        try:
-            yield
-        finally:
-            tasks.stop()
-        return
+def _start_up() -> None:
+    """What a copy does once when it becomes the primary: the one-time work of its version, settling what the last
+    start or switch left, the last update's outcome."""
     persona.migrate()
     from .. import i18n as _i18n
     from ..sources import watch as _watch
@@ -187,13 +180,60 @@ async def lifespan(app: FastAPI):
         _updates.after_start()
     except Exception:  # noqa: BLE001
         logging.getLogger("autoapply").exception("could not settle the last update")
+
+
+_primary = {"started": False, "bots": False}
+_primary_lock = threading.Lock()
+
+
+def become_primary(*, start_tasks: bool = False) -> bool:
+    """The start of the primary copy, once per process: the start-up work, the network settings, the Telegram and Discord
+    bots. At a plain start; and when the tray's rolling restart makes a joining worker the primary
+    (/api/runtime/activate-scheduler) - before, a switch of version left all of it for the next cold start: the last
+    switch stayed "switching", a new version's one-time work waited, the bots did not run. True when it ran now."""
+    with _primary_lock:
+        if _primary["started"]:
+            return False
+        _primary["started"] = True
+    try:
+        _start_up()
+    except Exception:  # noqa: BLE001 - never a reason not to serve: each part says what failed
+        logging.getLogger("autoapply").exception("the start-up work did not finish")
     net.apply()
-    tasks.start()
+    if start_tasks:
+        tasks.start()
     from .. import bots as _bots
 
     _bots.start()       # the Telegram and Discord bots: presses, replies and commands from the applicant's phone
+    _primary["bots"] = True
+    return True
+
+
+def _stop_bots() -> None:
+    if _primary["bots"]:
+        from .. import bots as _bots
+
+        _bots.stop()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.init_db()
+    if os.environ.get("AUTOAPPLY_JOIN_WORKERS") == "1":
+        # A worker that joins a running copy (the tray's rolling restart: a bridge, then the new primary) works the queue
+        # at once, reaching the network the way the settings say; the primary's start comes when the tray makes it the
+        # primary (become_primary, from /api/runtime/activate-scheduler).
+        net.apply()
+        tasks.start()
+        try:
+            yield
+        finally:
+            _stop_bots()
+            tasks.stop()
+        return
+    become_primary(start_tasks=True)
     yield
-    _bots.stop()
+    _stop_bots()
     tasks.stop()
 
 
@@ -1638,6 +1678,9 @@ def activate_scheduler(request: Request) -> dict[str, bool]:
     if not compare.compare_digest(request.headers.get(access.LOCAL_HEADER, ""), access.local_token()):
         raise HTTPException(403, "Local launcher authorization required")
     tasks.activate_scheduler()
+    # The joining worker the tray restarted into is the primary now: its start, in the background (the tray waits a few
+    # seconds for this answer; a new version's one-time work can take longer).
+    threading.Thread(target=context.carried(become_primary), name="autoapply-primary", daemon=True).start()
     return {"ok": True}
 
 

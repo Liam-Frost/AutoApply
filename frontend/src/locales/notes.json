@@ -3141,5 +3141,6 @@
   "about.risk.auto": "Warning in the update settings editor when 'Update automatically' is chosen: it switches (restarts) by itself (updates.tick).",
   "about.rel.localDay": "Under a version number on the about page: it is a build of one's own. {d}: its day (e.g. Nov 23).",
   "about.rel.localOnly": "Under a version number on the about page: a build of one's own whose day is not known.",
-  "about.rel.published": "Under the latest version's number on the about page: the day it came out. {d}: the day (e.g. Nov 22)."
+  "about.rel.published": "Under the latest version's number on the about page: the day it came out. {d}: the day (e.g. Nov 22).",
+  "about.error.notNewer": "Said when a switch would go to a version that is the same as or older than the running one (the updater only goes forwards by itself). 'Roll back' names the About page's button for going back to the previous version."
 }

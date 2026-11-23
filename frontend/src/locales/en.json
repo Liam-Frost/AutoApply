@@ -2510,7 +2510,8 @@
       "nothingPrepared": "No version is prepared yet.",
       "notManaged": "Switching needs AutoApply started from the tray app.",
       "noPrevious": "The previous version is no longer kept.",
-      "other": "Preparing failed ({code}). The running version is untouched."
+      "other": "Preparing failed ({code}). The running version is untouched.",
+      "notNewer": "That version is not newer than the one running. Going back is done with Roll back."
     },
     "changelog": {
       "title": "Changelog",
