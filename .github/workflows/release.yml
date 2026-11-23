@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
       - run: |
           version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
       - uses: actions/download-artifact@v8
         with:
           path: packages
