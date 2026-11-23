@@ -1645,7 +1645,9 @@
       "folders": "文件夹",
       "notSent": "未投递"
     },
-    "writtenFor": "所属岗位："
+    "writtenFor": "所属岗位：",
+    "wentAll": "全部 {n} 处",
+    "wentFewer": "收起"
   },
   "profile": {
     "notes": "说明",

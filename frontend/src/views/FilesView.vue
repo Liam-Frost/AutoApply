@@ -1,6 +1,6 @@
 <script setup>
 import { t as T } from '../i18n/catalog'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, ROOT } from '../api'
 import BulkBar from '../components/BulkBar.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -24,6 +24,9 @@ const folder = ref('base') // base | generated | all | kind:<k> | job:<id>
 const q = ref('')
 const showInactive = ref(false)
 const cur = ref(null)
+// where a file went: one line, the rest on request - the preview is what the panel is for
+const wentOpen = ref(false)
+watch(() => cur.value && cur.value.id, () => { wentOpen.value = false })
 const renaming = ref(false)
 const newName = ref('')
 const upKind = ref('resume_site')
@@ -260,10 +263,16 @@ onMounted(load)
           <dt>{{ $t('files.went') }}</dt>
           <dd>
             <span v-if="!cur.went.length" class="none">{{ $t('files.wentNowhere') }}</span>
-            <div v-for="(w, k) in cur.went" :key="k" class="fm-went">
-              <Status :tone="w.sent ? 'ok' : ''" :label="w.how === 'mail' ? $t('files.how.mail') : w.sent ? $t('files.how.sent') : $t('files.how.record')" />
-              <router-link v-if="w.application_id" :to="`/applications/${w.application_id}`">{{ w.company }} · {{ w.title }}</router-link>
-              <span v-if="w.field" class="muted">· {{ w.field }}</span>
+            <div v-else class="fm-went-box" :class="{ open: wentOpen }">
+            <div class="fm-went-list">
+              <div v-for="(w, k) in (wentOpen ? cur.went : cur.went.slice(0, 1))" :key="k" class="fm-went">
+                <Status :tone="w.sent ? 'ok' : ''" :label="w.how === 'mail' ? $t('files.how.mail') : w.sent ? $t('files.how.sent') : $t('files.how.record')" />
+                <router-link v-if="w.application_id" class="fm-went-to" :to="`/applications/${w.application_id}`"><Trunc :text="w.company + ' · ' + w.title" /></router-link>
+                <Trunc v-if="w.field" class="muted fm-went-field" :text="w.field" />
+              </div>
+            </div>
+            <button v-if="cur.went.length > 1" type="button" class="ghost sm fm-went-more" @click="wentOpen = !wentOpen">
+              {{ wentOpen ? $t('files.wentFewer') : $t('files.wentAll', { n: cur.went_total || cur.went.length }) }}</button>
             </div>
           </dd>
         </dl>

@@ -1645,7 +1645,9 @@
       "folders": "Folders",
       "notSent": "Not submitted"
     },
-    "writtenFor": "Written for:"
+    "writtenFor": "Written for:",
+    "wentAll": "All {n}",
+    "wentFewer": "Fewer"
   },
   "profile": {
     "notes": "Notes",

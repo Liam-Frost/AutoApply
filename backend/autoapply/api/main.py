@@ -2564,10 +2564,16 @@ def list_documents() -> list[dict[str, Any]]:
             p = Path(d.path)
             job = s.get(Job, d.job_id) if d.job_id else None
             app = job.application if job else None
-            went = {(w["application_id"], w["how"], w["field"]): w for w in by_id.get(d.id, []) + by_path.get(materials._key(d.path), [])}
-            went_l = list(went.values())[:12]
+            # one line per application (and way it went): the fields it was given to, together
+            went: dict[tuple[Any, str], dict[str, Any]] = {}
+            for w in by_id.get(d.id, []) + by_path.get(materials._key(d.path), []):
+                had = went.setdefault((w["application_id"], w["how"]), {**w, "field": ""})
+                if w["field"] and w["field"] not in had["field"].split("、"):
+                    had["field"] = "、".join(x for x in (had["field"], w["field"]) if x)
+            went_all = list(went.values())
+            went_l = went_all[:50]
             purpose = "made" if d.kind == "made" else "for_job" if d.kind in materials.GENERATED else "mine"
-            in_use = any(not w["sent"] and w["status"] not in materials.ENDED for w in went_l)
+            in_use = any(not w["sent"] and w["status"] not in materials.ENDED for w in went_all)
             over = materials.ended(app)
             jstage = stages.describe(stages.stage(job.status, bool(job.online), job.deadline or "", job.application.status if job.application else None)) if job else {}
             rows.append({"id": d.id, "kind": d.kind, "name": d.name, "active": bool(d.active), "job_id": d.job_id, "created_at": d.created_at.isoformat(),
@@ -2591,7 +2597,7 @@ def list_documents() -> list[dict[str, Any]]:
                          # what it is for, whose it is, where it went (the library's three questions)
                          "purpose": purpose, "made_from": (d.meta or {}).get("made_from") or [],
                          "application": {"id": app.id, "status": app.status, "label": humanize.APP_STATUS.get(app.status, app.status), "ended": over} if app else None,
-                         "went": went_l, "sent": any(w["sent"] for w in went_l), "in_use": in_use, "archived": bool((d.meta or {}).get("archived")),
+                         "went": went_l, "went_total": len(went_all), "sent": any(w["sent"] for w in went_all), "in_use": in_use, "archived": bool((d.meta or {}).get("archived")),
                          # a file made for an application that is over, that nothing still being prepared uses: one to put away
                          "cleanable": purpose != "mine" and not (d.meta or {}).get("archived") and (over or (not d.active and d.id not in held)) and not in_use})
         return rows

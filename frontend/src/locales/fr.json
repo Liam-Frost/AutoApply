@@ -1645,7 +1645,9 @@
       "folders": "Dossiers",
       "notSent": "Non envoyées"
     },
-    "writtenFor": "Rédigé pour :"
+    "writtenFor": "Rédigé pour :",
+    "wentAll": "Les {n}",
+    "wentFewer": "Moins"
   },
   "profile": {
     "notes": "Notes",
