@@ -45,6 +45,8 @@
 | **Keeps a record** | What was entered for every question and where that comes from. Correct an entry or say what to change in plain words ("say I can start in May"), and the agent goes back and changes it. |
 | **Sends it the way you chose** | By itself when nothing is open (the default); only after you have approved the record; or it stops at the last step and gives you the window. Per company if you like. |
 | **Tracks the result** | Reads your mailbox (read-only) for confirmations, rejections and interview invitations and updates each application. |
+| **Keeps the calendar** | Deadlines, interviews, assessments and what an employer asked for, on one calendar - times an employer gives on its own clock converted to yours, dates from the periods mails state, reminders you choose, and a feed for your calendar app. |
+| **Reaches you on your phone** | Cards on Telegram or Discord carry the buttons that deal with them; a reply to a card, or a few words to the bot, does the rest. |
 
 It adapts to who you are: a first-run guide asks your career stage (internship, new graduate, experienced), field and target roles, and sets up filters, scoring rules and the interface accordingly. Not only for software jobs.
 
@@ -100,7 +102,7 @@ An icon appears in the tray (menu bar on macOS) and the page opens at `http://12
 1. **The guide** asks who you are and what you are looking for, then proposes filters and scoring rules you can edit.
 2. **AI service**: sign in with a Claude or ChatGPT subscription, or paste an API key (see below).
 3. **Profile**: upload your résumé; the program drafts your profile from it and marks what forms will ask that the résumé does not say.
-4. **How applications are sent**: by itself, after your approval, or by you (*Settings → Automation → How it is sent*). To watch first, choose approval.
+4. **How applications are sent**: by itself, after your approval, or by you (*Settings → Automation and work plan → How it is submitted*). To watch first, choose approval.
 5. **Try one**: paste a posting's address and watch the agent work it.
 
 After that it works on a schedule: scan, score, apply, and tell you when something needs you (in the page, and on Telegram or Discord if you set one up - where the buttons under a card, a reply to it, or a few words to the bot deal with it from your phone).
@@ -124,7 +126,7 @@ Then open `http://127.0.0.1:8000` on that computer. Everything that is yours is 
 What is different on a server:
 
 - **Windows that need you open in the web page.** Signing in to a site, pressing *Submit* yourself: on a desktop these open a browser window. Without a screen the page is shown in AutoApply's own page - a notice at the top, and a Telegram message with a link if you set that up - and you click and type there. A site that refuses a hidden browser gets a real window on a virtual screen, which is shown the same way.
-- **Use HTTPS from other devices.** The server speaks plain HTTP. For access from anywhere but the computer itself, put a reverse proxy that does HTTPS in front and turn on *a reverse proxy does the HTTPS* under *Settings → System and data → Remote access*. Until then the remote window is refused to other devices, because passwords are typed into it.
+- **Use HTTPS from other devices.** The server speaks plain HTTP. For access from anywhere but the computer itself, put a reverse proxy that does HTTPS in front and turn on *A reverse proxy does the HTTPS* under *Settings → System and data → Remote access (inbound)*. Until then the remote window is refused to other devices, because passwords are typed into it.
 - **Passwords and keys are in an encrypted file**, `data/secrets.bin`, because a server has no keyring. By default its master key is beside it; to keep the key elsewhere set `AUTOAPPLY_MASTER_KEY_FILE` (a Docker secret, a systemd credential). Keep a copy of that key: without it the saved passwords are lost.
 - **A sign-in that cannot be done on a server can be carried over.** Passkeys, and sites that only accept a computer they know: sign in with AutoApply on your own computer, export the sign-in under *Site accounts* (encrypted with a passphrase), import it on the server.
 
@@ -151,8 +153,8 @@ What is worth knowing about it:
 - **One agent, the whole task.** It is given everything at once - the posting, your profile and résumé, your files, what earlier runs on this application did, what is written down about the site - and one set of tools: look at the page, list its controls, click, type, choose, upload, run a script. Nothing prepares the form for it and nothing checks its clicks; it looks before it acts and again after.
 - **The program keeps what must not depend on a model's memory.** Where the application stands, its record, its journal and its budget are in the database and on disk: a run that is cut off - the window closed, the computer restarted - is taken up from there, in a new window if need be.
 - **Three different ways of stopping, three different answers.** The AI service's allowance has run out: the task waits and is tried again when it is back. The application's own budget is used up: you are asked whether to give it another. It ended at the same place three times: it is brought to you with what it wrote down.
-- **What it learns is words.** After working a site the agent writes down what the next application there should know - how a control behaves, what the résumé parser gets wrong - and reads it the next time. Notes about recruiting systems (Workday, Greenhouse, Ashby, SmartRecruiters, SuccessFactors and others) ship with the program. *Analysis → Site notes* shows what it wrote, and lets you clear it.
-- **How forms are filled is in a manual you can edit** (*Settings → System and data → Expert tools → Prompts*): fill optional sections, decline job alerts, what to do with consent notices. A rule about you alone belongs in your profile.
+- **What it learns is words.** After working a site the agent writes down what the next application there should know - how a control behaves, what the résumé parser gets wrong - and reads it the next time. Notes about recruiting systems (Workday, Greenhouse, Ashby, SmartRecruiters, SuccessFactors and others) ship with the program. *Analytics → Site notes* shows what it wrote, and lets you clear it.
+- **How forms are filled is in a manual you can edit** (*Settings → System and data → Expert tools*): fill optional sections, decline job alerts, what to do with consent notices. A rule about you alone belongs in your profile.
 
 ## AI services, backups and allowance
 
@@ -174,7 +176,7 @@ What is worth knowing about it:
 
 **Allowance.** Where a service reports it, the program shows how much is used, warns you once when it passes the level you set (80 % by default), and stops calling a service that is used up until it resets.
 
-The Claude subscription is the best-tested service, and the agent was built and measured with Anthropic's most capable model. Others work through the same interface; a weaker model works a form less reliably, and a whole application is many model calls - on real sites a run has used several million cached tokens. *Analysis → AI cost* shows what each application took.
+The Claude and ChatGPT subscriptions are the services used for real, and the agent was built and measured with Anthropic's most capable model. Others work through the same interface; a weaker model works a form less reliably, and a whole application is many model calls - on real sites a run has used several million cached tokens. *Analytics → AI cost* shows what each application took.
 
 ## Your data
 
@@ -182,7 +184,7 @@ The Claude subscription is the best-tested service, and the agent was built and 
 - Passwords and API keys are in the system keyring - on a server, which has none, in an encrypted file. Saved sign-ins are encrypted.
 - Nothing is sent anywhere except to the AI service you chose and to the job sites themselves - and, once a day unless you switch it off, a look at GitHub's list of releases, which sends nothing about you. There is no telemetry and no account.
 - The page asks for a login - one account, whose name and password you choose the first time you open it on the computer it runs on. Only a salted hash of the password is kept.
-- The server listens on `127.0.0.1` unless you change that under Settings → System and data → Remote access, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
+- The server listens on `127.0.0.1` unless you change that under *Settings → System and data → Remote access (inbound)*, and answers only its own pages: requests from other websites open in your browser are refused. It does not do HTTPS itself; for access from outside your own network, put a reverse proxy that does in front of it.
 - *Settings → System and data → Backup and updates → Export all data* writes one zip; `uv run autoapply restore <file.zip>` brings it back on another computer.
 
 ## What earlier versions got wrong, and what changed
@@ -220,11 +222,11 @@ Honest status, kept in [docs/STATUS.md](docs/STATUS.md). In short:
 | The UBC co-op portal (a sign-in, read by the agent) | read for real by the scheduled scans: 186 new postings stored since 2026-11-19; 8 applications sent through it by the agent |
 | The login, the listening address and the path prefix | login run end to end on a scratch copy; access from another device or behind a real reverse proxy not run |
 | Windows installer (install, upgrade, refusing to run over a running copy, cancel with the previous version put back, uninstall) | run end to end into a scratch folder, by CI on every release |
-| Failover between AI services | run once for real, when a subscription had actually run out |
+| Failover between AI services | used for real: when the ChatGPT subscription was rate-limited, the Claude subscription went on - also in the middle of application runs |
 | macOS and Linux packages | built, installed and started by CI on every release; not used day to day by the author |
 | The ChatGPT subscription | used for real beside the Claude subscription: of the 34 runs that sent an application, 8 used Claude, 6 ChatGPT and 20 both |
 | Other AI services | interface tested; application quality not compared |
-| English interface | machine-translated, not proof-read |
+| English and French interface | written with an AI's help, not proof-read by a native speaker |
 
 ## Development
 
@@ -255,7 +257,7 @@ and regenerates the files) and published by its tag; the release workflow then r
 installs and starts each one on Windows, macOS and Linux, and only then publishes the release. How, step by step:
 [docs/release-workflow.md](docs/release-workflow.md).
 
-Contributions that add one entry to a list (an employer, a job board, a sign-in provider, a mailbox, a region pack, a translation) need no knowledge of the whole program: see [CONTRIBUTING.md](CONTRIBUTING.md). The interface follows [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
+Contributions that add one entry to a list (an employer, a job board, a sign-in provider, a mailbox, a region pack, a translation) need no knowledge of the whole program: see [CONTRIBUTING.md](CONTRIBUTING.md). The interface is built from the shared components in [docs/component-guidelines.md](docs/component-guidelines.md), worded by [docs/ux-writing-glossary.md](docs/ux-writing-glossary.md).
 
 ## Community
 
