@@ -1,0 +1,112 @@
+{
+  "version": "2.0.0",
+  "date": "2026-11-21",
+  "title": {
+    "en": "One agent works each application",
+    "zh": "由一个 Agent 完成整份申请",
+    "fr": "Un agent mène chaque candidature"
+  },
+  "intro": "2.0 changes how an application is worked. One AI agent takes it from the posting to the confirmation, with everything the program knows in front of it and ordinary browser tools in its hands. The pipeline around the model that 1.x had grown - a driver per recruiting system, a form read into a structure before anything was filled, an AI \"take-over\" for pages that would not fill, a gate on what it could press, recipes and plugins learned from runs, a self-check replaying saved pages - is removed, not kept as a fallback. The README says why.",
+  "fragments": [
+    {
+      "id": "2026-11-21-one-agent-b881",
+      "sha256": "c321035fc45b055a813f10b6289a98e31533bbc83595c054bd271cbc076fe732"
+    },
+    {
+      "id": "2026-11-21-how-sent-setting-863a",
+      "sha256": "c97ec2c0281b05aacdae9ba5feffe7ecebfd9ddbc986957d9aca23f6403f1deb"
+    },
+    {
+      "id": "2026-11-21-speak-to-agent-737e",
+      "sha256": "f3c574e922e3105069a3601c55ea66468f682cf2f09d16a091fdcad2365a5700"
+    },
+    {
+      "id": "2026-11-21-several-at-once-cb41",
+      "sha256": "bcedbe870aee3e607bab4c8c6d75bbf410aa9f10456d577f8d71baf7cfb8e527"
+    },
+    {
+      "id": "2026-11-21-run-taken-up-again-15f1",
+      "sha256": "388f0566e55994ceee13875bfe041ef50bbc898ea8f98fa1b63153d857b580cf"
+    },
+    {
+      "id": "2026-11-21-reply-written-d216",
+      "sha256": "875f1dc1cf4b6aef6269dcba9d2fdbf991c2a8764250bff48a322aa681fc4bce"
+    },
+    {
+      "id": "2026-11-21-record-and-answers-2078",
+      "sha256": "58fcd50d08af346fe0033232baeb99d69d83d46f13217dc09f1e80d5899438fc"
+    },
+    {
+      "id": "2026-11-21-fixed-rules-limits-7994",
+      "sha256": "3377f3080e1d2179d77df66896ca0624a8af90801794be861a4ff1a8eb7ac804"
+    },
+    {
+      "id": "2026-11-21-agent-browser-fd84",
+      "sha256": "b7c1ff350c11e51cadda4612894bb2d66c0d20bf481f305b894df0b8a5caadca"
+    },
+    {
+      "id": "2026-11-21-files-by-agent-afe5",
+      "sha256": "d838b18d6a9a7e8e28e5e46745ede4f739042f099429a7bcb71337b5b9672037"
+    },
+    {
+      "id": "2026-11-21-what-only-you-give-f9a2",
+      "sha256": "bd91b9a1d583126d48afbbf4950ea26ddc526d20a1386dda2fd4aac41dae639f"
+    },
+    {
+      "id": "2026-11-21-navigation-1968",
+      "sha256": "4f535fc26880141e65fb8ea0bdab662960e7e578bc8288293ec668ca15dcaede"
+    },
+    {
+      "id": "2026-11-21-mail-by-agent-82a2",
+      "sha256": "59657f94c3ca3a72b0ea2deb22006a63ba6881b50eae9ae87fb75f044d87e8e1"
+    },
+    {
+      "id": "2026-11-21-analytics-time-steps-e4a1",
+      "sha256": "18dfa25795aa0a98db81dc37d584a49a89927fb55a03a14198cf07c689920b83"
+    },
+    {
+      "id": "2026-11-21-ai-effort-prices-83a9",
+      "sha256": "68fa25853835391940f63d28168faa5c10d365626e1b7f564ab7c40f89382ad0"
+    },
+    {
+      "id": "2026-11-21-postings-by-agent-62fd",
+      "sha256": "5d1e517dc1cb25e40f840f8296e167834df796f31b4bdd340f74b96681d4f27a"
+    },
+    {
+      "id": "2026-11-21-replace-while-running-79bd",
+      "sha256": "63889618d8202f6cd80ee0d83e94cb82652cf54e3e0209da8f3721ee8d4b41cf"
+    },
+    {
+      "id": "2026-11-21-site-notes-manual-f1ae",
+      "sha256": "d86102bddf408ddc15bf2f17877083064154261ccf42bca14e1d17e2fd941d94"
+    },
+    {
+      "id": "2026-11-21-profile-from-resume-b047",
+      "sha256": "e99f3fd1a28cc788dce175493eee9d45765165a7f9d0af3857438e382b628693"
+    },
+    {
+      "id": "2026-11-21-pipeline-removed-691b",
+      "sha256": "235ddee31e0bb68e5566b49ec257a377d79bdc64bad77513548ec2e84340df78"
+    },
+    {
+      "id": "2026-11-21-runs-time-cli-797b",
+      "sha256": "ecd534f9f2e6886fad078a35d118f02d237518be4f82dcbb07dacafed0a6d362"
+    },
+    {
+      "id": "2026-11-21-mail-sent-once-2f64",
+      "sha256": "8908cee6b917009d06e238262eaf453afd6989b58de7a72f64cd20443fddd5cc"
+    },
+    {
+      "id": "2026-11-21-record-listed-once-56c2",
+      "sha256": "3f21e8560f06d50c198e6dbfb79fcbf89f9b4644d538f503a7db1200a482a69a"
+    },
+    {
+      "id": "2026-11-21-signin-password-668f",
+      "sha256": "596c0a8f5ce2328df7655a8cc29ab248b940e8686857164d3de484f693397369"
+    },
+    {
+      "id": "2026-11-21-empty-profile-waits-077f",
+      "sha256": "6aa5175cd7f3855d194dfe4bf8e24bd0ae20c84f82122151157a3c98570ce602"
+    }
+  ]
+}

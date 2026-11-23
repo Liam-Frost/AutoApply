@@ -1,8 +1,12 @@
 # Push a version tag (v1.2.3) and a release is built, checked and published:
-#   the tests run, every package is built and installed for real on its own system (the CI workflow),
-#   and only if all of that passes a GitHub release is created with the packages and their checksums.
+#   the release data is checked, the tests run, every package is built and installed for real on its own system (the
+#   CI workflow), and only if all of that passes a GitHub release is created with the packages and their checksums.
 #
-#   git tag v1.2.3 && git push origin v1.2.3        (the tag must match the version in pyproject.toml)
+#   python scripts/release.py publish 1.2.3        (checks everything and prints the two commands below)
+#   git tag -a v1.2.3 -m "AutoApply 1.2.3" && git push origin v1.2.3
+#
+# The tag must match the version in pyproject.toml, and changes/releases/1.2.3.json must exist (made by
+# `python scripts/release.py prepare`); the notes are that release's (`release.py notes`). docs/release-workflow.md.
 name: Release
 
 on:
@@ -15,16 +19,23 @@ permissions:
 
 jobs:
   check:
-    name: Tag matches the version
+    name: Tag matches the version; the release data is valid
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
       - run: |
           version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
             exit 1
           fi
+      - name: The release has a manifest, the data is valid, the generated files are up to date
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "changes/releases/$version.json" || { echo "::error::no changes/releases/$version.json: a release is made with python scripts/release.py prepare"; exit 1; }
+          uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/release.py validate --release "$version"
+          uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/release.py generate --check
 
   build:
     needs: check
@@ -36,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
       - uses: actions/download-artifact@v8
         with:
           path: packages
@@ -48,8 +60,9 @@ jobs:
           cat SHA256SUMS.txt
           cd ..
           version="${GITHUB_REF_NAME#v}"
-          # the section of CHANGELOG.md for this version, up to the next version heading
-          awk -v v="$version" '$0 ~ "^## \\[?" v "\\]?" { on = 1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
+          # this release's notes, from its manifest and fragments (the same text as its section of CHANGELOG.md)
+          uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/release.py notes "$version" > notes.md
+          test -s notes.md
           {
             echo
             echo "## Downloads"

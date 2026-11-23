@@ -1,0 +1,63 @@
+{
+  "version": "1.0.1",
+  "date": "2026-11-15",
+  "title": {
+    "en": "Analysis and what the AI costs",
+    "zh": "数据分析与 AI 成本",
+    "fr": "L’analyse et le coût de l’IA"
+  },
+  "fragments": [
+    {
+      "id": "2026-11-15-analytics-three-views-2f19",
+      "sha256": "2d7b41809e9ae2cf0289d9f999a461965a1b283050caea2196f61ae63df8db35"
+    },
+    {
+      "id": "2026-11-15-ai-requests-recorded-9031",
+      "sha256": "f8e22b8d0436e4f15c8501fe30d4d88a7abe31fe13813f6a800c8301ad08ecda"
+    },
+    {
+      "id": "2026-11-15-server-refuses-other-sites-e70c",
+      "sha256": "a8920992f59bd9f63bfba49d8c150b0c6eaa95c10731abfd31afe7acfb1dd366"
+    },
+    {
+      "id": "2026-11-15-forms-walked-by-screen-a51f",
+      "sha256": "d6a1aecc36ac255df047bdf4216d1347e8922452488847ad3719ac7e811d82df"
+    },
+    {
+      "id": "2026-11-15-status-history-kept-c8d7",
+      "sha256": "62f72ebe7c6dc0d383e4b77212e8a69d7b907a4e0011ce845761c3312df91394"
+    },
+    {
+      "id": "2026-11-15-security-hardening-81df",
+      "sha256": "ea2cc5699c96eb91159bb35ee80972fe2409e2d9dcf20c6ac53bd74abb8fd938"
+    },
+    {
+      "id": "2026-11-15-takeover-answers-9626",
+      "sha256": "66e8d0e1fe82f42bd194bd61f391f2862371a444f9a54f67e1659fb36f2f2a09"
+    },
+    {
+      "id": "2026-11-15-filling-details-ba45",
+      "sha256": "4649e886292aceb6aa5890b5a1ae16ee814cebfd181f489f445178aac034a42a"
+    },
+    {
+      "id": "2026-11-15-your-submission-noticed-010a",
+      "sha256": "abd2056c26ebd5d7efb014f1af631fe920a0bb0c14d01dbf00788a6a0b4350b4"
+    },
+    {
+      "id": "2026-11-15-questions-asked-once-6066",
+      "sha256": "90d4d72abce950d600372fee1d570165d8d0b101a983b6531b5a373bda1b5c59"
+    },
+    {
+      "id": "2026-11-15-forms-read-to-end-a7a9",
+      "sha256": "90b366a6f6fd063a9340a0604a4708321cead30c6e0149d3d2c5ce164df24f38"
+    },
+    {
+      "id": "2026-11-15-repository-bec8",
+      "sha256": "4d1382a6d430cc07d1dbf6579ad15e8e66d7b4f6ecb751988d8525296eacf160"
+    },
+    {
+      "id": "2026-11-15-shell-scripts-executable-b2ff",
+      "sha256": "5e07815e67bbba533f5d71a70d305bad805084ac8b1043cbee8dc3f4b157d8c9"
+    }
+  ]
+}

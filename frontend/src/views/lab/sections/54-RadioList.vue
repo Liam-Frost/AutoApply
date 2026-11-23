@@ -1,13 +1,16 @@
 <script setup>
-// Lab: the compact list of radios - hints beside the words while there is room and under them in a narrow box, an
-// option that cannot be chosen, a whole list disabled, a legend for a screen reader only. The update modes are the
-// program's own words; the rest is made up.
+// Lab: the compact list of radios - hints beside the words while there is room and under them in a narrow box, options
+// that cannot be chosen with the reason in place of their hint, a whole list disabled, a legend for a screen reader
+// only. The update modes are the program's own words; the rest is made up.
 import { computed, ref } from 'vue'
 import { t as T } from '../../../i18n/catalog'
 import RadioList from '../../../components/RadioList.vue'
 
 const mode = ref('notify')
 const MODES = computed(() => ['off', 'notify', 'download', 'auto'].map((value) => ({ value, label: T('about.mode.' + value), hint: T('about.mode.' + value + 'How') })))
+// (a checkout: downloading and switching by itself need an installed copy - updatestate.js policy.modes)
+const here = ref('notify')
+const CHECKOUT = computed(() => MODES.value.map((o) => (o.value === 'download' || o.value === 'auto' ? { ...o, disabled: true, reason: T('about.mode.needsInstall') } : o)))
 const size = ref('m')
 const SIZES = [{ value: 's', label: 'Small' }, { value: 'm', label: 'Medium', hint: 'The usual one' }, { value: 'l', label: 'Large', hint: 'Not for this box', disabled: true }]
 const plain = ref(2)
@@ -16,10 +19,13 @@ const PLAIN = [{ value: 1, label: 'One' }, { value: 2, label: 'Two' }, { value: 
 
 <template>
   <p class="lab-note">Native radios: Tab comes to the chosen one, the arrows move and choose. Chosen: <b data-t="rl-mode">{{ mode }}</b></p>
-  <div class="lab-box" data-rl="wide" style="max-width: 760px; margin-bottom: 12px"><RadioList v-model="mode" name="lab-rl-mode" :label="$t('about.byItself')" :options="MODES" /></div>
+  <div class="lab-box" data-rl="wide" style="max-width: 760px; margin-bottom: 12px"><RadioList v-model="mode" name="lab-rl-mode" :label="$t('about.policy')" :options="MODES" /></div>
 
   <p class="lab-note">The same in a box of 320px: a hint that does not fit beside its words goes under them</p>
-  <div class="lab-box" data-rl="narrow" style="width: 320px; max-width: 100%; margin-bottom: 12px"><RadioList v-model="mode" name="lab-rl-narrow" :label="$t('about.byItself')" :options="MODES" /></div>
+  <div class="lab-box" data-rl="narrow" style="width: 320px; max-width: 100%; margin-bottom: 12px"><RadioList v-model="mode" name="lab-rl-narrow" :label="$t('about.policy')" :options="MODES" /></div>
+
+  <p class="lab-note">A checkout's modes: two cannot be chosen, and say why where their hint was. Chosen: <b data-t="rl-here">{{ here }}</b></p>
+  <div class="lab-box" data-rl="reason" style="max-width: 760px; margin-bottom: 12px"><RadioList v-model="here" name="lab-rl-here" :label="$t('about.policy')" :options="CHECKOUT" /></div>
 
   <p class="lab-note">An option that cannot be chosen ("Large"); numbers as values; a whole list disabled; a legend for a screen reader only. Chosen: <b data-t="rl-size">{{ size }}</b> · <b>{{ plain }}</b></p>
   <div class="lab-row" style="align-items: flex-start">

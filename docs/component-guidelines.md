@@ -474,9 +474,9 @@ A choice among several: `RadioList` / `.seg`.
 ## RadioList (`RadioList.vue`)
 
 ```html
-<RadioList v-model="mode" name="update-mode" :label="$t('about.byItself')" :options="[
+<RadioList v-model="mode" name="update-mode" :label="$t('about.policy')" :options="[
   { value: 'off', label: $t('about.mode.off'), hint: $t('about.mode.offHow') },
-  { value: 'auto', label: $t('about.mode.auto'), hint: $t('about.mode.autoHow'), disabled: true },
+  { value: 'auto', label: $t('about.mode.auto'), hint: $t('about.mode.autoHow'), disabled: true, reason: $t('about.mode.needsInstall') },
 ]" @change="save" />
 ```
 
@@ -485,12 +485,17 @@ A choice of one among a few, as a compact list of native radios - not cards. A `
 option's words in body text and, muted, its `hint` on the same line while it fits, under the words otherwise (a flex
 row that wraps - nothing is measured). In a hint that wraps, the radio stands by the first line.
 
-Props: `modelValue`, `options` (`{ value, label, hint?, disabled? }`; values may be strings, numbers or booleans),
-`label` (required: the legend and the group's accessible name), `name` (the radios' name, made up when not given),
-`disabled` (the whole list), `hideLabel` (the legend for a screen reader only, when a title right above already says
-it). Emits `update:modelValue` and `change` (the new value) - only on a real change. Each radio is named by its label
-(`aria-labelledby`) and described by its hint (`aria-describedby`), so a screen reader does not read the hint as part of
-the name.
+Props: `modelValue`, `options` (`{ value, label, hint?, disabled?, reason? }`; values may be strings, numbers or
+booleans), `label` (required: the legend and the group's accessible name), `name` (the radios' name, made up when not
+given), `disabled` (the whole list), `hideLabel` (the legend for a screen reader only, when a title right above already
+says it). Emits `update:modelValue` and `change` (the new value) - only on a real change. Each radio is named by its
+label (`aria-labelledby`) and described by its hint (`aria-describedby`), so a screen reader does not read the hint as
+part of the name.
+
+An option that cannot be chosen (`disabled`) is drawn muted and passed over by the keyboard; when it has a `reason`
+(a few words: "Needs an installed copy") that is said **in place of its hint** (`.rl-hint.rl-reason`) and is what the
+radio is described by - the person sees why, not an explanation of something they cannot pick. Without a `reason` the
+hint stays. A list where every option the person could want is disabled is the wrong control: say why once instead.
 
 Keyboard: native - Tab comes to the chosen radio (or the first when none is), the arrow keys move and choose, Space
 chooses; a disabled option is passed over by the browser.
@@ -499,8 +504,9 @@ When: three to six options a person compares by their one-line explanations (an 
 without explanations are a `ToggleSwitch` or a `.seg`; a long list or one that needs searching is an `AaSelect` /
 `Combobox`. Never big cards for this.
 
-Styles: `styles/controls.css`, with the other controls.
-Lab: `/ui-lab?only=RadioList`.
+Styles: `styles/controls.css`, with the other controls (the reason uses the hint's class: nothing of its own).
+Lab: `/ui-lab?only=RadioList` (`views/lab/sections/54-RadioList.vue`: wide, in 320px, a checkout's update modes with
+two disabled and their reason, a disabled option without one, numbers, a whole list disabled, a hidden legend).
 
 ## SettingRow (`SettingRow.vue`)
 
@@ -545,57 +551,113 @@ times, a switch, a text field - wide, and in a box of 480px).
 
 ## The about overview (`views/AboutView.vue`, `views/about/Overview*.vue`, `Update*.vue`, `styles/about.css`)
 
-One column - nothing on it stands side by side, so no part is left half empty beside a taller one:
+```
+[logo] AutoApply
+       v2.0.0 · Running from source (i)
+[Source code] [Releases] [Report an issue] [License]
+
+┌ Software update ─────────────────────────────── [New version available] ┐
+│ ┌──────────────────────────────────────────────────────────────────────┐ │
+│ │     Current version          →          Latest version               │ │
+│ │          2.0.0                               2.0.2                   │ │
+│ │                                         Released Nov 22              │ │
+│ └──────────────────────────────────────────────────────────────────────┘ │
+│ Last checked  Today 13:27                                                │
+│ [Check for updates] [What's new in 2.0.2]                                │
+│ This copy runs from source and is updated by hand.  See the steps        │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Update policy            Notify only                          [Change]   │
+│ Channel                  Stable releases                                  │
+├──────────────────────────────────────────────────────────────────────────┤
+│ › Advanced                                                               │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**One column of reading width**: `.about-overview` is at most **880px**, at the page's left; the rest of a wide window
+is the page's margin (no card wider than the column, nothing stretched to fill it). The only two things side by side
+are the two versions, which hold the same (a name, a number, a line) and are as tall as each other.
 
 1. **The head** (`OverviewHead.vue`), a compact block without a card: the mark (`logo-mark.svg`, 48px, on
-   `--logo-tile`), then "AutoApply" and the version that runs on one line (`--fs-xl`; a build of one's own reads
-   "2.0.2 (local build, Nov 23)", its folder's name beside it as secondary monospace text), how this copy runs under it
-   (a `Status` with its (i)), and the project's links - Source code · Releases · Report an issue · License, from
-   `update.repo` - as one quiet row under that (`--fs-sm`, `--text-2`, parted by dots). No paragraphs.
-2. **"Software update"**, one card (`UpdateSection.vue`) across the content's width. Its parts stand one under the
-   other, each after a rule across the whole card; none has a heading of its own except "Advanced":
-   1. *The state and its actions* (`UpdateStatus.vue`): the state's words with its dot (or a spinner while something
-      goes on; a progress bar while fetching / preparing), its one line (an error, the percentage, what preparing or a
-      switch does), a notice (a check that failed beside a known state), then the facts as a `dl` in SettingRow's two
-      columns (running, latest release - with "What's new in X" -, prepared, switching to / next start, switch when idle,
-      previous release, last checked), then the actions the state allows, right under them (the main one last and
-      primary; an (i) on how a switch works when a switch or roll-back is offered). A copy run from source or in a
-      container gets "Check now" alone and one line "This copy runs from source and is updated by hand." with
-      **Show the command** (it opens Advanced and goes to the commands) - never a button that pretends to update it. A
-      copy started by hand with a prepared release says that the switch needs the tray app.
-   2. *The update settings* (`UpdateSettings.vue`), `SettingRow`s: Automatic updates (`RadioList`; under the name the
-      one-line privacy statement - "Checking only asks GitHub for its list of releases; nothing about you is sent" - kept
-      visible where the choice is made; under the list, for a checkout or a container, that downloading and switching by
-      itself need an installed copy, those two options disabled), Channel (`AaSelect`), and only for "Update
-      automatically" the switch window (two `input type="time"` in a group, "This computer's clock" under the name).
-      Each change is saved at once (`PUT /settings`) and said ("Saved"); the component only emits `save(key, value)`.
-   3. *Advanced* (`UpdateAdvanced.vue`), a controlled disclosure: a `button` with `aria-expanded` / `aria-controls`,
-      closed on every load - the page holds its state (a refresh, or the Changelog tab and back, closes it; it is not
-      in the address). In it, one under the other: **Manual update** (a checkout or a container only: where to run it,
-      the commands in a `pre` with a copy button - a checkout: `git pull`, `uv sync --inexact`,
-      `npm --prefix frontend install`, `npm --prefix frontend run build`, then start it again; a container:
-      `docker compose pull`, `docker compose up -d`), **How updates work** (what is sent where, how a switch works,
-      what idle means), **Runtime details** (Python, system, how it runs, the data folder with a copy button, the commit
-      or the release folder, the same two columns) and **Copy diagnostics** (with its (i)).
-   Text keeps a reading width (`72ch`); no fixed heights, no stretching, nothing to fill a gap.
-3. Narrow: under 640px of card the facts, the runtime details and the settings put their names above their values.
+   `--logo-tile`; the one logo of the block) and "AutoApply" (`--fs-xl`, semibold); under the name one line, `--fs-sm`:
+   the version that runs ("v2.0.0", `about.vVersion`; a build of one's own "v2.0.2 (local build, Nov 23)" - its folder's
+   name is under Advanced, never here) · how this copy runs, with an (i) saying what that means for updates
+   (`about.kindTip.*`). Under both, the project's links from `update.repo` - Source code, Releases, Report an issue,
+   License - as a row of `a.btn.sm` (a `nav` named "Project links"), wrapping on a phone. No paragraphs.
+2. **"Software update"**, one card (`UpdateSection.vue`, `section.card.up-sec` named by its title), its parts one
+   under the other, each after a rule across the whole card:
+   1. *The state* (`UpdateStatus.vue`) - the card's centre:
+      - the head: `CardHead` "Software update" with the state as a **badge** at its end (`.tag` of the state's tone:
+        "Up to date" ok, "New version available" info, "Ready to switch" ok, "Switching" warn, "… failed" bad, "Not
+        checked yet" neutral; a spinner before it while something goes on; `role="status"`, so a change is said). For a
+        copy that does not update itself the badge says what the look found.
+      - **the two versions** (`.up-cmp`, on `--surface-2`, `--r-md`): "Current version" and the version that runs, and
+        the release the state is about - "Latest version", "Prepared" (ready, a failed switch) or "Switching to" -
+        each centred in its half, the number at `--fs-2xl`, a line under it ("Released Nov 22" - GitHub's day, known
+        for the newest out; "Local build, Nov 23"; a "Pre-release" tag). An arrow (`forward`, primary) between them
+        and the right number in the primary colour only when it is ahead (or a switch is under way); "None found"
+        when the channel has no release, "—" before the first check. Downloading / preparing: a progress bar (and the
+        percentage) across the panel under them.
+      - under the panel: the state's one line (an error in `--bad`, what preparing or a switch does) and a notice (a
+        failed check beside a known state, `--warn`); then the other facts on one quiet wrapping line (`dl.up-more`:
+        a newer release than the one prepared, next start (i), switch when idle (i), previous release, last checked) -
+        a fact the two versions already show is not repeated.
+      - **the actions** the state allows (`model.actions`), the main one last and `primary`, with **What's new in X**
+        (`a.btn` / `RouterLink.btn`) right after the check - a link to X's entry in this copy's changelog, else to its
+        release page; the (i) on how a switch works stays with the last action when the row wraps. A copy run from source
+        or in a container gets **Check for updates** and **What's new** only, and one line "This copy runs from source and
+        is updated by hand." with **See the steps** - a `Popover` (`UpdateSteps.vue`: where to run them, the commands in a
+        `pre` with a copy button) - never a button that pretends to install or switch. A copy started by hand with a
+        prepared release says that the switch needs the tray app.
+   2. *The update settings* (`UpdateSettings.vue`), **a summary first**: `dl.up-sum` in SettingRow's two columns
+      (one column under 640px of it) - **Update policy** "Notify only" with **Change** (`button.sm`, named "Change update
+      policy") at the row's end, **Channel** "Stable releases", and for "Update automatically" only **Automatic switch
+      window** "03:00 – 05:00". **Change** puts a compact editor in the summary's place (a `form`, `SettingRow`s): the
+      modes as a `RadioList` (the privacy line "Checking only asks GitHub for its list of releases; nothing about you is
+      sent" under the name, visible where the choice is made; the modes this copy cannot use disabled with the reason -
+      a checkout or a container: "Needs an installed copy" on Download automatically and Update automatically), as soon
+      as "Download automatically" or "Update automatically" is chosen a `.callout.warn` under the list saying what it
+      does by itself (downloads and installs into the data folder, network and disk; restarts into a new version
+      without asking, in the window, when idle; a copy started by hand: the switch needs the tray app), the channel
+      (`AaSelect`), and the switch window (two `input type="time"` in a group, "This computer's clock.") only while
+      "Update automatically" is chosen; **Cancel** and **Save** (primary) at its end. Nothing is saved before Save; Save
+      sends only what changed, in one `PUT /api/settings` (`update.mode`, `update.channel`, `update.window` - the window
+      only with the automatic mode and only whole), the page shows the new values at once and says "Saved", then reads
+      the state again; a refused save keeps the editor open with the error said. Cancel and Escape close it unchanged.
+      The focus goes to the chosen mode when it opens and back to **Change** when it closes.
+   3. *Advanced* (`UpdateAdvanced.vue`), a controlled disclosure (`button` with `aria-expanded` / `aria-controls`),
+      closed on every load - the page holds its state (a refresh, or the Changelog tab and back, closes it; it is not in
+      the address). In it, one under the other: **Runtime details** (Python, system, how it runs, the data folder with a
+      copy button, the commit or the release folder with its build day, in SettingRow's two columns) with **Copy
+      diagnostics** (and its (i)); **Manual update** (a checkout or a container: `UpdateSteps`, as See the steps shows
+      it); **How updates work** (what is sent where, how a switch works, what idle means).
+   Text keeps a reading width (`72ch`); no fixed heights, nothing stretched to fill a gap.
+3. Narrow (the card under 480px): the versions' panel takes less padding; their lines wrap evenly (`text-wrap:
+   balance`). Under 640px of their box the summary, the editor's rows and the runtime details put their names above
+   their values.
 
 What the page does (`AboutView.vue`): reads `/about` and `/system/update`, asks again every 2 s (3 s while switching)
-while something goes on by itself, does the actions (check, prepare, switch / roll back after `ask`), saves the settings,
+while something goes on by itself, does the actions (check, prepare, switch / roll back after `ask`), saves the update
+settings (`savePolicy(changes)`: one `PUT /settings`, the state patched at once, then read again; truthy once saved),
 and - only when a newer version is known - reads `/about/changelog` once to know which versions this copy's changelog
 has (for "What's new"). The tabs are in the path (`/about`, `/about/changelog`, `/about/licenses`).
 
-Lab: `/ui-lab?only=UpdateStates` - the whole card for a state chosen from a select (its settings changes are said, not
-saved), and the state part of every state.
+Components: `UpdateSection` (`model`, `about`, `status`, `changelog`, `save`; emits `act`), `UpdateStatus` (`model`,
+`changelog`; emits `act`), `UpdateSettings` (`policy`, `kind`, `save` - a function `(changes) => truthy once saved`,
+so the editor stays open when the save is refused), `UpdateAdvanced` (`v-model:open`, `about`, `status`),
+`UpdateSteps` (`kind`: `source` | `container`).
+
+Lab: `/ui-lab?only=UpdateStates` - the whole card in the page's 880px column for a state chosen from a select (its
+settings are said, not saved; the editor works), and the state part of every state - the demo runs from source, so
+the managed states (download, prepare, switch, roll back, the window) are seen there.
 
 ## The update state model (`src/updatestate.js`)
 
 The about page's updates follow one pure function, `updateState(status, { checking })`, over what
 `GET /api/system/update` (`updates.status()`) says. It returns `{ id, found, tone, kind, target, progress, error,
-notice, how, facts, actions, notes, follow, policy }`; the page only turns ids into words (`about.state.*`,
-`about.fact.*`, `ERRORS[code].key`). Tested in `frontend/tests/update-state.test.js`; every state is in the lab
-(`/ui-lab?only=UpdateStates`, `views/lab/sections/56-UpdateStates.vue`, drawn with the page's own `UpdateSection` and
-`UpdateStatus`) - the demo runs from source, so the managed states are only seen there.
+notice, how, facts, compare, actions, notes, follow, policy }`; the page only turns ids into words (`about.state.*` - a
+short phrase, the badge -, `about.fact.*`, `ERRORS[code].key`). Tested in `frontend/tests/update-state.test.js`; every
+state is in the lab (`/ui-lab?only=UpdateStates`, `views/lab/sections/56-UpdateStates.vue`, drawn with the page's own
+`UpdateSection` and `UpdateStatus`) - the demo runs from source, so the managed states are only seen there.
 
 | `id` | When | Actions offered (the main one last, `primary`) |
 | --- | --- | --- |
@@ -621,12 +683,22 @@ says the failure beside it (`notice`).
 Facts (`facts`, in this order, each only when known): running (a local build with its day), latest release (its day,
 pre-release), prepared, switching to / next start (`data/run/next-release`), switch when idle (asked from a
 notification), previous release, last checked. `policy`: mode, channel, window (shown only for `auto`), and which modes
-a copy can use (a checkout or a container: off and notify).
+a copy can use (`modes: [{ value, disabled, reason }]` - a checkout or a container: off and notify; `reason: 'install'`
+on the two it cannot use, which the page says as "Needs an installed copy").
+
+Presentation (`compare`, nothing the state depends on): the two versions the overview sets side by side -
+`from` (the running fact: `{ version, release }`, the release only for a build of one's own), `to` (`{ id, release,
+known }`: `switching` while a switch is under way, `staged` when ready or after a failed switch, else `latest` - the
+newest out, `null` when none is known; `known`: a check has said something), `moves` (the right one is ahead, or a
+switch is under way: the arrow), and `others` (the facts said beside them, without the running one, the one on the
+right, or another naming the same release).
 
 Names: a release is never shown by its folder name. `releaseText(rel, t, day)` reads `{ name, version, date, local }`
 (from `updates.release()`): "2.0.3", or "2.0.2 (local build, Nov 22)" for a folder put there by hand. An action names
 the version alone unless it is the version that runs (`actionTarget`): "Roll back to 2.0.2 (local build, Nov 22)" when
-2.0.2 runs, "Switch to 2.0.3" otherwise. The folder's name is secondary text (monospace, muted) beside the fact.
+2.0.2 runs, "Switch to 2.0.3" otherwise. Under a number in the overview a release says its day: "Released Nov 22" for
+the newest out (GitHub's `published`; a release fetched here borrows it when it is that version - its own `date` is the
+day it was unpacked), "Local build, Nov 22" for a folder put there by hand.
 
 Server fields added for it (`updates.status()`; nothing removed or changed): `staged_release`, `previous_release`,
 `build` + `build_release` (the folder of data/releases this copy runs from), `switching_to` + `switching_release`,
@@ -643,79 +715,85 @@ usually the release page.
 
 ```html
 <ChangelogTab :version="about.version" />                         <!-- the about page's Changelog tab: reads /api/about/changelog itself -->
-<ChangelogTab :data="{ current, versions }" :address="false" />   <!-- the lab: made-up versions, the open one kept to itself -->
+<ChangelogTab :data="{ current, versions }" :address="false" />   <!-- the lab: made-up versions, no deep link read -->
 ```
 
-Every release of `CHANGELOG.md` on one vertical line, newest first, one row each - not the file as markdown, not a
-card per release, and nothing open until it is asked for. Props: `version` (the running version; default: `current`
-from the server), `data` (`{ current, versions }` in place of the request - the lab only), `address` (default `true`:
-the open version is kept in the address as `?v=`). Emits nothing.
+Every release on one vertical line, newest first, one row each - not a markdown file, not a card per release, and
+nothing open until it is asked for. Props: `version` (the running version; default: `current` from the server), `data`
+(`{ current, versions }` in place of the request - the lab only), `address` (default `true`: a deep link `?v=` opens
+its version once). Emits nothing.
 
-**The data** (`GET /api/about/changelog` -> `{ current, repo, versions }`, `backend/autoapply/changelog.py`
-`versions()`, cached by the mtime of `CHANGELOG.md` and of `highlights.json`), newest first, one entry per `## [x]`:
+**The data** (`GET /api/about/changelog` -> `{ current, repo, versions }`; `backend/autoapply/changelog.py`
+`versions()`). The adapter of the release model (docs/release-architecture.md) - no parsing of CHANGELOG.md, no
+highlights.json, nothing from the network:
 
-- *The full notes*, as written in CHANGELOG.md and never cut: `{ version: "2.0.2" | "Unreleased", date:
-  "2026-11-22" | "", unreleased, summary, sections: [{ kind, title, items, text }], url }`. `kind` is `added | changed
-  | fixed | security | removed | deprecated | breaking | known | other` (Keep a Changelog headings, case-insensitive;
-  "Known limits/issues" is `known`; any other heading is `other` with its `title`). `items` is the markdown of each
-  bullet, sub-bullets on lines of their own; `text` a section's paragraphs. Nothing is made up: no date or link where
-  the file has none; an empty section or an empty `[Unreleased]` is left out.
-- *The release's name and highlights* (added): `title` (`{ en, zh, fr }`, or `{}`) and `highlights` (`[{ kind,
-  title: { en, zh, fr }, text?: { en, zh, fr } }]`), written by hand in `backend/autoapply/highlights.json` (packaged)
-  for every version with content, Unreleased included: 3-6 highlights each, kinds `added | changed | fixed | security
-  | removed | known` - `tests/test_changelog.py` fails when a version of CHANGELOG.md has no entry, an entry names a
-  version the changelog does not have, or a language is missing. A release adds its entry there with its notes.
-- *The fallback*, for a version without an entry (a release before the file is updated): `title: {}` and the bold
-  lead of each bullet (`**Calendar** (sidebar) …` -> "Calendar"), with its section's kind, taken in turns from added,
-  changed, fixed, security, breaking, removed, deprecated, known, other (so one long section does not fill them all),
-  at most 6, English only, each `derived: true`. Never a cut of the text, never a summary made at request time.
+- *Released versions*: `backend/autoapply/releases.json` (generated by `python scripts/release.py generate` from
+  `changes/`, tracked and shipped), read once per change of the file (mtime and size), passed on as written plus
+  `unreleased: false`, in the file's order (newest first). A missing or unreadable file gives no releases (said in the
+  log), never an error for the page.
+- *Unreleased*: `autoapply.release.pending_entry()` - the pending change fragments of a source checkout - imported
+  lazily and guarded: missing, failing or with nothing pending, there is no Unreleased entry (a release package never
+  has one). When there is one it comes first, `unreleased: true`.
+- Each version: `{ version, date, title: { en, zh?, fr? }, intro, known_limits: [md], url, changes: [{ id, type, scope,
+  summary: { en, zh?, fr? }, details: md, highlight }], unreleased }`. `type` is `added | changed | deprecated |
+  removed | fixed | security`; `changes` are in the release's (manifest) order. Summaries are one line, written in every
+  language at development time; intro, details and known limits are English. The pending entry has `title: {}`,
+  `date: ""`, `url: ""`.
 
 **How it looks.** A grid per row: the date (month and day; the year is the label above its run) | the line with the
-version's node | `v2.0.2` | its short title (muted, one line, cut with the whole in a tooltip) and the tags `Latest`
-(the newest release, `.tag`) and `Current` (the running version, `.tag.info`) | the chevron at the right edge. The
-date, node and chevron columns are fixed (`--cl-date`, `--cl-rail`, `--cl-chev`), so nodes and chevrons stand in
-one line whatever the words; titles start at one place. Rows are `--h-lg`; no counts, summary or bullets in a row.
-Nodes: hollow = closed, filled = open, `--primary` with a halo = the running version. The rows take the content width;
-what opens under them is held to 72ch. Under 560px of box the columns get narrower; nothing moves under anything else.
+version's node | `v2.0.2` | its title in the interface language (muted, one line, cut with the whole in a tooltip) and
+the tags `Latest` (the newest release, `.tag`) and `Current` (the running version, `.tag.info`) | the chevron at the
+right edge. The date, node and chevron columns are fixed (`--cl-date`, `--cl-rail`, `--cl-chev`), so nodes and
+chevrons stand in one line whatever the words; titles start at one place. Rows are `--h-lg`; no counts, summaries or
+index in a row. Nodes: hollow = closed, filled = open, `--primary` with a halo = the running version. What opens under a
+row is held to 72ch. Under 560px of box the columns get narrower; nothing moves under anything else.
 
-- **Opened**: the highlights by kind (a light label with the kind's dot, `changelog.js TONE`; the kinds in the order
-  the release names them), each a title and, under it, its muted sentence; inline markdown (code, emphasis) rendered
-  by md.js. A derived set says "Taken from the release notes." Then *View the full release notes* (`button.sm`) and the
-  version's GitHub link ("Code changes" for a compare page, "Release page" for a release, the long form in a tooltip).
-- **The full notes** (`ChangelogNotes.vue`): a `SideDrawer` titled "Release notes 2.0.2" with the date - the summary
-  and every section rendered by md.js as before (a standard kind's heading in the interface's language, an `other`
-  heading as written), the GitHub link at the top, `lang="en"` on the notes. In zh / fr one muted line says the notes
-  are written in English; they are not translated.
-- **Unreleased changes**: a block of its own above the line - a dashed edge, no node, no date - with its title and a
-  chevron; part of the same accordion (`?v=Unreleased`), opened like a version.
+- **English fallback**: a title or summary without the interface language is shown in English with `lang="en"` and a
+  quiet `.cl-en` mark after it ("英文" / "anglais"; never shown in English).
+- **Opened**: at most six changes (`changelog.js SHOWN`) - the release's highlights first, then the rest, each in
+  release order (`pick`) - grouped by type in the order added, changed, deprecated, removed, fixed, security
+  (`byType`; a light label with the type's dot, `TONE`), one summary a line (inline markdown rendered by md.js). Then
+  *View the full release notes* (`button.sm`, `aria-haspopup="dialog"`), "n more in the full notes" when there are
+  more, and the release page on GitHub. A version with no change says "No changes are recorded for this version."
+- **The full notes** (`ChangelogNotes.vue`): a `SideDrawer` titled "Release notes 2.0.2" with the date - the intro
+  (md), a section per type (heading with its dot and a rule), each change its summary in bold (interface language,
+  English fallback marked) and its details (md, `lang="en"`), then *Known limits* (md list); the release page link at
+  the top. In zh / fr one muted line says the details are written in English. Everything comes from the data already
+  loaded: it works offline (only the link needs the network). Never cut.
+- **Unreleased changes**: a block of its own above the line - a dashed edge, no node, no date - labelled "Unreleased
+  changes"; part of the same accordion, closed on entry like the rest, opened like a version.
 
-**The accordion.** One version open at most (`open` = a version or null, in the component). When the tab opens every
-version is closed - the newest and the running one too. A press on a row (the whole row is a `button.cl-row`,
-`aria-expanded`, `aria-controls` the panel's slot) opens it and closes the one that was open; a press on the open one
-closes it; the focus stays on the row, and the row is scrolled back into view if the one above it closing moved it
-away. The open version is written into the address with `router.replace` (`/about/changelog?v=2.0.2`; closing removes
-`v`; the rest of the query is kept): a refresh keeps it, a link opens it and scrolls to it (the focus is not moved),
-back / forward follow it, another tab and back is all closed. An address naming a version the file does not have says
-so (`.callout.warn`) and opens nothing. Not native `details`. The panel grows with a `--dur` height transition (a grid
-row 0fr -> 1fr); under `prefers-reduced-motion` it is there at once.
+**The accordion.** One version open at most (`open` = a version or null, in the component). On entry every version is
+closed - the newest, the running one and Unreleased too. A press on a row (the whole row is a `button.cl-row`,
+`aria-expanded` = what is open, `aria-controls` its panel's slot) opens it and closes the one that was open; a press
+on the open one closes it (`toggled`); the focus stays on the row, and the page follows when the one above closing
+would move it. **A press does not write the address.** Not native `details`. The panel grows with a `--dur` height
+transition (a grid row 0fr -> 1fr); under `prefers-reduced-motion` it is there at once.
 
-**Finding.** One search (every word, without case or accents, over the highlights in the interface language and in
-English and over the full notes - items, section titles, summaries; a version number shows that version's highlights;
-a release title with the words shows its highlights when none match by themselves; the words found are marked, in the
-drawer too) and one type filter: a `Menu` from a "Type" button listing *All types* and every kind the changelog has,
-each with how many versions it leaves under the search (none: disabled); the chosen one is checked and shown as one
-removable chip (`.fchip.lg`, its × named "Remove filter: Fixed"). While filtering, the count of versions stands by the
-search (`role="status"`); versions with a match stay - a match in the highlights or only in the full notes. An opened
-version shows only its matching highlights and "n more in the full notes" (or "n matches in the full notes") beside the
-drawer button. Nothing found: `EmptyState` with *Clear filters*. **A search or a type never opens or closes anything**;
-there is no "Expand all", no list of versions beside the line and no jump select - a deep link is the way to a version.
+**Deep link.** `/about/changelog?v=2.0.2` (the overview's "What's new in X", a link from elsewhere; `v2.0.2` and
+`unreleased` work too) opens that version once it is loaded, scrolls it into view (the focus is not moved), and takes
+`v` out of the address at once with `router.replace` (the rest of the query kept) - `arrival()` in changelog.js. So a
+refresh, back to it, or another tab and back show everything closed; a link followed while the tab is open works the
+same. A version the changelog does not have opens nothing and says so (`.callout.warn`, until the next press).
 
-**Keyboard.** Tab: the search, the Type button (ArrowDown / Enter opens the menu: arrows, Enter, Escape), the chip's
-×, then each row (Enter / Space open and close it) and, in the open one, *View the full release notes* and the link.
-The drawer holds the focus and gives it back to its button; Escape closes it.
+**Finding.** One search (every word, without case or accents, over the summaries in the interface language and in
+English, the details, release titles, intros and known limits; a version number shows that version's changes; a title
+with the words shows its changes when none match by themselves; the words found are marked, in the drawer too) and one
+type filter: a `Menu` from a "Type" button listing *All types* and every type the changelog has, each with how many
+changes of it there are under the search (none: disabled); the chosen one is checked and shown as one removable chip
+(`.fchip.lg`, its × named "Remove filter: Fixed"). While filtering, the count of versions stands by the search
+(`role="status"`); an opened version shows its matching changes (at most six, highlights first) and "n more in the
+full notes" (or, when only the intro or a known limit matches, "n matches in the full notes"). Nothing found:
+`EmptyState` with *Clear filters*. **A search or a type never opens or closes anything**; no "Expand all", no list of
+versions beside the line, no jump select - a deep link is the way to a version.
 
-**When to use.** For CHANGELOG.md and highlights.json only. "What's new in X" elsewhere (the overview) links to
-`/about/changelog?v=X`; release notes fetched from GitHub for an update that is not installed are the overview's.
+**Keyboard.** Tab: the search, the Type button (ArrowDown / Enter opens the menu: arrows, Enter, Escape), the chip's ×,
+then each row (Enter / Space open and close it) and, in the open one, *View the full release notes* and the link. The
+drawer holds the focus and gives it back to its button; Escape closes it.
+
+**When to use.** For the release model's data only (releases.json and the pending fragments). "What's new in X"
+elsewhere links to `/about/changelog?v=X`; release notes fetched from GitHub for an update that is not installed are
+the overview's.
 
 ## Licences (`views/about/LicensesTab.vue`, `backend/autoapply/licenses.py`)
 

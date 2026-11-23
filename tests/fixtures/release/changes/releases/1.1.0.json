@@ -1,0 +1,29 @@
+{
+  "version": "1.1.0",
+  "date": "2026-02-05",
+  "title": {
+    "en": "A calendar feed",
+    "zh": "日历订阅",
+    "fr": "Un flux de calendrier"
+  },
+  "intro": "",
+  "known_limits": [
+    "The feed is read-only.",
+    "A whole-day item has no time:\n\n- it is reminded of in the morning."
+  ],
+  "fragments": [
+    {
+      "id": "2026-02-01-calendar-feed-5e6f",
+      "sha256": "9825b0b611777f2c8a2b75e62b2451b4c2f67a9aebff08a2bf6820725629323c"
+    },
+    {
+      "id": "2026-02-03-old-export-9c0d",
+      "sha256": "5d5615f2c2b24e9e6d0ad0045b4104594b099a2f3f2660570af13a6093283cd0"
+    },
+    {
+      "id": "2026-02-02-quiet-hours-clock-7a8b",
+      "sha256": "fec807f5dbdc704089c9ce8badf0782198ab7d08f15aebf5363bc4d0ce33660f"
+    }
+  ],
+  "corrections": []
+}

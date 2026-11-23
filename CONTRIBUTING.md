@@ -21,6 +21,7 @@ You need [Node.js](https://nodejs.org/) 20 or newer to build the interface. `cd 
 - Open a pull request against `master`. Changes are merged by squash, so one pull request becomes one commit; its title
   is the commit message.
 - CI runs the tests and then builds every package and installs it on Windows, macOS and Linux. It has to pass.
+- A change users will notice comes with a change fragment (see [Release notes](#release-notes) below).
 - Say what you ran the change against. "Unit tests" and "a real form, not submitted" are both fine; they are not the same.
 - Keep personal data out: no real names, e-mail addresses or application records in code, tests, screenshots or logs.
   `scripts/demo.py` has fictional data for screenshots.
@@ -178,6 +179,28 @@ spends your AI allowance) and say what it gave: a run is judged by what the empl
 the agent says. A shape of form the agent got wrong on a real site and that none of these has belongs here as a new
 form: `eval/forms/<name>.html`, its posting in `eval/server.py`, what a careful person would have got right in
 `eval/run.py`.
+
+## Release notes
+
+Every user-visible change is one small file in `changes/fragments/`, written in the same pull request as the change:
+
+```bash
+python scripts/release.py change --type fixed --scope calendar --summary-en "Quiet hours follow your time zone" \
+  --summary-zh "免打扰时段按你的时区计算" --details "What a user notices, in Markdown."
+python scripts/release.py validate
+```
+
+- **Type** is what kind of change (`added`, `changed`, `deprecated`, `removed`, `fixed`, `security`); **scope** is
+  which part of the product (the list is in `changes/schema/fragment.schema.json`). The summary is one line a user
+  understands, in English; Chinese and French are welcome and fall back to English when missing.
+- Refactoring, tests, CI and contributor docs need no fragment: tick *No user-visible change* in the pull request.
+- `CHANGELOG.md` and `backend/autoapply/releases.json` are generated from `changes/` - never edit them. Released
+  fragments change only through `release.py correct`.
+- Releases are made by the maintainer with `release.py prepare` and `release.py publish`.
+
+When a change needs one, the types and scopes, translations, preparing and publishing a release, troubleshooting:
+[docs/release-workflow.md](docs/release-workflow.md). The design: [docs/release-architecture.md](docs/release-architecture.md).
+Coding agents also follow [AGENTS.md](AGENTS.md).
 
 ## Reporting what was verified
 

@@ -1,0 +1,75 @@
+{
+  "version": "1.0.2",
+  "date": "2026-11-15",
+  "title": {
+    "en": "Multi-step forms read by the agent",
+    "zh": "多步表单交由 Agent 读取",
+    "fr": "Formulaires en plusieurs étapes lus par l’agent"
+  },
+  "fragments": [
+    {
+      "id": "2026-11-15-agent-reads-forms-3a6e",
+      "sha256": "3ccab517fbc0e75a2e0bcc972cad7bb6a9161ea361598f57580cd4be1a166ece"
+    },
+    {
+      "id": "2026-11-15-approved-drafts-submitted-d758",
+      "sha256": "c1c74656d3ef9063de01ddc62a661c9c23e9f26ba58659f9008ba2ba6737f49b"
+    },
+    {
+      "id": "2026-11-15-form-read-asked-once-d25b",
+      "sha256": "2917282d85295bc44fcbd0cda3c2be68b5327e2dba5895c19c6e564e80fd1aaa"
+    },
+    {
+      "id": "2026-11-15-workday-signin-forms-b2e6",
+      "sha256": "8a2a41e6db8f1c0774d2dfca6fb98350a8e5528b98f8a36c6dbbf51f7e168fb6"
+    },
+    {
+      "id": "2026-11-15-interface-route-path-b9e4",
+      "sha256": "7c7f34a5a0f8065696a5cffcda6969d20eb9fc0094c04e9163952057df039fe5"
+    },
+    {
+      "id": "2026-11-15-site-plan-ea69",
+      "sha256": "b9c590158aee5e587fe7c5eb8c88e4762f8ea048920a0aa489102a0b7726c309"
+    },
+    {
+      "id": "2026-11-15-happens-by-itself-b44d",
+      "sha256": "3b40a5aa66a500d2021d1da5be60418cceaf5c9665c2c9b9259046239c33f396"
+    },
+    {
+      "id": "2026-11-15-agent-attaches-documents-d9bf",
+      "sha256": "8c9e24346aab9677dd1d82414b3519468c608d00d5872f55d794808b1252d162"
+    },
+    {
+      "id": "2026-11-15-sent-leaves-nothing-waiting-1423",
+      "sha256": "16d029347e396539c020c280850e8834b568501da66f35e4e437c2c516d442a7"
+    },
+    {
+      "id": "2026-11-15-form-reading-filling-ac7d",
+      "sha256": "b72c112c040dedb0bf00a7e082dfc60c393686203c3d27a80f2cbbba1957237f"
+    },
+    {
+      "id": "2026-11-15-signin-fixes-5f83",
+      "sha256": "2c38c0eb9c4f9c9eab18830349bc2c262f0885e657d6dfb1f3a2e48f4d7cbf33"
+    },
+    {
+      "id": "2026-11-15-account-sections-links-e6d4",
+      "sha256": "32dce45d137841cfc6664c130774cbf4542b86f0208a1c68678ac58d9e0b7f88"
+    },
+    {
+      "id": "2026-11-15-resume-rewording-0d31",
+      "sha256": "aa82ce89239ce721f06ad57ed2bdfafad3352fe5f63788ed105af9137ad886e8"
+    },
+    {
+      "id": "2026-11-15-self-check-acts-61f6",
+      "sha256": "5b0229c6e949126a2fd706004f18dc4ca1eea915354f26dd10b93123076d9ed3"
+    },
+    {
+      "id": "2026-11-15-chatgpt-cost-922c",
+      "sha256": "8a82dde2c53d9009e7c29727ef26d96d239b1b117638ab1e4d4ec36521da48a0"
+    },
+    {
+      "id": "2026-11-15-pages-batch-ranges-bc2b",
+      "sha256": "c8a08190af161c5d13efef2cf6c6a5e6598fcc3f6b15d07cd73d128a0a956a3f"
+    }
+  ]
+}

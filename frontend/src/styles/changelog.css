@@ -6,7 +6,7 @@
    and tags | chevron. The columns of the date, the line and the chevron are fixed, so the nodes stand in one line and
    the chevrons in another whatever the words; the title takes what is left and is cut. The line is drawn by each row
    (a version, a year's label) for its own height, from the first year's mark to the last node. An opened version's
-   highlights stand under its number, held to a reading width. */
+   changes stand under its number, held to a reading width. */
 .cl { container: cl / inline-size; --cl-date: 64px; --cl-rail: 24px; --cl-node: 10px; --cl-head: var(--h-lg); --cl-num: 5.25em; --cl-chev: var(--h-md);
   --cl-text: calc(var(--cl-date) + var(--cl-rail)); }
 
@@ -19,7 +19,7 @@
 .cl-chip { flex: none; }
 .cl-missing { align-items: center; }
 
-/* the tone of a kind: a dot beside its words */
+/* the tone of a type of change: a dot beside its words */
 .cl-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
 .cl-dot.tone-info { background: var(--info); } .cl-dot.tone-ok { background: var(--ok); }
 .cl-dot.tone-warn { background: var(--warn); } .cl-dot.tone-bad { background: var(--bad); }
@@ -72,7 +72,7 @@
 .cl-open-enter-from, .cl-open-leave-to { grid-template-rows: 0fr; opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .cl-open-enter-active, .cl-open-leave-active, .cl-chev { transition: none; } }
 
-/* its highlights: by kind, a light label each; a title and, under it, its sentence */
+/* its changes (at most six): by type, a light label each; one summary a line */
 .cl-panel { margin-left: var(--cl-text); max-width: 72ch; padding: var(--s1) var(--cl-chev) var(--s4) 0; }
 .cl-group-k + .cl-group-k { margin-top: var(--s3); }
 .cl-kind { display: flex; align-items: center; gap: 6px; margin: 0 0 var(--s1); font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--text-2); letter-spacing: 0; }
@@ -80,9 +80,11 @@
 .cl-hl > li { position: relative; margin: 0 0 6px; padding-left: 15px; line-height: 1.45; }
 .cl-hl > li:last-child { margin-bottom: 0; }
 .cl-hl > li::before { content: ''; position: absolute; left: 2px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong); }
-.cl-hl-title { display: block; font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); }
-.cl-hl-text { display: block; font-size: var(--fs-sm); color: var(--text-2); }
-.cl-derived { margin: var(--s2) 0 0; font-size: var(--fs-xs); color: var(--text-3); }
+.cl-hl-title { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); }
+.cl-note { margin: var(--s2) 0 0; font-size: var(--fs-xs); color: var(--text-3); }
+/* a text shown in English because it has no translation yet: a quiet mark after it, in the words of the interface */
+.cl-en { display: inline-block; flex: none; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: var(--fw-regular); line-height: 16px; color: var(--text-3); vertical-align: 1px; white-space: nowrap; }
+.cl-mid > .cl-en { margin-left: calc(6px - var(--s2)); }      /* (in a row: beside its title, the tags' gap after it) */
 .cl-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-top: var(--s3); }
 .cl-more { font-size: var(--fs-sm); color: var(--text-2); }
 .cl-link { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: var(--fs-sm); white-space: nowrap; }
@@ -90,19 +92,26 @@
 .cl mark, .cl-notes mark { background: var(--warn-soft); color: inherit; border-radius: 2px; padding: 0 1px; }
 .cl-hl code, .cl-notes .md code { word-break: normal; overflow-wrap: anywhere; }
 
-/* the full notes, in the drawer: readable lines, not the width of the drawer */
+/* the full notes, in the drawer: readable lines, not the width of the drawer. The intro, then a section per type -
+   each change its summary in bold and its details under it - then the known limits */
 .cl-notes-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); margin: 0 0 var(--s4); }
-.cl-notes-top > .cl-derived { margin: 0; }
+.cl-notes-top > .cl-note { margin: 0; }
 .cl-notes { max-width: 78ch; }
 .cl-summary { color: var(--text-2); margin-bottom: var(--s2); }
 .cl-sec + .cl-sec, .cl-summary + .cl-sec { margin-top: var(--s4); }
-.cl-sec-head { margin: 0 0 var(--s2); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); }
-.cl-text { color: var(--text-2); margin-bottom: var(--s2); }
+.cl-sec-head { display: flex; align-items: center; gap: 6px; margin: 0 0 var(--s2); padding-bottom: var(--s1); border-bottom: 1px solid var(--border); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text-2); }
 .cl-items { list-style: none; margin: 0; padding: 0; }
-.cl-item { position: relative; margin: 0 0 var(--s2); padding-left: 16px; line-height: 1.6; }
+.cl-item { position: relative; margin: 0 0 var(--s3); padding-left: 16px; line-height: 1.6; }
+.cl-item:last-child { margin-bottom: 0; }
 .cl-item::before { content: ''; position: absolute; left: 3px; top: 0.72em; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
+.cl-changes > .cl-item { padding-left: 0; }      /* (a change starts with its summary in bold: no bullet; the known limits keep theirs) */
+.cl-changes > .cl-item::before { content: none; }
 .cl-item > p { margin: 0; }
-.cl-item a, .cl-summary a, .cl-text a { word-break: normal; overflow-wrap: anywhere; }
+.cl-item-sum > strong { font-weight: var(--fw-semibold); color: var(--text); }
+.cl-item-details { margin-top: 2px; color: var(--text-2); }
+.cl-item-details > :first-child { margin-top: 0; }
+.cl-item-details > :last-child { margin-bottom: 0; }
+.cl-item a, .cl-summary a { word-break: normal; overflow-wrap: anywhere; }
 
 /* a narrow box: the columns get narrower, nothing moves under anything else */
 @container cl (max-width: 560px) {

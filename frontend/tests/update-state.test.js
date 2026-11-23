@@ -218,6 +218,50 @@ describe('what is shown besides', () => {
   })
 })
 
+describe('the two versions the overview sets side by side (presentation)', () => {
+  const cmp = (more, opts) => updateState(status(more), opts).compare
+  const side = (c) => [c.from.version, c.to.id, c.to.release && c.to.release.version, c.moves, c.to.known]
+  it('not checked yet: what runs, and nothing known on the right, no arrow', () => {
+    expect(side(cmp({}))).toEqual(['2.0.2', 'latest', null, false, false])
+    expect(cmp({}).others).toEqual([])
+  })
+  it('up to date: the newest out is what runs - no arrow; "none found" when the channel has none', () => {
+    expect(side(cmp(checked))).toEqual(['2.0.2', 'latest', '2.0.2', false, true])
+    expect(side(cmp({ checked_at: '2026-11-23T10:00' }))).toEqual(['2.0.2', 'latest', null, false, true])
+  })
+  it('a newer release, a checkout too: current -> latest, the latest not repeated among the other facts', () => {
+    for (const kind of ['managed', 'source', 'container']) {
+      const c = cmp({ kind, ...newer })
+      expect(side(c)).toEqual(['2.0.2', 'latest', '2.0.3', true, true])
+      expect(c.others.map((f) => f.id)).toEqual(['checked'])
+    }
+  })
+  it('downloading and preparing are about the newest out', () => {
+    expect(side(cmp({ ...newer, status: 'downloading', progress: 5 }))).toEqual(['2.0.2', 'latest', '2.0.3', true, true])
+  })
+  it('ready: current -> prepared; a still newer release stays among the other facts', () => {
+    expect(side(cmp(ready))).toEqual(['2.0.2', 'staged', '2.0.3', true, true])
+    const c = cmp({ ...ready, latest: '2.0.4' })
+    expect(c.others.map((f) => f.id)).toEqual(['latest', 'checked'])
+    const failed = cmp({ ...ready, status: 'failed', error: 'did-not-start' })
+    expect(failed.to.id).toBe('staged')
+  })
+  it('switching: current -> the release it restarts into (a roll-back too), the same release not said twice', () => {
+    const c = cmp({ ...ready, switching_to: '2.0.3', switching_release: rel('2.0.3', '2.0.3') })
+    expect(side(c)).toEqual(['2.0.2', 'switching', '2.0.3', true, true])
+    expect(c.others.map((f) => f.id)).toEqual(['checked'])
+    expect(cmp({ ...checked, switching_to: '2.0.1', switching_release: rel('2.0.1', '2.0.1') }).moves).toBe(true)
+  })
+  it('a build of one\'s own runs: its release beside the version', () => {
+    const c = cmp({ ...checked, build: '2026-11-23-mine', build_release: rel('2026-11-23-mine', '2.0.2', '2026-11-23') })
+    expect(c.from).toMatchObject({ version: '2.0.2', release: { local: true, date: '2026-11-23' } })
+  })
+  it('the modes a copy cannot use say why', () => {
+    expect(updateState(status({ kind: 'source' })).policy.modes.map((m) => m.reason)).toEqual(['', '', 'install', 'install'])
+    expect(updateState(status()).policy.modes.every((m) => !m.disabled && !m.reason)).toBe(true)
+  })
+})
+
 describe('"What\'s new in X" on the overview: a link, never the notes', () => {
   const notes = updateState(status(newer)).notes
   it("this copy's own changelog has that version (a checkout that is behind): its entry in the changelog", () => {

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Liam-Frost/AutoApply/blob/master/changes/schema/fragment.schema.json",
+  "title": "Change fragment",
+  "description": "The YAML front matter of a change fragment (changes/fragments/<id>.md). The Markdown after the front matter is the change's details. This file is the one source of the lists of types and scopes: scripts/release.py and autoapply.release read them from here. See docs/release-workflow.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "type", "scope", "summary"],
+  "properties": {
+    "id": {
+      "description": "The file name without .md: the date the fragment was written, a slug of 1-5 words, 4 random hex digits. Made by `python scripts/release.py change`.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{4}$"
+    },
+    "type": {
+      "description": "What kind of change it is. The release notes have one section per type, in this order.",
+      "enum": ["added", "changed", "deprecated", "removed", "fixed", "security"]
+    },
+    "scope": {
+      "description": "Which part of the product it is about. Independent of the type.",
+      "enum": [
+        "postings",
+        "applications",
+        "agent",
+        "mail",
+        "calendar",
+        "notifications",
+        "profile",
+        "files",
+        "accounts",
+        "analytics",
+        "ai",
+        "settings",
+        "updates",
+        "ui",
+        "i18n",
+        "packages",
+        "server",
+        "release"
+      ]
+    },
+    "summary": {
+      "description": "One line saying what a user notices. English is required; Simplified Chinese (zh) and French (fr) are optional and fall back to English.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en"],
+      "properties": {
+        "en": { "$ref": "#/$defs/line", "maxLength": 120 },
+        "zh": { "$ref": "#/$defs/line" },
+        "fr": { "$ref": "#/$defs/line" }
+      }
+    },
+    "highlight": {
+      "description": "One of the release's main changes: shown first when the release is opened (at most 6 per release).",
+      "type": "boolean",
+      "default": false
+    },
+    "bump": {
+      "description": "The version impact when it is more than the default patch. Independent of the type.",
+      "enum": ["major", "minor", "patch"]
+    },
+    "pr": {
+      "description": "The pull request(s) of the change.",
+      "anyOf": [
+        { "$ref": "#/$defs/pr" },
+        { "type": "array", "items": { "$ref": "#/$defs/pr" }, "minItems": 1, "uniqueItems": true }
+      ]
+    }
+  },
+  "$defs": {
+    "line": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\r\\n]*$"
+    },
+    "pr": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

@@ -710,6 +710,7 @@ def test_the_about_overview_is_one_column_with_one_update_section_and_advanced_f
 def test_the_changelog_opens_folded_one_release_at_a_time_and_keeps_the_full_notes(site):
     data = site.api("/api/about/changelog")
     released = [v for v in data["versions"] if not v["unreleased"]]
+    assert len(released) >= 7, "the release data (backend/autoapply/releases.json) is missing"
     page = site.go("/about")
     tab = page.locator("main [role=tab][data-tab=overview]")
     tab.focus()
@@ -725,33 +726,38 @@ def test_the_changelog_opens_folded_one_release_at_a_time_and_keeps_the_full_not
     line = page.locator("main .cl-line").bounding_box()
     main = page.locator("main.content").bounding_box()
     assert line["width"] > 0.8 * (main["width"] - 64), (line, main)
-    # one at a time: opening another closes the first; the open one is in the address
+    # one at a time; a press does not write the address
     rows.nth(1).click()
-    page.wait_for_url("**v=" + released[1]["version"])
-    assert len(page.evaluate(OPEN_ROWS)) == 1 and page.locator("main .cl-panel").count() == 1
+    page.wait_for_function("() => document.querySelectorAll('main .cl-row[aria-expanded=true]').length === 1")
+    assert "v=" not in page.url and page.locator("main .cl-panel").count() == 1
     rows.nth(0).click()
-    page.wait_for_url("**v=" + released[0]["version"])
-    opened = page.evaluate(OPEN_ROWS)
-    assert len(opened) == 1 and page.locator("main .cl-ver.open .cl-num").inner_text().strip().endswith(released[0]["version"])
-    panel = page.locator("main .cl-panel")
-    assert 3 <= panel.locator(".cl-hl > li").count() <= 6      # the curated highlights, not the notes
+    page.wait_for_function("() => document.querySelector('main .cl-ver.open .cl-num') !== null")
+    assert len(page.evaluate(OPEN_ROWS)) == 1 and page.locator("main .cl-ver.open .cl-num").inner_text().strip().endswith(released[0]["version"])
+    items = page.locator("main .cl-panel .cl-hl > li").count()
+    assert 1 <= items <= 6 and items <= len(released[0]["changes"])      # the summaries of the main changes, not the notes
+    shown = page.locator("main .cl-panel").inner_text()
+    assert not any(c["details"][:60] in shown for c in released[0]["changes"] if len(c["details"]) > 60)
     rows.nth(0).click()
-    page.wait_for_function("() => !location.search.includes('v=')")
-    assert page.evaluate(OPEN_ROWS) == []
+    page.wait_for_function("() => document.querySelectorAll('main .cl-row[aria-expanded=true]').length === 0")
     # a search opens nothing
     page.locator("main input.search").fill("calendar")
     page.wait_for_timeout(300)
     assert page.evaluate(OPEN_ROWS) == [] and page.locator("main .cl-ver").count() >= 1
     page.locator("main input.search").fill("")
-    # a link to a release opens it, and only it; its full notes are all there, as written
+    # a link to a release opens it once - the address forgets it - and its full notes hold every change's details
     oldest = released[-1]
     page = site.go("/about/changelog?v=" + oldest["version"], reload=True)
     page.wait_for_function("() => document.querySelectorAll('main .cl-row[aria-expanded=true]').length === 1")
+    page.wait_for_function("() => !location.search.includes('v=')")
     page.locator("main .cl-panel button[aria-haspopup=dialog]").click()
-    drawer = page.locator(".drawer, [role=dialog]").last
+    drawer = page.locator("[role=dialog]").last
     drawer.wait_for()
-    first_item = oldest["sections"][0]["items"][0]
-    words = first_item.split("\n")[0].replace("**", "").replace("*", "")[:40]
-    assert words in drawer.inner_text(), words
+    text = drawer.inner_text()
+    for c in oldest["changes"]:
+        assert c["summary"]["en"][:40] in text, c["id"]
+        first = c["details"].split("\n")[0].lstrip("-*+ ").replace("**", "").replace("*", "").replace("`", "").strip()[:40]      # (a list item's words, as drawn)
+        assert not first or first in text, (c["id"], first)
     page.keyboard.press("Escape")
+    page = site.go("/about/changelog", reload=True)      # a refresh: everything folded again
+    assert page.evaluate(OPEN_ROWS) == []
     site.go("/about")      # (the next test starts where a person would)

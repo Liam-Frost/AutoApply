@@ -22,8 +22,8 @@ const name = ref('Made-up name')
   <div v-for="w in ['wide', 'narrow']" :key="w" class="lab-box" :data-sr="w" :style="w === 'narrow' ? 'width: 480px; max-width: 100%; margin-top: 12px' : 'max-width: 900px'">
     <p v-if="w === 'narrow'" class="lab-note">A box of 480px: the name above its control</p>
     <div style="display: grid; row-gap: 16px">
-      <SettingRow v-slot="{ labelId, descId }" :label="$t('about.byItself')" :description="$t('about.privacyShort')">
-        <RadioList v-model="mode" :name="'lab-sr-mode-' + w" :label="$t('about.byItself')" hide-label :aria-labelledby="labelId" :aria-describedby="descId" :options="MODES" />
+      <SettingRow v-slot="{ labelId, descId }" :label="$t('about.policy')" :description="$t('about.privacyShort')">
+        <RadioList v-model="mode" :name="'lab-sr-mode-' + w" :label="$t('about.policy')" hide-label :aria-labelledby="labelId" :aria-describedby="descId" :options="MODES" />
       </SettingRow>
       <SettingRow :label="$t('about.channel')" :for="'lab-sr-channel-' + w" help="A made-up sentence of help behind the (i).">
         <AaSelect :id="'lab-sr-channel-' + w" v-model="channel"><option value="stable">{{ $t('about.stable') }}</option><option value="beta">{{ $t('about.beta') }}</option></AaSelect>

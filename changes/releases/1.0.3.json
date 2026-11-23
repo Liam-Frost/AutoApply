@@ -1,0 +1,43 @@
+{
+  "version": "1.0.3",
+  "date": "2026-11-16",
+  "title": {
+    "en": "A login and access settings",
+    "zh": "登录与访问设置",
+    "fr": "Une connexion et des réglages d’accès"
+  },
+  "fragments": [
+    {
+      "id": "2026-11-16-login-b0d5",
+      "sha256": "5cff7c46479641d9e9164633368e330c1ff89cebac5589ff58032fcc5ec3d915"
+    },
+    {
+      "id": "2026-11-16-access-security-settings-569a",
+      "sha256": "9d8bb778e9d218966920093267750c2beb6ec0e3f1dd87abd679d85a5df5dc03"
+    },
+    {
+      "id": "2026-11-16-mail-matched-on-site-781d",
+      "sha256": "e334d2af14d89bd8066c3eef97d33d5906d5edf54df76453df6402458039055c"
+    },
+    {
+      "id": "2026-11-16-interface-file-list-f1cc",
+      "sha256": "5c088bf7b97b96e86fe68deff3d1d6af8401079f6075316ec6e4452dbb9237c0"
+    },
+    {
+      "id": "2026-11-16-nodriver-backend-eac3",
+      "sha256": "ec8df00f46fe32ab5afd2e4d64b52ffb62a6ec80957911fe504997dc5dd909c7"
+    },
+    {
+      "id": "2026-11-16-workday-listings-polite-64f1",
+      "sha256": "dcafbb06e8dab9cca5ef970f7ecfcb828de83c9c62663ab8e955a8456176cb0d"
+    },
+    {
+      "id": "2026-11-16-no-console-windows-d0d2",
+      "sha256": "a0ddf180337722e9754f3d9565a6e48a275d928cfcf41209270f17061d5dbca5"
+    },
+    {
+      "id": "2026-11-16-searched-picklists-460d",
+      "sha256": "21a97680cfdaad66fe0284e4e11a43cda5f1ed0dc5ec414ec8c65d84aa918410"
+    }
+  ]
+}

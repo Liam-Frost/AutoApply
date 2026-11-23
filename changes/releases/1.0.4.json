@@ -1,0 +1,135 @@
+{
+  "version": "1.0.4",
+  "date": "2026-11-18",
+  "title": {
+    "en": "To-dos with dates, quiet hours, a server mode",
+    "zh": "带日期的待办、静默时段与服务器部署",
+    "fr": "Tâches datées, heures calmes, mode serveur"
+  },
+  "fragments": [
+    {
+      "id": "2026-11-18-mail-todo-with-date-636b",
+      "sha256": "ebd44f043e926b3249158c94aa38609ec5df3ab96c17b2f94948f89abccdbb5c"
+    },
+    {
+      "id": "2026-11-18-remind-later-quiet-hours-e5d5",
+      "sha256": "b7a54f0e5e307f5e2b236d1518e3811341182151195581711b25ad3bc657ac78"
+    },
+    {
+      "id": "2026-11-18-my-applications-c4b3",
+      "sha256": "d91aef6a7865325160b4873fe3eacc2327128071a96a4de79e9af56e2f85f54b"
+    },
+    {
+      "id": "2026-11-18-server-mode-2080",
+      "sha256": "a43d2b15215a76ec11cc46ce57c3b9b92dd5d98f60929a57c1a3cb7dbd8cbf50"
+    },
+    {
+      "id": "2026-11-18-settings-grouped-78ee",
+      "sha256": "3fc9d4327065ca827bf2886e32ce557e5b57fdccebb3b5379a68a563a3085859"
+    },
+    {
+      "id": "2026-11-18-windows-installer-42b3",
+      "sha256": "af339fc500735a7d57bd0ee399d557d791061a73c41a152806a85869bd4b23fe"
+    },
+    {
+      "id": "2026-11-18-run-time-recording-c5ed",
+      "sha256": "6c3b3174b10ca9f54ea2bf1ff0e1346e624bc65f92b659f0399d4767945cc291"
+    },
+    {
+      "id": "2026-11-18-browser-contract-541e",
+      "sha256": "357e7ee9851d28f4d35bbe1bd014cb57b97d847ac407e5f1146da7efb2a88e0f"
+    },
+    {
+      "id": "2026-11-18-learns-from-runs-5dc6",
+      "sha256": "01e76e6813a231ed26950d0b2354fb5a3d3eac8da0a64e73176ac6e00f279c7c"
+    },
+    {
+      "id": "2026-11-18-source-yield-f7ce",
+      "sha256": "241e6c7f5614aed18a6e1eca031ba5eb685a075c76515ce181025eaf58c5cf60"
+    },
+    {
+      "id": "2026-11-18-settings-overview-410e",
+      "sha256": "986b159ddcea208ae128b714f6f588fbf12d10ad47004ff4ce3daaf4e7112655"
+    },
+    {
+      "id": "2026-11-18-work-plan-4daa",
+      "sha256": "3e45d01480df72ad3012b89d9927cb279c6f59399a5b79b79bd652a8acc50563"
+    },
+    {
+      "id": "2026-11-18-clearer-pages-fcd6",
+      "sha256": "0952e6c68ebec74bb876fac39063869d0bf2a9876de646abe4cc7a8b230c9a88"
+    },
+    {
+      "id": "2026-11-18-draft-what-to-look-at-eb48",
+      "sha256": "f3a6de8fa84e25ff7074b0880bc48a1c09532b3966b6dbba6701df4d2c5076c1"
+    },
+    {
+      "id": "2026-11-18-one-agent-budget-5d96",
+      "sha256": "e3c6dc5763f107e93652c68bf0d914ceb3e97274ac39f40b729e96fd724c18b1"
+    },
+    {
+      "id": "2026-11-18-design-rules-doc-67e6",
+      "sha256": "585610127a9ac1ca359e384467c99047b5e955f458b9dc2163fc8e003103dd6d"
+    },
+    {
+      "id": "2026-11-18-postings-intake-93a2",
+      "sha256": "0a9da46daeece2a3929f3bbad88ffeef1fb17c269c5779caff31aaf872c84fdb"
+    },
+    {
+      "id": "2026-11-18-figures-one-meaning-a099",
+      "sha256": "44d0f55789c318da80aaefeae8b21f2298346e2bffe6d1b712b6fd2c460a1884"
+    },
+    {
+      "id": "2026-11-18-ordinary-browser-parity-2149",
+      "sha256": "1c25096ebf0cae685e6bf109846bed88165eeaffa6b63cc4f1e309a4a76bb711"
+    },
+    {
+      "id": "2026-11-18-signin-browser-5146",
+      "sha256": "08b4cc07ae11b429a59079f1219c1a2c160425dd5489848a3142f79da660a1a0"
+    },
+    {
+      "id": "2026-11-18-site-knowledge-4d82",
+      "sha256": "4c0039579e0881dc67c31141d823724dc2cb1959d52e9043584bac9b9ae76895"
+    },
+    {
+      "id": "2026-11-18-file-versions-pdf-86d5",
+      "sha256": "5960c7266dc0ed1c227b9637073b8d46321999960dbe87e372cd79ed000e6f00"
+    },
+    {
+      "id": "2026-11-18-pages-state-2093",
+      "sha256": "f610efee73f55b3e89aff70fbdbaa6a26aafc6f08bfef1994e37f1274623d64b"
+    },
+    {
+      "id": "2026-11-18-accessibility-2764",
+      "sha256": "be565b59c57c4240359366d2a3cd556437c44b4859b3310eaa5c8a8f46755ab4"
+    },
+    {
+      "id": "2026-11-18-submission-safety-fc51",
+      "sha256": "24125df4ddb0c598531a883ed14a25b5344ca1c32eaa25e64f327f613072aaa0"
+    },
+    {
+      "id": "2026-11-18-answers-and-fields-5a60",
+      "sha256": "9fe4ac8e69863414bb5840eb0956258b966a739562a4ef8b08b3fc2e41155c1d"
+    },
+    {
+      "id": "2026-11-18-mail-placement-9abc",
+      "sha256": "aaaee3f4bce2b2021a6da35259f236a3930ae7d6c9cff3fe5913a11871ba113c"
+    },
+    {
+      "id": "2026-11-18-later-work-kept-86fc",
+      "sha256": "384691bcd9b6d524f9864594b5f467d23032d9731a69418768eab1071ebe05f1"
+    },
+    {
+      "id": "2026-11-18-status-moves-forward-3a93",
+      "sha256": "3cbf8d5610c7f34e8f7b64408dadb85cd970cc27b693d49752caceef6adcb2ab"
+    },
+    {
+      "id": "2026-11-18-program-signs-in-c061",
+      "sha256": "4eb9792912a309f01eccb48eba116430135bec8816fa3ad609a74d4be9efb683"
+    },
+    {
+      "id": "2026-11-18-program-review-03fe",
+      "sha256": "e020929c7b5216114198ced595ca462a57299228a820e2ddd0c2c4338fda62a0"
+    }
+  ]
+}

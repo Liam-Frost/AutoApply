@@ -1,0 +1,13 @@
+---
+id: 2026-11-22-calendar-reminders-26e9
+type: added
+scope: calendar
+summary:
+  en: "A calendar with reminders: interviews, assessments, deadlines and your own events by month, week and day"
+  zh: "日程与提醒：面试、在线测评、截止日期和个人日程，可按月、周、日查看"
+  fr: "Un agenda avec rappels : entretiens, évaluations, échéances et vos événements, par mois, semaine et jour"
+highlight: true
+---
+
+- **Calendar** (sidebar, under *Needs you*): everything with a time - deadlines of postings not yet sent, interviews, assessments, offers to answer, information an employer asked for, people to get back to, and your own events - in three views with three jobs. The month to plan: what is coming and where it bunches; on a crowded day an interview or an assessment keeps its line and the day's other deadlines are one count, and how many lines fit is measured, so a busy day never grows the grid. The week to schedule: a time grid where what has a time sits at its hour, side by side with what it meets, while deadlines are counted in the whole-day strip instead of stacking up at 23:59; a click on an empty half hour starts a new event there. The day to do: one list - what is late, what has a time, the deadlines to act on first, the other things to do, what is done. One panel for an item from any view, with what the item has (the time as the mail wrote it, the posting, the application, its reminders) and what can be done with it: mark it done, change its time, give it a link and open it; on a deadline, open the posting, start an application or mark it as not applying. Quick filters and a full filter (every kind, application status, company, priority employers, score) share one state; a search; a line of what is coming (due today, due in 7 days, upcoming interviews, overdue), each number opening the list it counts. Colours by kind in both themes, always with a glyph and words; red only for what is late. The view, the date and the filters stay when you switch views and are in the address. Keys: T, ← →, M / W / D, N, /.
+- **Reminders of your own** on any calendar item - as many as you want, "this long before" (5 / 15 / 30 minutes, 1 / 2 hours, 1 / 2 days, 1 week, or any number of minutes); a whole-day item is reminded of in the morning. Each kind of item gets its own by itself (*Settings → Notifications → Calendar reminders*; an interview a day before and 30 minutes before). They follow the item when its date moves, stop when it is done, carry the item's link as a button on Telegram and Discord, and appear at the top of the to-do page. The fixed "the day before and on the day" is gone: the cards already open got the reminders of their kind. Reminders go out in the quiet hours too, unless you tick that they should wait.

@@ -4,6 +4,13 @@
 
 <!-- What a user will notice, or what gets easier to maintain. -->
 
+## Release note
+
+<!-- Tick one. A fragment: python scripts/release.py change ... (docs/release-workflow.md). Never edit CHANGELOG.md. -->
+
+- [ ] A change fragment in `changes/fragments/` is added or updated, and `python scripts/release.py validate` passes
+- [ ] No user-visible change (refactoring, tests, CI, contributor docs)
+
 ## How it was checked
 
 <!-- Say what you ran it against. "Unit tests" and "a real Greenhouse form, not submitted" are both fine answers; they are different answers. -->

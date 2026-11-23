@@ -2463,7 +2463,7 @@
       "source": "从源码运行",
       "container": "在容器中运行"
     },
-    "check": "立即检查",
+    "check": "检查更新",
     "prepare": "下载并准备 {v}",
     "switchTo": "切换到 {v}",
     "backTo": "回退到 {v}",
@@ -2476,7 +2476,6 @@
     "howContainer": "在 docker-compose.yml 所在的文件夹中运行：",
     "howUnmanaged": "要切换到它，请从托盘程序启动 AutoApply，然后在这个页面切换。",
     "whatsNew": "{v} 的更新内容",
-    "byItself": "自动更新",
     "mode": {
       "off": "关闭",
       "offHow": "不自动检查更新，仍可手动检查。",
@@ -2485,7 +2484,8 @@
       "download": "自动下载",
       "downloadHow": "同时自动下载并准备好，由你点“切换”。",
       "auto": "自动更新",
-      "autoHow": "还会在空闲时、于你设定的时间段内自动切换。"
+      "autoHow": "还会在空闲时、于你设定的时间段内自动切换。",
+      "needsInstall": "需要安装版"
     },
     "channel": "更新通道",
     "stable": "正式版",
@@ -2499,7 +2499,7 @@
     "saved": "已保存",
     "error": {
       "noRepo": "没有设置发布仓库（update.repo）。",
-      "network": "无法连接 GitHub。明天会重试，也可以点“立即检查”。",
+      "network": "无法连接 GitHub。明天会重试，也可以点“检查更新”。",
       "notHere": "这份程序不能自己更新（见下方说明）。",
       "noPackage": "这个版本没有适合这种安装方式的安装包。",
       "noUv": "找不到安装程序带的 uv，请重新运行一次安装程序修复。",
@@ -2520,26 +2520,19 @@
         "changed": "变更",
         "fixed": "修复",
         "security": "安全",
-        "breaking": "不兼容变更",
         "removed": "移除",
-        "deprecated": "弃用",
-        "known": "已知限制",
-        "other": "其他"
+        "deprecated": "弃用"
       },
       "clear": "清除筛选",
       "current": "当前",
       "unreleased": "未发布的更改",
       "notReleased": "尚未发布",
       "noDate": "未注明日期",
-      "compare": "代码改动",
-      "compareTip": "在 GitHub 上查看上一版本到 {v} 的代码改动",
-      "compareUnreleased": "在 GitHub 上查看最新版本之后的代码改动",
       "release": "发布页面",
       "releaseTip": "在 GitHub 上查看 {v} 的发布页面",
-      "link": "链接",
       "notFound": "更新日志中没有 {v} 版。",
       "noneTitle": "没有更新日志",
-      "noneText": "这份程序没有附带列有版本的 CHANGELOG.md。",
+      "noneText": "这份程序没有附带版本历史。",
       "noMatch": "没有符合条件的更改",
       "noMatchText": "换个关键词，或清除筛选。",
       "noNotes": "这个版本没有记录更改。",
@@ -2550,11 +2543,12 @@
       "latest": "最新",
       "fullNotes": "查看完整发布说明",
       "notesTitle": "{v} 发布说明",
-      "notesEnglish": "发布说明以英文撰写。",
+      "notesEnglish": "详细说明以英文撰写。",
       "moreInNotes": "完整说明中还有 {n} 项",
       "inNotes": "完整说明中有 {n} 项匹配",
-      "noHighlights": "这个版本没有要点。",
-      "derived": "摘自英文发布说明。"
+      "english": "英文",
+      "changeCount": "{n} 项更改",
+      "knownLimits": "已知限制"
     },
     "licenses": {
       "title": "开源许可",
@@ -2604,23 +2598,23 @@
     "diagnosticsHint": "以纯文本复制版本、构建、运行方式、Python、系统、数据目录和更新状态，便于报告问题。不包含任何账号、密钥，也不包含更新以外的设置。",
     "state": {
       "unchecked": "尚未检查",
-      "checking": "正在检查更新…",
+      "checking": "正在检查…",
       "current": "已是最新版本",
-      "newer": "{v} 版可用",
-      "downloading": "正在下载 {v}",
-      "preparing": "正在准备 {v}",
-      "ready": "已准备好切换到 {v}",
-      "prepared": "{v} 已准备好",
-      "switching": "正在切换到 {v}",
+      "newer": "有新版本",
+      "downloading": "正在下载",
+      "preparing": "正在准备",
+      "ready": "待切换",
+      "prepared": "已准备好",
+      "switching": "正在切换",
       "checkFailed": "检查失败",
-      "prepareFailed": "{v} 准备失败",
-      "switchFailed": "切换到 {v} 失败"
+      "prepareFailed": "准备失败",
+      "switchFailed": "切换失败"
     },
     "preparingHow": "正在安装它需要的依赖和浏览器，可能需要几分钟。正在运行的版本不受影响。",
     "switchingHow": "托盘程序会在手上的事情做完后重启 AutoApply，新版本起来后这个页面会重新连上。",
     "fact": {
-      "running": "正在运行",
-      "latest": "最新发布",
+      "running": "当前版本",
+      "latest": "最新版本",
       "staged": "已准备",
       "switching": "正在切换到",
       "pending": "下次启动",
@@ -2635,11 +2629,13 @@
     "rel": {
       "local": "{v}（本地构建，{d}）",
       "localNoDate": "{v}（本地构建）",
-      "prerelease": "预览版"
+      "prerelease": "预览版",
+      "localDay": "本地构建，{d}",
+      "localOnly": "本地构建",
+      "published": "{d} 发布"
     },
     "forwardTo": "切换回 {v}",
     "policy": "更新策略",
-    "modesNotHere": "自动下载和自动切换需要安装版；这份程序只会检查更新。",
     "privacyShort": "检查更新只向 GitHub 查询版本列表，不发送任何关于你的信息。",
     "howItWorks": "更新如何进行",
     "idleHow": "空闲是指：没有申请在进行或排队，没有保留的窗口在等你处理，也没有打开的远程窗口。",
@@ -2649,9 +2645,17 @@
       "title": "手动更新",
       "source": "这份程序从源码运行，需手动更新。",
       "container": "这份程序在容器中运行，需拉取新镜像来更新。",
-      "show": "查看命令"
+      "show": "查看步骤"
     },
-    "copyCommand": "复制命令"
+    "copyCommand": "复制命令",
+    "vVersion": "v{v}",
+    "links": "项目链接",
+    "change": "更改",
+    "changePolicy": "更改更新策略",
+    "risk": {
+      "download": "新版本会在后台下载并准备好，连同依赖和浏览器一起放在数据目录中，会占用网络和磁盘空间。在你切换之前，正在运行的版本不会改变。",
+      "auto": "程序还会不经询问自行重启到新版本：在自动切换时间段内、没有任何事情在进行时。新版本启动不了时继续用现在的版本；上一个版本会保留，可以回退。"
+    }
   },
   "record": {
     "ticked": "✓ 勾选",

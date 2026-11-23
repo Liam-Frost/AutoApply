@@ -1,4 +1,4 @@
-# Tests, then every package built and installed for real on its own system.
+# The release data and the tests, then every package built and installed for real on its own system.
 # Runs on pushes and pull requests; the release workflow calls it before publishing anything.
 name: CI
 
@@ -16,6 +16,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The release data (changes/): every fragment and manifest valid, the versions agree, and CHANGELOG.md and
+  # backend/autoapply/releases.json are what the data gives. The tool needs PyYAML only, not the program's dependencies.
+  release-data:
+    name: Release data (change fragments)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 2 }      # a pull request is checked out as its merge commit: HEAD^1 is the base it is compared with
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Fragments, manifests and versions are valid; the generated files are up to date
+        run: |
+          uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/release.py validate
+          uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/release.py generate --check
+      # A reminder, not a gate: code users see changed and no fragment came with it. The description can say there is
+      # nothing to tell users ("no-changelog", or the template's "No user-visible change" ticked).
+      - name: A user-visible change comes with a change fragment
+        if: github.event_name == 'pull_request'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          code="$(git diff --name-only HEAD^1 HEAD -- backend/autoapply frontend/src | grep -v '^backend/autoapply/releases\.json$' || true)"
+          fragments="$(git diff --name-only --diff-filter=AM HEAD^1 HEAD -- changes/fragments || true)"
+          if [ -n "$code" ] && [ -z "$fragments" ] && ! printf '%s' "$BODY" | grep -qiE 'no-changelog|\[x\][[:space:]]*no user-visible change'; then
+            echo "::warning title=No change fragment::This pull request changes backend/autoapply or frontend/src and adds no change fragment. If users will notice it: python scripts/release.py change (see docs/release-workflow.md). If not: tick \"No user-visible change\" in the description."
+          else
+            echo "ok"
+          fi
+
   test:
     name: Tests (Windows)
     runs-on: windows-latest
@@ -367,10 +395,11 @@ jobs:
 
   collect:
     name: Rehearse the release (collect, checksum, notes)
-    needs: [test, linux, windows, macos, server, docker]
+    needs: [release-data, test, linux, windows, macos, server, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
       - uses: actions/download-artifact@v8
         with:
           path: packages
@@ -385,9 +414,9 @@ jobs:
           done
           test "$(ls | wc -l)" = 4
           sha256sum AutoApply-* | tee SHA256SUMS.txt
-      - name: The changelog has a section for this version
+      - name: This version has release notes (as the release workflow makes them)
         run: |
           version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -1)"
-          awk -v v="$version" '$0 ~ "^## \\[?" v "\\]?" { on = 1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
-          test -s notes.md || { echo "::error::CHANGELOG.md has no section for $version"; exit 1; }
+          uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/release.py notes "$version" > notes.md || { echo "::error::no release $version in changes/releases/"; exit 1; }
+          test -s notes.md || { echo "::error::the release notes of $version are empty"; exit 1; }
           head -20 notes.md

@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "date": "2026-11-14",
+  "title": {
+    "en": "The first release of the rewrite",
+    "zh": "重写后的首个版本",
+    "fr": "La première version de la réécriture"
+  },
+  "intro": "The first release of the rewrite. The previous code base is kept on the `legacy-v0` branch; nothing of it is carried over.\nWhy it was rewritten, and what is done differently, is in the README under *What the previous version got wrong, and what changed*.",
+  "known_limits": [
+    "The packages are not code-signed.",
+    "Workday and the UBC portal driver have not been run for real past the sign-in step.",
+    "The macOS and Linux packages are exercised by CI only.",
+    "The English interface is machine-translated."
+  ],
+  "fragments": [
+    {
+      "id": "2026-11-14-application-chain-2785",
+      "sha256": "4d43b600d9ad6270317c15bcf1a8e22af321aa74265a865d85662d509c2ed6dc"
+    },
+    {
+      "id": "2026-11-14-first-run-profile-7c6e",
+      "sha256": "7f001b47bf7fa4d1f1eca63ad170c4ad399a5a9911bdeb30107dd7559ba952dc"
+    },
+    {
+      "id": "2026-11-14-many-ai-services-92b6",
+      "sha256": "7bfe5390282ba5513db183314ab59c4c6f85686a8cc0a6fa619c6f230d8c7785"
+    },
+    {
+      "id": "2026-11-14-packages-5595",
+      "sha256": "6b6ae034d624d8b5a541ca9162aee7b38aad6931346dc507510a0ad0d04e9e1b"
+    },
+    {
+      "id": "2026-11-14-region-packs-53e1",
+      "sha256": "0043c2d9c092a240f174518817bfae01de4f187469387ae51879d6b33377d9b9"
+    },
+    {
+      "id": "2026-11-14-local-data-export-ed8f",
+      "sha256": "52fef1d7a6ea4b21f49230725e0d12149bba3b01765a58d267d8cb6fe552480b"
+    }
+  ]
+}

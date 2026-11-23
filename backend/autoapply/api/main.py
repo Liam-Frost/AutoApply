@@ -1976,7 +1976,8 @@ def about() -> dict[str, Any]:
 
 @app.get("/api/about/changelog")
 def about_changelog() -> dict[str, Any]:
-    """Every version in CHANGELOG.md (which the package carries), parsed: for the about page's timeline."""
+    """Every release, from the release data the package carries (releases.json, generated from changes/), and what is
+    not released yet: for the about page's timeline. Offline: nothing is fetched."""
     from .. import backup, changelog
 
     return {"current": backup.version(), "repo": str(db.get_setting("update.repo") or ""), "versions": changelog.versions()}

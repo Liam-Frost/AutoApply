@@ -2463,7 +2463,7 @@
       "source": "Running from source",
       "container": "Running in a container"
     },
-    "check": "Check now",
+    "check": "Check for updates",
     "prepare": "Download and prepare {v}",
     "switchTo": "Switch to {v}",
     "backTo": "Roll back to {v}",
@@ -2476,7 +2476,6 @@
     "howContainer": "In the folder of its docker-compose.yml, run:",
     "howUnmanaged": "To switch to it, start AutoApply from the tray app; the switch is then on this page.",
     "whatsNew": "What's new in {v}",
-    "byItself": "Automatic updates",
     "mode": {
       "off": "Off",
       "offHow": "Does not check for updates. You can still check manually.",
@@ -2485,7 +2484,8 @@
       "download": "Download automatically",
       "downloadHow": "Also downloads and prepares it; you press Switch.",
       "auto": "Update automatically",
-      "autoHow": "Also switches by itself when idle, within hours you set."
+      "autoHow": "Also switches by itself when idle, within hours you set.",
+      "needsInstall": "Needs an installed copy"
     },
     "channel": "Channel",
     "stable": "Stable releases",
@@ -2499,7 +2499,7 @@
     "saved": "Saved",
     "error": {
       "noRepo": "No release repository is set (update.repo).",
-      "network": "Could not reach GitHub. It will retry tomorrow, or press Check now.",
+      "network": "Could not reach GitHub. It will retry tomorrow, or press Check for updates.",
       "notHere": "This copy does not update itself (see below).",
       "noPackage": "This release has no package for this kind of installation.",
       "noUv": "The installer's uv is missing; run the installer again to repair it.",
@@ -2520,26 +2520,19 @@
         "changed": "Changed",
         "fixed": "Fixed",
         "security": "Security",
-        "breaking": "Breaking changes",
         "removed": "Removed",
-        "deprecated": "Deprecated",
-        "known": "Known limits",
-        "other": "Other"
+        "deprecated": "Deprecated"
       },
       "clear": "Clear filters",
       "current": "Current",
       "unreleased": "Unreleased changes",
       "notReleased": "Not released yet",
       "noDate": "No date",
-      "compare": "Code changes",
-      "compareTip": "Code changes from the previous version to {v}, on GitHub",
-      "compareUnreleased": "Code changes since the latest release, on GitHub",
       "release": "Release page",
       "releaseTip": "The release page of {v} on GitHub",
-      "link": "Link",
       "notFound": "Version {v} is not in the changelog.",
       "noneTitle": "No changelog",
-      "noneText": "This copy of the app has no CHANGELOG.md with versions in it.",
+      "noneText": "This copy of the app has no release history.",
       "noMatch": "No matching changes",
       "noMatchText": "Try other words, or clear the filters.",
       "noNotes": "No changes are recorded for this version.",
@@ -2550,11 +2543,12 @@
       "latest": "Latest",
       "fullNotes": "View the full release notes",
       "notesTitle": "Release notes {v}",
-      "notesEnglish": "The release notes are written in English.",
+      "notesEnglish": "Details are written in English.",
       "moreInNotes": "{n} more in the full notes",
       "inNotes": "{n} match in the full notes | {n} matches in the full notes",
-      "noHighlights": "No highlights for this version.",
-      "derived": "Taken from the release notes."
+      "english": "English",
+      "changeCount": "{n} change | {n} changes",
+      "knownLimits": "Known limits"
     },
     "licenses": {
       "title": "Licenses",
@@ -2604,23 +2598,23 @@
     "diagnosticsHint": "Copies the version, the build, how it runs, Python, the system, the data folder and where updates stand as plain text, for an issue report. No account, key or setting other than the update ones is included.",
     "state": {
       "unchecked": "Not checked yet",
-      "checking": "Checking for updates…",
+      "checking": "Checking…",
       "current": "Up to date",
-      "newer": "Version {v} available",
-      "downloading": "Downloading {v}",
-      "preparing": "Preparing {v}",
-      "ready": "Ready to switch to {v}",
-      "prepared": "{v} prepared",
-      "switching": "Switching to {v}",
+      "newer": "New version available",
+      "downloading": "Downloading",
+      "preparing": "Preparing",
+      "ready": "Ready to switch",
+      "prepared": "Prepared",
+      "switching": "Switching",
       "checkFailed": "Check failed",
-      "prepareFailed": "Could not prepare {v}",
-      "switchFailed": "Switch to {v} failed"
+      "prepareFailed": "Preparing failed",
+      "switchFailed": "Switch failed"
     },
     "preparingHow": "Installing what it needs; this can take a few minutes. The running version is not touched.",
     "switchingHow": "The tray app restarts AutoApply once what is in progress is done. This page reconnects when the new version is up.",
     "fact": {
-      "running": "Running",
-      "latest": "Latest release",
+      "running": "Current version",
+      "latest": "Latest version",
       "staged": "Prepared",
       "switching": "Switching to",
       "pending": "Next start",
@@ -2635,11 +2629,13 @@
     "rel": {
       "local": "{v} (local build, {d})",
       "localNoDate": "{v} (local build)",
-      "prerelease": "Pre-release"
+      "prerelease": "Pre-release",
+      "localDay": "Local build, {d}",
+      "localOnly": "Local build",
+      "published": "Released {d}"
     },
     "forwardTo": "Switch back to {v}",
     "policy": "Update policy",
-    "modesNotHere": "Downloading and switching by itself need an installed copy; this one only checks.",
     "privacyShort": "Checking only asks GitHub for its list of releases; nothing about you is sent.",
     "howItWorks": "How updates work",
     "idleHow": "Idle means that nothing is applying or queued, nothing waits for you in a kept window, and no remote window is open.",
@@ -2649,9 +2645,17 @@
       "title": "Manual update",
       "source": "This copy runs from source and is updated by hand.",
       "container": "This copy runs in a container and is updated by pulling a new image.",
-      "show": "Show the command"
+      "show": "See the steps"
     },
-    "copyCommand": "Copy commands"
+    "copyCommand": "Copy commands",
+    "vVersion": "v{v}",
+    "links": "Project links",
+    "change": "Change",
+    "changePolicy": "Change update policy",
+    "risk": {
+      "download": "New versions are downloaded and prepared in the background, with their dependencies and browser, in the data folder: this uses network and disk space. The running version does not change until you switch.",
+      "auto": "AutoApply also restarts into a new version by itself, without asking: within the switch window, when nothing is in progress. If the new version does not start, the current one keeps running; the version before is kept so you can roll back."
+    }
   },
   "record": {
     "ticked": "✓ Ticked",
