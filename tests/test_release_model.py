@@ -403,7 +403,8 @@ def test_set_version_changes_those_fields_only(tree):
     (tree / "frontend/package.json").write_bytes(before["frontend/package.json"].replace("\n", "\r\n").encode())   # CRLF kept
     texts = versions.new_texts(tree, "1.2.0-rc.1")
     for rel, text in texts.items():
-        old = (tree / rel).read_text(encoding="utf-8", newline="")
+        with open(tree / rel, encoding="utf-8", newline="") as f:      # (as it is on disk, CRLF kept; read_text has no newline before 3.13)
+            old = f.read()
         changed = [(a, b) for a, b in zip(old.splitlines(True), text.splitlines(True)) if a != b]
         assert len(old.splitlines()) == len(text.splitlines())
         assert all("1.1.0" in a and b == a.replace("1.1.0", "1.2.0-rc.1") for a, b in changed), changed

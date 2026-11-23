@@ -1,3 +1,9 @@
 *.bat text eol=crlf
 *.sh text eol=lf
 *.ico binary
+# The release data and what is generated from it keep one line ending on every system: a fragment's hash and the
+# byte-for-byte checks of the generated files must not depend on how a checkout converts line ends (Windows).
+changes/** text eol=lf
+CHANGELOG.md text eol=lf
+backend/autoapply/releases.json text eol=lf
+tests/fixtures/release/** text eol=lf
