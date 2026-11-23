@@ -82,6 +82,43 @@ def offset_minutes() -> int:
     return int(off.total_seconds() // 60) if off is not None else 0
 
 
+def zones(at: datetime | None = None) -> list[dict]:
+    """Every time zone the program's rules know: its name, how far it is from UTC at ``at`` (now) in minutes - from the
+    rules that come with the program, so a place that changed its clocks is right even where the browser's are old -
+    the country it is in (ISO code, from the database's zone.tab), and for an old spelling (`US/Pacific`, `PRC`,
+    `Asia/Calcutta`) the name it stands for. Old spellings stay valid: a value saved long ago goes on working."""
+    from importlib import resources
+
+    at = at or datetime.now(timezone.utc)
+    links: dict[str, str] = {}
+    country: dict[str, str] = {}
+    try:
+        base = resources.files("tzdata.zoneinfo")
+        for line in base.joinpath("tzdata.zi").read_text(encoding="utf-8").splitlines():
+            if line.startswith("L "):
+                _, target, name = line.split()[:3]
+                links[name] = target
+        for line in base.joinpath("zone.tab").read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#"):
+                parts = line.split("	")
+                if len(parts) >= 3:
+                    country[parts[2]] = parts[0]
+    except Exception:  # noqa: BLE001 - no tzdata package: the names alone
+        pass
+    out = []
+    for n in sorted(zoneinfo.available_timezones() - {"Factory", "localtime", "posixrules"}):
+        off = at.astimezone(ZoneInfo(n)).utcoffset()
+        row: dict = {"id": n, "offset": int(off.total_seconds() // 60) if off is not None else 0}
+        same = links.get(n, "")
+        if same:
+            row["alias_of"] = same
+        cc = country.get(same or n, "")
+        if cc:
+            row["country"] = cc
+        out.append(row)
+    return out
+
+
 def from_zone(wall: datetime, zone: str) -> datetime | None:
     """A wall-clock time said in ``zone`` (an IANA name), on the applicant's wall clock. None when the zone is not one."""
     if not valid(zone):

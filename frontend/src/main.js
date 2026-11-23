@@ -9,6 +9,9 @@ import './styles/overlay.css'
 import './styles/patterns.css'
 import './styles/accounts.css'
 import './styles/analysis-settings.css'
+import './styles/controls.css'
+import './styles/about.css'
+import './styles/changelog.css'
 import { tip } from './tip'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
@@ -70,7 +73,7 @@ const router = createRouter({
     { path: '/accounts', component: AccountsView },
     { path: '/profile', component: ProfileView },
     { path: '/runs', component: RunsView },
-    { path: '/about', component: AboutView },
+    { path: '/about/:tab(changelog|licenses)?', component: AboutView },      // the tab is in the address
     { path: '/settings/:group?/:section?', component: SettingsView },
     { path: '/jobs/sources', component: SourcesView },
     { path: '/remote/:id', component: RemoteView, props: true },

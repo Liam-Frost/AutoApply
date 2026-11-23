@@ -1968,37 +1968,47 @@ def system_update_switch(body: dict[str, Any] = Body(default={})) -> dict[str, A
 @app.get("/api/about")
 def about() -> dict[str, Any]:
     """What the about page says: this version and how it runs, where the data is, the components and their licences."""
-    import platform
-    import subprocess as _sp
-    from importlib import metadata
+    from .. import about as about_mod
 
-    from .. import backup, updates
+    return about_mod.info()
 
-    commit = ""
-    if (config.ROOT / ".git").exists():
-        try:
-            commit = _sp.run(["git", "rev-parse", "--short", "HEAD"], cwd=config.ROOT, capture_output=True, text=True, timeout=5).stdout.strip()
-        except Exception:  # noqa: BLE001
-            commit = ""
-    wanted = ("fastapi", "uvicorn", "sqlalchemy", "pydantic", "httpx", "playwright", "anthropic", "claude-agent-sdk", "pypdf", "python-docx", "keyring",
-              "apscheduler", "cryptography", "pillow", "pystray", "websockets", "google-api-python-client", "nodriver", "openai-codex")
-    parts = []
-    for name in wanted:
-        try:
-            m = metadata.metadata(name)
-            parts.append({"name": name, "version": metadata.version(name), "license": (m.get("License-Expression") or m.get("License") or "")[:60]})
-        except metadata.PackageNotFoundError:
-            continue
-    ver = backup.version()
-    changes = ""
-    try:      # this version's part of the changelog (the package carries CHANGELOG.md)
-        log_text = (config.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        m = re.search(r"^## \[" + re.escape(ver) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)", log_text, re.M | re.S)
-        changes = m.group(1).strip()[:20000] if m else ""
-    except OSError:
-        pass
-    return {"version": ver, "commit": commit, "kind": updates.kind(), "python": platform.python_version(), "system": platform.platform(terse=True),
-            "data": str(config.DATA), "repo": str(db.get_setting("update.repo") or ""), "components": parts, "changes": changes}
+
+@app.get("/api/about/changelog")
+def about_changelog() -> dict[str, Any]:
+    """Every version in CHANGELOG.md (which the package carries), parsed: for the about page's timeline."""
+    from .. import backup, changelog
+
+    return {"current": backup.version(), "repo": str(db.get_setting("update.repo") or ""), "versions": changelog.versions()}
+
+
+@app.get("/api/about/licenses")
+def about_licenses() -> dict[str, Any]:
+    """The components the program runs on, with their versions and licences."""
+    from .. import licenses
+
+    return {"components": licenses.components()}
+
+
+@app.get("/api/about/licenses/{name}")
+def about_license_text(name: str) -> dict[str, Any]:
+    """One component's licence text, as its package carries it ("" when it carries none)."""
+    from .. import licenses
+
+    found = licenses.text(name)
+    if found is None:
+        raise HTTPException(404, "not-a-component")
+    return found
+
+
+@app.get("/api/time/zones")
+def time_zones() -> dict[str, Any]:
+    """Every time zone the program knows, with its offset from UTC now (from the program's own rules), the computer's,
+    and the one the applicant chose (valid or not: a value that is not a zone is shown as such, never replaced)."""
+    from .. import clock
+
+    chosen = str(db.get_setting("time.zone") or "").strip()
+    return {"system": clock.system_zone(), "chosen": chosen, "chosen_valid": not chosen or clock.valid(chosen),
+            "zones": clock.zones()}
 
 
 @app.get("/api/proxy")
