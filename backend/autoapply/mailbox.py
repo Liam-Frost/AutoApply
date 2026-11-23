@@ -73,6 +73,53 @@ class Message:
     body: str
     date: datetime | None
     thread: str = ""        # the conversation it is in: Gmail's own thread id; over IMAP, the first Message-ID of its References
+    mine: bool = False      # the mailbox says it was sent from it (Gmail's SENT / DRAFT labels)
+
+
+# --- what the applicant sent ---------------------------------------------------------------------------------------------
+# A mail the applicant sent - by hand, or the program's reply from their mailbox - is not news about an application. A
+# search over the whole mailbox finds the applicant's own reply too ("Re: ... Job Application"): it was read as if the
+# employer had written it, put down as "the employer asks for more" and answered with a draft (2026-11-23).
+
+def address_of(sender: str) -> str:
+    """The e-mail address in a From line ("Name <a@b.c>" -> "a@b.c"), lower case."""
+    from email.utils import parseaddr
+
+    return parseaddr(str(sender or ""))[1].strip().lower()
+
+
+def own_addresses() -> set[str]:
+    """The applicant's own addresses: the mailbox's (Gmail's, as it said when last asked; the IMAP or Outlook login),
+    the address applications are made with, and every address the program has sent from."""
+    from .models import Outgoing
+
+    out = {str(db.get_setting("mail.address") or ""), str(db.get_setting("account.email") or "")}
+    for key in ("mail.imap", "mail.outlook"):
+        out.add(str((db.get_setting(key) or {}).get("user") or ""))
+    with db.session() as s:
+        out |= {f for (f,) in s.query(Outgoing.sent_from).filter(Outgoing.sent_from != "").distinct()}
+    return {a.strip().lower() for a in out if "@" in a}
+
+
+def sent_ids() -> set[str]:
+    """The mailbox's ids of the mails the program sent."""
+    from .models import Outgoing
+
+    with db.session() as s:
+        return {m for (m,) in s.query(Outgoing.message_id).filter(Outgoing.message_id != "")}
+
+
+def from_applicant(x: Any, mine: set[str] | None = None, sent: set[str] | None = None) -> bool:
+    """Did the applicant send this mail (not receive it)?"""
+    mine = own_addresses() if mine is None else mine
+    sent = sent_ids() if sent is None else sent
+    return bool(getattr(x, "mine", False)) or x.id in sent or address_of(x.sender) in mine
+
+
+def _received(msgs: list[Message]) -> list[Message]:
+    """The mails the applicant received, of these."""
+    mine, sent = own_addresses(), sent_ids()
+    return [x for x in msgs if not from_applicant(x, mine, sent)]
 
 
 class NotConfigured(RuntimeError):
@@ -217,7 +264,8 @@ def _gmail_message(g: dict[str, Any]) -> Message:
         when = parsedate_to_datetime(mail._hdr(g, "Date"))
     except Exception:  # noqa: BLE001
         when = None
-    return Message(id=g["id"], sender=mail._hdr(g, "From"), subject=mail._hdr(g, "Subject"), body=mail._body(g["payload"]), date=when, thread=str(g.get("threadId") or ""))
+    return Message(id=g["id"], sender=mail._hdr(g, "From"), subject=mail._hdr(g, "Subject"), body=mail._body(g["payload"]), date=when, thread=str(g.get("threadId") or ""),
+                   mine=bool({"SENT", "DRAFT"} & set(g.get("labelIds") or [])))
 
 
 def incremental() -> bool:
@@ -237,22 +285,24 @@ def fetch_new(limit: int = 50, *, skip: Any = None) -> list[Message] | None:
     if added is None:
         return None
     msgs = [_gmail_message(g) for g in added]
-    return [x for x in msgs if _relevant(x)]
+    return [x for x in _received(msgs) if _relevant(x)]
 
 
 def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: Any = None) -> list[Message]:
     """Messages received after ``since``, newest first. ``job_related`` keeps only mail that looks like it is about an
     application. ``skip(id)``: messages already known, which need not be fetched again (Gmail)."""
     if kind() == "imap":
-        msgs = _imap_fetch(since, limit * 3 if job_related else limit)
+        msgs = _received(_imap_fetch(since, limit * 3 if job_related else limit))
         if job_related:
             msgs = [x for x in msgs if _relevant(x)][:limit]
         return msgs
     from . import mail
 
     days = max(1, (datetime.now(timezone.utc) - since).days + 1)
-    q = f"newer_than:{days}d after:{int(since.timestamp())}" + (f" {mail.QUERY}" if job_related else "")
-    out = [_gmail_message(g) for g in mail._list(q, limit, skip=skip)]
+    # (a search covers the whole mailbox: what was sent from it and the drafts in it are left out here already)
+    q = f"newer_than:{days}d after:{int(since.timestamp())} -in:sent -in:drafts" + (f" {mail.QUERY}" if job_related else "")
+    mail.remember_address()
+    out = _received([_gmail_message(g) for g in mail._list(q, limit, skip=skip)])
     if not mail.db.get_setting(mail.HISTORY):
         mail.mark_history()        # from here on, "what is new" can be asked (fetch_new)
     return out

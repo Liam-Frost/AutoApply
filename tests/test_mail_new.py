@@ -27,12 +27,13 @@ class FakeGmail:
         self.added: list[tuple[int, str]] = []          # (history number, message id)
         self.store: dict[str, dict] = {}
         self.calls: list[str] = []
+        self.queries: list[str] = []
         self.expired = False
 
-    def arrive(self, mid: str, subject: str, body: str = "") -> None:
+    def arrive(self, mid: str, subject: str, body: str = "", sender: str = "jobs@example.com", labels: tuple[str, ...] = ("INBOX",)) -> None:
         self.history_id += 1
         self.added.append((self.history_id, mid))
-        self.store[mid] = {"id": mid, "payload": {"headers": [{"name": "Subject", "value": subject}, {"name": "From", "value": "jobs@example.com"},
+        self.store[mid] = {"id": mid, "labelIds": list(labels), "payload": {"headers": [{"name": "Subject", "value": subject}, {"name": "From", "value": sender},
                                                                 {"name": "Date", "value": "Mon, 16 Nov 2026 10:00:00 +0000"}],
                                                     "mimeType": "text/plain", "body": {"data": base64.urlsafe_b64encode(body.encode()).decode()}}}
 
@@ -47,7 +48,7 @@ class FakeGmail:
 
     def getProfile(self, userId):  # noqa: N802, N803
         self.calls.append("profile")
-        return Call({"historyId": str(self.history_id)})
+        return Call({"historyId": str(self.history_id), "emailAddress": "me@example.com"})
 
     def list(self, userId, **kw):  # noqa: N803
         if "startHistoryId" in kw:
@@ -59,6 +60,7 @@ class FakeGmail:
             new = [m for n, m in self.added if n > int(kw["startHistoryId"])]
             return Call({"history": [{"id": str(n), "messagesAdded": [{"message": {"id": m}}]} for n, m in self.added if n > int(kw["startHistoryId"])], "historyId": str(self.history_id)})
         self.calls.append("search")
+        self.queries.append(kw.get("q", ""))
         return Call({"messages": [{"id": m} for m in self.store]})
 
     def get(self, userId, id, format):  # noqa: A002, N803
@@ -303,3 +305,65 @@ def test_rejected_refresh_grant_requires_new_consent(app_env, monkeypatch):
     with pytest.raises(mail.GmailReconnect):
         mail._service()
     assert mail.status()["reconnect"] and not mail.status()["authorized"]
+
+
+def test_mail_the_applicant_sent_is_not_read_as_mail_from_an_employer(gmail, monkeypatch):
+    """The program sent the applicant's reply to an employer ("Re: ... Job Application - ..."); the next look searched
+    the whole mailbox, found that reply, took it for the employer asking for more, opened a card for it and drafted an
+    answer to it (2026-11-23). What the applicant sent - from the mailbox, from an address of theirs, or a mail the
+    program sent - is not read; only the employer's mail is."""
+    from datetime import datetime, timedelta, timezone
+
+    from autoapply.models import Outgoing
+
+    db.set_setting("account.email", "applicant@example.org")
+    with db.session() as s:
+        s.add(Outgoing(kind="reply", to="hr@acme.example", subject="Re: Job Application", status="sent", message_id="m-sent-by-program", sent_from="applicant@gmail.example"))
+    gmail.arrive("m-employer", "Re: Job Application - more documents, please", sender="HR <hr@acme.example>")
+    gmail.arrive("m-sent", "Re: Job Application", sender="Me <me@example.com>", labels=("SENT",))
+    gmail.arrive("m-sent-by-program", "Re: Job Application", sender="applicant@gmail.example", labels=("INBOX",))
+    gmail.arrive("m-other-address", "Re: Job Application", sender="Applicant <APPLICANT@example.org>")
+    gmail.arrive("m-from-the-mailbox", "Re: Job Application", sender="me@example.com")
+    got = mailbox.fetch(datetime.now(timezone.utc) - timedelta(days=3), 10, job_related=True, skip=lambda i: False)
+    assert [m.id for m in got] == ["m-employer"]
+    assert "-in:sent" in gmail.queries[-1] and "-in:drafts" in gmail.queries[-1]       # (left out by the search already)
+    assert db.get_setting("mail.address") == "me@example.com"                         # the mailbox's own address, asked once
+    # what arrived since the last look: the same
+    mail.mark_history()
+    gmail.arrive("m-new-sent", "Re: Interview", sender="me@example.com")
+    gmail.arrive("m-new", "Interview invitation", sender="hr@acme.example")
+    assert [m.id for m in mailbox.fetch_new()] == ["m-new"]
+
+
+def test_what_the_applicants_own_mail_did_before_is_taken_back_once(app_env):
+    from autoapply import lifecycle
+    from autoapply.models import Application, Job, MailEvent, Outgoing, Todo, now
+
+    db.set_setting("mail.address", "me@example.com")
+    with db.session() as s:
+        job = Job(source="manual", source_id="o1", company="Acme", title="Firmware Co-op", apply_url="https://acme.example/jobs/1", jd_text="x" * 300)
+        s.add(job)
+        s.flush()
+        a = Application(job_id=job.id, status="confirmed")
+        s.add(a)
+        s.flush()
+        app_id = a.id
+        s.add(Outgoing(application_id=app_id, kind="reply", to="hr@acme.example", subject="Re: Job Application", status="sent", message_id="mine-1", sent_from="me@example.com"))
+        at = now()
+        s.add(MailEvent(message_id="mine-1", sender="me@example.com", subject="Re: Job Application", category="interview", application_id=app_id, created_at=at, summary="the reply"))
+        lifecycle.move(s.get(Application, app_id), "interview", source="mail", at=at)
+        s.add(MailEvent(message_id="theirs-1", sender="HR <hr@acme.example>", subject="Re: Job Application", category="info_request", application_id=app_id, summary="more documents"))
+        card = Todo(kind="followup", ref=f"followup:{app_id}:interview", title="Acme: interview", payload={"message_id": "mine-1", "application_id": app_id})
+        theirs = Todo(kind="followup", ref=f"followup:{app_id}:info_request", title="Acme: more documents", payload={"message_id": "theirs-1", "application_id": app_id})
+        s.add_all([card, theirs])
+        s.flush()
+        s.add(Outgoing(application_id=app_id, kind="reply", to="me@example.com", subject="Re: Re: Job Application", status="draft", todo_id=card.id, in_reply_to="mine-1"))
+        card_id, theirs_id = card.id, theirs.id
+    assert mail.forget_own_mail() == 1
+    with db.session() as s:
+        assert s.query(MailEvent).filter_by(message_id="mine-1").one().category == "other"
+        assert s.query(MailEvent).filter_by(message_id="theirs-1").one().category == "info_request"       # the employer's mail is untouched
+        assert s.get(Todo, card_id).status == "dismissed" and s.get(Todo, theirs_id).status == "open"
+        assert s.query(Outgoing).filter_by(status="draft").count() == 0
+        assert s.get(Application, app_id).status == "confirmed"                                         # the move it made, taken back
+    assert mail.forget_own_mail() == 0

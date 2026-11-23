@@ -62,6 +62,13 @@ def _start_up() -> None:
 
         _metering.import_legacy()
         db.set_setting("migrated.llm_runs", True)
+    if not db.get_setting("migrated.own_mail"):
+        # mail the applicant sent, read before as mail from an employer (a reply was taken for "the employer asks for more")
+        try:
+            mail.forget_own_mail()
+            db.set_setting("migrated.own_mail", True)
+        except Exception:  # noqa: BLE001 - never a reason not to start; tried again at the next start
+            logging.getLogger("autoapply").exception("could not put the applicant's own mail down as theirs")
     try:      # postings labelled before the fixed list of fields: sorted into it, in the background
         from .. import directions as _directions
 

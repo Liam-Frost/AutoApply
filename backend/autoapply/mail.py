@@ -192,6 +192,52 @@ def original(message_id: str) -> dict[str, str] | None:
             "message_id_header": _hdr(msg, "Message-ID"), "references": refs, "thread_id": msg.get("threadId", "")}
 
 
+def remember_address() -> str:
+    """The Gmail mailbox's own address, asked once and kept (mail.address): a mail from it is the applicant's own."""
+    have = str(db.get_setting("mail.address") or "")
+    if have:
+        return have
+    try:
+        got = str(_service().users().getProfile(userId="me").execute().get("emailAddress") or "")
+    except Exception:  # noqa: BLE001 - not known yet: the mails the program sent are still told by their ids
+        return ""
+    if got:
+        db.set_setting("mail.address", got)
+    return got
+
+
+def forget_own_mail() -> int:
+    """Mail the applicant sent, read before as mail from an employer: put down as theirs, and what it did taken back - a
+    card it opened is closed, a reply the program drafted to it discarded, a status it moved (in the same write) moved
+    back. Returns how many such mails there were."""
+    from . import mailbox
+    from .models import ApplicationEvent, Outgoing, Todo, now
+
+    mine, sent = mailbox.own_addresses(), mailbox.sent_ids()
+    n = 0
+    with db.session() as s:
+        for e in s.query(MailEvent).filter(MailEvent.category != "other"):
+            if not (e.message_id in sent or mailbox.address_of(e.sender) in mine):
+                continue
+            n += 1
+            for t in s.query(Todo).filter(Todo.status == "open"):
+                p = t.payload or {}
+                if p.get("message_id") == e.message_id or t.ref == f"mail:{e.message_id}":
+                    t.status, t.done_at = "dismissed", now()
+                    for o in s.query(Outgoing).filter(Outgoing.status == "draft", (Outgoing.todo_id == t.id) | (Outgoing.in_reply_to == e.message_id)):
+                        o.status = "discarded"
+            if e.application_id and e.created_at:
+                a = s.get(Application, e.application_id)
+                moved = s.query(ApplicationEvent).filter(ApplicationEvent.application_id == e.application_id, ApplicationEvent.source == "mail",
+                                                         ApplicationEvent.at >= e.created_at - timedelta(seconds=2), ApplicationEvent.at <= e.created_at + timedelta(seconds=10)).first()
+                if a is not None and moved is not None and a.status == moved.new and moved.old:
+                    lifecycle.move(a, moved.old, source="mail", back=True, note=T("server.mail.thatMailWasYourOwn"))
+            e.category, e.event = "other", "new"
+    if n:
+        log.info("%d mail(s) the applicant sent had been read as mail from an employer; put down as theirs", n)
+    return n
+
+
 def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments: list[dict[str, str]] | None = None, in_reply_to: str = "") -> dict[str, str]:
     """Send one mail from the applicant's mailbox. ``in_reply_to``: the mailbox's id of the mail it answers - it then
     goes into that conversation. Returns the mailbox's id of what was sent, its conversation, and the address it went
@@ -217,6 +263,8 @@ def send_message(*, to: str, subject: str, body: str, cc: str = "", attachments:
                 time.sleep(1.5 * (n + 1))
 
     sender = asked(lambda: _service().users().getProfile(userId="me").execute()).get("emailAddress", "")
+    if sender and sender != db.get_setting("mail.address"):
+        db.set_setting("mail.address", sender)      # (the mailbox's own address: a mail from it is the applicant's)
     m = EmailMessage()
     m["To"], m["Subject"] = to, subject
     if sender:
