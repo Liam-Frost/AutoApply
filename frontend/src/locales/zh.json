@@ -2371,7 +2371,8 @@
     "discard": "作废",
     "attachmentRemoved": "附件已移除",
     "toFill": "正文中有 {n} 处需要你填写（用 [[ ]] 标出）：把整个 [[…]] 换成你的回答，填完才能发送。",
-    "removeFile": "移除 {name}"
+    "removeFile": "移除 {name}",
+    "sendingNow": "发送中…"
   },
   "contacts": {
     "addContact": "添加联系人",

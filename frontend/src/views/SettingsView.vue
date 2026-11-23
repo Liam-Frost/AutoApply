@@ -36,7 +36,7 @@ const sec = ref(blankSecrets())
 const netPanel = ref(null)
 const route = useRoute()
 const router = useRouter()
-const rerun = async () => { await api.post('/persona/restart'); persona.done = false; router.push('/welcome') }
+const rerun = () => run(async () => { await api.post('/persona/restart'); persona.done = false; router.push('/welcome') }, '')
 const sys = ref({})
 const exported = ref(null)
 const docs = ref([])

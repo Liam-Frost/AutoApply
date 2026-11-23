@@ -2371,7 +2371,8 @@
     "discard": "Discard",
     "attachmentRemoved": "Attachment removed",
     "toFill": "The text has {n} place for you to fill in (marked with [[ ]]): replace the whole [[…]] with your answer before sending. | The text has {n} places for you to fill in (marked with [[ ]]): replace each whole [[…]] with your answer before sending.",
-    "removeFile": "Remove {name}"
+    "removeFile": "Remove {name}",
+    "sendingNow": "Sending…"
   },
   "contacts": {
     "addContact": "Add contact",
