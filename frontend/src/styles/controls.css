@@ -1,0 +1,92 @@
+/* Semantic form controls: Combobox, TimeZonePicker, ReminderRules, ToggleSwitch (docs/component-guidelines.md). */
+
+/* what is there for a screen reader and not for the eye: a control's name, how many options a search left */
+.cb-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ── Combobox: the trigger is an AaSelect's (.sel, --h-md); in it the chosen option and, muted, its hint - one line,
+      cut at its end (the hint goes first), the whole in a tooltip when it is cut ── */
+.sel.cb { gap: var(--s2); }
+/* (nothing chosen: the placeholder, muted - not `.empty`, which is the empty state's and makes an svg in it 36px) */
+.sel.cb.blank .sel-val { color: var(--text-3); }
+.sel.cb .cb-hint { margin-left: var(--s2); color: var(--text-3); font-size: var(--fs-sm); }
+.sel.cb.invalid { border-color: var(--bad); }
+.sel.cb.invalid:focus-visible, .sel.cb.invalid.open { border-color: var(--bad); outline-color: color-mix(in srgb, var(--bad) 28%, transparent); }
+
+/* the list: on <body> like an AaSelect's (.sel-pop, --z-select), a search field at the top that stays, the options under
+   it scrolling, the heading of a group staying at the top while its options pass under it */
+.sel-pop.cb-pop { display: flex; flex-direction: column; padding: 0; overflow: hidden; max-width: none; }
+.cb-search { position: relative; flex: none; padding: var(--s2); border-bottom: 1px solid var(--border); }
+.cb-search svg { position: absolute; left: calc(var(--s2) + 9px); top: 50%; width: 16px; height: 16px; transform: translateY(-50%); fill: none; stroke: var(--text-3);
+  stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+.cb-search input { width: 100%; padding-left: 32px; }
+.cb-list { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 4px 4px; overscroll-behavior: contain; }
+.cb-sec:first-child > .cb-opt:first-child { margin-top: 4px; }
+.cb-group { position: sticky; top: 0; z-index: 1; padding: 8px 10px 4px; background: var(--surface); color: var(--text-3); font-size: var(--fs-xs); font-weight: var(--fw-semibold); }
+.cb-opt { justify-content: flex-start; gap: var(--s2); }
+.cb-opt > .cb-opt-label { flex: 0 1 auto; min-width: 0; }
+.cb-opt > .cb-opt-hint { flex: 0 1 auto; min-width: 0; color: var(--text-3); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.cb-opt > svg { margin-left: auto; }
+.cb-empty { padding: var(--s3) var(--s4); color: var(--text-3); font-size: var(--fs-sm); }
+
+/* ── TimeZonePicker: the field and, under it, the line about a saved value that is not a zone ── */
+.tzp { display: flex; flex-direction: column; align-items: stretch; gap: var(--s1); width: min(100%, 420px); min-width: 0; }
+.tzp > .sel { width: 100%; }
+.cb-note { margin: 0; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.45; }
+.cb-note.bad { color: var(--bad); }
+
+/* ── ReminderRules: chips (the size of .fchip.lg, the words in the middle) and the "+" in one row that wraps ── */
+.rr { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; min-height: var(--h-md); }
+.rr-chip { justify-content: center; white-space: nowrap; }
+.rr-chip > .icon-btn.sm { border-radius: var(--r-pill); }
+.rr-none { color: var(--text-3); font-size: var(--fs-sm); }
+.rr-pop { display: flex; flex-direction: column; gap: var(--s3); }
+.rr-pop > .pop-title { margin: 0; }
+.rr-presets { display: flex; flex-wrap: wrap; gap: var(--s2); }
+button.rr-preset { gap: 4px; }
+button.rr-preset svg { width: 14px; height: 14px; }
+button.rr-preset.on, button.rr-preset.on:hover { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.rr-own { display: flex; flex-direction: column; gap: var(--s1); padding-top: var(--s3); border-top: 1px solid var(--border); }
+.rr-own-label { color: var(--text-2); font-size: var(--fs-sm); }
+.rr-own-row { display: flex; align-items: center; gap: var(--s2); }
+.rr-own-row > input.w-num { width: 72px; flex: none; }
+.rr-own-row > .sel { flex: 1 1 auto; min-width: 0; }
+.rr-own-row > button { flex: none; }
+.rr-unit { flex: 1 1 auto; color: var(--text-2); font-size: var(--fs-sm); }
+.rr-error { margin: 0; color: var(--bad); font-size: var(--fs-sm); }
+
+/* ── ToggleSwitch: a track and a knob, --h-xs tall; on: the primary colour; the words beside it flip it too ── */
+.tsw { display: inline-flex; align-items: center; gap: var(--s2); min-height: var(--h-xs); vertical-align: middle; }
+button.tsw-btn { position: relative; flex: none; justify-content: flex-start; width: calc(var(--h-xs) * 5 / 3); height: var(--h-xs); padding: 0; border: 1px solid var(--text-3);
+  border-radius: var(--r-pill); background: var(--surface-2); transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+button.tsw-btn:hover { background: var(--surface-2); border-color: var(--text-2); }
+.tsw-knob { flex: none; width: calc(var(--h-xs) - 8px); height: calc(var(--h-xs) - 8px); margin-left: 3px; border-radius: 50%; background: var(--text-3);
+  transition: transform var(--dur) var(--ease), background-color var(--dur) var(--ease); }
+.tsw.on button.tsw-btn, .tsw.on button.tsw-btn:hover { background: var(--primary); border-color: var(--primary); }
+.tsw.on .tsw-knob { background: var(--on-primary); transform: translateX(calc(var(--h-xs) * 2 / 3)); }      /* (the track's inner width less the knob and its two margins) */
+.tsw-label { cursor: pointer; }
+.tsw.disabled .tsw-label { color: var(--text-3); cursor: not-allowed; }
+.tsw.disabled button.tsw-btn { opacity: 0.5; }
+
+/* ── where they stand in the settings (styles/analysis-settings.css has the rest of the settings' fields) ── */
+.set-sec .kv > .rr { justify-self: stretch; }
+.set-val > .tzp { flex: 0 1 auto; }
+.set-switch { display: flex; align-items: center; min-height: var(--h-md); margin-bottom: var(--s3); }
+.set-switch + .kv { margin-top: 0; }
+/* a time that does not apply now (the quiet hours are off) looks it */
+.set-val > input[type=time]:disabled { background: var(--surface-2); color: var(--text-3); cursor: not-allowed; }
+
+/* ── RadioList (components/RadioList.vue) ── */
+.radio-list { border: 0; margin: 0; padding: 0; min-width: 0; }
+.radio-list > .rl-legend { padding: 0; margin: 0 0 var(--s1); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); }
+.radio-list > .rl-legend-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* (one line of 20px with 10px above and below is the row's 40px; a radio stands by the first line when a hint wraps) */
+.rl-row { display: flex; align-items: flex-start; gap: var(--s3); min-height: var(--row-compact); padding: 0 var(--s2); margin: 0 calc(-1 * var(--s2)); border-radius: var(--r-sm); cursor: pointer; }
+.rl-row:hover { background: var(--surface-2); }
+.rl-row > input { flex: none; margin: calc((var(--row-compact) - 17px) / 2) 0 0; }
+.rl-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); flex: 1 1 auto; min-width: 0; padding: 10px 0; line-height: 20px; }
+.rl-label { flex: 0 1 auto; min-width: 0; font-size: var(--fs-md); color: var(--text); }
+.rl-row.on .rl-label { font-weight: var(--fw-medium); }
+.rl-hint { flex: 0 1 auto; min-width: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.rl-row.off { cursor: not-allowed; }
+.rl-row.off:hover { background: transparent; }
+.rl-row.off .rl-label, .rl-row.off .rl-hint { color: var(--text-3); }

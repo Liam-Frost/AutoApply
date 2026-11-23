@@ -107,7 +107,7 @@ def routes(site: Site) -> list[str]:
             "/profile", "/files", "/contacts", "/accounts",
             "/analytics?view=apps", "/analytics?view=auto", "/analytics?view=sites", "/analytics?view=ai", "/runs",
             *[f"/settings/{g}" for g in ("overview", "goals", "automation", "materials", "accounts", "notify", "system")],
-            "/about"]
+            "/about", "/about/changelog", "/about/licenses"]
 
 
 # ── what every page is measured for ──────────────────────────────────────────────────────────────────────────────────
@@ -613,3 +613,96 @@ def test_a_tooltip_in_a_table_at_the_right_edge_stays_inside_the_window(site, wi
     page.wait_for_timeout(50)      # (placed after it was measured)
     where = page.evaluate(INSIDE, "#aa-tip")
     assert where["ok"], where
+
+
+# ── F. analytics, settings and about: structure by content, semantic controls ────────────────────────────────────────
+# Cards side by side in one row: how much of each is empty below what it holds (its last child's bottom, plus the card's
+# padding), as a share of its height. Two cards share a row only when they hold about as much (views/analytics/layout.js).
+ROW_EMPTY = """() => {
+  const out = []
+  for (const row of document.querySelectorAll('main .an-row, main .about-cols')) {
+    const cards = [...row.children].filter((c) => c.getBoundingClientRect().height > 0)
+    if (cards.length < 2 || new Set(cards.map((c) => Math.round(c.getBoundingClientRect().top))).size > 1) continue
+    for (const c of cards) {
+      const r = c.getBoundingClientRect()
+      let bottom = r.top
+      for (const k of c.querySelectorAll('*')) { const b = k.getBoundingClientRect(); if (b.height && b.bottom > bottom) bottom = b.bottom }
+      const pad = parseFloat(getComputedStyle(c).paddingBottom) || 0
+      out.push({ row: row.className, card: (c.querySelector('h3, .card-title, .card-head') || c).textContent.trim().slice(0, 40), empty: (r.bottom - bottom - pad) / r.height })
+    }
+  }
+  return out
+}"""
+
+
+@pytest.mark.parametrize("width", [1440, 1280, 1024])
+@pytest.mark.parametrize("lang", ["en", "zh"])
+def test_no_card_beside_a_taller_one_is_left_mostly_empty(site, width, lang):
+    bad = []
+    for path in ("/analytics?view=apps", "/analytics?view=auto", "/analytics?view=sites", "/analytics?view=ai", "/about"):
+        page = site.go(path, width, lang)
+        bad += [(path, c) for c in page.evaluate(ROW_EMPTY) if c["empty"] > 0.4]
+    assert not bad, bad
+
+
+def test_the_time_zone_is_chosen_from_a_list_searched_by_city_with_the_programs_own_offsets(site):
+    page = site.go("/settings/notify/reminders")
+    trigger = page.locator("main #time-zone")
+    assert trigger.get_attribute("aria-haspopup") == "listbox" and not page.locator("main input#time-zone").count()      # not a field to type a zone into
+    trigger.focus()
+    page.keyboard.press("Enter")
+    search = page.locator("[role=combobox][aria-expanded=true]")
+    search.wait_for()
+    assert page.evaluate("() => document.activeElement.getAttribute('role')") == "combobox"
+    page.keyboard.type("Vancouver")
+    first = page.locator("[role=listbox] [role=option]").first
+    first.wait_for()
+    # British Columbia is UTC-7 all year since 2026: the offset is the server's (its own tzdata), never the browser's
+    assert "America/Vancouver" in first.inner_text() and "UTC−07:00" in first.inner_text(), first.inner_text()
+    active = page.evaluate("() => document.getElementById(document.activeElement.getAttribute('aria-activedescendant')).textContent")
+    assert "America/Vancouver" in active
+    page.keyboard.press("Escape")      # closes without a change
+    search.wait_for(state="detached")
+    assert "Vancouver" not in trigger.inner_text() and page.evaluate("() => document.activeElement.id") == "time-zone"
+    trigger.focus()
+    page.keyboard.press("Enter")
+    page.keyboard.type("+05:30")
+    page.locator("[role=listbox] [role=option]", has_text="Asia/Kolkata").first.wait_for()      # by offset, a half hour too
+    page.keyboard.press("Escape")
+
+
+def test_the_reminders_of_a_kind_are_chips_never_a_list_of_minutes_to_type(site):
+    page = site.go("/settings/notify/reminders")
+    sec = page.locator("main #set-reminders")
+    sec.wait_for()
+    assert not sec.locator("input:not([type=time]):not([type=checkbox])").count(), "a field to type minutes into"
+    chips = sec.locator(".fchip.lg")
+    assert chips.count() >= 3
+    heights = {round(b["height"]) for b in (chips.nth(i).bounding_box() for i in range(chips.count()))}
+    assert len(heights) == 1, heights
+    for i in range(chips.count()):      # each × says which reminder it removes, in the words the chip shows
+        said, name = chips.nth(i).locator(".rr-text").inner_text().strip(), chips.nth(i).locator("button").get_attribute("aria-label") or ""
+        assert said and said in name and len(name) > len(said), (said, name)
+
+
+def test_the_about_tabs_keep_the_keyboard_and_the_changelog_is_one_timeline(site):
+    page = site.go("/about")
+    tab = page.locator("main [role=tab][data-tab=overview]")
+    tab.focus()
+    page.keyboard.press("ArrowRight")
+    page.wait_for_url("**/about/changelog")
+    settle(page, "en")
+    assert page.evaluate("() => document.activeElement.dataset.tab") == "changelog"      # not moved to the page's title
+    data = site.api("/api/about/changelog")
+    shown = page.locator("main .cl-ver")
+    assert shown.count() == len(data["versions"]) and page.locator("main .cl-node").count() == shown.count()
+    released = [v for v in data["versions"] if not v["unreleased"]]
+    opened = page.locator("main .cl-toggle[aria-expanded=true]")
+    assert 1 <= opened.count() <= 2, opened.count()      # the newest release (and the running version): the rest are one line
+    assert released[0]["version"] in page.locator("main .cl-ver.open").first.inner_text() or data["versions"][0]["unreleased"]
+    page.keyboard.press("ArrowRight")
+    page.wait_for_url("**/about/licenses")
+    settle(page, "en")
+    assert page.evaluate("() => document.activeElement.dataset.tab") == "licenses"
+    assert page.locator("main .dt-row").count() >= 10
+    site.go("/about")      # (the next test starts where a person would)

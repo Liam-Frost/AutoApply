@@ -4,7 +4,8 @@ import { t as T } from '../../i18n/catalog'
 // adds nothing to a bill, and its figure says what the same call would cost on the pay-as-you-go API. What cannot be
 // told (no price for the model, no usage reported, records from before requests were kept) is shown as such, apart.
 // The overview stays compact: the numbers behind the chart open in a panel below its row; the full lists, one run and
-// the price editor open in a drawer.
+// the price editor open in a drawer. Two cards share a row only when they are of one kind (two tables) and hold about
+// as much (layout.js); a table and a block of figures each take a row of their own.
 import { computed, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../../api'
 import { change, colorOf, compact, money, ms, pct, share } from '../../analytics'
@@ -25,6 +26,7 @@ import Trunc from '../../components/Trunc.vue'
 import { run } from '../../ui'
 import Kpi from './Kpi.vue'
 import RunDetail from './RunDetail.vue'
+import { H, pairs, table as tall } from './layout'
 
 const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, required: true } })
 const emit = defineEmits(['reload'])
@@ -65,6 +67,14 @@ const anyWaste = computed(() => W.value.failed_requests.requests || W.value.back
 const table = ref(false)       // the numbers behind the chart, in a panel below the row
 const TOP = 5                   // rows of each "top" list on the overview; the rest is behind "show all"
 const SIZE = 10
+
+// which tables share a row: the models beside the services (and the split by how they are paid), the most expensive
+// runs beside the heaviest requests - when of about one height
+const ONE_LINE = H.card + 40       // (a card that says in one line that there is nothing)
+const modelsPair = computed(() => pairs(tall(props.d.by_model.length, { row: H.row2 }),
+  tall(props.d.by_provider.length, { row: H.row2, extra: billParts.value.length ? 50 + billParts.value.length * H.legend : 0 })))
+const listsPair = computed(() => pairs(props.d.costly.length ? tall(Math.min(TOP, props.d.costly.length), { row: H.row2, foot: props.d.costly.length > TOP ? H.foot : 0 }) : ONE_LINE,
+  props.d.heavy.length ? tall(Math.min(TOP, props.d.heavy.length), { row: H.row2, foot: props.d.heavy.length > TOP ? H.foot : H.hint }) : ONE_LINE))
 
 // the drawer: one of the two lists, one run, or the prices
 const drawer = reactive({ kind: '', run: null, fromList: false, page: 0 })
@@ -152,7 +162,7 @@ async function savePrices() {
       </Transition>
     </div>
 
-    <div class="an-row c32">
+    <div class="an-row" :class="{ c32: modelsPair }">
       <div class="card">
         <CardHead :title="$t('analytics.cost.models')" :help="$t('analytics.cost.modelNamesComeFrom')">
           <button class="ghost sm" @click="editPrices"><Icon name="edit" />{{ $t('analytics.cost.prices') }}</button>
@@ -219,51 +229,50 @@ async function savePrices() {
       </div>
     </div>
 
-    <div class="an-row c11 wide">
-      <div class="card">
-        <CardHead :title="$t('analytics.cost.costPerResult')" :help="$t('analytics.cost.everythingAKindOf')" />
-        <div v-if="d.units.length" class="an-scroll">
-          <table class="an-table two">
-            <colgroup><col /><col class="w-m" /><col class="w-n opt-c" /><col class="w-n" /><col class="w-num" /><col class="w-wide" /></colgroup>
-            <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.task') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.runs') }}</th><th v-tip.overflow class="num opt-c">{{ $t('analytics.cost.failed') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.results') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.aiCost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.perResult') }}</th></tr></thead>
-            <tbody>
-              <tr v-for="u in d.units" :key="u.kind">
-                <td><Trunc as="div" class="t-name" :text="u.label" /><Trunc as="div" class="t-sub" :text="u.unit" /></td>
-                <td class="num">{{ u.runs }}</td><td class="num opt-c">{{ u.failed_runs }}</td><td class="num">{{ u.results }}</td>
-                <td class="num">{{ money(u.cost, u.partial) }}</td>
-                <td class="num"><InfoTip v-if="u.partial || !u.results" :text="u.partial ? $t('analytics.cost.someRequestsHaveNo') : $t('analytics.cost.noResultsInThis')" />{{ money(u.per_result, u.partial) }}</td>
-              </tr>
-            </tbody>
-          </table>
+    <!-- what one result costs (a table) and what failures and repeats cost (figures): not of one kind - a row each -->
+    <div class="card">
+      <CardHead :title="$t('analytics.cost.costPerResult')" :help="$t('analytics.cost.everythingAKindOf')" />
+      <div v-if="d.units.length" class="an-scroll">
+        <table class="an-table two">
+          <colgroup><col /><col class="w-m" /><col class="w-n opt-c" /><col class="w-n" /><col class="w-num" /><col class="w-wide" /></colgroup>
+          <thead><tr><th v-tip.overflow>{{ $t('analytics.cost.task') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.runs') }}</th><th v-tip.overflow class="num opt-c">{{ $t('analytics.cost.failed') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.results') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.aiCost') }}</th><th v-tip.overflow class="num">{{ $t('analytics.cost.perResult') }}</th></tr></thead>
+          <tbody>
+            <tr v-for="u in d.units" :key="u.kind">
+              <td><Trunc as="div" class="t-name" :text="u.label" /><Trunc as="div" class="t-sub" :text="u.unit" /></td>
+              <td class="num">{{ u.runs }}</td><td class="num opt-c">{{ u.failed_runs }}</td><td class="num">{{ u.results }}</td>
+              <td class="num">{{ money(u.cost, u.partial) }}</td>
+              <td class="num"><InfoTip v-if="u.partial || !u.results" :text="u.partial ? $t('analytics.cost.someRequestsHaveNo') : $t('analytics.cost.noResultsInThis')" />{{ money(u.per_result, u.partial) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <EmptyState v-else class="line" icon="activity" :title="$t('analytics.cost.noTaskUsedA')" :text="$t('analytics.cost.callsOutsideATask')" />
+    </div>
+    <div class="card">
+      <CardHead :title="$t('analytics.cost.spentOnFailuresAnd')" :help="$t('analytics.cost.whatFailedRequestsRetries')" />
+      <template v-if="anyWaste">
+        <div class="figs">
+          <div><div class="v" :class="{ na: W.failed_requests.cost == null }">{{ money(W.failed_requests.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsThatDidNot2', { p0: W.failed_requests.requests }) }}<template v-if="W.failed_requests.unknown">{{ $t('analytics.cost.withUnknownCost', { p0: W.failed_requests.unknown }) }}</template></span><InfoTip :text="$t('analytics.cost.requestsThatDidNot')" /></div></div>
+          <div><div class="v" :class="{ na: W.backup_attempts.cost == null }">{{ money(W.backup_attempts.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.repeatedOnABackup', { p0: W.backup_attempts.requests }) }}</span><InfoTip :text="$t('analytics.cost.requestsMadeAgainOn')" /></div></div>
+          <div><div class="v" :class="{ na: W.failed_tasks.cost == null }">{{ money(W.failed_tasks.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsBelongToFailed', { p0: W.failed_tasks.requests }) }}</span><InfoTip :text="$t('analytics.cost.everyRequestMadeBy')" /></div></div>
+          <div><div class="v" :class="{ na: W.repeated_tasks.cost == null }">{{ money(W.repeated_tasks.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsBelongToRepeated', { p0: W.repeated_tasks.requests }) }}</span><InfoTip :text="$t('analytics.cost.requestsMadeByTasks')" /></div></div>
         </div>
-        <EmptyState v-else icon="activity" :title="$t('analytics.cost.noTaskUsedA')" :text="$t('analytics.cost.callsOutsideATask')" />
-      </div>
-      <div class="card">
-        <CardHead :title="$t('analytics.cost.spentOnFailuresAnd')" :help="$t('analytics.cost.whatFailedRequestsRetries')" />
-        <template v-if="anyWaste">
-          <div class="figs two">
-            <div><div class="v" :class="{ na: W.failed_requests.cost == null }">{{ money(W.failed_requests.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsThatDidNot2', { p0: W.failed_requests.requests }) }}<template v-if="W.failed_requests.unknown">{{ $t('analytics.cost.withUnknownCost', { p0: W.failed_requests.unknown }) }}</template></span><InfoTip :text="$t('analytics.cost.requestsThatDidNot')" /></div></div>
-            <div><div class="v" :class="{ na: W.backup_attempts.cost == null }">{{ money(W.backup_attempts.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.repeatedOnABackup', { p0: W.backup_attempts.requests }) }}</span><InfoTip :text="$t('analytics.cost.requestsMadeAgainOn')" /></div></div>
-            <div><div class="v" :class="{ na: W.failed_tasks.cost == null }">{{ money(W.failed_tasks.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsBelongToFailed', { p0: W.failed_tasks.requests }) }}</span><InfoTip :text="$t('analytics.cost.everyRequestMadeBy')" /></div></div>
-            <div><div class="v" :class="{ na: W.repeated_tasks.cost == null }">{{ money(W.repeated_tasks.cost) }}</div><div class="k"><span>{{ $t('analytics.cost.requestsBelongToRepeated', { p0: W.repeated_tasks.requests }) }}</span><InfoTip :text="$t('analytics.cost.requestsMadeByTasks')" /></div></div>
+        <template v-if="W.by_feature.length">
+          <div class="an-label gap">{{ $t('analytics.cost.whereFailedTasksSpent') }}</div>
+          <div class="hbars tight even lab-md">
+            <template v-for="f in W.by_feature" :key="f.feature">
+              <Trunc class="lab" :text="f.label" />
+              <div class="track"><div class="fill bad" :style="{ width: pct(f.cost || 0, W.by_feature[0].cost || 1) + '%' }"></div></div>
+              <span class="num">{{ money(f.cost) }}</span>
+            </template>
           </div>
-          <template v-if="W.by_feature.length">
-            <div class="an-label gap">{{ $t('analytics.cost.whereFailedTasksSpent') }}</div>
-            <div class="hbars tight even lab-md">
-              <template v-for="f in W.by_feature" :key="f.feature">
-                <Trunc class="lab" :text="f.label" />
-                <div class="track"><div class="fill bad" :style="{ width: pct(f.cost || 0, W.by_feature[0].cost || 1) + '%' }"></div></div>
-                <span class="num">{{ money(f.cost) }}</span>
-              </template>
-            </div>
-          </template>
-          <div class="card-foot"><span class="hint">{{ $t('analytics.cost.theseOverlapTheyCannot') }}</span></div>
         </template>
-        <EmptyState v-else icon="check" :title="$t('analytics.cost.noFailedOrRepeated')" />
-      </div>
+        <div class="card-foot"><span class="hint">{{ $t('analytics.cost.theseOverlapTheyCannot') }}</span></div>
+      </template>
+      <EmptyState v-else class="line" icon="check" :title="$t('analytics.cost.noFailedOrRepeated')" />
     </div>
 
-    <div class="an-row c11 wide">
+    <div class="an-row" :class="{ c11: listsPair }">
       <div class="card">
         <CardHead :title="$t('analytics.cost.mostExpensiveRuns')" :help="$t('analytics.cost.highWellAboveMost')" />
         <div v-if="d.costly.length" class="an-scroll">
@@ -280,7 +289,7 @@ async function savePrices() {
             </tbody>
           </table>
         </div>
-        <EmptyState v-else icon="activity" :title="$t('analytics.cost.noTasksWithA')" />
+        <EmptyState v-else class="line" icon="activity" :title="$t('analytics.cost.noTasksWithA')" />
         <div v-if="d.costly.length > TOP" class="card-foot"><button class="ghost sm" @click="openList('costly')"><Icon name="table" />{{ $t('analytics.cost.showAll', { p0: d.costly.length }) }}</button></div>
       </div>
       <div class="card">
@@ -298,7 +307,7 @@ async function savePrices() {
             </tbody>
           </table>
         </div>
-        <EmptyState v-else icon="check" :title="$t('analytics.cost.noUnusuallyLargeRequests')" />
+        <EmptyState v-else class="line" icon="check" :title="$t('analytics.cost.noUnusuallyLargeRequests')" />
         <div class="card-foot">
           <button v-if="d.heavy.length > TOP" class="ghost sm" @click="openList('heavy')"><Icon name="table" />{{ $t('analytics.cost.showAll', { p0: d.heavy.length }) }}</button>
           <span v-else-if="d.heavy.length" class="hint">{{ $t('analytics.cost.ofTheRequestsIn', { p0: t.requests, p1: d.heavy.length }) }}</span>

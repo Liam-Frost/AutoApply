@@ -316,9 +316,29 @@ def _first_records(s: Any, w: Window) -> dict[str, Any]:
     return {"n": len(begun), "from_found_hours": _median(found), "from_begun_hours": _median(begun), "slow": sum(1 for x in found if x > 72)}
 
 
+def _todo_job(s: Any, t: Any) -> Job | None:
+    """The posting a card is about, where the card says so (as the to-do page finds it): its payload's posting, record or
+    application, or a reference to one of them."""
+    p = t.payload or {}
+    ref = t.ref or ""
+    try:
+        if p.get("job_id") or ref.startswith("job:"):
+            return s.get(Job, int(p.get("job_id") or ref[4:]))
+        if p.get("draft_id") or ref.startswith("draft:"):
+            d = s.get(Draft, int(p.get("draft_id") or ref[6:]))
+            return d.application.job if d is not None else None
+        if p.get("application_id") or ref.startswith("application:"):
+            a = s.get(Application, int(p.get("application_id") or ref[12:]))
+            return a.job if a is not None else None
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
 def _backlog(s: Any, w: Window) -> dict[str, Any]:
     """What waits for the applicant: how long the cards dealt with in the window had waited, by kind; and the oldest
-    of the ones still open."""
+    of the ones still open, with what tells them apart (the posting, a date of their own, put off until when)."""
+    from . import reminders
     from .models import Todo
 
     now_ = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -327,16 +347,30 @@ def _backlog(s: Any, w: Window) -> dict[str, Any]:
         if w.has(_naive(t.done_at)):
             by_kind[t.kind].append((t.done_at - t.created_at).total_seconds() / 3600)
     open_ = [t for t in s.query(Todo).filter_by(status="open")]
-    oldest = sorted(open_, key=lambda t: t.created_at)[:5]
+    oldest = sorted(open_, key=lambda t: (t.created_at, t.id))[:5]
     every = sorted(x for xs in by_kind.values() for x in xs)
     # by what the applicant reads: two kinds of card with one name ("sign in": at a site, in a window) are one row
-    named: dict[str, tuple[Any, str, list[float]]] = {}
-    for k, v in sorted(by_kind.items(), key=lambda kv: -len(kv[1])):
+    named: dict[str, tuple[Any, str, list[float], list[str]]] = {}
+    for k, v in sorted(by_kind.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         label = TODO_KINDS.get(k) or T("server.analytics.otherCards")
-        named.setdefault(str(label), (label, k, []))[2].extend(v)      # (`kind`: the one of them with the most cards)
+        row = named.setdefault(str(label), (label, k, [], []))      # (`kind`: the one of them with the most cards)
+        row[2].extend(v)
+        row[3].append(k)
+
+    def one(t: Any) -> dict[str, Any]:
+        j = _todo_job(s, t)
+        return {"id": t.id, "title": t.title, "kind": TODO_KINDS.get(t.kind) or T("server.analytics.otherCards"), "hours": (now_ - t.created_at).total_seconds() / 3600,
+                # (added for the analysis page's list: which kind, the posting it is about, its own date - local time,
+                # as the to-do page has it - and until when it was put off, while it still is)
+                "kind_key": t.kind, "created_at": t.created_at.isoformat(),
+                "due_at": t.due_at.isoformat() if t.due_at else None, "date_only": bool((t.payload or {}).get("date_only")),
+                "snoozed_until": t.snoozed_until.isoformat() if reminders.snoozed(t) else None,
+                "job_id": j.id if j is not None else None, "company": j.company if j is not None else "", "job_title": j.title if j is not None else "",
+                "deadline": (j.deadline or "")[:16] if j is not None else ""}
+
     return {"handled": len(every), "median_hours": _median(every),
-            "by_kind": sorted(({"kind": k, "label": label, "n": len(v), "median_hours": _median(sorted(v))} for label, k, v in named.values()), key=lambda r: -r["n"]),
-            "open": len(open_), "oldest": [{"id": t.id, "title": t.title, "kind": TODO_KINDS.get(t.kind) or T("server.analytics.otherCards"), "hours": (now_ - t.created_at).total_seconds() / 3600} for t in oldest]}
+            "by_kind": sorted(({"kind": k, "label": label, "n": len(v), "median_hours": _median(sorted(v)), "kinds": ks} for label, k, v, ks in named.values()), key=lambda r: -r["n"]),
+            "open": len(open_), "snoozed": sum(1 for t in open_ if reminders.snoozed(t)), "oldest": [one(t) for t in oldest]}
 
 
 TODO_KINDS = {"answer": T("server.analytics.answerQuestions"), "review": T("server.analytics.approveARecord"), "confirm": T("server.analytics.confirm"), "code": T("server.analytics.code"), "resume": T("server.analytics.continueAnApplication"), "submit": T("server.analytics.submitYourself"), "failed": T("server.analytics.didNotGetThrough"),

@@ -4,7 +4,9 @@ import { t as T } from '../../i18n/catalog'
 // when it has handed the form over - so the outcome is shown in three groups: done, not finished (your move, or still
 // running), failed.
 // The overview stays compact: the numbers behind the chart open in a panel below its row, the full list of runs and
-// the detail of one run open in a drawer.
+// the detail of one run open in a drawer. Figures that belong together are one card of plain figures, never tiles in a
+// card; two cards share a row only when they hold about as much (layout.js) - the chart beside a long list of failure
+// reasons, but over a short one.
 import { computed, reactive, ref, watch } from 'vue'
 import { api, fmt } from '../../api'
 import { change, compact, dur, hours, money, pct, rangeQuery } from '../../analytics'
@@ -24,8 +26,10 @@ import StackChart from '../../components/StackChart.vue'
 import Status from '../../components/Status.vue'
 import TechDetails from '../../components/TechDetails.vue'
 import Trunc from '../../components/Trunc.vue'
+import EntityCell from '../../components/cells/EntityCell.vue'
 import Kpi from './Kpi.vue'
 import RunDetail from './RunDetail.vue'
+import { H, bars, pairs, reasons, table as tall } from './layout'
 
 const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, required: true }, range: { type: Object, required: true } })
 const t = computed(() => props.d.total)
@@ -47,6 +51,13 @@ const failed = computed(() => t.value.failed + t.value.interrupted)
 const TOP_REASONS = 5      // on the overview; the rest is one line, and all of them are in the detail view
 const topReasons = computed(() => props.d.reasons.slice(0, TOP_REASONS))
 const restReasons = computed(() => props.d.reasons.slice(TOP_REASONS).reduce((a, r) => a + r.n, 0))
+// the chart (its legend and foot) beside the reasons only when they fill about as much
+const CHART = H.card + 168 + H.legend + H.foot + 52      // (the stacked chart, its axis, legend and foot)
+const reasonPair = computed(() => pairs(CHART, props.d.reasons.length ? reasons(topReasons.value.length + (restReasons.value ? 1 : 0), { foot: H.foot }) : H.card + 40))
+// how each run ended beside the recruiting systems' table
+const runEnds = computed(() => (props.d.agent_runs && props.d.agent_runs.ends) || [])
+const bySystem = computed(() => (props.d.agent_runs && props.d.agent_runs.by_system) || [])
+const runsPair = computed(() => pairs(bars(runEnds.value.length), tall(bySystem.value.length)))
 
 const table = ref(false)        // the numbers behind the chart, in a panel below the row
 
@@ -85,13 +96,14 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       <AaSelect v-model="params.kind" small aria-labelledby="an-kind"><option value="">{{ $t('analytics.auto.allTasks') }}</option><option v-for="k in d.kinds" :key="k.kind" :value="k.kind">{{ k.label }}</option></AaSelect>
     </div>
 
-    <div class="an-row c32 tight">
+    <div class="an-row" :class="reasonPair ? 'c32 tight' : 'solo'">
       <div class="card">
         <CardHead :title="TITLE[d.bucket]" :help="$t('analytics.auto.byTheDayA')" />
         <StackChart :buckets="trend" :series="SERIES" :format="count" :height="168" />
         <div class="card-foot"><button class="ghost sm" :aria-expanded="table" @click="table = !table"><Icon :name="table ? 'chevron_up' : 'table'" />{{ table ? $t('analytics.auto.hideDetail') : $t('analytics.auto.showTheDataTable') }}</button></div>
       </div>
-      <div class="card">
+      <!-- (over the chart's whole width, the reasons come after the chart's own table) -->
+      <div class="card an-later">
         <CardHead :title="$t('analytics.auto.mainReasonsForFailure')" :help="$t('analytics.auto.groupedByReasonMost')" :note="$t('analytics.auto.failures', { p0: failed })" />
         <template v-if="d.reasons.length">
           <div v-for="r in topReasons" :key="r.key" class="reason">
@@ -100,7 +112,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
           <div v-if="restReasons" class="reason rest"><span class="lab">{{ $t('analytics.auto.otherReasons', { p0: d.reasons.length - TOP_REASONS }) }}</span><span></span><span class="n">{{ restReasons }}</span></div>
           <div class="card-foot"><button class="ghost sm" @click="drawer.reasons = true"><Icon name="table" />{{ $t('analytics.auto.showAllReasons') }}</button></div>
         </template>
-        <EmptyState v-else icon="check" :title="$t('analytics.auto.noFailedTasksIn')" />
+        <EmptyState v-else class="line" icon="check" :title="$t('analytics.auto.noFailedTasksIn')" />
       </div>
       <Transition name="an-fade">
         <DetailPanel v-if="table" :title="TITLE[d.bucket]" :sub="$t('analytics.auto.theSameDataAs')" @close="table = false">
@@ -144,7 +156,7 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
           <p>{{ $t('analytics.auto.theAgentWorkedApplications', { p0: d.applications.worked }) }}</p>
         </template>
       </CardHead>
-      <div class="kpis inner">
+      <div class="kpis inline">
         <Kpi :value="rate(d.applications.prepared.rate)" :tone="d.applications.prepared.rate == null ? 'na' : ''" :label="$t('analytics.auto.prepared')" :help="$t('analytics.auto.applicationsBroughtToWhere')">
           <div class="d">{{ $t('analytics.auto.of2', { p0: d.applications.prepared.n, p1: d.applications.prepared.of }) }}</div></Kpi>
         <Kpi :value="rate(d.applications.alone.rate)" :tone="d.applications.alone.rate == null ? 'na' : ''" :label="$t('analytics.auto.withoutYouSignIns')" :help="$t('analytics.auto.ofThePreparedApplications')">
@@ -156,39 +168,42 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
       </div>
     </div>
 
-    <div v-if="d.agent_runs && d.agent_runs.applications" class="card">
-      <CardHead :title="$t('analytics.auto.howAnApplicationGets')" :help="$t('analytics.auto.fromEachApplicationsOwn')" />
-      <p class="card-sub">{{ $t('analytics.auto.applicationsHadRunsIn', { p0: d.agent_runs.applications, p1: d.agent_runs.runs }) }}<template v-if="d.agent_runs.idle_runs">{{ $t('analytics.auto.moreRunsDidNot', { p0: d.agent_runs.idle_runs }) }}</template></p>
-      <div class="kpis inner">
-        <Kpi :value="d.agent_runs.runs_per_application.median ?? '—'" :label="$t('analytics.auto.runsPerApplicationMedian')">
-          <div class="d">{{ $t('analytics.auto.meanAtMost', { p0: d.agent_runs.runs_per_application.mean, p1: d.agent_runs.runs_per_application.max }) }}</div></Kpi>
-        <Kpi :value="rate(d.agent_runs.again.rate)" :tone="d.agent_runs.again.rate == null ? 'na' : ''" :label="$t('analytics.auto.stepsSpentGoingOver')" :help="$t('analytics.auto.toolCallsOfEvery')">
-          <div class="d">{{ $t('analytics.auto.steps', { p0: d.agent_runs.again.steps, p1: d.agent_runs.again.of }) }}</div></Kpi>
+    <template v-if="d.agent_runs && d.agent_runs.applications">
+      <div class="card">
+        <CardHead :title="$t('analytics.auto.howAnApplicationGets')" :help="$t('analytics.auto.fromEachApplicationsOwn')" />
+        <p class="card-sub">{{ $t('analytics.auto.applicationsHadRunsIn', { p0: d.agent_runs.applications, p1: d.agent_runs.runs }) }}<template v-if="d.agent_runs.idle_runs">{{ $t('analytics.auto.moreRunsDidNot', { p0: d.agent_runs.idle_runs }) }}</template></p>
+        <div class="kpis inline">
+          <Kpi :value="d.agent_runs.runs_per_application.median ?? '—'" :label="$t('analytics.auto.runsPerApplicationMedian')">
+            <div class="d">{{ $t('analytics.auto.meanAtMost', { p0: d.agent_runs.runs_per_application.mean, p1: d.agent_runs.runs_per_application.max }) }}</div></Kpi>
+          <Kpi :value="rate(d.agent_runs.again.rate)" :tone="d.agent_runs.again.rate == null ? 'na' : ''" :label="$t('analytics.auto.stepsSpentGoingOver')" :help="$t('analytics.auto.toolCallsOfEvery')">
+            <div class="d">{{ $t('analytics.auto.steps', { p0: d.agent_runs.again.steps, p1: d.agent_runs.again.of }) }}</div></Kpi>
+        </div>
       </div>
-      <div class="an-pair">
-        <div>
-          <div class="an-label">{{ $t('analytics.auto.howEachRunEnded') }}</div>
+      <!-- the same runs, two ways: how each ended, and by recruiting system - two cards, side by side when of a size -->
+      <div v-if="runEnds.length || bySystem.length" class="an-row" :class="{ c11: runsPair }">
+        <div v-if="runEnds.length" class="card">
+          <CardHead :title="$t('analytics.auto.howEachRunEnded')" />
           <div class="hbars tight even lab-md">
-            <template v-for="e in d.agent_runs.ends" :key="e.key">
+            <template v-for="e in runEnds" :key="e.key">
               <Trunc class="lab" :text="e.label" />
               <div class="track"><div class="fill" :style="{ width: pct(e.n, maxEnd) + '%' }"></div></div>
               <span class="num">{{ e.n }}</span>
             </template>
           </div>
         </div>
-        <div>
-          <div class="an-label">{{ $t('analytics.auto.upToReadyTo') }}</div>
+        <div v-if="bySystem.length" class="card">
+          <CardHead :title="$t('analytics.auto.upToReadyTo')" />
           <div class="an-scroll">
             <table class="an-table">
               <colgroup><col /><col class="w-n" /><col class="w-xs" /><col class="w-wide" /><col class="w-wide" /></colgroup>
               <thead><tr><th v-tip.overflow>{{ $t('analytics.auto.applicantTrackingSystem') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.apply') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.done') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.stepsMedian') }}</th><th v-tip.overflow class="num">{{ $t('analytics.auto.timeMedian') }}</th></tr></thead>
-              <tbody><tr v-for="r in d.agent_runs.by_system" :key="r.key"><td><Trunc :text="r.label" /></td><td class="num">{{ r.apps }}</td><td class="num">{{ r.done }}</td>
+              <tbody><tr v-for="r in bySystem" :key="r.key"><td><Trunc :text="r.label" /></td><td class="num">{{ r.apps }}</td><td class="num">{{ r.done }}</td>
                 <td class="num">{{ r.median_steps ?? '—' }}</td><td class="num">{{ r.median_seconds == null ? '—' : dur(r.median_seconds) }}</td></tr></tbody>
             </table>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
     <div v-if="d.asked_again && d.asked_again.total" class="card">
       <CardHead :title="$t('analytics.asked.title')" :note="d.asked_again.total">
@@ -222,11 +237,17 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
 
     <div v-if="d.unknown_settled && (d.unknown_settled.settled || d.unknown_settled.open_total)" class="card">
       <CardHead :title="$t('analytics.unknown.title')" :help="$t('analytics.unknown.explain')" />
-      <div class="kpis inner">
+      <div class="kpis inline">
         <Kpi :value="hours(d.unknown_settled.median_hours)" :tone="d.unknown_settled.median_hours == null ? 'na' : ''" :label="$t('analytics.unknown.median')">
           <div class="d">{{ $t('analytics.unknown.settled', { n: d.unknown_settled.settled, out: d.unknown_settled.went_out, mail: d.unknown_settled.by_mail }) }}</div></Kpi>
-        <Kpi :value="d.unknown_settled.open_total" :label="$t('analytics.unknown.open')">
-          <div v-for="o in d.unknown_settled.open" :key="o.id" class="d cut"><router-link :to="`/applications/${o.id}`">{{ o.company }}</router-link> · {{ hours(o.hours) }}</div></Kpi>
+        <Kpi :value="d.unknown_settled.open_total" :label="$t('analytics.unknown.open')" />
+      </div>
+      <!-- the ones still not known: a short list under the figures, each with how long it has waited -->
+      <div v-if="d.unknown_settled.open.length" class="rows an-open">
+        <div v-for="o in d.unknown_settled.open" :key="o.id" class="r">
+          <EntityCell :primary="o.company" :secondary="o.title" :to="`/applications/${o.id}`" />
+          <span class="end num atomic t-secondary">{{ hours(o.hours) }}</span>
+        </div>
       </div>
     </div>
 

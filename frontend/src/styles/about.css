@@ -1,0 +1,77 @@
+/* The about page: its overview and the updates (views/AboutView.vue, views/about/). Tokens only. */
+
+/* ── the head: the product, the version that runs, how it runs, the links ── */
+.about-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s4) var(--s6); }
+.about-id { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); min-width: 0; }
+.about-logo { height: 34px; }
+.about-ver { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; flex-wrap: wrap; }
+.about-ver-v { font-size: var(--fs-xl); font-weight: var(--fw-semibold); color: var(--text); font-variant-numeric: tabular-nums; }
+.about-links { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); }
+.about-links a { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; font-size: var(--fs-sm); }
+.about-links a svg { width: 14px; height: 14px; flex: none; }
+
+/* ── updates and the policy, side by side while each has room (.cols.fit) ── */
+.about-cols { margin-bottom: var(--s4); align-items: start; }
+.about-cols > .card { margin: 0; min-width: 0; }
+
+.up-state { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); min-height: var(--h-sm); }
+.up-title { font-size: var(--fs-lg); font-weight: var(--fw-semibold); color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.up-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.up-dot.ok { background: var(--ok); } .up-dot.info { background: var(--info); } .up-dot.warn { background: var(--warn); } .up-dot.bad { background: var(--bad); }
+.up-state > .spin { flex: none; }
+.up-bar { height: 6px; max-width: 360px; margin-top: var(--s2); border-radius: var(--r-pill); background: var(--neutral-soft); overflow: hidden; }
+.up-bar > span { display: block; height: 100%; background: var(--primary); transition: width 0.4s; }
+.up-bar.moving > span { animation: up-pulse 1.4s ease-in-out infinite; }
+@keyframes up-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .up-bar.moving > span { animation: none; } }
+.up-line { margin: var(--s1) 0 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
+.up-line.up-bad { color: var(--bad); }
+.up-line.up-warn { color: var(--warn); }
+.up-how { margin: var(--s2) 0 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 72ch; }
+.up-how code { white-space: nowrap; }
+
+dl.up-facts, dl.about-rt { margin: var(--s4) 0 0; gap: var(--s2) var(--s4); align-items: baseline; }
+.up-facts dt, .about-rt dt { display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-sm); color: var(--text-2); }
+.up-facts dd, .about-rt dd { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--s2); min-width: 0; overflow-wrap: anywhere; }
+/* (a label above its value - .kv in a narrow box or window: a pair keeps together, the next pair stands apart) */
+@media (max-width: 1000px) {
+  dl.up-facts, dl.about-rt { row-gap: 2px; }
+  .up-facts > dt:not(:first-child), .about-rt > dt:not(:first-child) { margin-top: var(--s2); }
+}
+@container (max-width: 460px) {
+  dl.up-facts, dl.about-rt { row-gap: 2px; }
+  .up-facts > dt:not(:first-child), .about-rt > dt:not(:first-child) { margin-top: var(--s2); }
+}
+.up-raw { font-family: var(--mono); }
+.up-facts dd > .tag { align-self: center; }
+
+.up-acts { margin-top: var(--s4); flex-wrap: wrap; row-gap: var(--s2); }      /* (a card's few update actions: on a phone they take a second line, each one whole) */
+.up-notes { margin-top: var(--s4); border-top: 1px solid var(--border); padding-top: var(--s3); }
+.up-notes > summary { cursor: pointer; font-weight: var(--fw-medium); }
+.up-notes-link { margin: var(--s2) 0; font-size: var(--fs-sm); }
+.up-notes-link a { display: inline-flex; align-items: center; gap: var(--s1); }
+.up-notes-link svg { width: 14px; height: 14px; }
+.up-notes > .md { margin-top: var(--s2); max-height: 420px; overflow: auto; }
+
+/* ── the policy ── */
+.up-limited { margin: var(--s1) 0 0; }
+.up-fields { margin-top: var(--s4); }
+.up-window .actions { flex-wrap: wrap; row-gap: var(--s1); }
+.up-window input[type=time] { width: 8.5em; }
+.up-privacy { margin: var(--s4) 0 0; max-width: 72ch; }
+.up-more { margin-top: var(--s2); font-size: var(--fs-sm); color: var(--text-2); }
+.up-more > summary { cursor: pointer; color: var(--text-2); width: fit-content; }
+.up-more > summary:hover, .up-more[open] > summary { color: var(--text); }
+.up-more > p { margin: var(--s2) 0 0; max-width: 72ch; }
+
+/* ── runtime details: a card that opens ── */
+.about-runtime > summary { display: flex; align-items: center; gap: var(--s2); cursor: pointer; list-style: none; min-height: var(--h-sm); width: fit-content; }
+.about-runtime > summary::-webkit-details-marker { display: none; }
+.about-runtime > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--r-sm); }
+.about-chev { width: 16px; height: 16px; flex: none; color: var(--text-3); transition: transform var(--dur) var(--ease); }
+.about-runtime[open] .about-chev { transform: rotate(90deg); }
+.about-rt dd.about-path { align-items: center; flex-wrap: nowrap; }
+.about-path > code { min-width: 0; }
+.about-build { margin-left: var(--s1); }
+.about-diag { margin-top: var(--s4); }
+

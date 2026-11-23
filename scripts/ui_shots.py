@@ -74,6 +74,8 @@ PAGES = {
     "settings-notify": "/settings/notify",
     "settings-system": "/settings/system",
     "about": "/about",
+    "about-changelog": "/about/changelog",
+    "about-licenses": "/about/licenses",
 }
 
 

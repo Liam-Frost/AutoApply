@@ -25,6 +25,24 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - **Wording**: concise product language in English, Chinese and French, one name per thing
   (`docs/ux-writing-glossary.md`); long subtitles and helper paragraphs went behind an (i) or were removed, keeping
   what is needed to decide and every safety statement. Dates are written one way everywhere.
+- **Analysis**: the cards are put together by what they hold, not stretched to one height. The time to a first record
+  and the to-dos waiting are one strip of figures; the kinds of to-dos dealt with (the first five, the rest behind
+  *Other kinds*) and the to-dos waiting longest (with their state, and *View all*) are two cards of their own; missed
+  postings have a row of their own. Two cards share a row only when they hold about as much - on every tab.
+- **Settings → Notifications** in five parts: channels, what to notify about, quiet hours, handling it from your phone,
+  and calendar and reminders. The time zone is chosen from a list you can search - by city (in English or your
+  language), country, zone name or offset ("+08", "UTC-7") - with each zone's offset now, from the program's own time
+  zone rules; an old spelling (`US/Pacific`) goes on working, and a saved value that is not a time zone is shown as
+  such, never replaced without you. Each kind of calendar item's reminders are chips ("1 day before", "30 minutes
+  before") added from the usual choices or any amount in minutes, hours or days, instead of a list of minutes to type.
+  Quiet hours are a switch and two times ("22:00 to 08:00 the next day"), what still goes through behind the (i).
+- **About** in three tabs. *Overview*: the version, how this copy runs and the links; the updates as one state at a
+  time - up to date, a newer version, downloading, ready to switch, switching, failed - with only the actions that
+  state allows, and a version prepared or kept to go back to named by its version ("2.0.2, local build, Nov 22"), not
+  by its folder; the update policy as a short list of choices; the runtime details folded, with *Copy diagnostics*.
+  *Changelog*: every version on one timeline, grouped by year, the newest open and the others one line each with a
+  count per kind of change; filter by kind, search, and go to a version (the address keeps it). *Licences*: every
+  component the program runs on - what it declares and what those pull in - searchable, each with its licence's text.
 - Documentation for contributors: `docs/component-guidelines.md`, `docs/ux-writing-glossary.md`,
   `docs/ui-quality-assurance.md`, `docs/ui-ux-audit.md`; a UI lab at `/ui-lab` shows every shared component in its
   states.
@@ -37,7 +55,7 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
   British Columbia stopped changing its clocks in 2026, the US West Coast did not) - and the program converts it with
   its own, current time zone rules. The item shows the time on your clock, the mail's own words, and what it was
   converted from; when a mail gives a time and nothing tells whose, the item says so. A scheduling tool's "shown in
-  your time zone" is left as it is. *Settings → Notifications → Calendar reminders → Your time zone* names your zone
+  your time zone" is left as it is. *Settings → Notifications → Calendar and reminders → Calendar time zone* names your zone
   when it is not this computer's.
 - **A period that fixes a date gives one**: "you have 14 days to complete the assessment" becomes a date counted from
   the day the mail was sent, on the calendar and with its reminders.
@@ -62,6 +80,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 - Deleting several files for good is asked about as the dangerous thing it is; so is withdrawing several applications.
 - Text the program kept before 2.0.2 is still recognised after this release's rewording (the wording of 2.0.2 is kept
   for that).
+- **Quiet hours were on the computer's clock**, not yours: with the program running in another time zone (a server),
+  they were someone else's night. They follow the calendar time zone now.
+- A reminder at the start of a timed calendar item was called "the morning of the day".
+- The time an update was last looked for was shown eight hours off.
+- A select with nothing chosen yet had an arrow three times too big.
+- An API address that nothing answers is a "not found", no longer the interface's page.
 
 ## [2.0.2] - 2026-11-22
 

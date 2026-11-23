@@ -11,6 +11,7 @@ import { deadlineLabel } from '../../dates'
 import { t } from '../../i18n/catalog'
 import { clockOf } from '../../i18n/format'
 import { run } from '../../ui'
+import { formatReminder } from '../../reminders'
 import { companyOf, family, GLYPH, kindName, longDate, scoreOf, statusName, statusTone, titleOf } from './look'
 
 const props = defineProps({ item: { type: Object, required: true }, now: { type: Date, required: true }, back: { type: String, default: '' }, zone: { type: Object, default: null } })
@@ -53,11 +54,8 @@ watch(itemKey, async (k) => {
   if (k === itemKey.value) { alarms.value = r.alarms; choices.value = r.choices }
 }, { immediate: true })
 // "30 minutes before", "1 day before" - for a whole-day item, the morning of that many days before
-function ahead(before, allDay) {
-  if (allDay || before % 1440 === 0) { const d = Math.ceil(before / 1440); return d === 0 ? t('calendar.alarm.sameDay') : t('calendar.alarm.days', { n: d }, d) }
-  if (before % 60 === 0) return t('calendar.alarm.hours', { n: before / 60 }, before / 60)
-  return t('calendar.alarm.minutes', { n: before }, before)
-}
+// (one wording with the settings: 0 before a timed item is its start, not "the morning of the day")
+const ahead = (before, allDay) => formatReminder(before, { allDay })
 const addAlarm = (before) => run(async () => { alarms.value = (await api.post('/calendar/alarms', { item: itemKey.value, before: Number(before) })).alarms }, t('calendar.alarm.added'))
 const removeAlarm = (a) => run(async () => { await api.del(`/calendar/alarms/${a.id}`); alarms.value = alarms.value.filter((y) => y.id !== a.id) }, t('calendar.alarm.removed'))
 </script>

@@ -1,9 +1,12 @@
 <script setup>
 import { t as T } from '../../i18n/catalog'
 // Applications: what came of them. Every figure here is about the applications SENT in the chosen range (a cohort);
-// the one exception - replies by the month they arrived - says so where it is shown.
+// the one exception - replies by the month they arrived - says so where it is shown. Below that, how quickly the work
+// moves and what waits for the applicant (Pace.vue), then the good postings that were missed.
+// Two cards share a row only when they hold about as much (layout.js): the bars by score, by channel and by direction
+// have as many rows as the data has groups.
 import { computed, ref, watch } from 'vue'
-import { change, hours, pct } from '../../analytics'
+import { change, pct } from '../../analytics'
 import { dayText } from '../../i18n/format'
 import CardHead from '../../components/CardHead.vue'
 import ColumnChart from '../../components/ColumnChart.vue'
@@ -15,6 +18,8 @@ import Tabs from '../../components/Tabs.vue'
 import Trunc from '../../components/Trunc.vue'
 import EntityCell from '../../components/cells/EntityCell.vue'
 import Kpi from './Kpi.vue'
+import Pace from './Pace.vue'
+import { H, bars, pairs, table } from './layout'
 
 const props = defineProps({ d: { type: Object, required: true }, params: { type: Object, default: () => ({ bucket: '' }) } })
 const t = computed(() => props.d.total)
@@ -38,6 +43,12 @@ const page = ref(0)
 const SIZE = 6
 const months = computed(() => [...steps.value].reverse())
 watch(() => props.d.by_time, () => { page.value = 0 })
+
+// the chart (or its table) beside the bars by score; the bars by channel beside those by direction
+const CHART = H.card + 183      // (the column chart, its axis and labels)
+const timeTall = computed(() => (asTable.value ? table(Math.min(SIZE, months.value.length), { foot: months.value.length > SIZE ? H.foot : 0 }) : CHART))
+const scorePair = computed(() => pairs(timeTall.value, bars(props.d.by_score.length, { foot: H.hint })))
+const groupPair = computed(() => pairs(bars(props.d.by_channel.length), bars(props.d.by_direction.length)))
 </script>
 
 <template>
@@ -74,7 +85,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       </div>
     </div>
 
-    <div class="an-row c11">
+    <div class="an-row" :class="{ c11: scorePair }">
       <div class="card">
         <CardHead :title="SENT_TITLE[size]" :help="asTable ? $t('analytics.apps.theFirstTwoColumns') : SENT_SUB[size]">
           <Tabs :model-value="asTable ? 'table' : 'chart'" :label="$t('analytics.apps.viewAs')" :items="[{ id: 'chart', icon: 'chart', label: $t('analytics.apps.chart') }, { id: 'table', icon: 'table', label: $t('analytics.apps.table') }]" @update:model-value="(v) => (asTable = v === 'table')" />
@@ -104,7 +115,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
       </div>
     </div>
 
-    <div class="an-row c11">
+    <div class="an-row" :class="{ c11: groupPair }">
       <div class="card">
         <CardHead :title="$t('analytics.apps.whereApplyingComesTo')" :help="$t('analytics.apps.byChannelTheShare')" />
         <div class="hbars tight even">
@@ -129,33 +140,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
   </template>
   <div v-else class="card"><EmptyState icon="activity" :title="$t('analytics.apps.noApplicationsSentIn')" :text="$t('analytics.apps.tryADifferentTime')" /></div>
 
-  <div v-if="d.first_record || d.backlog" class="an-row c11 top">
-    <div v-if="d.first_record" class="card">
-      <CardHead :title="$t('analytics.first.title')" :help="$t('analytics.first.explain')" :note="$t('analytics.first.sub', { n: d.first_record.n }, d.first_record.n)" />
-      <div class="kpis inner">
-        <Kpi :value="hours(d.first_record.from_found_hours)" :tone="d.first_record.from_found_hours == null ? 'na' : ''" :label="$t('analytics.first.fromFound')">
-          <div v-if="d.first_record.slow" class="d">{{ $t('analytics.first.slow', { n: d.first_record.slow }, d.first_record.slow) }}</div></Kpi>
-        <Kpi :value="hours(d.first_record.from_begun_hours)" :tone="d.first_record.from_begun_hours == null ? 'na' : ''" :label="$t('analytics.first.fromBegun')" />
-      </div>
-    </div>
-    <div v-if="d.backlog" class="card">
-      <CardHead :title="$t('analytics.backlog.title')" :help="$t('analytics.backlog.explain')" />
-      <p class="card-sub">{{ $t('analytics.backlog.sub', { handled: d.backlog.handled, open: d.backlog.open }) }}</p>
-      <div class="an-pair">
-        <div v-if="d.backlog.by_kind.length" class="an-scroll">
-          <table class="an-table">
-            <colgroup><col /><col class="w-n" /><col class="w-date" /></colgroup>
-            <thead><tr><th v-tip.overflow>{{ $t('analytics.backlog.kind') }}</th><th v-tip.overflow class="num">{{ $t('analytics.backlog.handled') }}</th><th v-tip.overflow class="num">{{ $t('analytics.backlog.median') }}</th></tr></thead>
-            <tbody><tr v-for="r in d.backlog.by_kind" :key="r.kind"><td><Trunc :text="r.label" /></td><td class="num">{{ r.n }}</td><td class="num">{{ hours(r.median_hours) }}</td></tr></tbody>
-          </table>
-        </div>
-        <div v-if="d.backlog.oldest.length" class="an-links">
-          <div class="an-label">{{ $t('analytics.backlog.oldest') }}</div>
-          <router-link v-for="o in d.backlog.oldest" :key="o.id" to="/todos"><Trunc :text="o.title" /><span class="t-meta atomic">{{ hours(o.hours) }}</span></router-link>
-        </div>
-      </div>
-    </div>
-  </div>
+  <Pace :first="d.first_record" :backlog="d.backlog" />
 
   <div class="card">
     <CardHead :title="$t('analytics.apps.goodPostingsYouMissed')" :help="$t('analytics.apps.scoredOrHigherAnd')" :note="d.missed_total" />
@@ -170,7 +155,7 @@ watch(() => props.d.by_time, () => { page.value = 0 })
         <span class="when"><Status :tone="m.stage === 'expired' ? 'warn' : ''" :label="m.stage === 'expired' ? $t('analytics.apps.deadlinePassed') : $t('analytics.apps.takenDown')" /><span v-if="m.deadline" class="t-meta atomic">{{ $t('analytics.missed.due', { day: dayText(m.deadline) }) }}</span></span>
       </router-link>
     </div>
-    <EmptyState v-else icon="check" :title="$t('analytics.apps.noHighScoringPostings')" />
+    <EmptyState v-else class="line" icon="check" :title="$t('analytics.apps.noHighScoringPostings')" />
     <div v-if="d.missed_total > d.missed.length" class="card-foot"><span class="hint">{{ $t('analytics.apps.onlyTheBestScored', { p0: d.missed.length }) }}</span></div>
   </div>
 </template>

@@ -72,7 +72,8 @@ def _save(**changes: Any) -> dict[str, Any]:
 
 
 def status() -> dict[str, Any]:
-    """What the about page shows."""
+    """What the about page shows. A release is named by its folder in data/releases (``staged``, ``previous``,
+    ``switching_to``, ``pending``, ``build``); each comes with ``<name>_release`` - what that folder is (release())."""
     s = state()
     cur = version()
     latest = str(s.get("latest") or "")
@@ -80,12 +81,74 @@ def status() -> dict[str, Any]:
     staged = str(s.get("staged") or "")
     if staged and _key(staged) <= _key(cur):      # (what was prepared is what runs, or older: nothing to switch to)
         staged = ""
+    kept = staged if staged and (rel / staged).is_dir() else ""
+    previous, build, switching = _previous(), running(), str(s.get("switching_to") or "")
+    pending = _next_release()
+    if pending in (build, switching):      # (the one that runs, or the switch under way: nothing more to say)
+        pending = ""
     return {"current": cur, "kind": kind(), "mode": db.get_setting("update.mode") or "notify", "channel": db.get_setting("update.channel") or "stable",
             "window": db.get_setting("update.window") or {}, "latest": latest, "newer": bool(latest) and _key(latest) > _key(cur),
             "url": s.get("url", ""), "notes": s.get("notes", ""), "published": s.get("published", ""), "prerelease": bool(s.get("prerelease")),
             "checked_at": s.get("checked_at", ""), "status": "idle" if s.get("status") == "ready" and not staged else s.get("status", "idle"),
             "progress": s.get("progress", 0), "error": s.get("error", ""),
-            "staged": staged if staged and (rel / staged).is_dir() else "", "previous": _previous(), "history": (s.get("history") or [])[-10:]}
+            "staged": kept, "previous": previous, "history": (s.get("history") or [])[-10:],
+            # (added for the about page: each folder as a person reads it, and the switch asked for that has not happened yet)
+            "staged_release": release(kept), "previous_release": release(previous), "build": build, "build_release": release(build),
+            "switching_to": switching, "switching_release": release(switching),
+            "pending": pending, "pending_release": release(pending), "when_idle": str(s.get("when_idle") or "")}
+
+
+def _name_ok(name: str) -> bool:
+    return bool(name) and Path(name).name == name and name not in (".", "..")
+
+
+def release(name: str) -> dict[str, Any] | None:
+    """A folder of data/releases as the about page names it: ``version`` - what its own pyproject.toml says ("" when it
+    says nothing); ``date`` - the day its name starts with ("2026-11-22-calendar"), else the day its interface was built
+    or unpacked; ``local`` - put there by hand (scripts/stage_local_release.py: the updater names a folder by the version
+    it fetched). None when there is no such folder."""
+    if not _name_ok(name):
+        return None
+    d = config.DATA / "releases" / name
+    if not d.is_dir():
+        return None
+    ver = ""
+    try:
+        m = re.search(r'^version\s*=\s*"([^"]+)"', (d / "pyproject.toml").read_text(encoding="utf-8", errors="replace"), re.M)
+        ver = m.group(1) if m else ""
+    except OSError:
+        pass
+    day = ""
+    m = re.match(r"(\d{4}-\d{2}-\d{2})(?!\d)", name)
+    if m:
+        try:
+            day = datetime.strptime(m.group(1), "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            day = ""
+    if not day:
+        for f in (d / "frontend" / "dist" / "index.html", d / "pyproject.toml"):
+            if f.is_file():
+                day = datetime.fromtimestamp(f.stat().st_mtime).date().isoformat()
+                break
+    return {"name": name, "version": ver, "date": day, "local": name != ver}
+
+
+def running() -> str:
+    """The folder of data/releases this copy runs from - "" when it runs from anywhere else (the installation's own
+    folder, a checkout, a container)."""
+    here = config.ROOT.resolve()
+    return here.name if here.parent == (config.DATA / "releases").resolve() else ""
+
+
+def _next_release() -> str:
+    """The release the tray starts at its next restart (data/run/next-release: written by a switch, or by
+    scripts/stage_local_release.py) - when the marker names a folder the tray can start."""
+    marker = config.DATA / "run" / "next-release"
+    try:
+        name = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
+    except OSError:
+        return ""
+    return name if _name_ok(name) and (config.DATA / "releases" / name / "frontend" / "dist" / "index.html").is_file() else ""
 
 
 # --- look ------------------------------------------------------------------------------------------------------------------

@@ -9,6 +9,9 @@ import './styles/overlay.css'
 import './styles/patterns.css'
 import './styles/accounts.css'
 import './styles/analysis-settings.css'
+import './styles/controls.css'
+import './styles/about.css'
+import './styles/changelog.css'
 import { tip } from './tip'
 import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
@@ -70,7 +73,7 @@ const router = createRouter({
     { path: '/accounts', component: AccountsView },
     { path: '/profile', component: ProfileView },
     { path: '/runs', component: RunsView },
-    { path: '/about', component: AboutView },
+    { path: '/about/:tab(changelog|licenses)?', component: AboutView, meta: { tabs: true } },      // the tab is in the address
     { path: '/settings/:group?/:section?', component: SettingsView },
     { path: '/jobs/sources', component: SourcesView },
     { path: '/remote/:id', component: RemoteView, props: true },
@@ -82,9 +85,11 @@ const router = createRouter({
 installGuards(router)       // what was typed and not saved is asked about before the page is left
 
 // After going to another page the keyboard is at that page's title - not on a link of the sidebar, with the new page
-// somewhere behind it. (A query that changed is the same page.)
+// somewhere behind it. (A query that changed is the same page; so is another tab of a page whose tabs are in the path -
+// `meta.tabs`: the keyboard stays on the tab.)
 router.afterEach((to, from) => {
   if (!from.matched.length || to.path === from.path) return
+  if (to.meta.tabs && to.matched[0] && from.matched[0] && to.matched[0].path === from.matched[0].path) return
   nextTick(() => {
     const main = document.querySelector('main.content')
     if (!main) return

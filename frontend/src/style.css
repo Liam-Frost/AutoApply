@@ -312,7 +312,8 @@ tr.clickable { cursor: pointer; }
 
 /* empty state */
 .empty { text-align: center; padding: var(--s6) var(--s4); color: var(--text-2); }
-.empty svg { width: 36px; height: 36px; color: var(--text-3); margin-bottom: var(--s2); }
+/* (the picture of the empty state itself, not every icon in it: nor an icon deeper in it) */
+div.empty > svg { width: 36px; height: 36px; color: var(--text-3); margin-bottom: var(--s2); }
 .empty .t { color: var(--text); font-weight: var(--fw-semibold); font-size: var(--fs-lg); margin-bottom: 2px; }
 
 /* stat tile */
@@ -476,7 +477,7 @@ details.tech pre { margin-top: var(--s2); padding: var(--s2) var(--s3); backgrou
 .sel { justify-content: space-between; gap: 8px; font-weight: var(--fw-regular); text-align: left; padding: 0 8px 0 11px; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text); max-width: 100%; min-width: 0; }
 .sel:hover { background: var(--surface); border-color: var(--text-3); }
 .sel:focus-visible, .sel.open { border-color: var(--primary); outline: 3px solid var(--focus); outline-offset: 0; }
-.sel.empty .sel-val { color: var(--text-3); }
+.sel.unset .sel-val { color: var(--text-3); }
 .sel.sm { padding: 0 6px 0 9px; font-size: var(--fs-sm); }
 .sel-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .sel-chev { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--text-2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s; }
@@ -575,7 +576,7 @@ button.chip { border-radius: var(--r-pill); font-weight: var(--fw-medium); backg
 /* one bar split into parts that add up to the whole; a 2px gap of the surface colour separates the parts */
 .splitbar { display: flex; height: 14px; gap: 2px; border-radius: 4px; overflow: hidden; background: var(--surface); }
 .splitbar > i { display: block; height: 100%; min-width: 3px; }
-.splitbar.empty { background: var(--neutral-soft); }
+.splitbar.none { background: var(--neutral-soft); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--s2); }
 .legend > span, .legend > button { display: inline-flex; align-items: center; gap: 6px; }
 .legend > button { border: 0; background: transparent; height: auto; padding: 0; font-weight: var(--fw-regular); color: var(--text-2); font-size: var(--fs-sm); }
@@ -984,8 +985,8 @@ textarea.editor.tall, .editor-preview.tall { height: 68vh; }
 .fchip button:hover { background: var(--border); color: var(--text); }
 .fchip button svg { width: 12px; height: 12px; }
 /* a chosen thing that can be taken away, beside the buttons that add one (a reminder): as tall as they are */
-.fchip.lg { height: var(--h-sm); padding: 0 4px 0 12px; gap: 4px; font-size: var(--fs-sm); color: var(--text); }
-.fchip.lg button { width: 20px; height: 20px; }
+.fchip.lg { height: var(--h-sm); padding: 0 2px 0 12px; gap: 4px; font-size: var(--fs-sm); color: var(--text); }
+.fchip.lg button { width: var(--h-xs); height: var(--h-xs); }      /* (an icon button of the small size, 2px inside the chip) */
 .fchip.ok { background: var(--ok-soft); color: var(--ok); }
 /* the line of what is coming */
 .cal-sum { display: flex; align-items: stretch; height: 34px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); overflow-x: auto; overflow-y: hidden; }
