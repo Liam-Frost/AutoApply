@@ -3149,9 +3149,15 @@ def llm_provider_models(key: str, body: dict[str, Any] = Body(default={})) -> di
             raise HTTPException(400, str(e)) from None
     if key not in llm_openai.PRESETS:
         raise HTTPException(404, "unknown provider")
-    base = str(body.get("base_url") or "").strip() or llm_openai.PRESETS[key]["base_url"]
+    saved = str(((db.get_setting("llm.providers") or {}).get(key) or {}).get("base_url") or "") or llm_openai.PRESETS[key]["base_url"]
+    base = str(body.get("base_url") or "").strip() or saved      # (nothing typed: the address saved, else the service's own)
     try:
-        c = llm_openai.Client(base, str(body.get("api_key") or "") or secrets.get(llm.key_name(key)))
+        # The saved key goes only to the address it was saved for (or the service's own): typed with another address,
+        # the form sends the key too - a key is never handed to a host it was not given for.
+        typed = str(body.get("api_key") or "")
+        if not typed and base and saved and llm_openai.endpoint(base) != llm_openai.endpoint(saved):
+            raise HTTPException(400, T("server.api.main.keyForThisAddress"))
+        c = llm_openai.Client(base, typed or secrets.get(llm.key_name(key)))
         return {"models": c.models()}
     except (llm_openai.Unavailable, llm_openai.Failed) as e:
         raise HTTPException(400, str(e)) from None
