@@ -1197,6 +1197,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
            "mail_unmatched": "answer", "followup": "dated", "note": "dated"}
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
+        own: dict[str, int] | None = None      # (the mails already on the applicant's own calendar, read once)
         for r in rows:
             p, j = r["payload"] or {}, None
             if p.get("job_id") or r["ref"].startswith("job:"):
@@ -1216,6 +1217,12 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
                 from ..models import MailEvent
 
                 me = s.query(MailEvent).filter_by(message_id=str(p.get("message_id") or r["ref"][5:])).first()
+                # what it gives a date for, to put on the applicant's own calendar (an application made elsewhere)
+                when = _mail_when(me) if me is not None else None
+                if when is not None:
+                    r["mail_when"] = {k: when[k] for k in ("start", "all_day", "end", "said")}
+                    own = _own_from_mail(s) if own is None else own
+                    r["on_calendar"] = own.get(me.message_id)
                 ids = mail.candidates(me.company_guess) if me is not None else []
                 near = bool(ids)
                 if not ids:      # the employer was not recognised: every application that was sent, the latest first
@@ -1267,6 +1274,64 @@ def todos_bulk(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 t.status, t.done_at = "dismissed", now()
                 n += 1
     return {"done": n}
+
+
+def _mail_when(me: Any) -> dict[str, Any] | None:
+    """When what a mail asks is, on the applicant's clock (reminders.due_of: the time as the mail said it, converted from
+    the zone it was said in), with what the calendar keeps beside it; None when the mail gives no date."""
+    from .. import reminders
+
+    due, facts = reminders.due_of(dict(me.asks or {}))
+    if due is None:
+        return None
+    return {"due": due, "facts": facts, "start": due.isoformat(timespec="minutes"), "all_day": bool(facts.get("date_only")),
+            "end": str(facts.get("end_at") or ""), "said": str((me.asks or {}).get("due_text") or "")[:200]}
+
+
+def _own_from_mail(s: Any) -> dict[str, int]:
+    """{message id: the applicant's own calendar item made from that mail} - a mail is put on the calendar once (again
+    only after that item was removed; one ticked off stays on the calendar)."""
+    out: dict[str, int] = {}
+    for t in s.query(Todo).filter(Todo.kind == "note", Todo.status != "dismissed"):
+        mid = (t.payload or {}).get("from_mail")
+        if mid:
+            out[str(mid)] = t.id
+    return out
+
+
+@app.post("/api/todos/{todo_id}/to-calendar")
+def todo_to_calendar(todo_id: int) -> dict[str, Any]:
+    """A mail about an application the program does not have - one the applicant made elsewhere: what it gives a date
+    for, on the applicant's own calendar. Its time is converted as any mail's is, its words and its link are kept, and
+    its reminders are those of the applicant's own items. Once per mail; the card stays (it can still be linked)."""
+    from .. import agenda, messages
+    from ..models import MailEvent
+
+    with db.session() as s:
+        t = _404(s.get(Todo, todo_id))
+        if t.kind != "mail_unmatched":
+            raise HTTPException(400, "not a mail card")
+        mid = str((t.payload or {}).get("message_id") or t.ref[5:])
+        me = s.query(MailEvent).filter_by(message_id=mid).first()
+        if me is None:
+            raise HTTPException(404, "no such mail")
+        made = _own_from_mail(s).get(mid)
+        if made:
+            return {"id": made, "existing": True}
+        when = _mail_when(me)
+        if when is None:
+            raise HTTPException(409, T("server.api.main.theMailGivesNoDate"))
+        asks = dict(me.asks or {})
+        # what it is, as the calendar names it ("Interview · Acme", as an interview recorded by hand is); else the mail's heading
+        same = (me.event or "new") == "new" and me.category in ("interview", "assessment", "offer", "info_request")
+        heading = messages.ITEM_KINDS[me.category] if same else messages.mail_label(me.category or "", me.event or "new")[1]
+        company = (me.company_guess or "").strip()
+        title = T("server.applications.onTheCalendar", what=heading, company=company) if company else (t.title or heading)
+        links = [x for x in (asks.get("links") or []) if isinstance(x, dict) and str(x.get("url") or "").lower().startswith(("http://", "https://"))]
+        note = "\n".join(x for x in (str(asks.get("action") or "").strip(), when["said"], (me.summary or "").strip()) if x)
+        kept = {**when["facts"], "due_text": when["said"], "from_mail": mid}
+    tid = agenda.add_own(title, when["due"], all_day=when["all_day"], link=str(links[0]["url"]) if links else "", note=note, kept=kept)
+    return {"id": tid, "start": when["start"], "all_day": when["all_day"], "existing": False}
 
 
 @app.post("/api/todos/{todo_id}/link")

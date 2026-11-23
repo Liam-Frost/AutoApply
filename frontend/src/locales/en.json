@@ -168,7 +168,12 @@
     "later": "Snoozed ({n})",
     "when": "When: {when}",
     "dismiss": "Dismiss",
-    "lastTryDidNotWork": "The last sign-in did not work. You can press “Sign in” again."
+    "lastTryDidNotWork": "The last sign-in did not work. You can press “Sign in” again.",
+    "putOnMyCalendar": "Add to my calendar",
+    "putOnYourCalendar": "On your calendar",
+    "openOnYourCalendar": "Open on my calendar",
+    "theEmailGivesThisTime": "In the email: {when}",
+    "asTheEmailWrote": "as written: “{said}”"
   },
   "language": {
     "beta": "{name} (beta)"

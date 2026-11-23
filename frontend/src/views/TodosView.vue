@@ -162,6 +162,10 @@ async function againNotSubmitted(t) {
   await act(async () => { await api.post(`/applications/${t.application.id}/not-submitted`); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }, T('todos.theAgentHasStarted'))
 }
 const linkMail = (t) => act(() => api.post(`/todos/${t.id}/link`, { application_id: picked.value[t.id] }), T('todos.linkedTheApplicationsStatus'))
+// a mail about an application made elsewhere: what it gives a date for, on the applicant's own calendar
+const toCalendar = (t) => act(() => api.post(`/todos/${t.id}/to-calendar`), T('todos.putOnYourCalendar'))
+const calendarDay = (w) => `/calendar?view=day&date=${String(w.start).slice(0, 10)}`
+const mailWhen = (w) => (w.all_day ? dateOf(new Date(w.start.slice(0, 10) + 'T00:00')) : dateTimeOf(new Date(w.start.slice(0, 16))))
 const ackAll = () => act(() => api.post('/todos/bulk', { ids: infoIds.value }), T('todos.closedNotes', { n: infoIds.value.length }, infoIds.value.length))
 const moreBudget = (t) => act(() => api.post(`/applications/${t.application.id}/budget?request_id=todo-${t.id}`), T('todos.anotherBudgetIsGiven'))
 const tryAgainFor = async (t, backend) => { await api.post(`/jobs/${t.job.id}/draft`, backend ? { browser_backend: backend } : {}); await api.post(`/todos/${t.id}/done`, { status: 'dismissed', resume: false }).catch(() => {}) }
@@ -243,6 +247,9 @@ function acts(t) {
     main = page[0] || goOn(() => done(t)); beside = page.length ? [goOn(() => done(t))] : []; menu = [away]
   } else if (t.kind === 'mail_unmatched') {
     main = A(T('todos.linkToThisApplication'), 'check', { go: () => linkMail(t), disabled: !picked.value[t.id] })
+    // (an application made elsewhere: the date it gives goes on the calendar; once there, the card leads to it)
+    beside = t.mail_when ? [t.on_calendar ? A(T('todos.openOnYourCalendar'), 'calendar', { to: calendarDay(t.mail_when) })
+      : A(T('todos.putOnMyCalendar'), 'calendar', { go: () => toCalendar(t) })] : []
     menu = [A(T('todos.notAboutAnApplication'), 'x', { go: () => dismiss(t) })]; more = { pick: true }
   } else if (t.kind === 'config' && FIX[t.ref]) {
     main = A(FIX[t.ref][1], 'settings', { to: FIX[t.ref][0] }); beside = [A(T('todos.itIsTakenCare'), 'check', { go: () => done(t) })]
@@ -333,6 +340,9 @@ onMounted(() => { load(); loadRang() })
       <p v-if="view(t).what(t)" class="what">{{ view(t).what(t) }}</p>
       <p v-if="t.kind === 'mail_unmatched' && t.payload && t.payload.site && t.payload.site.length" class="callout"><Icon name="info" /><span>{{ $t('todos.siteCouldNotTell', { shown: listed(t.payload.site) }) }}</span></p>
       <p v-else-if="t.kind === 'mail_unmatched' && t.candidates && !t.candidates_near" class="t-secondary">{{ $t('todos.theSendingEmployerWas') }}</p>
+      <!-- (the date the mail gives, on the applicant's clock: what "Add to my calendar" puts there) -->
+      <p v-if="t.kind === 'mail_unmatched' && t.mail_when" class="t-secondary todo-when"><Icon name="calendar" /><span class="t-primary">{{ $t('todos.theEmailGivesThisTime', { when: mailWhen(t.mail_when) }) }}</span>
+        <span v-if="t.mail_when.said" class="meta">{{ $t('todos.asTheEmailWrote', { said: t.mail_when.said }) }}</span></p>
       <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>{{ $t('todos.theSignInWindow') }}</span></p>
       <div v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><div><div>{{ $t('todos.lastTryDidNotWork') }}</div><TechDetails :text="t.payload.last_try" /></div></div>
 

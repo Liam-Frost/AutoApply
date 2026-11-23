@@ -45,7 +45,7 @@
 | **Keeps a record** | What was entered for every question and where that comes from. Correct an entry or say what to change in plain words ("say I can start in May"), and the agent goes back and changes it. |
 | **Sends it the way you chose** | By itself when nothing is open (the default); only after you have approved the record; or it stops at the last step and gives you the window. Per company if you like. |
 | **Tracks the result** | Reads your mailbox (read-only) for confirmations, rejections and interview invitations and updates each application. |
-| **Keeps the calendar** | Deadlines, interviews, assessments and what an employer asked for, on one calendar - times an employer gives on its own clock converted to yours, dates from the periods mails state, reminders you choose, and a feed for your calendar app. |
+| **Keeps the calendar** | Deadlines, interviews, assessments and what an employer asked for, on one calendar - times an employer gives on its own clock converted to yours, dates from the periods mails state, reminders you choose, and a feed for your calendar app. An interview for an application you made elsewhere goes there too, from its email. |
 | **Reaches you on your phone** | Cards on Telegram or Discord carry the buttons that deal with them; a reply to a card, or a few words to the bot, does the rest. |
 
 It adapts to who you are: a first-run guide asks your career stage (internship, new graduate, experienced), field and target roles, and sets up filters, scoring rules and the interface accordingly. Not only for software jobs.
