@@ -62,22 +62,24 @@ def test_the_date_an_email_gives_goes_on_the_applicants_own_calendar_on_their_cl
         assert p["link"] == "https://meet.example.com/j/123" and p["end_at"] == "2026-11-27T08:00" and p["from_mail"] == "m1"
         assert p["due_zone"] == "Asia/Shanghai" and p["due_said"] == "2026-11-27T15:00" and p["all_day"] is False
         assert "Join the video interview" in own.body and "15:00 Beijing time" in own.body
-        assert s.query(Todo).filter_by(kind="mail_unmatched").one().status == "open"      # (the card stays: it can still be linked)
+        # the mail is dealt with: its card is closed, and the calendar item (a card of its own) is what is left. The card
+        # used to stay; beside the item's card it read as the same thing twice, the wrong one was closed and the item was gone
+        assert s.query(Todo).filter_by(kind="mail_unmatched").one().status == "done"
+    assert [c["kind"] for c in desk.get("/api/todos").json()] == ["note"]
 
     # on the calendar, as the applicant's own item, with its end
     items = desk.get("/api/calendar", params={"start": "2026-11-27", "end": "2026-11-28"}).json()["items"]
     mine = [x for x in items if x.get("title") == "Interview · Example Corp"]
     assert len(mine) == 1 and mine[0]["start"].startswith("2026-11-27T07:00") and mine[0]["end"].startswith("2026-11-27T08:00")
 
-    # once: the card now leads to it, and asking again makes no second item
-    assert _card(desk, tid)["on_calendar"] == r["id"]
+    # once: asking again (a second press, a page not reloaded) makes no second item
     again = desk.post(f"/api/todos/{tid}/to-calendar").json()
     assert again == {"id": r["id"], "existing": True}
     with db.session() as s:
         assert s.query(Todo).filter_by(kind="note").count() == 1
 
 
-def test_an_item_removed_from_the_calendar_can_be_put_back_and_a_whole_day_stays_one(desk):
+def test_an_item_removed_from_the_calendar_by_mistake_is_put_back_with_undo_and_a_whole_day_stays_one(desk):
     from autoapply import db
     from autoapply.models import Todo
 
@@ -87,8 +89,15 @@ def test_an_item_removed_from_the_calendar_can_be_put_back_and_a_whole_day_stays
     with db.session() as s:
         own = s.get(Todo, first)
         assert own.due_at == datetime(2026, 12, 4) and own.payload["all_day"] is True and tr(own.title, "en") == "Assessment · Example Corp"
-        own.status = "dismissed"                          # (removed from the calendar)
-    assert _card(desk, tid)["on_calendar"] is None
+    on_the_4th = lambda: [x for x in desk.get("/api/calendar", params={"start": "2026-12-04", "end": "2026-12-05"}).json()["items"] if x.get("kind") == "own"]  # noqa: E731
+    assert len(on_the_4th()) == 1
+    # "Remove from my calendar" on its card, then "Undo" in the notice: back, with its date
+    desk.post(f"/api/todos/{first}/done", json={"status": "dismissed", "resume": False})
+    assert on_the_4th() == []
+    assert desk.post(f"/api/todos/{first}/reopen").json() == {"reopened": True}
+    assert len(on_the_4th()) == 1 and desk.post(f"/api/todos/{first}/reopen").json() == {"reopened": False}
+    # removed for good: the mail can be put on the calendar again (a new item)
+    desk.post(f"/api/todos/{first}/done", json={"status": "dismissed", "resume": False})
     assert desk.post(f"/api/todos/{tid}/to-calendar").json()["id"] != first
 
 

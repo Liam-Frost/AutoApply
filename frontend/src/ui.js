@@ -6,7 +6,8 @@ import { asDate, when } from './i18n/format'
 export const toasts = reactive([])
 let seq = 0
 
-// `more`: { to, link } - somewhere to go from the message ("it is queued" -> the work plan)
+// `more`: { to, link } - somewhere to go from the message ("it is queued" -> the work plan); or { act, link } - one thing
+// to do about it ("removed" -> undo)
 export function toast(text, tone = '', more = null) {
   if (!text) return
   const id = ++seq
