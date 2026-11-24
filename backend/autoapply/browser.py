@@ -481,6 +481,9 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
         options = net.browser_options()
         if place.args:
             options = {**options, "args": [*options.get("args", []), *place.args]}
+        on_this_screen = not place.headless and not place.env and not place.pictures
+        if on_this_screen:      # (a window on this computer's screen: it opens as large as the screen allows - see below)
+            options = {**options, "args": [*options.get("args", []), "--start-maximized"]}
         if place.env:
             options["env"] = {**os.environ, **place.env}
         shown_remotely = place.pictures
@@ -492,8 +495,13 @@ def open_page(tenant_key: str | None = None, *, headless: bool = True, downloads
             raise
         try:
             state = with_identities(load_state(tenant_key) if tenant_key else None, tenant_key, "playwright")
-            # on a virtual screen the page is as large as its window, which is as large as that screen
-            size: dict[str, Any] = {"no_viewport": True} if place.env else {"viewport": remote.VIEWPORT if shown_remotely else {"width": 1366, "height": 900}}
+            # The page is as large as its window wherever there is one - on a virtual screen (as large as that screen),
+            # and on this computer's screen, where the window is the person's to size. A page of a fixed size there did
+            # not follow the window: with the screen scaled (150%), 1366 x 900 was larger than the screen, and a site's
+            # check of the browser, put in the page's bottom right corner, stayed off the screen - maximizing the window
+            # changed nothing (2026-11-24). Hidden pages, and the pictures sent to the web page, keep a size of their own.
+            size: dict[str, Any] = ({"no_viewport": True} if place.env or on_this_screen
+                                    else {"viewport": remote.VIEWPORT if shown_remotely else {"width": 1366, "height": 900}})
             ctx = browser.new_context(storage_state=state, locale="en-US", accept_downloads=bool(downloads), **size)
             ctx.set_default_timeout(15000)
             ctx.set_default_navigation_timeout(75000)  # large career sites take 30-45 s to load over a slow link; 15 s gave up on them

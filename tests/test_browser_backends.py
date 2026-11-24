@@ -417,3 +417,47 @@ def test_a_browser_slow_to_start_is_waited_for(monkeypatch):
     monkeypatch.setattr(nodriver_backend, "SLOW_START", 0)
     with pytest.raises(Exception, match="Failed to connect"):
         asyncio.run(nodriver_backend.started(SlowChrome(answers_after=10**6)))
+
+
+def test_a_window_on_this_screen_is_as_large_as_the_screen_and_the_page_follows_it(app_env, monkeypatch):
+    """A site's check of the browser opened in the bottom right corner of a page of a fixed size (1366 x 900): with the
+    screen scaled, that corner was off the screen, and maximizing the window changed nothing - the page did not follow
+    it (2026-11-24). A window on this computer's screen opens maximized and its page is as large as the window; a hidden
+    page keeps a size of its own."""
+    from contextlib import contextmanager
+
+    from autoapply import browser
+
+    seen = []
+
+    class Ctx:
+        def set_default_timeout(self, ms):
+            pass
+
+        set_default_navigation_timeout = set_default_timeout
+
+        def new_page(self):
+            return object()
+
+        def close(self):
+            pass
+
+    class Chromium:
+        def launch(self, headless, **options):
+            seen.append({"headless": headless, "args": list(options.get("args") or [])})
+            return type("B", (), {"new_context": lambda self, **kw: seen[-1].update(context=kw) or Ctx(), "close": lambda self: None})()
+
+    @contextmanager
+    def playwright():
+        yield type("P", (), {"chromium": Chromium()})()
+
+    monkeypatch.setattr(browser, "sync_playwright", playwright)
+    monkeypatch.setattr(browser, "no_screen", lambda: False)       # (a computer with a screen)
+    open_page = browser.real_open_page                              # (the tests' own keeps every page hidden)
+    with open_page(None, headless=False, url="https://jobs.example/apply", operation="apply", backend="playwright"):
+        pass
+    with open_page(None, headless=True, url="https://jobs.example/apply", operation="apply", backend="playwright"):
+        pass
+    window, hidden = seen
+    assert window["headless"] is False and "--start-maximized" in window["args"] and window["context"].get("no_viewport") is True and "viewport" not in window["context"]
+    assert hidden["headless"] is True and "--start-maximized" not in hidden["args"] and hidden["context"]["viewport"] == {"width": 1366, "height": 900}
