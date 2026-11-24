@@ -3262,5 +3262,7 @@
   "todos.registerAgainGo": "Confirm button in the Register again pop-over.",
   "todos.registeringAgain": "Notice after Register again.",
   "accounts.registerAgain": "State of a site account on the accounts page: the applicant gave up the old account; the agent registers a new one next time.",
-  "todos.registerAgainMenu": "Menu item on a sign-in card: asks below the card for the address of a new account (the old one cannot be signed into)."
+  "todos.registerAgainMenu": "Menu item on a sign-in card: asks below the card for the address of a new account (the old one cannot be signed into).",
+  "common.newBuild": "Notice that stays on an open page after the program was updated and restarted into a new build; the page is still the old one.",
+  "common.loadItNow": "Button in that notice: load the page again (the new build)."
 }

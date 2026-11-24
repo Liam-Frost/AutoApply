@@ -3312,7 +3312,9 @@
     "selected": "{n} sélectionné | {n} sélectionnés",
     "clearSelection": "Effacer la sélection",
     "more": "Plus",
-    "moreInfo": "Plus d'informations"
+    "moreInfo": "Plus d'informations",
+    "newBuild": "AutoApply a été mis à jour. Cette page est encore l’ancienne version : rechargez-la pour voir les nouveautés.",
+    "loadItNow": "Recharger"
   },
   "controls": {
     "combobox": {

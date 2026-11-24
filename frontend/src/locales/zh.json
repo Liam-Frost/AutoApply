@@ -3312,7 +3312,9 @@
     "selected": "已选 {n} 项",
     "clearSelection": "取消选择",
     "more": "更多",
-    "moreInfo": "更多说明"
+    "moreInfo": "更多说明",
+    "newBuild": "AutoApply 已更新，这个页面还是旧版本。重新载入后就能看到新内容。",
+    "loadItNow": "立即刷新"
   },
   "controls": {
     "combobox": {

@@ -100,6 +100,31 @@ def test_the_page_loads_without_a_login_and_knows_the_path_it_is_served_under(do
     assert c.get("/autoapply/api/overview").status_code == 401
 
 
+def test_the_page_and_every_answer_say_which_build_of_the_interface_is_served(door, monkeypatch, tmp_path):
+    """A page left open while the program was updated finds out from the answers that another build is served
+    (frontend/src/fresh.js loads it then)."""
+    import re
+
+    from autoapply import config
+    from autoapply.api import main
+
+    if not config.FRONTEND_DIST.exists():
+        pytest.skip("the interface is not built")
+    c = door()
+    page = c.get("/home").text
+    m = re.search(r'<meta name="autoapply-build" content="([0-9a-f]{12})" />', page)
+    assert m, "the page is told its build"
+    assert c.get("/api/auth/state").headers["X-Build"] == m.group(1)
+    # the program updated: another index.html (other files named in it) - another build, said by every answer
+    (tmp_path / "index.html").write_text(page.replace("/assets/", "/assets/new-"), encoding="utf-8")
+    monkeypatch.setattr(config, "FRONTEND_DIST", tmp_path)
+    assert main.interface_build() not in ("", m.group(1))
+    assert c.get("/api/auth/state").headers["X-Build"] == main.interface_build()
+    # no built interface (the development server serves its own): nothing is said
+    monkeypatch.setattr(config, "FRONTEND_DIST", tmp_path / "none")
+    assert main.interface_build() == "" and "X-Build" not in c.get("/api/auth/state").headers
+
+
 def test_where_it_listens_is_checked_before_it_is_saved(door):
     from autoapply import access
 
