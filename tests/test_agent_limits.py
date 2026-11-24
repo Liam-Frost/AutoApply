@@ -549,7 +549,9 @@ def test_register_again_gives_up_the_account_and_the_agent_registers_with_the_ad
     assert auth.fresh_address("generic:jobs.example.org") == "alex+jobs@gmail.com"
     db.set_setting("account.email", "alex@company.example")
     assert auth.fresh_address("generic:jobs.example.org") == "alex@company.example"                     # (a mailbox not known to take +)
-    assert c.post("/api/accounts/register-again", json={"tenant_key": key, "email": "not an address"}).status_code == 400
+    for bad in ("not an address", "a@b@example.com", "alex@example", "alex@.example.com", "alex@example.com.", "@example.com",
+                "a" + "!" * 5000 + "@" + "!" * 5000):
+        assert c.post("/api/accounts/register-again", json={"tenant_key": key, "email": bad}).status_code == 400, bad
     r = c.post("/api/accounts/register-again", json={"tenant_key": key, "email": "alex+acme@gmail.com"}).json()
     assert r["resumed"] == 1
     a = auth.account(key)

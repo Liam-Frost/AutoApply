@@ -2432,7 +2432,11 @@ def account_register_again(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     key, email = str(body.get("tenant_key") or ""), str(body.get("email") or "").strip()
     if not key or key.startswith("idp:"):
         raise HTTPException(400, "not a site's own account")
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+    # (an address in its plain shape - one "@", no spaces, a dot inside the domain; checked by hand, not by a
+    # pattern that could backtrack on what was typed)
+    local, at, domain = email.partition("@")
+    if not (local and at and "@" not in domain and not any(c.isspace() for c in email)
+            and "." in domain.strip(".") and not domain.startswith(".") and not domain.endswith(".")):
         raise HTTPException(400, T("server.api.main.thatIsNotAnEmail"))
     auth.register_again(key, email)
     for kind in ("takeover", "login"):
