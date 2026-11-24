@@ -1272,6 +1272,8 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
         if r["kind"] in ("takeover", "login") and key:      # is "remember the password I type" something this card's window can do?
             r["remembers"] = auth.remembers_login(key, str((r["payload"] or {}).get("url") or ""))
         r["site"] = humanize.site(key) if key else None
+        if r["kind"] in ("takeover", "login") and key and not key.startswith("idp:"):      # (the address a new account here would be made with)
+            r["register_as"] = auth.fresh_address(key, (r["site"] or {}).get("name", "") if isinstance(r["site"], dict) else "")
         r["explained"] = humanize.explain(r["body"])
         r["subject"] = humanize.subject(r["ref"])
     return rows
@@ -2420,6 +2422,26 @@ async def import_session(file: UploadFile = File(...), passphrase: str = Form(""
     except transfer.Refused as e:
         raise HTTPException(400, str(e)) from e
     return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting(f"account:{got['tenant']}")}
+
+
+@app.post("/api/accounts/register-again")
+def account_register_again(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """"Register again" on a sign-in card: the account on record is given up and a new one is made with
+    {"email": ...} - the next time the program is on the site, the agent registers instead of signing in. The site's
+    sign-in cards close, and the work that waited for them goes on."""
+    key, email = str(body.get("tenant_key") or ""), str(body.get("email") or "").strip()
+    if not key or key.startswith("idp:"):
+        raise HTTPException(400, "not a site's own account")
+    # (an address in its plain shape - one "@", no spaces, a dot inside the domain; checked by hand, not by a
+    # pattern that could backtrack on what was typed)
+    local, at, domain = email.partition("@")
+    if not (local and at and "@" not in domain and not any(c.isspace() for c in email)
+            and "." in domain.strip(".") and not domain.startswith(".") and not domain.endswith(".")):
+        raise HTTPException(400, T("server.api.main.thatIsNotAnEmail"))
+    auth.register_again(key, email)
+    for kind in ("takeover", "login"):
+        notify.close_todos(kind, f"account:{key}")
+    return {"resumed": handlers.resume_waiting(f"account:{key}")}
 
 
 @app.post("/api/accounts/takeover")

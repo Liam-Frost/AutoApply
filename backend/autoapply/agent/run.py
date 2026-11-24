@@ -355,12 +355,23 @@ class Desk:
         self.write("answered", question=hit[0]["question"], answer=str(answer)[:300])
         return "The question is closed. In your report, give what you entered for it and say that it is the applicant's answer."
 
+    def _login(self) -> str:
+        """The address accounts are made with here: the applicant's, or the one they chose for a new account on this site."""
+        from .. import auth
+
+        acct = auth.account(self.site) or {}
+        return str(acct.get("login_email") or "") if acct.get("status") == "register" and acct.get("login_email") else self.login
+
     def account(self) -> str:
         from .. import auth
 
         acct = auth.account(self.site)
         if not acct:
             return f"No account is on record for this site. The e-mail address to register or sign in with: {self.login or '(none on record: ask)'}."
+        if acct["status"] == "register":
+            return (f"The applicant asked for a NEW account on this site, made with {acct['login_email']}: the account made here before could not be "
+                    "signed into, and they gave it up. Register (type_password with new=true) with that address; do not sign in with another. "
+                    "If the site says this address is already registered, that is theirs to deal with: sign_in_by_hand.")
         return (f"Account on record: login name {acct['login_email'] or self.login or '(not recorded)'}; password {'stored' if acct['has_password'] else 'NOT stored'}; "
                 f"status {acct['status']}.")
 
@@ -380,7 +391,7 @@ class Desk:
         if new:
             pw = secrets.generate_password(max(8, min(int(length or 20), 64)), symbols="".join(c for c in str(symbols) if not c.isalnum() and not c.isspace())[:16])
             self._belongs_here(here)      # an account is being made on this address: its password belongs here from now on
-            auth.upsert_account(self.site, host=self.site.split(":", 1)[-1], email=self.login, password=pw, status="pending", created_by="agent")      # kept before it is sent
+            auth.upsert_account(self.site, host=self.site.split(":", 1)[-1], email=self._login(), password=pw, status="pending", created_by="agent")      # kept before it is sent
         else:
             pw = secrets.get_password(self.site) or ""
             if not pw:

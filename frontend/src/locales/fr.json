@@ -177,7 +177,13 @@
     "removeFromCalendar": "Retirer de mon agenda",
     "removedFromCalendar": "Retiré de votre agenda.",
     "undo": "Annuler",
-    "backOnYourCalendar": "Il est de retour dans votre agenda."
+    "backOnYourCalendar": "Il est de retour dans votre agenda.",
+    "registerAgain": "Créer un nouveau compte",
+    "registerWith": "Créer le nouveau compte avec",
+    "registerAgainHint": "Le compte créé ici auparavant est abandonné : son mot de passe enregistré et sa connexion sont supprimés. La prochaine fois, l’agent crée un nouveau compte avec cette adresse et poursuit la candidature. Une adresse avec +quelque chose arrive dans la même boîte (Gmail, Outlook et d’autres).",
+    "registerAgainGo": "Créer le compte",
+    "registeringAgain": "L’agent va créer un nouveau compte sur ce site et poursuivre la candidature.",
+    "registerAgainMenu": "Créer un nouveau compte…"
   },
   "language": {
     "beta": "{name} (bêta)"
@@ -2171,7 +2177,8 @@
     "viewDetails": "Voir les détails",
     "waitingForSignIn": "En attente de connexion…",
     "colCredential": "Identifiants",
-    "colSession": "Session de connexion"
+    "colSession": "Session de connexion",
+    "registerAgain": "Nouveau compte à créer"
   },
   "home": {
     "questionsNeedYourAnswer": "{n} question en attente de réponse | {n} questions en attente de réponse",

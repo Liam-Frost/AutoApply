@@ -861,12 +861,16 @@ textarea.prose { font-family: inherit; font-size: var(--fs-md); min-height: 0; }
 .todo-meta { display: flex; align-items: center; gap: var(--s2); flex: none; max-width: 100%; margin-left: auto; }
 .todo-meta > .tag, .todo-meta > .meta { flex: 0 1 auto; min-width: 0; }
 .todo-job .meta.soon { color: var(--warn); }
-.todo-acts { flex-wrap: wrap; }      /* (a phone, or a card with a field in its row: the row may break - the buttons themselves never do) */
+.actions.todo-acts { flex-wrap: wrap; }      /* (a phone, or a card with a field in its row: the row may break - the buttons themselves never do.
+   Two classes: foundations.css's .actions - one class, loaded after this file - had made it nowrap, and a mail's card ran off the page) */
 .todo-acts > .grow { flex: 1 1 0; min-width: 0; }
 .todo-pick { flex: 0 1 380px; min-width: 160px; }
 .todo-check { display: inline-flex; align-items: center; gap: 6px; white-space: normal; }
 .todo-note { margin: var(--s2) 0 0; }
 .snooze { display: grid; gap: var(--s2); }
+.reg-hint { margin: var(--s2) 0 0; line-height: 1.5; }
+.reg-again { margin-top: var(--s3); padding: var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); max-width: 560px; }
+.reg-again .actions { margin-top: var(--s2); }
 .facts-changed { margin-bottom: var(--s3); font-size: var(--fs-sm); display: grid; gap: var(--s2); }
 .fc-line { overflow-wrap: anywhere; }
 .fc-app label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

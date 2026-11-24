@@ -258,6 +258,7 @@
  "server.api.main.submitWasPressedFor": "Submit was pressed for this application and the outcome is not confirmed. Look for the confirmation email first; fill it in again only when you are sure it did not go through.",
  "server.api.main.takenDown": "Taken down",
  "server.api.main.text": "{p0}",
+ "server.api.main.thatIsNotAnEmail": "That is not an email address.",
  "server.api.main.theAdministratorAccountIs": "The administrator account is already set. If you forgot the password, choose “Reset the administrator password” in the tray icon on this computer.",
  "server.api.main.theAdministratorAccountIs2": "The administrator account is set up the first time by opening the page on the computer AutoApply runs on.",
  "server.api.main.theAiIsNot": "The AI is not available right now: {p0}",

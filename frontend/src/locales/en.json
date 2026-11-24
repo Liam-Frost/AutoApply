@@ -177,7 +177,13 @@
     "removeFromCalendar": "Remove from my calendar",
     "removedFromCalendar": "Removed from your calendar.",
     "undo": "Undo",
-    "backOnYourCalendar": "It is back on your calendar."
+    "backOnYourCalendar": "It is back on your calendar.",
+    "registerAgain": "Register again",
+    "registerWith": "Register the new account with",
+    "registerAgainHint": "The account made here before is given up: its stored password and sign-in are removed. The next time the agent is on this site it registers a new account with this address and goes on with the application. An address with +something reaches the same mailbox (Gmail, Outlook and others).",
+    "registerAgainGo": "Register again",
+    "registeringAgain": "The agent will register a new account there and go on with the application.",
+    "registerAgainMenu": "Register again…"
   },
   "language": {
     "beta": "{name} (beta)"
@@ -2171,7 +2177,8 @@
     "viewDetails": "View details",
     "waitingForSignIn": "Waiting for sign-in…",
     "colCredential": "Credentials",
-    "colSession": "Sign-in session"
+    "colSession": "Sign-in session",
+    "registerAgain": "Will register again"
   },
   "home": {
     "questionsNeedYourAnswer": "{n} question to answer | {n} questions to answer",

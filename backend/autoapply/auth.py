@@ -134,7 +134,7 @@ def readiness(a: dict[str, Any], session: dict[str, Any] | None) -> str:
     not_needed       the site takes applications without an account
     """
     status = a.get("status") or "unknown"
-    if status in ("locked", "not_needed"):
+    if status in ("locked", "not_needed", "register"):      # (register: the applicant asked for a new account here)
         return status
     if status == "ok":
         live = bool(session) and not session.get("expired")
@@ -186,6 +186,39 @@ def delete_account(tenant_key: str) -> None:
         a = s.get(Account, tenant_key)
         if a:
             s.delete(a)
+
+
+# Mailboxes that deliver name+anything@ to name@: a second address for a site whose first account is lost, that still
+# reaches the applicant (and the program, which reads that mailbox).
+PLUS_DOMAINS = ("gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "proton.me", "protonmail.com", "fastmail.com")
+
+
+def fresh_address(tenant_key: str, site_name: str = "") -> str:
+    """The address to suggest for a new account on a site: the applicant's own with "+<site>" where their mailbox
+    delivers that to them, else their own as it is (they can change it)."""
+    import re
+
+    base = str((account(tenant_key) or {}).get("login_email") or login_email() or "").strip()
+    local, at, domain = base.partition("@")
+    if not at:
+        return base
+    tag = re.sub(r"[^a-z0-9]", "", (site_name or tenant_key.split(":", 1)[-1].split(".")[0]).lower())[:20]
+    if domain.lower() not in PLUS_DOMAINS or not tag:
+        return base
+    return f"{local.split('+', 1)[0]}+{tag}@{domain}"
+
+
+def register_again(tenant_key: str, email: str) -> None:
+    """The applicant gives up the account on record for a site - one that cannot be signed into (a registration cut
+    off, reset mails that never came) - and asks for a new one with ``email``. Its stored password and saved session
+    go; the record says "register" until the agent has made the new account (Desk.type_password with new), and the
+    agent is told to register with that address instead of signing in with the old one."""
+    secrets.delete_password(tenant_key)
+    browser.clear_state(tenant_key)
+    upsert_account(tenant_key, email=email.strip(), status="register", error="")
+    with db.session() as s:
+        a = s.get(Account, tenant_key)
+        a.has_password, a.fail_count = 0, 0
 
 
 def login_email() -> str:

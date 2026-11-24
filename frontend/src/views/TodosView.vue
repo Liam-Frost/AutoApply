@@ -133,6 +133,16 @@ async function read() { todos.value = await api.get('/todos'); reloadOverview() 
 const act = (fn, ok) => runAction(fn, ok, load)
 const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t.payload.tenant_key, url: t.payload.url, job_url: t.payload.job_url, save_credentials: !!t.remembers && saveCred.value }),
   T('todos.aBrowserWindowIs'))
+// "Register again": the account on record is given up; the agent makes a new one with the address chosen here (by default
+// the same mailbox's +alias, which still reaches the applicant) and the application goes on
+// (from the card's menu - a rare thing, not a fourth control in the card's row: its address is asked below the card)
+const registerAs = ref({})
+const registering = ref({})
+const askRegister = (t) => { registerAs.value[t.id] = t.register_as || ''; registering.value[t.id] = true }
+const registerAgain = (t) => act(async () => {
+  await api.post('/accounts/register-again', { tenant_key: t.payload.tenant_key, email: registerAs.value[t.id] })
+  registering.value[t.id] = false
+}, T('todos.registeringAgain'))
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), T('todos.resumed'))
 const codes = ref({})        // what is being typed into each code card
 const giveCode = (t) => act(async () => {
@@ -200,6 +210,7 @@ function acts(t) {
   if (['takeover', 'login'].includes(t.kind) && p.tenant_key) {
     main = A(p.provider ? T('todos.signInTo', { provider: p.provider }) : T('todos.signIn'), 'login', { go: () => takeover(t) })
     menu = [away]
+    if (t.register_as !== undefined) menu = [A(T('todos.registerAgainMenu'), 'user', { go: () => askRegister(t) }), away]
     // what is kept of a sign-in is said where the button is; how to have the app sign in by itself is help
     more = t.remembers ? { remember: true } : p.tenant_key.startsWith('idp:') ? { note: T('todos.onlyTheSignIn') } : { help: T('todos.inThisSignIn') }
   } else if (t.kind === 'code') {
@@ -403,6 +414,17 @@ onMounted(() => { load(); loadRang() })
           </template>
         </Popover>
         <Menu v-if="acts(t).menu.length" :label="$t('common.more')" :items="acts(t).menu.map((a, i) => ({ id: i, label: a.label, icon: a.icon, danger: a.danger }))" @pick="(i) => follow(acts(t).menu[i])" />
+      </div>
+      <!-- "Register again" (from the menu): a new account instead of the one that cannot be signed into, with which address -->
+      <div v-if="registering[t.id]" class="reg-again">
+        <div class="field"><label :for="'reg-' + t.id">{{ $t('todos.registerWith') }}</label>
+          <input :id="'reg-' + t.id" v-model="registerAs[t.id]" v-focus class="w-full" type="email" autocomplete="off" @keyup.enter="registerAs[t.id] && registerAgain(t)" /></div>
+        <p class="t-secondary small reg-hint">{{ $t('todos.registerAgainHint') }}</p>
+        <div class="actions">
+          <span class="grow"></span>
+          <button class="sm" @click="registering[t.id] = false">{{ $t('todos.cancel') }}</button>
+          <button class="sm primary" :disabled="!registerAs[t.id] || !registerAs[t.id].includes('@')" @click="registerAgain(t)">{{ $t('todos.registerAgainGo') }}</button>
+        </div>
       </div>
       <p v-if="acts(t).note" class="t-meta todo-note">{{ acts(t).note }}</p>
       <TechDetails :text="t.explained.detail" />

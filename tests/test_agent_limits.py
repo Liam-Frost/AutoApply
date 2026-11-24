@@ -525,3 +525,44 @@ def test_after_waiting_or_opening_an_address_the_agent_is_told_what_the_page_say
         assert waited.startswith("waited. Now on") and "Step 2 of 4" in waited
         # inside several actions in a row, a wait says only where it is (what changed is told once, at the end)
         assert "The page says" not in hands.steps([{"do": "wait", "seconds": 0.2}]).split("\n")[0]
+
+
+def test_register_again_gives_up_the_account_and_the_agent_registers_with_the_address_chosen(desk):
+    """A site's account could not be signed into - its registration was cut off, the reset mails never came - and the
+    card's only way on was "sign in by hand" (2026-11-24). "Register again" gives that account up; the agent is told to
+    register a new one with the address the applicant chose, and the new account is recorded with it."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import auth, db, notify, secrets
+    from autoapply.api.main import app
+    from autoapply.models import Task
+
+    key = "generic:careers.acme.example"
+    db.set_setting("account.email", "alex@gmail.com")
+    auth.upsert_account(key, host="careers.acme.example", email="alex@gmail.com", password="old-one", status="pending", created_by="agent")
+    tid = notify.add_todo("login", "Sign in to Acme", ref=f"account:{key}", payload={"tenant_key": key, "url": "https://careers.acme.example/login"}, push=False)
+    with db.session() as s:
+        s.add(Task(kind="apply", ref="job:7", status="waiting_human", payload={"waits_for": f"account:{key}"}))
+    c = TestClient(app)
+    card = next(t for t in c.get("/api/todos").json() if t["id"] == tid)
+    assert card["register_as"] == "alex+acme@gmail.com" or card["register_as"].startswith("alex+")       # the same mailbox, +the site
+    assert auth.fresh_address("generic:jobs.example.org") == "alex+jobs@gmail.com"
+    db.set_setting("account.email", "alex@company.example")
+    assert auth.fresh_address("generic:jobs.example.org") == "alex@company.example"                     # (a mailbox not known to take +)
+    for bad in ("not an address", "a@b@example.com", "alex@example", "alex@.example.com", "alex@example.com.", "@example.com",
+                "a" + "!" * 5000 + "@" + "!" * 5000):
+        assert c.post("/api/accounts/register-again", json={"tenant_key": key, "email": bad}).status_code == 400, bad
+    r = c.post("/api/accounts/register-again", json={"tenant_key": key, "email": "alex+acme@gmail.com"}).json()
+    assert r["resumed"] == 1
+    a = auth.account(key)
+    assert a["status"] == "register" and a["login_email"] == "alex+acme@gmail.com" and not a["has_password"] and not secrets.get_password(key)
+    assert auth.readiness(a, None) == "register"
+    assert [t for t in c.get("/api/todos").json() if t["kind"] in ("login", "takeover")] == []
+    with db.session() as s:
+        assert s.query(Task).filter_by(ref="job:7").one().status == "queued"
+    # the agent: told to register with that address, and the account it makes is recorded with it
+    d = desk.make()
+    assert "NEW account" in d.account() and "alex+acme@gmail.com" in d.account()
+    d.type_password(_ref(desk.hands, 'password "Password"'), new=True, length=14, symbols="!#")
+    a = auth.account(key)
+    assert a["login_email"] == "alex+acme@gmail.com" and a["status"] == "pending" and a["has_password"]

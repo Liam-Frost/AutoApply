@@ -258,6 +258,7 @@
  "server.api.main.submitWasPressedFor": "Said by the program (api/main.py).",
  "server.api.main.takenDown": "Said by the program (api/main.py).",
  "server.api.main.text": "Said by the program (api/main.py). {p0} are values it fills in.",
+ "server.api.main.thatIsNotAnEmail": "Said when the address given for a new account is not an e-mail address.",
  "server.api.main.theAdministratorAccountIs": "Said by the program (api/main.py).",
  "server.api.main.theAdministratorAccountIs2": "Said by the program (api/main.py).",
  "server.api.main.theAiIsNot": "Said by the program (api/main.py). {p0} are values it fills in.",
