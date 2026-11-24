@@ -258,6 +258,7 @@
  "server.api.main.submitWasPressedFor": "Envoyer a été pressé pour cette candidature et l’issue n’est pas confirmée. Cherchez d’abord le courriel de confirmation ; ne la remplissez à nouveau que si vous êtes sûr qu’elle n’est pas partie.",
  "server.api.main.takenDown": "Retirée",
  "server.api.main.text": "{p0}",
+ "server.api.main.thatIsNotAnEmail": "Ce n’est pas une adresse de courriel.",
  "server.api.main.theAdministratorAccountIs": "Le compte administrateur est déjà configuré. En cas d’oubli du mot de passe, choisissez « Réinitialiser le mot de passe administrateur » dans l’icône de la barre des tâches de cet ordinateur.",
  "server.api.main.theAdministratorAccountIs2": "Le compte administrateur se configure la première fois en ouvrant la page sur l’ordinateur où tourne AutoApply.",
  "server.api.main.theAiIsNot": "L’IA n’est pas disponible pour le moment : {p0}",

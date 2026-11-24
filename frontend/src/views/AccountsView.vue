@@ -192,9 +192,9 @@ const sources = computed(() => ({ agent: T('accounts.registeredByTheApp'), takeo
 const AUTO = computed(() => ({
   ready: ['ok', T('accounts.canSignInAutomatically')], manual: ['warn', T('accounts.youNeedToSign')], verify: ['info', T('accounts.waitingForItsE')],
   register_failed: ['bad', T('accounts.registrationFailed')], signin_failed: ['bad', T('accounts.signInFailed')], locked: ['bad', T('accounts.locked')],
-  never: ['', T('accounts.neverSignedIn')], not_needed: ['', T('accounts.noSignInNeeded')],
+  never: ['', T('accounts.neverSignedIn')], not_needed: ['', T('accounts.noSignInNeeded')], register: ['info', T('accounts.registerAgain')],
 }))
-const BY_STATUS = { ok: 'ready', pending: 'verify', needs_human: 'manual', locked: 'locked', not_needed: 'not_needed' }      // a server that does not say `automation`
+const BY_STATUS = { ok: 'ready', pending: 'verify', needs_human: 'manual', locked: 'locked', not_needed: 'not_needed', register: 'register' }      // a server that does not say `automation`
 function automation(a) {
   const kind = AUTO.value[a.automation] ? a.automation : BY_STATUS[a.status] || 'never'
   const [tone, label] = AUTO.value[kind]

@@ -3255,5 +3255,12 @@
   "calendar.backMsg": "Notice after Undo.",
   "calendar.rang.new": "Tag on a notice at the top of the to-do page: an event that just arrived (an interview from an employer's email), not a reminder.",
   "files.wentAll": "Button under the first three places a file went (in the file's panel of the library): shows them all. {n} = how many.",
-  "files.wentFewer": "Button that folds the list of places a file went back to the first three."
+  "files.wentFewer": "Button that folds the list of places a file went back to the first three.",
+  "todos.registerAgain": "Button on a sign-in card: give up the account on record for this site (it cannot be signed into) and have the agent make a new one.",
+  "todos.registerWith": "Label of the e-mail box in the Register again pop-over.",
+  "todos.registerAgainHint": "Explanation under the address box in the Register again pop-over. (An @ shown as a character is written {'@'}.)",
+  "todos.registerAgainGo": "Confirm button in the Register again pop-over.",
+  "todos.registeringAgain": "Notice after Register again.",
+  "accounts.registerAgain": "State of a site account on the accounts page: the applicant gave up the old account; the agent registers a new one next time.",
+  "todos.registerAgainMenu": "Menu item on a sign-in card: asks below the card for the address of a new account (the old one cannot be signed into)."
 }

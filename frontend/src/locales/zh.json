@@ -177,7 +177,13 @@
     "removeFromCalendar": "从日程中移除",
     "removedFromCalendar": "已从日程中移除。",
     "undo": "撤销",
-    "backOnYourCalendar": "已恢复到日程中。"
+    "backOnYourCalendar": "已恢复到日程中。",
+    "registerAgain": "重新注册",
+    "registerWith": "新账号用这个邮箱注册",
+    "registerAgainHint": "之前在这个网站注册的账号将被放弃：存着的密码和登录状态会删除。Agent 下次来到这个网站时会用这个邮箱注册新账号，然后继续这份申请。带 + 的地址（例如 name+site{'@'}gmail.com）会送到同一个邮箱（Gmail、Outlook 等都支持）。",
+    "registerAgainGo": "重新注册",
+    "registeringAgain": "Agent 会在这个网站注册新账号，然后继续申请。",
+    "registerAgainMenu": "重新注册…"
   },
   "language": {
     "beta": "{name}（测试中）"
@@ -2171,7 +2177,8 @@
     "viewDetails": "查看详情",
     "waitingForSignIn": "等待登录…",
     "colCredential": "凭据",
-    "colSession": "登录会话"
+    "colSession": "登录会话",
+    "registerAgain": "将重新注册"
   },
   "home": {
     "questionsNeedYourAnswer": "{n} 个问题待回答",

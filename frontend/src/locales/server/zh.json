@@ -258,6 +258,7 @@
  "server.api.main.submitWasPressedFor": "这份申请点过提交，结果还没有确认。先查确认邮件；确定没有提交成功再重新填写。",
  "server.api.main.takenDown": "下线",
  "server.api.main.text": "{p0} 个",
+ "server.api.main.thatIsNotAnEmail": "这不是一个邮箱地址。",
  "server.api.main.theAdministratorAccountIs": "管理员账号已经设置过了。忘记密码的话，在这台电脑的托盘图标里选“重置管理员密码”。",
  "server.api.main.theAdministratorAccountIs2": "第一次设置管理员账号要在运行 AutoApply 的那台电脑上打开页面完成。",
  "server.api.main.theAiIsNot": "AI 现在不可用：{p0}",
