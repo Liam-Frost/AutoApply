@@ -251,6 +251,8 @@ def sign_in_with(tenant_key: str, provider: str) -> None:
     cookies of that other browser along."""
     from . import browser_policy, sites
 
+    from .models import Task
+
     if not holds(provider):
         raise ValueError(f"no sign-in with {provider} is held")
     key = sites.account(tenant_key)
@@ -259,6 +261,17 @@ def sign_in_with(tenant_key: str, provider: str) -> None:
     if made and made != theirs:
         browser.clear_state(key)
     sites.set_fact(key, "sign_in_via", provider)
+    # This is the applicant's latest word on the account: a "register again" not yet carried out gives way to it ...
+    if (account(tenant_key) or {}).get("status") == "register":
+        upsert_account(tenant_key, status="pending", error="")
+    # ... and the work waiting for this sign-in goes where the provider's sign-in is: a browser it was told to use
+    # before (a change of browser earlier in the application) would hold it in the other one, where the agent could
+    # not change browser again.
+    with db.session() as s:
+        for t in s.query(Task).filter_by(status="waiting_human"):
+            p = dict(t.payload or {})
+            if p.get("waits_for") in (f"account:{tenant_key}", f"account:{key}") and ("browser_backend" in p or "_changed_browser" in p):
+                t.payload = {k: v for k, v in p.items() if k not in ("browser_backend", "_changed_browser")}
 
 
 def login_email() -> str:

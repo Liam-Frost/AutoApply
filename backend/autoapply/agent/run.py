@@ -861,16 +861,23 @@ class Desk:
         return (f"This run ends here. The application is taken up again at once in {BROWSERS[other].split(' (')[0]}; what you wrote down is in that run's "
                 "brief. Stop now: no report is needed.")
 
-    # (the names a page gives its buttons and links - what a "Sign in with ..." is found by)
-    _NAMES = """() => [...document.querySelectorAll('a, button, [role=button], input[type=submit], input[type=button]')]
-        .map(e => [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title'),
-                   ...[...e.querySelectorAll('img[alt], svg[aria-label]')].map(i => i.getAttribute('alt') || i.getAttribute('aria-label'))]
-                  .filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim())
-        .filter(t => t && t.length <= 80)"""
+    # The names of a page's buttons and links, with what their images say ("Sign in with ..." is often a logo with its
+    # name as the image's text) - in the page's own frames and open shadow roots too, where a sign-in form often is.
+    _NAMES = """() => { const out = [];
+        const walk = (root) => { for (const e of root.querySelectorAll('*')) {
+            if (e.shadowRoot) walk(e.shadowRoot);
+            if (e.tagName === 'IFRAME') { try { if (e.contentDocument) walk(e.contentDocument); } catch (x) {} }
+            if (!e.matches('a, button, [role=button], input[type=submit], input[type=button]')) continue;
+            const t = [e.innerText || e.textContent, e.value, e.getAttribute('aria-label'), e.getAttribute('title'),
+                       ...[...e.querySelectorAll('img[alt], [aria-label]')].map((i) => i.getAttribute('alt') || i.getAttribute('aria-label'))]
+                      .filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim();
+            if (t && t.length <= 120) out.push(t); } };
+        walk(document); return out; }"""
 
     def _offered_here(self) -> None:
         """Which "Sign in with ..." the page offers, read by the program when the sign-in is handed to the applicant: the
-        site's card offers those the program holds a sign-in with (auth.sign_in_options)."""
+        site's card offers those the program holds a sign-in with (auth.sign_in_options). When the page cannot be read,
+        what the site offers stays unknown (the card offers every sign-in held)."""
         from .. import browser, sites
 
         try:

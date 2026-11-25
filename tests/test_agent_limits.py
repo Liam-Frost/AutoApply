@@ -586,7 +586,8 @@ def test_a_site_signed_in_to_with_google_is_offered_on_its_card_follows_googles_
                         made_in="nodriver")
     browser.write_state(key, {"cookies": [{"name": "sid", "value": "s", "domain": "careers.acme.example", "path": "/", "expires": 4102444800}], "origins": []},
                         made_in="playwright")
-    assert browser_policy.select(key).backend == "playwright" and auth.holds("google") and not auth.holds("apple")
+    # (where each sign-in lives, as the facts say - the suite also runs with every page in the ordinary browser)
+    assert browser_policy.of_session(key).backend == "playwright" and auth.holds("google") and not auth.holds("apple")
     # what the site offers not read yet: every provider the program holds; the agent hears of them, and of no choice
     assert auth.sign_in_options(key) == [{"key": "google", "name": "Google"}]
     d = desk.make()
@@ -596,9 +597,17 @@ def test_a_site_signed_in_to_with_google_is_offered_on_its_card_follows_googles_
                                '<a href="#"><img alt="Apple" src="x.png"> Sign in</a><button>Log in</button></form>')
     d.sign_in_by_hand("Sign in to Acme")
     assert sites.fact(key, "sso_offered") == ["google", "apple"]
+    # (the form in a frame of the site's own, or in a shadow root: read there too, as the agent's controls are)
+    _show(desk.page, tmp_path, '<iframe srcdoc="<button>Sign in with LinkedIn</button>"></iframe><div id="h"></div>'
+                               '<script>document.getElementById("h").attachShadow({mode: "open"}).innerHTML = "<button>Continue with Google</button>"</script>')
+    desk.page.wait_for_timeout(300)
+    d.sign_in_by_hand("Sign in to Acme")
+    assert sites.fact(key, "sso_offered") == ["google", "linkedin"]
     tid = notify.add_todo("takeover", "Sign in to Acme", ref=f"account:{key}", payload={"tenant_key": key, "url": "https://careers.acme.example/login"}, push=False)
     with db.session() as s:
-        s.add(Task(kind="apply", ref="job:7", status="waiting_human", payload={"waits_for": f"account:{key}"}))
+        # (it had changed browser once before: that browser is not where it goes on now)
+        s.add(Task(kind="apply", ref="job:7", status="waiting_human", payload={"waits_for": f"account:{key}", "browser_backend": "playwright", "_changed_browser": True}))
+    auth.upsert_account(key, host="careers.acme.example", email="alex+acme@gmail.com", status="register")      # (a "register again" not carried out)
     c = TestClient(app)
     card = next(t for t in c.get("/api/todos").json() if t["id"] == tid)
     assert card["sign_in_with"] == [{"key": "google", "name": "Google"}]
@@ -607,19 +616,23 @@ def test_a_site_signed_in_to_with_google_is_offered_on_its_card_follows_googles_
     assert c.post("/api/accounts/sign-in-with", json={"tenant_key": "idp:google", "provider": "google"}).status_code == 400
     assert c.post("/api/accounts/sign-in-with", json={"tenant_key": key, "provider": "google"}).json()["resumed"] == 1
     assert sites.fact(key, "sign_in_via") == "google" and browser.session_info(key) is None
-    assert browser_policy.select(key).backend == "nodriver" and "signs in with google" in browser_policy.select(key).reason
+    assert browser_policy.of_session(key).backend == "nodriver" and "signs in with google" in browser_policy.of_session(key).reason
     assert browser.session_info("idp:google") is not None                                                     # (Google's own stays)
     assert [t for t in c.get("/api/todos").json() if t["kind"] in ("login", "takeover")] == []
     with db.session() as s:
-        assert s.query(Task).filter_by(ref="job:7").one().status == "queued"
+        resumed = s.query(Task).filter_by(ref="job:7").one()
+        assert resumed.status == "queued" and "browser_backend" not in resumed.payload and "_changed_browser" not in resumed.payload
+    assert auth.account(key)["status"] == "pending" and "NEW account" not in d.account()                   # (the latest word: Google)
     assert auth.sign_in_options(key) == []                                                                    # (chosen already)
     # the agent: in Google's browser, told to use the site's own "Sign in with Google"; in the other, to change browser
-    assert "change_browser" in d.account()
-    browser._now.backend = "nodriver"
+    was = getattr(browser._now, "backend", None)
     try:
+        browser._now.backend = "playwright"
+        assert "change_browser" in d.account()
+        browser._now.backend = "nodriver"
         said = d.account()
     finally:
-        browser._now.backend = "playwright"
+        browser._now.backend = was
     assert 'use the site\'s own "Sign in with Google"' in said and "no password is typed" in said
     # a page that offers no provider: read as that (no button offered, rather than every one held)
     sites.set_fact(key, "sign_in_via", "")
