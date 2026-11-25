@@ -340,6 +340,37 @@ def _run_one(t: Task) -> None:
         from . import profile_init
 
         profile_init.began_to_wait(status, waits_for, result)
+    try:
+        keeps_failing(t.kind, status, error, result)
+    except Exception:  # noqa: BLE001 - telling is no reason for the task's own end to fail
+        log.exception("could not tell that %s keeps failing", t.kind)
+
+
+# Work the program does on the clock, which nobody watches: when it fails this many times in a row, a card says so -
+# and closes itself when it works again. (Mail could not be read for a day, 48 checks in a row, and nothing said so
+# until the applicant noticed, 2026-11-25.)
+IN_A_ROW = 3
+ON_THE_CLOCK = ("mail", "discover")
+
+
+def keeps_failing(kind: str, status: str, error: str, result: dict[str, Any] | None = None) -> None:
+    """(Work that was skipped - a look for a confirmation that is already in, a mailbox not set up - did not reach
+    anything: it says neither that the work works again nor that it failed.)"""
+    if kind not in ON_THE_CLOCK or (result or {}).get("skipped"):
+        return
+    ref = f"failing:{kind}"
+    if status == "done":
+        notify.close_todos("config", ref)
+        return
+    if status != "failed":
+        return
+    with db.session() as s:
+        rows = s.query(Task).filter(Task.kind == kind, Task.status.in_(("done", "failed")), Task.finished_at.isnot(None)).order_by(Task.finished_at.desc()).limit(IN_A_ROW * 10)
+        last = [r.status for r in rows if not (r.result or {}).get("skipped")][:IN_A_ROW]
+    if len(last) == IN_A_ROW and all(x == "failed" for x in last):
+        from . import humanize
+
+        notify.add_todo("config", T("server.tasks.keepsFailing", what=humanize.TASK.get(kind, kind), n=IN_A_ROW), body=str(error or "")[:600], ref=ref)
 
 
 def _loop(lane: str = "", nth: int = 0) -> None:

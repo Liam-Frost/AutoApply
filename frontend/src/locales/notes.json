@@ -3267,6 +3267,7 @@
   "common.loadItNow": "Button in that notice: load the page again (the new build).",
   "todos.signInWithProvider": "Button on a site's sign-in card: the applicant signs in to this site with that provider (Google ...), whose sign-in the program holds; the agent then does it. {provider} is a name like Google.",
   "todos.signsInWith": "Toast after Sign in with {provider} on a sign-in card.",
+  "analytics.auto.whatTheyWaitedFor": "Sub-heading in 'How each run ended' (analytics, automation): the runs that ended 'stopped for you', by what they waited for.",
   "analytics.sites.howItIsWorked": "Heading of the account a site's notes were distilled into by the model (sites page). {day} is a date.",
   "analytics.sites.yourWording": "After the heading above when the applicant edited the account.",
   "analytics.sites.editIt": "Button: edit the distilled account of how a site is worked.",
