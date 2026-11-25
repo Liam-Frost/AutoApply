@@ -307,6 +307,81 @@ def test_rejected_refresh_grant_requires_new_consent(app_env, monkeypatch):
     assert mail.status()["reconnect"] and not mail.status()["authorized"]
 
 
+def test_gmail_is_read_through_the_proxy_the_setting_says_and_no_answer_says_so(app_env, monkeypatch):
+    """httplib2 - what the Gmail API is read with - takes a proxy only from HTTPS_PROXY. With the setting on the system's
+    proxy and no such variable (the program started from the Start menu), Gmail was read straight from Google while
+    everything else went through the system's proxy; where Google is reached only through one, no mail was read for a
+    day, and each check said "the site may be under maintenance" (2026-11-25). The token's refresh and the reading go
+    the way the setting says; a check that cannot reach Gmail says that."""
+    import google.auth.transport.requests as transport
+    import httplib2
+    from google.oauth2.credentials import Credentials
+    from types import SimpleNamespace
+
+    from autoapply import handlers, humanize, i18n, net, secrets
+    from autoapply.models import Task
+
+    for k in net._VARS:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(net, "_ORIGINAL", {})
+    monkeypatch.setattr(net, "_system_url", lambda: "http://127.0.0.1:7890")      # (what Windows is set to)
+    db.set_setting("proxy.mode", "system")
+    assert httplib2.proxy_info_from_environment("https") is None                  # what httplib2 alone went by
+    pi = net.httplib2_proxy("https")
+    assert (pi.proxy_host, pi.proxy_port) == ("127.0.0.1", 7890) and pi.applies_to("gmail.googleapis.com") and not pi.applies_to("localhost")
+    # (and httplib2 can use it: without PySocks it drops any proxy without a word and connects directly - it always had)
+    assert pi.isgood()
+    s = net.requests_session()
+    assert s.proxies == {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"} and not s.trust_env
+
+    # the token is refreshed through a session that goes that way, and the mail is read with an Http that asks the setting
+    seen: dict = {}
+    real = transport.Request
+    monkeypatch.setattr(transport, "Request", lambda session=None: seen.setdefault("session", session) and real(session=session))
+    secrets.put(secrets.GMAIL_TOKEN, "{}")
+    fake = SimpleNamespace(expired=True, refresh_token="t", refresh=lambda request: None, to_json=lambda: "{}")
+    monkeypatch.setattr(Credentials, "from_authorized_user_info", lambda *a: fake)
+    svc = mail._service()
+    assert seen["session"].proxies["https"] == "http://127.0.0.1:7890"
+    assert svc._http.http.proxy_info is net.httplib2_proxy
+    db.set_setting("proxy.mode", "none")
+    assert net.httplib2_proxy("https") is None and net.requests_session().proxies == {}
+
+    # no answer from Gmail: said as that, with the way it went - not as a site under maintenance
+    db.set_setting("proxy.mode", "system")
+    monkeypatch.setattr(mail, "track", lambda **kw: (_ for _ in ()).throw(TimeoutError("timed out")))
+    with pytest.raises(mail.GmailUnreachable) as got:
+        handlers._mail(Task(kind="mail", ref="schedule", payload={}))
+    assert "through http://127.0.0.1:7890" in str(got.value)
+    said = humanize.explain(f"GmailUnreachable: {got.value}")["message"]
+    assert "Gmail" in i18n.tr(said, "en") and "maintenance" not in i18n.tr(said, "en")
+    monkeypatch.setattr(mail, "track", lambda **kw: (_ for _ in ()).throw(ValueError("something else")))
+    with pytest.raises(ValueError):      # (anything else stays what it is)
+        handlers._mail(Task(kind="mail", ref="schedule", payload={}))
+    # an IMAP mailbox is reached directly: its timeout is its own server's, not said as Gmail's
+    db.set_setting("mail.kind", "imap")
+    monkeypatch.setattr(mail, "track", lambda **kw: (_ for _ in ()).throw(TimeoutError("timed out")))
+    with pytest.raises(TimeoutError):
+        handlers._mail(Task(kind="mail", ref="schedule", payload={}))
+    db.set_setting("mail.kind", "")
+
+    # the program's own proxy, with a name and a password that are percent-encoded in its address: httplib2 gets them
+    # as they are; an address the setting says to reach directly is reached directly by the refresh too
+    db.set_setting("proxy.mode", "custom")
+    db.set_setting("proxy.url", "10.0.0.2:8080")
+    db.set_setting("proxy.username", "me@home")
+    secrets.put(net.PROXY_PASSWORD, "p@ss:%1")
+    pi = net.httplib2_proxy("https")
+    assert (pi.proxy_host, pi.proxy_port, pi.proxy_user, pi.proxy_pass) == ("10.0.0.2", 8080, "me@home", "p@ss:%1")
+    assert net.requests_session("https://oauth2.googleapis.com/token").proxies["https"].startswith("http://me%40home:")
+    db.set_setting("proxy.bypass", ".googleapis.com, intranet.example")
+    assert net.requests_session("https://oauth2.googleapis.com/token").proxies == {}
+    assert net.requests_session("https://accounts.google.com/").proxies["https"].startswith("http://me%40home:")
+    assert not net.httplib2_proxy("https").applies_to("gmail.googleapis.com")
+    assert net.bypassed("intranet.example") and net.bypassed("a.intranet.example") and not net.bypassed("notintranet.example")
+    assert net.bypassed("localhost") and not net.bypassed("gmail.com")
+
+
 def test_mail_the_applicant_sent_is_not_read_as_mail_from_an_employer(gmail, monkeypatch):
     """The program sent the applicant's reply to an employer ("Re: ... Job Application - ..."); the next look searched
     the whole mailbox, found that reply, took it for the employer asking for more, opened a card for it and drafted an

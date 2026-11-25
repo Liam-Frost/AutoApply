@@ -124,6 +124,16 @@ def _mail(t: Task) -> dict[str, Any]:
         return {**out, "status_updates": out["status_updates"] + fixed} if fixed else out
     except mail.MailNotConfigured as e:
         return {"skipped": str(e)}
+    except Exception as e:
+        from . import mailbox
+
+        # (Gmail's only: an IMAP mailbox is reached directly, its server named by its own error)
+        if mailbox.kind() != "gmail_api" or not mail.no_answer(e):
+            raise
+        from . import net
+
+        how = net.describe()["in_effect"] or "a direct connection"
+        raise mail.GmailUnreachable(f"cannot reach Gmail through {how}: {type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}") from e
 
 
 @handler("site_status")

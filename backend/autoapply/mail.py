@@ -36,6 +36,22 @@ class MailNotConfigured(RuntimeError):
     pass
 
 
+class GmailUnreachable(RuntimeError):
+    """Gmail gave no answer - the network, or the proxy on the way (Settings > Network): not the mailbox's fault, and
+    not "a site under maintenance"."""
+
+
+def no_answer(e: BaseException) -> bool:
+    """Did reading the mail fail because Gmail could not be reached at all (no connection, a timeout)?"""
+    import socket
+    import ssl
+
+    from google.auth.exceptions import TransportError
+    from httplib2 import HttpLib2Error
+
+    return isinstance(e, (TimeoutError, ConnectionError, socket.gaierror, ssl.SSLError, TransportError, HttpLib2Error))
+
+
 class GmailReconnect(MailNotConfigured):
     """Google explicitly rejected the stored refresh grant."""
 
@@ -112,6 +128,8 @@ def _service():
     from google_auth_httplib2 import AuthorizedHttp
     import httplib2
 
+    from . import net
+
     tok = secrets.get(secrets.GMAIL_TOKEN)
     if not tok:
         raise MailNotConfigured("Gmail is not authorized (Settings > Gmail).")
@@ -122,7 +140,8 @@ def _service():
         from google.auth.exceptions import RefreshError
 
         try:
-            transport = Request()
+            # (through the proxy the setting says, for the address the token is refreshed at)
+            transport = Request(session=net.requests_session(str(getattr(creds, "token_uri", "") or "https://oauth2.googleapis.com/token")))
 
             def request_with_deadline(*args, **kwargs):
                 kwargs["timeout"] = 20
@@ -135,7 +154,8 @@ def _service():
             db.set_setting("mail.gmail_reconnect", True)
             raise GmailReconnect(T("server.mail.theGmailAuthorizationHas")) from exc
         secrets.put(secrets.GMAIL_TOKEN, creds.to_json())
-    return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20)), cache_discovery=False)
+    # (the proxy as the setting says, for every connection: httplib2 alone would only look at HTTPS_PROXY - net.httplib2_proxy)
+    return build("gmail", "v1", http=AuthorizedHttp(creds, http=httplib2.Http(timeout=20, proxy_info=net.httplib2_proxy)), cache_discovery=False)
 
 
 # --- looking for the confirmation of an application that was just sent ------------------------------------------------

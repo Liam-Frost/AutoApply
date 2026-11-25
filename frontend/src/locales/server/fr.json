@@ -484,6 +484,7 @@
  "server.humanize.awaitingYourApproval": "En attente de votre approbation",
  "server.humanize.basedOnYourFeedback": "D’après vos remarques : \\1",
  "server.humanize.cancelled": "Annulée",
+ "server.humanize.cantReachGmail": "Impossible de joindre Gmail, en général à cause du réseau ou du proxy. Paramètres → Système et données → Connexion réseau permet de tester la connexion ; le courrier est relu à l’heure prévue dès que cela fonctionne.",
  "server.humanize.cantReachThisAi": "Impossible de joindre ce service d’IA. Vérifiez votre connexion et Paramètres → Système et données → Connexion réseau.",
  "server.humanize.chatgptConnectorNotInstalled": "Connecteur ChatGPT non installé",
  "server.humanize.checkApplicationStatusOn": "Vérifier l’état de la candidature sur le site de l’employeur",

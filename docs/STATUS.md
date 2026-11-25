@@ -44,7 +44,7 @@ Last updated for 2.1.1 (2026-11-23), with figures read from the author's own ins
 | Sign-in with Google / Microsoft / LinkedIn and others | Microsoft: used for real. Google refuses sign-in in the default browser; through the second browser backend a sign-in was made, and that it is kept for the next run has not been confirmed |
 | The analysis page: applications, automation, AI cost | Applications and automation: run on the author's own data. AI cost: run on the author's real requests (884 recorded from 2026-11-19 to 23) and on made-up data (the demo copy) |
 | Recording model requests (usage, cost) | Claude and ChatGPT subscriptions: used for real - 884 requests recorded from 2026-11-19 to 23 over whole application runs, with tokens by kind, and the refused ones with their reason (rate-limited, unavailable). Anthropic API and OpenAI-compatible services: unit-tested with stand-ins that report usage, not checked against what a real service bills. The ChatGPT subscription reports usage only with an answer, so a failed turn has none |
-| Mail tracking with Gmail | Used for real |
+| Mail tracking with Gmail | Used for real. Through a proxy (the system's, an HTTP proxy on this computer): Google reached from the author's computer with the program's way of connecting, 2026-11-25; a whole mail check through it not yet run |
 | Mail tracking with Outlook and generic IMAP | Unit-tested only |
 | Telegram notifications | Chinese: used for real. English: checked for untranslated text, not sent |
 | Telegram / Discord buttons, replies, commands, the assistant | Covered by tests with the services' replies recorded by hand; not yet used against the real services. Discord: no bot bound on the author's copy |

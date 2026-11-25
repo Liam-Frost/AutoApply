@@ -14,7 +14,7 @@ from .say import say as T
 import os
 import time
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from . import db, secrets
 
@@ -65,6 +65,53 @@ def proxy_url() -> str:
     """The proxy in effect right now ('' = direct)."""
     m = mode()
     return "" if m == "none" else custom_url() if m == "custom" else _system_url()
+
+
+def httplib2_proxy(method: str = "https") -> Any:
+    """The proxy for httplib2 - what the Gmail API is read with - looked up for each connection it opens (it is given
+    as ``proxy_info``). httplib2 by itself takes a proxy only from HTTPS_PROXY / HTTP_PROXY, never from the system's proxy
+    setting that the other libraries read - and uses one only with PySocks installed: without it, it drops the proxy
+    without a word. Gmail had always been read straight from Google while everything else went through the proxy; where
+    Google is reached only through one, no mail was read for a day (2026-11-25)."""
+    url = proxy_url()
+    if not url:
+        return None
+    import httplib2
+
+    pi = httplib2.proxy_info_from_url(url, method, noproxy=bypass())
+    # (httplib2 hands on the name and password as they are written in the address - percent-encoded there, custom_url:
+    # "p@ss" would reach the proxy as "p%40ss")
+    pi.proxy_user = unquote(pi.proxy_user) if pi.proxy_user else pi.proxy_user
+    pi.proxy_pass = unquote(pi.proxy_pass) if pi.proxy_pass else pi.proxy_pass
+    return pi
+
+
+def bypassed(host: str) -> bool:
+    """Does the setting say to reach this host directly - this computer, and the addresses the applicant listed
+    (``proxy.bypass``: "example.com" and ".example.com" both mean the site and its subdomains, "*" everything)?"""
+    host = (host or "").lower().rstrip(".")
+    for entry in bypass().split(","):
+        e = entry.strip().lower()
+        if e == "*":
+            return True
+        e = e.lstrip("*").lstrip(".")
+        if e and (host == e or host.endswith("." + e)):
+            return True
+    return False
+
+
+def requests_session(url: str = "") -> Any:
+    """A `requests` session for ``url`` that goes the way the setting says, not the way this process's environment
+    happens to say: with a NO_PROXY and no HTTPS_PROXY in it, requests does not look at the system's proxy at all.
+    (Not trusting the environment also leaves out its bypass list: the setting's own is applied here.)"""
+    import requests
+
+    s = requests.Session()
+    s.trust_env = False
+    proxy = proxy_url()
+    if proxy and not (url and bypassed(urlparse(url).hostname or "")):
+        s.proxies = {"http": proxy, "https": proxy}
+    return s
 
 
 def bypass() -> str:
