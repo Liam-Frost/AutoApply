@@ -140,7 +140,8 @@ def _service():
         from google.auth.exceptions import RefreshError
 
         try:
-            transport = Request(session=net.requests_session())      # (through the proxy the setting says)
+            # (through the proxy the setting says, for the address the token is refreshed at)
+            transport = Request(session=net.requests_session(str(getattr(creds, "token_uri", "") or "https://oauth2.googleapis.com/token")))
 
             def request_with_deadline(*args, **kwargs):
                 kwargs["timeout"] = 20

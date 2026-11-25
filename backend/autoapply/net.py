@@ -14,7 +14,7 @@ from .say import say as T
 import os
 import time
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from . import db, secrets
 
@@ -78,18 +78,39 @@ def httplib2_proxy(method: str = "https") -> Any:
         return None
     import httplib2
 
-    return httplib2.proxy_info_from_url(url, method, noproxy=bypass())
+    pi = httplib2.proxy_info_from_url(url, method, noproxy=bypass())
+    # (httplib2 hands on the name and password as they are written in the address - percent-encoded there, custom_url:
+    # "p@ss" would reach the proxy as "p%40ss")
+    pi.proxy_user = unquote(pi.proxy_user) if pi.proxy_user else pi.proxy_user
+    pi.proxy_pass = unquote(pi.proxy_pass) if pi.proxy_pass else pi.proxy_pass
+    return pi
 
 
-def requests_session() -> Any:
-    """A `requests` session that goes the way the setting says, not the way this process's environment happens to say:
-    with a NO_PROXY and no HTTPS_PROXY in it, requests does not look at the system's proxy at all."""
+def bypassed(host: str) -> bool:
+    """Does the setting say to reach this host directly - this computer, and the addresses the applicant listed
+    (``proxy.bypass``: "example.com" and ".example.com" both mean the site and its subdomains, "*" everything)?"""
+    host = (host or "").lower().rstrip(".")
+    for entry in bypass().split(","):
+        e = entry.strip().lower()
+        if e == "*":
+            return True
+        e = e.lstrip("*").lstrip(".")
+        if e and (host == e or host.endswith("." + e)):
+            return True
+    return False
+
+
+def requests_session(url: str = "") -> Any:
+    """A `requests` session for ``url`` that goes the way the setting says, not the way this process's environment
+    happens to say: with a NO_PROXY and no HTTPS_PROXY in it, requests does not look at the system's proxy at all.
+    (Not trusting the environment also leaves out its bypass list: the setting's own is applied here.)"""
     import requests
 
     s = requests.Session()
     s.trust_env = False
-    if url := proxy_url():
-        s.proxies = {"http": url, "https": url}
+    proxy = proxy_url()
+    if proxy and not (url and bypassed(urlparse(url).hostname or "")):
+        s.proxies = {"http": proxy, "https": proxy}
     return s
 
 

@@ -358,6 +358,28 @@ def test_gmail_is_read_through_the_proxy_the_setting_says_and_no_answer_says_so(
     monkeypatch.setattr(mail, "track", lambda **kw: (_ for _ in ()).throw(ValueError("something else")))
     with pytest.raises(ValueError):      # (anything else stays what it is)
         handlers._mail(Task(kind="mail", ref="schedule", payload={}))
+    # an IMAP mailbox is reached directly: its timeout is its own server's, not said as Gmail's
+    db.set_setting("mail.kind", "imap")
+    monkeypatch.setattr(mail, "track", lambda **kw: (_ for _ in ()).throw(TimeoutError("timed out")))
+    with pytest.raises(TimeoutError):
+        handlers._mail(Task(kind="mail", ref="schedule", payload={}))
+    db.set_setting("mail.kind", "")
+
+    # the program's own proxy, with a name and a password that are percent-encoded in its address: httplib2 gets them
+    # as they are; an address the setting says to reach directly is reached directly by the refresh too
+    db.set_setting("proxy.mode", "custom")
+    db.set_setting("proxy.url", "10.0.0.2:8080")
+    db.set_setting("proxy.username", "me@home")
+    secrets.put(net.PROXY_PASSWORD, "p@ss:%1")
+    pi = net.httplib2_proxy("https")
+    assert (pi.proxy_host, pi.proxy_port, pi.proxy_user, pi.proxy_pass) == ("10.0.0.2", 8080, "me@home", "p@ss:%1")
+    assert net.requests_session("https://oauth2.googleapis.com/token").proxies["https"].startswith("http://me%40home:")
+    db.set_setting("proxy.bypass", ".googleapis.com, intranet.example")
+    assert net.requests_session("https://oauth2.googleapis.com/token").proxies == {}
+    assert net.requests_session("https://accounts.google.com/").proxies["https"].startswith("http://me%40home:")
+    assert not net.httplib2_proxy("https").applies_to("gmail.googleapis.com")
+    assert net.bypassed("intranet.example") and net.bypassed("a.intranet.example") and not net.bypassed("notintranet.example")
+    assert net.bypassed("localhost") and not net.bypassed("gmail.com")
 
 
 def test_mail_the_applicant_sent_is_not_read_as_mail_from_an_employer(gmail, monkeypatch):

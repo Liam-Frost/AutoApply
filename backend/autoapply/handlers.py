@@ -125,7 +125,10 @@ def _mail(t: Task) -> dict[str, Any]:
     except mail.MailNotConfigured as e:
         return {"skipped": str(e)}
     except Exception as e:
-        if not mail.no_answer(e):
+        from . import mailbox
+
+        # (Gmail's only: an IMAP mailbox is reached directly, its server named by its own error)
+        if mailbox.kind() != "gmail_api" or not mail.no_answer(e):
             raise
         from . import net
 
